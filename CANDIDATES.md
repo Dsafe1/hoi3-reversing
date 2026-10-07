@@ -28,6 +28,31 @@ and AI bodies.
 
 ## The queue
 
+### Who each open item is for
+
+**The record has two consumers and they want different things from it.** BiceLib needs a layout
+it can read in a live process; OpenHOI3 needs a rule it can implement, and is forbidden the
+offsets entirely. So the open items carry a tag:
+
+| | |
+| --- | --- |
+| `[dll]` | a layout, an offset, a vftable slot, a signature - what lets code find a field in a running game |
+| `[game]` | a rule, a formula, an ordering, a cap - what a reimplementation has to get right |
+| `[both]` | a behavioural reading that also pins a layout. **Every live test is this**, because it needs the DLL to run and answers a question about behaviour |
+
+An untagged open item is **tooling or record hygiene** - promoting a script, a hand edit the
+merge cannot do, a name that needs the maintainer's call. Those serve the record rather than
+either consumer.
+
+**The tags are not a priority order, and `[dll]` is not the lesser one.** The DLL is the only
+consumer that *executes* against these facts, so a wrong offset there reaches a running process
+while the same error in a design reference costs a paragraph. The tags exist so that neither
+queue becomes invisible when the other is the interesting one - which happened within an hour of
+the two-consumer split being described, when the whole queue was proposed for re-aiming at the
+rewrite.
+
+Only the **open** sections are tagged. The wave archives below are history and are left alone.
+
 **Wave 9 is planned below, four agents.** the maintainer's priority order still holds: the interface layer,
 then the last unread AI blocks, then core engine flow, then the rest. What is not scheduled is
 further down.
@@ -148,14 +173,14 @@ catches a defect in another agent's output the same hour it lands is the best ev
   `Documents\Paradox Interactive\Hearts of Iron III\BlackICE GitHub\save games\` - per mod, not
   in the install - so the plain-text oracle is available and a pass today that reported none had
   simply looked in the wrong two places.
-- **`0x27E550`** (VA `0x67E550`, **unrecorded** - checked; the nearest below is
+- [both] **`0x27E550`** (VA `0x67E550`, **unrecorded** - checked; the nearest below is
   `CGameState_SetProvincesAndSizePerCountryVectors` at rva `0x27E320`). It installs the game state's
   country list from the database and resizes the per-country vectors; read far enough in wave 9 to
   describe, not to name. On the frontier.
-- **`0x4EFA50`** (VA `0x8EFA50`, **unrecorded** - checked) - the province predicate air phase 4 and
+- [game] **`0x4EFA50`** (VA `0x8EFA50`, **unrecorded** - checked) - the province predicate air phase 4 and
   the ops-area scorer both call, and `FINDINGS-opsarea.md`'s own open question 2. Wave 9 read four
   arms into it and reports the record's one-line summary is incomplete.
-- **`0x4D0520`** (VA `0x8D0520`, **unrecorded** - checked) - the per-province predicate that excludes
+- [game] **`0x4D0520`** (VA `0x8D0520`, **unrecorded** - checked) - the per-province predicate that excludes
   a convoy province from raiding. Until it is read, "the AI will not raid its own side's shipping
   lanes" is an inference from where it sits.
 - **`CGameState::LoadKey`'s key list and `CGamePlaySettings::LoadKey`'s comment** need a **hand
@@ -163,7 +188,7 @@ catches a defect in another agent's output the same hour it lands is the best ev
   `0x27FCB0`, and note on rva `0x28A550` that it is the grammar of a mod's `gameplaysettings.txt`
   inner block and not only of a save's. `findings/FINDINGS-session2.md` section 7 has both, with the
   path-by-path evidence.
-- **`CStatisticsLedger`'s two fields and `LedgerPage_Update`'s signature** still need a **hand
+- [dll] **`CStatisticsLedger`'s two fields and `LedgerPage_Update`'s signature** still need a **hand
   edit**, but for one reason rather than two: `struct_fields` cannot create a struct that
   `project.json` lacks. **The "merge never overwrites a signature" half of this was wrong** -
   `mergeFindings.py` has a `revises` key and wave 10 landed 63 signature revisions through it.
@@ -300,43 +325,43 @@ and the duplicates predate the check that would have refused them.
 
 ### The residue - what wave 14 left, in rough order of value
 
-- **The five collector entry points**: `0x4A4F50`, `0x4A51C0`, `0x4A5270`, `0x4A5420`, `0x4A5620`, all
+- [game] **The five collector entry points**: `0x4A4F50`, `0x4A51C0`, `0x4A5270`, `0x4A5420`, `0x4A5620`, all
   unnamed, all in `CAIStrategy`'s region. This is **what the whole slot-10 machinery exists for**, and
   reading it from the trigger side got as close as the standing steer allows. `0x4A51C0` is the one
   that takes **text**, which is the shape to know before starting.
-- **`CValueTrigger` and `CIntTrigger`'s slot 7** (`0x5D13E0`, `0x5D1400`, abutting, two different unit
+- [dll] **`CValueTrigger` and `CIntTrigger`'s slot 7** (`0x5D13E0`, `0x5D1400`, abutting, two different unit
   conventions - `TokenToFixedPoint` into `+0x40` versus an argument-token test against `0x377`).
   Neither class has a vftable of its own, so which body belongs to which has to be argued from the
   derived classes that hold each. Settling it matters out of proportion: **111 of the 156 trigger
   classes are `new(0x44)`**, one dword at `+0x40`, so one declaration each would place that field on
   all of them. **The single biggest remaining win in this family.**
-- **`CDeclareWarAction::Apply`'s call at `0xA121CE`** passes `(country, 0, 0)` on a path gated by a
+- [game] **`CDeclareWarAction::Apply`'s call at `0xA121CE`** passes `(country, 0, 0)` on a path gated by a
   slot-7 `IsValid` answering false - so it is a faction *leave*. **It looks like declaring war can
   eject a country from a faction**, which would be a real rule nobody has written down.
-- **`0x102BC0`**, the capitulation/exile function holding the faction leader promotion. 7 callers,
+- [game] **`0x102BC0`**, the capitulation/exile function holding the faction leader promotion. 7 callers,
   four `ret`s between `0x50315F` and `0x5033AD`; worth a brief of its own.
-- **`CCountryList` has no layout at all** - not a struct record, and not special-cased beside
+- [dll] **`CCountryList` has no layout at all** - not a struct record, and not special-cased beside
   `CUnitList` in the `CList` pass - so `Allies (+0xF88)`, `Vassals (+0xF78)` and the rest decompile as
   untyped blobs. Giving it the `CList` layout would retire the three hand-added
   `non_hostile_countries_*` workaround records at `+0xF98`-`+0xFA0` at the same time.
-- **`CCasusBelliType`'s 22 loader offsets**, now landable: token table `0x416924`, jump table
+- [dll] **`CCasusBelliType`'s 22 loader offsets**, now landable: token table `0x416924`, jump table
   `0x4168E0`, base token `0x78D`. Best given to one agent whole.
-- **`CContextEffect`'s struct** - spec at `+0x20`, object `0x130`, same `CEventScopeSpec`. One
+- [dll] **`CContextEffect`'s struct** - spec at `+0x20`, object `0x130`, same `CEventScopeSpec`. One
   declaration.
-- **`CTrigger +0x1C[2]`** - a `std::vector`-shaped container of two `0x10`-byte elements; its element
+- [dll] **`CTrigger +0x1C[2]`** - a `std::vector`-shaped container of two `0x10`-byte elements; its element
   ctor/dtor (`0x9DB0`, `0xC480`) are referenced from **200** sites, so naming it needs the container
   identified rather than the trigger. A displacement scan **cannot** settle it; that was tried and is
   written up as a trap 12 case.
-- **`CTrigger +0x3C`** - cleared by every container constructor and set to 1 by `CTrigger::LoadKey` at
+- [dll] **`CTrigger +0x3C`** - cleared by every container constructor and set to 1 by `CTrigger::LoadKey` at
   `0x5C915B`. No reader identified.
 - **`scratchpad/triggersizes.py`** pairs 156 trigger class names with their allocation sizes in one
   command and generalises to any loader that builds its classes with `new`/constructor pairs. Worth
   promoting to `scripts/` by someone who can name it.
-- **Two holes in wave 14's own negatives, both stated by the agents rather than found later:** slot
+- [both] **Two holes in wave 14's own negatives, both stated by the agents rather than found later:** slot
   11's root search cannot see three arguments written with `mov [esp+N]` instead of pushed; and the
   faction layer's "no alliance is created" rests on `0x4E70A0` and `0x4FBC10` having been skimmed only.
 
-## A live check: does `at_sea` lock a fleet's `carrying` list? - 2026-10-07
+## A live check: does `at_sea` lock a fleet's `carrying` list? - 2026-10-07 `[both]`
 
 **This would be a real bug if it holds, and it is cheap to test in a session.** It came out of
 settling what `CList +0xC` means (`findings/FINDINGS-factbase.md`).
@@ -519,10 +544,10 @@ scale, floor and re-read only `+0x604`. That check is now a standing rule - see 
 
 #### Open, from wave 13, in rough order of value
 
-1. **`0x4F5F30`, the faction mutation** - a ~0x950-byte `__thiscall` where `CFactionAction`'s real
+1. [game] **`0x4F5F30`, the faction mutation** - a ~0x950-byte `__thiscall` where `CFactionAction`'s real
    effect lives, since slot 7's only country write is the influence charge. Agent C named this the
    single highest-value thing it left.
-2. **Four duplicate field records, where the `void*` wins.** `CDiplomacyStatus +0x14` and `+0x1C`
+2. [dll] **Four duplicate field records, where the `void*` wins.** `CDiplomacyStatus +0x14` and `+0x1C`
    hold both `void*` and `CAlliance*`/`CGuarantee*`; `merge_fields` keeps the `void*` and demotes the
    typed one into its comment, **so the decompilation gets `void*`** - confirmed in the generated
    record. `CCountry +0xA8C` and `+0x10B8` are the same shape but harmless (same name and type
@@ -533,18 +558,18 @@ scale, floor and re-read only `+0x604`. That check is now a standing rule - see 
    `0xC8920`, `0x4E9090`, `0x2EF70`. Three contain an explicit, now-false negative such as "nothing
    outside it holds the body at all". `reconcileFacts.py` prints them in one command. Renaming is the
    maintainer's call because the names are load-bearing in a lot of prose.
-4. **44 Lua fields cannot land**, because `mergeFindings` refuses a field on a struct `project.json`
+4. [dll] **44 Lua fields cannot land**, because `mergeFindings` refuses a field on a struct `project.json`
    has no record for and a fragment cannot create one. 18 structs; the 13 `def_readwrite` ones among
    them are the **strongest** records in the whole Lua half. Either `mergeFindings` grows a `structs`
    key or the 18 stubs go in by hand. `CGoodsValues`, `CResourceValues` and `CStrategicWarfare` are
    the ones worth having.
-5. **`CCasusBelliType`'s 22 loader offsets** - the table is derived and written out in
+5. [dll] **`CCasusBelliType`'s 22 loader offsets** - the table is derived and written out in
    `FINDINGS-diploaction.md` section 27; the struct holds one field. A hand-add.
-6. **`CRelation` and eleven sibling structs still do not exist** in `project.json`, so nine
+6. [dll] **`CRelation` and eleven sibling structs still do not exist** in `project.json`, so nine
    subclasses write through a layout recorded nowhere. The layouts are prose in the same section.
-7. **When does a casus belli expire?** `CCasusBelli` slot 11 (`0x647D20`) is the only path that
+7. [game] **When does a casus belli expire?** `CCasusBelli` slot 11 (`0x647D20`) is the only path that
    raises `WELOSECB` to the player and has **zero direct callers** - reached virtually.
-8. **`CEventScope +0x10`** - the record has `char[4] country_tag`, the Lua half types it
+8. [dll] **`CEventScope +0x10`** - the record has `char[4] country_tag`, the Lua half types it
    `CCountryTag&`. If the Lua half is right there is an unrecorded `+0x14` and the scope's tag
    comparisons read the id half, which is how every other tag comparison in the image works.
 9. **A tooling limitation worth fixing**: `vftable_slots` is keyed by class with no way to say
@@ -667,7 +692,7 @@ their ancestry**, and those hold **2.1 million living objects**. Counting ancest
 trick, and getting it wrong is how this survey nearly went to the wrong place - see the two dead
 ends at the end.
 
-### 1. The evaluation half of the event script language - the strongest candidate
+### 1. The evaluation half of the event script language - the strongest candidate `[game]`
 
 **The grammar is read, the tooltips are read, and the answers are not.**
 `findings/FINDINGS-script.md` has all **152 trigger keywords and 91 effect keywords**, one class
@@ -711,7 +736,7 @@ are the semantics behind every condition in it. Concrete questions with concrete
 - **What a comparison actually compares.** `strength_ratio`, "controlled", "in combat" - the kind
   of thing that is guessed at in mod forums and is sitting in the bytes.
 
-### 2. The retained-history question - a memory finding waiting to happen
+### 2. The retained-history question - a memory finding waiting to happen `[dll]`
 
 `CLeaderHistory` **24,138** live, `CRankChange` **24,547**, `CTraitGainTracker` **24,137**,
 `CCountryDecisionChange` 15,755, `CProvinceHistory` 14,190 - **about 103,000 live objects** of
@@ -725,7 +750,7 @@ retained objects nobody reads is worth knowing about. It also lands next to a me
 has: the dormant no-leader-skill-loss work, and `CTraitGainTracker` already has 4 fields and 6 named
 functions, so it is the cheapest way in.
 
-### 3. `CMapPoint` - 879,780 live, the single biggest population in the game
+### 3. `CMapPoint` - 879,780 live, the single biggest population in the game `[dll]`
 
 `CMapPoint::LoadKey` takes **one key, `y`**, so each is a coordinate and there are **879,780 of
 them** - more than every other unread class combined, and nothing is recorded but that loader. At a
@@ -736,7 +761,7 @@ map geometry, in a process that runs out of address space.
 semantics, no AI. It extends the measured work in `hoi3-memory-where-it-goes` rather than starting
 something new. Best paired with the Memory page, which can count them live.
 
-### 4. Diplomacy's action layer - smaller, self-contained
+### 4. Diplomacy's action layer - smaller, self-contained `[game]`
 
 `CDiplomaticAction` 22,113 live (`placed`, 2 fields, 2 functions) plus `CNullDiplomaticAction`
 13,669. `findings/FINDINGS-diplomacy.md` covers the save's diplomacy block and the agreement kinds;
@@ -757,7 +782,7 @@ a clear boundary, and the one of these four that could be done in a single pass.
   adds over its base is a thin slice. `ActiveModifier`, `CModifierDefinition`, `CModifierEntry` and
   `CMTTHModifier` are all recorded too.
 
-### The live queue - when a game is running
+### The live queue - when a game is running `[both]`
 
 Wave 9 was entirely static and generated a long list of things that one session with a game would
 close in minutes. **Worth doing all of these in one sitting rather than briefing an agent per item.**
@@ -779,14 +804,14 @@ close in minutes. **Worth doing all of these in one sitting rather than briefing
 
 ### Deferred, at the maintainer's call
 
-- **Finding the outliner leak in the code.** The symptom is quantified and reproducible - every
+- [dll] **Finding the outliner leak in the code.** The symptom is quantified and reproducible - every
   open/close of a full-screen window permanently leaks 30 widgets, ten each of `outliner_header`,
   `outliner_header_entry` and `entry_text`, while six sibling outliner names tear down correctly -
   and the difference between those two paths is where the answer is. **Not needed yet**; the new
   widget counter on the Memory page will say whether it matters over a long game before anyone
   spends an agent on it.
 
-### Open, not scheduled
+### Open, not scheduled `[dll]`
 
 **Two leader-assignment flags the Ctrl-unassign feature passes without knowing what they do.**
 Both are small, both are self-contained, and neither blocks anything - the feature has been tested
@@ -896,9 +921,14 @@ of it.
 
 ## What has already been read
 
-67 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
+85 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
 header lives. This replaces the `Done` archive: the archive restated each file's headline and named
-only 40 of the 67, so it was both longer and less useful than a complete list.
+only 40 of the 67 there were then, so it was both longer and less useful than a complete list.
+
+**`python scripts/checkindex.py` checks that this list is complete** and that the count above
+is right. It was neither until 2026-10-07: 79 of 85 listed, and a count 18 out, because a
+write-up reaches `findings/` and this page is updated by hand afterwards or not at all. Four of
+the six it was missing were wave 15's.
 
 **The engine's own flow**
 
@@ -908,7 +938,6 @@ only 40 of the 67, so it was both longer and less useful than a complete list.
 | `findings/FINDINGS-schedule.md` | when each unit-level update runs, and on which thread |
 | `findings/FINDINGS-commands.md` | the command queue, the four channel classes, and the one `Execute` caller |
 | `findings/FINDINGS-session.md` | the session lifecycle: what `in_game` means, and what creates and destroys a game |
-| `findings/FINDINGS-sigaudit.md` | the signature audit: 87 disagreements down to 1, and the string size |
 | `findings/FINDINGS-session2.md` | the startup reset's second half, and what `CInGameIdler +0x1790` really is |
 | `findings/FINDINGS-resetpath.md` | the deferred session-exit path, and whether `Update` can reach the reset with `in_game` set |
 | `findings/FINDINGS-startup.md` | how the engine boots, stage by stage, and which loader claims each `common/` file |
@@ -961,6 +990,7 @@ only 40 of the 67, so it was both longer and less useful than a complete list.
 | `findings/FINDINGS-manpower.md` | manpower: what the drain is made of |
 | `findings/FINDINGS-redeploy.md` | strategic redeployment and the route finder |
 | `findings/FINDINGS-shatter.md` | shattering, and being removed from the game |
+| `findings/FINDINGS-airdefence.md` | the three defence stats: parsed, stored, displayed - and never used to defend |
 
 **The country: economy, politics, diplomacy**
 
@@ -979,6 +1009,7 @@ only 40 of the 67, so it was both longer and less useful than a complete list.
 | `findings/FINDINGS-diploaction.md` | a diplomatic offer in flight: three stages, the lifecycle, the null singleton |
 | `findings/FINDINGS-diplomacy.md` | how the engine asks the mod's Lua whether the AI accepts |
 | `findings/FINDINGS-oob.md` | the order of battle, key by key |
+| `findings/FINDINGS-faction.md` | the faction layer: one gateway, no alliances, and a leader you cannot set |
 
 **Weather and the map**
 
@@ -1005,7 +1036,14 @@ only 40 of the 67, so it was both longer and less useful than a complete list.
 | `findings/FINDINGS-effecttext.md` | how an event option's effect text is built |
 | `findings/FINDINGS-text.md` | how the game measures text |
 
-**The loaders, now a closed frontier**
+**The record itself**
+
+| | |
+| --- | --- |
+| `findings/FINDINGS-factbase.md` | the three halves of the fact base, and what disagreed between them |
+| `findings/FINDINGS-sigaudit.md` | the signature audit: 87 disagreements down to 1, and the string size |
+
+**The event script language, and the loaders**
 
 | | |
 | --- | --- |
@@ -1013,6 +1051,9 @@ only 40 of the 67, so it was both longer and less useful than a complete list.
 | `findings/FINDINGS-triggereval.md` | how a condition **answers**: slot 6, `CEventScope`, and the absence of any cache |
 | `findings/FINDINGS-script.md` | the event script language: 152 trigger keywords and 91 effect keywords |
 | `findings/FINDINGS-fieldmap.md` | which field each key lands in |
+| `findings/FINDINGS-effects.md` | the effect half: what each of the 91 effect keywords does when it fires |
+| `findings/FINDINGS-numtriggers.md` | the 78 numeric leaves, what they compare, and the three scales their operands are on |
+| `findings/FINDINGS-scopetriggers.md` | the scope and set triggers, and what `ally` really scopes to |
 
 ## A method worth reusing
 

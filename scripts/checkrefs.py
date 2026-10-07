@@ -58,10 +58,18 @@ import roots  # noqa: E402 - needs HERE on the path first
 REVERSING = roots.REVERSING
 BICE = roots.BICE
 MOD = roots.MOD
+OPENHOI3 = roots.OPENHOI3
 
 # Only a reference carrying a folder is a path; see the rule above.
 FINDING = re.compile(r"`?([\w./-]+/FINDINGS-[a-z0-9]+\.md)`?")
 COMMAND = re.compile(r"python ([\w./-]+\.py)")
+
+# A path pointing *at* this repository from outside it, by its repository name, with any
+# number of leading `../`. Unlike PATHISH this does not require backticks, because the two
+# references it was added for were a markdown link target and a plain Python string - and
+# the string was in the mod's deploy script, which skips the probes in silence when the
+# folder is missing. Added 2026-10-07, the day the split made such a path possible.
+OUTWARD = re.compile(r"((?:\.\./)*hoi3-reversing/[\w./-]+)")
 PATHISH = re.compile(
     r"`((?:findings|scripts|ghidra|fragments|probes|reversing|BiceLib)/[\w./-]+)`")
 # `BiceLib` was added 2026-10-05, and it caught three dangling references the same minute.
@@ -91,7 +99,7 @@ SKIP_FILES = {"bicelib_findings.json"}
 # Where a reference may resolve from. Loose on purpose - see the docstring. A root that
 # `roots.py` could not find is dropped rather than joined, because joining `None` throws and
 # joining a guess is worse than reporting the reference.
-ROOTS = [folder for folder in (REVERSING, BICE, MOD) if folder]
+ROOTS = [folder for folder in (REVERSING, BICE, MOD, OPENHOI3) if folder]
 
 # A reference carrying the tree's own name on the front used to resolve because that name was
 # a real folder inside the BiceLib project, one level under `BICE`. Once the tree is its own
@@ -101,8 +109,9 @@ ROOTS = [folder for folder in (REVERSING, BICE, MOD) if folder]
 # a reference this script then reports against itself. Adding one cost two phantom references
 # the first time this comment was written.)
 #
-# The alternative was rewriting all 110 distinct references that are written this way. Most of
-# them are in `GameClasses` headers, citing the evidence for an offset - the single most
+# The alternative was rewriting the hundred-odd distinct references written this way - 106 of
+# them on 2026-10-07. Most are in `GameClasses` headers, citing the evidence for an offset,
+# which is the single most
 # load-bearing kind of reference in either half - and a rename there buys nothing a mapping
 # does not. It also means the repository can be renamed again without touching the prose.
 PREFIXES = {"reversing/": REVERSING}
@@ -110,7 +119,14 @@ PREFIXES = {"reversing/": REVERSING}
 
 def resolves(reference, folder):
     for prefix, mapped in PREFIXES.items():
-        if mapped and reference.startswith(prefix):
+        if not mapped:
+            continue
+        # The prefix on its own names the fact base itself, which plenty of prose refers to
+        # as a folder rather than reaching into. It resolves if the root was found at all.
+        if reference == prefix.rstrip("/"):
+            if os.path.isdir(mapped):
+                return True
+        if reference.startswith(prefix):
             if os.path.exists(os.path.join(mapped, reference[len(prefix):])):
                 return True
     for root in [folder] + ROOTS:
@@ -137,9 +153,11 @@ def trees():
     stop seeing the half of the record that points outward. That blind spot is the one that
     cost a hundred stale references on 2026-10-02.
 
-    `OPENHOI3` joins this list when the rewrite starts citing findings; nothing there does yet.
+    `OPENHOI3` is in the list because the rewrite cites findings for its mechanics - it is
+    forbidden the offsets, so the prose is the whole of what it reads from here, which makes
+    those references the only link it has to the evidence.
     """
-    wanted = [folder for folder in (MOD, REVERSING) if folder]
+    wanted = [folder for folder in (MOD, REVERSING, OPENHOI3) if folder]
     kept = []
     for folder in wanted:
         full = os.path.abspath(folder)
@@ -188,6 +206,7 @@ def main():
 
         found = [(hit.group(1), "findings reference") for hit in FINDING.finditer(text)]
         found += [(hit.group(1), "path") for hit in PATHISH.finditer(text)]
+        found += [(hit.group(1), "outward path") for hit in OUTWARD.finditer(text)]
         if os.path.abspath(path).startswith(inTree):
             found += [(hit.group(1), "command line") for hit in COMMAND.finditer(text)]
 

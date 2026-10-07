@@ -9,8 +9,8 @@ Five folders and five documents, and the split is worth knowing before looking f
 
 | | |
 | --- | --- |
-| `findings/` | the 67 `FINDINGS-*.md` write-ups - the long form of everything that has been read |
-| `scripts/` | the toolkit, 42 scripts. **Commands are run from `reversing/`**, so they read `python scripts/image.py` |
+| `findings/` | the 85 `FINDINGS-*.md` write-ups - the long form of everything that has been read |
+| `scripts/` | the toolkit, 45 scripts. **Commands are run from this repository's root**, so they read `python scripts/image.py` |
 | `ghidra/` | the Ghidra side: `project.json`, the build and merge scripts, the headless java |
 | `fragments/` | the parallel-agent staging area - `incoming/`, `merged/`, and the contract in its README |
 | `probes/` | one-off probe scripts from a live session, kept for the record |
@@ -24,7 +24,7 @@ announces itself, which is the whole reason it exists. `--tree` restricts it to 
 `--list` prints each reference and where it resolved.
 
 **A name without a folder is a name, not a path.** Through all of this, prose cites documents and
-scripts the way someone standing in `reversing/` would - `` `CLASSES.md` ``, `` `project.json` ``,
+scripts the way someone standing in this repository's root would - `` `CLASSES.md` ``, `` `project.json` ``,
 `` `vtable.py` ``, `` `FINDINGS-combat.md` `` - and the table above is what resolves them. Only
 command lines and real paths were rewritten when the folders were split on 2026-10-02, because
 those are meant to be run or followed. Prefixing three hundred mentions in the prose would have
