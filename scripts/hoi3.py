@@ -11,15 +11,21 @@ hand, so a class name here is the name the game's own compiler recorded.
 import json
 import os
 import struct
+import sys
 
 import pymem
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import roots  # noqa: E402 - needs the folder on the path first
+
 PROCESS = "hoi3_tfh.exe"
 
-# Where OpenHOI3 keeps what Ghidra recovered. Overridable for a checkout elsewhere.
-CLASS_JSON = os.environ.get(
-    "OPENHOI3_CLASSES",
-    r"C:\Users\David\GitHub\OpenHOI3\OpenHOI3\docs\hoi3_tfh-classes.json")
+# Where OpenHOI3 keeps what Ghidra recovered. `$OPENHOI3_CLASSES` overrides it; otherwise
+# the repository is found by marker, which is what makes a flattened or renamed checkout
+# work. The hardcoded default this replaces named one nesting level too many and had been
+# wrong since that repository was flattened on 2026-10-07. Resolved on first use rather
+# than at import, because most of what imports this module never asks for the classes.
+CLASS_JSON = os.environ.get("OPENHOI3_CLASSES")
 
 # Instances live above this; below it is the image itself and its data sections, where
 # the only matches are the vftables and the odd static.
@@ -32,7 +38,9 @@ def classes():
     """name -> the RTTI record, loaded once"""
     global _classes
     if _classes is None:
-        with open(CLASS_JSON, "r", encoding="utf-8") as f:
+        path = CLASS_JSON or os.path.join(roots.root("OPENHOI3"), "docs",
+                                         "hoi3_tfh-classes.json")
+        with open(path, "r", encoding="utf-8") as f:
             document = json.load(f)
         _classes = {}
         for record in document["classes"]:

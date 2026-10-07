@@ -1,6 +1,9 @@
+import os
 """Name a vftable's class from the MSVC complete object locator at vftable-4."""
 import struct, sys
-sys.path.insert(0, r"c:\Users\David\GitHub\BlackICE\DaveStuff\luabinaries\bice\BiceLib\reversing\scripts")
+sys.path.insert(0, os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    "scripts"))
 import image
 
 def u32(va):

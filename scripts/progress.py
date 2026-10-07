@@ -30,11 +30,12 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "ghidra"))
 import luabindExtract as LX
+import roots
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REVERSING = os.path.dirname(HERE)
 GHIDRA = os.path.join(REVERSING, "ghidra")
-CLASSES = os.path.join(REVERSING, "..", "BiceLib", "GameClasses")
+CLASSES = os.path.join(roots.root("BICE"), "BiceLib", "GameClasses")
 OUT = os.path.join(REVERSING, "PROGRESS.md")
 
 # The three shared stubs that say a class does not do that thing itself.
@@ -220,8 +221,16 @@ def collect():
     censusTaken = None
     path = os.path.join(GHIDRA, "census.json")
     if os.path.exists(path):
-        census = json.load(open(path, encoding="utf-8"))["counts"]
-        censusTaken = datetime.date.fromtimestamp(os.path.getmtime(path)).isoformat()
+        document = json.load(open(path, encoding="utf-8"))
+        census = document["counts"]
+        # The date the census itself records, with the file's mtime only as a fallback
+        # for one taken before that field existed. A clone sets every mtime to the moment
+        # of checkout, so the mtime read "today" the first time this ran out of the fact
+        # base's own repository - publishing a census date that was really the age of the
+        # checkout. A derived timestamp was a safe shortcut only while the file had never
+        # been copied.
+        censusTaken = document.get("taken") or datetime.date.fromtimestamp(
+            os.path.getmtime(path)).isoformat()
 
     rows = []
     for name, record in rtti.items():

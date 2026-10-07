@@ -75,11 +75,12 @@ owner, so nothing inside it needs renaming:
     cp -r "$USERPROFILE/GhidraProjects/Hoi3_v12.1.2.rep" "<scratch>/hl/Check.rep"
     : > "<scratch>/hl/Check.gpr"
 
-Then, from `reversing/`:
+Then, from the fact base's root - `<fact base>` below is wherever that repository is
+checked out, which `python scripts/roots.py` will print:
 
     "$USERPROFILE/Documents/Ghidra/ghidra_12.1.2_PUBLIC/support/analyzeHeadless.bat" \
         "<scratch>/hl" Check -process hoi3_tfh.exe -noanalysis \
-        -scriptPath "<repo>/DaveStuff/luabinaries/bice/BiceLib/reversing/ghidra" \
+        -scriptPath "<fact base>/ghidra" \
         -postScript ApplyBiceLibFindings.java overwrite
 
 `-noanalysis` matters: the program in the project is already analysed and a second pass would both

@@ -1,6 +1,9 @@
+import os
 """The six name registries a live window carries, at +0x324 +0x348 +0x36C +0x390 +0x3B4 +0x3D8."""
 import struct, sys, collections
-sys.path.insert(0, r"c:\Users\David\GitHub\BlackICE\DaveStuff\luabinaries\bice\BiceLib\reversing\scripts")
+sys.path.insert(0, os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    "scripts"))
 import hoi3
 
 pm = hoi3.attach()

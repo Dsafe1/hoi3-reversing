@@ -12,8 +12,9 @@ parses one off a command line: a bare number is virtual, `rva:` prefixes the oth
 
 import capstone
 import pefile
+import roots
 
-EXE = r"C:\Users\David\Hearts of Iron 3\hoi3_tfh.exe"
+EXE = roots.exe()
 IMAGE_BASE = 0x400000
 
 _pe = None

@@ -43,10 +43,14 @@ import os
 import re
 import sys
 
+import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import roots  # noqa: E402
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 REVERSING = os.path.dirname(HERE)
 GHIDRA = os.path.join(REVERSING, "ghidra")
-HEADERS = os.path.join(REVERSING, "..", "BiceLib", "GameClasses")
+HEADERS = os.path.join(roots.root("BICE"), "BiceLib", "GameClasses")
 
 sys.path.insert(0, HERE)
 sys.path.insert(0, GHIDRA)

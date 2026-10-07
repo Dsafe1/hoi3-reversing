@@ -47,9 +47,17 @@ import re
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-REVERSING = os.path.dirname(HERE)
-BICE = os.path.dirname(REVERSING)
-REPO = os.path.abspath(os.path.join(REVERSING, "..", "..", "..", "..", ".."))
+sys.path.insert(0, HERE)
+
+import roots  # noqa: E402 - needs HERE on the path first
+
+# These were counted `..` levels until 2026-10-07. Counting is exactly what moving this tree
+# out of the mod's repository breaks, and it breaks it silently: the join still yields a path,
+# so every reference that should have been reported instead resolves against the wrong place.
+# `roots.py` finds each one by marker; see its docstring.
+REVERSING = roots.REVERSING
+BICE = roots.BICE
+MOD = roots.MOD
 
 # Only a reference carrying a folder is a path; see the rule above.
 FINDING = re.compile(r"`?([\w./-]+/FINDINGS-[a-z0-9]+\.md)`?")
@@ -80,15 +88,67 @@ READ = (".md", ".py", ".hpp", ".cpp", ".h", ".java", ".json")
 # each breakage twice and, worse, invite someone to fix the generated copy. Skipped by name.
 SKIP_FILES = {"bicelib_findings.json"}
 
-# Where a reference may resolve from. Loose on purpose - see the docstring.
-ROOTS = [REVERSING, BICE, REPO]
+# Where a reference may resolve from. Loose on purpose - see the docstring. A root that
+# `roots.py` could not find is dropped rather than joined, because joining `None` throws and
+# joining a guess is worse than reporting the reference.
+ROOTS = [folder for folder in (REVERSING, BICE, MOD) if folder]
+
+# A reference carrying the tree's own name on the front used to resolve because that name was
+# a real folder inside the BiceLib project, one level under `BICE`. Once the tree is its own
+# repository that stops being true: it may sit anywhere and be called anything on disk. So the
+# prefix is read as the *logical* name of the fact base and mapped to wherever it was found.
+# (No example here, for the reason the loop below gives: an illustrative path in this file is
+# a reference this script then reports against itself. Adding one cost two phantom references
+# the first time this comment was written.)
+#
+# The alternative was rewriting all 110 distinct references that are written this way. Most of
+# them are in `GameClasses` headers, citing the evidence for an offset - the single most
+# load-bearing kind of reference in either half - and a rename there buys nothing a mapping
+# does not. It also means the repository can be renamed again without touching the prose.
+PREFIXES = {"reversing/": REVERSING}
 
 
 def resolves(reference, folder):
+    for prefix, mapped in PREFIXES.items():
+        if mapped and reference.startswith(prefix):
+            if os.path.exists(os.path.join(mapped, reference[len(prefix):])):
+                return True
     for root in [folder] + ROOTS:
         if os.path.exists(os.path.join(root, reference)):
             return True
     return False
+
+
+def rel(path):
+    """\\p path against whichever root holds it, so the report stays readable across repos."""
+    full = os.path.abspath(path)
+    for root in sorted(ROOTS, key=len, reverse=True):
+        if full.startswith(os.path.abspath(root) + os.sep):
+            return os.path.relpath(full, root)
+    return path
+
+
+def trees():
+    """The roots to walk: the fact base and the mod, minus either if nested in the other.
+
+    Before the split the fact base is inside the mod, so this is the mod alone and the walk is
+    exactly what it always was. After the split it is both, which is the point - the seam
+    references live in `GameClasses` headers, and a check that only read the fact base would
+    stop seeing the half of the record that points outward. That blind spot is the one that
+    cost a hundred stale references on 2026-10-02.
+
+    `OPENHOI3` joins this list when the rewrite starts citing findings; nothing there does yet.
+    """
+    wanted = [folder for folder in (MOD, REVERSING) if folder]
+    kept = []
+    for folder in wanted:
+        full = os.path.abspath(folder)
+        if any(full.startswith(os.path.abspath(other) + os.sep) for other in wanted
+               if os.path.abspath(other) != full):
+            continue
+        if full not in kept:
+            kept.append(full)
+    return kept
 
 
 def sources(root):
@@ -108,14 +168,18 @@ def main():
                         help="only the reversing folder, rather than the whole repository")
     args = parser.parse_args()
 
-    root = REVERSING if args.tree else REPO
+    walk = [REVERSING] if args.tree else trees()
     inTree = os.path.abspath(REVERSING)
 
     broken = []
     skipped = set()
     checked = 0
+    seenFiles = set()
 
-    for path in sources(root):
+    for path in (name for root in walk for name in sources(root)):
+        if os.path.abspath(path) in seenFiles:
+            continue
+        seenFiles.add(os.path.abspath(path))
         folder = os.path.dirname(path)
         try:
             text = io.open(path, encoding="utf-8", errors="replace").read()
@@ -146,14 +210,14 @@ def main():
                   else resolves(reference, folder))
             if ok:
                 if args.list:
-                    print("   ok   %-44s %s" % (reference, os.path.relpath(path, REPO)))
+                    print("   ok   %-44s %s" % (reference, rel(path)))
             else:
                 broken.append((path, reference, kind))
 
     # Distinct per file, not total occurrences - the same reference repeated in one file gets one
     # verdict, so counting it twice would only inflate the number.
     print("%d distinct references checked under %s"
-          % (checked, os.path.relpath(root, REPO) or "the repo"))
+          % (checked, ", ".join(os.path.basename(folder) or folder for folder in walk)))
     if skipped:
         print("%d scratchpad references skipped, which is what that prefix is for"
               % len(skipped))
@@ -164,7 +228,7 @@ def main():
 
     print("\n%d do not resolve:" % len(broken))
     for path, reference, kind in sorted(set(broken)):
-        print("   %-44s %-16s %s" % (reference, kind, os.path.relpath(path, REPO)))
+        print("   %-44s %-16s %s" % (reference, kind, rel(path)))
     print("\nA name without a folder is a name, not a path - this only reports things that claim")
     print("to be paths. See the layout table in reversing/README.md.")
     return 1

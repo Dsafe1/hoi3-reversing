@@ -23,9 +23,10 @@ import collections
 import glob
 import os
 import re
+import roots
 
 REVERSING = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-REPO = os.path.abspath(os.path.join(REVERSING, "..", "..", "..", "..", ".."))
+REPO = roots.root("MOD")
 PROVINCES = os.path.join(REPO, "history", "provinces")
 COUNTRIES = os.path.join(REPO, "history", "countries")
 

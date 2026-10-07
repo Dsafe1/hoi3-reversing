@@ -29,8 +29,9 @@ REVERSING = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 import hoi3
 import switchmap
+import roots
 
-MOD = os.path.abspath(os.path.join(REVERSING, "..", "..", "..", "..", ".."))
+MOD = roots.root("MOD")
 
 TRIGGER_LOADER = 0x9C8D10
 EFFECT_LOADER = 0x999CA0

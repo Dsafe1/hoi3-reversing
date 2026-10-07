@@ -12,9 +12,9 @@ import argparse
 import ctypes
 import os
 from ctypes import wintypes
+import roots
 
-DEFAULT_DLL = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "..",
-                           "ReleaseDebug", "BiceLib.dll")
+DEFAULT_DLL = os.path.join(roots.root("BICE"), "ReleaseDebug", "BiceLib.dll")
 
 # Somewhere out of the way; the addresses asked for are added to it.
 LOAD_AT = 0x10000000

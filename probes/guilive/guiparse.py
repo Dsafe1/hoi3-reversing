@@ -5,7 +5,12 @@ block, so `name = "x"` inside it is attributed to that keyword.
 """
 import os, re, sys, json, collections
 
-ROOT = r"c:\Users\David\GitHub\BlackICE\interface"
+sys.path.insert(0, os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    "scripts"))
+import roots  # noqa: E402 - needs the folder on the path first
+
+ROOT = os.path.join(roots.root("MOD"), "interface")
 TOK = re.compile(r'"[^"]*"|[^\s{}=]+|[{}=]')
 
 out = {}

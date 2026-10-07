@@ -20,8 +20,9 @@ import capstone
 import pefile
 
 import hoi3
+import roots
 
-EXE = r"C:\Users\David\Hearts of Iron 3\hoi3_tfh.exe"
+EXE = roots.exe()
 
 
 def textSection(pe):

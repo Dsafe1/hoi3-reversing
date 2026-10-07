@@ -71,6 +71,10 @@ import json
 import os
 import re
 
+import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import roots  # noqa: E402
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 REVERSING = os.path.dirname(HERE)
 LUABIND = os.path.join(REVERSING, "ghidra", "luabind.json")
@@ -78,10 +82,10 @@ LUABIND = os.path.join(REVERSING, "ghidra", "luabind.json")
 # The Lua the engine loads. The mod's copy under the install's `tfh/mod/` is the deployed
 # copy of the repo's `script/`, so it is excluded or every mod file counts twice.
 CORPORA = [
-    ("vanilla", [r"C:\Users\David\Hearts of Iron 3\script",
-                 r"C:\Users\David\Hearts of Iron 3\tfh\script"]),
-    ("mod", [r"C:\Users\David\GitHub\BlackICE\script",
-             r"C:\Users\David\GitHub\BlackICE\common"]),
+    ("vanilla", [os.path.join(roots.root("GAME"), "script"),
+                 os.path.join(roots.root("GAME"), "tfh", "script")]),
+    ("mod", [os.path.join(roots.root("MOD"), "script"),
+             os.path.join(roots.root("MOD"), "common")]),
 ]
 
 # A bare type name out of a signature or a field type: strip cv, refs, pointers, templates.

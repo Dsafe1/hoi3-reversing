@@ -29,8 +29,9 @@ REVERSING = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 import progress
 import switchmap
+import roots
 
-MOD = os.path.abspath(os.path.join(REVERSING, "..", "..", "..", "..", ".."))
+MOD = roots.root("MOD")
 OUT = os.path.join(REVERSING, "findings", "FINDINGS-definitions.md")
 PROJECT = os.path.join(REVERSING, "ghidra", "project.json")
 OWN_SOURCE = "reversing/findings/FINDINGS-definitions.md"

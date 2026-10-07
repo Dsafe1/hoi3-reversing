@@ -50,11 +50,19 @@ from unicorn.x86_const import (UC_X86_REG_EAX, UC_X86_REG_ECX, UC_X86_REG_EBP,
                                UC_X86_REG_SS, UC_X86_REG_DS, UC_X86_REG_ES,
                                UC_X86_REG_FS)
 
+import sys
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
+import roots  # noqa: E402
+
 HERE = os.path.dirname(os.path.abspath(__file__))
-EXE = os.environ.get("HOI3_EXE", r"C:\Users\David\Hearts of Iron 3\hoi3_tfh.exe")
-CLASS_JSON = os.environ.get(
-    "OPENHOI3_CLASSES", r"C:\Users\David\GitHub\OpenHOI3\OpenHOI3\docs\hoi3_tfh-classes.json")
-API_FILE = os.path.normpath(os.path.join(HERE, "..", "..", "..", "..", "..", "..", "script", "LUA API.txt"))
+# All three found rather than written down - see scripts/roots.py. Tolerant of a root that
+# did not resolve, because `progress.py` imports this module and does not need any of them:
+# a missing root has to fail where it is used, not where it is imported.
+EXE = os.environ.get("HOI3_EXE") or (
+    os.path.join(roots.GAME, "hoi3_tfh.exe") if roots.GAME else None)
+CLASS_JSON = os.environ.get("OPENHOI3_CLASSES") or (
+    os.path.join(roots.OPENHOI3, "docs", "hoi3_tfh-classes.json") if roots.OPENHOI3 else None)
+API_FILE = os.path.join(roots.MOD, "script", "LUA API.txt") if roots.MOD else None
 OUT = os.path.join(HERE, "luabind.json")
 
 IMAGE_BASE = 0x400000

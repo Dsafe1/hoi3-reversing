@@ -3,8 +3,9 @@
     python scripts/definesMap.py                       every block, name -> offset
     python scripts/definesMap.py --block military      one block
     python scripts/definesMap.py --check               against project.json's CDefines* structs
-    python scripts/definesMap.py --lua <defines.lua>   against a mod's file; defaults to the
-                                               BlackICE one this folder sits inside
+    python scripts/definesMap.py --lua <defines.lua>   against a mod's file; defaults to
+                                               the mod's own, found by marker rather than
+                                               by position - see scripts/roots.py
 
 **The engine reads defines.lua by name, not by position.** That is the whole point of
 this script. `CDefines::Load` (`0x446210`) is one long unrolled run of
@@ -49,12 +50,13 @@ import os
 import capstone
 
 import image
+import roots
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REVERSING = os.path.dirname(HERE)
 PROJECT = os.path.join(REVERSING, "ghidra", "project.json")
-# reversing/ sits at <repo>/DaveStuff/luabinaries/bice/BiceLib/reversing
-REPO = os.path.abspath(os.path.join(REVERSING, "..", "..", "..", "..", ".."))
+# The mod, found by marker rather than counted to - see scripts/roots.py.
+REPO = roots.root("MOD")
 DEFAULT_LUA = os.path.join(REPO, "common", "defines.lua")
 
 LOAD_START = 0x446210        # CDefines::Load, the only writer of these structs
