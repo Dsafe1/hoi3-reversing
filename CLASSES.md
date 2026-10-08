@@ -1195,6 +1195,10 @@ records only where the object starts.
 
 ### Modifiers
 
+*What a country's modifier is rebuilt from, source by source and in order - ministers, laws,
+strategic resources, the statics, event and triggered modifiers - is
+`findings/FINDINGS-countrymodifier.md`.*
+
 `CModifier`, vftable `0x11BC4F8`, base `CPersistent` (**RTTI**), with laws, ministers,
 ideologies, traits and the province's `CProvinceModifier` (`0x11BC530`) deriving from it.
 It does not hold its values: **+0x18 points at an array of `{ CFixedPoint value,

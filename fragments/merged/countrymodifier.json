@@ -1,0 +1,313 @@
+{
+ "agent": "countrymodifier",
+ "question": "Everything CCountry::RebuildStaticModifiers adds to a country's modifier and in what order: where laws, ministers, strategic resources, triggered and event modifiers come in, whether a strategic resource counts once or once a province, and why one is missing when a new game is set up.",
+ "source": "reversing/findings/FINDINGS-countrymodifier.md",
+ "addresses": [
+  {
+   "rva": "0xDDD80",
+   "kind": "function",
+   "name": "CCountry::RebuildStaticModifiers",
+   "signature": "void __stdcall CCountry::RebuildStaticModifiers(CCountry* country)",
+   "no_signature": null,
+   "comment": "**Rebuilds a country's modifier (global_modifier, +0xD90) from nothing.** One stack argument, `ret 4` at 0x4DF97D; the two jump tables for the difficulty switch follow it at 0x4DF980 and 0x4DF994. Read through. Every step adds a whole CModifier's values, id by id, and records it in the country modifier's contributor vector (+8..+0x10). In order:\n\n1. clear (0x4595C0);\n2. `base_values`, static slot +0x64;\n3. the faction's own modifier (CFaction +0x7C), when faction (+0xD8) answers slot 7 true;\n4. zero tech_decay_modifier (+0x1174) for every technology category;\n5. **ministers** (+0x618): for each cabinet post i whose minister answers slot 8 true, the minister type he has for that post - found by walking his postings (CMinister +0x5C) for the i-th government position, with the shared `noMinisterType` (0x1A855C0) when he has none - is added, and that type's decay array (CMinisterType +0x50) is added into tech_decay_modifier category by category;\n6. technology_status->tech_decay_by_category (+0x1F8) into tech_decay_modifier;\n7. **laws** (+0x628): each that answers slot 16 true;\n8. the **government** (+0xDFC), which is a CModifier;\n9. **strategic resources**: the owned list at +0x668 is destroyed, then for each resource r with strategic_resource_levels (+0x678)[r] above 0 a copy of the CStrategicResource is made, every value multiplied by that level / 1000, added, and kept in +0x668;\n10. the **modifier of every controlled province** (0x4DEA50);\n11. static `war` (+0x50) when at_war, otherwise `peace` (+0x54);\n12. CSpyPresence::ApplyUnityModifiers for every country with provinces whose spies in this one are above 0;\n13. static `war_exhaustion` (+0x58) copied into the country's own CStaticModifier at +0xAD4 and scaled by war_exhaustion (+0xAD0) / 1000;\n14. static `dissent` (+0xA8) copied into +0xB1C and scaled by dissent (+0x10B4) / 1000;\n15. static `neutrality` (+0xAC) copied into +0xB64 and scaled by effective neutrality - neutrality (+0xA8C) less the threat from highest_threat_id, floored at 0 - over 100000, the float 100000.5 floored;\n16. the CModifier embedded at +0x700;\n17. **event modifiers**, active_modifiers (+0x648): an entry whose date (+0xC) is before today and later than year 1 is removed and deleted; otherwise its modifier (+8) is added;\n18. **triggered modifiers**, the list at +0x658 that UpdateTriggeredModifiers keeps;\n19. for a subject (isSubject, +0xF34) that is in no real faction and whose overlord is: FindStaticModifierByName(overlord's faction) - its `align_towards_*` - unless active_modifiers already holds it;\n20. **difficulty**: by gamestate->difficulty (+0xC98), `very_easy_player` / `easy_player` / nothing / `hard_player` / `very_hard_player` (+0x70, +0x74, +0x78, +0x7C) for a country in played_countries_array, and the four `_ai` slots (+0x80..+0x8C) for one that is not;\n21. static `government_in_exile` (+0xB4) when government_in_exile (+0x95);\n22. static `fractured_government` (+0xB8) when 0x4F7160(country) answers true.\n\n**An ideology is not added, and technology is not in it at all.** 23 direct callers.",
+   "confidence": "confirmed",
+   "revises": "It was `likely`, had no signature, and its comment said only the espionage arm was read. It is read through now: the comment lists everything it adds in order, the signature is recorded and the confidence is confirmed. The name is unchanged.",
+   "evidence": "Decoded from its own entry (image.decode(0x4DDD80, 0x1E00)) and read to the `ret 4`. [esp+0x10] is set to country + 0xD90 at 0x4DDDFA and is the destination of every add, each of the shape `mov ecx,[src+0x18]; mov eax,[dst+0x18]; mov ecx,[ecx+edx*8]; add [eax+edx*8],ecx` over ([0x1A86198] - [0x1A86194]) / 4 ids. The static slots are read off [0x1A86208] at 0x4DDE4F (+0x64), 0x4DEC22 (+0x50), 0x4DECD6 (+0x54), 0x4DEF11 (+0x58), 0x4DF014 (+0xA8), 0x4DF114 (+0xAC), and through GetModifierDataBase for +0x70..+0x8C, +0xB4 and +0xB8. The human table at 0x4DF980 is {0x4DF63A, 0x4DF684, 0x4DF8A2, 0x4DF6CA, 0x4DF714} and the AI one at 0x4DF994 {0x4DF76E, 0x4DF7B7, 0x4DF8A2, 0x4DF804, 0x4DF84E}; 0x4DF8A2 is past both. The vftable written into the strategic-resource copy at 0x4DE82A is 0x15BC87C, CStrategicResource by the RTTI export. A vanilla save agrees: the United Kingdom's manpower two days in needs France's black soil at exactly +10%, and 140 more monthly ability figures fit once a minister's decay is counted. What would show it wrong: a law's value not reaching a country's modifier."
+  },
+  {
+   "rva": "0xD8070",
+   "kind": "function",
+   "name": "UpdateTriggeredModifiers",
+   "signature": "void __stdcall UpdateTriggeredModifiers(CCountry* country)",
+   "no_signature": null,
+   "comment": "**Decides which of triggered_modifiers.txt apply to a country.** One stack argument, `ret 4` at 0x4D8EAC; most of its 0xE3C bytes are the two messages it raises. It does nothing for country id 0. For every entry of the triggered-modifier database (0x1A861E0, the vector at +0xC..+0x10) in file order, where CTriggeredModifier::AppliesTo answers true and the country's list at +0x658 does not already hold it, it is appended (tail +0x65C, count +0x660) - with a message when the country is the player's, gamestate +0xC34. Then every entry of the list for which AppliesTo now answers false is removed, again with a message for the player. CCountry::RebuildStaticModifiers adds whatever the list holds. Two callers, both immediately before RebuildStaticModifiers: RunCountryDailyPass at 0x4DA5DD and CInGameIdler::Enter at 0x65B2A6. So **a triggered modifier is tested once a day for every country, and switches on or off that day.** The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "0x4D8096 `cmp [eax+0xca8],ebx; je` to the exit; the loop 0x4D8100..0x4D8824 with `call 0x45bc00; cmp al,1`, the membership walk of [country+0x658] at 0x4D8132..0x4D8150 and the append at 0x4D87D0..0x4D8814; the second loop 0x4D8840..0x4D8E96 with `call 0x45bc00; test al,al; jne` and CList_RemoveNode at 0x4D8E89. A scan for the displacement 0x658 finds no other writer of the list but the constructor and destructor. What would show it wrong: a triggered modifier taking effect on a day this is not called."
+  },
+  {
+   "rva": "0x5BC00",
+   "kind": "function",
+   "name": "CTriggeredModifier::AppliesTo",
+   "signature": "bool __stdcall CTriggeredModifier::AppliesTo(CTriggeredModifier* this@ESI, CCountryTag country@stack:4) @AL",
+   "no_signature": null,
+   "comment": "**Whether a triggered modifier applies to a country: its `potential` and then its `trigger`, both true.** The modifier in ESI, the country's tag by value on the stack (letters and id), `ret 8` at 0x45BC96. It builds a country scope on the stack - vftable 0x15B8AEC, the tag at +0x10/+0x14 - and calls slot 6 of the CAndTrigger at this+0x48 and, if that is true, slot 6 of the one at this+0x88. Two callers, both in UpdateTriggeredModifiers. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "0x45BC4E `mov edx,[esi+0x48]; mov edx,[edx+0x18]; lea ecx,[esi+0x48]` ... `call edx; test al,al; je 0x45bc99`; 0x45BC78 the same on +0x88; `mov al,1; ... ret 8` and `xor al,al; ... ret 8`. The record already has +0x48 as `potential` and +0x88 as `trigger`. What would show it wrong: slot 6 of CAndTrigger not being its evaluation."
+  },
+  {
+   "rva": "0x28C190",
+   "kind": "function",
+   "name": "UpdateStrategicResources",
+   "signature": "void UpdateStrategicResources(CGameState* state@EDI)",
+   "no_signature": null,
+   "comment": "**Works out how much of each strategic resource every country has the use of.** The game state in EDI, nothing on the stack, bare `ret` at 0x68C448. It clears the list at state +0x104, then for each resource r from 1 and each province in strategic_resource_provinces[r] (state +0xF4):\n\n    infra      = values[INFRASTRUCTURE] * (1000 + values[LOCAL_INFRASTRUCTURE] + values[GLOBAL_INFRASTRUCTURE]) / 1000\n    infra      = min(max(infra, 10), 1000)\n    efficiency = max(infra * 1000 / province->MaxInfrastructure (+0x5C) + values[105], 0)\n\nwith -1 for the quotient when MaxInfrastructure is 0, the values being the province's own modifier, and 10 the float 10.5 floored. Then for **every** country that owns a province and for which CCountry::GetsStrategicResourcesFrom(country, state, the province's controller) is true: country->strategic_resource_levels[r] = max(what it holds, efficiency). The province is also appended to state +0x104 when that country is the player.\n\n**Nothing ever lowers a level.** The only other writers of the array are the constructor and the country reset at 0x4D2B60, so a country that loses the province keeps the resource until the game is loaded again. Four callers: the top of RunDailyPass (0x682C58); RebuildEventCandidatesAndDailyCaches (0x682566) and CGameState::LoadFromSave (0x67CF9D), each straight after RebuildStrategicResourceProvinces; and CInGameIdler::Enter (0x65B076) - but there only for a game loaded from a save. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "0x68C1CB..0x68C202 the walk of [edi+0xf4] in steps of 0x10 from index 1; `mov eax,[ebx+0x114]; mov ecx,[eax+0x68]; mov edx,[eax+0x70]; mov eax,[eax+0x60]; add ecx,0x3e8; add edx,ecx; imul edx` and the divide at 0x68C284..0x68C2A6; `cmovl eax,ecx` against [0x1BEA400] and `cmp eax,0x3e8`; the divide by [ebx+0x5c] or `or ecx,-1`; `mov eax,[edx+0x348]; add eax,ecx` and the floor; the country loop over [edi+0xbbc] with `cmp [esi+0xcf8],0`, `call 0x68bef0`, and `cmp ecx,[eax]; jle; mov [eax],ecx` at 0x68C388. A scan for the displacement 0x678 gives the constructor, the reset, the destructor, two reads in RebuildStaticModifiers, one read at 0x7FF0AF and this. What would show it wrong: a country's bonus from a resource ending the day it loses the province."
+  },
+  {
+   "rva": "0x28BEF0",
+   "kind": "function",
+   "name": "CCountry::GetsStrategicResourcesFrom",
+   "signature": "bool __thiscall CCountry::GetsStrategicResourcesFrom(CCountry* this, CGameState* state, CCountry* holder) @AL",
+   "no_signature": null,
+   "comment": "**Whether this country is given the strategic resources another one holds.** `this` in ECX, two stack arguments, `ret 8` at 0x68C16F. True at once when the two are the same country. False when holder's diplomacy status towards it has `war` (+0x20) set. Then one of two roads has to hold:\n\n- this country is_major (+0x15C) **or** has max_ic (+0x60C) above 100, its faction is a real one (slot 7), and the holder is in the same faction;\n- or: this country's faction is real, this country is the **first of its Members** - its leader - the holder is **not** in it, this country is at_war, and CAlignment::IsWithinFactionStratBonusDistance(holder's alignment, the faction).\n\nAnd then a link: the two acting capitals are on continents of the same name - or, failing that, both countries have a naval base bordering a sea province of the same entry of the object at CMap +0x2A5C (CollectSeaNeighboursOfNavalBases and MarkRegionsTouched; false when that object is null). What that object's entries are was not established. One caller, UpdateStrategicResources. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "0x68BF13 `cmp edi,esi; je 0x68c182` (the `mov al,1` exit); 0x68BF1B..0x68BF2F the status at [holder+0xe28][this->id] and `cmp [eax+0x20],ebx; jne` to the false exit; `cmp byte ptr [esi+0x15c],bl; jne; cmp [esi+0x60c],0x64; jle 0x68bf65`; the faction compares at 0x68BF57 and 0x68BF9C; the leader compare `cmp [edx+4],ecx` with edx the head of Members; `cmp byte ptr [esi+0xacc],bl`; `call 0x4c4d20`; the two GetActingCapitalLocation calls, slot 7 of each +0x368 and the string compare 0x4173C0; the region arrays at 0x68C068..0x68C138. France's black soil reaching the United Kingdom and nobody else in a vanilla save is the first road and the continent link. What would show it wrong: a minor member of a faction with under 100 IC getting the bonus."
+  },
+  {
+   "rva": "0x28BB90",
+   "kind": "function",
+   "name": "RebuildStrategicResourceProvinces",
+   "signature": "void __stdcall RebuildStrategicResourceProvinces(CGameState* state)",
+   "no_signature": null,
+   "comment": "Rebuilds strategic_resource_provinces (state +0xF4): empties each resource's vector, then appends every province whose strategic_resource (+0x18) answers slot 14 true to the vector at that resource's index (CStrategicResource +0x4C). One stack argument, `ret 4` at 0x68BD43. Five callers: RebuildEventCandidatesAndDailyCaches (0x682561), CGameState::LoadFromSave twice (0x67CEC6, 0x67CF96), CInGameIdler::Enter (0x65C803) and 0x9BDA53. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "0x68BBC0..0x68BC0F resets each 16-byte element's end to its begin; 0x68BC30..0x68BD37 walks [state+0xb8c], `mov esi,[ecx+0x18]; mov edx,[esi]; mov eax,[edx+0x38]; call eax; test al,al; je`, then `mov esi,[esi+0x4c]; shl esi,4; add esi,[eax+0xf4]` and the inlined push_back. What would show it wrong: a province with a resource missing from the vector UpdateStrategicResources walks."
+  },
+  {
+   "rva": "0x28BD60",
+   "kind": "function",
+   "name": "CollectSeaNeighboursOfNavalBases",
+   "signature": "void CollectSeaNeighboursOfNavalBases(CCountry* country@EAX, void* out@ECX, CGameState* state@stack:4)",
+   "no_signature": null,
+   "comment": "For every province in the country's NavalBases (+0xD80) and every edge of its template (+0x90..+0x94, 20 bytes each, the neighbour's id at +4), appends the neighbour to the vector in ECX when the neighbour's template is not is_land (+0x22). `ret 4` at 0x68BEE2. Two callers, both in CCountry::GetsStrategicResourcesFrom. The name is ours.",
+   "confidence": "inferred",
+   "evidence": "0x68BD63 `mov eax,[eax+0xd80]`; the divide by 20 (0x66666667, sar 3) of [template+0x94] - [template+0x90]; `mov edx,[eax+ecx+4]`, the lookup in [state+0xb8c], `cmp byte ptr [edx+0x22],0; jne` past the push_back. What it does is read; `inferred` is for the name's 'sea', which rests on the record's is_land. What would show it wrong: +0x22 meaning something else."
+  },
+  {
+   "rva": "0x2EBD0",
+   "kind": "function",
+   "name": "MarkRegionsTouched",
+   "signature": "void MarkRegionsTouched(void* regions@ECX, int* out@EDX, void* provinces@stack:4)",
+   "no_signature": null,
+   "comment": "For each entry k of the vector at regions +0x34..+0x38, sets out[k] to 1 when any id in the entry's own vector (+8..+0xC) is the id (+0xD0) of a province in the given vector. `ret 4` at 0x42EC6F. CCountry::GetsStrategicResourcesFrom calls it twice on the object at CMap +0x2A5C, once for each country's sea provinces, and answers true when some k is set in both. **What the entries are - sea regions is the natural reading - was not established**; the name is ours.",
+   "confidence": "inferred",
+   "evidence": "0x42EBD3..0x42EC67: `mov esi,[ecx+ebx]` with ecx = [regions+0x34] - out, `mov edi,[esi+0xc]; sub edi,[esi+8]`, the inner compare `cmp ebx,[ecx+0xd0]` against each province of the vector, `mov dword ptr [ebx],1`. What would show it wrong: nothing about the arithmetic; the open part is what CMap +0x2A5C holds."
+  },
+  {
+   "rva": "0x282C58",
+   "kind": "instruction",
+   "name": "RunDailyPass_UpdateStrategicResources",
+   "signature": null,
+   "no_signature": null,
+   "comment": "**The first thing a day does**: `call UpdateStrategicResources` at the top of RunDailyPass, skipped only when gamestate->scenario (+0xD0C) is set and its byte at +0x118 is clear. So strategic resources are worked out before any country's daily pass and therefore before CCountry::RebuildStaticModifiers reads the levels. **`image.functionStart` answers RunHourlyPass (0x682630) for this address**: RunDailyPass starts at 0x682C20 straight after RunHourlyPass's `ret 4`, with no padding (trap 2).",
+   "confidence": "confirmed",
+   "evidence": "0x682C20 `push ebp; mov ebp,esp` after the `ret 4` at 0x682C1D; `mov ebx,[ebp+8]; mov eax,[ebx+0xd0c]; cmp eax,esi; je 0x682c56; cmp byte ptr [eax+0x118],0; je 0x682c5d; mov edi,ebx; call 0x68c190`. What would show it wrong: a call of a country's daily pass ahead of this one."
+  },
+  {
+   "rva": "0x25B06B",
+   "kind": "instruction",
+   "name": "CInGameIdler_Enter_StrategicResourcesOnlyOnLoad",
+   "signature": null,
+   "no_signature": null,
+   "comment": "`cmp byte ptr [gamestate+0xd9c],0; je` over the call of UpdateStrategicResources at 0x65B076: **entering a new game does not work out strategic resources**; only entering a loaded one does. So when SetUpCountryForNewGame runs, further down the same function, every country's strategic_resource_levels are still 0, and the starting manpower it takes from max_manpower is worked out without them. They first appear at the top of the first daily pass.",
+   "confidence": "confirmed",
+   "evidence": "0x65B06B `cmp byte ptr [eax+0xd9c],0; je 0x65b080; mov edi,eax; call 0x68c190`. +0xD9C is loaded_from_save, the byte that guards SetUpCountryForNewGame the other way. In a vanilla save the Soviet Union and France start with a manpower figure that leaves black soil's 10% out and gain manpower with it from the first day. What would show it wrong: a new game whose first figures include a resource."
+  },
+  {
+   "rva": "0xDEA50",
+   "kind": "instruction",
+   "name": "RebuildStaticModifiers_AddControlledProvinceModifiers",
+   "signature": null,
+   "no_signature": null,
+   "comment": "**A country's modifier takes in the whole modifier of every province it controls.** In CCountry::RebuildStaticModifiers, the loop 0x4DEA50..0x4DEB98 walks ControlledProvinces (+0xD00) and, for each, adds the province's CProvinceModifier (+0xFC) into the country's one modifier id at a time - `values[id] += provinceValues[id]` over all ([0x1A86198] - [0x1A86194]) / 4 ids - and records the province modifier in the contributor vector. So anything a province's modifier holds reaches its controller's, once for each province, the country-wide kinds included; the local kinds come along too and are read by nothing at country level. **This is not how a strategic resource reaches a country**: that is step 9 of the rebuild, from the levels UpdateStrategicResources keeps. The same loop then tests, for a country at war, whether a province flagged at +0x36C that it owns is in its capital's area; what that is for was not read.",
+   "confidence": "confirmed",
+   "revises": "The comment said this was likely how a strategic resource reaches a country. It is not; the resource has its own step. Everything else is unchanged.",
+   "evidence": "`mov ebx,[ebx+0xd00]` at 0x4DEA50; `mov ebx,[edx+ecx*4]; ... add ebx,0xfc` at 0x4DEB00..0x4DEB10; the loop at 0x4DEB20..0x4DEB3A; `call 0x86cc20` at 0x4DEB4B. [esp+0x10] is set at 0x4DDDFA to country + 0xD90. What would show it wrong: a second write to [esp+0x10] between the two, which a search of the listing does not find."
+  },
+  {
+   "rva": "0x168640C",
+   "kind": "global",
+   "name": "g_strategic_resources",
+   "signature": null,
+   "no_signature": null,
+   "comment": "The strategic_resources.txt database, the object GetStrategicResources answers: the same 0x1C-byte container the other name databases use, with the CStrategicResource* vector at +0xC..+0x10 in index order. CCountry::RebuildStaticModifiers and the country reset at 0x4D2B60 both build it lazily when it is null.",
+   "confidence": "confirmed",
+   "type": "void*",
+   "evidence": "`mov eax,[0x1a8640c]` at 0x4DE6C4 followed by the lazy construction (operator new(0x1C), 0x1FF buckets) and `lea ecx,[eax+0xc]`; the entries copied from it at 0x4DE7CF carry vftable 0x15BC87C. What would show it wrong: GetStrategicResources returning a different global."
+  },
+  {
+   "rva": "0x16861E0",
+   "kind": "global",
+   "name": "g_triggered_modifiers",
+   "signature": null,
+   "no_signature": null,
+   "comment": "The triggered_modifiers.txt database: the 0x1C-byte name-database container, with the CTriggeredModifier* vector at +0xC..+0x10 in file order. UpdateTriggeredModifiers walks it; 0x45BCD0 is its accessor and 0x45C4B0 installs it.",
+   "confidence": "confirmed",
+   "type": "void*",
+   "evidence": "`cmp [0x1a861e0],ebx` and the lazy build at 0x4D80A2..0x4D80D1; `mov ecx,[0x1a861e0]; mov eax,[ecx+0x10]; sub eax,[ecx+0xc]` at 0x4D80D6; each entry is handed to CTriggeredModifier::AppliesTo, which reads its +0x48 and +0x88. What would show it wrong: the entries not being CTriggeredModifier."
+  }
+ ],
+ "structs": [
+  {
+   "name": "CStrategicResource",
+   "size": "0x50",
+   "inherits": "CModifier",
+   "vftable_rva": "0x11BC87C",
+   "comment": "One entry of common/strategic_resources.txt: a CModifier with its key and its index. CCountry::RebuildStaticModifiers copies one field for field at 0x4DE7AB..0x4DE85D - new(0x50), the CModifier part, then +0x2C, the string at +0x30 and +0x4C - before scaling the copy.",
+   "evidence": "The RTTI export gives CStrategicResource one vftable at 0x15BC87C and CModifier as its only base at offset 0; `push 0x50; call operator new` at 0x4DE7AB and `mov dword ptr [esi],0x15bc87c` at 0x4DE82A. What would show it wrong: a field past +0x4C that the copy leaves out."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CStrategicResource",
+   "offset": "0x2C",
+   "name": "name_token",
+   "type": "int",
+   "comment": "Copied as a plain dword between the CModifier part and the key; the same place CLaw keeps its name's save token. That it is a token here too is inference.",
+   "evidence": "`mov ecx,[edi+0x2c]; mov [esi+0x2c],ecx` at VA 0x4DE830. What would show it wrong: its writer storing something else."
+  },
+  {
+   "struct": "CStrategicResource",
+   "offset": "0x30",
+   "name": "key",
+   "type": "Hoi3CString",
+   "comment": "The resource's key, `gold`, `black_soil`. The province save writes its strategic resource by this string.",
+   "evidence": "The copy at VA 0x4DE836..0x4DE852 builds an empty string at +0x30 and assigns the source's +0x30 to it. The record already says the entry 'carries its key as an Hoi3CString at +0x30'. What would show it wrong: a save writing a different string."
+  },
+  {
+   "struct": "CStrategicResource",
+   "offset": "0x4C",
+   "name": "index",
+   "type": "int",
+   "comment": "Its index in the database, 0 being the null entry. It is the subscript of a country's strategic_resource_levels and of the game state's strategic_resource_provinces.",
+   "evidence": "`mov esi,[esi+0x4c]; shl esi,4; add esi,[eax+0xf4]` at VA 0x68BC54..0x68BC63, and the copy `mov eax,[edi+0x4c]; mov [esi+0x4c],eax` at 0x4DE857. What would show it wrong: the two arrays being indexed by something else."
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0x678",
+   "name": "strategic_resource_levels",
+   "type": "int*",
+   "comment": "**How much of each strategic resource the country has the use of**, thousandths, one int for each entry of the strategic-resource database, by index; end at +0x67C, capacity at +0x680. 1000 is a whole resource. UpdateStrategicResources raises an entry to the best efficiency any qualifying province gives and nothing lowers it; CCountry::RebuildStaticModifiers scales the resource's modifier by it.",
+   "evidence": "`mov ecx,[esi+0x678]; mov edx,[esp+0x10]; lea eax,[ecx+edx*4]; ... cmp ecx,[eax]; jle; mov [eax],ecx` at VA 0x68C377..0x68C38C; `mov eax,[eax+0x678]; ... cmp dword ptr [eax+ebx],0; jle` at 0x4DE797 and the multiply at 0x4DE876..0x4DE8C3. What would show it wrong: a writer the displacement scan missed."
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0x67C",
+   "name": "strategic_resource_levels_end",
+   "type": "int*",
+   "comment": "End of the vector whose begin is strategic_resource_levels at +0x678.",
+   "evidence": "`mov ecx,[ebx+0x67c]; sub ecx,[ebx+0x678]` at VA 0x4D2BE2 in the country reset, which sizes it to the database and zeroes it. What would show it wrong: the pair not being one vector."
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0x668",
+   "name": "strategic_resource_modifiers",
+   "type": "void*",
+   "comment": "Head of a list (tail +0x66C, count +0x670) of the scaled CStrategicResource copies the last CCountry::RebuildStaticModifiers made. The country owns them: each rebuild destroys the old ones first.",
+   "evidence": "The destroy loop at VA 0x4DE682..0x4DE6BE (slot 0 with 1, then free of the node) and the append at 0x4DE9E9..0x4DEA32. What would show it wrong: another reader treating the entries as something else."
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0x658",
+   "name": "triggered_modifiers",
+   "type": "void*",
+   "comment": "Head of the list (tail +0x65C, count +0x660) of the CTriggeredModifier* that currently apply to the country. UpdateTriggeredModifiers is its only writer; CCountry::RebuildStaticModifiers adds each one.",
+   "evidence": "`mov eax,[eax+0x658]` and the `cmp [eax],ecx` walk at VA 0x4D8132; the append at 0x4D87D0..0x4D8814; `mov eax,[ecx+0x658]` at 0x4DF40E with each node's modifier added. What would show it wrong: the nodes holding something other than database entries."
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0x648",
+   "name": "active_modifiers",
+   "type": "CList",
+   "comment": "**The event modifiers on the country**, a list: what `add_country_modifier` gives and the save writes as `modifier = { modifier = ... date = ... }`. Each entry has the modifier at +8 and a date at +0xC. CCountry::RebuildStaticModifiers adds every entry's modifier, and first removes one whose date is before today - unless the date is in year 1 or earlier, which is how one with no end is written (`1.1.1`).",
+   "revises": "The comment was 'the modifiers on the country, a list'. It now says which modifiers, what an entry holds and how one expires. Name and type are unchanged.",
+   "evidence": "0x4DF31C..0x4DF405: `mov edi,[eax]; mov eax,[edi+0xc]; cmp [esp+0x24],eax; jle` to the add; the year of the date through the double 365.0 and `cmp eax,1; jle` to the add; otherwise CList_RemoveNode and slot 0 with 1. `mov ebx,[edi+8]` is what is added. A vanilla save writes the United States' New Deal with date 1.1.1.0. What would show it wrong: a dated modifier outliving its date."
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0x700",
+   "name": "unfilled_modifier",
+   "type": "CModifier",
+   "comment": "A CModifier embedded in the country that CCountry::RebuildStaticModifiers adds whole, between the neutrality modifier and the event modifiers. **Nothing was found that fills it**: a scan for `lea reg,[reg+0x700]` and `add reg,0x700` gives the constructor, the destructor and that one add. Likely always empty.",
+   "evidence": "`add ebx,0x700` at VA 0x4DF252 and the add loop after it; `lea eax,[ebx+0x700]` in CCountry::CCountry at 0x4C8E77. What would show it wrong: a writer reaching it through a pointer the scan cannot see."
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0xAD4",
+   "name": "war_exhaustion_modifier",
+   "type": "CStaticModifier",
+   "comment": "The country's own copy of static_modifiers.txt's `war_exhaustion`, every value scaled by war_exhaustion (+0xAD0) / 1000 on each rebuild. 0x48 bytes.",
+   "evidence": "`lea ebx,[edi+0xad4]`, the value copy 0x45A020, the name assign into +0x2C and the scale 0x45A080 by [edi+0xad0] at VA 0x4DEF1F..0x4DEF4D. What would show it wrong: the next field starting before +0xB1C."
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0xB1C",
+   "name": "dissent_modifier",
+   "type": "CStaticModifier",
+   "comment": "The country's own copy of static_modifiers.txt's `dissent`, every value scaled by dissent (+0x10B4) / 1000 on each rebuild - so the file's figures are for one point of dissent. 0x48 bytes.",
+   "evidence": "`lea ebx,[edi+0xb1c]`, 0x45A020, and 0x45A080 by [edi+0x10b4] at VA 0x4DF025..0x4DF053. What would show it wrong: +0x10B4 not being dissent."
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0xB64",
+   "name": "neutrality_modifier",
+   "type": "CStaticModifier",
+   "comment": "The country's own copy of static_modifiers.txt's `neutrality`, every value scaled by effective neutrality / 100 on each rebuild. 0x48 bytes; the units list at +0xBAC follows it.",
+   "evidence": "`lea ebx,[esi+0xb64]`, 0x45A020, the factor max(neutrality - threat, 0) * 1000 / 100000 and 0x45A080 at VA 0x4DF125..0x4DF1F2. What would show it wrong: the float at 0x160A718 not being 100000.5."
+  },
+  {
+   "struct": "CMinisterType",
+   "offset": "0x50",
+   "name": "decay",
+   "type": "int*",
+   "comment": "**The `decay = { category = x }` of minister_types.txt**: an int array in thousandths indexed by technology category. CCountry::RebuildStaticModifiers adds it into the country's tech_decay_modifier for the type each sitting minister has in his post, so a minister changes how fast the country's theories and practicals decay, category by category.",
+   "evidence": "`mov eax,[eax+0x50]; mov edx,[eax+edi*4]; mov eax,[ebx+0x1174]; add [eax+edi*4],edx` at VA 0x4DE36F..0x4DE37B, with eax the type found for the post or the shared noMinisterType. In two pairs of vanilla saves a month apart, 140 more ability figures match the monthly decay once this is counted. What would show it wrong: the loader filling +0x50 from another key."
+  },
+  {
+   "struct": "CGameState",
+   "offset": "0xF4",
+   "name": "strategic_resource_provinces",
+   "type": "void*",
+   "comment": "Begin of a vector (end +0xF8) of 16-byte elements, one for each strategic resource by index, each a vector of the provinces that have that resource (begin at +0, end at +4). RebuildStrategicResourceProvinces fills it; UpdateStrategicResources walks it from index 1.",
+   "evidence": "`mov edx,[edi+0xf4]; mov eax,[edi+0xf8]; sub eax,edx; and eax,0xfffffff0` at VA 0x68C1CB and the element reads `[edx+eax]`, `[edx+eax+4]`; `shl esi,4; add esi,[eax+0xf4]` at 0x68BC60. What would show it wrong: the element being wider than its begin and end."
+  },
+  {
+   "struct": "CGameState",
+   "offset": "0x104",
+   "name": "player_strategic_resource_provinces",
+   "type": "void*",
+   "comment": "Head of a list (tail +0x108, count +0x10C) of the provinces whose strategic resource the player's country has the use of. UpdateStrategicResources clears and refills it.",
+   "evidence": "The free loop at VA 0x68C196..0x68C1C5 and the append at 0x68C39C..0x68C3E2, taken only when `[edi+0xc34]` - the id half of `player` at +0xC30 - equals the country's id. What would show it wrong: +0xC34 not being the player's id."
+  },
+  {
+   "struct": "CCurrentGameState",
+   "offset": "0xF4",
+   "name": "strategic_resource_provinces",
+   "type": "void*",
+   "comment": "Begin of a vector (end +0xF8) of 16-byte elements, one for each strategic resource by index, each a vector of the provinces that have that resource (begin at +0, end at +4). RebuildStrategicResourceProvinces fills it; UpdateStrategicResources walks it from index 1. CCurrentGameState derives from CGameState and adds nothing at this offset; both carry it because Ghidra has no inheritance between the two.",
+   "evidence": "`mov edx,[edi+0xf4]; mov eax,[edi+0xf8]; sub eax,edx; and eax,0xfffffff0` at VA 0x68C1CB and the element reads `[edx+eax]`, `[edx+eax+4]`; `shl esi,4; add esi,[eax+0xf4]` at 0x68BC60. What would show it wrong: the element being wider than its begin and end."
+  },
+  {
+   "struct": "CCurrentGameState",
+   "offset": "0x104",
+   "name": "player_strategic_resource_provinces",
+   "type": "void*",
+   "comment": "Head of a list (tail +0x108, count +0x10C) of the provinces whose strategic resource the player's country has the use of. UpdateStrategicResources clears and refills it. CCurrentGameState derives from CGameState and adds nothing at this offset; both carry it because Ghidra has no inheritance between the two.",
+   "evidence": "The free loop at VA 0x68C196..0x68C1C5 and the append at 0x68C39C..0x68C3E2, taken only when `[edi+0xc34]` - the id half of `player` at +0xC30 - equals the country's id. What would show it wrong: +0xC34 not being the player's id."
+  }
+ ],
+ "frontier": [
+  {
+   "rva": "0xF7160",
+   "why": "the test for the fractured_government static modifier, unread"
+  },
+  {
+   "rva": "0xDD8D0",
+   "why": "the first helper of RunCountryDailyPass, before UpdateTriggeredModifiers; unread"
+  },
+  {
+   "rva": "0x5BD930",
+   "why": "holds the fifth call of RebuildStrategicResourceProvinces (0x9BDA53), unread"
+  },
+  {
+   "rva": "0x3FEDD0",
+   "why": "reads strategic_resource_levels at 0x7FF0AF, probably to show them; unread"
+  }
+ ],
+ "notes": [
+  "FINDINGS-manpowergain.md guessed a strategic resource reached a country through its province's modifier. It does not: it has its own step, scaled by a level UpdateStrategicResources keeps.",
+  "Province modifier entry 105, whose definition key duplicates NAVAL_INTEL_BOOST, is added to a province's strategic resource efficiency. Which script key writes it was not established.",
+  "CMap +0x2A5C is an object with a vector at +0x34..+0x38 of entries that each hold a vector of province ids at +8..+0xC; unnamed here."
+ ]
+}

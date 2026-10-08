@@ -3401,9 +3401,11 @@
    "rva": "0xDDD80",
    "kind": "function",
    "name": "CCountry::RebuildStaticModifiers",
-   "comment": "**Only its espionage arm was read**, so the name is inference from that arm's shape. At 0x4DEE44..0x4DEE9B it walks every country with provinces, takes `other->espionage[this->tagId]` - THEIR spies in ME - and where the level is positive calls 0x530340 to fold the spy_lower_national_unity / spy_raise_national_unity modifiers into an accumulator; it then goes on to the modifier-definition registry at 0x1A86208 and more the same shape. That is why CDistributeEspionage::Distribute calls it after every single spy it places (0x51F11D) and why the production queue calls it on a completion. FINDINGS-production.md lists it as 'not read'; the rest of the body still is.",
-   "confidence": "likely",
-   "source": "reversing/findings/FINDINGS-espionage.md"
+   "signature": "void __stdcall CCountry::RebuildStaticModifiers(CCountry* country)",
+   "no_signature": null,
+   "comment": "**Rebuilds a country's modifier (global_modifier, +0xD90) from nothing.** One stack argument, `ret 4` at 0x4DF97D; the two jump tables for the difficulty switch follow it at 0x4DF980 and 0x4DF994. Read through. Every step adds a whole CModifier's values, id by id, and records it in the country modifier's contributor vector (+8..+0x10). In order:\n\n1. clear (0x4595C0);\n2. `base_values`, static slot +0x64;\n3. the faction's own modifier (CFaction +0x7C), when faction (+0xD8) answers slot 7 true;\n4. zero tech_decay_modifier (+0x1174) for every technology category;\n5. **ministers** (+0x618): for each cabinet post i whose minister answers slot 8 true, the minister type he has for that post - found by walking his postings (CMinister +0x5C) for the i-th government position, with the shared `noMinisterType` (0x1A855C0) when he has none - is added, and that type's decay array (CMinisterType +0x50) is added into tech_decay_modifier category by category;\n6. technology_status->tech_decay_by_category (+0x1F8) into tech_decay_modifier;\n7. **laws** (+0x628): each that answers slot 16 true;\n8. the **government** (+0xDFC), which is a CModifier;\n9. **strategic resources**: the owned list at +0x668 is destroyed, then for each resource r with strategic_resource_levels (+0x678)[r] above 0 a copy of the CStrategicResource is made, every value multiplied by that level / 1000, added, and kept in +0x668;\n10. the **modifier of every controlled province** (0x4DEA50);\n11. static `war` (+0x50) when at_war, otherwise `peace` (+0x54);\n12. CSpyPresence::ApplyUnityModifiers for every country with provinces whose spies in this one are above 0;\n13. static `war_exhaustion` (+0x58) copied into the country's own CStaticModifier at +0xAD4 and scaled by war_exhaustion (+0xAD0) / 1000;\n14. static `dissent` (+0xA8) copied into +0xB1C and scaled by dissent (+0x10B4) / 1000;\n15. static `neutrality` (+0xAC) copied into +0xB64 and scaled by effective neutrality - neutrality (+0xA8C) less the threat from highest_threat_id, floored at 0 - over 100000, the float 100000.5 floored;\n16. the CModifier embedded at +0x700;\n17. **event modifiers**, active_modifiers (+0x648): an entry whose date (+0xC) is before today and later than year 1 is removed and deleted; otherwise its modifier (+8) is added;\n18. **triggered modifiers**, the list at +0x658 that UpdateTriggeredModifiers keeps;\n19. for a subject (isSubject, +0xF34) that is in no real faction and whose overlord is: FindStaticModifierByName(overlord's faction) - its `align_towards_*` - unless active_modifiers already holds it;\n20. **difficulty**: by gamestate->difficulty (+0xC98), `very_easy_player` / `easy_player` / nothing / `hard_player` / `very_hard_player` (+0x70, +0x74, +0x78, +0x7C) for a country in played_countries_array, and the four `_ai` slots (+0x80..+0x8C) for one that is not;\n21. static `government_in_exile` (+0xB4) when government_in_exile (+0x95);\n22. static `fractured_government` (+0xB8) when 0x4F7160(country) answers true.\n\n**An ideology is not added, and technology is not in it at all.** 23 direct callers.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countrymodifier.md"
   },
   {
    "rva": "0xDE3ED",
@@ -4134,11 +4136,12 @@
   {
    "rva": "0x11A440",
    "kind": "function",
-   "name": "CDistributeProduction::GetICForShare",
-   "comment": "**Slot 2.** Turns a share into an amount of industrial capacity: the country's TotalIC (CCountry +0x604) shifted into fpml::fixed_point<__int64,48,15> and multiplied by the 64-bit share argument. Only read as far as the multiply; the name is ours and the argument count is taken from the two dwords it reads at [ebp+0xC] and [ebp+0x10].",
-   "confidence": "likely",
-   "source": "reversing/findings/FINDINGS-production.md",
-   "signature": "CFixedPoint* __thiscall CDistributeProduction::GetICForShare(CDistributeProduction* this, CFixedPoint* out, __int64 share@stack:8)"
+   "name": "CDistributeProduction::GetValueColour",
+   "signature": "Hoi3CString* __thiscall CDistributeProduction::GetValueColour(CDistributeProduction* this, Hoi3CString* out, __int64 share)",
+   "no_signature": null,
+   "comment": "**Slot 2: the colour of the slider's `value` line.** A std::string of two characters: the escape for red (a7 52, 0x15B5C58) when the need is greater than what the share gives, both cut to the hundredth, and for white (a7 57, 0x15B6700) otherwise. `ret 0xC`: the out string and the share, a 48.15 fixed point in two dwords. CEconomySlider::Update puts the figure after it. Here the share is turned into IC - TotalIC (+0x604) times the share - and compared with the need at +0x20. **Renamed 2026-10-08 from GetICForShare**, which was read only as far as that multiply and recorded as returning a CFixedPoint; it returns the string. See reversing/findings/FINDINGS-countryviews.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
   },
   {
    "rva": "0x11A9A0",
@@ -4198,12 +4201,12 @@
   {
    "rva": "0x11CAD0",
    "kind": "function",
-   "name": "CDistributeReinforcement::GetNeedTooltip",
-   "signature": "Hoi3CString* __thiscall CDistributeReinforcement::GetNeedTooltip(CDistributeReinforcement* this, Hoi3CString* out)",
+   "name": "CDistributeReinforcement::GetNeeded",
+   "signature": "__int64* __thiscall CDistributeReinforcement::GetNeeded(CDistributeReinforcement* this, __int64* out)",
    "no_signature": null,
-   "comment": "**Slot 3**, not slot 1 - the slot is not stable across the distributor family. One of the five SLIDER_NEED bodies found by following that key's five references: CDistributeProduction slot 1 (0x11A300), this at slot 3, CDistributeUpgrade slot 3 (0x11DBB0), CDistributeDiplomacy slot 1 (0x11E8E0), and 0x121480 at slot 1 of CDistributeConsumerGoods, CDistributeResearch and CDistributeSupply together. `ret 0xC`. A BiceLib hook that assumed one slot index for the family would call the wrong virtual on two of them. See reversing/findings/FINDINGS-uinumbers.md. Signature corrected 2026-10-02 by the signature audit (reversing/findings/FINDINGS-sigaudit.md).",
+   "comment": "**Slot 3: the slider's need**, a 48.15 fixed point written as two dwords through the out pointer; `ret 4`. Reinforcement's is the country's reinforcement_cost (+0xA98), thousandths shifted thirty and divided by 0x1F40000. **Renamed 2026-10-08 from GetNeedTooltip**: this was recorded as a slot 3 body that builds from SLIDER_NEED and returns with `ret 0xC`, which is the function two bytes of padding after it, 0x11CB00, at slot 1. See reversing/findings/FINDINGS-countryviews.md, section 3.",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-uinumbers.md"
+   "source": "reversing/findings/FINDINGS-countryviews.md"
   },
   {
    "rva": "0x11CE60",
@@ -4217,12 +4220,12 @@
   {
    "rva": "0x11DBB0",
    "kind": "function",
-   "name": "CDistributeUpgrade::GetNeedTooltip",
-   "signature": "Hoi3CString* __thiscall CDistributeUpgrade::GetNeedTooltip(CDistributeUpgrade* this, Hoi3CString* out)",
+   "name": "CDistributeUpgrade::GetNeeded",
+   "signature": "__int64* __thiscall CDistributeUpgrade::GetNeeded(CDistributeUpgrade* this, __int64* out)",
    "no_signature": null,
-   "comment": "**Slot 3** of CDistributeUpgrade, `ret 0xC`, builds from SLIDER_NEED. See the family table in reversing/findings/FINDINGS-uinumbers.md. Signature corrected 2026-10-02 by the signature audit (reversing/findings/FINDINGS-sigaudit.md).",
+   "comment": "**Slot 3: the slider's need**, a 48.15 fixed point written as two dwords through the out pointer; `ret 4`. Upgrade's is the country's upgrade_cost (+0xAA4). **Renamed 2026-10-08 from GetNeedTooltip**, for the reason given on CDistributeReinforcement::GetNeeded: the SLIDER_NEED body is 0x11DBE0, slot 1.",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-uinumbers.md"
+   "source": "reversing/findings/FINDINGS-countryviews.md"
   },
   {
    "rva": "0x11DF40",
@@ -22743,9 +22746,9 @@
    "name": "RebuildStaticModifiers_AddControlledProvinceModifiers",
    "signature": null,
    "no_signature": null,
-   "comment": "**A country's modifier takes in the whole modifier of every province it controls.** In CCountry::RebuildStaticModifiers, the loop 0x4DEA50..0x4DEB98 walks ControlledProvinces (+0xD00) and, for each, adds the province's CProvinceModifier (+0xFC) into the country's accumulator one modifier id at a time - `values[id] += provinceValues[id]` over all ([0x1A86198] - [0x1A86194]) / 4 ids - and records the province modifier in the accumulator's contributor vector. So anything a province's modifier holds reaches its controller's, once for each province, the country-wide kinds included; the local kinds come along too and are read by nothing at country level. **Likely this is how a strategic resource reaches a country**, but where a resource's modifier joins a province's was not found: RebuildProvinceModifierValues was not seen to read it. The same loop then tests, for a country at war, whether a province flagged at +0x36C that it owns is in its capital's area; what that is for was not read.",
+   "comment": "**A country's modifier takes in the whole modifier of every province it controls.** In CCountry::RebuildStaticModifiers, the loop 0x4DEA50..0x4DEB98 walks ControlledProvinces (+0xD00) and, for each, adds the province's CProvinceModifier (+0xFC) into the country's one modifier id at a time - `values[id] += provinceValues[id]` over all ([0x1A86198] - [0x1A86194]) / 4 ids - and records the province modifier in the contributor vector. So anything a province's modifier holds reaches its controller's, once for each province, the country-wide kinds included; the local kinds come along too and are read by nothing at country level. **This is not how a strategic resource reaches a country**: that is step 9 of the rebuild, from the levels UpdateStrategicResources keeps. The same loop then tests, for a country at war, whether a province flagged at +0x36C that it owns is in its capital's area; what that is for was not read.",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-manpowergain.md"
+   "source": "reversing/findings/FINDINGS-countrymodifier.md"
   },
   {
    "rva": "0xE1FC0",
@@ -22756,6 +22759,996 @@
    "comment": "**Works out CCountry +0xBD4, the share of a country's home ports that are cut off.** One stack argument, `ret 4` at 0x4E216B. It walks OwnedProvinces (+0xCF0) and counts each that is in the acting capital's area (+0x2B4) or on its continent (+0x368), has an owner, a map port (+0x354) and a naval base (+0x300) whose level (+0x20) is above 0. Of those it counts again the ones whose byte at +0x36C is set or whose owner is not their controller. +0xBD4 = second count * 1000 / first, or 0 with no such port. **That +0x36C is a blockaded flag is inference** from this use and from CBlockadeTrigger reading the result. Three callers: CCountry::UpdateMonthly at 0x4DCBAA, straight after UpdateMaxManpower; CInGameIdler::Enter at 0x65B2CB; and 0x4A6745 in 0x4A65E0, unread. The name is ours.",
    "confidence": "inferred",
    "source": "reversing/findings/FINDINGS-manpowergain.md"
+  },
+  {
+   "rva": "0xD8070",
+   "kind": "function",
+   "name": "UpdateTriggeredModifiers",
+   "signature": "void __stdcall UpdateTriggeredModifiers(CCountry* country)",
+   "no_signature": null,
+   "comment": "**Decides which of triggered_modifiers.txt apply to a country.** One stack argument, `ret 4` at 0x4D8EAC; most of its 0xE3C bytes are the two messages it raises. It does nothing for country id 0. For every entry of the triggered-modifier database (0x1A861E0, the vector at +0xC..+0x10) in file order, where CTriggeredModifier::AppliesTo answers true and the country's list at +0x658 does not already hold it, it is appended (tail +0x65C, count +0x660) - with a message when the country is the player's, gamestate +0xC34. Then every entry of the list for which AppliesTo now answers false is removed, again with a message for the player. CCountry::RebuildStaticModifiers adds whatever the list holds. Two callers, both immediately before RebuildStaticModifiers: RunCountryDailyPass at 0x4DA5DD and CInGameIdler::Enter at 0x65B2A6. So **a triggered modifier is tested once a day for every country, and switches on or off that day.** The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countrymodifier.md"
+  },
+  {
+   "rva": "0x5BC00",
+   "kind": "function",
+   "name": "CTriggeredModifier::AppliesTo",
+   "signature": "bool __stdcall CTriggeredModifier::AppliesTo(CTriggeredModifier* this@ESI, CCountryTag country@stack:4) @AL",
+   "no_signature": null,
+   "comment": "**Whether a triggered modifier applies to a country: its `potential` and then its `trigger`, both true.** The modifier in ESI, the country's tag by value on the stack (letters and id), `ret 8` at 0x45BC96. It builds a country scope on the stack - vftable 0x15B8AEC, the tag at +0x10/+0x14 - and calls slot 6 of the CAndTrigger at this+0x48 and, if that is true, slot 6 of the one at this+0x88. Two callers, both in UpdateTriggeredModifiers. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countrymodifier.md"
+  },
+  {
+   "rva": "0x28C190",
+   "kind": "function",
+   "name": "UpdateStrategicResources",
+   "signature": "void UpdateStrategicResources(CGameState* state@EDI)",
+   "no_signature": null,
+   "comment": "**Works out how much of each strategic resource every country has the use of.** The game state in EDI, nothing on the stack, bare `ret` at 0x68C448. It clears the list at state +0x104, then for each resource r from 1 and each province in strategic_resource_provinces[r] (state +0xF4):\n\n    infra      = values[INFRASTRUCTURE] * (1000 + values[LOCAL_INFRASTRUCTURE] + values[GLOBAL_INFRASTRUCTURE]) / 1000\n    infra      = min(max(infra, 10), 1000)\n    efficiency = max(infra * 1000 / province->MaxInfrastructure (+0x5C) + values[105], 0)\n\nwith -1 for the quotient when MaxInfrastructure is 0, the values being the province's own modifier, and 10 the float 10.5 floored. Then for **every** country that owns a province and for which CCountry::GetsStrategicResourcesFrom(country, state, the province's controller) is true: country->strategic_resource_levels[r] = max(what it holds, efficiency). The province is also appended to state +0x104 when that country is the player.\n\n**The one place that writes a level only raises it** (0x68C388), and a scan finds nothing else that writes one: every instruction that reaches the array through its displacement is the constructor's zero fill, the zeroing in the country reset at 0x4D2B60, the destructor, a read, or this. The reset's callers are the constructor and CGameState::ResetSession (0x67BDFC), for every country. So, **by the scan, a country that loses the province keeps the resource at the best level it had until the session is reset.** Two things were not done: a writer handed the array some other way would not show in such a scan, and none of this has been watched in a running game - no save examined has a resource province changing hands. Whether loading a save goes through the reset was not traced either; a save does not store the levels, so they are recomputed from whatever the country object then holds. Four callers: the top of RunDailyPass (0x682C58); RebuildEventCandidatesAndDailyCaches (0x682566) and CGameState::LoadFromSave (0x67CF9D), each straight after RebuildStrategicResourceProvinces; and CInGameIdler::Enter (0x65B076) - but there only for a game loaded from a save. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countrymodifier.md"
+  },
+  {
+   "rva": "0x28BEF0",
+   "kind": "function",
+   "name": "CCountry::GetsStrategicResourcesFrom",
+   "signature": "bool __thiscall CCountry::GetsStrategicResourcesFrom(CCountry* this, CGameState* state, CCountry* holder) @AL",
+   "no_signature": null,
+   "comment": "**Whether this country is given the strategic resources another one holds.** `this` in ECX, two stack arguments, `ret 8` at 0x68C16F. True at once when the two are the same country. False when holder's diplomacy status towards it has `war` (+0x20) set. Then one of two roads has to hold:\n\n- this country is_major (+0x15C) **or** has max_ic (+0x60C) above 100, its faction is a real one (slot 7), and the holder is in the same faction;\n- or: this country's faction is real, this country is the **first of its Members** - its leader - the holder is **not** in it, this country is at_war, and CAlignment::IsWithinFactionStratBonusDistance(holder's alignment, the faction).\n\nAnd then a link: the two acting capitals are on continents of the same name - or, failing that, both countries have a naval base bordering a sea province of the same entry of the object at CMap +0x2A5C (CollectSeaNeighboursOfNavalBases and MarkRegionsTouched; false when that object is null). What that object's entries are was not established. One caller, UpdateStrategicResources. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countrymodifier.md"
+  },
+  {
+   "rva": "0x28BB90",
+   "kind": "function",
+   "name": "RebuildStrategicResourceProvinces",
+   "signature": "void __stdcall RebuildStrategicResourceProvinces(CGameState* state)",
+   "no_signature": null,
+   "comment": "Rebuilds strategic_resource_provinces (state +0xF4): empties each resource's vector, then appends every province whose strategic_resource (+0x18) answers slot 14 true to the vector at that resource's index (CStrategicResource +0x4C). One stack argument, `ret 4` at 0x68BD43. Five callers: RebuildEventCandidatesAndDailyCaches (0x682561), CGameState::LoadFromSave twice (0x67CEC6, 0x67CF96), CInGameIdler::Enter (0x65C803) and 0x9BDA53. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countrymodifier.md"
+  },
+  {
+   "rva": "0x28BD60",
+   "kind": "function",
+   "name": "CollectSeaNeighboursOfNavalBases",
+   "signature": "void CollectSeaNeighboursOfNavalBases(CCountry* country@EAX, void* out@ECX, CGameState* state@stack:4)",
+   "no_signature": null,
+   "comment": "For every province in the country's NavalBases (+0xD80) and every edge of its template (+0x90..+0x94, 20 bytes each, the neighbour's id at +4), appends the neighbour to the vector in ECX when the neighbour's template is not is_land (+0x22). `ret 4` at 0x68BEE2. Two callers, both in CCountry::GetsStrategicResourcesFrom. The name is ours.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-countrymodifier.md"
+  },
+  {
+   "rva": "0x2EBD0",
+   "kind": "function",
+   "name": "MarkRegionsTouched",
+   "signature": "void MarkRegionsTouched(void* regions@ECX, int* out@EDX, void* provinces@stack:4)",
+   "no_signature": null,
+   "comment": "For each entry k of the vector at regions +0x34..+0x38, sets out[k] to 1 when any id in the entry's own vector (+8..+0xC) is the id (+0xD0) of a province in the given vector. `ret 4` at 0x42EC6F. CCountry::GetsStrategicResourcesFrom calls it twice on the object at CMap +0x2A5C, once for each country's sea provinces, and answers true when some k is set in both. **What the entries are - sea regions is the natural reading - was not established**; the name is ours.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-countrymodifier.md"
+  },
+  {
+   "rva": "0x282C58",
+   "kind": "instruction",
+   "name": "RunDailyPass_UpdateStrategicResources",
+   "signature": null,
+   "no_signature": null,
+   "comment": "**The first thing a day does**: `call UpdateStrategicResources` at the top of RunDailyPass, skipped only when gamestate->scenario (+0xD0C) is set and its byte at +0x118 is clear. So strategic resources are worked out before any country's daily pass and therefore before CCountry::RebuildStaticModifiers reads the levels. **`image.functionStart` answers RunHourlyPass (0x682630) for this address**: RunDailyPass starts at 0x682C20 straight after RunHourlyPass's `ret 4`, with no padding (trap 2).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countrymodifier.md"
+  },
+  {
+   "rva": "0x25B06B",
+   "kind": "instruction",
+   "name": "CInGameIdler_Enter_StrategicResourcesOnlyOnLoad",
+   "signature": null,
+   "no_signature": null,
+   "comment": "`cmp byte ptr [gamestate+0xd9c],0; je` over the call of UpdateStrategicResources at 0x65B076: **entering a new game does not work out strategic resources**; only entering a loaded one does. So when SetUpCountryForNewGame runs, further down the same function, every country's strategic_resource_levels are still 0, and the starting manpower it takes from max_manpower is worked out without them. They first appear at the top of the first daily pass.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countrymodifier.md"
+  },
+  {
+   "rva": "0x168640C",
+   "kind": "global",
+   "name": "g_strategic_resources",
+   "signature": null,
+   "no_signature": null,
+   "comment": "The strategic_resources.txt database, the object GetStrategicResources answers: the same 0x1C-byte container the other name databases use, with the CStrategicResource* vector at +0xC..+0x10 in index order. CCountry::RebuildStaticModifiers and the country reset at 0x4D2B60 both build it lazily when it is null.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countrymodifier.md"
+  },
+  {
+   "rva": "0x16861E0",
+   "kind": "global",
+   "name": "g_triggered_modifiers",
+   "signature": null,
+   "no_signature": null,
+   "comment": "The triggered_modifiers.txt database: the 0x1C-byte name-database container, with the CTriggeredModifier* vector at +0xC..+0x10 in file order. UpdateTriggeredModifiers walks it; 0x45BCD0 is its accessor and 0x45C4B0 installs it.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countrymodifier.md"
+  },
+  {
+   "rva": "0x2C9FA0",
+   "kind": "function",
+   "name": "CTopBar::Update",
+   "signature": "void __thiscall CTopBar::Update(CTopBar* this)",
+   "no_signature": null,
+   "comment": "**Slot 4 of CTopBar: fills the bar.** Bare `ret` at 0x6CB918. For the played country (idler slot 23 for the tag) it sets, each through the window's slot 14 by name and GuiObject_textBoxType::SetText: the seven resources by CTopBar::FormatGoodsNumber - energy 5, metal 4, raremat 6, oil 3, fuel 1, supplies 0, money 2, with fuel and supplies replaced by '-' for a government in exile; `ic_number` as `{colour}wasted/{colour}used/before-cap` from GetAvailableIC, +0x604 and +0x60C, red when wasted > 0 and when +0x60C > +0x604; `DateText` from the literal 'h :00 w d , w mw w y', only when the tick has changed; `dissent_number` coloured by the sign of GetDissentChange, one decimal above 1.000 and two below; `national_unity_number` coloured by the sign of the three strat impacts plus modifier 44, no decimals and a '%'; `diplomacy_number` as the integer part of +0xA88, or 100 when the global at 0x1BEA410 is set - **its colour is computed and appended to the string national unity has already used, so it is never shown**; `manpower_number` from +0xBCC with no decimals; `leadership_number` as **the officer ratio** (+0xD4) times 100 with a '%', red under 500 and yellow under 900; `espionage_number` as spy_pool over 1000, '99+' above 99. Then the flag and CountryName when the country changed, and `speed_indicator`'s frame: 1 when paused, game_speed + 2 otherwise. With a scenario at game state +0xD0C it disables seven of the main buttons.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topbar.md"
+  },
+  {
+   "rva": "0x2CBBC0",
+   "kind": "function",
+   "name": "CTopBar::Build",
+   "signature": "void __thiscall CTopBar::Build(CTopBar* this)",
+   "no_signature": null,
+   "comment": "**Slot 0 of CTopBar: makes the window and wires its buttons.** Bare `ret` at 0x6CCB72. Creates the window 'topbar' through the gui and keeps it at +0x20; finds each button by name with the window's slot 13 and attaches an observer to its observable half at +0x48 (slot 1; slot 2 detaches): diplo +0x34, prod +0x60, tech +0x8C, politics +0xB8, intelligence +0xE4 - those five only while no tutorial runs - theatre +0x110, menubutton +0x13C, statistics +0x270, swm_open +0x29C, speeddown +0x2C8, speedup +0x320, outlinerbutton +0x34C, and **one observer at +0x2F4 for both `speed_indicator` and `pause_bg`**. Rebuilds the object at +0x378, makes the one at +0x380 if absent, sets `pause_bg` to frame 1 with the tooltip PAUSE_RESUME when paused and frame 2 with FE_PAUSED_TEXT when not. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topbar.md"
+  },
+  {
+   "rva": "0x2C9C90",
+   "kind": "function",
+   "name": "CTopBar::Show",
+   "signature": "void __thiscall CTopBar::Show(CTopBar* this)",
+   "no_signature": null,
+   "comment": "Slot 2 of CTopBar, thirty bytes: when there is a window at +0x20, calls slot 13 of its CGuiObject subobject at +0x18 - Show, the neighbour of the Hide that CFixedWindow::Hide calls on children at slot 14 - and then CTopBar::SyncOutliner.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topbar.md"
+  },
+  {
+   "rva": "0x2C9CB0",
+   "kind": "function",
+   "name": "CTopBar::FormatGoodsNumber",
+   "signature": "Hoi3CString* __stdcall CTopBar::FormatGoodsNumber(int goods@ECX, CTopBar* topBar@stack:4, Hoi3CString* out@stack:8) @EAX",
+   "no_signature": null,
+   "comment": "**One resource of the top bar as text: a colour escape and the stockpile.** `ret 8`, goods in ECX. out = sent_to - repaid_away - tribute_sent + usage + conversion_used + convoyed_out + traded_away; in = home_produced (+ convoyed_in unless goods is 0 or 1) + sent_back + the pool at +0xA64 + income_from_debt + conversion_made + tribute_received. **Red when out > in + traded_for, green when out < CCountry::GetDailyIncome, yellow otherwise.** The number is the country's stockpile - pool_in_exile for a government in exile, else the acting capital's pool at +0x15C - through FormatFixedPoint with no decimals; above 99999000 it is divided by a thousand first and given a 'K'.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topbar.md"
+  },
+  {
+   "rva": "0x2CB920",
+   "kind": "function",
+   "name": "CTopBar::SyncOutliner",
+   "signature": "void __stdcall CTopBar::SyncOutliner(CTopBar* topBar@EDI)",
+   "no_signature": null,
+   "comment": "Called at the end of CTopBar::Show and from CTopBar::Update. The top bar arrives in EDI. With an object at +0x378 it asks it a yes/no (0x6A7D60), consults what the idler holds at +0xCFC/+0xD00 and +0x1CE0, and shows or hides `topbar_outlinerbutton`, setting and clearing the byte at +0x37C around 0x6CFEA0. **Likely** keeps the outliner button in step with whether the outliner may be shown; the callees were not read and the name is a guess at that.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-topbar.md"
+  },
+  {
+   "rva": "0x2C9530",
+   "kind": "function",
+   "name": "CTopBar::CTopBar",
+   "signature": null,
+   "no_signature": "the argument list was not read; the caller pushes after the allocation and the body was not decoded",
+   "comment": "The constructor: writes the vftable 0x15D2C90 at 0x6C95D4. One caller, 0x65D727, after `push 0x384; call operator new` at 0x65D705 - so a CTopBar is 0x384 bytes. Not read beyond that; it is where the thirteen button observers of CTopBar::Build get their handlers.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topbar.md"
+  },
+  {
+   "rva": "0x729CC0",
+   "kind": "function",
+   "name": "ParseGuiOrientation",
+   "signature": "int __stdcall ParseGuiOrientation(Hoi3CString* text@EDI) @EAX",
+   "no_signature": null,
+   "comment": "**The `orientation` keyword of a .gui element as a number**, compared exactly and case-sensitively: UPPER_LEFT 0, UPPER_RIGHT 1, LOWER_LEFT 2, LOWER_RIGHT 3, CENTER 4, CENTER_UP 5, CENTER_DOWN 6, and **anything else 0** - a misspelt orientation is silently the upper left. The string arrives in EDI; bare `ret`s. CWindowType::LoadKey's `orientation` case calls it. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topbar.md"
+  },
+  {
+   "rva": "0x687F30",
+   "kind": "function",
+   "name": "GuiObject_textBoxType::SetText",
+   "signature": "void __stdcall GuiObject_textBoxType::SetText(GuiObject_textBoxType* textBox@ESI, Hoi3CString* text@EDI)",
+   "no_signature": null,
+   "comment": "**Sets a text box's text.** The box in ESI, the string in EDI. Compares the string with the one at +0xD8 (0x4173C0) and returns when they are equal; otherwise assigns it and has the object at +0x4C lay it out again (slot 61), handing it the string, the font name at +0x70, the string at +0x8C, the words at +0xA8 and +0xAA and the fields at +0xAC, +0xB0, +0xC4 and +0xC8. What CTopBar::Update sets every figure through. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topbar.md"
+  },
+  {
+   "rva": "0x65AB40",
+   "kind": "function",
+   "name": "IntToString",
+   "signature": "Hoi3CString* __stdcall IntToString(int value@ECX, Hoi3CString* out@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "A plain int as decimal text: constructs the out string empty, `_itoa`s the value in ECX in radix 10 into a stack buffer and assigns it. `ret 4`. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topbar.md"
+  },
+  {
+   "rva": "0x32230",
+   "kind": "function",
+   "name": "std::string::constructCString",
+   "signature": "Hoi3CString* __thiscall std::string::constructCString(Hoi3CString* this, const char* text)",
+   "no_signature": null,
+   "comment": "`std::basic_string<char>::basic_string(const char*)` with the ordinary convention: `this` in ECX, the C string on the stack, `ret 4`, returns `this`. The register-argument copy of the same constructor is std::string::fromCString.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topbar.md"
+  },
+  {
+   "rva": "0xF4E20",
+   "kind": "function",
+   "name": "CCountry::GetDiploInfluence",
+   "signature": "CFixedPoint* __thiscall CCountry::GetDiploInfluence(CCountry* this, CFixedPoint* out)",
+   "no_signature": null,
+   "comment": "Diplomatic influence as callers are meant to read it: **100000 when the global at 0x1BEA410 is set**, +0xA88 otherwise. `ret 4`. CTopBar::Update makes the same test inline before drawing the figure.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topbar.md"
+  },
+  {
+   "rva": "0x17EA410",
+   "kind": "global",
+   "name": "g_UnlimitedDiploInfluence",
+   "signature": null,
+   "no_signature": null,
+   "comment": "A dword that, when not zero, makes every reader of a country's diplomatic influence see 100. Tested in CCountry::GetDiploInfluence, in CTopBar::Update at 0x6CAF37 and at 26 other sites, most between 0xA15000 and 0xA34000. **What sets it was not found, and the name is a guess at its purpose.**",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-topbar.md"
+  },
+  {
+   "rva": "0x2EB3D0",
+   "kind": "function",
+   "name": "CCountryView::Rebuild",
+   "signature": "bool __thiscall CCountryView::Rebuild(CCountryView* this)",
+   "no_signature": null,
+   "comment": "**Slot 0 of CCountryView.** Hides the view (its own slot 4), destroys the main window at +0xA8 and makes it again by the name it had, then destroys the window at +0xAC and makes it again as 'topcolor_politics' - the base's default, which CProductionView and CTechnologyView replace in their constructors. Returns 1. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x2EB380",
+   "kind": "function",
+   "name": "CCountryView::Show",
+   "signature": "void __thiscall CCountryView::Show(CCountryView* this)",
+   "no_signature": null,
+   "comment": "**Slot 2 of CCountryView.** Shows the window at +0xAC, then the one at +0xA8 - each through slot 13 of the CGuiObject subobject at +0x18 - and tail-jumps to its own slot 11.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x2EB4F0",
+   "kind": "function",
+   "name": "CCountryView::UpdateCountrySkin",
+   "signature": "void __thiscall CCountryView::UpdateCountrySkin(CCountryView* this)",
+   "no_signature": null,
+   "comment": "**Slot 9 of CCountryView: the picture behind a country view changes with the country.** Builds 'gfx/interface/skins/country_bg_' + the played country's tag as text (game state +0xC30) + '.dds' and, only when FileExists says the file is there, makes a sprite from the GFX_country_bg definition with that texture and sets it on the icon `bg_countryskin` (the icon's slot 56), showing it if the window is on screen. Production and technology keep the base's body. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x2EC150",
+   "kind": "function",
+   "name": "CCountryView::UpdateAutomationLine",
+   "signature": "void __thiscall CCountryView::UpdateAutomationLine(CCountryView* this)",
+   "no_signature": null,
+   "comment": "**Slot 11 of CCountryView.** Sets the text box `automation_setting` to what GetAutomationSettingText (0x2EB910) gives for the local player's setting for this view - `[player + 0x38][this + 0x78]` - calls its own slot 14, and enables `mode_arrow_left`, `mode_arrow_right` and `close_button` (their slot 38 with 1). Does nothing when the window has no `automation_setting`. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x2EC3E0",
+   "kind": "function",
+   "name": "CCountryView::ApplyAutomation",
+   "signature": "void __thiscall CCountryView::ApplyAutomation(CCountryView* this)",
+   "no_signature": null,
+   "comment": "Slot 14 of CCountryView. Calls slot 38 of the main window's CGuiObject subobject with no argument when the local player's setting for this view is 1 and with 1 otherwise. **Likely** greys the view while the AI runs it; slot 38's meaning is taken from its use on buttons in slot 11. The name is ours.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x2EB910",
+   "kind": "function",
+   "name": "GetAutomationSettingText",
+   "signature": null,
+   "no_signature": "the setting arrives in ESI and the out string in a register that was not traced",
+   "comment": "The text of OPT_NORMAL or OPT_AICONTROL for an automation setting; what CCountryView's slot 11 puts in `automation_setting`. Only its two keys and its caller were read. The name is ours.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x3EFC40",
+   "kind": "function",
+   "name": "CEconomySlider::CEconomySlider",
+   "signature": null,
+   "no_signature": "this is on the stack, the gui in EDX, the IC flag in CL, and a std::string is passed by value; `ret 0x28`",
+   "comment": "**The slider of the production and technology screens.** Writes the observer glue vftable 0x15DE378 at +0, itself at +4 and the handler 0x7F0080 at +8; keeps the CDistributionSetting at +0x34 and `cl` at +0x3D (1 for an IC slider). Makes the window whose name it is handed, sets `title` to the setting's slot 6, attaches itself to the scrollbar `actual_slider`, renames the window to its index in decimal, attaches itself to `ic_need_button` if the window has one and calls slot 65 on `limit` if it has one. No RTTI of its own: the name is the glue's, VCEconomySlider::__CButtonObserverGlue.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x3EFFA0",
+   "kind": "function",
+   "name": "CEconomySlider::ResetFromSetting",
+   "signature": "void __thiscall CEconomySlider::ResetFromSetting(CEconomySlider* this)",
+   "no_signature": null,
+   "comment": "Puts the slider where its setting says: reads the setting's share at +8 (a 48.15 fixed point, through `fild qword` and 2^-15), multiplies by the slider's maximum, sets that value and updates the texts. If the scrollbar's +0x253 is set it enables the slider's own button again and clears the byte. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x3F0080",
+   "kind": "function",
+   "name": "CEconomySlider::OnNeedButton",
+   "signature": "void __thiscall CEconomySlider::OnNeedButton(CEconomySlider* this)",
+   "no_signature": null,
+   "comment": "**What `ic_need_button` does.** If the setting's slot 7 says it has a window of its own - only lend-lease's does - calls its slot 8 and returns. Otherwise sets the slider to need + half a step, the need being the setting's slot 3 and the step the scrollbar's +0x234 over a thousand; then disables the slider's own button and sets +0x3E, pinning it to its need - unless the button was already disabled (its slot 44 answering 3), in which case it is enabled again if the scrollbar's +0x253 is set. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x3F0290",
+   "kind": "function",
+   "name": "CEconomySlider::Update",
+   "signature": "void __thiscall CEconomySlider::Update(CEconomySlider* this)",
+   "no_signature": null,
+   "comment": "**Fills a slider's three elements.** The scrollbar's value v, an amount of IC or of leadership, is made a share - v * 32768 rounded, over TotalIC (+0x604) when +0x3D is set and over TotalLeadership / 1000 (+0xBD8) when not. `value` = the setting's slot 2 for that share, a colour escape, followed by v to two decimals. `need` = the setting's slot 1 for that share. `limit`, when the window has one and the setting's slot 11 is nought or more, is shown and moved along the slider to that value; hidden otherwise. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x3F0C30",
+   "kind": "function",
+   "name": "CEconomySlider::GetValue",
+   "signature": null,
+   "no_signature": "the slider is on the stack and the float comes back in XMM0",
+   "comment": "The slider's value as a float: slot 4 of the scrollbar `actual_slider`'s subobject at +0x48. `ret 4`. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x3F0CC0",
+   "kind": "function",
+   "name": "CEconomySlider::SetValue",
+   "signature": "void __stdcall CEconomySlider::SetValue(CEconomySlider* slider, float value)",
+   "no_signature": null,
+   "comment": "Sets the slider: hands the scrollbar's subobject at +0x48 `floor((value + 0.0005) * 1000)` through its slot 7 and keeps the float at +0x38. `ret 8`. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x3F0D90",
+   "kind": "function",
+   "name": "CEconomySlider::GetMaximum",
+   "signature": null,
+   "no_signature": "the slider is on the stack and the float comes back in XMM0",
+   "comment": "The slider's maximum: the scrollbar's +0x230 over a thousand, rounded to the hundredth with the sign put back. `ret 4`. The name is ours, and that +0x230 is the maximum is read off this and SetMaximum rather than off the scrollbar.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x3F0EB0",
+   "kind": "function",
+   "name": "CEconomySlider::SetMaximum",
+   "signature": "void __thiscall CEconomySlider::SetMaximum(CEconomySlider* this, float maximum)",
+   "no_signature": null,
+   "comment": "Gives the scrollbar a new range: reads its +0x234 and +0x22C, makes the argument thousandths the way SetValue does, and calls slot 5 of the subobject at +0x48 with the three. Both views call it with the country's total - TotalIC, or TotalLeadership over a thousand - so the 0 to 100 of the .gui file is replaced. `ret 4`. The name is ours.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x3F10D0",
+   "kind": "function",
+   "name": "CEconomySlider::IsDisabled",
+   "signature": "bool __stdcall CEconomySlider::IsDisabled(CEconomySlider* slider)",
+   "no_signature": null,
+   "comment": "Whether the slider's own button (the scrollbar's +0xA0) answers 3 to slot 44 - disabled, which is what the need button does to it. A disabled slider is left out when the views share out what is left. `ret 4`. The name is ours.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x3F1170",
+   "kind": "function",
+   "name": "CEconomySlider::IsHeld",
+   "signature": "bool __thiscall CEconomySlider::IsHeld(CEconomySlider* this)",
+   "no_signature": null,
+   "comment": "True when +0x3C is set, or when the slider's own button answers 1, 4 or 5 to slot 44. **Likely** \"the player has hold of it\": the views do not push a slider this is true of. The name is ours.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x3F1320",
+   "kind": "function",
+   "name": "CEconomySlider::LatchMoved",
+   "signature": "void __stdcall CEconomySlider::LatchMoved(CEconomySlider* slider@ESI)",
+   "no_signature": null,
+   "comment": "Moves the scrollbar's byte at +0x252 into the slider's +0x3C and clears it at the scrollbar. Called by both views straight after Update on every slider. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x1190F0",
+   "kind": "function",
+   "name": "CDistributeConsumerGoods::GetValueColour",
+   "signature": "Hoi3CString* __thiscall CDistributeConsumerGoods::GetValueColour(CDistributeConsumerGoods* this, Hoi3CString* out, __int64 share)",
+   "no_signature": null,
+   "comment": "**Slot 2: the colour of the slider's `value` line.** A std::string of two characters: the escape for red (a7 52, 0x15B5C58) when the need is greater than what the share gives, both cut to the hundredth, and for white (a7 57, 0x15B6700) otherwise. `ret 0xC`: the out string and the share, a 48.15 fixed point in two dwords. CEconomySlider::Update puts the figure after it. Here the need is the class's own slot 3. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x11EB20",
+   "kind": "function",
+   "name": "CDistributeDiplomacy::GetValueColour",
+   "signature": "Hoi3CString* __thiscall CDistributeDiplomacy::GetValueColour(CDistributeDiplomacy* this, Hoi3CString* out, __int64 share)",
+   "no_signature": null,
+   "comment": "**Slot 2: the colour of the slider's `value` line.** A std::string of two characters: the escape for red (a7 52, 0x15B5C58) when the need is greater than what the share gives, both cut to the hundredth, and for white (a7 57, 0x15B6700) otherwise. `ret 0xC`: the out string and the share, a 48.15 fixed point in two dwords. CEconomySlider::Update puts the figure after it. Here the share is turned into influence - TotalLeadership (+0xBD8) times the share times the define at [defines + 0x9C] + 4 - and compared with CCountry::GetInfluenceUpkeep. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x118A90",
+   "kind": "function",
+   "name": "CDistributeLendLease::GetValueColour",
+   "signature": "Hoi3CString* __thiscall CDistributeLendLease::GetValueColour(CDistributeLendLease* this, Hoi3CString* out, __int64 share)",
+   "no_signature": null,
+   "comment": "Slot 2 of CDistributeLendLease: always the escape for white, a7 57. The lend-lease slider's figure is never red. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x1187A0",
+   "kind": "function",
+   "name": "CDistributionSetting::GetNoText",
+   "signature": "Hoi3CString* __thiscall CDistributionSetting::GetNoText(CDistributionSetting* this, Hoi3CString* out, __int64 share)",
+   "no_signature": null,
+   "comment": "**An empty string, at five slots of one family** - slot 1 of CDistributeEspionage and CDistributeNCO, and slot 2 of those two and CDistributeResearch - so it is recorded on the base. It is why the espionage and officers sliders have no `need` line and why three leadership sliders' figures have no colour. `ret 0xC`. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x121450",
+   "kind": "function",
+   "name": "CDistributeResearch::GetNeeded",
+   "signature": "__int64* __thiscall CDistributeResearch::GetNeeded(CDistributeResearch* this, __int64* out)",
+   "no_signature": null,
+   "comment": "**Slot 3: the slider's need**, a 48.15 fixed point written as two dwords through the out pointer; `ret 4`. **Research's is the number of projects on the queue**: the count of the country's CurrentResearch list (+0x640), shifted fifteen. So the research slider's `need` line reads the length of the queue. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x11F4D0",
+   "kind": "function",
+   "name": "CDistributeResearch::ShareAmongProjects",
+   "signature": "void __thiscall CDistributeResearch::ShareAmongProjects(CDistributeResearch* this)",
+   "no_signature": null,
+   "comment": "**Slot 4 of CDistributeResearch: which projects on the queue get leadership.** The research leadership - TotalLeadership times the share at +8 times the factor at +0x10 - is walked down CurrentResearch (+0x638): each technology that passes CTechnology::CheckResearchAllowed takes a whole point (0x8000) or what is left if less, written in thousandths to the technology status's leadership_by_technology (+0x238); one that fails, or comes after the leadership has run out, gets nought. The research queue's three backgrounds read that back. The other nine classes leave slot 4 as the shared no-op. The name is ours.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x118790",
+   "kind": "function",
+   "name": "CDistributionSetting::GetNoLimit",
+   "signature": "float __thiscall CDistributionSetting::GetNoLimit(CDistributionSetting* this)",
+   "no_signature": null,
+   "comment": "**-1.0, at slot 11 of nine of the ten distribution classes**, so recorded on the base: `fld dword ptr [0x170ac0c]; ret`. CEconomySlider::Update shows the `limit` marker only for nought or more, so nine sliders have none. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x118BD0",
+   "kind": "function",
+   "name": "CDistributeLendLease::GetLimit",
+   "signature": "float __thiscall CDistributeLendLease::GetLimit(CDistributeLendLease* this)",
+   "no_signature": null,
+   "comment": "Slot 11 of CDistributeLendLease: where the lend-lease slider's `limit` marker goes. Nought when the country has no lendlease_distributions (+0x6B8); otherwise TotalIC times what 0x508A90 gives, over a thousand. What 0x508A90 gives was not read. The name is ours.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x119C30",
+   "kind": "function",
+   "name": "CDistributeConsumerGoods::GetName",
+   "signature": "Hoi3CString* __thiscall CDistributeConsumerGoods::GetName(CDistributeConsumerGoods* this, Hoi3CString* out)",
+   "no_signature": null,
+   "comment": "Slot 6: the slider's title, the text of the key DISTRIBUTE_CONSUMER_GOODS. One of ten bodies of 0xDE bytes that differ only in the key; CDistributeProduction::GetName is the one already recorded. CEconomySlider's constructor puts it in `title`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x11B980",
+   "kind": "function",
+   "name": "CDistributeSupply::GetName",
+   "signature": "Hoi3CString* __thiscall CDistributeSupply::GetName(CDistributeSupply* this, Hoi3CString* out)",
+   "no_signature": null,
+   "comment": "Slot 6: the slider's title, the text of the key DISTRIBUTE_SUPPLY. One of ten bodies of 0xDE bytes that differ only in the key; CDistributeProduction::GetName is the one already recorded. CEconomySlider's constructor puts it in `title`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x11CD80",
+   "kind": "function",
+   "name": "CDistributeReinforcement::GetName",
+   "signature": "Hoi3CString* __thiscall CDistributeReinforcement::GetName(CDistributeReinforcement* this, Hoi3CString* out)",
+   "no_signature": null,
+   "comment": "Slot 6: the slider's title, the text of the key DISTRIBUTE_REINFORCE. One of ten bodies of 0xDE bytes that differ only in the key; CDistributeProduction::GetName is the one already recorded. CEconomySlider's constructor puts it in `title`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x11DE60",
+   "kind": "function",
+   "name": "CDistributeUpgrade::GetName",
+   "signature": "Hoi3CString* __thiscall CDistributeUpgrade::GetName(CDistributeUpgrade* this, Hoi3CString* out)",
+   "no_signature": null,
+   "comment": "Slot 6: the slider's title, the text of the key DISTRIBUTE_UPGRADE. One of ten bodies of 0xDE bytes that differ only in the key; CDistributeProduction::GetName is the one already recorded. CEconomySlider's constructor puts it in `title`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x118AC0",
+   "kind": "function",
+   "name": "CDistributeLendLease::GetName",
+   "signature": "Hoi3CString* __thiscall CDistributeLendLease::GetName(CDistributeLendLease* this, Hoi3CString* out)",
+   "no_signature": null,
+   "comment": "Slot 6: the slider's title, the text of the key DISTRIBUTE_LENDLEASE. One of ten bodies of 0xDE bytes that differ only in the key; CDistributeProduction::GetName is the one already recorded. CEconomySlider's constructor puts it in `title`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x121370",
+   "kind": "function",
+   "name": "CDistributeResearch::GetName",
+   "signature": "Hoi3CString* __thiscall CDistributeResearch::GetName(CDistributeResearch* this, Hoi3CString* out)",
+   "no_signature": null,
+   "comment": "Slot 6: the slider's title, the text of the key DISTRIBUTE_RESEARCH. One of ten bodies of 0xDE bytes that differ only in the key; CDistributeProduction::GetName is the one already recorded. CEconomySlider's constructor puts it in `title`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x11F3F0",
+   "kind": "function",
+   "name": "CDistributeEspionage::GetName",
+   "signature": "Hoi3CString* __thiscall CDistributeEspionage::GetName(CDistributeEspionage* this, Hoi3CString* out)",
+   "no_signature": null,
+   "comment": "Slot 6: the slider's title, the text of the key DISTRIBUTE_ESPIONAGE. One of ten bodies of 0xDE bytes that differ only in the key; CDistributeProduction::GetName is the one already recorded. CEconomySlider's constructor puts it in `title`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x11EC20",
+   "kind": "function",
+   "name": "CDistributeDiplomacy::GetName",
+   "signature": "Hoi3CString* __thiscall CDistributeDiplomacy::GetName(CDistributeDiplomacy* this, Hoi3CString* out)",
+   "no_signature": null,
+   "comment": "Slot 6: the slider's title, the text of the key DISTRIBUTE_DIPLOMACY. One of ten bodies of 0xDE bytes that differ only in the key; CDistributeProduction::GetName is the one already recorded. CEconomySlider's constructor puts it in `title`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x11E3D0",
+   "kind": "function",
+   "name": "CDistributeNCO::GetName",
+   "signature": "Hoi3CString* __thiscall CDistributeNCO::GetName(CDistributeNCO* this, Hoi3CString* out)",
+   "no_signature": null,
+   "comment": "Slot 6: the slider's title, the text of the key DISTRIBUTE_NCO. One of ten bodies of 0xDE bytes that differ only in the key; CDistributeProduction::GetName is the one already recorded. CEconomySlider's constructor puts it in `title`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x3FB1A0",
+   "kind": "function",
+   "name": "CProductionView::CProductionView",
+   "signature": null,
+   "no_signature": "two stack arguments by its `ret 8`; neither was traced",
+   "comment": "The production screen's constructor. Names its two windows 'topcolor_production' and 'country_production' and the seven dialogs it owns: division_designer, ship_builder_window, air_builder_window, brigade_builder_window, convoy_details, convoy_settings and lendlease_distribution_window. Not read beyond its strings.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x3FBE00",
+   "kind": "function",
+   "name": "CProductionView::Rebuild",
+   "signature": "bool __thiscall CProductionView::Rebuild(CProductionView* this)",
+   "no_signature": null,
+   "comment": "Slot 0 of CProductionView: the base's CCountryView::Rebuild, then RebuildTradeList and AttachButtons. Returns 1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x3FBE20",
+   "kind": "function",
+   "name": "CProductionView::AttachButtons",
+   "signature": "void __stdcall CProductionView::AttachButtons(CProductionView* view@EDI)",
+   "no_signature": null,
+   "comment": "Finds ten elements of the production window by name and attaches the view's observer to each: auto_deployment_checkbox, theatres_calc_button, theatres_assign_button, build_division_button, build_air_button, build_ship_button, convoy, escort, brig_attach, convoy_button. What the observer does was not read. The name is ours.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x3FC350",
+   "kind": "function",
+   "name": "CProductionView::BuildSliders",
+   "signature": "void __stdcall CProductionView::BuildSliders(CProductionView* view)",
+   "no_signature": null,
+   "comment": "**Makes the six IC sliders.** Clears the list at +0xB8, then for each of the country's ProductionDistribution (+0x5F4..+0x5F8), in index order, allocates 0x40 bytes and constructs a CEconomySlider on the window 'domesticpanel_slider', and **puts it at the front of the list** - so the list runs upgrade, reinforcement, supply, production, consumer goods, lend-lease, the order of the six icons down the .gui file. A slider whose entry in the country's array at +0x1090 is positive has its own button disabled at once. `ret 4`. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x3FD170",
+   "kind": "function",
+   "name": "CProductionView::SetGoodsText",
+   "signature": "void __stdcall CProductionView::SetGoodsText(int goods@ECX, CProductionView* view@stack:4, Hoi3CString* elementName@stack:8)",
+   "no_signature": null,
+   "comment": "**One resource of the production screen: `stock (change)`.** The text is sprintf(\"%i (%s%i\\xa7W)\", stock / 1000, colour, change / 1000), where change = out - in over the ledgers CTopBar::FormatGoodsNumber reads, with traded_for counted as coming in. The colour string is a7 52 (red) when change > 0, a7 47 followed by '+' (green) with the change negated when change < 0, and a7 59 (yellow) when it is nought - **so a falling stock is a red number with no minus sign**. Both divisions truncate. The stock is pool_in_exile for a government in exile and the acting capital's pool otherwise. `ret 8`, goods in ECX. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x3FD350",
+   "kind": "function",
+   "name": "CProductionView::Update",
+   "signature": "void __thiscall CProductionView::Update(CProductionView* this)",
+   "no_signature": null,
+   "comment": "**Slot 6 of CProductionView: fills the screen.** When the played country is not the one at +0x334 it rebuilds the trade list and the sliders first. Then: the seven resources through SetGoodsText - energy 5, metal 4, rm 6, oil 3, fuel 1, supplies 0, money 2; `nukes_value` from +0x90 with two decimals; `ic_value` as TotalIC, a plain integer; `transports_value` and `escorts_value` as +0xB0 and +0xB4 followed by ' (+N)' when N convoys or escorts are being built (summed over Constructions, +0xF40); the `escort` button disabled unless the technology status's +0x80 is set; **every building with `capital = yes` has a button looked up by the building's own key** and enabled or disabled by building_available; the six sliders kept adding up to TotalIC over up to ten rounds, with SendDistribution at most once a wall-clock second; and the four lists - build_queue, ai_need_queue, trade_list, convoy_queue - rebuilt when their length differs from the model's.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x3FEBD0",
+   "kind": "function",
+   "name": "CProductionView::AddToSlider",
+   "signature": null,
+   "no_signature": "the slider arrives in a register that was not traced, the float is on the stack and the result comes back in XMM0",
+   "comment": "Adds an amount to one slider when the views share out what is left: rounds it to the hundredth, gives nought back for a disabled slider, will not take the slider below nought or above its maximum (or its setting's slot 11 limit when that is nought or more), sets the value and returns what it actually added. CTechnologyView has its own copy at 0x41C7E0. `ret 4`. The name is ours.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x3FEDD0",
+   "kind": "function",
+   "name": "CProductionView::IsShown",
+   "signature": "bool __thiscall CProductionView::IsShown(CProductionView* this)",
+   "no_signature": null,
+   "comment": "Slot 7 of CProductionView: true when any of the dialogs at +0x300, +0x304, +0x308, +0x30C or +0x318 says it is open (their slot 5), else the main window's +0x5B.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x3FEE40",
+   "kind": "function",
+   "name": "CProductionView::Show",
+   "signature": "void __thiscall CProductionView::Show(CProductionView* this)",
+   "no_signature": null,
+   "comment": "**Slot 2 of CProductionView.** Shows both windows, calls its own slot 11, and rebuilds the strategic resource strip: clears the box `strat_resources` and, for every strategic resource the country has a level above nought of (+0x678), adds a `production_strat_resource` window whose icon `strat_icon_in_prod` is given the sprite 'GFX_' + key + '_small' if a sprite of that name exists. Then PlaceSliders and the four list builders. While +0xCC is set and a dialog is open it only clears +0xCC.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x3FF730",
+   "kind": "function",
+   "name": "CProductionView::PlaceSliders",
+   "signature": "void __stdcall CProductionView::PlaceSliders(CProductionView* view@EDI)",
+   "no_signature": null,
+   "comment": "**Where the six sliders go.** Looks up the positionTypes `domestic_eco_slider_start` and `domestic_eco_slider_offset`, stores TotalIC as a float at +0xC8, and walks the list at +0xB8: each slider's window is moved to start + the main window's own position, shown, given TotalIC as its maximum and - unless +0xCC is set - reset from its setting; then the offset is added for the next. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x3FF9D0",
+   "kind": "function",
+   "name": "CProductionView::Hide",
+   "signature": "void __thiscall CProductionView::Hide(CProductionView* this)",
+   "no_signature": null,
+   "comment": "Slot 4 of CProductionView: hides both windows (slot 14 of their CGuiObject subobjects), deletes the object at +0x318 if there is one, and calls slot 3 of the seven dialogs at +0x300..+0x31C, the last by tail jump.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x3FFA90",
+   "kind": "function",
+   "name": "CProductionView::SendDistribution",
+   "signature": null,
+   "no_signature": "`ret 4`; not read",
+   "comment": "What CProductionView::Update calls, at most once a wall-clock second, when a slider has changed: reads each slider's value and, **likely**, posts the command that sets the country's six shares. Not read past its strings and calls. The name is ours.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x402700",
+   "kind": "function",
+   "name": "CProductionView::RebuildTradeList",
+   "signature": null,
+   "no_signature": "one stack argument by its `ret 4`; the body was not read",
+   "comment": "Rebuilds the list `trade_list` of the production screen; called from Rebuild, from Show and from Update when the number of trade agreements changes. Not read past that. The name is ours.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x41A110",
+   "kind": "function",
+   "name": "CTechnologyView::CTechnologyView",
+   "signature": null,
+   "no_signature": "one stack argument by its `ret 4`, plus this in ECX; not traced",
+   "comment": "The technology screen's constructor. Names three windows: 'topcolor_technology', 'country_technology' and 'country_leadership_sliders', and calls Build. Not read beyond that.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x41A510",
+   "kind": "function",
+   "name": "CTechnologyView::Build",
+   "signature": "void __stdcall CTechnologyView::Build(CTechnologyView* view)",
+   "no_signature": null,
+   "comment": "**Makes the four leadership sliders and wires the folder buttons.** Clears the list at +0xBC, then for each of the country's LeadershipDistribution (+0x5E4..+0x5E8), in index order, constructs a CEconomySlider on the window 'tech_slider' with the IC flag clear and **puts it at the front of the list** - so the list runs research, espionage, diplomacy, officers, the order of the four icons - adding its window to the one at +0x184. Then, for every technology folder from index 1, the button 'techtree_' + folder key is given the view's observer, and the first folder with a button becomes the selected one at +0x15C. Also attaches to `start` and `close` of `tech_details`. `ret 4`. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x41B0C0",
+   "kind": "function",
+   "name": "CTechnologyView::Update",
+   "signature": "void __thiscall CTechnologyView::Update(CTechnologyView* this)",
+   "no_signature": null,
+   "comment": "**Slot 6 of CTechnologyView: fills the screen.** For every folder from index 1, shows the icon 'bg_tech_' + key for the selected folder and hides the rest, and sets the button 'techtree_' + key to frame 2 when selected and 1 when not. Updates every skill entry. `leader_ship_label` = the text of DISPOSAL_OF_LEADERSHIP + ':\\xa7Y ' + TotalLeadership to two decimals. `current_research_label` = CURR_RES_LABEL with MAX the research slider's value to two decimals and CURR the length of CurrentResearch between a colour and a7 57: green unless the count is a whole project or more above MAX, then yellow (the red arm cannot be reached). Keeps the four sliders adding up to TotalLeadership the way CProductionView::Update does, sending at most once a second. With a technology selected, `start` of `tech_details` reads ITEM_RESEARCH_START and is disabled when CheckResearchAllowed fails, or reads the text of `cancel` when the technology is already on the queue. Rebuilds the queue list when it differs from CurrentResearch and updates every tree entry.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x41C9B0",
+   "kind": "function",
+   "name": "CTechnologyView::Show",
+   "signature": "void __thiscall CTechnologyView::Show(CTechnologyView* this)",
+   "no_signature": null,
+   "comment": "Slot 2 of CTechnologyView. Places the four sliders from the positionTypes `leadership_slider_start` and `leadership_slider_offset`, each given the total leadership as its maximum and reset from its setting; builds the tree and the queue; and, with a technology selected, the detail panel. Read from its strings and calls only.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x41CFA0",
+   "kind": "function",
+   "name": "CTechnologyView::Hide",
+   "signature": "void __thiscall CTechnologyView::Hide(CTechnologyView* this)",
+   "no_signature": null,
+   "comment": "Slot 4 of CTechnologyView: hides the windows and empties `tech_tree` and `tech_categories` with the two lists that hold their entries. Read from its strings and calls only.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x41D150",
+   "kind": "function",
+   "name": "CTechnologyView::SendDistribution",
+   "signature": null,
+   "no_signature": "`ret 4`; not read",
+   "comment": "The technology screen's counterpart of CProductionView::SendDistribution: called from Update at most once a wall-clock second when a slider changed. Not read. The name is ours.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x41D400",
+   "kind": "function",
+   "name": "CTechnologyView::ShowDetails",
+   "signature": null,
+   "no_signature": "the view is the first stack argument; the second, the technology, was not traced",
+   "comment": "**The panel for one technology.** Sets +0xD0 and keeps the technology at +0xD4; hides `tech_categories` and shows `tech_details`. `photo` is the file <base>/pictures/tech/<key>.tga made a sprite from the GFX_no_tech_image definition when the file exists; `name` is the name + ' (' + level + 1 + ')', always ' (1)' for a technology with no additional_offset; `name_expl` is GetTechnologyLevelName; `icon_finish_type` gets the sprite 'icon_' + the on_completion category's key with **no '_small'** - the full picture, where a tree entry takes the small one; `input_box`, `difficulty` and `year` as on a tree entry; `tech_status_finnished` for a finished one-level technology; `desc` is GetTechnologyDescription; and `effects` is CTechStatistics::BuildEffectsText split into lines, each a `detail_entry` window with its `text` set. `ret 8`. The name is ours.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x421570",
+   "kind": "function",
+   "name": "CTechnologyView::BuildTree",
+   "signature": "void __stdcall CTechnologyView::BuildTree(CTechnologyView* view)",
+   "no_signature": null,
+   "comment": "**Lays out the technology tree.** First the skills: empties `tech_categories`, and for every technology category makes a skill entry (0x24 bytes, CTechSkillEntry) and, if there is a positionType named category key + '_position', moves its window there; adds it to `tech_categories`. Then the tree: empties `tech_tree`, and for every technology whose Folder (+0x290) is the selected one (+0x15C) makes a CTechTreeEntry (0x40 bytes) and, **if there is a positionType named technology key + '_position'**, moves its window there; adds it to `tech_tree`. A technology with no position stays where the window type puts it. `ret 4`. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x4211A0",
+   "kind": "function",
+   "name": "CTechnologyView::RebuildQueue",
+   "signature": "void __thiscall CTechnologyView::RebuildQueue(CTechnologyView* this)",
+   "no_signature": null,
+   "comment": "Rebuilds the list `current_research`: one CCurrentResearchEntry for each technology on the country's CurrentResearch. Read from its strings and where Update calls it only. The name is ours.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x41C7E0",
+   "kind": "function",
+   "name": "CTechnologyView::AddToSlider",
+   "signature": null,
+   "no_signature": "as CProductionView::AddToSlider: a register argument that was not traced and a float result in XMM0",
+   "comment": "The technology screen's copy of CProductionView::AddToSlider, without the limit. The name is ours.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x422970",
+   "kind": "function",
+   "name": "CTechnologyView::UpdateAutomationLine",
+   "signature": "void __thiscall CTechnologyView::UpdateAutomationLine(CTechnologyView* this)",
+   "no_signature": null,
+   "comment": "Slot 11 of CTechnologyView: the base's automation line with four texts instead of two, chosen through a jump table - OPT_NORMAL, OPT_AICONTROL, TECH_AUTOMATED and LEADERSHIP_AUTOMATED. Read from its strings only.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x417920",
+   "kind": "function",
+   "name": "CTechTreeEntry::CTechTreeEntry",
+   "signature": null,
+   "no_signature": "the technology in EAX, the idler in ECX, the view in EDX and three stack arguments by `ret 0xC`, the first of them this",
+   "comment": "**One technology in the tree.** Writes the vftable 0x15DFC38 and the observer glue 0x15DFE10 at +4 with handlers 0x818160 and 0x818170; keeps the technology at +0x30, the idler at +0x34 and the view at +0x3C; makes the window 'tech_entry' at +0x38 and attaches itself to the four background buttons bg_finnished, bg_endless, bg_oneshot and bg_cant. Sets `icon_finish_type` to the sprite 'icon_' + the key of the technology's on_completion category + '_small' if there is one, keeping the icon's scale, and fills `input_box` with one CEntryForTechCategory for each of research_bonus_from. Calls Update twice. `ret 0xC`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x418350",
+   "kind": "function",
+   "name": "CTechTreeEntry::Update",
+   "signature": "void __stdcall CTechTreeEntry::Update(CTechTreeEntry* entry)",
+   "no_signature": null,
+   "comment": "**What a tree entry shows.** With level the country's level of the technology and multi meaning additional_offset != 0. Background: all four hidden, then one shown - not multi: bg_finnished when level >= 1, else bg_cant when CheckResearchAllowed fails, else bg_oneshot; multi: bg_cant when it fails, else bg_endless. `tech_status_researching` shown when the technology is on CurrentResearch. `progress` set to level * 100 / max_level for a multi technology and to nought otherwise. `name`: the name alone when not multi; else name + ': ' + (level + 1) + ' / ' + max_level while level < max_level, and name + ': ' + the text of TECH_AT_MAX after. `difficulty`: the number behind a7 47 under 3, a7 59 from 3 to 5, a7 52 above. `year`: start_year for level 1, first_offset for level 2, first_offset + (n - 2) * additional_offset for level n; start_year when not multi. A finished one-level technology has `difficulty` and `year` emptied. `ret 4`. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x4193C0",
+   "kind": "function",
+   "name": "CTechTreeEntry::BuildTooltip",
+   "signature": null,
+   "no_signature": "`ret 8`; not read",
+   "comment": "CTechTreeEntry's one virtual slot: the tooltip of a tree entry, from its keys - TTE_ALREADY, LEVEL, LOWEST_TECH_LEVEL, TECH_DC_TO_START, TECH_DC_TO_STOP and three CGM_TOOLTIP_* shortcuts. Not read; named by analogy with the other tooltip slots.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x415330",
+   "kind": "function",
+   "name": "CCurrentResearchEntry::CCurrentResearchEntry",
+   "signature": null,
+   "no_signature": "four stack arguments by `ret 0x10`; not traced",
+   "comment": "A line of the research queue: makes the window 'current_research_entry' and attaches itself to the three backgrounds bg_current_green, bg_current_orange and bg_current_red, to `cancel` and to the four tech_prio_* buttons; calls Update. Read from its strings and calls only.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x4158A0",
+   "kind": "function",
+   "name": "CCurrentResearchEntry::Update",
+   "signature": "void __thiscall CCurrentResearchEntry::Update(CCurrentResearchEntry* this)",
+   "no_signature": null,
+   "comment": "**Slot 8 of CCurrentResearchEntry: what a line of the research queue shows.** `data`: '?' when GetDaysToResearch answers -1, else the day the level will be finished as **year + ' ' + month name + ' ' + day**. `level`: level + 1 in roman numerals (IntToRoman). `progress`: progress_by_technology times a hundred. `name`: name + ': ' + (level + 1) for a technology with an additional_offset, the name alone otherwise. Background, from the technology's leadership_by_technology: bg_current_green when it is at least 990 (990.5 floored), bg_current_orange when above nought, bg_current_red when nought. The five buttons are disabled under one custom game setting.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x413EC0",
+   "kind": "function",
+   "name": "CEntryForTechCategory::CEntryForTechCategory",
+   "signature": null,
+   "no_signature": "the idler in ECX and six stack arguments by `ret 0x18`, the first of them this",
+   "comment": "A category icon inside a technology's `input_box`: writes the vftable 0x15DFCB0, makes the window 'tech_category_entry' and sets its `tech_icon` to the sprite 'icon_' + category key + '_small' when its flag argument is set (keeping the icon's scale) and 'icon_' + category key when not, in both cases only if a sprite of that name exists. `ret 0x18`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x414800",
+   "kind": "function",
+   "name": "CTechSkillEntry::CTechSkillEntry",
+   "signature": null,
+   "no_signature": "the object in EDI, the idler in ECX and the category on the stack",
+   "comment": "**A theory or practical on the technology screen.** An unnamed class of 0x24 bytes: +0 the CTechnologyCategory, +4 the idler, +8 its window 'tech_category_skill_entry', +0xC the icon `tech_cat_icon`, +0x10 the icon `tech_skill_indicator`, +0x14 the text box `skill`, +0x18 the level last shown (set to -1000). Sets `tech_cat_icon` to the sprite 'icon_' + category key if there is one and calls Update. `ret 4`. **The class name is ours**; it has no RTTI.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x414A30",
+   "kind": "function",
+   "name": "CTechSkillEntry::Update",
+   "signature": "void __thiscall CTechSkillEntry::Update(CTechSkillEntry* this)",
+   "no_signature": null,
+   "comment": "**What a theory or practical shows.** level is the country's category_levels entry (+0x698), or that of the country in category_shared_from (+0x6A8) when one is set and its level is higher. Nothing is redrawn while the level and the shared tag are unchanged. `skill` = level to one decimal when level > 99 thousandths, behind a7 47 when the level is a shared one; '-' otherwise. `tech_skill_indicator` is set to frame level / 1000, at least 1 when the level is above nought and at most 20. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x5D300",
+   "kind": "function",
+   "name": "IntToRoman",
+   "signature": "Hoi3CString* __stdcall IntToRoman(int value@ECX, Hoi3CString* out@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "A number as roman numerals: subtracts 50, 40, 10 and so on, appending a letter or two each time. CCurrentResearchEntry::Update prints the level being researched with it. `ret 4`. The name is ours; only the first three steps were read.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x1019E0",
+   "kind": "function",
+   "name": "GetTechnologyLevelName",
+   "signature": null,
+   "no_signature": "four stack arguments by `ret 0x10`; their order was not traced",
+   "comment": "**The name of one level of a technology - where a model's name comes from.** Builds the key <TAG> + sep + technology key + sep + level and, if 0x4173C0 says the text it gets back is not the key, returns it; else tries technology key + sep + level; else returns the technology's own name, with ': ' and the level for one with an additional_offset. `tech_details`' `name_expl` is set from it. The separator is the one-character literal at 0x15C1814, taken to be an underscore. The name is ours.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x1342E0",
+   "kind": "function",
+   "name": "GetTechnologyDescription",
+   "signature": null,
+   "no_signature": "five stack arguments by `ret 0x14`; not traced",
+   "comment": "The description of a technology for `tech_details`' `desc`: reads the text of the technology's key + '_desc'. Not read past that key. The name is ours.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x11CB00",
+   "kind": "function",
+   "name": "CDistributeReinforcement::GetNeedTooltip",
+   "signature": "Hoi3CString* __thiscall CDistributeReinforcement::GetNeedTooltip(CDistributeReinforcement* this, Hoi3CString* out, int unknown1, int unknown2)",
+   "no_signature": null,
+   "comment": "**Slot 1: the slider's `need` line.** Builds from the key SLIDER_NEED; `ret 0xC`. The need figure it appends was not read here - the shared body 0x121480 appends slot 3's to two decimals. This is the body the record used to give 0x11CAD0. The name follows CDistributeProduction::GetNeedTooltip.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x11DBE0",
+   "kind": "function",
+   "name": "CDistributeUpgrade::GetNeedTooltip",
+   "signature": "Hoi3CString* __thiscall CDistributeUpgrade::GetNeedTooltip(CDistributeUpgrade* this, Hoi3CString* out, int unknown1, int unknown2)",
+   "no_signature": null,
+   "comment": "**Slot 1: the slider's `need` line.** Builds from the key SLIDER_NEED; `ret 0xC`. The need figure it appends was not read here - the shared body 0x121480 appends slot 3's to two decimals. This is the body the record used to give 0x11DBB0.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-countryviews.md"
+  },
+  {
+   "rva": "0x6FC070",
+   "kind": "function",
+   "name": "CEU3BitmapFont::DrawText",
+   "signature": "void __thiscall CEU3BitmapFont::DrawText(CEU3BitmapFont* this, Hoi3CString* text, int format, int orientation, int x, int y, int maxWidth, int maxHeight, int borderX, int borderY, int* areaSize)",
+   "no_signature": null,
+   "comment": "**Slot 8 of CEU3BitmapFont: lays a text out, places it and draws it.** `ret 0x28`. Keeps a cache of forty laid-out texts keyed by a hash of the string and every argument. A line's width is the sum of its glyphs' xadvance plus kerning; a7 and the character after it add nothing. The first line is placed by a jump table on the orientation, in a space centred on the area with **y upwards**. For UPPER_LEFT: lineY = areaHeight/2 - y - borderY; x0 = x - areaWidth/2; **format 0 (left) x0 + borderX; format 2 (centre) x0 + borderX + maxWidth/2 - lineWidth/2, each half its own integer division; format 1 (right) x0 + maxWidth - lineWidth, with no border.** For UPPER_RIGHT the origin is areaWidth/2 + x + borderX and the same three follow, so left and centre have the border twice. **Every corner of every glyph quad then has 0.5 added to x and to y** - half a pixel right and, y being upwards, half a pixel up; beside the game's pictures the maintainer's screenshot shows that as one whole pixel each way. The colour escapes are resolved here too: a7 and a letter index a table in the font at +0x4A8, 32 bytes an entry - what the `colorcodes` block fills - falling back to a table at the global 0x1B211A8; a7 '!' restores the font's own colour at +0x38. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-textdraw.md"
+  },
+  {
+   "rva": "0x732350",
+   "kind": "function",
+   "name": "CGuiText::CGuiText",
+   "signature": null,
+   "no_signature": "twelve stack arguments by `ret 0x30`, with the gui in ECX; not traced one by one",
+   "comment": "**The object a text box draws through**, 0x1D4 bytes, vftable 0x1606C70, no RTTI - the class name is ours. Keeps the text at +0x150, the position at +0x188, the border at +0x198, maxWidth and maxHeight at +0x1A0 and +0x1A4 (each made 200 if it was 0), the orientation at +0x1A8, **the format at +0x1AC - 0 left, 1 right, 2 centre** - and the font at +0x1BC, found by name through the gui. When the flag at +0x1B8 is set and there is text, it has the font re-flow the text at once (slot 12).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-textdraw.md"
+  },
+  {
+   "rva": "0x7326C0",
+   "kind": "function",
+   "name": "CGuiText::Draw",
+   "signature": null,
+   "no_signature": "six stack arguments by `ret 0x18`; only the third, a pointer whose +0x30 and +0x34 are read as floats, was looked at",
+   "comment": "Draws the text: font slot 15 with the colour block at +0x16C, then **font slot 8** - CEU3BitmapFont::DrawText - with the text, the format, the orientation, the rectangle {x, y, maxWidth, maxHeight} by value, border x, border y and a pointer to +0x1B0. The text box places nothing itself. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-textdraw.md"
+  },
+  {
+   "rva": "0x732AB0",
+   "kind": "function",
+   "name": "CGuiText::GetAnchoredPosition",
+   "signature": "int* __stdcall CGuiText::GetAnchoredPosition(CGuiText* text@ECX, int* out@ESI) @EAX",
+   "no_signature": null,
+   "comment": "The position with the orientation's anchor added, for the hit test and the position getter: 0 the position as it is; 1 x + areaWidth; 2 y + areaHeight; 3 both; 4 both halves - and for format 2 also less half of maxWidth; 5 x + half the width; 6 x + half the width and y + the height. Bare `ret`s. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-textdraw.md"
+  },
+  {
+   "rva": "0x67F930",
+   "kind": "function",
+   "name": "GuiObject_instantTextBoxType::GuiObject_instantTextBoxType",
+   "signature": null,
+   "no_signature": "fourteen stack arguments by `ret 0x38`; not traced one by one",
+   "comment": "Builds an instantTextBoxType widget: writes the vftable 0x15FDB70, keeps the name at +0x54, maxWidth and maxHeight at +0x8C and +0x90, the text at +0xD0 and the format at +0xF0, and makes the CGuiText that draws it at +0x94 from the same arguments. `ret 0x38`. The struct's name is the record's own; the class has no RTTI.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-textdraw.md"
   }
  ],
  "structs": [
@@ -22915,6 +23908,76 @@
   {
    "name": "CCountry",
    "fields": [
+    {
+     "offset": "0x1090",
+     "name": "distribution_locked",
+     "type": "int*",
+     "comment": "Begin of a vector of ints (end at +0x1094), one for each slider in the order the production screen makes them: positive means the slider is held where it is. CProductionView::BuildSliders disables such a slider's button, and Update writes each slider's state back. The name is ours and what else reads it was not looked for.",
+     "source": "reversing/findings/FINDINGS-countryviews.md"
+    },
+    {
+     "offset": "0x640",
+     "name": "current_research_count",
+     "type": "int",
+     "comment": "How many technologies are on CurrentResearch, the third dword of that list at +0x638. What the research slider's need line and `current_research_label` print.",
+     "source": "reversing/findings/FINDINGS-countryviews.md"
+    },
+    {
+     "offset": "0xB64",
+     "name": "neutrality_modifier",
+     "type": "CStaticModifier",
+     "comment": "The country's own copy of static_modifiers.txt's `neutrality`, every value scaled by effective neutrality / 100 on each rebuild. 0x48 bytes; the units list at +0xBAC follows it.",
+     "source": "reversing/findings/FINDINGS-countrymodifier.md"
+    },
+    {
+     "offset": "0xB1C",
+     "name": "dissent_modifier",
+     "type": "CStaticModifier",
+     "comment": "The country's own copy of static_modifiers.txt's `dissent`, every value scaled by dissent (+0x10B4) / 1000 on each rebuild - so the file's figures are for one point of dissent. 0x48 bytes.",
+     "source": "reversing/findings/FINDINGS-countrymodifier.md"
+    },
+    {
+     "offset": "0xAD4",
+     "name": "war_exhaustion_modifier",
+     "type": "CStaticModifier",
+     "comment": "The country's own copy of static_modifiers.txt's `war_exhaustion`, every value scaled by war_exhaustion (+0xAD0) / 1000 on each rebuild. 0x48 bytes.",
+     "source": "reversing/findings/FINDINGS-countrymodifier.md"
+    },
+    {
+     "offset": "0x700",
+     "name": "unfilled_modifier",
+     "type": "CModifier",
+     "comment": "A CModifier embedded in the country that CCountry::RebuildStaticModifiers adds whole, between the neutrality modifier and the event modifiers. **Nothing was found that fills it**: a scan for `lea reg,[reg+0x700]` and `add reg,0x700` gives the constructor, the destructor and that one add. Likely always empty.",
+     "source": "reversing/findings/FINDINGS-countrymodifier.md"
+    },
+    {
+     "offset": "0x658",
+     "name": "triggered_modifiers",
+     "type": "void*",
+     "comment": "Head of the list (tail +0x65C, count +0x660) of the CTriggeredModifier* that currently apply to the country. UpdateTriggeredModifiers is its only writer; CCountry::RebuildStaticModifiers adds each one.",
+     "source": "reversing/findings/FINDINGS-countrymodifier.md"
+    },
+    {
+     "offset": "0x668",
+     "name": "strategic_resource_modifiers",
+     "type": "void*",
+     "comment": "Head of a list (tail +0x66C, count +0x670) of the scaled CStrategicResource copies the last CCountry::RebuildStaticModifiers made. The country owns them: each rebuild destroys the old ones first.",
+     "source": "reversing/findings/FINDINGS-countrymodifier.md"
+    },
+    {
+     "offset": "0x67C",
+     "name": "strategic_resource_levels_end",
+     "type": "int*",
+     "comment": "End of the vector whose begin is strategic_resource_levels at +0x678.",
+     "source": "reversing/findings/FINDINGS-countrymodifier.md"
+    },
+    {
+     "offset": "0x678",
+     "name": "strategic_resource_levels",
+     "type": "int*",
+     "comment": "**How much of each strategic resource the country has the use of**, thousandths, one int for each entry of the strategic-resource database, by index; end at +0x67C, capacity at +0x680. 1000 is a whole resource. UpdateStrategicResources raises an entry to the best efficiency any qualifying province gives and nothing lowers it; CCountry::RebuildStaticModifiers scales the resource's modifier by it.",
+     "source": "reversing/findings/FINDINGS-countrymodifier.md"
+    },
     {
      "offset": "0xCF8",
      "name": "owned_province_count",
@@ -23752,8 +24815,8 @@
      "offset": "0x648",
      "name": "active_modifiers",
      "type": "CList",
-     "comment": "the modifiers on the country, a list",
-     "source": "BiceLib/GameClasses/CCountry.hpp:58"
+     "comment": "**The event modifiers on the country**, a list: what `add_country_modifier` gives and the save writes as `modifier = { modifier = ... date = ... }`. Each entry has the modifier at +8 and a date at +0xC. CCountry::RebuildStaticModifiers adds every entry's modifier, and first removes one whose date is before today - unless the date is in year 1 or earlier, which is how one with no end is written (`1.1.1`).",
+     "source": "reversing/findings/FINDINGS-countrymodifier.md"
     },
     {
      "offset": "0x688",
@@ -24549,6 +25612,20 @@
    "name": "CCurrentGameState",
    "size": "0xDA8",
    "fields": [
+    {
+     "offset": "0x104",
+     "name": "player_strategic_resource_provinces",
+     "type": "void*",
+     "comment": "Head of a list (tail +0x108, count +0x10C) of the provinces whose strategic resource the player's country has the use of. UpdateStrategicResources clears and refills it. CCurrentGameState derives from CGameState and adds nothing at this offset; both carry it because Ghidra has no inheritance between the two.",
+     "source": "reversing/findings/FINDINGS-countrymodifier.md"
+    },
+    {
+     "offset": "0xF4",
+     "name": "strategic_resource_provinces",
+     "type": "void*",
+     "comment": "Begin of a vector (end +0xF8) of 16-byte elements, one for each strategic resource by index, each a vector of the provinces that have that resource (begin at +0, end at +4). RebuildStrategicResourceProvinces fills it; UpdateStrategicResources walks it from index 1. CCurrentGameState derives from CGameState and adds nothing at this offset; both carry it because Ghidra has no inheritance between the two.",
+     "source": "reversing/findings/FINDINGS-countrymodifier.md"
+    },
     {
      "offset": "0xC4",
      "name": "flags",
@@ -32182,6 +33259,13 @@
    "size": "0x28",
    "fields": [
     {
+     "offset": "0x20",
+     "name": "needed",
+     "type": "longlong",
+     "comment": "CDistributeProduction's need, a 48.15 fixed point: what its GetNeeded hands back and its GetValueColour compares the share's IC with. CDistributeProduction::UpdateNeeded is what the record has writing it.",
+     "source": "reversing/findings/FINDINGS-countryviews.md"
+    },
+    {
      "offset": "0x8",
      "name": "base_percentage",
      "type": "longlong",
@@ -33335,6 +34419,20 @@
   {
    "name": "CGameState",
    "fields": [
+    {
+     "offset": "0x104",
+     "name": "player_strategic_resource_provinces",
+     "type": "void*",
+     "comment": "Head of a list (tail +0x108, count +0x10C) of the provinces whose strategic resource the player's country has the use of. UpdateStrategicResources clears and refills it.",
+     "source": "reversing/findings/FINDINGS-countrymodifier.md"
+    },
+    {
+     "offset": "0xF4",
+     "name": "strategic_resource_provinces",
+     "type": "void*",
+     "comment": "Begin of a vector (end +0xF8) of 16-byte elements, one for each strategic resource by index, each a vector of the provinces that have that resource (begin at +0, end at +4). RebuildStrategicResourceProvinces fills it; UpdateStrategicResources walks it from index 1.",
+     "source": "reversing/findings/FINDINGS-countrymodifier.md"
+    },
     {
      "offset": "0xC4",
      "name": "flags",
@@ -36181,6 +37279,13 @@
    "name": "LogRecord",
    "size": "0xBC",
    "fields": [
+    {
+     "offset": "0x50",
+     "name": "decay",
+     "type": "int*",
+     "comment": "**The `decay = { category = x }` of minister_types.txt**: an int array in thousandths indexed by technology category. CCountry::RebuildStaticModifiers adds it into the country's tech_decay_modifier for the type each sitting minister has in his post, so a minister changes how fast the country's theories and practicals decay, category by category.",
+     "source": "reversing/findings/FINDINGS-countrymodifier.md"
+    },
     {
      "offset": "0x4C",
      "name": "Index",
@@ -39739,6 +40844,27 @@
    "comment": "A live `instantTextBoxType` widget, the textBoxType variant that does not animate. **The name is ours**, from the .gui keyword; no RTTI class exists for it. See reversing/findings/FINDINGS-guilive.md.",
    "fields": [
     {
+     "offset": "0xF0",
+     "name": "format",
+     "type": "int",
+     "comment": "The declaration's format: 0 left, 1 right, 2 centre.",
+     "source": "reversing/findings/FINDINGS-textdraw.md"
+    },
+    {
+     "offset": "0x8C",
+     "name": "max_width",
+     "type": "int",
+     "comment": "The declaration's maxWidth. Slot 24, the position getter, adds it to x for a box set right.",
+     "source": "reversing/findings/FINDINGS-textdraw.md"
+    },
+    {
+     "offset": "0x94",
+     "name": "text_object",
+     "type": "void*",
+     "comment": "The CGuiText (0x1D4 bytes, vftable 0x1606C70) that holds the layout and draws the text. Setting the widget's text assigns +0xD0 and then tells this object.",
+     "source": "reversing/findings/FINDINGS-textdraw.md"
+    },
+    {
      "offset": "0xD0",
      "name": "text",
      "type": "Hoi3CString",
@@ -42015,6 +43141,516 @@
      "source": "reversing/findings/FINDINGS-leadership.md"
     }
    ]
+  },
+  {
+   "name": "CStrategicResource",
+   "vftable_rva": "0x11BC87C",
+   "size": "0x50",
+   "inherits": "CModifier",
+   "comment": "One entry of common/strategic_resources.txt: a CModifier with its key and its index. CCountry::RebuildStaticModifiers copies one field for field at 0x4DE7AB..0x4DE85D - new(0x50), the CModifier part, then +0x2C, the string at +0x30 and +0x4C - before scaling the copy.",
+   "source": "reversing/findings/FINDINGS-countrymodifier.md",
+   "fields": [
+    {
+     "offset": "0x4C",
+     "name": "index",
+     "type": "int",
+     "comment": "Its index in the database, 0 being the null entry. It is the subscript of a country's strategic_resource_levels and of the game state's strategic_resource_provinces.",
+     "source": "reversing/findings/FINDINGS-countrymodifier.md"
+    },
+    {
+     "offset": "0x30",
+     "name": "key",
+     "type": "Hoi3CString",
+     "comment": "The resource's key, `gold`, `black_soil`. The province save writes its strategic resource by this string.",
+     "source": "reversing/findings/FINDINGS-countrymodifier.md"
+    },
+    {
+     "offset": "0x2C",
+     "name": "name_token",
+     "type": "int",
+     "comment": "Copied as a plain dword between the CModifier part and the key; the same place CLaw keeps its name's save token. That it is a token here too is inference.",
+     "source": "reversing/findings/FINDINGS-countrymodifier.md"
+    }
+   ]
+  },
+  {
+   "name": "CTopBar",
+   "vftable_rva": "0x11D2C90",
+   "size": "0x384",
+   "comment": "The bar across the top of the in-game screen. Six virtual slots: 0 Build, 1 the destructor, 2 Show, 3 a shared body, 4 Update, 5 BuildTooltip.",
+   "source": "reversing/findings/FINDINGS-topbar.md",
+   "fields": [
+    {
+     "offset": "0x380",
+     "name": "strat_warfare_window",
+     "type": "void*",
+     "comment": "An 0x17C-byte object built once by 0x466060 with the idler and what its slot 16 returns. **Likely** the strategic warfare window `swm_open` opens: 0x466060 sits 0xDF0 before BuildStratWarfareTooltip, and CTopBar::Update begins by asking it a yes/no through slot 4. The class was not read.",
+     "source": "reversing/findings/FINDINGS-topbar.md"
+    },
+    {
+     "offset": "0x37C",
+     "name": "outliner_flag",
+     "type": "uint8_t",
+     "comment": "Set and cleared by CTopBar::SyncOutliner around its calls of 0x6CFEA0. Unidentified.",
+     "source": "reversing/findings/FINDINGS-topbar.md"
+    },
+    {
+     "offset": "0x378",
+     "name": "outliner_state",
+     "type": "void*",
+     "comment": "An 0x80-byte object freed and rebuilt by every CTopBar::Build (0x6A3210 constructs it) and questioned by CTopBar::SyncOutliner. Unidentified; the name says only where it is used.",
+     "source": "reversing/findings/FINDINGS-topbar.md"
+    },
+    {
+     "offset": "0x34C",
+     "name": "observer_outliner",
+     "type": "void*",
+     "comment": "The first dword of the observer CTopBar::Build attaches to topbar_outlinerbutton. The observer is an object held by value, 0x2C bytes to the next; its layout was not read, so only its start is declared.",
+     "source": "reversing/findings/FINDINGS-topbar.md"
+    },
+    {
+     "offset": "0x320",
+     "name": "observer_speedup",
+     "type": "void*",
+     "comment": "The first dword of the observer CTopBar::Build attaches to button_speedup. The observer is an object held by value, 0x2C bytes to the next; its layout was not read, so only its start is declared.",
+     "source": "reversing/findings/FINDINGS-topbar.md"
+    },
+    {
+     "offset": "0x2F4",
+     "name": "observer_pause",
+     "type": "void*",
+     "comment": "The first dword of the observer CTopBar::Build attaches to speed_indicator and pause_bg, both. The observer is an object held by value, 0x2C bytes to the next; its layout was not read, so only its start is declared.",
+     "source": "reversing/findings/FINDINGS-topbar.md"
+    },
+    {
+     "offset": "0x2C8",
+     "name": "observer_speeddown",
+     "type": "void*",
+     "comment": "The first dword of the observer CTopBar::Build attaches to button_speeddown. The observer is an object held by value, 0x2C bytes to the next; its layout was not read, so only its start is declared.",
+     "source": "reversing/findings/FINDINGS-topbar.md"
+    },
+    {
+     "offset": "0x29C",
+     "name": "observer_swm",
+     "type": "void*",
+     "comment": "The first dword of the observer CTopBar::Build attaches to swm_open. The observer is an object held by value, 0x2C bytes to the next; its layout was not read, so only its start is declared.",
+     "source": "reversing/findings/FINDINGS-topbar.md"
+    },
+    {
+     "offset": "0x270",
+     "name": "observer_statistics",
+     "type": "void*",
+     "comment": "The first dword of the observer CTopBar::Build attaches to topbarbutton_statistics. The observer is an object held by value, 0x2C bytes to the next; its layout was not read, so only its start is declared.",
+     "source": "reversing/findings/FINDINGS-topbar.md"
+    },
+    {
+     "offset": "0x13C",
+     "name": "observer_menu",
+     "type": "void*",
+     "comment": "The first dword of the observer CTopBar::Build attaches to topbar_menubutton. The observer is an object held by value, 0x2C bytes to the next; its layout was not read, so only its start is declared.",
+     "source": "reversing/findings/FINDINGS-topbar.md"
+    },
+    {
+     "offset": "0x110",
+     "name": "observer_theatre",
+     "type": "void*",
+     "comment": "The first dword of the observer CTopBar::Build attaches to topbarbutton_theatre. The observer is an object held by value, 0x2C bytes to the next; its layout was not read, so only its start is declared.",
+     "source": "reversing/findings/FINDINGS-topbar.md"
+    },
+    {
+     "offset": "0xE4",
+     "name": "observer_intelligence",
+     "type": "void*",
+     "comment": "The first dword of the observer CTopBar::Build attaches to topbarbutton_intelligence. The observer is an object held by value, 0x2C bytes to the next; its layout was not read, so only its start is declared.",
+     "source": "reversing/findings/FINDINGS-topbar.md"
+    },
+    {
+     "offset": "0xB8",
+     "name": "observer_politics",
+     "type": "void*",
+     "comment": "The first dword of the observer CTopBar::Build attaches to topbarbutton_politics. The observer is an object held by value, 0x2C bytes to the next; its layout was not read, so only its start is declared.",
+     "source": "reversing/findings/FINDINGS-topbar.md"
+    },
+    {
+     "offset": "0x8C",
+     "name": "observer_tech",
+     "type": "void*",
+     "comment": "The first dword of the observer CTopBar::Build attaches to topbarbutton_tech. The observer is an object held by value, 0x2C bytes to the next; its layout was not read, so only its start is declared.",
+     "source": "reversing/findings/FINDINGS-topbar.md"
+    },
+    {
+     "offset": "0x60",
+     "name": "observer_prod",
+     "type": "void*",
+     "comment": "The first dword of the observer CTopBar::Build attaches to topbarbutton_prod. The observer is an object held by value, 0x2C bytes to the next; its layout was not read, so only its start is declared.",
+     "source": "reversing/findings/FINDINGS-topbar.md"
+    },
+    {
+     "offset": "0x34",
+     "name": "observer_diplo",
+     "type": "void*",
+     "comment": "The first dword of the observer CTopBar::Build attaches to topbarbutton_diplo. The observer is an object held by value, 0x2C bytes to the next; its layout was not read, so only its start is declared.",
+     "source": "reversing/findings/FINDINGS-topbar.md"
+    },
+    {
+     "offset": "0x2C",
+     "name": "shown_player",
+     "type": "CCountryTag",
+     "comment": "The country the flag and the name were last drawn for: the tag, then at +0x30 the id that is compared.",
+     "source": "reversing/findings/FINDINGS-topbar.md"
+    },
+    {
+     "offset": "0x28",
+     "name": "shown_tick",
+     "type": "int",
+     "comment": "The tick `DateText` was last drawn for; the date is redrawn only when the game state's tick differs.",
+     "source": "reversing/findings/FINDINGS-topbar.md"
+    },
+    {
+     "offset": "0x24",
+     "name": "idler",
+     "type": "CInGameIdler*",
+     "comment": "The in-game screen. Slot 14 gives the gui, slot 23 the played country's tag, slot 95 whether the game is paused.",
+     "source": "reversing/findings/FINDINGS-topbar.md"
+    },
+    {
+     "offset": "0x20",
+     "name": "window",
+     "type": "CFixedWindow*",
+     "comment": "The live `topbar` window. Every element is found through it: slot 13 a button by name, slot 14 a text box, slot 17 an icon.",
+     "source": "reversing/findings/FINDINGS-topbar.md"
+    }
+   ]
+  },
+  {
+   "name": "CCountryView",
+   "vftable_rva": "0x11D419C",
+   "comment": "The base of the six country screens - diplomacy, espionage, politics, production, technology, theatre: a main window, a topcolor window behind it and a skin that follows the country. Fifteen virtual slots. See reversing/findings/FINDINGS-countryviews.md.",
+   "source": "reversing/findings/FINDINGS-countryviews.md",
+   "fields": [
+    {
+     "offset": "0xB0",
+     "name": "idler",
+     "type": "CInGameIdler*",
+     "comment": "The in-game screen: slot 14 gives the gui the windows are made through, slot 23 the played country's tag.",
+     "source": "reversing/findings/FINDINGS-countryviews.md"
+    },
+    {
+     "offset": "0xAC",
+     "name": "topcolor_window",
+     "type": "void*",
+     "comment": "The second window, `topcolor_*`, shown before the main one.",
+     "source": "reversing/findings/FINDINGS-countryviews.md"
+    },
+    {
+     "offset": "0xA8",
+     "name": "window",
+     "type": "void*",
+     "comment": "The main window - `country_production`, `country_technology`. Every element is found through it.",
+     "source": "reversing/findings/FINDINGS-countryviews.md"
+    },
+    {
+     "offset": "0x78",
+     "name": "view_index",
+     "type": "int",
+     "comment": "Which of the local player's automation settings is this view's: `[player + 0x38][view_index]`.",
+     "source": "reversing/findings/FINDINGS-countryviews.md"
+    }
+   ]
+  },
+  {
+   "name": "CProductionView",
+   "vftable_rva": "0x11DED24",
+   "comment": "The production screen, a CCountryView. See reversing/findings/FINDINGS-countryviews.md, section 4.",
+   "source": "reversing/findings/FINDINGS-countryviews.md",
+   "fields": [
+    {
+     "offset": "0x334",
+     "name": "shown_player_id",
+     "type": "int",
+     "comment": "The id of the country the screen was last built for; Update rebuilds when the played country's differs.",
+     "source": "reversing/findings/FINDINGS-countryviews.md"
+    },
+    {
+     "offset": "0x328",
+     "name": "last_sent",
+     "type": "double",
+     "comment": "The wall-clock time, in seconds, of the last SendDistribution; nothing is sent until a second has passed.",
+     "source": "reversing/findings/FINDINGS-countryviews.md"
+    },
+    {
+     "offset": "0x324",
+     "name": "sliders_changed",
+     "type": "uint8_t",
+     "comment": "Set by Update when a slider was moved or pinned; cleared when SendDistribution runs.",
+     "source": "reversing/findings/FINDINGS-countryviews.md"
+    },
+    {
+     "offset": "0xCC",
+     "name": "editing",
+     "type": "uint8_t",
+     "comment": "While set, Show does nothing but clear it when a dialog is open, and PlaceSliders leaves the sliders' values alone. Likely \"a dialog was opened from here\".",
+     "source": "reversing/findings/FINDINGS-countryviews.md"
+    },
+    {
+     "offset": "0xC8",
+     "name": "total_ic",
+     "type": "float",
+     "comment": "TotalIC as a float; the sliders' maximum. Update compares it with +0x604 and resets every slider's maximum when they differ.",
+     "source": "reversing/findings/FINDINGS-countryviews.md"
+    },
+    {
+     "offset": "0xB8",
+     "name": "sliders_first",
+     "type": "void*",
+     "comment": "Head of the list of the six CEconomySlider (last at +0xBC, count at +0xC0; nodes {slider, prev, next}). In the order upgrade, reinforcement, supply, production, consumer goods, lend-lease.",
+     "source": "reversing/findings/FINDINGS-countryviews.md"
+    }
+   ]
+  },
+  {
+   "name": "CTechnologyView",
+   "vftable_rva": "0x11DFC44",
+   "comment": "The technology screen, a CCountryView. See reversing/findings/FINDINGS-countryviews.md, section 5.",
+   "source": "reversing/findings/FINDINGS-countryviews.md",
+   "fields": [
+    {
+     "offset": "0x190",
+     "name": "last_sent",
+     "type": "double",
+     "comment": "The wall-clock time of the last SendDistribution.",
+     "source": "reversing/findings/FINDINGS-countryviews.md"
+    },
+    {
+     "offset": "0x189",
+     "name": "sliders_changed",
+     "type": "uint8_t",
+     "comment": "Set when a slider is in the player's hand; SendDistribution runs when it is set and a second has passed since +0x190.",
+     "source": "reversing/findings/FINDINGS-countryviews.md"
+    },
+    {
+     "offset": "0x184",
+     "name": "sliders_window",
+     "type": "void*",
+     "comment": "Likely the window `country_leadership_sliders`: Build adds each slider's window to it.",
+     "source": "reversing/findings/FINDINGS-countryviews.md"
+    },
+    {
+     "offset": "0x180",
+     "name": "idler",
+     "type": "CInGameIdler*",
+     "comment": "The in-game screen again; this class reads the played country through it.",
+     "source": "reversing/findings/FINDINGS-countryviews.md"
+    },
+    {
+     "offset": "0x170",
+     "name": "skill_entries_first",
+     "type": "void*",
+     "comment": "Head of the list of CTechSkillEntry (last at +0x174, count at +0x178).",
+     "source": "reversing/findings/FINDINGS-countryviews.md"
+    },
+    {
+     "offset": "0x160",
+     "name": "tree_entries_first",
+     "type": "void*",
+     "comment": "Head of the list of CTechTreeEntry (last at +0x164, count at +0x168).",
+     "source": "reversing/findings/FINDINGS-countryviews.md"
+    },
+    {
+     "offset": "0x15C",
+     "name": "selected_folder",
+     "type": "CTechnologyFolder*",
+     "comment": "The folder whose technologies the tree shows.",
+     "source": "reversing/findings/FINDINGS-countryviews.md"
+    },
+    {
+     "offset": "0xD4",
+     "name": "selected_technology",
+     "type": "CTechnology*",
+     "comment": "The technology the detail panel is for.",
+     "source": "reversing/findings/FINDINGS-countryviews.md"
+    },
+    {
+     "offset": "0xD0",
+     "name": "details_shown",
+     "type": "uint8_t",
+     "comment": "Set by ShowDetails: the detail panel is up in place of the skills.",
+     "source": "reversing/findings/FINDINGS-countryviews.md"
+    },
+    {
+     "offset": "0xCC",
+     "name": "total_leadership",
+     "type": "float",
+     "comment": "TotalLeadership over a thousand as a float; the sliders' maximum.",
+     "source": "reversing/findings/FINDINGS-countryviews.md"
+    },
+    {
+     "offset": "0xBC",
+     "name": "sliders_first",
+     "type": "void*",
+     "comment": "Head of the list of the four CEconomySlider (last at +0xC0, count at +0xC4), in the order research, espionage, diplomacy, officers.",
+     "source": "reversing/findings/FINDINGS-countryviews.md"
+    }
+   ]
+  },
+  {
+   "name": "CEconomySlider",
+   "size": "0x40",
+   "comment": "The slider both screens use: an observer glue at +0, a window, a CDistributionSetting and a value held in IC or leadership. No RTTI of its own; named from VCEconomySlider::__CButtonObserverGlue.",
+   "source": "reversing/findings/FINDINGS-countryviews.md",
+   "fields": [
+    {
+     "offset": "0x3E",
+     "name": "pinned",
+     "type": "uint8_t",
+     "comment": "Set by OnNeedButton when it disables the slider at its need.",
+     "source": "reversing/findings/FINDINGS-countryviews.md"
+    },
+    {
+     "offset": "0x3D",
+     "name": "is_ic",
+     "type": "uint8_t",
+     "comment": "1 for one of the six IC sliders, 0 for one of the four leadership ones.",
+     "source": "reversing/findings/FINDINGS-countryviews.md"
+    },
+    {
+     "offset": "0x3C",
+     "name": "moved",
+     "type": "uint8_t",
+     "comment": "The scrollbar's +0x252 as LatchMoved found it: the player moved the slider since the last look.",
+     "source": "reversing/findings/FINDINGS-countryviews.md"
+    },
+    {
+     "offset": "0x38",
+     "name": "value",
+     "type": "float",
+     "comment": "The value last set by SetValue.",
+     "source": "reversing/findings/FINDINGS-countryviews.md"
+    },
+    {
+     "offset": "0x34",
+     "name": "setting",
+     "type": "CDistributionSetting*",
+     "comment": "The share this slider shows. Its slots 1, 2, 3, 6, 7, 8 and 11 are what the slider asks.",
+     "source": "reversing/findings/FINDINGS-countryviews.md"
+    },
+    {
+     "offset": "0x30",
+     "name": "window",
+     "type": "void*",
+     "comment": "The slider's window - `domesticpanel_slider` or `tech_slider` - renamed to the slider's index.",
+     "source": "reversing/findings/FINDINGS-countryviews.md"
+    }
+   ]
+  },
+  {
+   "name": "CTechTreeEntry",
+   "vftable_rva": "0x11DFC38",
+   "size": "0x40",
+   "comment": "One technology in the tree of the technology screen.",
+   "source": "reversing/findings/FINDINGS-countryviews.md",
+   "fields": [
+    {
+     "offset": "0x3C",
+     "name": "view",
+     "type": "CTechnologyView*",
+     "comment": "The technology screen that owns it.",
+     "source": "reversing/findings/FINDINGS-countryviews.md"
+    },
+    {
+     "offset": "0x38",
+     "name": "window",
+     "type": "void*",
+     "comment": "Its `tech_entry` window.",
+     "source": "reversing/findings/FINDINGS-countryviews.md"
+    },
+    {
+     "offset": "0x34",
+     "name": "idler",
+     "type": "CInGameIdler*",
+     "comment": "The in-game screen; the gui and the played country come through it.",
+     "source": "reversing/findings/FINDINGS-countryviews.md"
+    },
+    {
+     "offset": "0x30",
+     "name": "technology",
+     "type": "CTechnology*",
+     "comment": "The technology this entry is for.",
+     "source": "reversing/findings/FINDINGS-countryviews.md"
+    }
+   ]
+  },
+  {
+   "name": "CCurrentResearchEntry",
+   "vftable_rva": "0x11DFD4C",
+   "comment": "A line of the research queue on the technology screen, a list box item.",
+   "source": "reversing/findings/FINDINGS-countryviews.md",
+   "fields": [
+    {
+     "offset": "0xCC",
+     "name": "idler",
+     "type": "CInGameIdler*",
+     "comment": "The in-game screen; the played country comes through its slot 23.",
+     "source": "reversing/findings/FINDINGS-countryviews.md"
+    },
+    {
+     "offset": "0xC8",
+     "name": "technology",
+     "type": "CTechnology*",
+     "comment": "The technology on this line of the queue.",
+     "source": "reversing/findings/FINDINGS-countryviews.md"
+    },
+    {
+     "offset": "0x20",
+     "name": "window",
+     "type": "void*",
+     "comment": "Its `current_research_entry` window.",
+     "source": "reversing/findings/FINDINGS-countryviews.md"
+    }
+   ]
+  },
+  {
+   "name": "CTechSkillEntry",
+   "size": "0x24",
+   "comment": "A theory or practical on the technology screen. **The name is ours**: the class has no RTTI.",
+   "source": "reversing/findings/FINDINGS-countryviews.md",
+   "fields": [
+    {
+     "offset": "0x18",
+     "name": "shown_level",
+     "type": "int",
+     "comment": "The level last drawn, thousandths; -1000 at construction so the first Update draws.",
+     "source": "reversing/findings/FINDINGS-countryviews.md"
+    },
+    {
+     "offset": "0x14",
+     "name": "skill_text",
+     "type": "void*",
+     "comment": "The text box `skill`.",
+     "source": "reversing/findings/FINDINGS-countryviews.md"
+    },
+    {
+     "offset": "0x10",
+     "name": "indicator",
+     "type": "void*",
+     "comment": "The icon `tech_skill_indicator`, whose frame is the level.",
+     "source": "reversing/findings/FINDINGS-countryviews.md"
+    },
+    {
+     "offset": "0x8",
+     "name": "window",
+     "type": "void*",
+     "comment": "Its `tech_category_skill_entry` window.",
+     "source": "reversing/findings/FINDINGS-countryviews.md"
+    },
+    {
+     "offset": "0x0",
+     "name": "category",
+     "type": "CTechnologyCategory*",
+     "comment": "The theory or practical shown.",
+     "source": "reversing/findings/FINDINGS-countryviews.md"
+    }
+   ]
   }
  ],
  "equates": [
@@ -42055,16 +43691,127 @@
   }
  ],
  "vftable_slots": {
+  "CEU3BitmapFont": {
+   "8": "DrawText"
+  },
+  "CDistributeEspionage": {
+   "0": "Distribute",
+   "1": "GetNoText",
+   "2": "GetNoText",
+   "6": "GetName",
+   "11": "GetNoLimit"
+  },
+  "CDistributeLendLease": {
+   "0": "Distribute",
+   "2": "GetValueColour",
+   "6": "GetName",
+   "11": "GetLimit"
+  },
+  "CDistributeUpgrade": {
+   "1": "GetNeedTooltip",
+   "0": "Distribute",
+   "1": "GetNeedTooltip",
+   "3": "GetNeeded",
+   "6": "GetName"
+  },
+  "CDistributeReinforcement": {
+   "1": "GetNeedTooltip",
+   "0": "Distribute",
+   "1": "GetNeedTooltip",
+   "3": "GetNeeded",
+   "6": "GetName"
+  },
+  "CDistributeConsumerGoods": {
+   "0": "Distribute",
+   "2": "GetValueColour",
+   "3": "GetNeeded",
+   "6": "GetName"
+  },
+  "CDistributeProduction": {
+   "0": "Distribute",
+   "1": "GetNeedTooltip",
+   "2": "GetValueColour",
+   "3": "GetNeeded",
+   "6": "GetName"
+  },
+  "CCurrentResearchEntry": {
+   "8": "Update",
+   "12": "BuildTooltip"
+  },
+  "CTechTreeEntry": {
+   "0": "BuildTooltip"
+  },
+  "CTheatreView": {
+   "9": "UpdateCountrySkin",
+   "11": "UpdateAutomationLine",
+   "14": "ApplyAutomation"
+  },
+  "CPoliticsView": {
+   "9": "UpdateCountrySkin",
+   "11": "UpdateAutomationLine",
+   "14": "ApplyAutomation"
+  },
+  "CEspionageView": {
+   "9": "UpdateCountrySkin",
+   "11": "UpdateAutomationLine"
+  },
+  "CDiplomacyView": {
+   "9": "UpdateCountrySkin",
+   "11": "UpdateAutomationLine"
+  },
+  "CTechnologyView": {
+   "2": "Show",
+   "4": "Hide",
+   "6": "Update",
+   "9": "UpdateCountrySkin",
+   "11": "UpdateAutomationLine"
+  },
+  "CProductionView": {
+   "0": "Rebuild",
+   "2": "Show",
+   "4": "Hide",
+   "6": "Update",
+   "7": "IsShown",
+   "9": "UpdateCountrySkin",
+   "10": "BuildTooltip",
+   "11": "UpdateAutomationLine"
+  },
+  "CCountryView": {
+   "0": "Rebuild",
+   "2": "Show",
+   "9": "UpdateCountrySkin",
+   "11": "UpdateAutomationLine",
+   "14": "ApplyAutomation"
+  },
+  "CTopBar": {
+   "0": "Build",
+   "2": "Show",
+   "4": "Update"
+  },
   "CDistributeResearch": {
+   "2": "GetNoText",
+   "3": "GetNeeded",
+   "4": "ShareAmongProjects",
+   "6": "GetName",
+   "11": "GetNoLimit",
    "0": "Distribute"
   },
   "CDistributeDiplomacy": {
+   "1": "GetNeedTooltip",
+   "2": "GetValueColour",
+   "6": "GetName",
    "0": "Distribute"
   },
   "CDistributeNCO": {
+   "1": "GetNoText",
+   "2": "GetNoText",
+   "6": "GetName",
+   "11": "GetNoLimit",
    "0": "Distribute"
   },
   "CDistributeSupply": {
+   "6": "GetName",
+   "11": "GetNoLimit",
    "0": "Distribute"
   },
   "CLiberateCountryCommand": {

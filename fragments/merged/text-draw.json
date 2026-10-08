@@ -1,0 +1,110 @@
+{
+  "agent": "text-draw",
+  "question": "Where a text box puts its text: what borderSize, format and orientation do, and why a centred figure sits where it does.",
+  "source": "reversing/findings/FINDINGS-textdraw.md",
+  "addresses": [
+    {
+      "rva": "0x6FC070",
+      "kind": "function",
+      "name": "CEU3BitmapFont::DrawText",
+      "signature": "void __thiscall CEU3BitmapFont::DrawText(CEU3BitmapFont* this, Hoi3CString* text, int format, int orientation, int x, int y, int maxWidth, int maxHeight, int borderX, int borderY, int* areaSize)",
+      "no_signature": null,
+      "comment": "**Slot 8 of CEU3BitmapFont: lays a text out, places it and draws it.** `ret 0x28`. Keeps a cache of forty laid-out texts keyed by a hash of the string and every argument. A line's width is the sum of its glyphs' xadvance plus kerning; a7 and the character after it add nothing. The first line is placed by a jump table on the orientation, in a space centred on the area with **y upwards**. For UPPER_LEFT: lineY = areaHeight/2 - y - borderY; x0 = x - areaWidth/2; **format 0 (left) x0 + borderX; format 2 (centre) x0 + borderX + maxWidth/2 - lineWidth/2, each half its own integer division; format 1 (right) x0 + maxWidth - lineWidth, with no border.** For UPPER_RIGHT the origin is areaWidth/2 + x + borderX and the same three follow, so left and centre have the border twice. **Every corner of every glyph quad then has 0.5 added to x and to y** - half a pixel right and, y being upwards, half a pixel up; beside the game's pictures the maintainer's screenshot shows that as one whole pixel each way. The colour escapes are resolved here too: a7 and a letter index a table in the font at +0x4A8, 32 bytes an entry - what the `colorcodes` block fills - falling back to a table at the global 0x1B211A8; a7 '!' restores the font's own colour at +0x38. The name is ours.",
+      "confidence": "confirmed",
+      "evidence": "`add dword ptr [esp+0x10],edx` with `mov edx,[ecx+0x18]` at 0xAFC619; `jmp dword ptr [ecx*4 + 0xafd6e4]` at 0xAFCAA5, whose six entries are 0xAFCAAC, 0xAFCB1C, 0xAFCBA5, 0xAFCBED, 0xAFCC16, 0xAFCC77; in the first, `sub eax,[ebp+0x18]; sub eax,[ebp+0x28]` for y, `lea esi,[ecx+edx]` with edx borderX for left, `sar esi,1; sub esi,[esp+0x34]` then `add esi,ecx` for centre, `add ecx,edi; mov esi,ecx; sub esi,[esp+0x1a8]` for right; `movsd xmm7,[0x160a350]` (-0.5) at 0xAFCD95 and `subsd xmm0,xmm7` on each coordinate from 0xAFD200. Measured: in the panel for one technology the '1' of the difficulty is at 825..828, 108..115 where this arithmetic gives 824..827, 109..116, and the year beside it is off by the same one and one. What would show it wrong: a text box whose figure is not one pixel right and up of border + half the box less half the line."
+    },
+    {
+      "rva": "0x732350",
+      "kind": "function",
+      "name": "CGuiText::CGuiText",
+      "signature": null,
+      "no_signature": "twelve stack arguments by `ret 0x30`, with the gui in ECX; not traced one by one",
+      "comment": "**The object a text box draws through**, 0x1D4 bytes, vftable 0x1606C70, no RTTI - the class name is ours. Keeps the text at +0x150, the position at +0x188, the border at +0x198, maxWidth and maxHeight at +0x1A0 and +0x1A4 (each made 200 if it was 0), the orientation at +0x1A8, **the format at +0x1AC - 0 left, 1 right, 2 centre** - and the font at +0x1BC, found by name through the gui. When the flag at +0x1B8 is set and there is text, it has the font re-flow the text at once (slot 12).",
+      "confidence": "confirmed",
+      "evidence": "`mov dword ptr [esi],0x1606c70`; the stores at +0x188..+0x1B8 from the arguments; `mov eax,0xc8` and the two `cmp dword ptr [esi+N],0; jne` at 0xB325AB; `ret 0x30`. The instant text box's constructor allocates 0x1D4 bytes for it at 0xA7FA64."
+    },
+    {
+      "rva": "0x7326C0",
+      "kind": "function",
+      "name": "CGuiText::Draw",
+      "signature": null,
+      "no_signature": "six stack arguments by `ret 0x18`; only the third, a pointer whose +0x30 and +0x34 are read as floats, was looked at",
+      "comment": "Draws the text: font slot 15 with the colour block at +0x16C, then **font slot 8** - CEU3BitmapFont::DrawText - with the text, the format, the orientation, the rectangle {x, y, maxWidth, maxHeight} by value, border x, border y and a pointer to +0x1B0. The text box places nothing itself. The name is ours.",
+      "confidence": "confirmed",
+      "evidence": "`mov edx,[edx+0x3c]; lea eax,[esi+0x16c]; push eax; call edx`, then the pushes of +0x1B0, +0x19C, +0x198, the sixteen bytes from +0x1C0 and +0x1C8, +0x1A8, +0x1AC and +0x150 before `mov edx,[edx+0x20]`'s call; `ret 0x18`."
+    },
+    {
+      "rva": "0x732AB0",
+      "kind": "function",
+      "name": "CGuiText::GetAnchoredPosition",
+      "signature": "int* __stdcall CGuiText::GetAnchoredPosition(CGuiText* text@ECX, int* out@ESI) @EAX",
+      "no_signature": null,
+      "comment": "The position with the orientation's anchor added, for the hit test and the position getter: 0 the position as it is; 1 x + areaWidth; 2 y + areaHeight; 3 both; 4 both halves - and for format 2 also less half of maxWidth; 5 x + half the width; 6 x + half the width and y + the height. Bare `ret`s. The name is ours.",
+      "confidence": "confirmed",
+      "evidence": "A chain of `cmp eax,N` on `[ecx+0x1a8]` from 0 to 6, each arm adding `[ecx+0x1b0]` or `[ecx+0x1b4]`, whole or `sar`ed, to `[ecx+0x188]` and `[ecx+0x18c]`; `cmp dword ptr [ecx+0x1ac],2` in the arm for 4."
+    },
+    {
+      "rva": "0x67F930",
+      "kind": "function",
+      "name": "GuiObject_instantTextBoxType::GuiObject_instantTextBoxType",
+      "signature": null,
+      "no_signature": "fourteen stack arguments by `ret 0x38`; not traced one by one",
+      "comment": "Builds an instantTextBoxType widget: writes the vftable 0x15FDB70, keeps the name at +0x54, maxWidth and maxHeight at +0x8C and +0x90, the text at +0xD0 and the format at +0xF0, and makes the CGuiText that draws it at +0x94 from the same arguments. `ret 0x38`. The struct's name is the record's own; the class has no RTTI.",
+      "confidence": "confirmed",
+      "evidence": "`mov dword ptr [esi],0x15fdb70` at 0xA7F975; `push 0x1d4; call operator new` at 0xA7FA64 and `call 0xb32350`; `mov [esi+0x94],ecx`."
+    }
+  ],
+  "structs": [],
+  "struct_fields": [
+    {
+      "struct": "GuiObject_instantTextBoxType",
+      "offset": "0x94",
+      "name": "text_object",
+      "type": "void*",
+      "comment": "The CGuiText (0x1D4 bytes, vftable 0x1606C70) that holds the layout and draws the text. Setting the widget's text assigns +0xD0 and then tells this object.",
+      "evidence": "`mov [esi+0x94],ecx` in the constructor; `mov esi,[edi+0x94]; call 0xb32880` after the assign at 0xA7FCEB."
+    },
+    {
+      "struct": "GuiObject_instantTextBoxType",
+      "offset": "0x8C",
+      "name": "max_width",
+      "type": "int",
+      "comment": "The declaration's maxWidth. Slot 24, the position getter, adds it to x for a box set right.",
+      "evidence": "`mov [esi+0x8c],ecx` from the argument at 0xA7F9BE; `mov dx,[esi+0x8c]; add dx,cx` at 0xA7FD9A."
+    },
+    {
+      "struct": "GuiObject_instantTextBoxType",
+      "offset": "0xF0",
+      "name": "format",
+      "type": "int",
+      "comment": "The declaration's format: 0 left, 1 right, 2 centre.",
+      "evidence": "`mov [esi+0xf0],edx` at 0xA7FA6F; `cmp dword ptr [esi+0xf0],1` in slot 24."
+    }
+  ],
+  "vftable_slots": {
+    "CEU3BitmapFont": {
+      "8": "DrawText"
+    }
+  },
+  "frontier": [
+    {
+      "rva": "0x732880",
+      "why": "what a text box calls after assigning its text; the re-layout"
+    },
+    {
+      "rva": "0x7003E0",
+      "why": "CEU3BitmapFont slot 12, which re-flows a text to a width; where a line breaks"
+    },
+    {
+      "rva": "0x6FD880",
+      "why": "CEU3BitmapFont slot 15, called with the colour block before each draw"
+    },
+    {
+      "rva": "0x17211A8",
+      "why": "the global colour table the a7 escapes fall back to; who fills it"
+    }
+  ],
+  "notes": [
+    "The half pixel on the text side is in the bytes; that it comes to a whole pixel beside the pictures is measured on a screenshot of the running game, and the picture side was not read."
+  ]
+}

@@ -296,8 +296,8 @@ Four things if it is used:
 - **It is not installed.** No `re_agent` module, no `re-agent` or `ghidra-bridge` on PATH.
 - **Drive it from a scratch project, against a copy of the Ghidra project.** The maintainer's
   holds the lock, as with the apply.
-- **Its output quality is a function of how named the project is.** This record applies 2490
-  addresses, 292 structs and the nested vftable slots idempotently; pointed at a named project
+- **Its output quality is a function of how named the project is.** This record applies 2589
+  addresses, 301 structs and the nested vftable slots idempotently; pointed at a named project
   it reads real code, pointed at a fresh import it reads `FUN_004...`.
 - **It costs model calls.** Set a budget before the first run.
 

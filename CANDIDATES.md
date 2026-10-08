@@ -801,6 +801,7 @@ close in minutes. **Worth doing all of these in one sitting rather than briefing
 | **AI agent units' `plan_air_stance`, on an AI country** | whether anything clears stance 2 faster than `ProcessAI` restores it - agent D's one remaining open item, and the last thing between "the strategic air war is live" and certainty | `FINDINGS-airstance.md` |
 | **`CUnit +0x2DC` across an attack decision onto an opposed amphibious landing** | the **amphibious sign bug**. If real, the estimate *rises* where it should fall. Currently the whole claim rests on one opcode byte (`subsd` where the river arm has `addsd`) | `FINDINGS-aihelpers.md` |
 | a **bombing** combat with the slot 11 probe still installed | the one arm of the slot 11 result that rests on static reading alone | the open list above |
+| **`CCountry +0x678[resource index]`** for a country before and after it loses a province that has a strategic resource, and once more after saving and loading | whether **a strategic resource level is ever lowered**. The one routine that writes it only raises it and a scan found no other writer but the session reset - a negative, currently `likely`. OpenHOI3 copies the behaviour on that strength. Added 2026-10-08 at the maintainer's word: keep the note, check later | `FINDINGS-countrymodifier.md`, section 4 |
 
 ### Deferred, at the maintainer's call
 
@@ -921,7 +922,7 @@ of it.
 
 ## What has already been read
 
-89 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
+93 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
 header lives. This replaces the `Done` archive: the archive restated each file's headline and named
 only 40 of the 67 there were then, so it was both longer and less useful than a complete list.
 
@@ -988,8 +989,12 @@ the six it was missing were wave 15's.
 | `findings/FINDINGS-leaders.md` | leaders: experience, skill, traits, and that promotion skill loss does not exist |
 | `findings/FINDINGS-supply.md` | how supply reaches a unit |
 | `findings/FINDINGS-manpower.md` | manpower: what the drain is made of |
+| `findings/FINDINGS-countrymodifier.md` | everything a country's modifier is rebuilt from, in order: ministers and their `decay`, laws, government, strategic resources and who shares them, province modifiers, the scaled statics, event and triggered modifiers, difficulty |
 | `findings/FINDINGS-manpowergain.md` | manpower: what a day adds, what `max_manpower` is, what a new game starts with, and that a country's modifier takes in its provinces' |
 | `findings/FINDINGS-redeploy.md` | strategic redeployment and the route finder |
+| `findings/FINDINGS-topbar.md` | the top bar: what `CTopBar` writes into each element, in what format and colour, the buttons it wires, and the orientation keywords |
+| `findings/FINDINGS-countryviews.md` | the production and technology screens: `CCountryView` and its country skin, the slider both share and what a `CDistributionSetting` tells it, the resource and research figures, where a technology goes in the tree, and the three entry classes |
+| `findings/FINDINGS-textdraw.md` | where a text box puts its text: the font's slot 8, what `borderSize`, `format` and `orientation` do, the half pixel every glyph is drawn off by, and the `colorcodes` the colour escapes come from |
 | `findings/FINDINGS-shatter.md` | shattering, and being removed from the game |
 | `findings/FINDINGS-airdefence.md` | the three defence stats: parsed, stored, displayed - and never used to defend |
 

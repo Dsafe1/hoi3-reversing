@@ -36,7 +36,7 @@ and 3 do arithmetic; 1, 5 and 6 build strings:
 | --- | --- | --- |
 | 0 | `Distribute` | `0x519D10` |
 | 1 | a tooltip - pushes the key `SLIDER_NEED` | `0x51A300` |
-| 2 | a share turned into an amount: `percentage x TotalIC (+0x604)` | `0x51A440` |
+| 2 | a share turned into an amount: `percentage x TotalIC (+0x604)` - **and then compared with the need: it returns a colour escape, not the amount** (corrected 2026-10-08, `FINDINGS-countryviews.md` §3) | `0x51A440` |
 | 3 | `GetNeeded` (already named) | `0x51A2E0` |
 | 4 | a shared stub `0xABF890`; only `CDistributeResearch` overrides it (`0x51F4D0`) | - |
 | 5 | a second, longer tooltip, with SEH | `0x51A590` |

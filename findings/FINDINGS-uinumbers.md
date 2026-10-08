@@ -388,6 +388,12 @@ per goods category, all thousandths, all on `CCountry`.
 | `0x11E8E0` | 1 | `CDistributeDiplomacy` | `4` |
 | `0x121480` | 1 | `CDistributeConsumerGoods`, `CDistributeResearch`, `CDistributeSupply` | `0xC` |
 
+**Corrected 2026-10-08 (`FINDINGS-countryviews.md` §3): the two slot 3 rows are the wrong
+function.** `0x11CAD0` and `0x11DBB0` are `0x2E` bytes each, touch no string and `ret 4`: they are
+reinforcement's and upgrade's `GetNeeded`. The `SLIDER_NEED` bodies are the functions after them,
+`0x11CB00` and `0x11DBE0`, at **slot 1** - so the slot *is* stable across the family, and the
+paragraph below is kept only as what was believed.
+
 Two things follow. **The slot is not stable across the family** - 1 for four of them and 3 for
 two - so a BiceLib hook that assumes one index would call the wrong virtual on two distributors.
 And `0x121480` is held by three classes at the same slot, which under trap 4 is a fold inside one

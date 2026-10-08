@@ -230,6 +230,10 @@ all. See `FINDINGS-survivors.md` §3.
 
 `country->decay_modifier[...]` is `CCountry +0x1174`, and the array's end is `+0x1178`.
 
+*What fills it was read on 2026-10-08: `CCountry::RebuildStaticModifiers` zeroes it and adds the
+`decay` of each sitting minister's type and then technology's own per-category figure -
+`FINDINGS-countrymodifier.md`, section 2.*
+
 ### `BASE_TECH_DECAY` has two readers, and the second one *is* a tick
 
 **Corrected.** This section first claimed a single reader. It has two, and the one it missed

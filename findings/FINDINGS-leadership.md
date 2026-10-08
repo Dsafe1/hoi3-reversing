@@ -417,6 +417,10 @@ shares made in two days is.
 
 ## What is not established
 
+*The first two of these were answered on 2026-10-08: `FINDINGS-countrymodifier.md` reads the whole
+routine. A strategic resource counts once, at the best province's efficiency, for the controller and
+for the bigger members of its faction.*
+
 - **The rest of `CCountry::RebuildStaticModifiers`** (`0xDDD80`), from `0x4DDF9E` on. It is the
   list of what a country's modifier is made of. Triggered modifiers and strategic resources
   are in it or behind it, by section 11.

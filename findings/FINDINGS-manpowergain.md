@@ -143,10 +143,12 @@ Found while asking why two countries start as they do (section 7). In
 
 `[esp+0x10]` is the country's own modifier object, `country + 0xD90`, set at `0x4DDDFA`; its
 values pointer is the `+0xDA8` everything reads. So whatever a province's modifier holds reaches
-the controller's, once a province. **Likely** that is the road a strategic resource takes - it is
-a modifier, on a province, with country-wide kinds in it - but the step that would put one into a
-province's modifier was looked for in `RebuildProvinceModifierValues` and not found. The rest of
-`RebuildStaticModifiers` is still unread.
+the controller's, once a province.
+
+*This paragraph went on to guess that a strategic resource takes that road. **It does not** -
+corrected the same day by `FINDINGS-countrymodifier.md`, which reads the rest of the routine: a
+resource has a step of its own, scaled by a level the country keeps, and the levels are not worked
+out when a new game is entered, which is why section 7's two countries start without theirs.*
 
 ## 7. Against a savegame
 
@@ -180,8 +182,9 @@ resource is not yet in the country's modifier, and by the first daily pass it is
 
 ## 8. Not established
 
-- how a strategic resource gets into a province's or a country's modifier, and why it is missing
-  when a new game is set up;
+- ~~how a strategic resource gets into a province's or a country's modifier, and why it is missing
+  when a new game is set up~~ - answered by `FINDINGS-countrymodifier.md`, section 4, which also
+  explains the United Kingdom below: it is given France's black soil;
 - what the government-in-exile block is for (section 4);
 - `0x4DCD70`, which rewrites `CCountry +0x158` from the pool, `max_manpower` and the country's
   units - so that field is not only what the history file gave;
