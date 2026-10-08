@@ -496,6 +496,109 @@ entry is proof on its own.
 `CDefines` itself comes from `GetDefines` (`0x45D90`), which makes it on first use and
 keeps it at `0x1686040`.
 
+### Organisation, and the officers behind it
+
+*Read 2026-10-08; `findings/FINDINGS-organisation.md` has the listings.*
+
+A brigade's organisation is held under a **ceiling** (`CSubUnit::GetMaxOrganisation`,
+`0x1AB700`): its definition's own figure, plus what the army's commander adds, less a
+reserve's share, times its country's **officer ratio**, times the country's modifier for its
+branch. While `in_game` is clear the ceiling is the definition's figure and nothing else.
+
+The officer ratio is `CCountry +0xD4`, and `CCountry::UpdateOfficerRatio` (`0x17C80`) writes
+it: the officers the country has (`+0xC4`) over what its brigades call for (`+0xD0`), and no
+more than `MAX_OFFICERS`. `CCountry::RecountUnitTotals` ends in it, so it is fresh every hour
+- after the units' own hour, so a unit works with the ratio of the hour before.
+
+Each hour `CUnit::UpdateHourly` passes a unit that is not fighting to
+`CUnit::RegainOrganisation` (`0x1C6A60`), which makes one factor of the supplies the unit
+got, the infrastructure where it stands, the officer ratio, how crowded its base is and the
+country's `org_regain`, and hands it to `CSubUnit::RegainOrganisation` (`0x1ABB60`) for
+each brigade: a fifth of the brigade's morale times the factor, faster under a quarter of the
+ceiling and slower over three quarters, and then **held to the ceiling whichever way it was
+off**. A unit that got no supplies at all loses organisation at the same rate.
+
+`CChangeLawCommand::Execute` is the other thing that brings a brigade down: after any change
+of law it holds every brigade of the country to its strength and organisation ceilings and
+gives back the men of the strength it took off.
+
+### The build queue, from an order to a unit waiting to be placed
+
+*Read 2026-10-08; `findings/FINDINGS-buildqueue.md` has the listings, and
+`findings/FINDINGS-production.md` the day's loop.*
+
+A country's queue is a list of `CConstruction` (`+0xF40`), and its order is all the priority
+there is: `CDistributeProduction::Distribute` gives the first line a day of its cost, then the
+next, until the share of IC is gone. `CChangePriorityCommand` moves a line to either end or
+one place either way; `CCancelUnitConstructionCommand` takes one out and gives back the men
+of every unit of it still to come.
+
+**A line is priced by `CMilitaryConstruction::RecalculateCost`**, from the same two functions
+the upgrade share uses - `CCountry::GetBuildCostIC` and `GetBuildTime` - with one term the
+upgrade share leaves at nothing: **the levels the brigade is to be built with, each worth a
+hundredth of both**. A unit of several brigades takes as long as its slowest and costs a day
+what pays for all of them over that time. The price is worked out when the line is queued,
+whenever anything in the queue is finished, when a series goes on to its next unit, **and on
+any change of the country's laws** - not daily, so a decayed practical reaches the queue late.
+
+**The men are taken when the unit is ordered**, for the whole series
+(`CConstructUnitCommand::Execute`, `CCountry::GetBuildCostManpower`). The IC is paid day by
+day. Each day paid for adds its share of the country's `unit_start_experience` to the line,
+and that - with whatever was never counted, made up at delivery - is the experience the unit
+is built with.
+
+**`CMilitaryConstruction::Deliver`** makes the unit and its brigades with the line's numbers,
+at full strength (a reserve at its law's share), gives the country the type's
+`completion_size` of its practical, and **puts the unit in a `CUnitDeployment`, not on the
+map**. A brigade's organisation is set before it is in its unit, so it starts at its own
+figure whatever its country's officers. `CDeployUnitCommand` places a deployment:
+`CUnitDeployment::CanDeployIn` asks for a naval base for a fleet, an air base for an air unit,
+and a province in the same owner area as the capital.
+
+**A `military_construction` in an order of battle is a line like any other**, loaded by the
+country's own loader. What is particular to it is done by `CInGameIdler::Enter` for a new
+game: each line is priced, and **the `duration` its file gave is taken as the days it still
+has to go** - `progress = the days it takes - that`. Its file's `cost` and `progress` are
+thrown away. It takes a number for itself, one for its unit, two it passes over, and one a
+brigade (`CMilitaryConstruction::AfterLoad`).
+
+### The four windows a unit is ordered from
+
+*Read 2026-10-08; `findings/FINDINGS-builders.md` has the listings.*
+
+`CDivisionDesigner`, `CShipBuilder`, `CAirBuilder` and `CBrigadeBuilder` are four of the seven
+dialogs `CProductionView` owns, and they are one family: the same seven slots, with **slot 4
+the update that runs every frame the window is open**, and the same order panel by the same
+element names - `serial` and `parallel` with buttons that repeat while held, IC a day times
+`parallel`, manpower times both, days times `serial`, and a traffic light that is green while
+the production share still has the unit's IC to spare.
+
+**Each lists the unit types of its branch the country may still build**
+(`CCountry::CountMaxUnitsStillBuildable`): unlocked by a technology, allowed by `usable_by`,
+passing an `available_trigger`, and - for a type with `minimum_of_type` or
+`max_percentage_of_type` - not yet at its ration. Every line is the type's figures at the
+country's own technology levels, and the `sort_*` buttons make a comparator of one field that
+sorts largest first on the first click.
+
+**The designer** (`CDivisionDesigner`, with a `CBrigadePicker`) collects up to
+`BRIGADES_IN_DIVISION` plus the technology status's `division_size` brigades and totals them:
+most figures add up, organisation and softness are averaged, speed is the slowest, and
+piercing and armour the best. Combined arms shows only where a brigade of a base group is in
+the design. **A division needs two brigades** (`CanBuildDivision`). A country's
+`default_templates` fill the twelve template buttons.
+
+**The ship builder is the one window that chooses levels**: selecting a type lists each of
+its technologies at the country's level, and any of them may be set lower, which makes the
+ship cheaper and quicker by a hundredth a level. It posts `CConstructSingleUnitCommand`,
+whose constructor - on the clicking player's machine - has already named the ship; and a
+ticked `add_cag` posts one more order for each air group the carrier holds. The air and
+brigade builders post the ordinary `CConstructUnitCommand` with a list of one.
+
+**A new unit's name** comes from the country's `unit_names` for the type - a division's from
+its first brigade's list, a ship's or a wing's from its own - passing over any name in use
+anywhere, and after that from `DIVISION_NAME`, `REGIMENT_NAME` or `SUBUNIT_NAME` with a
+number counted up until one is free (`CCountry::MakeUnitName`, `MakeSubUnitName`).
+
 ### What the save keys named on a sub unit
 
 `CRegiment` is a name BiceLib picked; the game's class is **`CSubUnit`**, and `CRegiment`,

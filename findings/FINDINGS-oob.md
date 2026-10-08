@@ -167,12 +167,17 @@ construction class's constructor initialises the field to 1000.
 That matches what the field holds live: 1.0 on most items, 0 on the rest, a handful in
 between - fully funded, unfunded, and part funded.
 
-**Nothing reads it.** Two sweeps for a reader of `+0x3C` on a construction found none
+~~**Nothing reads it.** Two sweeps for a reader of `+0x3C` on a construction found none
 outside the loader and the save writer: one over every named function from its own entry
 point, so correctly aligned, and one linear over all of `.text`. The linear one can miss
-misaligned code, so this is strong rather than proved. A `status` in an OOB file therefore
-survives only until the item is next advanced, and changes nothing about cost, speed or what
-is built.
+misaligned code, so this is strong rather than proved.~~ **Two things read it, found
+2026-10-08** by reading the production screen's queue line and not by a sweep:
+`CBuildQueueEntry::Update` (`0x7F4C90`) colours a line by it and prints it as the line's
+speed, and `CConstruction::GetEtaText` (`0x483870`) divides the days left by it
+(`FINDINGS-buildqueue.md`, section 8). Both sweeps missed them, which is worth knowing about
+the sweeps. What stands: a `status` in an OOB file survives only until the item is next
+advanced, and changes nothing about cost, speed or what is built - only what the screen
+shows until then.
 
 ### On a convoy construction: escorts or transports
 

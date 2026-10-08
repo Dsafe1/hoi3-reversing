@@ -1,0 +1,203 @@
+{
+  "agent": "main session",
+  "question": "Who writes the officer ratio and where it is capped; what raises a brigade's organisation each hour; and what brings one down to its ceiling.",
+  "source": "reversing/findings/FINDINGS-organisation.md",
+  "addresses": [
+    {
+      "rva": "0x17C80",
+      "kind": "function",
+      "name": "CCountry::UpdateOfficerRatio",
+      "signature": "void __stdcall CCountry::UpdateOfficerRatio(CCountry* country)",
+      "no_signature": null,
+      "comment": "**The one writer of OfficerRatio (+0xD4) in play.** `ret 4`, the country on the stack. Where officers_required (+0xD0) is above 0: `officers (+0xC4) * 1000 / officers_required`, by __allmul and __alldiv, and no more than the military define MAX_OFFICERS (CDefines +0xAC, +0x240, kept in the static at 0x1BEA3EC behind the guard bit at 0x1BEA3E8). Otherwise 1000. Two callers: the last thing CCountry::RecountUnitTotals does (0x50079F), so once an hour for every country and wherever else the count is taken, CInGameIdler::Enter among them; and ApplyCustomGameSettings at 0x41E1CE, straight after it sets the country's officers. The name is ours. See reversing/findings/FINDINGS-organisation.md, section 1.",
+      "confidence": "confirmed",
+      "evidence": "`mov esi,[ebx+0xd0]; test esi,esi; jle 0x417d28` ... `mov eax,[ebx+0xc4]; cdq; push 0; push 0x3e8; ...; call 0xb99af0` ... `call 0xb99980; cmp eax,edi; cmovg eax,edi; mov [ebx+0xd4],eax`, and `mov dword ptr [ebx+0xd4],0x3e8` on the other arm; `ret 4` at 0x417D25 and 0x417D42. findRefs --callers 0x417C80 answers exactly 0x41E1CE and 0x5007A0. Wrong if another routine stores to a country's +0xD4 in play: a scan for stores to [reg+0xD4] beside a use of [reg+0xD0] found this and one store of the constant 0x3E8, at 0x4D2E9B in the unnamed function at 0x4D2B60, which was not read.",
+      "source": "reversing/findings/FINDINGS-organisation.md"
+    },
+    {
+      "rva": "0x1C6A60",
+      "kind": "function",
+      "name": "CUnit::RegainOrganisation",
+      "signature": "void __thiscall CUnit::RegainOrganisation(CUnit* this)",
+      "no_signature": null,
+      "comment": "**The hourly return of a unit's organisation, as far as the unit decides it.** Bare `ret`, one caller: CUnit::UpdateHourly at 0x5B9C8A, for a unit with no combat that is not moving onto enemy ground. Returns at once for a unit in combat (+0x11C > 0), and for a land unit aboard a fleet (slot 9's object has +0x300 set) whose province is not land.\n\nIt builds one factor in thousandths, each step an imul and an __alldiv by 1000: supply_received_percentage (+0xFC); on land, times the province's infrastructure - `modifiers[12] * (modifiers[13] + modifiers[14] + 1000) / 1000`, held between 10 (floor(10.5f), cached at 0x1BEA400) and 1000; times the owner's OfficerRatio (+0xD4), or the lender's for a unit with an expeditionary owner (in a scenario only if the scenario lists the lender); for a fleet or an air unit with a home base, times the base's crowding - what the base has room for over the brigades of every unit based there, held between 250 and 1000, the same term CDistributeReinforcement::Distribute computes; times `1000 + ORG_REGAIN` of the owner's modifier (id 67). **A unit whose supply_received_percentage is 0 gets -1000 instead**, and loses organisation.\n\nThen the bonus GetMaxOrganisation would work out - the leader's skill of the unit of oob_level 2 above, times CUnit::CommandReach - and CSubUnit::RegainOrganisation for each brigade with the factor and the bonus. The name is ours. See reversing/findings/FINDINGS-organisation.md, section 3.",
+      "confidence": "confirmed",
+      "evidence": "`mov eax,[edi+0x11c]; test eax,eax; jg` out; `mov ecx,[edi+0xfc]`; `mov eax,[esi+0x114]` then `[eax+0x70]`, `[eax+0x68]`, `[eax+0x60]` and `lea ecx,[edx+ecx+0x3e8]; imul ecx`; `cmovl eax,ebx` against the static, `cmp eax,0x3e8`; `mov eax,[edx+0xd4]` and, behind `cmp dword ptr [edi+0x290],0`, the lender's; `mov ebx,[edi+0x98]` ... `add ecx,[edx+0x40]` over `[ebx+4]`, `call 0x4a75d0` for a fleet, `[eax+0x304]` then `[eax+0x24]` for an air unit; `mov eax,[eax+0x218]; mov ecx,[0x170d8e4]; add eax,ecx`; `cmp dword ptr [edi+0xfc],0` ... `mov dword ptr [esp+0x10],0xfffffc18`; the loop `call 0x5abb60` at 0x5C6EF2. Wrong if +0x114 of a province is not its modifier values, which CLASSES.md fixes from four reads.",
+      "source": "reversing/findings/FINDINGS-organisation.md"
+    },
+    {
+      "rva": "0x1ABB60",
+      "kind": "function",
+      "name": "CSubUnit::RegainOrganisation",
+      "signature": "void __stdcall CSubUnit::RegainOrganisation(CSubUnit* subunit@EDI, int factor@stack:4, int bonus@stack:8)",
+      "no_signature": null,
+      "comment": "**One brigade's hour of organisation.** The brigade in edi, `ret 8`, one caller (CUnit::RegainOrganisation at 0x5C6EF2). The ceiling is CSubUnit::GetMaxOrganisationWithBonus(brigade, 0, 0, bonus). `share = organisation * 1000 / ceiling`, or -1 for a ceiling of 0: below g_OrganisationLowShare (250) the factor is multiplied by `1000 + LOW_ORG_REGAIN_BONUS` over 1000, above g_OrganisationHighShare (750) by `1000 - LOW_ORG_REGAIN_BONUS` (military define +0x244, cached at 0x1BEBBD8). Then `gain = definition->morale (+0xF4) * factor / 1000 * g_OrganisationRegainHourlyShare / 1000` - a fifth of its morale an hour at a factor of 1. A land brigade whose unit's order answers 0x5A4 from slot 16 has STRAT_REDEP_ORG_LOSS (military +0x1EC) taken off the gain, floored at 0. Then `organisation += gain`, held to the ceiling and to 0.\n\n**The clamp to the ceiling is unconditional**, so this is also what brings a brigade down within the hour when its ceiling has fallen below it. The name is ours. See reversing/findings/FINDINGS-organisation.md, section 3.",
+      "confidence": "confirmed",
+      "evidence": "`push 0; push 0; push edi; ...; call 0x5ab7c0`; `mov eax,[edi+0x60]` ... `idiv ebx`; `cmp eax,[0x1a886ec]; jge` / `mov eax,[0x1bebbd8]; add eax,0x3e8`; `cmp eax,[0x1a886d8]; jle` / `mov eax,0x3e8; sub eax,[0x1bebbd8]`; `imul dword ptr [ebp+8]`; `mov eax,[edx+0xf4]; imul dword ptr [ebp+8]` ... `imul dword ptr [0x1a88688]`; `cmp eax,0x5a4` ... `sub esi,[ecx+0x1ec]; jns`; `add [edi+0x60],esi; cmp [edi+0x60],ebx; jle; mov [edi+0x60],ebx`; `ret 8`. Measured: three German brigades with morale 0.55 at 55 of a ceiling of 60 are at 55.107 in the 1936 save, which is 550 * 980 / 1000 * 200 / 1000 with the 0.7 of the upper threshold in the 980.",
+      "source": "reversing/findings/FINDINGS-organisation.md"
+    },
+    {
+      "rva": "0x1B9BD0",
+      "kind": "function",
+      "name": "CUnit::IsMovingOntoEnemyGround",
+      "signature": "bool __cdecl CUnit::IsMovingOntoEnemyGround(CUnit* unit@EAX) @AL",
+      "no_signature": null,
+      "comment": "Whether a unit is on its way into a province an enemy controls: it has provinces left to move through (+0x140 > 0), its combat_cooldown (+0xD4) is not running, the province its movement names next (the id at the head of +0x138, through the map's province array) has a controller (+0x338), and CCountry::IsEnemy answers yes for that controller and the unit's owner tag (+0x124). One caller, CUnit::UpdateHourly at 0x5B9C7F, where a yes keeps the unit from regaining organisation that hour. **The name is ours and inferred**: the four tests are read, what they amount to together is a reading.",
+      "confidence": "inferred",
+      "evidence": "`cmp dword ptr [eax+0x140],0; jle` false; `cmp dword ptr [eax+0xd4],0; jg` false; `mov ecx,[eax+0x138]; mov edx,[ecx]; mov ecx,[0x1a8557c]; mov ecx,[ecx+0x2200]; mov edi,[ecx+edx*4]`; `cmp dword ptr [edi+0x338],0; je` false; `lea edx,[eax+0x124]` ... `call 0x42f210; test al,al`. Wrong if +0x138 holds something whose first dword is not a province id. The unit arrives in eax, nothing is on the stack, and both exits are bare `ret`s.",
+      "source": "reversing/findings/FINDINGS-organisation.md"
+    },
+    {
+      "rva": "0x1688688",
+      "kind": "global",
+      "name": "g_OrganisationRegainHourlyShare",
+      "signature": null,
+      "no_signature": null,
+      "comment": "200, a fifth: how much of a brigade's morale an hour of CSubUnit::RegainOrganisation brings back at a factor of 1. Copied at startup (0xCC3D50) from the static at 0x1A88678, which the initialiser at 0xCC385B fills with the floor of the float 200.5 at 0x160A64C. A second reader at 0x5C69A9, in the function at 0x5C6660, does the same multiplication. No define moves it.",
+      "confidence": "confirmed",
+      "evidence": "`imul dword ptr [0x1a88688]` at 0x5ABC66 and 0x5C69A8; `mov eax,[0x1a88678]; mov [0x1a88688],eax` at 0xCC3D50; the store to 0x1A88678 at 0xCC385B follows a load of the float at 0x160A64C, which reads 200.5.",
+      "source": "reversing/findings/FINDINGS-organisation.md"
+    },
+    {
+      "rva": "0x16886EC",
+      "kind": "global",
+      "name": "g_OrganisationLowShare",
+      "signature": null,
+      "no_signature": null,
+      "comment": "250, a quarter: a brigade under this share of its organisation ceiling regains LOW_ORG_REGAIN_BONUS faster. Copied at startup (0xCC3D60) from 0x1A88690, the floor of the float 250.5 at 0x160A688. One reader, CSubUnit::RegainOrganisation at 0x5ABC11.",
+      "confidence": "confirmed",
+      "evidence": "`cmp eax,[0x1a886ec]; jge` at 0x5ABC11; `mov eax,[0x1a88690]; mov [0x1a886ec],eax` at 0xCC3D60; 0x1A88690 is stored at 0xCC388B after a load of the float at 0x160A688.",
+      "source": "reversing/findings/FINDINGS-organisation.md"
+    },
+    {
+      "rva": "0x16886D8",
+      "kind": "global",
+      "name": "g_OrganisationHighShare",
+      "signature": null,
+      "no_signature": null,
+      "comment": "750, three quarters: a brigade over this share of its organisation ceiling regains LOW_ORG_REGAIN_BONUS slower. Copied at startup (0xCC3D70) from 0x1A886A4, the floor of the float 750.5 at 0x160A614. One reader, CSubUnit::RegainOrganisation at 0x5ABC25.",
+      "confidence": "confirmed",
+      "evidence": "`cmp eax,[0x1a886d8]; jle` at 0x5ABC25; `mov eax,[0x1a886a4]; mov [0x1a886d8],eax` at 0xCC3D70; 0x1A886A4 is stored at 0xCC3ACB after a load of the float at 0x160A614.",
+      "source": "reversing/findings/FINDINGS-organisation.md"
+    },
+    {
+      "rva": "0x17EA3EC",
+      "kind": "global",
+      "name": "g_MAX_OFFICERS",
+      "signature": null,
+      "no_signature": null,
+      "comment": "The military define MAX_OFFICERS (CDefines +0xAC, +0x240), read once into this static by CCountry::UpdateOfficerRatio behind the guard bit at 0x1BEA3E8: the most a country's OfficerRatio may be. 1.4 in Their Finest Hour.",
+      "confidence": "confirmed",
+      "evidence": "`test byte ptr [0x1bea3e8],al; jne` / `call 0x445d90; mov eax,[eax+0xac]; mov edi,[eax+0x240]; mov [0x1bea3ec],edi` at 0x417CA3-0x417CC9; definesMap.py places MAX_OFFICERS at military +0x240.",
+      "source": "reversing/findings/FINDINGS-organisation.md"
+    },
+    {
+      "rva": "0x1004F0",
+      "kind": "function",
+      "name": "CCountry::RecountUnitTotals",
+      "signature": "void __cdecl CCountry::RecountUnitTotals(CCountry* country@EDI)",
+      "no_signature": null,
+      "comment": "The serial body of `ProcessCountryFunctor`, so it runs on a **TBB worker** once a game hour (called at `0x68EDC1`, inside that functor's `start_for::execute`, and only for a country whose `+0x44` byte is set). `this` in **EDI** and nothing on the stack; bare `ret`. It zeroes `CCountry +0xC8`, `+0xCC`, `+0xD0` and `+0x108C`, then makes three passes - the country's own units (`+0xBAC`) that have no expeditionary owner, the units of its faction's members that are lent to it, and its finished units waiting to be placed (`+0x688`, kind 0x4B4) - adding `unit->+0x40 * 1000` to `+0xC8` and, per brigade, GetSubUnitDefinitionCombatValue to `+0xCC`, the definition's `officers` (+0x118) to `+0xD0`, and one to `+0x108C` for a brigade of a land unit that is not a reserve of an unmobilised country (reversing/findings/FINDINGS-opsarea.md, section 5). **It ends by calling CCountry::UpdateOfficerRatio** (0x50079F), so the officer ratio is as fresh as the count. **It writes `CCountry` fields from a worker thread**, which is worth knowing before reading any of those five offsets from a hook. Five other callers, none inside a functor: `0x41C44E`, `0x41E0E5`, `0x41EBAD`, `0x4E3989` and `CInGameIdler` slot 3 at `0x65B4F7`. The name is ours; nothing was watched running.",
+      "confidence": "confirmed",
+      "evidence": "`push edi; call 0x417c80; pop esi; pop ebx; mov esp,ebp; pop ebp; ret` at 0x50079F-0x5007AA, five int3 after. No caller pushes anything: `mov edi,[edx+esi]; call 0x5004f0` at 0x41E0E2, `mov edi,ebx; call` at 0x4E3987, a bare call at 0x65B4F7 after two `push edi; call` pairs for other functions, and `cmp byte ptr [edi+0x44],0; je; call` at 0x68EDBB. The only `[ebp+8]` reads a listing of the range shows are past 0x5007AB, in the next function.",
+      "source": "reversing/findings/FINDINGS-schedule.md",
+      "revises": "the comment said 'one stack argument'; there is none, and it now has a signature. Adds the tail call to CCountry::UpdateOfficerRatio, the three passes FINDINGS-opsarea.md read, and the +0x44 gate in the functor. Confidence was 'likely', which the record's validator has no word for; the body is now read end to end"
+    },
+    {
+      "rva": "0x1B9C50",
+      "kind": "function",
+      "name": "CUnit::UpdateHourly",
+      "signature": "void __thiscall CUnit::UpdateHourly(CUnit* this)",
+      "no_signature": null,
+      "comment": "**The per-unit leaf of `ProcessUnitFunctor`**: its `operator()` (`0x0068EBF0`) ends in `ecx = units[i]; call 0x005B9C50`, and one direct caller only. Since FINDINGS-tick.md establishes that functor is fanned out to TBB worker threads every hour, **this runs off the main thread** and nothing hooked here may touch Lua or the ImGui frame.\n\n**It opens with organisation**: a unit with no combat (+0x11C <= 0) for which CUnit::IsMovingOntoEnemyGround answers no is passed to CUnit::RegainOrganisation (0x5B9C8A). Then, still with no combat, a unit whose byte +0x97 is set has it cleared and every brigade's organisation multiplied by PARATROOP_DROP_ORG_MULT (military +0xA4) over 1000. After that: a fleet standing in a land province with an owner and a naval base, a test of the owner against the literal \"REB\" with the brigades' strength summed against the 100 at 0x1A88740, the retreat flag, and last, for a land unit, UpdateHourlyEffectivenessTest. It does **not** read `CUnit + 0xB0` and never dispatches CUnit slot 31 or slot 32. See reversing/findings/FINDINGS-organisation.md, section 3.",
+      "confidence": "confirmed",
+      "evidence": "`mov eax,[esi+0x11c]; test eax,eax; jg`; `mov eax,esi; call 0x5b9bd0; test al,al; jne`; `mov ecx,esi; call 0x5c6a60`; then `cmp byte ptr [esi+0x97],0; je` / `mov byte ptr [esi+0x97],0` / `mov eax,[eax+0xac]; mov eax,[eax+0xa4]` and the loop storing to `[ebx+0x60]`. definesMap.py places PARATROOP_DROP_ORG_MULT at military +0xA4.",
+      "source": "reversing/findings/FINDINGS-airnaval.md",
+      "revises": "the comment listed 'per-regiment organisation regain' among what it does without saying where; it now gives the opening in order and names the two routines. Signature unchanged"
+    },
+    {
+      "rva": "0x14EF60",
+      "kind": "function",
+      "name": "CChangeLawCommand::Execute",
+      "signature": "void __thiscall CChangeLawCommand::Execute(CChangeLawCommand* this)",
+      "no_signature": null,
+      "comment": "Virtual slot 6, bare `ret`, `this` in ecx. First statement, 0x54EF85-0x54EFB0: `GetCountryById(this->+0x40)->laws(+0x628)[ this->position(+0x48)->index(+0x50) ] = this->law(+0x44)`. **The index field is +0x50, not the +0x4C that CChangeMinisterCommand uses**, because `position` here resolves in a different database: CChangeLawCommand::LoadKey's `position` arm (0x54FC57) sscanf's an integer and indexes `GetLawDataBase()->+0x28`, the law-group vector, while its `law` arm (0x54FC9E) indexes `->+0x18`, the law vector. So the two commands' shared key name hides two classes, and `CCountry +0x628` is the laws. A byte at `+0x4C` - none of the three keys the loader places - then gates a second half that computes something through 0x4F0570 and adds the negated result at `country+0x9F8` or at another field depending on `country->+0x95` (government in exile); that half was not read. A byte at `+0x4D`, for the played country, gates the message the player is shown.\n\n**The tail, from 0x54F7FD, runs for every law**: CCountry::RebuildStaticModifiers; slot 14 of each of the country's Constructions (+0xF40); and then every brigade of every unit of the country (+0xBAC) is held to both its ceilings. Strength above GetMaxStrength(0, 0) is taken off and its men given back - `over * 1000 / max_strength * build_cost_manpower / 1000` onto Manpower (+0xBCC), floored at 0 - with strength_ceiling (+0x30) started again from the new strength; and organisation above CSubUnit::GetMaxOrganisation(brigade, 0, 0) is set to it. See reversing/findings/FINDINGS-organisation.md, section 5.",
+      "confidence": "confirmed",
+      "evidence": "`push edx; call 0x4ddd80` at 0x54F816; the loop `mov ecx,[edi]; ...; call [edx+0x38]` over `[eax+0xf40]`; `mov eax,[ecx+0xbac]` and the two nested list walks; `mov edi,[esi+0x5c]` ... `call [edx+0x30]; sub edi,[eax]; ...; jle 0x54f99c`; `mov edi,[ecx+0xec]; mov ecx,[ecx+0xfc]` with the __allmul by 0x3E8 and the two __alldiv; `add [ecx+0xbcc],eax`; `mov [esi+0x30],ebx`; `push ebx; push ebx; push esi; ...; call 0x5ab700; cmp [eax],edi; jge` and the second call whose answer goes to `[esi+0x60]`. Measured: in the 1936 save 2676 of 2676 brigades of the 74 countries with any brigade below what two days left it are at exactly this ceiling, leaving out those under an army with a commander.",
+      "source": "reversing/findings/FINDINGS-aifields.md",
+      "revises": "adds the tail, which was not in the comment: the modifier rebuild and the hold of every brigade to its strength and organisation ceilings, with the manpower given back. The first part of the comment and the signature are unchanged"
+    },
+    {
+      "rva": "0xA75D0",
+      "kind": "function",
+      "name": "NavalBaseCapacity",
+      "signature": "int* __stdcall NavalBaseCapacity(CMapProvince* province@stack:4, int* out@ESI) @EAX",
+      "no_signature": null,
+      "comment": "What a province's naval base has room for, in thousandths, written through an out pointer in ESI and also returned. `naval_base (+0x300)->level_current (+0x24) * NAVAL_BASE_EFFICIENCY / 1000` - **the military define** (CDefines +0xAC, +0x274; 6 in Their Finest Hour), cached in the global at 0x1BEBAB8 behind the flag at 0x1BEBABC - then times `(1000 + controller->modifier[NAVAL_BASE_EFFICIENCY] + controller->technology_status(+0xDF8)->+0x7C) / 1000`, the controller being the tag at +0x334. The daily supply pass uses it in phase 3 as the ceiling on what a depot can ship home by convoy, and CDistributeReinforcement::Distribute and CUnit::RegainOrganisation as the ships a port has room for before it is crowded. Twenty callers in all, so the name describes what it computes rather than any one use.",
+      "confidence": "confirmed",
+      "evidence": "`mov eax,[eax+0xac]; mov eax,[eax+0x274]; mov [0x1bebab8],eax`; `mov ecx,[ebx+0x300]; mov ecx,[ecx+0x24]; imul ecx` and the __alldiv by 0x3E8; `lea ecx,[ebx+0x334]; call 0x402610`; `mov edx,[eax+0xdf8]; mov ecx,[edx+0x7c]; mov eax,[eax+0xda8]; mov edx,[eax+0x280]; add ecx,0x3e8; add edx,ecx; mov eax,edi; imul edx`. definesMap.py places NAVAL_BASE_EFFICIENCY at military +0x274, and modifier id 0x50 (+0x280) is MODIFIER_NAVAL_BASE_EFFICIENCY.",
+      "source": "reversing/findings/FINDINGS-organisation.md",
+      "revises": "the comment called the define a supply one ('defines->supply(+0xAC)(+0x274)'); +0xAC is the military block and the define is NAVAL_BASE_EFFICIENCY. Was 'inferred' and sourced to the DLL; the body is now read here. The signature places both parameters now - it named the stack one without saying where it lives - and is otherwise unchanged"
+    }
+  ],
+  "structs": [],
+  "struct_fields": [
+    {
+      "struct": "CMapProvince",
+      "offset": "0x304",
+      "name": "air_base",
+      "type": "CProvinceBuilding*",
+      "comment": "**The province's air base**, the sibling of the naval base at +0x300. The crowding of an air unit's base reads `base->slot0()->+0x304->level_current (+0x24)` as the room it has - in CUnit::RegainOrganisation (0x5C6D65) and in CDistributeReinforcement::Distribute (0x51BF00) - on the arm an air unit takes, where a fleet's arm calls NavalBaseCapacity. Earlier reader, which is what the old name came from: CAIUnit slot 78 reads `provinces[army->ai_param_b]->+0x304->+0x20 / 1000` at 0x4B245F-0x4B2482 and, when that is below 1, clears `CArmy +0x2E4` and posts `CSetAIParamCommand` - +0x20 is the building's level_max, so that test is \"the air base this AI parameter was set for is gone\".",
+      "evidence": "`mov eax,[eax+0x304]; mov esi,[eax+0x24]` at 0x5C6D65, reached only when the unit's slot 17 (IsAir) answers yes and the base is not a carrier the unit is with; the same pair at 0x51BF00. Wrong if a third kind of unit can take that arm.",
+      "revises": "was `ai_param_building`, `void*`, with 'which building it points at was not established'. Renamed and typed; the old reader is kept in the comment",
+      "source": "reversing/findings/FINDINGS-organisation.md"
+    },
+    {
+      "struct": "CUnit",
+      "offset": "0x97",
+      "name": "paradrop_org_pending",
+      "type": "bool",
+      "comment": "A flag CUnit::UpdateHourly consumes: when it is set and the unit has no combat, the byte is cleared and every brigade's organisation is multiplied by PARATROOP_DROP_ORG_MULT (military +0xA4) over 1000 (0x5B9C98-0x5B9D03). The define's own comment says paratroop organisation is multiplied by it 'after they have landed (and combat is over)', which is this. **Its writer was not looked for**, so the name rests on the define.",
+      "evidence": "`cmp byte ptr [esi+0x97],0; je` / `mov byte ptr [esi+0x97],0` / `mov eax,[eax+0xac]; mov eax,[eax+0xa4]` and the loop over +0x38 storing to `[ebx+0x60]`.",
+      "source": "reversing/findings/FINDINGS-organisation.md"
+    },
+    {
+      "struct": "CTechnologyStatus",
+      "offset": "0x7C",
+      "name": "naval_base_efficiency",
+      "type": "int",
+      "comment": "Added, with 1000 and the country's NAVAL_BASE_EFFICIENCY modifier, to what scales a naval base's capacity: NavalBaseCapacity reads it at 0x4A7652 off the province's controller. **Taken to be what the technology key `naval_base_efficiency` adds up to** (Naval Doctrines.txt gives 0.20 a level), by the same reasoning as +0x94 and `ic_efficiency` and with less behind it: no figure measures it and the key's loader was not read.",
+      "evidence": "`mov edx,[eax+0xdf8]; mov ecx,[edx+0x7c]` at 0x4A764C, then `add ecx,0x3e8; add edx,ecx`. Wrong if the technology loader's table sends `naval_base_efficiency` anywhere else.",
+      "source": "reversing/findings/FINDINGS-organisation.md"
+    }
+  ],
+  "vftable_slots": {
+    "CChangeLawCommand": {
+      "6": "Execute"
+    }
+  },
+  "frontier": [
+    {
+      "rva": "0x1C6660",
+      "why": "the second reader of g_OrganisationRegainHourlyShare: it multiplies a morale by the same fifth, probably for a tooltip"
+    },
+    {
+      "rva": "0x284C80",
+      "why": "what CUnit::UpdateHourly hands a rebel unit with under 0.1 strength to"
+    },
+    {
+      "rva": "0x1D87F0",
+      "why": "what CUnit::UpdateHourly builds for a fleet standing in a port province"
+    },
+    {
+      "rva": "0x1CD5B0",
+      "why": "run on each unit as a game starts; where a unit is given its commander"
+    }
+  ],
+  "notes": [
+    "CCountry +0x44, a byte, gates the hourly CCountry::RecountUnitTotals in ProcessCountryFunctor (`cmp byte ptr [edi+0x44],0; je` at 0x68EDBB). Not named.",
+    "CCountry +0xD4 OfficerRatio is named by the Lua API and is left alone; its writer is CCountry::UpdateOfficerRatio.",
+    "The crowding floor inside CUnit::RegainOrganisation is the float 250.5 at 0x160A688 truncated in line; g_ReinforcementCrowdingFloor (0x1687710) is the reinforcement loop's own copy.",
+    "Checked through OpenHOI3's SaveCheck against the 1936 save: the organisation of 2676 of 2676 brigades held to the ceiling, the three Waffen-SS brigades at 55.107, and 486 brigades under an army's commander at the figure a whole-number bonus gives."
+  ]
+}

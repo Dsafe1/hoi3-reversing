@@ -1,0 +1,70 @@
+{
+ "agent": "main session",
+ "question": "Which file a texture's name loads when the install holds it under two extensions, and what sprite a line of the brigade builder's list is drawn with.",
+ "source": "reversing/findings/FINDINGS-textureload.md",
+ "addresses": [
+  {
+   "rva": "0x6607D0",
+   "kind": "function",
+   "name": "TextureHandler_LoadFile",
+   "signature": "void* __stdcall TextureHandler_LoadFile(void* handler, Hoi3CString* name, int* width, int* height, bool complain)",
+   "no_signature": null,
+   "comment": "**Loads one texture by the name a script gave it, and decides which file that is.** Two copies of the name are made and every backslash in each turned into a slash (ReplaceAllInString). In the first, the first `.tga` found is replaced by `.dds`; **if there was one and a file of that new name exists, that is the name used, and otherwise the name as it was written.** Nothing else is tried: a name written `.dds` is never looked for as `.tga`, the search is for the four characters in lower case, and no other extension is known. Existence is asked of PhysFS (FileExists, 0x784A20), so it is over the whole search path and a `.dds` in the base game is found before a `.tga` in an expansion. A name whose file does not exist is logged as `Couldn't find texture file: ` when `complain` is set and a null texture comes back. A file of 16 MB or more is refused in silence. The file is read whole into the handler's buffer (+0x6B6E0) and handed to D3DXCreateTextureFromFileInMemoryEx on the device at +0x6B6D4 - or the volume form when the name holds `-VOLUME` - and the picture's width and height are written through the two pointers when they are given. The log lines name `texturehandler.cpp`, which the name is from; the name is ours. See reversing/findings/FINDINGS-textureload.md.",
+   "confidence": "confirmed",
+   "evidence": "0xA60833 and 0xA60853: two `std::string::assignString` from `[ebp+0xc]`. `mov edi,0x15b5190` (a backslash), `push 0x15b5180` (a slash), `call 0xa5b730`, twice. `push 0x15d2c04` ('.dds') and `push 0x15cb8ec` ('.tga') into two strings; `call 0x50e4c0` (find) on the first copy, `cmp eax,-1`, and `call 0xa5bd60` (replace at that place) when found. `cmp byte ptr [esp+0x17],bl; je` skips the test when nothing was replaced; `call 0xb84a20; test eax,eax; je`, then `assignString` of the first copy over the second. The second copy is what the second `call 0xb84a20` at 0xA609D1 tests and what is opened. `cmp edi,0x1000000; jl`. `ret 0x14` at 0xA60D86 with `mov eax,edi` from `[esp+0x54]`. Wrong if the two copies are the other way about - then a `.dds` would be loaded even where none exists.",
+   "source": "reversing/findings/FINDINGS-textureload.md"
+  },
+  {
+   "rva": "0x661370",
+   "kind": "function",
+   "name": "TextureHandler_ReloadEntry",
+   "signature": "bool __stdcall TextureHandler_ReloadEntry(void* handler, int index)",
+   "no_signature": null,
+   "comment": "**Loads one of the handler's textures again, by its index, and applies the same rule to its name**: `.tga` becomes `.dds` when a file of that name exists. The entries are 0x2C bytes each from the handler's start - a pointer at +4 whose slot 2 is called first, the name at +8, and a count at +0x2C that has to be above nothing. **Here existence is asked through slot 9 (+0x24) of the object at 0x134DA90**, made on first use with the vftable 0x15FDF60 - the object the record calls g_random_object, which this shows is asked about files as well. Likely the path taken when the device is lost and its textures are made again; no caller was read. The name is ours.",
+   "confidence": "inferred",
+   "evidence": "`mov ecx,[ebp+8]`, `mov eax,[ebp+0xc]`, `imul` by 0x2C; `push 0x15d2c04` ('.dds') at 0xA613F6 and `push 0x15cb8ec` ('.tga') at 0xA6141E; `call 0x50e4c0`, `cmp eax,-1`, `call 0xa5bd60`; the lazy `operator_new(4)` and `[eax+0x24]` call, read in the decompiled C; `ret 8` at 0xA615FF. What it is for is from its shape only.",
+   "source": "reversing/findings/FINDINGS-textureload.md"
+  },
+  {
+   "rva": "0x65B730",
+   "kind": "function",
+   "name": "ReplaceAllInString",
+   "signature": null,
+   "no_signature": "what to look for arrives in EDI beside two stack arguments",
+   "comment": "Replaces every occurrence of one piece of text in a string with another: finds it (0x50E4C0), replaces at that place (0xA5C070), and looks again until there is none. The string and the replacement are on the stack and **what to look for arrives in EDI**. The texture loader calls it with a backslash in EDI and a slash on the stack. 19 call sites. The name is ours.",
+   "confidence": "inferred",
+   "evidence": "The decompiled C: three `strlen` loops, `FUN_0050e4c0(param_1, unaff_EDI, length)` and a `while (found != -1)` round `FUN_00a5c070(param_1, found, param_2, length)`. At the call site 0xA60862..0xA6086F: `mov edi,0x15b5190`, whose byte is 0x5C, and `push 0x15b5180`, whose byte is 0x2F.",
+   "source": "reversing/findings/FINDINGS-textureload.md"
+  },
+  {
+   "rva": "0x3DE3B0",
+   "kind": "function",
+   "name": "CPossibleSingleBrigadeEntry::CPossibleSingleBrigadeEntry",
+   "signature": null,
+   "no_signature": "three stack arguments, `ret 0xC`, and a returned `this`; not typed",
+   "comment": "**The constructor of one line of the brigade builder's list**, a `brigade_entry_3` window, and of the one line of `stats_pos` under it. It is CPossibleBrigadeEntry's constructor (0x3EE4A0) again, the same columns from the same fields. **Its `select` button takes the sprite `GFX_brigade_listbutton` + the type's unit_group as a number when a sprite of that name exists**, so these lines are coloured by combined arms group as the picker's are, from a sprite family of their own: the base game has `GFX_brigade_listbutton1` to `5`. See reversing/findings/FINDINGS-builders.md, section 6.",
+   "confidence": "confirmed",
+   "evidence": "0x7DE4C6..0x7DE5FB set beside 0x7EE5B6..0x7EE6EB of CPossibleBrigadeEntry's constructor: 87 instructions each, the same but for two - `push 0x16; push 0x15dd7d8` ('GFX_brigade_listbutton', 22 characters) where the other has `push 0x1a; push 0x15de100` ('GFX_divdesigner_listbutton', 26). `ret 0xc` at 0x7DF94C, as the other's at 0x7EFA3C. Two callers, 0x7DA22C and 0x7DDE02.",
+   "source": "reversing/findings/FINDINGS-builders.md"
+  }
+ ],
+ "struct_fields": [],
+ "vftable_slots": {},
+ "frontier": [
+  {
+   "rva": "0x66C1B0",
+   "why": "opens the file the texture loader settled on"
+  },
+  {
+   "rva": "0x784660",
+   "why": "what FileExists asks; by its 'Invalid argument' it is PHYSFS_getRealDir"
+  },
+  {
+   "rva": "0x65BD60",
+   "why": "the replace-at-a-place the loader swaps the extension with"
+  }
+ ],
+ "notes": [
+  "The object at 0x134DA90 (g_random_object in the record) is asked whether a file exists through its slot 9 by TextureHandler_ReloadEntry. Its name wants another look; it was not changed here."
+ ]
+}

@@ -922,7 +922,7 @@ of it.
 
 ## What has already been read
 
-95 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
+99 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
 header lives. This replaces the `Done` archive: the archive restated each file's headline and named
 only 40 of the 67 there were then, so it was both longer and less useful than a complete list.
 
@@ -988,6 +988,7 @@ the six it was missing were wave 15's.
 | `findings/FINDINGS-unitdef.md` | what a division's stats are made of - sum, cap, mean |
 | `findings/FINDINGS-unitstart.md` | what a brigade starts a new game with: its historical model's levels and where a default model comes from, strength and the reserve penalty, organisation, the experience a training law gives, the officers a country's units bring - and all 3706 starting brigades reproduced against a save |
 | `findings/FINDINGS-unitdaily.md` | what a unit draws each day: supply and fuel consumption (a hundredth more a technology level), the draw and when in the day it falls, `CDistributeReinforcement::Distribute` and `CDistributeUpgrade::Distribute` read through, the build discount with `ic_efficiency` in it, the supply slider's need - with brigade strength, doctrines and Germany's 1,469 upgrade lines reproduced from a savegame |
+| `findings/FINDINGS-organisation.md` | the officer ratio and where it is capped, the hourly return of organisation (`CUnit::RegainOrganisation`, `CSubUnit::RegainOrganisation`), what a crowded base has room for, and that a change of law holds every brigade to its ceilings - with 2676 of 2676 brigades' organisation reproduced from a savegame, and what three Waffen-SS brigades say about the two days before the first screen |
 | `findings/FINDINGS-leaders.md` | leaders: experience, skill, traits, and that promotion skill loss does not exist |
 | `findings/FINDINGS-supply.md` | how supply reaches a unit |
 | `findings/FINDINGS-manpower.md` | manpower: what the drain is made of |
@@ -1006,6 +1007,8 @@ the six it was missing were wave 15's.
 | --- | --- |
 | `findings/FINDINGS-ic.md` | how a country's IC is worked out |
 | `findings/FINDINGS-production.md` | the build queue, and how IC and leadership are split |
+| `findings/FINDINGS-buildqueue.md` | what `FINDINGS-production.md` left of the queue: a unit of several brigades' cost and days, the hundredth a level a queued brigade costs more, `CMilitaryConstruction::Deliver`, the order, cancel, move and place commands, how a new game turns an order of battle's `duration` into work done, and that a change of law prices the queue again - with all thirty starting lines' cost and days, and Germany's queue over four months, reproduced from savegames |
+| `findings/FINDINGS-builders.md` | the four windows a unit is ordered from - the division designer and its brigade picker, the ship, air and brigade builders: which types each lists and what rations an elite brigade, every column and total with its decimals, the order panel they share (serial and parallel, the three cost figures, the traffic light), what disables `accept`, the choice of a level for each of a ship's technologies, `CConstructSingleUnitCommand`, and how a new unit is named |
 | `findings/FINDINGS-distribute.md` | the daily loop over the IC shares, the army term of consumer goods demand, the supply share, and crude oil into fuel |
 | `findings/FINDINGS-leadership.md` | how leadership is worked out, the officer, diplomacy and espionage shares, when a province is overseas or non-core, the static modifier slots, and what a country starts a game with |
 | `findings/FINDINGS-politics.md` | alignment, the seven drift terms, and the country's daily pass |
@@ -1041,6 +1044,7 @@ the six it was missing were wave 15's.
 | `findings/FINDINGS-history.md` | the history subsystem: a do/undo replay log, read every day, and what it costs |
 | `findings/FINDINGS-guicontainers.md` | the subwindow map, and every `CWindowType::LoadKey` token's container |
 | `findings/FINDINGS-guistatic.md` | the GUI read statically: the child lists, the empty registries, the ledger's class |
+| `findings/FINDINGS-textureload.md` | which file a texture's name loads: a `.tga` is its `.dds` wherever one exists on the search path, one way only, and the three pictures the install holds as both |
 | `findings/FINDINGS-uinumbers.md` | what the interface already computes |
 | `findings/FINDINGS-uinumbers2.md` | what the interface already computes, part two |
 | `findings/FINDINGS-messages.md` | the message system |

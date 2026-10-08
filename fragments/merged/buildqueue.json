@@ -1,0 +1,415 @@
+{
+ "agent": "main session",
+ "question": "What a queued unit costs and takes when it is built of several brigades; what finishing one does; how an order of battle's military_construction becomes a line with work done; and the commands that order, cancel, move and place.",
+ "source": "reversing/findings/FINDINGS-buildqueue.md",
+ "addresses": [
+  {
+   "rva": "0x848A0",
+   "kind": "function",
+   "name": "CMilitaryConstruction::AfterLoad",
+   "signature": "void __thiscall CMilitaryConstruction::AfterLoad(CMilitaryConstruction* this)",
+   "no_signature": null,
+   "comment": "**Slot 5: gives a line loaded with no `unit` its numbers.** Bare `ret`. Where unit_type (+0x58) and unit_id (+0x5C) are both 0: the line's own id is minted from the unit counter at 0x170AF78 with type 0x29 and set through slot 6; **`size` (+0x40) above 1 is set to 1**; the unit takes the counter's next value, the counter then moves on by 3, and each brigade definition of the list at +0x7C takes one more. So a file's line takes one number for itself, one for its unit, two that are passed over, and one a brigade. Where the file gave a unit it only re-registers the line's own id through slot 6 when it has one. See reversing/findings/FINDINGS-buildqueue.md, section 1.",
+   "confidence": "confirmed",
+   "evidence": "`cmp dword ptr [esi+0x58],0; jne` / `cmp dword ptr [esi+0x5c],0; jne`; `mov eax,[0x170af78]; mov ecx,eax; inc eax; ... mov [0x170af78],eax` and `mov edi,0x29`; `cmp dword ptr [esi+0x40],1; jle; mov dword ptr [esi+0x40],1`; `mov [esi+0x58],eax; ... mov [esi+0x5c],edx; add edx,3`; the loop `mov [ecx+0x10],edi; mov [ecx+0x14],esi` over +0x7C. The start save: construction 238, unit 239, brigade 242, on all thirty lines.",
+   "source": "reversing/findings/FINDINGS-buildqueue.md"
+  },
+  {
+   "rva": "0x84A10",
+   "kind": "function",
+   "name": "CMilitaryConstruction::SetReservesFactor",
+   "signature": "bool __thiscall CMilitaryConstruction::SetReservesFactor(CMilitaryConstruction* this)",
+   "no_signature": null,
+   "comment": "**Slot 8, which CCountry::EnqueueConstruction calls as it queues a line.** Where is_reserve (+0x8C) is set, reserves_factor (+0x9C) = 1000 + the country's RESERVES_PENALTY_SIZE (modifier 77, values +0x268). Answers 1 either way; bare `ret`. CConstructUnitCommand::Execute also calls it directly, after it has set is_reserve. **CCountry::LoadKey enqueues a line before it loads it**, so for a line out of a file is_reserve is still clear here and the factor stays 1000 unless the file gives `factor`. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "`cmp byte ptr [ecx+0x8c],0; je` over `mov edx,[eax+0xda8]; mov eax,[edx+0x268]; add eax,0x3e8; mov [ecx+0x9c],eax`; `mov al,1; ret`. The load order: `call 0x4f5600` at 0x4CCFD2, then slot 3 at 0x4CCFE2. Belgium's reserve line in the start save gathers experience at the full 15.",
+   "source": "reversing/findings/FINDINGS-buildqueue.md"
+  },
+  {
+   "rva": "0x84A60",
+   "kind": "function",
+   "name": "CMilitaryConstruction::Deliver",
+   "signature": "bool __thiscall CMilitaryConstruction::Deliver(CMilitaryConstruction* this)",
+   "no_signature": null,
+   "comment": "**Slot 9: makes the unit a line has finished.** Bare `ret`; CDistributeProduction::Distribute calls it when progress >= duration and removes the line when it answers 1.\n\nAnswers 1 and does nothing for a country that is not REB and owns no province (owned_province_count, CCountry +0xCF8, <= 0), and for a line with no brigades. Otherwise: where accumulated_progress (+0xA8) is under 1000, adds the missing share of GetStartExperienceRate to accumulated_experience. Makes a CNavy, a CAir or a CArmy by the first brigade's type, with the line's unit id. Per brigade definition: a CShip, CWing or CRegiment with the definition's id and name; SetType; is_reserve; **experience = the greater of the definition's and accumulated_experience, capped at 100000**; the practical - the type's completion_size (+0xE4), times reserves_factor for reserves, times practical_factor (+0xA0) - through CCountry::GainTechAbility; the definition's id is incremented; the model's levels go onto the brigade's technologies by position; ApplyTechnologies; strength = max_strength * reserves_factor / 1000, no more than slot 12 allows; **organisation = GetMaxOrganisation(brigade, 1, 1), worked out before AddRegimentToUnit**, so with no officer ratio and no reserve share. Then the two accumulators are zeroed; a CUnitDeployment with id (unit type, unit id + 1) is appended to the country's deployments (+0x688) holding the unit; the line's unit id goes up by 2; a line with a target unit is joined to it. Last: `progress -= min(duration, progress)`, `size -= 1`, and where size is still above 0 slot 14 and a fresh reserves_factor. Answers `size <= 0`. See reversing/findings/FINDINGS-buildqueue.md, section 4.",
+   "confidence": "confirmed",
+   "evidence": "`cmp dword ptr [eax+0xcf8],0; jg` behind the REB test; `cmp dword ptr [ebx+0xa8],0x3e8; jge`; `push 0x2fc`/`0x2f4`/`0x308`; `mov eax,[ebx+0xa4]; mov ecx,[esi+0x40]; cmp ecx,eax; cmovg eax,ecx; mov [edi+0x3c],eax; cmp eax,0x186a0`; `mov ecx,[eax+0xe4]` ... `call 0x4e02f0`; `inc eax; mov [esi+0x14],eax`; `mov eax,[eax+0xec]; imul dword ptr [ebx+0x9c]`; `push 1; push 1; push edi; ... call 0x5ab700` then `call 0x5be640`; `call 0x4f56c0`; `add eax,2; mov [ebx+0x5c],eax`; `sub dword ptr [ebx+0x38],eax; dec dword ptr [ebx+0x40]`; `setle`. The 1 April save: fleet 239 in deployment 240 with ship 242, experience 24.940, organisation 30.000 where Germany's officer ratio would allow 42.",
+   "source": "reversing/findings/FINDINGS-buildqueue.md"
+  },
+  {
+   "rva": "0x847C0",
+   "kind": "function",
+   "name": "CMilitaryConstruction::GetName",
+   "signature": "void* __thiscall CMilitaryConstruction::GetName(CMilitaryConstruction* this, void* out)",
+   "no_signature": null,
+   "comment": "**Slot 13: what a line is called.** `ret 4`, the answer a std::string through the one stack argument. The line's own name (+0x60) where it is longer than one character; else its first brigade definition's name; else, with no brigades, the literal 'TODO name the division construction'. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "`cmp dword ptr [ecx+0x70],1; jle` over a copy of +0x60; `cmp dword ptr [ecx+0x84],eax; jle` over `call 0x482320` on the first node of +0x7C; `push 0x15bdba8`, the TODO string.",
+   "source": "reversing/findings/FINDINGS-buildqueue.md"
+  },
+  {
+   "rva": "0x858E0",
+   "kind": "function",
+   "name": "CMilitaryConstruction::GetSaveToken",
+   "signature": "int __thiscall CMilitaryConstruction::GetSaveToken(CMilitaryConstruction* this)",
+   "no_signature": null,
+   "comment": "Slot 10: `mov eax, 0x27d; ret`, the token of the key `military_construction`. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "The two instructions, at slot 10 of vftable 0x15BDC34 and nowhere else; the building and convoy classes have their own at 0x486300 and 0x486850.",
+   "source": "reversing/findings/FINDINGS-buildqueue.md"
+  },
+  {
+   "rva": "0x852A0",
+   "kind": "function",
+   "name": "CMilitaryConstruction::GetStartExperienceRate",
+   "signature": "int* __cdecl CMilitaryConstruction::GetStartExperienceRate(CMilitaryConstruction* line@ECX, int* out@ESI) @EAX",
+   "no_signature": null,
+   "comment": "**The experience a whole building is worth**: the country's UNIT_START_EXPERIENCE (modifier 52, values +0x1A0), and for a line of reserves that times reserves_factor (+0x9C) over 1000. The line in ecx, the answer through esi, bare `ret`. One caller: CMilitaryConstruction::Deliver at 0x484B09, for the share of the building that was never counted. The same figure slot 20 (AddStartExperience) works out inline. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "`mov edx,[eax+0xda8]; mov eax,[edx+0x1a0]; mov [esi],eax; je` over `mov ecx,[ecx+0x9c]; imul ecx; push 0; push 0x3e8; ...; call 0xb99980; mov [esi],eax`.",
+   "source": "reversing/findings/FINDINGS-buildqueue.md"
+  },
+  {
+   "rva": "0x83120",
+   "kind": "function",
+   "name": "CBrigadeConstructionDefinition::MakeDefinition",
+   "signature": "void __stdcall CBrigadeConstructionDefinition::MakeDefinition(CBrigadeConstructionDefinition* this@ECX, CSubUnit* brigade@EAX, int* levels@stack:4, CSubUnitDefinition* out@stack:8)",
+   "no_signature": null,
+   "comment": "**Turns a brigade of a queued line into the definition it will be built as.** `ret 8`. CSubUnit::SetType(brigade, this->Type); then the model list (+0x44) is walked beside the brigade's technologies (+0x84), **by position**, each level stored and added into `*levels`; CSubUnit::ApplyTechnologies(brigade, false); and the brigade's own definition (+0x58) is copied into `out` (0x5A7500). `*levels` is what CMilitaryConstruction::RecalculateCost passes as the technologyBonus of GetBuildCostIC and GetBuildTime, which is why **a queued brigade is a hundredth dearer and slower for every level it is built with**. Callers: RecalculateCost, CConstructUnitCommand::Execute and the command at 0x5DA7C0. The name is ours. See reversing/findings/FINDINGS-buildqueue.md, section 2.",
+   "confidence": "confirmed",
+   "evidence": "`mov eax,[esi+0x34]; push eax; call 0x5abf30`; `mov dword ptr [ebx],0`; the loop `mov edx,[eax]; mov eax,[eax+8]; ... mov [ecx+4],edx; add [ebx],edx; mov ecx,[ecx+0x10]`; `push 0; push edi; call 0x5abfc0`; `mov eax,[edi+0x58]; mov esi,[ebp+0xc]; call 0x5a7500`; `ret 8`. All thirty lines of the start save have the cost and the days this gives under the save's laws.",
+   "source": "reversing/findings/FINDINGS-buildqueue.md"
+  },
+  {
+   "rva": "0x84950",
+   "kind": "function",
+   "name": "CMilitaryConstruction::AddBrigade",
+   "signature": "void __stdcall CMilitaryConstruction::AddBrigade(CMilitaryConstruction* this@EDI, CBrigadeConstructionDefinition* source@stack:4)",
+   "no_signature": null,
+   "comment": "Appends a copy of a brigade definition to the line's list (+0x7C, last at +0x80, count at +0x84): allocates 0x54 bytes, constructs a CBrigadeConstructionDefinition with the line's country, copies `source` into it (0x482D00) and links a 0x10-byte node at the tail. The line in edi, `ret 4`. Called by CConstructUnitCommand::Execute for each brigade the command carries. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "`push 0x54; call 0xb9602f`; `mov ecx,[edi+0x4c]; mov edx,[edi+0x48]; push ecx; push edx; push eax; call 0x482ae0`; `call 0x482d00`; `push 0x10` and the node stores; `mov [edi+0x80],eax; mov [edi+0x84],edx`; `ret 4` on both arms.",
+   "source": "reversing/findings/FINDINGS-buildqueue.md"
+  },
+  {
+   "rva": "0x82AE0",
+   "kind": "function",
+   "name": "CBrigadeConstructionDefinition::CBrigadeConstructionDefinition",
+   "signature": null,
+   "no_signature": "read as far as the stores; its `ret` was not reached",
+   "comment": "The constructor: vftable 0x15BDC8C, the country tag from its second and third stack arguments into +0x8/+0xC, and everything else nothing - the id pair, the name, +0x38, +0x3C, **experience (+0x40) = 0**, and the model list at +0x44/+0x48/+0x4C with its byte at +0x50.",
+   "confidence": "confirmed",
+   "evidence": "`mov dword ptr [edi],0x15bdc8c; mov [edi+8],eax; mov [edi+0xc],ecx` and the run of `mov [edi+n],ebx` with ebx zero, +0x10 through +0x4C, `mov byte ptr [edi+0x50],bl`.",
+   "source": "reversing/findings/FINDINGS-buildqueue.md"
+  },
+  {
+   "rva": "0xE1880",
+   "kind": "function",
+   "name": "CCountry::GetBuildCostManpower",
+   "signature": "CFixedPoint* __thiscall CCountry::GetBuildCostManpower(CCountry* this, CFixedPoint* out, CSubUnitDefinition* definition, bool reserves)",
+   "no_signature": null,
+   "comment": "**The men one brigade takes to build.** `ret 0xC`. `definition->build_cost_manpower (+0xFC) * factor / 1000`, where factor is 1000 plus the technology status's build_cost_mp_by_unit_type[definition->type_index] (+0x25C), plus the country's RESERVES_PENALTY_SIZE where `reserves` is set, and never under g_OneTwentieth (50). CConstructUnitCommand::Execute has the same arithmetic inline and takes the result, times the number ordered, off the manpower pool; the command at 0x5DA7C0 calls this twice, for what a brigade gives back and what its replacement takes. The name is ours. See reversing/findings/FINDINGS-buildqueue.md, section 5.",
+   "confidence": "confirmed",
+   "evidence": "`mov eax,[edx+0xfc]; mov edx,[edx+0x24]; ... mov edi,[ecx+0xdf8]; mov edi,[edi+0x25c]; mov edx,[edi+edx*4]; add edx,0x3e8; cmp byte ptr [ebp+0x10],0; ... mov ecx,[ecx+0x268]; add edx,ecx; mov ecx,[0x1a874c0]; cmp edx,ecx; cmovl edx,ecx; imul edx`; `ret 0xc`.",
+   "source": "reversing/findings/FINDINGS-buildqueue.md"
+  },
+  {
+   "rva": "0x145BA0",
+   "kind": "function",
+   "name": "CConstructUnitCommand::Execute",
+   "signature": "void __thiscall CConstructUnitCommand::Execute(CConstructUnitCommand* this)",
+   "no_signature": null,
+   "comment": "**Slot 6: queues a unit.** Bare `ret`. Makes a CMilitaryConstruction (0xAC bytes) with the command's id (+0x50); copies the unit id (+0x58/+0x5C), the country (+0x3C/+0x40), `amount` (+0x70) into size, the builder (+0x44/+0x48, or the country), the province (+0x4C) into location, is_reserve (+0x74) and the target (+0x78/+0x7C); calls slot 8; and, unless the build-now byte (+0x80) is set, CCountry::EnqueueConstruction. Names the unit where the command lists more than one brigade (+0x68). Then for each brigade of the list at +0x60: names it, CMilitaryConstruction::AddBrigade, builds the brigade on the stack as RecalculateCost does, and takes its men - CCountry::GetBuildCostManpower's arithmetic, inline - **times the amount, off the country's manpower (+0xBCC) at once, floored at 0**. The line's manpower (+0x98) is the sum for one unit. Then slot 14. With build-now: AddProgress(duration), slot 9, practical_factor = 0, the line freed, the country's modifier rebuilt. Last, 0x4DCD70 and CDistributeProduction::UpdateNeeded. **Nothing here asks whether the country has the men.** See reversing/findings/FINDINGS-buildqueue.md, section 5, and FINDINGS-production.md for the build-now path.",
+   "confidence": "confirmed",
+   "evidence": "`push 0xac; ... call 0x483e10`; the copies at 0x545CBA..0x545D16; `mov eax,[edx+0x20]; mov ecx,esi; call eax`; `cmp byte ptr [ebx+0x80],0; jne` over `call 0x4f5600`; `call 0x484950`; `mov ecx,[ecx]; add ecx,0x3e8` ... `cmovl ecx,eax` ... `call 0xb99980; mov edi,eax`; `movd xmm0,[ebx+0x70]` ... `imul edi` ... `neg eax; add [esi+0xbcc],eax; jns`; `mov [esi+0x98],edx; mov edx,[eax+0x38]; mov ecx,esi; call edx`.",
+   "source": "reversing/findings/FINDINGS-buildqueue.md"
+  },
+  {
+   "rva": "0x148550",
+   "kind": "function",
+   "name": "CCancelUnitConstructionCommand::Execute",
+   "signature": "void __thiscall CCancelUnitConstructionCommand::Execute(CCancelUnitConstructionCommand* this)",
+   "no_signature": null,
+   "comment": "**Slot 6: takes a line out of the queue.** Bare `ret`. Looks the line up by the id at +0x44/+0x48. Where its slot 17 answers yes - a military line - **the country's manpower (+0xBCC) gets `size (+0x40) * manpower (+0x98)` back**, floored at 0: the men of every unit of the line still to come. Then it unlinks the line from the queue (+0xF40), calls CDistributeProduction::UpdateNeeded and frees it. Nothing of the IC spent is given back. See reversing/findings/FINDINGS-buildqueue.md, section 6.",
+   "confidence": "confirmed",
+   "evidence": "`mov edx,[edi]; mov eax,[edx+0x44]; mov ecx,edi; call eax; ... test al,al; je`; `mov ecx,[edi+0x40]; mov eax,[edi+0x98]; imul ecx,ecx,0x3e8; imul ecx; ...; call 0xb99980; ... add [ecx+0xbcc],eax`; the search of +0xF40 and `call 0x5d49d0`; `call 0x51a290`; `push 1; mov ecx,edi; call edx`.",
+   "source": "reversing/findings/FINDINGS-buildqueue.md"
+  },
+  {
+   "rva": "0x1489F0",
+   "kind": "function",
+   "name": "CChangePriorityCommand::Execute",
+   "signature": "void __thiscall CChangePriorityCommand::Execute(CChangePriorityCommand* this)",
+   "no_signature": null,
+   "comment": "**Slot 6: moves a line of the queue.** Bare `ret`. The line by the id at +0x44/+0x48, the move by the number at +0x4C: **below -1, unlinked and pushed on the front (0x45F5E0); -1, put before the line before it (0x549CE0); 1, put after the line after it (0x549D50); above 1, unlinked and appended at the tail (+0xF44); 0, nothing.** A line already at the end it is sent towards is left. The queue's order is all the priority there is. See reversing/findings/FINDINGS-buildqueue.md, section 6.",
+   "confidence": "confirmed",
+   "evidence": "`mov eax,[edi+0x4c]; cmp eax,-1; jge` ... `call 0x5d49d0` ... `call 0x45f5e0`; `jne` to `cmp eax,1`; `mov esi,[eax+4]; test esi,esi; je` out, `call 0xa43fc0`, `call 0x549ce0`; `mov esi,[eax+8]` ... `call 0x549d50`; `jle` out for 0; the 0x10-byte node linked at +0xF44.",
+   "source": "reversing/findings/FINDINGS-buildqueue.md"
+  },
+  {
+   "rva": "0x1490D0",
+   "kind": "function",
+   "name": "CDeployUnitCommand::Execute",
+   "signature": "void __thiscall CDeployUnitCommand::Execute(CDeployUnitCommand* this)",
+   "no_signature": null,
+   "comment": "**Slot 6: puts a finished unit somewhere.** Bare `ret`. The deployment by the id at +0x44/+0x48. Where the target at +0x4C/+0x50 is a unit: only if the deployment's slot 8 answers 0x4B4 (`unit_deployment`), it is joined to that unit (0x5067D0). Otherwise the deployment's slot 9 is called with the province (+0x54) and the deployment is unlinked from the country's list (+0x688) and freed. The command's slot 14 (0x5495A0) asks only that the deployment exists. See reversing/findings/FINDINGS-buildqueue.md, section 7.",
+   "confidence": "confirmed",
+   "evidence": "`mov ecx,[esi+0x54]; mov eax,[eax+0xb8c]; mov ecx,[eax+ecx*4]; mov edx,[ebx]; mov edx,[edx+0x24]; push ecx; mov ecx,ebx; call edx`; `add esi,0x688` and the search; `call 0x5d49d0`; `mov edx,[eax+0x20]; ... cmp eax,0x4b4; jne`; `call 0x5067d0`.",
+   "source": "reversing/findings/FINDINGS-buildqueue.md"
+  },
+  {
+   "rva": "0x1495A0",
+   "kind": "function",
+   "name": "CDeployUnitCommand::CanExecute",
+   "signature": "bool __thiscall CDeployUnitCommand::CanExecute(CDeployUnitCommand* this)",
+   "no_signature": null,
+   "comment": "Slot 14: answers whether the deployment the command names (+0x44/+0x48) can still be found. Nothing about the province. Bare `ret`. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "`mov eax,[ecx+0x44]; mov ecx,[ecx+0x48]; ...; call 0xa9da00; test eax,eax; jne` to `mov al,1`, else `xor al,al`.",
+   "source": "reversing/findings/FINDINGS-buildqueue.md"
+  },
+  {
+   "rva": "0x17D390",
+   "kind": "function",
+   "name": "CUnitDeployment::CanDeployIn",
+   "signature": "bool __thiscall CUnitDeployment::CanDeployIn(CUnitDeployment* this, CMapProvince* province)",
+   "no_signature": null,
+   "comment": "**Slot 10: whether the unit may be put in a province.** `ret 4`. A fleet (the unit's slot 16) needs the province's naval base (+0x300) at a level above 0; an air unit (slot 17) its air base (+0x304). Then, in an ordinary game, **the province must be in the same area (+0x2B4, a COwnerArea) as the country's capital**. Where the object 0x41C4E0 returns is in use with +0x18 == 2 and lists the country (0x41D470), the test is the province's controller (+0x338) being the country instead; which kind of session that is was not read. The name is ours. See reversing/findings/FINDINGS-buildqueue.md, section 7.",
+   "confidence": "confirmed",
+   "evidence": "`mov edx,[eax+0x40]; call edx; ... mov eax,[edi+0x300]; cmp dword ptr [eax+0x20],0; jg`; `mov eax,[edx+0x44]; call eax; ... mov ecx,[edi+0x304]; cmp dword ptr [ecx+0x20],0; jle`; `call 0x42f100; mov ecx,[eax+0x2b4]; cmp ecx,[edi+0x2b4]; je`; `ret 4`.",
+   "source": "reversing/findings/FINDINGS-buildqueue.md"
+  },
+  {
+   "rva": "0x17D480",
+   "kind": "function",
+   "name": "CUnitDeployment::DeployAt",
+   "signature": null,
+   "no_signature": "read for its first two calls only; its `ret` was not reached",
+   "comment": "Slot 9: puts the deployment's unit (+0x38) on the map. It adds the unit to its country's list (0x4E06F0, the country from +0x30/+0x34) and calls CUnit::EnterProvince with its one stack argument; what follows builds a message ('UNIT') for the player and was not read. Called by CDeployUnitCommand::Execute. The name is ours.",
+   "confidence": "inferred",
+   "evidence": "`mov eax,[ebx+0x38]; ...; push eax; call 0x4e06f0; mov eax,[ebp+8]; mov ecx,[ebx+0x38]; push eax; call 0x5befd0`. Wrong about the rest, which was not read.",
+   "source": "reversing/findings/FINDINGS-buildqueue.md"
+  },
+  {
+   "rva": "0x83870",
+   "kind": "function",
+   "name": "CConstruction::GetEtaText",
+   "signature": null,
+   "no_signature": "the arithmetic was read and the formatting after it was not; its `ret` was not reached",
+   "comment": "**The date a line of the queue will be done, as text.** The line is its first stack argument and a std::string the second. `pace = status (+0x3C)`, or 1000 where progress (+0x38) is 0; a pace of 0 answers '---'; otherwise `left = (duration - progress) * 1000 / pace`, a part of a day counting as a whole one, and the date that many days on is formatted. One of the two readers of `status`. The name is ours. See reversing/findings/FINDINGS-buildqueue.md, section 8.",
+   "confidence": "confirmed",
+   "evidence": "`mov ecx,[eax+0x38]; mov esi,[eax+0x3c]; cmp ecx,ebx; jne; mov esi,0x3e8`; `cmp esi,ebx; jne` over `push 0x15b4e98` ('---'); `mov eax,[eax+0x34]; sub eax,ecx; ...; call 0xb99af0` ... `call 0xb99980`; the `0x10624dd3` division by 1000 and `jle` over `add esi,0x3e8`.",
+   "source": "reversing/findings/FINDINGS-buildqueue.md"
+  },
+  {
+   "rva": "0x3F4C90",
+   "kind": "function",
+   "name": "CBuildQueueEntry::Update",
+   "signature": "void __thiscall CBuildQueueEntry::Update(CBuildQueueEntry* this)",
+   "no_signature": null,
+   "comment": "**Slot 8 of the production screen's CBuildQueueEntry: fills one line of the build queue.** Bare `ret` at 0x7F5A36. The line by the id at +0x7C/+0x80, kept at +0x78. Shows `production_queue_green` where the line's status (+0x3C) is above floor(990.5f), `production_queue_orange` where it is above 0, `production_queue_red` otherwise; sets `prodqueue_progress` to `progress * 1000 / duration` as a whole percentage; shows one of `production_queue_naval`, `_division`, `_air` and `_buildings`; writes `production_speed` as `status * 100` with no decimals and '%', `ic_cost` as the cost to two decimals followed by the text of the key 'IC', `eta_date` from CConstruction::GetEtaText, and `series_info` as '+' and `size - 1` where size is above 1. **One of the two readers of `status`.** There is a second class of the same name in another namespace (vftable slot 8 at 0x61DD40), which was not read. See reversing/findings/FINDINGS-buildqueue.md, section 8.",
+   "confidence": "confirmed",
+   "evidence": "The element names pushed in order: 'production_queue_red' 0x7F4D0D, '_orange' 0x7F4D67, '_green' 0x7F4DC5; `movss xmm0,[0x160a754]` (990.5) ... `mov ecx,[edx+0x3c]; cmp ecx,eax; jle`; 'prodqueue_progress' 0x7F5112; 'production_speed' 0x7F53E7 with `push 0x186a0` and the '%' at 0x15BC248; 'ic_cost' 0x7F559E with `mov edx,[ecx+0x30]` and `push 2`; 'eta_date' 0x7F579F with `call 0x483870`; 'series_info' behind `cmp dword ptr [edi+0x40],1; jle`, `lea ecx,[ecx-1]` and the '+' at 0x15BC244.",
+   "source": "reversing/findings/FINDINGS-buildqueue.md"
+  },
+  {
+   "rva": "0x3F4140",
+   "kind": "function",
+   "name": "CBuildQueueEntry::CBuildQueueEntry",
+   "signature": null,
+   "no_signature": "read from its strings only",
+   "comment": "The constructor of the production screen's queue line: makes a `queue_entry` window and finds `cancel`, `max_prio`, `prio`, `non_prio`, `max_non_prio` and `original_country`; gives `counter_type` the sprite named 'GFX_counter_' followed by the first brigade's type key (the definition's Type +8), or 'icon_build_convoy', 'icon_build_escort' or 'icon_build_' and a building's key for the other kinds of line; writes `unit_target` as '=> ' and a name; and `unit_name`.",
+   "confidence": "inferred",
+   "evidence": "The strings in order from 0x7F4165: 'queue_entry', 'cancel', 'max_prio', 'prio', 'non_prio', 'max_non_prio', 'original_country', 'GFX_counter_' (with `mov eax,[ecx+0x34]; add eax,8`), 'counter_type', 'unit_target', '=> ', 'icon_build_convoy', 'icon_build_escort', 'icon_build_', 'unit_name'. Read from its strings; the calls between them were not followed.",
+   "source": "reversing/findings/FINDINGS-buildqueue.md"
+  },
+  {
+   "rva": "0xDCD70",
+   "kind": "function",
+   "name": "CCountry::UpdateManpowerAfterMobilising",
+   "signature": null,
+   "no_signature": "read in part; its `ret` was not reached",
+   "comment": "Fills CCountry +0x158, which the record has as `starting_manpower`. It starts from the manpower pool (+0xBCC), adds a term worked out from technology_status +0x8C, the country's modifier values +0x30, +0xBD0 and the first military define, and then takes off, for every brigade of a unit with +0xA6 set and for every brigade of a queued line of reserves, the share of its max_strength it is short of times its build_cost_manpower. Called after an order (CConstructUnitCommand::Execute), in CInGameIdler::Enter at 0x65B7CA, and by the command at 0x5DA7C0. **Read as far as that, and named for it**: what the country would have left once its reserves were filled.",
+   "confidence": "inferred",
+   "evidence": "`mov eax,[ebx+0xbcc]; ... mov [ebx+0x158],eax`; `add [ebx+0x158],eax`; the loop over +0xBAC behind `cmp byte ptr [eax+0xa6],0`, with `mov esi,[ecx+0xec]; mov edx,[ecx+0xfc]; mov ecx,[eax+0x5c]` and `sub ecx,eax; mov [ebx+0x158],ecx`; the loop over +0xF40 behind `cmp byte ptr [esi+0x8c],0`. Wrong in its name if +0xA6 is not what marks a unit as reserves to be filled.",
+   "source": "reversing/findings/FINDINGS-buildqueue.md"
+  },
+  {
+   "rva": "0x85300",
+   "kind": "function",
+   "name": "CMilitaryConstruction::RecalculateCost",
+   "signature": "void __thiscall CMilitaryConstruction::RecalculateCost(CMilitaryConstruction* this)",
+   "no_signature": null,
+   "comment": "**Slot 14: sets a queue item's cost and duration.** It ends with exactly three stores - duration into +0x34, cost into +0x30 and a practical factor into +0xA0 - and a bare `ret`.\n\nTwo arms. Where brigades_count (+0x84) is positive and the first brigade definition has +0x38 set, the line is an upgrade of a brigade in the field: it takes the difference between the new cost and the old (floored at 0) and applies the military defines UNIT_UPGRADE_COST (+0x234), UNIT_UPGRADE_TIME (+0x238) and UNIT_UPGRADE_PRACTICAL_MOD (+0x23C).\n\n**Otherwise, for each brigade definition**: a brigade is built on the stack and CBrigadeConstructionDefinition::MakeDefinition gives its own definition and the sum of its model's levels; `days = GetBuildTime(country, definition, levels) * 1000`; `daily = GetBuildCostIC(country, definition, levels, is_reserve)`; with more than one brigade `daily` becomes `daily * days / 1000`; the costs are added and the longest `days` kept. With more than one brigade the total is then divided by that duration. So **a unit of several brigades takes as long as its slowest and costs a day what pays for all of them over that time**, and practical_factor is 1000.\n\n**It runs at six places, not two**: when a line is queued (CConstructUnitCommand::Execute 0x546166 and the single-unit command); on every remaining line when anything in the queue is finished (CDistributeProduction::Distribute 0x51A253); on a line going on to the next of a series (CMilitaryConstruction::Deliver 0x4851FD); on every line of a new game (CInGameIdler::Enter 0x65B76D, which then sets progress to the new duration less the old); on every line in ApplyCustomGameSettings (0x41E1E4); and **on every line of a country when any of its laws changes** (CChangeLawCommand::Execute 0x54F844). It does not run daily, so what a practical's decay does to a cost reaches a line only at one of those. See reversing/findings/FINDINGS-buildqueue.md, section 2.",
+   "confidence": "confirmed",
+   "evidence": "The stores `mov [ebx+0x34],esi; mov [ebx+0x30],edx; mov [ebx+0xa0],eax` at 0x48589E; the arm test `cmp [ebx+0x84],esi; jle` / `cmp [ecx+0x38],esi; je` to 0x48563C; in the loop `call 0x483120`, `call 0x4e19a0; imul eax,eax,0x3e8`, `cmp dword ptr [ebx+0x84],1` ... `jle` over `call 0x4e18f0; mov eax,[eax]; imul edi; ...; call 0xb99980`, `add [esp+0x18],eax`, `cmp edi,[esp+0x14]; jle; mov [esp+0x14],edi`; after it `cmp dword ptr [ebx+0x84],1; jle` over the __allmul by 1000 and __alldiv by esi. slotcalls.py 14 --touches 0xF40 lists the callers that walk a queue. All thirty lines of the start save have the cost and days this gives.",
+   "source": "reversing/findings/FINDINGS-production.md",
+   "revises": "said it was 'the only thing that ever sets a queue item's cost and duration' at 'exactly two moments'; it runs at six, a change of law and the start of a new game among them. Adds the arm a new unit takes, which was summarised as 'walks the brigade list and adds up a fresh build'."
+  },
+  {
+   "rva": "0x119D10",
+   "kind": "function",
+   "name": "CDistributeProduction::Distribute",
+   "signature": "CFixedPoint* __thiscall CDistributeProduction::Distribute(CDistributeProduction* this@ECX, CFixedPoint* out@stack:4, __int64 available@stack:8, bool flag@stack:16) @EAX",
+   "no_signature": null,
+   "comment": "**The production share's day: pays each line of the country's build queue in queue order.** Slot 0, `ret 0x10`, extent 0x519D10..0x51A282. `pool = percentage * factor * available` and `freePool = percentage * factor * CCountry +0x608`, both fixed 15. Per line of +0xF40, with `need = cost << 30 / (1000 << 15)`: slot 12 (still buildable) or the line is dropped; `pool <= 0` gives AddProgress(0) unless `flag`; `need <= 0` gives AddProgress(1000). With a free pool the free part is spent first and the rest topped up against the resource check. Without: `share = min(1, (pool << 15) / need)`, `wanted = share * need >> 15`, this->+0x28 += wanted; where GetResourceLimitedIC answers at least `wanted` in thousandths, ConsumeICResources, **`pool -= need` - the whole of a day's cost, paid in full or not** - and `amount = share * 1000 >> 15`; else `amount = 0` **and the pool is left as it was**. AddProgress(amount). Where progress >= duration (or the byte at 0x1A8559A is set) slot 9 is called, and a line it answers 1 for is unlinked and freed. If anything was finished: CCountry::RebuildStaticModifiers, then slot 14 on every remaining line. Last, UpdateNeeded. Always answers 0.\n\nQueue order is the whole of a line's share: no weighting and no priority field. A line the stockpile cannot pay for is skipped while a cheaper one after it is still paid. See reversing/findings/FINDINGS-production.md, and FINDINGS-buildqueue.md, section 3, for the step corrected here.",
+   "confidence": "confirmed",
+   "evidence": "`mov eax,[ebx+0x30]; cdq; shld edx,eax,0x1e; push 0; push 0x1f40000; shl eax,0x1e; ...; call 0xb99980` for need, kept at [esp+0x38]; in the arm without a free pool `call 0x4f15c0`, `cmp [esp+0x28],ebx; jl 0x51a1ac`, `call 0x4f16d0`, then **`mov ecx,[esp+0x38]; sub [esp+0x28],ecx; ... mov edx,[esp+0x3c]; sbb [esp+0x2c],edx`** at 0x51A172, and `mov dword ptr [eax],0` at 0x51A1AC with no store to the pool. Two days of it on Germany's three lines give the start save's progress, accumulated figures and status, and with it Germany's industry used the save's 121.187.",
+   "source": "reversing/findings/FINDINGS-production.md",
+   "revises": "had `pool -= frac * need` in the arm without a free pool; it subtracts `need` whole, and nothing where the resource check fails. Adds what happens after a line is finished."
+  },
+  {
+   "rva": "0x14EF60",
+   "kind": "function",
+   "name": "CChangeLawCommand::Execute",
+   "signature": "void __thiscall CChangeLawCommand::Execute(CChangeLawCommand* this)",
+   "no_signature": null,
+   "comment": "Virtual slot 6, bare `ret`, `this` in ecx. First statement, 0x54EF85-0x54EFB0: `GetCountryById(this->+0x40)->laws(+0x628)[ this->position(+0x48)->index(+0x50) ] = this->law(+0x44)`. **The index field is +0x50 of the position object, not the law's own +0x50 - they are different objects.** Where the byte at +0x4C is set it takes the law's cost (0x4F0570) off the country's money. For the played country with +0x4D set it raises the LAWNAME message.\n\n**The tail, 0x54F7FD on, runs for every change of every law**: CCountry::RebuildStaticModifiers(country); **then slot 14 on every line of the country's build queue (+0xF40), so a change of law prices the whole queue again and leaves the work done on each line alone**; then every brigade of every unit of the country is held to what the new modifier allows - strength above CSubUnit slot 12's answer is cut to it, the men given back to the manpower pool at build_cost_manpower for the share of max_strength taken off, and strength_ceiling restarted; organisation above GetMaxOrganisation(brigade, 0, 0) is cut to it. See reversing/findings/FINDINGS-organisation.md, section 5, and FINDINGS-buildqueue.md, section 2.",
+   "confidence": "confirmed",
+   "evidence": "`mov eax,[eax+0x628]; ...; mov [eax+edx*4],ecx` at 0x54EFB0; `push edx; call 0x4ddd80` at 0x54F817; **`mov edi,[eax+0xf40]; cmp edi,ebx; je` over the loop `mov ecx,[edi]; mov edx,[ecx]; mov eax,[edx+0x38]; mov edi,[edi+8]; call eax; cmp edi,ebx; jne`** at 0x54F835..0x54F84E; then the walk of +0xBAC. In the start save Germany's lines have the cost and days of the laws the save shows, and more progress than two days at those days could have given.",
+   "source": "reversing/findings/FINDINGS-aifields.md",
+   "revises": "adds the walk of the build queue between the modifier rebuild and the hold of the brigades, which the comment did not mention"
+  },
+  {
+   "rva": "0x25A2B0",
+   "kind": "function",
+   "name": "CInGameIdler::Enter",
+   "signature": "void __thiscall CInGameIdler::Enter(void)",
+   "no_signature": null,
+   "comment": "**What runs as a session comes up, for a new game and a loaded one alike.** Large; it walks every country of the game, and per country: UpdateTriggeredModifiers, RebuildStaticModifiers, RebuildRules, UpdateTotalLeadership, UpdateMaxManpower, UpdateIC, UpdateBlockadeLevel, UpdateAtWarAndEnemies and effective neutrality. **For a session not loaded from a save** it then reads the country's order of battle (CCountry::LoadOobFile, 0x65B4EC), calls SetUpCountryForNewGame and RecountUnitTotals, sets the shares of IC, counts the officers the units come with (0x65B651), and **sets up the build queue (0x65B749): for each line of +0xF40 it keeps the duration the file gave, calls slot 14, and sets progress to the new duration less the old, floored at 0** - so a file's `duration` is the days a line still has to go, and its `progress` and `cost` are thrown away. The arm beside it at 0x65B7C9 calls 0x4DCD70 and joins the same place; that it is a loaded session's is FINDINGS-unitstart.md's reading of the block and was not followed here. Then, for each of the country's units, what FINDINGS-unitstart.md section 6 has. The write that sets `in_game` is 0x4A92 bytes before the end. See reversing/findings/FINDINGS-unitstart.md, section 1, and FINDINGS-buildqueue.md, section 1.",
+   "confidence": "inferred",
+   "evidence": "The queue pass: `mov eax,[esi+0xf40]` at 0x65B749; `mov edi,[eax]; mov ecx,[eax+8]; mov edx,[edi+0x34]; mov eax,[edi]; ...; mov edx,[eax+0x38]; mov ecx,edi; call edx; mov eax,[edi+0x34]; mov ecx,[esp+0x54]; sub eax,ecx; ... jns; xor eax,eax; ... mov [edi+0x38],eax`; `push esi; call 0x4dcd70` on the other arm at 0x65B7C9. The Graf Spee: `duration = 6` in its file, 313 days by Germany's history laws, 309 done two days in. Still `inferred` as a whole: most of its body has not been read.",
+   "source": "reversing/findings/FINDINGS-manpower.md",
+   "revises": "the comment did not have the build queue's pass; adds it, and the order of the per-country block from FINDINGS-unitstart.md"
+  },
+  {
+   "rva": "0x1D560",
+   "kind": "function",
+   "name": "ApplyCustomGameSettings",
+   "signature": "void __stdcall ApplyCustomGameSettings(void* customGameSettings@stack:4, int stage@stack:8)",
+   "no_signature": null,
+   "comment": "**Where the whole technology recalculation hangs off.** Extent 0x41D560..0x41E33C, `ret 8` - verified by linear sweep, there is no earlier `ret`, and nothing but a `call` reaches it. Among what its last stage does per country: it sets the country's officers (+0xC4) from the settings, calls CCountry::UpdateOfficerRatio (0x41E1CE), and **walks the country's build queue (+0xF40) calling slot 14 on every line (0x41E1D6..0x41E1EE)**, so the queue is priced again once the settings are in. Unlike CInGameIdler::Enter it leaves each line's progress alone. See reversing/findings/FINDINGS-research.md for the technology side, and FINDINGS-buildqueue.md, section 2.",
+   "confidence": "confirmed",
+   "evidence": "`mov [ecx+0xc4],eax` at 0x41E1C4; `call 0x417c80` at 0x41E1CE; `mov esi,[esi+0xf40]; test esi,esi; je` over `mov ecx,[esi]; mov eax,[ecx]; mov edx,[eax+0x38]; mov esi,[esi+8]; call edx; test esi,esi; jne`. The store to a +0x38 at 0x41DC30 in the same function is another object's and not a line's progress.",
+   "source": "reversing/findings/FINDINGS-research.md",
+   "revises": "adds the walk of each country's build queue at the end of the per-country loop"
+  }
+ ],
+ "structs": [],
+ "struct_fields": [
+  {
+   "struct": "CConstruction",
+   "offset": "0x3C",
+   "name": "status",
+   "type": "int",
+   "comment": "thousandths, saved as `status`: **the share of a full day's work the item received the last time the queue advanced** - 1000 for a full day, the part-paid amount for part, 0 for none. Written in one place, CConstruction::AddProgress, and initialised to 1000 by each constructor. **It has two readers**, both for the production screen: CBuildQueueEntry::Update shows a line green where it is above 990, orange above 0 and red at 0, and prints it as the line's speed; and CConstruction::GetEtaText divides the days left by it. On a convoy construction the key `status = yes` is taken by the derived loader before this field sees it.",
+   "evidence": "`mov ecx,[edx+0x3c]; cmp ecx,eax; jle` at 0x7F4F0B after `movss xmm0,[0x160a754]`; `mov eax,[ecx+0x3c]; ...; push 0x186a0` at 0x7F5444; `mov esi,[eax+0x3c]` at 0x48389B.",
+   "source": "BiceLib/GameClasses/CConstruction.hpp:39",
+   "revises": "the comment said nothing reads it; two functions of the production screen do"
+  },
+  {
+   "struct": "CBrigadeConstructionDefinition",
+   "offset": "0x44",
+   "name": "model",
+   "type": "CList<int>",
+   "comment": "**The levels the brigade will be built with, a linked list**, saved as `model={ 6 2 1 1 ... }`: first node here, last at +0x48, count at +0x4C and the list's byte at +0x50. One node a level, in the order of the type's technologies; the key `historical_model` fills it from the country's model of that number, appending a level only for a technology the model lists. CBrigadeConstructionDefinition::MakeDefinition and CMilitaryConstruction::Deliver walk it beside the brigade's technologies by position.",
+   "evidence": "Three sites chase it as a list: `mov eax,[esi+0x44]` then `mov edx,[eax]; mov eax,[eax+8]` in the loop at 0x483150; `mov esi,[esi+0x44]` then `mov ecx,[esi]; mov esi,[esi+8]` at 0x484EF3; and the `historical_model` case at 0x482FDD, which clears +0x44 (0x50D1E0) and links 0x10-byte nodes `[eax]=level, [eax+4]=tail`. The constructor zeroes +0x44, +0x48, +0x4C and the byte at +0x50, which is a CList's layout.",
+   "source": "BiceLib/GameClasses/CConstruction.hpp:183",
+   "revises": "was `int*`, 'a vector of ints ending at +0x48'; it is a CList of ints, and reading +0x44 as a pointer to ints gives the first node's level and then two pointers"
+  },
+  {
+   "struct": "CBrigadeConstructionDefinition",
+   "offset": "0x38",
+   "name": "upgrading_from",
+   "type": "CSubUnitDefinition*",
+   "comment": "What makes a queued line an upgrade of a brigade in the field: CMilitaryConstruction::RecalculateCost takes its upgrade arm when the first definition's is set, and prices the old type from it. Filled by the save key the loader handles at token 0x7CE with a look-up by name in the sub unit database, taken to be `upgrading_from_subunit_str`.",
+   "evidence": "`cmp [ecx+0x38],esi; je 0x48563c` at 0x485366 and `mov edx,[edi+0x38]` passed to GetBuildCostIC; `call 0x5ade80; ... add eax,0x10; call 0x9c7d60; ... mov [ebx+0x38],eax` at 0x482F3D. Which of the loader's two `upgrading_from` keys is 0x7CE is inferred from its taking a name.",
+   "source": "reversing/findings/FINDINGS-buildqueue.md"
+  },
+  {
+   "struct": "CMilitaryConstruction",
+   "offset": "0x5C",
+   "name": "unit_id",
+   "type": "int",
+   "comment": "the number of the unit the line will make next, saved as `unit`. CMilitaryConstruction::Deliver gives it to the unit, gives the unit's deployment the number after it, and adds 2 to it for the next of a series. A line loaded with none is given one by AfterLoad, which then passes over two numbers before numbering the brigades.",
+   "evidence": "`mov eax,[ebx+0x5c]; mov edx,[ebx+0x58]; inc eax` at 0x484FF2 for the deployment; `mov eax,[ebx+0x5c]; add eax,2; mov [ebx+0x5c],eax` at 0x48503D; `mov [esi+0x5c],edx; add edx,3` at 0x4848FC.",
+   "source": "BiceLib/GameClasses/CConstruction.hpp:76",
+   "revises": "adds what Deliver and AfterLoad do with it"
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0x158",
+   "name": "starting_manpower",
+   "type": "CFixedPoint",
+   "comment": "LoadKey copies Manpower into this the moment it has read the `manpower` key, so on loading it is the country's manpower as its history file set it. **It has a second writer, which the name does not fit**: CCountry::UpdateManpowerAfterMobilising (0xDCD70), run after a unit is ordered and as a session comes up, sets it to the manpower pool plus a term from the technology status, less what filling every reserve - in the field and in the build queue - would take. That routine was read in part, and what reads this field was not looked for, so the name is left as it was.",
+   "evidence": "`mov eax,[ebx+0xbcc]; ...; mov [ebx+0x158],eax` at 0x4DCD7A..0x4DCD89, `add [ebx+0x158],eax` at 0x4DCE62 and the two loops that subtract from it, in the function at 0x4DCD70.",
+   "source": "BiceLib/GameClasses/CCountry.hpp:281",
+   "revises": "the comment said nothing else was established about it; adds the second writer. The name and the type are left alone"
+  }
+ ],
+ "vftable_slots": {
+  "CMilitaryConstruction": {
+   "8": "SetReservesFactor",
+   "9": "Deliver",
+   "10": "GetSaveToken",
+   "13": "GetName"
+  },
+  "CConstructUnitCommand": {
+   "6": "Execute"
+  },
+  "CCancelUnitConstructionCommand": {
+   "6": "Execute"
+  },
+  "CChangePriorityCommand": {
+   "6": "Execute"
+  },
+  "CDeployUnitCommand": {
+   "6": "Execute",
+   "14": "CanExecute"
+  },
+  "CUnitDeployment": {
+   "9": "DeployAt",
+   "10": "CanDeployIn"
+  },
+  "_A0xbb459920::CBuildQueueEntry": {
+   "8": "Update"
+  },
+  "CDistributeProduction": {
+   "0": "Distribute"
+  },
+  "CChangeLawCommand": {
+   "6": "Execute"
+  },
+  "CInGameIdler": {
+   "3": "Enter"
+  }
+ },
+ "frontier": [
+  {
+   "rva": "0x1DA7C0",
+   "why": "the command that queues an upgrade of a brigade in the field: it enqueues a line and settles the difference in men. Its class was not found from its address"
+  },
+  {
+   "rva": "0x85BD0",
+   "why": "CBuildingConstruction slot 9: what finishing a building does"
+  },
+  {
+   "rva": "0x85B30",
+   "why": "CBuildingConstruction slot 14: what a building costs and takes"
+  },
+  {
+   "rva": "0x3F2490",
+   "why": "the panel a builder window confirms an order in: serial and parallel counts, ic_cost_value, build_time_value, on_complete_icon"
+  },
+  {
+   "rva": "0x21DD40",
+   "why": "slot 8 of the other CBuildQueueEntry, in another namespace"
+  }
+ ],
+ "notes": [
+  "The float at 0x160A754 is 990.5 and the one at 0x160AAC4 is 999.5; both are shared literals (the first is also the top of the consumer goods demand's clamp), so neither is named.",
+  "CConstructUnitCommand keeps its brigades as a CList at +0x60 with the count at +0x68, the number ordered at +0x70, is_reserve at +0x74 and the build-now byte at +0x80. It has no struct in the record.",
+  "CChangePriorityCommand keeps the line's id at +0x44/+0x48 and the move at +0x4C; CDeployUnitCommand the deployment at +0x44/+0x48, a target unit at +0x4C/+0x50 and the province's index at +0x54. Neither has a struct in the record.",
+  "CUnitDeployment +0x30/+0x34 is its country and +0x38 its unit; it has no struct in the record."
+ ]
+}

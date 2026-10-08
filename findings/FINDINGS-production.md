@@ -158,8 +158,13 @@ For each item, with `need = item->cost (+0x30) / 1000` converted to fixed 15 (th
         frac = min(1.0, pool / need)
         this->+0x28 += frac * need
         if (GetResourceLimitedIC(country) >= frac*need*1000) {
-            ConsumeICResources(...) ;  pool -= frac*need ;  amount = frac * 1000
+            ConsumeICResources(...) ;  pool -= need ;  amount = frac * 1000
         } else amount = 0                                 ; 0x51A1AC
+
+   **Corrected 2026-10-08**: this had `pool -= frac*need`. What comes off is `need` whole
+   (`0x51A172`), so the line the share runs out on leaves the pool below nothing and no
+   sliver for the next; and the refusing arm takes nothing off. `FINDINGS-buildqueue.md`,
+   section 3.
 
    then `AddProgress(amount)` at `0x51A1B6`.
 5. **Completion.** If `progress (+0x38) >= duration (+0x34)`, or the global byte at
@@ -221,10 +226,14 @@ fresh build. Both end at `0x48588F`.
 
 So the whole of an item's cost and duration is `GetBuildCostIC` and `GetBuildTime`, which
 `project.json` already documents, and the queue-side arithmetic adds only the upgrade
-defines. **Slot 14 runs at exactly two moments**: once when the item is queued
-(`0x546166`), and on every queued item whenever any item completes (`0x51A253`). It does
-*not* run daily, so a queued item's cost lags the country's current technology and
-practical until something in the queue finishes.
+defines. ~~**Slot 14 runs at exactly two moments**: once when the item is queued
+(`0x546166`), and on every queued item whenever any item completes (`0x51A253`).~~ **It runs
+at six, corrected 2026-10-08** (`FINDINGS-buildqueue.md`, section 2): those two, a series
+going on to its next unit, every line of a new game, `ApplyCustomGameSettings`, and **every
+line of a country on any change of its laws**. It does *not* run daily, so a queued item's
+cost lags the country's practical until one of those happens. The same section has the
+fresh-build arm in full - a unit of several brigades costs what pays for all of them over
+its slowest one's days - and the term both functions take from the model's levels.
 
 ## `AddProgress`, `status`, and the practical
 
@@ -438,7 +447,9 @@ is the same two terms: `GetConsumerGoodsNeeded + MODIFIER_DISSENT`.
 - **Slots 7 to 11 of `CDistributionSetting`.** They are shared stubs (`0x592360` is
   `xor al,al; ret`, `0xA92590` is `mov al,1; ret`) and, per the trap about small shared
   functions, nothing here counts how many classes share them, so none is named.
-- **`CConstruction` slot 9's body.** Only the practical award at `0x484EBC` was read out
-  of it; what else delivering a unit does is untouched.
+- ~~**`CConstruction` slot 9's body.** Only the practical award at `0x484EBC` was read out
+  of it; what else delivering a unit does is untouched.~~ **Read 2026-10-08** for the
+  military one: `FINDINGS-buildqueue.md`, section 4. The building's and the convoy's are
+  still unread.
 - **Everything live.** The game was not running. Every number above is the image's, and
   nothing here has been watched actually happening.

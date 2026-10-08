@@ -347,10 +347,14 @@ What that settles beyond the sections above:
 ## Not established
 
 - **The loader's case for `officers_ratio`**, as section 7 says.
-- **Where `OfficerRatio` is capped.** Germany's reserves say 1.4 where its history says 1.5;
-  the writer of `CCountry +0xD4` was not read.
-- **What raises organisation**, and when a brigade above its ceiling is brought down to it.
-  The save shows the second happened within two days and the first did not.
+- ~~**Where `OfficerRatio` is capped.** Germany's reserves say 1.4 where its history says 1.5;
+  the writer of `CCountry +0xD4` was not read.~~ **Read 2026-10-08**: `MAX_OFFICERS`, in
+  `CCountry::UpdateOfficerRatio`. `FINDINGS-organisation.md`, section 1.
+- ~~**What raises organisation**, and when a brigade above its ceiling is brought down to it.
+  The save shows the second happened within two days and the first did not.~~ **Read
+  2026-10-08**: an hourly routine does both, and a change of law does the second.
+  `FINDINGS-organisation.md`, sections 3, 5 and 6 - the last has why the save shows what it
+  does, the three brigades of section 9 that gained among it.
 - **The 86 theatres the files do not have.** The 78 orders of battle hold 22 theatres; the
   save holds 108, every one of the extra 86 with a single `hq_brigade` at a fifth of its
   strength, ids above every id a file's unit got, and every top-level unit of the files

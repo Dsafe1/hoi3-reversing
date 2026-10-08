@@ -148,8 +148,8 @@ counters and the manpower pricing; this is the rest.
         if (!unit->IsLand() && unit->home_base (+0x98) != 0)
             based = 1000 * the brigades of every unit at that base
             room  = a fleet: NavalBaseCapacity(the base's province)
-                    an air unit standing on its own base: based        ; so the ratio is 1
-                    an air unit elsewhere: the base province's +0x304 -> +0x24
+                    an air group aboard its carrier, where the carrier is: based   ; so the ratio is 1
+                    any other air unit: the base province's air base (+0x304), its level (+0x24)
             if (based > 0) crowding = room * 1000 / based
             crowding = clamp(crowding, 250, 1000)                      ; 0x1A87710, floor(250.5f)
 
@@ -366,6 +366,10 @@ name.
   its build time alike**, and its neighbour at `+0x90` (`ic_modifier`) is a different thing.
 - The definition's category is the unit type's `on_completion`: the practical it feeds is the
   practical that discounts it.
+- **`bonus` is nothing here and something in the build queue.** The upgrade share passes 0;
+  `CMilitaryConstruction::RecalculateCost` passes the sum of the levels the brigade is to be
+  built with, to this and to `GetBuildCostIC` alike, so a queued brigade is a hundredth
+  dearer and slower a level (`FINDINGS-buildqueue.md`, section 2).
 
 ## 7. `CDistributeSupply::GetNeeded`
 
@@ -419,8 +423,12 @@ upgrades. The name is left as it is and the comment says so.
   countries fit a law out of their history better than the save's for training or for
   industrial policy. That the AI changes laws after the last daily pass is already in
   `FINDINGS-distribute.md`; these are two more groups of them.
-- **`NavalBaseCapacity` and the air base's `+0x24`** as the room a base has for reinforcing:
-  the crowding term was read and neither figure was followed.
+- ~~**`NavalBaseCapacity` and the air base's `+0x24`** as the room a base has for reinforcing:
+  the crowding term was read and neither figure was followed.~~ **Followed 2026-10-08**, in
+  `FINDINGS-organisation.md`, section 4: six ships for each level of a naval base, more where
+  whoever holds the port runs it better, and a wing for each level of an air base. The line
+  above about an air unit "standing on its own base" was wrong and is corrected: it is an
+  air group aboard its carrier.
 - **Which technology keys fill `build_cost_by_unit_type` and `build_time_by_unit_type`.** No
   technology file of Their Finest Hour has a key that looks like one, and both read as zero in
   every measurement here.
