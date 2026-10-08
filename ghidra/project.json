@@ -3439,9 +3439,9 @@
    "name": "CCountry::GetAllowedResearchSlots",
    "signature": "int __thiscall CCountry::GetAllowedResearchSlots(CCountry* this)",
    "no_signature": null,
-   "comment": "round(base_percentage x factor x TotalLeadership) - the research slider (LeadershipDistribution->Research, the fourth of the four) times the country's total leadership. Reads the two as fpml::fixed_point<__int64,48,15>, so the shifts by 15 and 30 and the 0x1F40000 are only the fixed point arithmetic.\n\n**Signature**: no arguments at all - `this` in ecx and a bare `ret` - and it answers a plain rounded int, not a CFixedPoint through a hidden pointer.",
+   "comment": "How many things the country may research at once: the research share of its leadership, rounded. Off LeadershipDistribution[3]: p = (factor * base_percentage) >> 15; share = p as thousandths, rounded down; x = share * TotalLeadership / 1000; and the answer is `fistp` of x / 1000.0 as a float. **So the share is turned into thousandths before it is multiplied by the leadership, and the rounding is to nearest with ties to even** - 2.5 is 2 and 3.5 is 4 - `fistp` under the default control word.\n\n**Signature**: no arguments at all - `this` in ecx and a bare `ret` - and it answers a plain rounded int, not a CFixedPoint through a hidden pointer.",
    "confidence": "confirmed",
-   "source": "BiceLib/GameClasses/CCountry.hpp:50"
+   "source": "reversing/findings/FINDINGS-leadership.md"
   },
   {
    "rva": "0xE0290",
@@ -3671,10 +3671,11 @@
    "rva": "0xF17F0",
    "kind": "function",
    "name": "CCountry::GetOilConversionRate",
-   "comment": "int3-padded both sides, `ret` with no stack args: the out-pointer in eax, the country in edx. `*out = <the function-local static cached from the global 0x1A87478> + country->TechnologyStatus[+0x98]`, thousandths. Three callers, all in CCountry::UpdateIC's energy-to-crude-oil block, which also inlines the same read at 0xF11A6. The name is inferred from what its one use converts.",
-   "confidence": "likely",
-   "source": "reversing/findings/FINDINGS-ic.md",
-   "signature": "int* __fastcall CCountry::GetOilConversionRate(int* out@EAX, CCountry* country@EDX) @EAX"
+   "signature": "int* __fastcall CCountry::GetOilConversionRate(int* out@EAX, CCountry* country@EDX) @EAX",
+   "no_signature": null,
+   "comment": "**How much crude oil a unit of energy makes: 0.1 plus the technology bonus**, in thousandths. int3-padded both sides, `ret` with no stack args: the out-pointer in eax, the country in edx. `*out = base + country->technology_status->oil_conversion_bonus (+0x98)`, where base is a function-local static cached from g_BaseOilConversionRate (VA 0x1A87478) - which the static initialiser at rva 0x8B6650 writes as (int)floor(100.5f), so 100. Three callers, all in CCountry::UpdateIC's energy-to-crude-oil block (UpdateIC_EnergyToCrudeOil, rva 0xF0FF5), which also inlines the same read at rva 0xF11A6.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-distribute.md"
   },
   {
    "rva": "0xF1830",
@@ -4152,10 +4153,11 @@
    "rva": "0x11AA80",
    "kind": "function",
    "name": "CDistributeSupply::Distribute",
-   "comment": "**Slot 0.** Not read line by line. It reads CCountry +0x608 at 0x51AB4A like the other IC sliders and the `economy` define IC_TO_SUPPLIES (+0x10) at 0x51ADD8, adds the supplies it makes to HomeProduced (CCountry +0x778), to the acting capital province's pool (+0x164) and its current_producing (+0x270), and to the country's `to` pool (+0x9B8); it raises a message; and it charges metal, energy and rare materials through CCountry::ConsumeICResources at 0x51ADAE.",
-   "confidence": "inferred",
-   "source": "reversing/findings/FINDINGS-production.md",
-   "signature": "CFixedPoint* __thiscall CDistributeSupply::Distribute(CDistributeSupply* this, CFixedPoint* out@stack:4, __int64 available@stack:8, bool flag@stack:16)"
+   "signature": "CFixedPoint* __thiscall CDistributeSupply::Distribute(CDistributeSupply* this, CFixedPoint* out@stack:4, __int64 available@stack:8, bool flag@stack:16)",
+   "no_signature": null,
+   "comment": "**Slot 0, read through.** rva 0x11AA80 to the `ret 0x10` at rva 0x11ADCC. alloc = base_percentage x available x factor, turned into thousandths. made = CDistributeSupply::GetSuppliesMade (0x11ADD0), turned into thousandths and added to HomeProduced.supplies (CCountry +0x778). free = base_percentage x factor x lend_lease_ic (+0x608). Then the supplies are **made where the factories are**: unless arcade_mode (gamestate +0xC9C > 0), and where core_home_area_ic (+0x610) is positive and the acting capital has an area, every province in that area's list whose owner id is the country's, which has the country in its core list and whose IC is positive gets part = min(1, province IC x (1 + LOCAL_IC) / core_home_area_ic) x made, added to its pool.supplies (+0x164) and written to its current_producing.supplies (+0x270), and counted in the country's `to` pool (+0x9B8) when the province is not the acting capital. What is left goes to CCountry::GetPool().supplies. Finally charge = alloc - (free > 0 ? free : 0), and CCountry::ConsumeIcResources is called with it when positive. **There is no resource check**: unlike the production queue it never asks GetResourceLimitedIC, so the supplies are made and charged for whatever the stockpile holds. It ignores the flag and returns zero. So the `to` pool is what was made outside the capital province, not what was sent to units.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-distribute.md"
   },
   {
    "rva": "0x11BA60",
@@ -4226,19 +4228,21 @@
    "rva": "0x11DF40",
    "kind": "function",
    "name": "CDistributeNCO::Distribute",
-   "comment": "**Slot 0 - where officers come from.** 0x120 bytes, and it stores nothing on the country: the officers are the **return value**. It multiplies the setting's share (+0x8) by the `available` leadership and by the factor (+0x10), then by the `economy` define LEADERSHIP_TO_OFFICERS (+0x2C, read at 0x51DF91) and by (1 + MODIFIER_OFFICER_RECRUITMENT, modifier 82, at modifier values +0x290). With its slot 5 (0x11E060) it is the only reader of LEADERSHIP_TO_OFFICERS in the image.",
+   "signature": "CFixedPoint* __thiscall CDistributeNCO::Distribute(CDistributeNCO* this@ECX, CFixedPoint* out@stack:4, __int64 available@stack:8, bool flag@stack:16) @EAX",
+   "no_signature": null,
+   "comment": "**Slot 0 - where officers come from, and it adds them to the country.** In fixed 15: b = ((base_percentage * available) >> 15 * factor) >> 15; c = (LEADERSHIP_TO_OFFICERS as fixed 15 * b) >> 15; d = (c * (OFFICER_RECRUITMENT as fixed 15 + 1)) >> 15; then **country->officers (+0xC4) += d as thousandths, rounded down**, floored at zero, and *out = 0. So officers a day are share x leadership x LEADERSHIP_TO_OFFICERS x (1 + officer_recruitment). The define is economy +0x2C (read at 0x51DF91) and the modifier is id 82 (values +0x290). With its slot 5 (0x11E060) it is the only reader of LEADERSHIP_TO_OFFICERS in the image.",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-production.md",
-   "signature": "CFixedPoint* __thiscall CDistributeNCO::Distribute(CDistributeNCO* this, CFixedPoint* out@stack:4, __int64 available@stack:8, bool flag@stack:16)"
+   "source": "reversing/findings/FINDINGS-leadership.md"
   },
   {
    "rva": "0x11E4B0",
    "kind": "function",
    "name": "CDistributeDiplomacy::Distribute",
-   "comment": "**Slot 0 - diplomatic influence.** 0xC0 bytes: the setting's share times the `available` leadership times the factor times the `economy` define LEADERSHIP_TO_DIPLOMACY (+0x4, read at 0x51E4FD), added to CCountry +0xA88 at 0x51E53C and clamped at 0x51E54D. With its slot 5 (0x11E570) it is the only reader of LEADERSHIP_TO_DIPLOMACY.",
+   "signature": "CFixedPoint* __thiscall CDistributeDiplomacy::Distribute(CDistributeDiplomacy* this@ECX, CFixedPoint* out@stack:4, __int64 available@stack:8, bool flag@stack:16) @EAX",
+   "no_signature": null,
+   "comment": "**Slot 0 - diplomatic influence.** In fixed 15: b = ((base_percentage * available) >> 15 * factor) >> 15; c = (LEADERSHIP_TO_DIPLOMACY as fixed 15 * b) >> 15; then country->diplo_influence (+0xA88) += c as thousandths, rounded down, **floored at zero - there is no upper limit here**, and *out = 0. No modifier is read. The define is economy +0x4 (read at 0x51E4FD); with its slot 5 (0x11E570) this is its only reader.",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-production.md",
-   "signature": "CFixedPoint* __thiscall CDistributeDiplomacy::Distribute(CDistributeDiplomacy* this, CFixedPoint* out@stack:4, __int64 available@stack:8, bool flag@stack:16)"
+   "source": "reversing/findings/FINDINGS-leadership.md"
   },
   {
    "rva": "0x11E8E0",
@@ -4271,10 +4275,11 @@
    "rva": "0x11F620",
    "kind": "function",
    "name": "CDistributeResearch::Distribute",
-   "comment": "**Slot 0 - the research the leadership slider pays for.** Not read as a body; it is by far the largest of the ten. It walks the country's current research (CCountry +0x638) calling 0x532F10 at 0x51F73F and 0x51F9DB, with 0x532EC0, 0x535760, 0x540D60 and 0x540B50 beside them, and calls 0x4E02F0 at 0x51FA04 - the same technology-category ability gain a finished unit uses. It reads no defines of its own, and it is the only one of the ten that also overrides slot 4 (0x11F4D0).",
-   "confidence": "inferred",
-   "source": "reversing/findings/FINDINGS-production.md",
-   "signature": "CFixedPoint* __thiscall CDistributeResearch::Distribute(CDistributeResearch* this, CFixedPoint* out@stack:4, __int64 available@stack:8, bool flag@stack:16)"
+   "signature": "CFixedPoint* __thiscall CDistributeResearch::Distribute(CDistributeResearch* this@ECX, CFixedPoint* out@stack:4, __int64 available@stack:8, bool flag@stack:16) @EAX",
+   "no_signature": null,
+   "comment": "**Slot 0 - what the research share does with its leadership each day.** 0x51F620 to the `ret 0x10` at 0x520EDE; about 0x1300 of its 0x18C1 bytes are the `tech_discovered` message. remaining = share * factor * available in fixed 15. It clears the status's assigned leadership (ClearResearchLeadership), then walks CurrentResearch (CCountry +0x638) in order while any is left: a technology whose next level CheckResearchAllowed refuses is handed AdvanceResearch(..., 0) and takes nothing; otherwise it takes min(remaining, 1.0), turned into thousandths, through AdvanceResearch. When that answers true - a level gained - it calls CCountry::GainTechAbility(country, technology->on_completion, 1000), raises the message if the country is the player's, removes the technology from CurrentResearch and, if additional_offset is not 0, remembers it. After the walk each remembered technology whose next level is allowed is appended to the **end** of CurrentResearch, and 0x8A3040(country) is called. *out = 0.\n\nSo **each project takes one point of leadership in queue order until the share runs out, the last one reached takes the remainder, and a finished multi-level technology goes to the back of the queue.**",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-researchshare.md"
   },
   {
    "rva": "0x121480",
@@ -4761,10 +4766,11 @@
    "rva": "0x135760",
    "kind": "function",
    "name": "CTechnology::CheckResearchAllowed",
-   "comment": "**Where max_level and additional_offset really are gates.** A level of -1 means the country's next one. It fails when `additional_offset` (+0x2C0) is 0 and the level is above 1 - **so additional_offset = 0 declares a single-level technology** - fails when the level exceeds `max_level` (+0x2C4), checks a per-technology ceiling out of the custom game settings (0x41F500, its +0x28), and ends by evaluating the technology's own `allow` block, [this+0x248] slot 6, with `cmp al, 1; sete al`. **The polarity is unresolved**: both use sites (0x51F728, 0x5335CA) branch *past* the research when it answers true, which reads the opposite way round from that ending. The name is BiceLib's.",
-   "confidence": "likely",
-   "source": "reversing/findings/FINDINGS-research.md",
-   "signature": "bool __thiscall CTechnology::CheckResearchAllowed(CTechnology* this, int tagType, int countryId, int level)"
+   "signature": "bool __thiscall CTechnology::CheckResearchAllowed(CTechnology* this, int tagType, int countryId, int level)",
+   "no_signature": null,
+   "comment": "**Whether a country may research a level of this technology: 1 when it may.** A level of -1 means the country's next one. It answers 0 when `additional_offset` (+0x2C0) is 0 and the level is above 1 or below 0 - **so additional_offset = 0 declares a single-level technology** - and 0 when the level exceeds `max_level` (+0x2C4); 0 when the custom game settings are on and their per-technology table (0x41F500, its +0x28) holds a figure above the level; and otherwise the technology's own `allow` block, [this+0x248] slot 6, evaluated in the country's scope, with `cmp al, 1; sete al`. `ret 0xC`.\n\n**The polarity is settled.** CDistributeResearch::Distribute's `test al, al; jne 0x51f749` at 0x51F726 takes a non-zero answer on to where the leadership is given; a zero answer falls through to AdvanceResearch with no leadership. The name is BiceLib's.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-researchshare.md"
   },
   {
    "rva": "0x1359A0",
@@ -15478,10 +15484,11 @@
    "rva": "0x69CEC0",
    "kind": "function",
    "name": "FixedPointSqrt",
-   "comment": "A square root in thousandths: zero for a non-positive input, an initial guess of value/2 for large values, then Newton iterations on `g - (g*g/1000 - value)/(2g)`. Read as structure and **not evaluated**, so the name is inference. Used by GetCategoryResearchAbility (rva 0x1332B0) to damp a practical above 6.000.",
-   "confidence": "likely",
-   "source": "reversing/findings/FINDINGS-research.md",
-   "signature": "void __cdecl FixedPointSqrt(int* out, int value)"
+   "signature": "void __cdecl FixedPointSqrt(int* out, int value)",
+   "no_signature": null,
+   "comment": "**A rough square root in thousandths, and rougher than it looks.** Zero for a non-positive value. Otherwise guess = value / 2 and tolerance = value * 1000 / 1000 - **the value itself** - and then: error = guess * guess / 1000 - value; guess -= error * 1000 / (2 * guess) (or -1 when that divisor is 0); repeated while the error just used was outside +-tolerance. So it always takes one step and stops as soon as the square of the previous guess was within `value` of `value`: one step up to about 8, two above. 5.000 gives 2.250, 10.000 gives 3.179, 1.001 gives 1.251. Bare `ret` at 0xA9CFFE. GetCategoryResearchAbility is its caller for research, so an ability of 10 is worth 0.225 of weight and not 0.2236.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-researchshare.md"
   },
   {
    "rva": "0x69D720",
@@ -17831,9 +17838,11 @@
    "rva": "0x1686208",
    "kind": "global",
    "name": "g_static_modifiers",
-   "comment": "The static_modifiers.txt database, lazily built by RebuildProvinceModifierValues at 0x49F40D..0x49F43E: operator new(0xBC), the shared container constructor 0x45BD30 (a 0x1FF-bucket hash at +0x0/+0x4/+0x8, an empty vector at +0xC/+0x10/+0x14), installed through 0x45C440. Everything from +0x18 upwards is a named CStaticModifier* - +0x40 is `manpower` and +0x48 is `revolt_risk`, both pinned by what the engine scales them with; the field order does not follow the file's order, so the rest are not named. It has no RTTI and its constructor writes no vftable, which is why no struct is declared for it. 60 references in 21 functions, including CCountry::UpdateIC and CAddCountryModifierEffect::LoadKey.",
+   "signature": null,
+   "no_signature": null,
+   "comment": "The static_modifiers.txt database, lazily built by RebuildProvinceModifierValues at 0x49F40D..0x49F43E: operator new(0xBC), the shared container constructor 0x45BD30 (a 0x1FF-bucket hash at +0x0/+0x4/+0x8, an empty vector at +0xC/+0x10/+0x14), installed through 0x45C440. Everything from +0x18 upwards is a named CStaticModifier*, and **the struct CStaticModifierDataBase now names 39 of them**, read off LoadModifierDefinitions, which looks each name up and stores it at a compiled-in offset: `overseas` +0x1C, `non_core` +0x4C, `base_values` +0x64, `war` +0x50, `peace` +0x54 and the rest. The order is the code's, not the file's. It has no RTTI and its constructor writes no vftable. 60 references in 21 functions, including CCountry::UpdateIC and CAddCountryModifierEffect::LoadKey.",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-revolt.md, section 3"
+   "source": "reversing/findings/FINDINGS-leadership.md"
   },
   {
    "rva": "0x16863F8",
@@ -22517,6 +22526,236 @@
    "comment": "**Slot 7 for `is_core`, the only `CIntTrigger` child that overrides it - and the reason the keyword accepts five different kinds of argument.** 0x5D6500 to the last of four `ret 0x104` at 0x5D665C, one int3 then `CIsCoreTrigger::Evaluate` at 0x5D6660; thirteen int3 before the entry. Read end to end:\n\n    this->is_rebels (+0x44) = 0;  this->province_id (+0x40) = 0\n    if (value.type == 0x377)        this->arg_is_this (+0x18) = 1\n    elif (value.type == 0x34F)      this->arg_is_from (+0x19) = 1\n    elif (text == \"REB\")           this->is_rebels (+0x44) = 1\n    elif (atoi(text) != 0)          this->province_id (+0x40) = atoi(text)\n    else                            this->tag (+0x48) = CCountryDataBase::GetTag(text)\n\nSo `is_core = GER`, `is_core = this`, `is_core = from`, `is_core = REB` and `is_core = 1234` are five distinct readings of one keyword, and **nothing in the script files says so**. `REB` is the rebel pseudo-country, tested as a literal string against the constant at VA 0x15BE948 rather than resolved through the country database at all.\n\n`this` is in ECX and the 0x104-byte `CToken` arrives by value, which is what the `ret 0x104` cleans - the same shape as the family's four shared slot-7 loaders. It was on `findings/FINDINGS-scopetriggers.md`'s frontier as an unread slot-7 loader.",
    "confidence": "confirmed",
    "source": "reversing/findings/FINDINGS-numtriggers.md"
+  },
+  {
+   "rva": "0xF9F10",
+   "kind": "function",
+   "name": "CCountry::GetStandingArmyConsumerDemand",
+   "signature": "int* __stdcall CCountry::GetStandingArmyConsumerDemand(CCountry* country@EDI, int* out@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "**The second term of consumer goods demand: what a standing army costs a country at peace.** rva 0xF9F10 to the `ret 4` at rva 0xFA019, four int3, then CCountry::GetConsumerGoodsNeeded (0xFA020). The country arrives in edi and the out-pointer is the one stack argument; it comes back in eax. It writes 0 and returns when at_war (+0xACC) is set or TotalIC (+0x604) is zero. Otherwise, all in thousandths: t = land_brigades_in_service (+0x108C) * 1000 / TotalIC; t = t * 250 / 1000, the 250 being (int)floor(250.5f) off the float at VA 0x160A688; n = effective_neutrality (+0xA90) * 1000 / 100000 clamped to 0..1000; *out = t * n / 1000. So at peace the demand is PEACE_CONSUMER_GOODS_DEMAND + 0.25 x (land brigades in service / total IC) x (effective neutrality / 100), and at war the term is nothing. The 250 is a floor(N.5f) static, so no define moves it. Two callers: GetConsumerGoodsNeeded at rva 0xFA083, and rva 0x1195A0, unread. The name is ours. **Not seen working**: a savegame does not carry the demand, and Germany's untouched consumer goods share in a 1936 save (0.224) is not what this gives from that save's own laws and brigades (0.252).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-distribute.md"
+  },
+  {
+   "rva": "0xF19F0",
+   "kind": "function",
+   "name": "CCountry::ConvertCrudeOilToFuel",
+   "signature": "void __fastcall CCountry::ConvertCrudeOilToFuel(CCountry* country@ESI)",
+   "no_signature": null,
+   "comment": "**Crude oil into fuel, once a day** - the other half of the conversion pair, CCountry::UpdateIC being where energy becomes crude oil. rva 0xF19F0, the country in esi, no stack arguments, two bare rets at rva 0xF1DD7 and 0xF1DF6, int3 to 0xF1E00. One caller, RunCountryDailyPass at rva 0xDB449, straight after UpdateIC. With pool = CCountry::GetPool: it returns at once when pool.fuel >= 99000.000; and when pool.fuel is more than 365 x the day's crude oil income (the crude slot of eight pools - home, convoyed_in, traded_for, +0x848, conversion_made, +0x8FC, back and +0xA64 - times (int)floor(365000.5f) / 1000, the float at VA 0x160A9C0) **and** pool.fuel / 2 is more than pool.crude_oil. Otherwise amount = (TotalIC / 2) * 1000, so half a unit of crude oil per whole IC, capped at pool.crude_oil; pool.crude_oil -= amount; conversion_used.crude_oil (+0x8EC) += amount; fuel = amount * (1000 + technology_status->fuel_refining_bonus) / 1000 * (1000 + countryValues[MODIFIER_FUEL_CONVERSION, 92]) / 1000, the two multiplied; conversion_made.fuel (+0x8C0) += fuel. The fuel is then spread exactly as CDistributeSupply::Distribute spreads supplies: unless arcade_mode, each province of the acting capital's area that the country owns and has a core on gets min(1, province IC x (1 + LOCAL_IC) / core_home_area_ic) of it into pool.fuel (+0x168) and current_producing.fuel (+0x274), counted in to.fuel (+0x9BC) outside the capital, and what is left goes to GetPool().fuel. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-distribute.md"
+  },
+  {
+   "rva": "0x11ADD0",
+   "kind": "function",
+   "name": "CDistributeSupply::GetSuppliesMade",
+   "signature": "CFixedPoint* __stdcall CDistributeSupply::GetSuppliesMade(CFixedPoint* out@ESI, CDistributeSupply* setting@EDI, __int64 percentage@stack:4, __int64 available@stack:12) @EAX",
+   "no_signature": null,
+   "comment": "How many supplies an allocation of IC makes, as an fpml::fixed_point<__int64,48,15>. rva 0x11ADD0 to the `ret 0x10` at rva 0x11AED3; out in esi, the setting in edi, percentage and available on the stack. x = percentage x available; x = x * IC_TO_SUPPLIES (`economy` +0x10, turned from thousandths into fixed 15 as (v << 30) / 0x1F40000); x = x * (0x8000 + the same conversion of technology_status->supply_production_bonus + countryValues[MODIFIER_GLOBAL_SUPPLIES, 27, values +0xD8]); x = x * factor (+0x10). **The technology bonus and the modifier are added to each other, not multiplied.** A guard at the end replaces a negative result with 99999 when available is over 1000 - an overflow catch. Two callers: CDistributeSupply::Distribute at rva 0x11AB19 and rva 0x11AF82 inside the function at 0x11AEE0, unread, by its shape the supply slider's tooltip. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-distribute.md"
+  },
+  {
+   "rva": "0xDB4F3",
+   "kind": "instruction",
+   "name": "RunCountryDailyPass_DistributeProductionShares",
+   "signature": null,
+   "no_signature": null,
+   "comment": "**Where the six IC shares are run, and with what.** The loop at rva 0xDB4F3..0xDB54B walks ProductionDistribution (CCountry +0x5F4) in index order - lend-lease, consumer goods, production, supply, reinforcement, upgrade - calling slot 0 of each with (&out, (__int64)TotalIC << 15, flag = 0). So `available` is the whole-number TotalIC after the day's resource cap and with lend-lease added, and each share's resource charge comes off the stockpile before the next one's check. The loop at rva 0xDB610 does the same for the four leadership shares with TotalLeadership (+0xBD8), turned from thousandths into fixed 15. **Its gate is not the economy block's.** The calls before it - rva 0xF1F50, RunDailyTradeRoutes, UpdateIC(country, 1) and CCountry::ConvertCrudeOilToFuel - run only when CCountry +0xCF8 > 0 or government_in_exile is set; this loop runs for every country whose id (+0xCA8) is non-zero and whose tag is not REB (the three byte compares at rva 0xDB4D4). So a country that holds no province still earns money, makes supplies and is charged resources every day, in the pool of whoever holds its capital - 23 such countries in a vanilla 1936 savegame show `usage`, each exactly its consumer goods share plus its supply share times its IC.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-distribute.md"
+  },
+  {
+   "rva": "0xF0FF5",
+   "kind": "instruction",
+   "name": "UpdateIC_EnergyToCrudeOil",
+   "signature": null,
+   "no_signature": null,
+   "comment": "**Energy into crude oil, read through.** rva 0xF0FF5..0xF13E2 of CCountry::UpdateIC, the country in ebx, run only with applyDailyEffects. All thousandths. need = TotalIC * 2000; spare = pool.energy - need; most = max(TotalIC * 1000 * 1000 / 20000, 1000), so 0.05 an IC and at least 1. Skipped when spare <= 0. energyNet and crudeNet are yesterday's income less expense for each good, summed off the same fifteen CGoodsPools one slot apart (income: home, convoyed_in, traded_for, +0x848, conversion_made, +0x8FC, back, +0xA64; expense: to, usage, conversion_used, convoyed_out, traded_away, less +0x824 and +0x920). rate = CCountry::GetOilConversionRate = 100 + technology_status->oil_conversion_bonus, so 0.1 plus technology. wanted = (pool.energy + energyNet - 2 * (pool.crude_oil + crudeNet)) * 1000 / (1000 + rate * 2000 / 1000) - the energy that, converted, leaves the country holding exactly twice as much energy as crude oil; `1 + 2 x rate` is this divisor and nothing else. per = max(round(1000000 / rate), 1000), the energy one unit of crude oil costs. energy = min(most * per / 1000, wanted, spare); crude = energy * rate / 1000. Then pool.crude_oil += crude, pool.energy -= energy, conversion_used.energy (+0x8F4) += energy and conversion_made.crude_oil (+0x8C8) += crude. **So a country makes at most max(0.05 x TotalIC, 1) crude oil a day, at 1 / rate energy each** - the cap is on the oil made, not the energy spent, and the rate is not `1 + 2 x technology`, both of which FINDINGS-ic.md had. The min and the final rounding go through single-precision floats: (x / 1000.0 + 0.0005) * 1000.0, then 0x401FD0 / 0xC08870.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-distribute.md"
+  },
+  {
+   "rva": "0x8B6650",
+   "kind": "function",
+   "name": "InitBaseOilConversionRate",
+   "signature": "void __cdecl InitBaseOilConversionRate()",
+   "no_signature": null,
+   "comment": "A static initialiser, eight instructions: g_BaseOilConversionRate (VA 0x1A87478) = (int)floor(100.5f), the float at VA 0x160A684. One of the floor(N.5f) statics trap 8 describes - the base rate of the energy-to-crude-oil conversion is not a define and no file can move it. In no virtual table. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-distribute.md"
+  },
+  {
+   "rva": "0xD9170",
+   "kind": "function",
+   "name": "CCountry::UpdateTotalLeadership",
+   "signature": "void CCountry::UpdateTotalLeadership(CCountry* this@ESI)",
+   "no_signature": null,
+   "comment": "**Works out TotalLeadership (+0xBD8), and is its only writer besides the constructor.** The country in ESI, nothing on the stack, a bare `ret` at 0x4D9499. All thousandths, every divide truncating. It zeroes the total and walks ControlledProvinces (+0xD00): for each, `(province->leadership (+0x324) + values[LOCAL_LEADERSHIP]) * max(1000 + values[LOCAL_LEADERSHIP_MODIFIER], 0) / 1000`, added only when it is not negative. Then it adds countryValues[GLOBAL_LEADERSHIP] flat, multiplies by `(1000 + countryValues[GLOBAL_LEADERSHIP_MODIFIER] + technology_status->leadership_gain (+0xB8)) / 1000`, and floors the result at 1000. So the flat part is inside the multiplication, the technology bonus adds to the modifier rather than multiplying it, and no country has less than 1.\n\n**The tail is the tech-sharing drain.** n = the count of twelve-byte entries in the vector at +0x6F0..+0x6F4; while the total is under n * SHARE_TECH_LEADERSHIP_COST (diplomacy +0xC0) + 1000 it calls CCountry::StopSharingTechWith on the last entry's country; then it takes n * cost off. n goes through a float and the doubles 0.0005 (0x160A460) and 1000.0 (0x160A300), which is only n as thousandths.\n\nTwo callers: RunCountryDailyPass at 0x4DAEA7, unconditionally and before the economy block, and CInGameIdler::Enter at 0x65B2B7, between CCountry::RebuildRules and UpdateIC(country, 0).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-leadership.md"
+  },
+  {
+   "rva": "0x107C10",
+   "kind": "function",
+   "name": "CCountry::StopSharingTechWith",
+   "signature": "void __thiscall CCountry::StopSharingTechWith(CCountry* this, CCountry* receiver)",
+   "no_signature": null,
+   "comment": "`this` in ecx, one stack argument, `ret 4` at 0x507CD7. Walks the vector at +0x6F0..+0x6F4, twelve bytes an entry, for one whose second dword is `receiver`'s id (+0xCA8); erases it by moving the tail down; and, when receiver->category_shared_from (+0x6A8)[the erased entry's third dword] names this country, resets that tag to `---` with id 0. Then it starts again, until no entry names the receiver. So an entry is { CCountryTag receiver; int category }. **The name is inference**: from that shape, from the +0x6A8 reset, and from the one caller that was read being the SHARE_TECH_LEADERSHIP_COST loop in CCountry::UpdateTotalLeadership. Four callers: 0x4D9381, 0x507BE0, 0x507ED5 and 0xA4B83F; only the first was read.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-leadership.md"
+  },
+  {
+   "rva": "0xD6230",
+   "kind": "function",
+   "name": "SetUpCountryForNewGame",
+   "signature": "void __stdcall SetUpCountryForNewGame(CCountry* country)",
+   "no_signature": null,
+   "comment": "**What a country starts a new game with**: its war exhaustion, its stockpile, its diplomatic influence and its manpower. One stack argument, `ret 4` at 0x4D757A. One caller, 0x65B4F2 in CInGameIdler::Enter, inside the block that gamestate->loaded_from_save (+0xD9C) == 0 guards, so it never runs on a load. **The function before it ends `ret 4` at 0x4D622D with no padding** - a walk back from inside this one answers 0x4D59D0, which is what fieldchain.py prints (trap 2).\n\nRead from 0x4D69DF to 0x4D7108 and from 0x4D7346 to the end. Months are calendar months, year * 12 + month off the tick. At war (at_war, +0xACC): began = the earliest 0xA51D20(war) over the active wars (gamestate +0xC00) the country is an attacker or defender in, and war_exhaustion (+0xAD0) = min(months since * 0.05, 10). Otherwise war_exhaustion = max(3 - months since the latest 0xA51F40(war) over previous_war (+0xC20) * 0.05, 0). Then **days = 30 + 5 * max(12 - months at war, 2)** - 90 at peace, five fewer a month of war, never under 40 - and amount = MaxIC (+0x60C) * days, **held to 1000 for a subject (isSubject, +0xF34)**. Into the acting capital's pool, each an `add`: crude oil and metal `amount`, energy twice it, rare materials half; money, **only when the pool has none**, amount * IC_TO_MONEY * 0.05; supplies and fuel, `days` times the sum of CUnit::SupplyConsumption and CUnit::FuelConsumption over the country's units (+0xBAC). Then **diplo_influence (+0xA88) = MaxIC / 5 in whole points**. The 0.05 is g_OneTwentieth.\n\n**The tail is the manpower.** ReapplyAllTechnologies (0x4D7346), RebuildStaticModifiers (0x4D7380), UpdateMaxManpower (0x4D7386), and then **manpower (+0xBCC) = max_manpower (+0xBD0)**, a `mov` - so whatever `manpower` a country's history file gave is overwritten. If it owns a province (the count at +0xCF8 above 0) and is at war, it then loses year * (1000 + months at war * g_StartingManpowerLostPerMonthAtWar / 1000) / 1000, where year = max_manpower * 1000 / MAX_MANPOWER and the months are the same thousandths the war exhaustion used; floored at 0. After that it sets the date at +0xAB0 to today's when it holds one before year 3, and calls 0x4F06D0 and 0x4F72F0.\n\nNot read: the first 0x7AF bytes (UpdateIC(country, 0) is called at 0x4D633D, and a loop stamps CDiplomacyStatus +0x54 with the date), and the block 0x4D713A..0x4D733F for a country that holds something.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-manpowergain.md"
+  },
+  {
+   "rva": "0x16874C0",
+   "kind": "global",
+   "name": "g_OneTwentieth",
+   "signature": null,
+   "no_signature": null,
+   "comment": "A file-scope fixed-point constant, 50 in thousandths, so 0.05. Built at startup by InitOneTwentieth (rva 0x8B6620) as (int)floorf(50.5f), and no define moves it. 22 references. SetUpCountryForNewGame uses it three times: war exhaustion gained per month at war, war exhaustion lost per month since the last war, and the fraction of a stockpile's IC-days' earnings given as starting money. The name is ours, for the value; what the other nineteen readers use it for was not read.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-leadership.md"
+  },
+  {
+   "rva": "0x8B6620",
+   "kind": "function",
+   "name": "InitOneTwentieth",
+   "signature": "void __cdecl InitOneTwentieth(void)",
+   "no_signature": null,
+   "comment": "Static initialiser for g_OneTwentieth (VA 0x1A874C0): floorf(50.5f) through _ftol2_sse, stored, bare `ret`. int3-padded after; the next initialiser, InitBaseOilConversionRate, starts at rva 0x8B6650.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-leadership.md"
+  },
+  {
+   "rva": "0xDB5BE",
+   "kind": "instruction",
+   "name": "RunCountryDailyPass_DistributeLeadershipShares",
+   "signature": null,
+   "no_signature": null,
+   "comment": "**Where the four leadership shares are run.** In RunCountryDailyPass, the country in ebx, inside the same gate as the six IC shares: a tag, and not REB. First, if gamestate->scenario (+0xD0C) is set, LeadershipDistribution[0] - officers - has its base_percentage zeroed and, when it was not zero already, its slot 4 called, which is the shared empty stub for every class but CDistributeResearch. Then the loop at 0x4DB610 calls slot 0 of each of the four in index order - officers, diplomacy, espionage, research - with (&out, available, flag = 0), where available is the whole of TotalLeadership turned from thousandths into fixed 15 by a truncating divide: `(x << 30) / (1000 << 15)`. `out` is not read afterwards. So in a stand-alone scenario no officers are trained, the same pointer that skips the dissent change in CDistributeConsumerGoods::Distribute.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-leadership.md"
+  },
+  {
+   "rva": "0x9F527",
+   "kind": "instruction",
+   "name": "RebuildProvinceModifierValues_Overseas",
+   "signature": null,
+   "no_signature": null,
+   "comment": "**When a province is `overseas`, and the `blockaded` test nested inside it.** capital = GetActingCapitalLocation(countries[province->controller_id]). If province->area (+0x2B4) equals the capital's, or province->Continent (+0x368) equals the capital's, neither modifier is considered. Otherwise static +0x1C, `overseas`, is added (0x49F595). Then, still inside that branch: unless the province has an owner, a port (+0x354) and a naval base above level 0, it gets static +0x34, `blockaded`, when 0x47E540(area, controller) answers zero (0x49F686). So overseas needs **both** a different area and a different continent, and blockaded is only ever tested for an overseas province. FINDINGS-revolt.md's table has +0x34 as the non-core modifier; it is not.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-leadership.md"
+  },
+  {
+   "rva": "0x9F733",
+   "kind": "instruction",
+   "name": "RebuildProvinceModifierValues_NonCore",
+   "signature": null,
+   "no_signature": null,
+   "comment": "**When a province is `non_core`.** It walks province->cores (+0x344; a node's id at +4, next at +0xC) and leaves if any core is the **owner's** (+0x330). Otherwise, if the owner is also the controller (+0x338), static +0x4C, `non_core`, is added at 0x49F765. So an occupied province gets nothing here - the occupier's policy applies further down instead - and the claim that matters is the owner's, not the controller's.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-leadership.md"
+  },
+  {
+   "rva": "0xDDE4A",
+   "kind": "instruction",
+   "name": "RebuildStaticModifiers_AddBaseValues",
+   "signature": null,
+   "no_signature": null,
+   "comment": "**The first thing CCountry::RebuildStaticModifiers adds is `base_values`, whole.** The country is the stack argument; its modifier is the CModifier at +0xD90 (global_modifier), cleared at 0x4DDDFE. From here the loop adds statics->base_values (+0x64)->values[id] into it for every modifier id and appends the static to the modifier's contributor list. At 0x4DDEDE the same is done for the CModifier at faction (+0xD8) +0x7C when the faction's slot 7 says it is a real one. That is how `global_leadership = 3.5` and the two consumer goods demands reach every country. The rest of the function was not read.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-leadership.md"
+  },
+  {
+   "rva": "0xE02F0",
+   "kind": "function",
+   "name": "CCountry::GainTechAbility",
+   "signature": "void __stdcall CCountry::GainTechAbility(CCountry* country, CTechnologyCategory* category, int gain)",
+   "no_signature": null,
+   "comment": "**Raises a country's theory or practical by a gain that counts for less the more it already has.** Three stack arguments, `ret 0xC` at 0x4E03AF. ability = country->category_levels (+0x698)[category->index (+0x5C)]; scale = ability * 1000 / TECH_ABILITY_GAIN_DIVISOR (the `country` define block, +0x48), or -1 when the define is 0, and never under 1000; then CCountry::SetTechAbility(country, category, ability + gain * 1000 / scale), which floors at 0 and caps at MAX_TECH_ABILITY. So a gain is taken in full while the ability is under the divisor and divided by ability / divisor above it. Seven callers: CDistributeResearch::Distribute at 0x51FA04 with 1000 for a finished level; 0x484EE7 and 0x485C90 for a finished unit's practical; 0x41FFA1, 0x420157 and 0x42044A in the start-of-game recompute; and 0x5654D7. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-researchshare.md"
+  },
+  {
+   "rva": "0xE1DA0",
+   "kind": "function",
+   "name": "GetMonthlyManpowerGain",
+   "signature": "CFixedPoint* __stdcall GetMonthlyManpowerGain(CCountry* country, CFixedPoint* out)",
+   "no_signature": null,
+   "comment": "**What a month adds to a country's manpower.** Two stack arguments, `ret 8` at 0x4E1FB9, the out pointer back in eax. All thousandths, every divide truncating. It zeroes *out and walks ControlledProvinces (+0xD00): for each, part = (province->manpower (+0x320) + provinceValues[3]) * max(1000 + provinceValues[5] + ownerValues[6], 0) / 1000, added only when it is not negative. provinceValues is the province's modifier array (+0x114) and ownerValues the modifier array (+0xDA8) of the country the province's **owner** tag (+0x32C) names - not the controller's, although it is the controller that is paid. Entries 3 and 5 are the script keys `local_manpower` and `local_manpower_modifier`, 6 is `global_manpower_modifier`. So the local and the global percentage are **added**, and a province three quarters down for being overseas under a law that takes half off gives nothing rather than an eighth.\n\nThen it adds countryValues[4] flat - `global_manpower`, the 4 base_values gives every country, which no law scales - multiplies by (1000 + technology_status->manpower_gain (+0x8C)) / 1000, and divides by twelve (`* 1000 / 12000`, the 12000 from floorf(12000.5f)). That is the answer.\n\n**Between the two is a block for a government in exile** (+0x95): it walks the same list and, for a province whose controller_id (+0x338) is not the country's id, *assigns* *out = province->manpower * 100 / 1000 - a `mov`, not an `add`, so each such province overwrites the running total. The 100 is floorf(100.5f), the float at VA 0x160A684, kept in a function-local static at 0x1BEBBA8 behind the guard bit at 0x1BEBBAC. What the block is for was not established.\n\nTwo callers: RunCountryDailyPass at 0x4DA89A and GetManpowerDetailsText at 0x6D0959. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-manpowergain.md"
+  },
+  {
+   "rva": "0xE1C00",
+   "kind": "function",
+   "name": "UpdateMaxManpower",
+   "signature": "void __stdcall UpdateMaxManpower(CCountry* country)",
+   "no_signature": null,
+   "comment": "**Works out max_manpower (+0xBD0), and is its only writer besides the constructor and a reset.** One stack argument, `ret 4` at 0x4E1D99. The same province walk as GetMonthlyManpowerGain, term for term - part = (province->manpower (+0x320) + provinceValues[3]) * max(1000 + provinceValues[5] + ownerValues[6], 0) / 1000, added only when it is not negative - then + countryValues[4], * (1000 + technology_status->manpower_gain) / 1000, and then * MAX_MANPOWER (the first entry of the `military` defines) / 1000, floored at 1000. So it is **that many years of what the country gets** - ten in Their Finest Hour - and never under 1. It has no government-in-exile block.\n\n**Nothing holds the pool to it**: the daily addition in RunCountryDailyPass does not read it. Its readers are SetUpCountryForNewGame, which starts the pool at it, the `max_manpower` and `manpower_percentage` triggers, GetManpowerDetailsText and 0x4DCD70.\n\nSix callers: SetUpCountryForNewGame at 0x4D7386; CCountry::UpdateMonthly at 0x4DCBA4, after RebuildStaticModifiers; CInGameIdler::Enter at 0x65B2BD, straight after UpdateTotalLeadership; ApplyCustomGameSettings at 0x41DC98; and 0x4DFD69 and 0x559B77, unread. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-manpowergain.md"
+  },
+  {
+   "rva": "0xDA932",
+   "kind": "instruction",
+   "name": "RunCountryDailyPass_AddManpower",
+   "signature": null,
+   "no_signature": null,
+   "comment": "**Where a country's manpower grows.** `add [ebx+0xbcc], eax`, the country in ebx, taken only when eax is above nothing. eax = GetMonthlyManpowerGain(country) * 1000 / (days * 1000), where days is the length of the current month: the day of the year, off the tick at [ebp-0x28] less 43800000 hours over 24 and reduced by whole 365-day years, is walked down MonthLengthTable (0x4DA8F0, with the out-of-line `inc edx; jmp` at 0x4DC3FF). So **a day adds the month's figure over the days that month has**, February more than January. Unconditional for every country the pass runs for, and nothing compares the result with max_manpower. It comes after RebuildStaticModifiers (0x4DA5E3) and the strategic-warfare change to national unity (0x4DA890), and before UpdateTotalLeadership (0x4DAEA7).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-manpowergain.md"
+  },
+  {
+   "rva": "0x168747C",
+   "kind": "global",
+   "name": "g_StartingManpowerLostPerMonthAtWar",
+   "signature": null,
+   "no_signature": null,
+   "comment": "A file-scope fixed-point constant, 120 in thousandths, so 0.12. Built at startup by InitStartingManpowerLostPerMonthAtWar (rva 0x8B6680) as (int)floorf(120.5f), and no define moves it. One reader, SetUpCountryForNewGame at 0x4D7439: a country at war starts a new game short of its max_manpower by a year of its manpower times (1 + 0.12 for each month the war has run). The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-manpowergain.md"
+  },
+  {
+   "rva": "0x8B6680",
+   "kind": "function",
+   "name": "InitStartingManpowerLostPerMonthAtWar",
+   "signature": "void __cdecl InitStartingManpowerLostPerMonthAtWar(void)",
+   "no_signature": null,
+   "comment": "Static initialiser for g_StartingManpowerLostPerMonthAtWar (VA 0x1A8747C): floorf(120.5f) through _ftol2_sse, stored, bare `ret` at 0xCB66A0. int3-padded on both sides; the one before it is InitBaseOilConversionRate at rva 0x8B6650.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-manpowergain.md"
+  },
+  {
+   "rva": "0xDEA50",
+   "kind": "instruction",
+   "name": "RebuildStaticModifiers_AddControlledProvinceModifiers",
+   "signature": null,
+   "no_signature": null,
+   "comment": "**A country's modifier takes in the whole modifier of every province it controls.** In CCountry::RebuildStaticModifiers, the loop 0x4DEA50..0x4DEB98 walks ControlledProvinces (+0xD00) and, for each, adds the province's CProvinceModifier (+0xFC) into the country's accumulator one modifier id at a time - `values[id] += provinceValues[id]` over all ([0x1A86198] - [0x1A86194]) / 4 ids - and records the province modifier in the accumulator's contributor vector. So anything a province's modifier holds reaches its controller's, once for each province, the country-wide kinds included; the local kinds come along too and are read by nothing at country level. **Likely this is how a strategic resource reaches a country**, but where a resource's modifier joins a province's was not found: RebuildProvinceModifierValues was not seen to read it. The same loop then tests, for a country at war, whether a province flagged at +0x36C that it owns is in its capital's area; what that is for was not read.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-manpowergain.md"
+  },
+  {
+   "rva": "0xE1FC0",
+   "kind": "function",
+   "name": "UpdateBlockadeLevel",
+   "signature": "void __stdcall UpdateBlockadeLevel(CCountry* country)",
+   "no_signature": null,
+   "comment": "**Works out CCountry +0xBD4, the share of a country's home ports that are cut off.** One stack argument, `ret 4` at 0x4E216B. It walks OwnedProvinces (+0xCF0) and counts each that is in the acting capital's area (+0x2B4) or on its continent (+0x368), has an owner, a map port (+0x354) and a naval base (+0x300) whose level (+0x20) is above 0. Of those it counts again the ones whose byte at +0x36C is set or whose owner is not their controller. +0xBD4 = second count * 1000 / first, or 0 with no such port. **That +0x36C is a blockaded flag is inference** from this use and from CBlockadeTrigger reading the result. Three callers: CCountry::UpdateMonthly at 0x4DCBAA, straight after UpdateMaxManpower; CInGameIdler::Enter at 0x65B2CB; and 0x4A6745 in 0x4A65E0, unread. The name is ours.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-manpowergain.md"
   }
  ],
  "structs": [
@@ -22676,6 +22915,27 @@
   {
    "name": "CCountry",
    "fields": [
+    {
+     "offset": "0xCF8",
+     "name": "owned_province_count",
+     "type": "int",
+     "comment": "The count of OwnedProvinces, the list whose head is at +0xCF0 and tail at +0xCF4. SetUpCountryForNewGame takes the war loss off a country's starting manpower only when this is above 0.",
+     "source": "reversing/findings/FINDINGS-manpowergain.md"
+    },
+    {
+     "offset": "0x6F4",
+     "name": "tech_sharing_given_end",
+     "type": "void*",
+     "comment": "End of the vector whose begin is tech_sharing_given at +0x6F0; the count is the difference over twelve.",
+     "source": "reversing/findings/FINDINGS-leadership.md"
+    },
+    {
+     "offset": "0x6F0",
+     "name": "tech_sharing_given",
+     "type": "void*",
+     "comment": "Begin of a vector of twelve-byte entries, { CCountryTag receiver; int category }, end at +0x6F4. CCountry::UpdateTotalLeadership charges SHARE_TECH_LEADERSHIP_COST leadership for each entry and cancels the newest while the country cannot pay; CCountry::StopSharingTechWith erases the entries naming one country. **That it is the technology categories this country shares is inference** from those two readers; its writer was not read.",
+     "source": "reversing/findings/FINDINGS-leadership.md"
+    },
     {
      "offset": "0xFF8",
      "name": "unknown_list_ff8",
@@ -23072,8 +23332,8 @@
      "offset": "0xBD0",
      "name": "max_manpower",
      "type": "int",
-     "comment": "**The manpower ceiling, in thousandths** - the field `max_manpower = N` reads, and the denominator of `manpower_percentage`.",
-     "source": "reversing/findings/FINDINGS-numtriggers.md"
+     "comment": "**So many years of the manpower the country gets, in thousandths, and not a ceiling.** Written by UpdateMaxManpower: the year's manpower times MAX_MANPOWER, at least 1000. A new game starts the pool at it; nothing holds the pool to it afterwards. The field `max_manpower = N` reads, and the denominator of `manpower_percentage`.",
+     "source": "reversing/findings/FINDINGS-manpowergain.md"
     },
     {
      "offset": "0xBCC",
@@ -32029,6 +32289,34 @@
    "name": "CTechnologyStatus",
    "fields": [
     {
+     "offset": "0x8C",
+     "name": "manpower_gain",
+     "type": "int",
+     "comment": "thousandths; what the technology key `manpower_gain` adds up to. GetMonthlyManpowerGain and UpdateMaxManpower multiply the whole of a country's manpower - what its provinces give and the flat `global_manpower` both - by 1000 + this. It multiplies, where leadership_gain at +0xB8 adds to the laws' bonus. The record carries the same offset on CTechStatistics under the same name, from the loader.",
+     "source": "reversing/findings/FINDINGS-manpowergain.md"
+    },
+    {
+     "offset": "0xB8",
+     "name": "leadership_gain",
+     "type": "int",
+     "comment": "thousandths; what the technology key `leadership_gain` adds up to. CCountry::UpdateTotalLeadership adds it to 1000 + GLOBAL_LEADERSHIP_MODIFIER and multiplies the country's leadership by the sum, so it adds to the laws' bonus rather than multiplying it. The record carries the same offset on CTechStatistics under the same name, from the loader.",
+     "source": "reversing/findings/FINDINGS-leadership.md"
+    },
+    {
+     "offset": "0x9C",
+     "name": "supply_production_bonus",
+     "type": "int",
+     "comment": "thousandths. CDistributeSupply::GetSuppliesMade (0x11ADD0) adds it to MODIFIER_GLOBAL_SUPPLIES and multiplies the day's supplies by one plus the sum. It is what a technology's `ic_to_supplies` key adds up to: a savegame's Germany has four levels of supply_production at 0.05 and its supplies fit a bonus of 0.2 here.",
+     "source": "reversing/findings/FINDINGS-distribute.md"
+    },
+    {
+     "offset": "0x20",
+     "name": "fuel_refining_bonus",
+     "type": "int",
+     "comment": "thousandths. CCountry::ConvertCrudeOilToFuel (0xF19F0) scales the fuel a unit of crude oil makes by (1000 + this) / 1000, and then again by (1000 + MODIFIER_FUEL_CONVERSION) / 1000 - the two multiply. Named from that one reader; which technology key feeds it was not traced, `refinery_efficiency` being the obvious candidate.",
+     "source": "reversing/findings/FINDINGS-distribute.md"
+    },
+    {
      "offset": "0x44",
      "name": "convoy_build_cost_effect",
      "type": "int",
@@ -32102,8 +32390,8 @@
      "offset": "0x98",
      "name": "oil_conversion_bonus",
      "type": "int",
-     "comment": "thousandths. `CCountry::GetOilConversionRate` (0xF17F0) returns a cached global constant plus this, and CCountry::UpdateIC inlines the same read at 0xF11AC to get `1 + 2 x rate` for the energy-to-crude-oil conversion. Name inferred from those two uses.",
-     "source": "reversing/findings/FINDINGS-ic.md"
+     "comment": "thousandths. What technology adds to the crude oil a unit of energy makes: CCountry::GetOilConversionRate (0xF17F0) is 100 - a tenth - plus this, and the energy-to-crude-oil block of CCountry::UpdateIC (UpdateIC_EnergyToCrudeOil, 0xF0FF5) inlines the same sum at 0xF11AC. A savegame's Germany has two levels of the technology whose effect is `energy_to_oil_conversion = 0.1` and converts at 0.3.",
+     "source": "reversing/findings/FINDINGS-distribute.md"
     },
     {
      "offset": "0xA4",
@@ -41446,6 +41734,287 @@
      "source": "reversing/findings/FINDINGS-triggereval.md"
     }
    ]
+  },
+  {
+   "name": "CStaticModifierDataBase",
+   "size": "0xBC",
+   "comment": "**The static_modifiers.txt database behind g_static_modifiers (VA 0x1A86208).** No RTTI and no vftable, so the name is ours. +0x0/+0x4/+0x8 is the engine's string hash (0x1FF buckets) and +0xC/+0x10/+0x14 a vector, both set up by 0x45BD30; from +0x1C on it is one CStaticModifier* for each name the engine knows, filled by LoadModifierDefinitions. +0x18 and +0x68 are not written there and are not identified.",
+   "source": "reversing/findings/FINDINGS-leadership.md",
+   "fields": [
+    {
+     "offset": "0xB8",
+     "name": "fractured_government",
+     "type": "CStaticModifier*",
+     "comment": "static_modifiers.txt's `fractured_government`, or null when the file does not declare it.",
+     "source": "reversing/findings/FINDINGS-leadership.md"
+    },
+    {
+     "offset": "0xB4",
+     "name": "government_in_exile",
+     "type": "CStaticModifier*",
+     "comment": "static_modifiers.txt's `government_in_exile`, or null when the file does not declare it.",
+     "source": "reversing/findings/FINDINGS-leadership.md"
+    },
+    {
+     "offset": "0xB0",
+     "name": "initial_mobilization",
+     "type": "CStaticModifier*",
+     "comment": "static_modifiers.txt's `initial_mobilization`, or null when the file does not declare it. Looked up twice and stored here twice, at 0x45B6F9 and 0x45B73F, with the same string both times.",
+     "source": "reversing/findings/FINDINGS-leadership.md"
+    },
+    {
+     "offset": "0xAC",
+     "name": "neutrality",
+     "type": "CStaticModifier*",
+     "comment": "static_modifiers.txt's `neutrality`, or null when the file does not declare it.",
+     "source": "reversing/findings/FINDINGS-leadership.md"
+    },
+    {
+     "offset": "0xA8",
+     "name": "dissent",
+     "type": "CStaticModifier*",
+     "comment": "static_modifiers.txt's `dissent`, or null when the file does not declare it.",
+     "source": "reversing/findings/FINDINGS-leadership.md"
+    },
+    {
+     "offset": "0xA4",
+     "name": "spy_support_resistance",
+     "type": "CStaticModifier*",
+     "comment": "static_modifiers.txt's `spy_support_resistance`, or null when the file does not declare it.",
+     "source": "reversing/findings/FINDINGS-leadership.md"
+    },
+    {
+     "offset": "0xA0",
+     "name": "spy_lower_neutrality",
+     "type": "CStaticModifier*",
+     "comment": "static_modifiers.txt's `spy_lower_neutrality`, or null when the file does not declare it.",
+     "source": "reversing/findings/FINDINGS-leadership.md"
+    },
+    {
+     "offset": "0x9C",
+     "name": "spy_raise_national_unity",
+     "type": "CStaticModifier*",
+     "comment": "static_modifiers.txt's `spy_raise_national_unity`, or null when the file does not declare it.",
+     "source": "reversing/findings/FINDINGS-leadership.md"
+    },
+    {
+     "offset": "0x98",
+     "name": "spy_lower_national_unity",
+     "type": "CStaticModifier*",
+     "comment": "static_modifiers.txt's `spy_lower_national_unity`, or null when the file does not declare it.",
+     "source": "reversing/findings/FINDINGS-leadership.md"
+    },
+    {
+     "offset": "0x94",
+     "name": "disrupt_research",
+     "type": "CStaticModifier*",
+     "comment": "static_modifiers.txt's `disrupt_research`, or null when the file does not declare it.",
+     "source": "reversing/findings/FINDINGS-leadership.md"
+    },
+    {
+     "offset": "0x90",
+     "name": "disrupt_production",
+     "type": "CStaticModifier*",
+     "comment": "static_modifiers.txt's `disrupt_production`, or null when the file does not declare it.",
+     "source": "reversing/findings/FINDINGS-leadership.md"
+    },
+    {
+     "offset": "0x8C",
+     "name": "very_hard_ai",
+     "type": "CStaticModifier*",
+     "comment": "static_modifiers.txt's `very_hard_ai`, or null when the file does not declare it.",
+     "source": "reversing/findings/FINDINGS-leadership.md"
+    },
+    {
+     "offset": "0x88",
+     "name": "hard_ai",
+     "type": "CStaticModifier*",
+     "comment": "static_modifiers.txt's `hard_ai`, or null when the file does not declare it.",
+     "source": "reversing/findings/FINDINGS-leadership.md"
+    },
+    {
+     "offset": "0x84",
+     "name": "easy_ai",
+     "type": "CStaticModifier*",
+     "comment": "static_modifiers.txt's `easy_ai`, or null when the file does not declare it.",
+     "source": "reversing/findings/FINDINGS-leadership.md"
+    },
+    {
+     "offset": "0x80",
+     "name": "very_easy_ai",
+     "type": "CStaticModifier*",
+     "comment": "static_modifiers.txt's `very_easy_ai`, or null when the file does not declare it.",
+     "source": "reversing/findings/FINDINGS-leadership.md"
+    },
+    {
+     "offset": "0x7C",
+     "name": "very_hard_player",
+     "type": "CStaticModifier*",
+     "comment": "static_modifiers.txt's `very_hard_player`, or null when the file does not declare it.",
+     "source": "reversing/findings/FINDINGS-leadership.md"
+    },
+    {
+     "offset": "0x78",
+     "name": "hard_player",
+     "type": "CStaticModifier*",
+     "comment": "static_modifiers.txt's `hard_player`, or null when the file does not declare it.",
+     "source": "reversing/findings/FINDINGS-leadership.md"
+    },
+    {
+     "offset": "0x74",
+     "name": "easy_player",
+     "type": "CStaticModifier*",
+     "comment": "static_modifiers.txt's `easy_player`, or null when the file does not declare it.",
+     "source": "reversing/findings/FINDINGS-leadership.md"
+    },
+    {
+     "offset": "0x70",
+     "name": "very_easy_player",
+     "type": "CStaticModifier*",
+     "comment": "static_modifiers.txt's `very_easy_player`, or null when the file does not declare it.",
+     "source": "reversing/findings/FINDINGS-leadership.md"
+    },
+    {
+     "offset": "0x6C",
+     "name": "total_blockaded",
+     "type": "CStaticModifier*",
+     "comment": "static_modifiers.txt's `total_blockaded`, or null when the file does not declare it.",
+     "source": "reversing/findings/FINDINGS-leadership.md"
+    },
+    {
+     "offset": "0x64",
+     "name": "base_values",
+     "type": "CStaticModifier*",
+     "comment": "static_modifiers.txt's `base_values`, or null when the file does not declare it. Added whole to every country's modifier, first (RebuildStaticModifiers_AddBaseValues), and read directly by CCountry::UpdateIC for its `ic`.",
+     "source": "reversing/findings/FINDINGS-leadership.md"
+    },
+    {
+     "offset": "0x60",
+     "name": "naval_maintenance",
+     "type": "CStaticModifier*",
+     "comment": "static_modifiers.txt's `naval_maintenance`, or null when the file does not declare it.",
+     "source": "reversing/findings/FINDINGS-leadership.md"
+    },
+    {
+     "offset": "0x5C",
+     "name": "land_maintenance",
+     "type": "CStaticModifier*",
+     "comment": "static_modifiers.txt's `land_maintenance`, or null when the file does not declare it.",
+     "source": "reversing/findings/FINDINGS-leadership.md"
+    },
+    {
+     "offset": "0x58",
+     "name": "war_exhaustion",
+     "type": "CStaticModifier*",
+     "comment": "static_modifiers.txt's `war_exhaustion`, or null when the file does not declare it.",
+     "source": "reversing/findings/FINDINGS-leadership.md"
+    },
+    {
+     "offset": "0x54",
+     "name": "peace",
+     "type": "CStaticModifier*",
+     "comment": "static_modifiers.txt's `peace`, or null when the file does not declare it.",
+     "source": "reversing/findings/FINDINGS-leadership.md"
+    },
+    {
+     "offset": "0x50",
+     "name": "war",
+     "type": "CStaticModifier*",
+     "comment": "static_modifiers.txt's `war`, or null when the file does not declare it.",
+     "source": "reversing/findings/FINDINGS-leadership.md"
+    },
+    {
+     "offset": "0x4C",
+     "name": "non_core",
+     "type": "CStaticModifier*",
+     "comment": "static_modifiers.txt's `non_core`, or null when the file does not declare it. Added to a province whose owner has no core on it and also controls it (RebuildProvinceModifierValues_NonCore).",
+     "source": "reversing/findings/FINDINGS-leadership.md"
+    },
+    {
+     "offset": "0x48",
+     "name": "revolt_risk",
+     "type": "CStaticModifier*",
+     "comment": "static_modifiers.txt's `revolt_risk`, or null when the file does not declare it. Scaled by the province's revolt risk in percentage points (FINDINGS-revolt.md).",
+     "source": "reversing/findings/FINDINGS-leadership.md"
+    },
+    {
+     "offset": "0x44",
+     "name": "nationalism",
+     "type": "CStaticModifier*",
+     "comment": "static_modifiers.txt's `nationalism`, or null when the file does not declare it.",
+     "source": "reversing/findings/FINDINGS-leadership.md"
+    },
+    {
+     "offset": "0x40",
+     "name": "manpower",
+     "type": "CStaticModifier*",
+     "comment": "static_modifiers.txt's `manpower`, or null when the file does not declare it. Scaled by the province's manpower (FINDINGS-revolt.md).",
+     "source": "reversing/findings/FINDINGS-leadership.md"
+    },
+    {
+     "offset": "0x3C",
+     "name": "sea_zone",
+     "type": "CStaticModifier*",
+     "comment": "static_modifiers.txt's `sea_zone`, or null when the file does not declare it.",
+     "source": "reversing/findings/FINDINGS-leadership.md"
+    },
+    {
+     "offset": "0x38",
+     "name": "land_province",
+     "type": "CStaticModifier*",
+     "comment": "static_modifiers.txt's `land_province`, or null when the file does not declare it.",
+     "source": "reversing/findings/FINDINGS-leadership.md"
+    },
+    {
+     "offset": "0x34",
+     "name": "blockaded",
+     "type": "CStaticModifier*",
+     "comment": "static_modifiers.txt's `blockaded`, or null when the file does not declare it. Only tested for a province that is overseas.",
+     "source": "reversing/findings/FINDINGS-leadership.md"
+    },
+    {
+     "offset": "0x30",
+     "name": "out_of_supply",
+     "type": "CStaticModifier*",
+     "comment": "static_modifiers.txt's `out_of_supply`, or null when the file does not declare it.",
+     "source": "reversing/findings/FINDINGS-leadership.md"
+    },
+    {
+     "offset": "0x2C",
+     "name": "no_adjacent_controlled",
+     "type": "CStaticModifier*",
+     "comment": "static_modifiers.txt's `no_adjacent_controlled`, or null when the file does not declare it.",
+     "source": "reversing/findings/FINDINGS-leadership.md"
+    },
+    {
+     "offset": "0x28",
+     "name": "coastal_sea",
+     "type": "CStaticModifier*",
+     "comment": "static_modifiers.txt's `coastal_sea`, or null when the file does not declare it.",
+     "source": "reversing/findings/FINDINGS-leadership.md"
+    },
+    {
+     "offset": "0x24",
+     "name": "non_coastal",
+     "type": "CStaticModifier*",
+     "comment": "static_modifiers.txt's `non_coastal`, or null when the file does not declare it.",
+     "source": "reversing/findings/FINDINGS-leadership.md"
+    },
+    {
+     "offset": "0x20",
+     "name": "coastal",
+     "type": "CStaticModifier*",
+     "comment": "static_modifiers.txt's `coastal`, or null when the file does not declare it.",
+     "source": "reversing/findings/FINDINGS-leadership.md"
+    },
+    {
+     "offset": "0x1C",
+     "name": "overseas",
+     "type": "CStaticModifier*",
+     "comment": "static_modifiers.txt's `overseas`, or null when the file does not declare it. Added to a province in a different area and on a different continent from its controller's acting capital (RebuildProvinceModifierValues_Overseas).",
+     "source": "reversing/findings/FINDINGS-leadership.md"
+    }
+   ]
   }
  ],
  "equates": [
@@ -41486,6 +42055,18 @@
   }
  ],
  "vftable_slots": {
+  "CDistributeResearch": {
+   "0": "Distribute"
+  },
+  "CDistributeDiplomacy": {
+   "0": "Distribute"
+  },
+  "CDistributeNCO": {
+   "0": "Distribute"
+  },
+  "CDistributeSupply": {
+   "0": "Distribute"
+  },
   "CLiberateCountryCommand": {
    "6": {"name": "Execute", "signature": "void __thiscall Execute(CLiberateCountryCommand* this)"}
   },

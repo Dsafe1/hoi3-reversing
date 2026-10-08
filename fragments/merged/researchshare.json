@@ -1,0 +1,74 @@
+{
+ "agent": "researchshare",
+ "question": "What CDistributeResearch::Distribute does with the research share's leadership each day, which way CTechnology::CheckResearchAllowed answers, and the exact arithmetic of the research gain, the cost and the square root, so that a savegame's progress can be reproduced to the last digit.",
+ "source": "reversing/findings/FINDINGS-researchshare.md",
+ "addresses": [
+  {
+   "rva": "0x11F620",
+   "kind": "function",
+   "name": "CDistributeResearch::Distribute",
+   "signature": "CFixedPoint* __thiscall CDistributeResearch::Distribute(CDistributeResearch* this@ECX, CFixedPoint* out@stack:4, __int64 available@stack:8, bool flag@stack:16) @EAX",
+   "no_signature": null,
+   "comment": "**Slot 0 - what the research share does with its leadership each day.** 0x51F620 to the `ret 0x10` at 0x520EDE; about 0x1300 of its 0x18C1 bytes are the `tech_discovered` message. remaining = share * factor * available in fixed 15. It clears the status's assigned leadership (ClearResearchLeadership), then walks CurrentResearch (CCountry +0x638) in order while any is left: a technology whose next level CheckResearchAllowed refuses is handed AdvanceResearch(..., 0) and takes nothing; otherwise it takes min(remaining, 1.0), turned into thousandths, through AdvanceResearch. When that answers true - a level gained - it calls CCountry::GainTechAbility(country, technology->on_completion, 1000), raises the message if the country is the player's, removes the technology from CurrentResearch and, if additional_offset is not 0, remembers it. After the walk each remembered technology whose next level is allowed is appended to the **end** of CurrentResearch, and 0x8A3040(country) is called. *out = 0.\n\nSo **each project takes one point of leadership in queue order until the share runs out, the last one reached takes the remainder, and a finished multi-level technology goes to the back of the queue.**",
+   "confidence": "confirmed",
+   "revises": "It was `inferred` and 'not read as a body', a list of the calls it makes. It is read through now, the comment says what it does, and the signature places `this` in ECX and the return in EAX. The name is unchanged.",
+   "evidence": "Decoded from its own entry (image.decode(0x51F620, 0x18D0)). `mov eax,0x8000` at 0x51F74B with the compare of the 64-bit remaining at [esp+0xb0]/esi and the `sub`/`sbb` at 0x51F784/0x51F799 is the one point; `push 0x1f40000` and the two `shrd .., 0xf` at 0x51F9B3..0x51F9CA the thousandths; `cmp al,1; jne 0x520dd5` at 0x51F9E0 the level gained; `call 0x4e02f0` at 0x51FA04 with `mov dword ptr [eax],0x3e8` the ability; CList_RemoveNode at 0x520D76; the tail append at 0x520E3F..0x520E8F writing +0x63C/+0x640/+0x638. Fits a savegame: Germany with 28.796 research leadership and 29 projects shows 28 at 1.000 and the last at 0.796, and a technology that finished a level is the last `research` entry of the next save. What would show it wrong: a project past the leadership's reach making progress."
+  },
+  {
+   "rva": "0x135760",
+   "kind": "function",
+   "name": "CTechnology::CheckResearchAllowed",
+   "signature": "bool __thiscall CTechnology::CheckResearchAllowed(CTechnology* this, int tagType, int countryId, int level)",
+   "no_signature": null,
+   "comment": "**Whether a country may research a level of this technology: 1 when it may.** A level of -1 means the country's next one. It answers 0 when `additional_offset` (+0x2C0) is 0 and the level is above 1 or below 0 - **so additional_offset = 0 declares a single-level technology** - and 0 when the level exceeds `max_level` (+0x2C4); 0 when the custom game settings are on and their per-technology table (0x41F500, its +0x28) holds a figure above the level; and otherwise the technology's own `allow` block, [this+0x248] slot 6, evaluated in the country's scope, with `cmp al, 1; sete al`. `ret 0xC`.\n\n**The polarity is settled.** CDistributeResearch::Distribute's `test al, al; jne 0x51f749` at 0x51F726 takes a non-zero answer on to where the leadership is given; a zero answer falls through to AdvanceResearch with no leadership. The name is BiceLib's.",
+   "confidence": "confirmed",
+   "revises": "It was `likely` with 'the polarity is unresolved: both use sites branch past the research when it answers true'. They do not - the branch taken on true is the research. The comment now says so and gives the single-level test in full. Name and signature are unchanged.",
+   "evidence": "0x535760..0x53582B read through: the three `xor al, al` exits share 0x5357AE; the last instructions are `call eax; cmp al, 1; pop edi; sete al`. In Distribute, 0x51F749 - the target of the `jne` - is `mov eax, 0x8000`, the start of handing over a point of leadership, and the fall-through at 0x51F72A pushes a zero leadership. What would show it wrong: an unresearchable technology gaining progress."
+  },
+  {
+   "rva": "0x69CEC0",
+   "kind": "function",
+   "name": "FixedPointSqrt",
+   "signature": "void __cdecl FixedPointSqrt(int* out, int value)",
+   "no_signature": null,
+   "comment": "**A rough square root in thousandths, and rougher than it looks.** Zero for a non-positive value. Otherwise guess = value / 2 and tolerance = value * 1000 / 1000 - **the value itself** - and then: error = guess * guess / 1000 - value; guess -= error * 1000 / (2 * guess) (or -1 when that divisor is 0); repeated while the error just used was outside +-tolerance. So it always takes one step and stops as soon as the square of the previous guess was within `value` of `value`: one step up to about 8, two above. 5.000 gives 2.250, 10.000 gives 3.179, 1.001 gives 1.251. Bare `ret` at 0xA9CFFE. GetCategoryResearchAbility is its caller for research, so an ability of 10 is worth 0.225 of weight and not 0.2236.",
+   "confidence": "confirmed",
+   "revises": "It was `likely`, 'read as structure and not evaluated', described as Newton iterations. It is evaluated now, and the stopping rule - which is what makes it rough - is in the comment. Name and signature are unchanged.",
+   "evidence": "0xA9CEC0..0xA9CFFE read through. `__allmul(value, 1000)` then `__alldiv(.., 1000)` at 0xA9CF2C..0xA9CF44 into [ebp-8] is the tolerance; `cmp ebx,[ebp-8]; jg` at 0xA9CFDA and `neg eax; cmp ebx,eax; jl` at 0xA9CFE8 are the loop's two tests, on ebx = the error computed at 0xA9CF7A before the guess was moved. Evaluated: the research costs it gives reproduce 375 of 376 technologies' progress over 19 days in a savegame to the fifth decimal; with a true square root in its place ten of those stop fitting. What would show it wrong: a cost that fits 0.2236 for an ability of 10."
+  },
+  {
+   "rva": "0xE02F0",
+   "kind": "function",
+   "name": "CCountry::GainTechAbility",
+   "signature": "void __stdcall CCountry::GainTechAbility(CCountry* country, CTechnologyCategory* category, int gain)",
+   "no_signature": null,
+   "comment": "**Raises a country's theory or practical by a gain that counts for less the more it already has.** Three stack arguments, `ret 0xC` at 0x4E03AF. ability = country->category_levels (+0x698)[category->index (+0x5C)]; scale = ability * 1000 / TECH_ABILITY_GAIN_DIVISOR (the `country` define block, +0x48), or -1 when the define is 0, and never under 1000; then CCountry::SetTechAbility(country, category, ability + gain * 1000 / scale), which floors at 0 and caps at MAX_TECH_ABILITY. So a gain is taken in full while the ability is under the divisor and divided by ability / divisor above it. Seven callers: CDistributeResearch::Distribute at 0x51FA04 with 1000 for a finished level; 0x484EE7 and 0x485C90 for a finished unit's practical; 0x41FFA1, 0x420157 and 0x42044A in the start-of-game recompute; and 0x5654D7. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "0x4E02F0..0x4E03AF read through: `mov esi,[ecx+0x48]` off `[eax+0xcc]` after GetDefines; `imul eax,eax,0x3e8; cdq; idiv esi` (or the 64-bit pair for a large ability); `cmp eax,0x3e8; jge; mov esi,0x3e8`; the second multiply and divide on [ebp+0x10]; `add eax,[edi]` and the call of 0x4E03C0. What would show it wrong: a finished level adding a full point to a theory already at 20."
+  }
+ ],
+ "struct_fields": [],
+ "vftable_slots": {
+  "CDistributeResearch": {
+   "0": "Distribute"
+  }
+ },
+ "frontier": [
+  {
+   "rva": "0x4A3040",
+   "why": "called with the country for each finished technology once the queue has been walked"
+  },
+  {
+   "rva": "0x1654D7",
+   "why": "the seventh caller of CCountry::GainTechAbility, unread"
+  },
+  {
+   "rva": "0x1F500",
+   "why": "the custom-game table CheckResearchAllowed reads a per-technology ceiling from"
+  }
+ ],
+ "notes": [
+  "FINDINGS-research.md's 'the polarity at the two use sites was not resolved' is resolved: true is allowed.",
+  "triggered_modifiers.txt's `neutrality` (-5% research efficiency outside the three factions) is needed for ninety countries' research to fit a savegame; triggered modifiers reach the country's modifier."
+ ]
+}

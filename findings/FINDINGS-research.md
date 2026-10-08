@@ -508,15 +508,21 @@ frame. An extent walk ran through a `ret`. That is the fifth time in this folder
   not on the loader.
 - **`CTechnologyCategory +0x4`, the map key.** `+0x8` is the key string, so `+0x4` is something
   else; which field it is was not read.
-- **`0x535760`'s polarity**, as above.
+- ~~**`0x535760`'s polarity**, as above.~~ **Settled 2026-10-08: it answers true when the
+  level may be researched**, and the `jne` at `0x51F728` takes that case *to* the research,
+  not past it. `FINDINGS-researchshare.md`, section 1, which also reads the whole of
+  `CDistributeResearch::Distribute`.
 - **`0x4D59D0`**, the function holding two of `0x5333F0`'s callers, and the `0x81xxxx` callers
   of `0x5333F0`, `0x5332B0` and `0x532B70`. Not in `luabind.json`, not in any vftable, not
   read.
 - **`0x5374F0`**, where `0x532970` hands the country-wide effects off. Guessed at from its
   neighbour `0x537DB0` (the 47-effect switch); its body was not read.
-- **`[0x160A460]` and `[0x160A300]`**, the two doubles the ability recompute at `0x41FF44` and
-  `0x41FF55` uses. Not read, so how a technology's level turns into practical points is only
-  half known.
-- **`0xA9CEC0` is a square root by structure, not by test.** Nothing here evaluates it.
+- ~~**`[0x160A460]` and `[0x160A300]`**, the two doubles the ability recompute at `0x41FF44`
+  and `0x41FF55` uses.~~ **Read 2026-10-07: `0.0005` and `1000.0`** (`FINDINGS-leadership.md`,
+  section 1). `(level + 0.0005) x 1000` is the level turned into thousandths and nothing more,
+  so what the recompute hands to `0x4E02F0` for each technology is its level.
+- ~~**`0xA9CEC0` is a square root by structure, not by test.**~~ **Evaluated 2026-10-08, and
+  it is rougher than its structure suggests**: the loop stops when the error is within the
+  number itself, so 5.000 gives 2.250. `FINDINGS-researchshare.md`, section 4.
 - Everything above is static. `CTechnologyStatus +0x228`, `+0x238` and `+0x1F8` have not been
   read out of a running game.

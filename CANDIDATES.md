@@ -921,7 +921,7 @@ of it.
 
 ## What has already been read
 
-85 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
+89 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
 header lives. This replaces the `Done` archive: the archive restated each file's headline and named
 only 40 of the 67 there were then, so it was both longer and less useful than a complete list.
 
@@ -988,6 +988,7 @@ the six it was missing were wave 15's.
 | `findings/FINDINGS-leaders.md` | leaders: experience, skill, traits, and that promotion skill loss does not exist |
 | `findings/FINDINGS-supply.md` | how supply reaches a unit |
 | `findings/FINDINGS-manpower.md` | manpower: what the drain is made of |
+| `findings/FINDINGS-manpowergain.md` | manpower: what a day adds, what `max_manpower` is, what a new game starts with, and that a country's modifier takes in its provinces' |
 | `findings/FINDINGS-redeploy.md` | strategic redeployment and the route finder |
 | `findings/FINDINGS-shatter.md` | shattering, and being removed from the game |
 | `findings/FINDINGS-airdefence.md` | the three defence stats: parsed, stored, displayed - and never used to defend |
@@ -998,8 +999,11 @@ the six it was missing were wave 15's.
 | --- | --- |
 | `findings/FINDINGS-ic.md` | how a country's IC is worked out |
 | `findings/FINDINGS-production.md` | the build queue, and how IC and leadership are split |
+| `findings/FINDINGS-distribute.md` | the daily loop over the IC shares, the army term of consumer goods demand, the supply share, and crude oil into fuel |
+| `findings/FINDINGS-leadership.md` | how leadership is worked out, the officer, diplomacy and espionage shares, when a province is overseas or non-core, the static modifier slots, and what a country starts a game with |
 | `findings/FINDINGS-politics.md` | alignment, the seven drift terms, and the country's daily pass |
 | `findings/FINDINGS-research.md` | research speed, the practical bonus, and tech decay |
+| `findings/FINDINGS-researchshare.md` | how the research share's leadership reaches the queue, what finishing a level does, and the gain, cost and square root to the bit |
 | `findings/FINDINGS-techdecay.md` | where practical and theory decay is actually applied |
 | `findings/FINDINGS-occupation.md` | occupation, revolt risk, partisans and rebels |
 | `findings/FINDINGS-revolt.md` | what consumes revolt risk: the roll, the rebel type, the underground |

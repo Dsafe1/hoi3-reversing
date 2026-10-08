@@ -1,0 +1,86 @@
+{
+ "agent": "distribute",
+ "question": "For the rewrite's production spec: how RunCountryDailyPass drives the six IC shares, what the second term of CCountry::GetConsumerGoodsNeeded (rva 0xF9F10) is, what CDistributeSupply::Distribute (rva 0x11AA80) does line by line, and where crude oil becomes fuel.",
+ "source": "reversing/findings/FINDINGS-distribute.md",
+ "addresses": [
+  {
+   "rva": "0xF9F10",
+   "kind": "function",
+   "name": "CCountry::GetStandingArmyConsumerDemand",
+   "signature": "int* __stdcall CCountry::GetStandingArmyConsumerDemand(CCountry* country@EDI, int* out) @EAX",
+   "no_signature": null,
+   "comment": "**The second term of consumer goods demand: what a standing army costs a country at peace.** rva 0xF9F10 to the `ret 4` at rva 0xFA019, four int3, then CCountry::GetConsumerGoodsNeeded (0xFA020). The country arrives in edi and the out-pointer is the one stack argument; it comes back in eax. It writes 0 and returns when at_war (+0xACC) is set or TotalIC (+0x604) is zero. Otherwise, all in thousandths: t = land_brigades_in_service (+0x108C) * 1000 / TotalIC; t = t * 250 / 1000, the 250 being (int)floor(250.5f) off the float at VA 0x160A688; n = effective_neutrality (+0xA90) * 1000 / 100000 clamped to 0..1000; *out = t * n / 1000. So at peace the demand is PEACE_CONSUMER_GOODS_DEMAND + 0.25 x (land brigades in service / total IC) x (effective neutrality / 100), and at war the term is nothing. The 250 is a floor(N.5f) static, so no define moves it. Two callers: GetConsumerGoodsNeeded at rva 0xFA083, and rva 0x1195A0, unread. The name is ours. **Not seen working**: a savegame does not carry the demand, and Germany's untouched consumer goods share in a 1936 save (0.224) is not what this gives from that save's own laws and brigades (0.252).",
+   "confidence": "confirmed",
+   "evidence": "Disassembled from the entry with scripts/disasm.py 0x4F9F10 0x1B0 and read instruction by instruction: the at_war test at VA 0x4F9F34, the two imul by 0x3E8 at 0x4F9F5E/0x4F9F66, the idiv at 0x4F9F8A, the imul by [ebp-4] (the floor(250.5f) result) at 0x4F9FB1, the neutrality read at 0x4F9FC4 with the divide by 0x186A0 at 0x4F9FDD and the two clamps at 0x4F9FEB/0x4F9FF1. The float was read with image.read(0x160A688) as 250.5. findRefs --callers gives exactly the two callers. All three CCountry fields were already in project.json under the names used. What would show it wrong: a running game whose consumer goods need does not move by 0.25 x brigades / IC x neutrality when a peacetime country's brigade count changes."
+  },
+  {
+   "rva": "0xF19F0",
+   "kind": "function",
+   "name": "CCountry::ConvertCrudeOilToFuel",
+   "signature": "void __fastcall CCountry::ConvertCrudeOilToFuel(CCountry* country@ESI)",
+   "no_signature": null,
+   "comment": "**Crude oil into fuel, once a day** - the other half of the conversion pair, CCountry::UpdateIC being where energy becomes crude oil. rva 0xF19F0, the country in esi, no stack arguments, two bare rets at rva 0xF1DD7 and 0xF1DF6, int3 to 0xF1E00. One caller, RunCountryDailyPass at rva 0xDB449, straight after UpdateIC. With pool = CCountry::GetPool: it returns at once when pool.fuel >= 99000.000; and when pool.fuel is more than 365 x the day's crude oil income (the crude slot of eight pools - home, convoyed_in, traded_for, +0x848, conversion_made, +0x8FC, back and +0xA64 - times (int)floor(365000.5f) / 1000, the float at VA 0x160A9C0) **and** pool.fuel / 2 is more than pool.crude_oil. Otherwise amount = (TotalIC / 2) * 1000, so half a unit of crude oil per whole IC, capped at pool.crude_oil; pool.crude_oil -= amount; conversion_used.crude_oil (+0x8EC) += amount; fuel = amount * (1000 + technology_status->fuel_refining_bonus) / 1000 * (1000 + countryValues[MODIFIER_FUEL_CONVERSION, 92]) / 1000, the two multiplied; conversion_made.fuel (+0x8C0) += fuel. The fuel is then spread exactly as CDistributeSupply::Distribute spreads supplies: unless arcade_mode, each province of the acting capital's area that the country owns and has a core on gets min(1, province IC x (1 + LOCAL_IC) / core_home_area_ic) of it into pool.fuel (+0x168) and current_producing.fuel (+0x274), counted in to.fuel (+0x9BC) outside the capital, and what is left goes to GetPool().fuel. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled from the entry, scripts/disasm.py 0x4F19F0 0x410, and read through both exits. The 99000.000 cap is `cmp [pool+0xC], 0x5E69EC0` at VA 0x4F1A2B; the eight income slots are the adds at 0x4F1A38..0x4F1A72, each a pool base plus 0x14; the halving is `cdq; sub eax,edx; sar edi,1` at 0x4F1B55; the two multipliers are read at 0x4F1BD4 ([technology_status+0x20]) and 0x4F1BDD ([countryValues+0x2E0], 0x2E0 / 8 = 92). findRefs --callers gives the one caller. Checked against a vanilla 1936 savegame two daily passes in: Luxembourg and Honduras have 4 IC and hold 4.000 fuel, Tibet 2 IC and 2.000. What would show it wrong: a country with crude oil and under 99000 fuel whose daily crude oil drop is not floor(TotalIC / 2)."
+  },
+  {
+   "rva": "0x11ADD0",
+   "kind": "function",
+   "name": "CDistributeSupply::GetSuppliesMade",
+   "signature": "CFixedPoint* __stdcall CDistributeSupply::GetSuppliesMade(CFixedPoint* out@ESI, CDistributeSupply* setting@EDI, __int64 percentage, __int64 available) @EAX",
+   "no_signature": null,
+   "comment": "How many supplies an allocation of IC makes, as an fpml::fixed_point<__int64,48,15>. rva 0x11ADD0 to the `ret 0x10` at rva 0x11AED3; out in esi, the setting in edi, percentage and available on the stack. x = percentage x available; x = x * IC_TO_SUPPLIES (`economy` +0x10, turned from thousandths into fixed 15 as (v << 30) / 0x1F40000); x = x * (0x8000 + the same conversion of technology_status->supply_production_bonus + countryValues[MODIFIER_GLOBAL_SUPPLIES, 27, values +0xD8]); x = x * factor (+0x10). **The technology bonus and the modifier are added to each other, not multiplied.** A guard at the end replaces a negative result with 99999 when available is over 1000 - an overflow catch. Two callers: CDistributeSupply::Distribute at rva 0x11AB19 and rva 0x11AF82 inside the function at 0x11AEE0, unread, by its shape the supply slider's tooltip. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled with scripts/disasm.py 0x51AA80 0x500, which runs through this body, and read instruction by instruction: GetDefines and `[eax+0x9C]` then `[eax+0x10]` at VA 0x51ADD8..0x51ADE9, the technology read `[[country+0xDF8]+0x9C]` and the modifier read `[[country+0xDA8]+0xD8]` at 0x51AE3C..0x51AE4E with a plain `add` between them, and the `add eax, 0x8000` at 0x51AE70. Reproduces a savegame to the thousandth: Germany, share 5085/32768, 201 IC, IC_TO_SUPPLIES 7, four levels of supply_production at 0.05 and a law worth global_supplies 0.1 gives 283.840, the saved home.supplies. What would show it wrong: a country with both a GLOBAL_SUPPLIES modifier and supply_production levels whose supplies are the product of the two bonuses rather than their sum."
+  },
+  {
+   "rva": "0x11AA80",
+   "kind": "function",
+   "name": "CDistributeSupply::Distribute",
+   "signature": "CFixedPoint* __thiscall CDistributeSupply::Distribute(CDistributeSupply* this, CFixedPoint* out@stack:4, __int64 available@stack:8, bool flag@stack:16)",
+   "no_signature": null,
+   "comment": "**Slot 0, read through.** rva 0x11AA80 to the `ret 0x10` at rva 0x11ADCC. alloc = base_percentage x available x factor, turned into thousandths. made = CDistributeSupply::GetSuppliesMade (0x11ADD0), turned into thousandths and added to HomeProduced.supplies (CCountry +0x778). free = base_percentage x factor x lend_lease_ic (+0x608). Then the supplies are **made where the factories are**: unless arcade_mode (gamestate +0xC9C > 0), and where core_home_area_ic (+0x610) is positive and the acting capital has an area, every province in that area's list whose owner id is the country's, which has the country in its core list and whose IC is positive gets part = min(1, province IC x (1 + LOCAL_IC) / core_home_area_ic) x made, added to its pool.supplies (+0x164) and written to its current_producing.supplies (+0x270), and counted in the country's `to` pool (+0x9B8) when the province is not the acting capital. What is left goes to CCountry::GetPool().supplies. Finally charge = alloc - (free > 0 ? free : 0), and CCountry::ConsumeIcResources is called with it when positive. **There is no resource check**: unlike the production queue it never asks GetResourceLimitedIC, so the supplies are made and charged for whatever the stockpile holds. It ignores the flag and returns zero. So the `to` pool is what was made outside the capital province, not what was sent to units.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-distribute.md",
+   "revises": "It was recorded as inferred and 'not read line by line', from its call list alone. It has now been read through from the entry to the ret: the comment is replaced by the reading, the confidence raised, and the source moved to the write-up that has it.",
+   "evidence": "Disassembled from the entry, scripts/disasm.py 0x51AA80 0x500. vtable.py --holding 0x51AA80 gives one table, CDistributeSupply slot 0. The HomeProduced write is `add [country+0x778], ecx` at VA 0x51AB41; the lend_lease_ic read at 0x51AB4A; the arcade_mode test at 0x51AC24; the three province tests at 0x51AC85 (owner id), 0x51AC9E (core list) and 0x51ACC9 (IC > 0); the two province writes at 0x51AD34/0x51AD3A; the `to` credit at 0x51AD4F; the stockpile credit at 0x51AD91; the charge at 0x51ADAE with no call to rva 0xF15C0 anywhere in the body. Savegame: Germany's home.supplies is 283.840 and to.supplies 259.982, the difference being Berlin's own share. What would show it wrong: a country with no metal making no supplies."
+  },
+  {
+   "rva": "0xDB4F3",
+   "kind": "instruction",
+   "name": "RunCountryDailyPass_DistributeProductionShares",
+   "signature": null,
+   "no_signature": null,
+   "comment": "**Where the six IC shares are run, and with what.** The loop at rva 0xDB4F3..0xDB54B walks ProductionDistribution (CCountry +0x5F4) in index order - lend-lease, consumer goods, production, supply, reinforcement, upgrade - calling slot 0 of each with (&out, (__int64)TotalIC << 15, flag = 0). So `available` is the whole-number TotalIC after the day's resource cap and with lend-lease added, and each share's resource charge comes off the stockpile before the next one's check. The loop at rva 0xDB610 does the same for the four leadership shares with TotalLeadership (+0xBD8), turned from thousandths into fixed 15. **Its gate is not the economy block's.** The calls before it - rva 0xF1F50, RunDailyTradeRoutes, UpdateIC(country, 1) and CCountry::ConvertCrudeOilToFuel - run only when CCountry +0xCF8 > 0 or government_in_exile is set; this loop runs for every country whose id (+0xCA8) is non-zero and whose tag is not REB (the three byte compares at rva 0xDB4D4). So a country that holds no province still earns money, makes supplies and is charged resources every day, in the pool of whoever holds its capital - 23 such countries in a vanilla 1936 savegame show `usage`, each exactly its consumer goods share plus its supply share times its IC.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled with scripts/disasm.py 0x4DB408 0x270, starting the read at the `call 0x5020e0` at VA 0x4DB418 (the first lines of that listing are mid-instruction and were ignored). The `shld edx,eax,0xf` / `shl eax,0xf` on [ebx+0x604] at 0x4DB512..0x4DB524 and the `push 0` before them are the available and flag arguments; `mov edx,[ecx]; mov edx,[edx]; call edx` is slot 0. Savegame: East Germany, shares 3276 and 5898 of 32768, 2 IC, saved usage metal 0.557 = 0.099 x 2 + 0.359; twenty of twenty-two such countries fit to the thousandth. What would show it wrong: a country with no provinces whose `usage` pool stays empty."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CTechnologyStatus",
+   "offset": "0x20",
+   "name": "fuel_refining_bonus",
+   "type": "int",
+   "comment": "thousandths. CCountry::ConvertCrudeOilToFuel (0xF19F0) scales the fuel a unit of crude oil makes by (1000 + this) / 1000, and then again by (1000 + MODIFIER_FUEL_CONVERSION) / 1000 - the two multiply. Named from that one reader; which technology key feeds it was not traced, `refinery_efficiency` being the obvious candidate.",
+   "evidence": "`mov eax,[esi+0xdf8]; mov eax,[eax+0x20]` at VA 0x4F1BCE, then `add eax,0x3e8; imul edi` with edi the crude oil amount. What would show it wrong: a writer that fills it from something other than a technology effect."
+  },
+  {
+   "struct": "CTechnologyStatus",
+   "offset": "0x9C",
+   "name": "supply_production_bonus",
+   "type": "int",
+   "comment": "thousandths. CDistributeSupply::GetSuppliesMade (0x11ADD0) adds it to MODIFIER_GLOBAL_SUPPLIES and multiplies the day's supplies by one plus the sum. It is what a technology's `ic_to_supplies` key adds up to: a savegame's Germany has four levels of supply_production at 0.05 and its supplies fit a bonus of 0.2 here.",
+   "evidence": "`mov eax,[eax+0xdf8]; mov eax,[eax+0x9c]; add eax,[edx+0xd8]` at VA 0x51AE42..0x51AE4E. The savegame fit is Germany's 283.840. What would show it wrong: supplies not moving when supply_production is researched."
+  }
+ ],
+ "vftable_slots": {"CDistributeSupply": {"0": "Distribute"}},
+ "frontier": [
+  "0x1020E0 - the first call of the economy block in RunCountryDailyPass, a __thiscall on the country with SEH; unread",
+  "0xF1F50 - the day's production pools; FINDINGS-politics.md has it writing CCountry +0x754..+0x790, and it is where the home pool is reset",
+  "0x1195A0 - the second caller of CCountry::GetStandingArmyConsumerDemand; unread, probably the consumer goods slider's tooltip",
+  "0x11AEE0 - the second caller of CDistributeSupply::GetSuppliesMade; unread, probably the supply slider's tooltip"
+ ],
+ "slots_noted": "Only CDistributeSupply::Distribute is a virtual: vtable.py --holding gives one table, CDistributeSupply slot 0, recorded above. The other three functions are called directly and are in no table.",
+ "notes": "CCountry +0xCF8, the gate on the economy block, is not named here: it is tested `> 0` and nothing read in this pass writes it. The consumer goods resource charge was measured, not read, to be thousandths(share) x TotalIC where supply's is thousandths(share x TotalIC); FINDINGS-distribute.md section 5 has the figures."
+}

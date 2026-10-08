@@ -1,4 +1,7 @@
-# Working in this repository
+# hoi3-reversing: the fact base
+
+*These rules are for `hoi3-reversing/`. Opened from the `workspaces/hoi3` root, all four of these
+files arrive at once - apply each to its own folder.*
 
 This is **what is known about `hoi3_tfh.exe`** - the static reverse engineering of one 32-bit
 MSVC build of Hearts of Iron 3: Their Finest Hour. Nothing here launches the game and nothing
@@ -54,7 +57,7 @@ the join still yields a path, just the wrong one.
 | `BICE` | `BiceLib.sln` | the record cites `GameClasses` headers |
 | `MOD` | `history/countries` + `.git` | `scripts/dupekeys.py`, `scripts/definesMap.py` read the mod's data |
 | `GAME` | `hoi3_tfh.exe` + `tfh` + `common` + `history` | `scripts/image.py` and friends read the executable |
-| `OPENHOI3` | `project.godot` | `ghidra/luabindExtract.py` reads its recovered class list |
+| `OPENHOI3` | `project.godot` | `scripts/checkrefs.py` checks the findings citations written there |
 
 `$HOI3_<NAME>` overrides any of them, then `roots.json` (git-ignored; `roots.example.json` is
 the template), then discovery. **A marker has to describe the real thing, not merely appear in
@@ -136,6 +139,34 @@ So: **check the rva, check the name, and grep the comments.** `buildFindings.py`
 line for two entries on one rva, but it is the backstop and not the check - by the time it fires
 the work has been done twice.
 
+## Whatever is read goes into `project.json`, every time
+
+**The maintainer's standing instruction, 2026-10-07: always add reversed things to
+`project.json`.** A function read, a field identified, a constant pinned down - it is entered
+in the record in the same session, whoever wanted it and whichever consumer it was for. A
+findings file on its own is not a finished reading: prose is where the reasoning lives, and
+the record is what Ghidra, the DLL's headers and the next reader are built from.
+
+It was said because of exactly that shortcut. A session working on the rewrite needed four
+functions read for a mechanics spec, read them, wrote `findings/FINDINGS-distribute.md`, and
+stopped there, reporting the record as "yours to decide". It is not a decision. The rewrite
+only ever takes the prose, which is what makes it tempting to leave the rest undone when the
+rewrite is what asked.
+
+So, each time:
+
+1. one fragment in `fragments/incoming/`, named for its topic - `fragments/README.md` has the
+   shape, and every address entry needs a signature (or `no_signature`), a confidence and
+   `evidence`;
+2. `python ghidra/mergeFindings.py --check`, then without `--check`. Only that script writes
+   `project.json`;
+3. `python ghidra/buildFindings.py`, `python scripts/checkSignatures.py`,
+   `python scripts/progress.py`, and the headless apply against a copy, below;
+4. the findings file listed in `CANDIDATES.md`, and `checkindex.py` and `checkrefs.py` run.
+
+A register-convention signature must place **every** parameter - `out@stack:4` beside
+`country@EDI` - or `checkSignatures.py` lists it as having parameters with nowhere to live.
+
 ## The pipeline, in order, and it is idempotent
 
 1. edit `ghidra/project.json`
@@ -143,7 +174,8 @@ the work has been done twice.
 3. apply with `analyzeHeadless.bat ... -postScript ApplyBiceLibFindings.java overwrite`
    - **the full command, with the install path and which project, is in `ghidra/README.md`.**
      Ghidra lives under `Documents\Ghidra\`, deeper than a shallow `find` will reach, and the
-     current project is `Hoi3_v12.1.2`. Run against a **copy** - the maintainer's is usually
+     current project is `Hoi3_v12.1.2`, which since 2026-10-07 opens only with the
+     **12.1.4** install. Run against a **copy** - the maintainer's is usually
      open and holds the lock.
 
 **`failed: 0` and `struct fields: 0` on a second run is the pass mark**, and as of 2026-10-05 it
@@ -264,8 +296,8 @@ Four things if it is used:
 - **It is not installed.** No `re_agent` module, no `re-agent` or `ghidra-bridge` on PATH.
 - **Drive it from a scratch project, against a copy of the Ghidra project.** The maintainer's
   holds the lock, as with the apply.
-- **Its output quality is a function of how named the project is.** This record applies 2467
-  addresses, 291 structs and the nested vftable slots idempotently; pointed at a named project
+- **Its output quality is a function of how named the project is.** This record applies 2490
+  addresses, 292 structs and the nested vftable slots idempotently; pointed at a named project
   it reads real code, pointed at a fresh import it reads `FUN_004...`.
 - **It costs model calls.** Set a budget before the first run.
 

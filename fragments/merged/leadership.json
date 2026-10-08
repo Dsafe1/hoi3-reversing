@@ -1,0 +1,531 @@
+{
+ "agent": "leadership",
+ "question": "How CCountry +0xBD8 TotalLeadership is worked out, what the officer and diplomacy shares do with their leadership, exactly when a province is `overseas` or `non_core`, and what sets a country's diplomatic influence - and so its stockpile - when a game starts.",
+ "source": "reversing/findings/FINDINGS-leadership.md",
+ "addresses": [
+  {
+   "rva": "0xD9170",
+   "kind": "function",
+   "name": "CCountry::UpdateTotalLeadership",
+   "signature": "void CCountry::UpdateTotalLeadership(CCountry* this@ESI)",
+   "no_signature": null,
+   "comment": "**Works out TotalLeadership (+0xBD8), and is its only writer besides the constructor.** The country in ESI, nothing on the stack, a bare `ret` at 0x4D9499. All thousandths, every divide truncating. It zeroes the total and walks ControlledProvinces (+0xD00): for each, `(province->leadership (+0x324) + values[LOCAL_LEADERSHIP]) * max(1000 + values[LOCAL_LEADERSHIP_MODIFIER], 0) / 1000`, added only when it is not negative. Then it adds countryValues[GLOBAL_LEADERSHIP] flat, multiplies by `(1000 + countryValues[GLOBAL_LEADERSHIP_MODIFIER] + technology_status->leadership_gain (+0xB8)) / 1000`, and floors the result at 1000. So the flat part is inside the multiplication, the technology bonus adds to the modifier rather than multiplying it, and no country has less than 1.\n\n**The tail is the tech-sharing drain.** n = the count of twelve-byte entries in the vector at +0x6F0..+0x6F4; while the total is under n * SHARE_TECH_LEADERSHIP_COST (diplomacy +0xC0) + 1000 it calls CCountry::StopSharingTechWith on the last entry's country; then it takes n * cost off. n goes through a float and the doubles 0.0005 (0x160A460) and 1000.0 (0x160A300), which is only n as thousandths.\n\nTwo callers: RunCountryDailyPass at 0x4DAEA7, unconditionally and before the economy block, and CInGameIdler::Enter at 0x65B2B7, between CCountry::RebuildRules and UpdateIC(country, 0).",
+   "confidence": "confirmed",
+   "evidence": "Read instruction by instruction, 0x4D9170..0x4D9499. `mov [esi+0xbd8], ebx` at 0x4D920B is the zero; the loop body 0x4D9218..0x4D9270 reads [eax+0x324], [edx+0x100] and [edx+0x110] off gamestate->provinces (+0xB8C)[id]; 0x4D9280 is `add [esi+0xbd8], eax` from [ecx+0x108]; 0x4D92A7 is the imul by 1000 + [+0x118] + [technology_status+0xb8]; 0x4D92BC..0x4D92C0 the floor. fieldchain.py --field 0xBD8 --writes lists nine sites in this function and one in the constructor 0x4C8A40, the rest being stack frames. Fits a vanilla 1936 savegame two daily passes in: 95 of 100 countries have officers, diplo_influence and spies that are two days of what this total gives, the other five carrying a triggered modifier. What would show it wrong: a country with no province whose leadership is not base_values' 3.5 times one plus its laws."
+  },
+  {
+   "rva": "0x107C10",
+   "kind": "function",
+   "name": "CCountry::StopSharingTechWith",
+   "signature": "void __thiscall CCountry::StopSharingTechWith(CCountry* this, CCountry* receiver)",
+   "no_signature": null,
+   "comment": "`this` in ecx, one stack argument, `ret 4` at 0x507CD7. Walks the vector at +0x6F0..+0x6F4, twelve bytes an entry, for one whose second dword is `receiver`'s id (+0xCA8); erases it by moving the tail down; and, when receiver->category_shared_from (+0x6A8)[the erased entry's third dword] names this country, resets that tag to `---` with id 0. Then it starts again, until no entry names the receiver. So an entry is { CCountryTag receiver; int category }. **The name is inference**: from that shape, from the +0x6A8 reset, and from the one caller that was read being the SHARE_TECH_LEADERSHIP_COST loop in CCountry::UpdateTotalLeadership. Four callers: 0x4D9381, 0x507BE0, 0x507ED5 and 0xA4B83F; only the first was read.",
+   "confidence": "inferred",
+   "evidence": "0x507C10..0x507CD7 read through: `mov ebx,[eax+0xca8]` and the compare `cmp [edx], ebx` with edx stepping by 0xC from [ecx+0x6f0]+4; the erase loop 0x507C82..0x507C98; `add [ecx+0x6f4], -0xc`; then `mov edx,[eax+0x6a8]; mov esi,[edx+edi*8+4]; cmp esi,[ecx+0xca8]` and the store of 0x2D2D2D and 0. What would show the name wrong: a writer of +0x6F0 that fills it from something other than a tech-sharing agreement."
+  },
+  {
+   "rva": "0xD6230",
+   "kind": "function",
+   "name": "SetUpCountryForNewGame",
+   "signature": "void __stdcall SetUpCountryForNewGame(CCountry* country)",
+   "no_signature": null,
+   "comment": "**What a country starts a new game with**: its war exhaustion, its stockpile and its diplomatic influence. One stack argument, `ret 4` at 0x4D757A. One caller, 0x65B4F2 in CInGameIdler::Enter, inside the block that gamestate->loaded_from_save (+0xD9C) == 0 guards, so it never runs on a load. **The function before it ends `ret 4` at 0x4D622D with no padding** - a walk back from inside this one answers 0x4D59D0, which is what fieldchain.py prints (trap 2).\n\nRead from 0x4D69DF to 0x4D7108. Months are calendar months, year * 12 + month off the tick. At war (at_war, +0xACC): began = the earliest 0xA51D20(war) over the active wars (gamestate +0xC00) the country is an attacker or defender in, and war_exhaustion (+0xAD0) = min(months since * 0.05, 10). Otherwise war_exhaustion = max(3 - months since the latest 0xA51F40(war) over previous_war (+0xC20) * 0.05, 0). Then **days = 30 + 5 * max(12 - months at war, 2)** - 90 at peace, five fewer a month of war, never under 40 - and amount = MaxIC (+0x60C) * days, **held to 1000 for a subject (isSubject, +0xF34)**. Into the acting capital's pool, each an `add`: crude oil and metal `amount`, energy twice it, rare materials half; money, **only when the pool has none**, amount * IC_TO_MONEY * 0.05; supplies and fuel, `days` times the sum of CUnit::SupplyConsumption and CUnit::FuelConsumption over the country's units (+0xBAC). Last, **diplo_influence (+0xA88) = MaxIC / 5 in whole points**. The 0.05 is g_OneTwentieth.\n\nNot read: the first 0x7AF bytes (UpdateIC(country, 0) is called at 0x4D633D, and a loop stamps CDiplomacyStatus +0x54 with the date), the block 0x4D713A..0x4D733F for a country that holds something, and the tail, which calls ReapplyAllTechnologies (0x4D7346), RebuildStaticModifiers (0x4D7380) and 0x4E1C00.",
+   "confidence": "confirmed",
+   "evidence": "Decoded from its own entry so the listing is aligned (image.decode(0x4D6230, 0x1380)). The prologue is `push ebp; mov ebp,esp; push -1; push 0xc735ac`, and the sixteen bytes before it end `c2 04 00`. `mov eax,0x2ee0; sub eax,ecx; cmp eax,0x7d0` then `push 0x1388 ... add eax,0x7530` at 0x4D6EB7..0x4D6EE7 is the days; `cmp byte [ebx+0xf34],0 ... cmp esi,0xf4240` at 0x4D6F1B the subject cap; the adds to [eax+0x170], +0x174, +0x178, +0x17C, +0x16C, +0x164 and +0x168 follow in that order; `mov eax,0x66666667; imul [esi+0x60c]; sar edx,1 ... imul eax,eax,0x3e8; mov [esi+0xa88],eax` at 0x4D70EE is the influence. Fits a vanilla 1936 savegame: metal and rare materials to the thousandth for 76 of 78 capitals, Italy and Ethiopia at 75 days for a war begun on 3 October 1935, Manchukuo at exactly 1000 metal and 2.5 money, and diplo_influence less two days of income equal to MaxIC / 5 for every country. What would show it wrong: a country at war for six months starting with anything but 60 days."
+  },
+  {
+   "rva": "0x16874C0",
+   "kind": "global",
+   "name": "g_OneTwentieth",
+   "signature": null,
+   "no_signature": null,
+   "comment": "A file-scope fixed-point constant, 50 in thousandths, so 0.05. Built at startup by InitOneTwentieth (rva 0x8B6620) as (int)floorf(50.5f), and no define moves it. 22 references. SetUpCountryForNewGame uses it three times: war exhaustion gained per month at war, war exhaustion lost per month since the last war, and the fraction of a stockpile's IC-days' earnings given as starting money. The name is ours, for the value; what the other nineteen readers use it for was not read.",
+   "confidence": "confirmed",
+   "evidence": "The initialiser at VA 0xCB6620 is `movss xmm0,[0x160a7b4]; push ecx; movss [esp],xmm0; call 0x401fd0; add esp,4; call 0xc08870; mov [0x1a874c0],eax; ret`, and image.read(0x160A7B4) is the float 50.5. image.findValue(0x1A874C0) gives 22 sites. The starting money of 78 stockpiles in a vanilla save needs exactly 0.05 here: IC-days * IC_TO_MONEY (0.05) * 0.05 = 0.0025 an IC-day. What would show it wrong: nothing short of a different float at 0x160A7B4."
+  },
+  {
+   "rva": "0x8B6620",
+   "kind": "function",
+   "name": "InitOneTwentieth",
+   "signature": "void __cdecl InitOneTwentieth(void)",
+   "no_signature": null,
+   "comment": "Static initialiser for g_OneTwentieth (VA 0x1A874C0): floorf(50.5f) through _ftol2_sse, stored, bare `ret`. int3-padded after; the next initialiser, InitBaseOilConversionRate, starts at rva 0x8B6650.",
+   "confidence": "confirmed",
+   "evidence": "Eight instructions at VA 0xCB6620..0xCB6640, quoted in g_OneTwentieth's evidence. What would show it wrong: a second writer of 0x1A874C0, and image.findValue shows this is the only store."
+  },
+  {
+   "rva": "0xDB5BE",
+   "kind": "instruction",
+   "name": "RunCountryDailyPass_DistributeLeadershipShares",
+   "signature": null,
+   "no_signature": null,
+   "comment": "**Where the four leadership shares are run.** In RunCountryDailyPass, the country in ebx, inside the same gate as the six IC shares: a tag, and not REB. First, if gamestate->scenario (+0xD0C) is set, LeadershipDistribution[0] - officers - has its base_percentage zeroed and, when it was not zero already, its slot 4 called, which is the shared empty stub for every class but CDistributeResearch. Then the loop at 0x4DB610 calls slot 0 of each of the four in index order - officers, diplomacy, espionage, research - with (&out, available, flag = 0), where available is the whole of TotalLeadership turned from thousandths into fixed 15 by a truncating divide: `(x << 30) / (1000 << 15)`. `out` is not read afterwards. So in a stand-alone scenario no officers are trained, the same pointer that skips the dissent change in CDistributeConsumerGoods::Distribute.",
+   "confidence": "confirmed",
+   "evidence": "0x4DB5BE `cmp dword ptr [esi+0xd0c], 0` with esi the game state; 0x4DB5C7..0x4DB5EA load [ebx+0x5e4][0], save and zero its +8/+0xC, and `call [vtable+0x10]`; the loop 0x4DB610..0x4DB66D shifts [ebx+0xbd8] and divides by 0x1F40000 before `call [vtable]`. vtable.py shows slot 4 as 0xABF890 (a bare `ret`) for nine of the ten distribution classes. A campaign savegame has every country's officer share at 0.25, which it could not if the pointer were set in a campaign. What would show it wrong: a scenario game in which officers are recruited."
+  },
+  {
+   "rva": "0x9F527",
+   "kind": "instruction",
+   "name": "RebuildProvinceModifierValues_Overseas",
+   "signature": null,
+   "no_signature": null,
+   "comment": "**When a province is `overseas`, and the `blockaded` test nested inside it.** capital = GetActingCapitalLocation(countries[province->controller_id]). If province->area (+0x2B4) equals the capital's, or province->Continent (+0x368) equals the capital's, neither modifier is considered. Otherwise static +0x1C, `overseas`, is added (0x49F595). Then, still inside that branch: unless the province has an owner, a port (+0x354) and a naval base above level 0, it gets static +0x34, `blockaded`, when 0x47E540(area, controller) answers zero (0x49F686). So overseas needs **both** a different area and a different continent, and blockaded is only ever tested for an overseas province. FINDINGS-revolt.md's table has +0x34 as the non-core modifier; it is not.",
+   "confidence": "confirmed",
+   "evidence": "0x49F527..0x49F58F: two calls of 0x42F100 on countryDb->byId[[ebx+0x338]], `cmp esi, eax` on +0x2B4 and `cmp esi, [eax+0x368]`, each `je 0x49f733`. 0x49F595 loads [database+0x1c] and adds its values array into the province's. 0x49F643..0x49F680 is the owner/port/naval-base gate and the call of 0x47E540. The slot names are from LoadModifierDefinitions (CStaticModifierDataBase). With it applied, Belgium, Portugal and Republican Spain - whose only leadership outside Europe is in Africa - fit a vanilla savegame; without it they do not. What would show it wrong: an island off the capital's own continent losing leadership."
+  },
+  {
+   "rva": "0x9F733",
+   "kind": "instruction",
+   "name": "RebuildProvinceModifierValues_NonCore",
+   "signature": null,
+   "no_signature": null,
+   "comment": "**When a province is `non_core`.** It walks province->cores (+0x344; a node's id at +4, next at +0xC) and leaves if any core is the **owner's** (+0x330). Otherwise, if the owner is also the controller (+0x338), static +0x4C, `non_core`, is added at 0x49F765. So an occupied province gets nothing here - the occupier's policy applies further down instead - and the claim that matters is the owner's, not the controller's.",
+   "confidence": "confirmed",
+   "evidence": "0x49F733..0x49F765: `mov eax,[ebx+0x344]`, the loop `cmp [eax+4], ecx` with ecx = [ebx+0x330] and `mov eax,[eax+0xc]`, then `mov eax,[ebx+0x338]; cmp [ebx+0x330], eax; jne 0x49f813`, then `mov eax,[edx+0x4c]`. +0x4C is `non_core` by LoadModifierDefinitions. What would show it wrong: a province its owner has no core on, and controls, keeping its full manpower."
+  },
+  {
+   "rva": "0xDDE4A",
+   "kind": "instruction",
+   "name": "RebuildStaticModifiers_AddBaseValues",
+   "signature": null,
+   "no_signature": null,
+   "comment": "**The first thing CCountry::RebuildStaticModifiers adds is `base_values`, whole.** The country is the stack argument; its modifier is the CModifier at +0xD90 (global_modifier), cleared at 0x4DDDFE. From here the loop adds statics->base_values (+0x64)->values[id] into it for every modifier id and appends the static to the modifier's contributor list. At 0x4DDEDE the same is done for the CModifier at faction (+0xD8) +0x7C when the faction's slot 7 says it is a real one. That is how `global_leadership = 3.5` and the two consumer goods demands reach every country. The rest of the function was not read.",
+   "confidence": "confirmed",
+   "evidence": "`mov eax,[0x1a86208]; mov ecx,[eax+0x64]` at 0x4DDE4A, then the loop 0x4DDE60..0x4DDE7A: `mov ecx,[eax+0x18]; mov eax,[ebx+0x18]; mov ecx,[ecx+edx*8]; add [eax+edx*8],ecx` over ([0x1A86198]-[0x1A86194])/4 ids, with ebx = country + 0xD90. +0x64 is `base_values` by LoadModifierDefinitions. A country that holds nothing has exactly 3.5 leadership times one plus its laws in a vanilla savegame. What would show it wrong: a base_values key that reaches no country."
+  },
+  {
+   "rva": "0x11DF40",
+   "kind": "function",
+   "name": "CDistributeNCO::Distribute",
+   "signature": "CFixedPoint* __thiscall CDistributeNCO::Distribute(CDistributeNCO* this@ECX, CFixedPoint* out@stack:4, __int64 available@stack:8, bool flag@stack:16) @EAX",
+   "no_signature": null,
+   "comment": "**Slot 0 - where officers come from, and it adds them to the country.** In fixed 15: b = ((base_percentage * available) >> 15 * factor) >> 15; c = (LEADERSHIP_TO_OFFICERS as fixed 15 * b) >> 15; d = (c * (OFFICER_RECRUITMENT as fixed 15 + 1)) >> 15; then **country->officers (+0xC4) += d as thousandths, rounded down**, floored at zero, and *out = 0. So officers a day are share x leadership x LEADERSHIP_TO_OFFICERS x (1 + officer_recruitment). The define is economy +0x2C (read at 0x51DF91) and the modifier is id 82 (values +0x290). With its slot 5 (0x11E060) it is the only reader of LEADERSHIP_TO_OFFICERS in the image.",
+   "confidence": "confirmed",
+   "revises": "The comment said it stores nothing and that the officers are the return value. It stores them: the add to CCountry +0xC4 is at 0x51E030, twenty-odd instructions past where the earlier reading stopped, and what goes back through `out` is zero. The signature now places `this` in ECX, which checkSignatures.py wants of one that places anything; the name is unchanged.",
+   "evidence": "`add dword ptr [esi+0xc4], eax` at 0x51E030 with esi = [this+0x18], the country; `cmp [esi+0xc4], edi; jge; mov [esi+0xc4], edi` after it with edi = 0; `mov [eax], edi; mov [eax+4], edi` on the out pointer at 0x51E047. Fits a vanilla savegame: a country with no province, 4.2 leadership and a volunteer army (-0.5) has officers = 4.198, two days of 2.099. What would show it wrong: officers not rising in a country with no units."
+  },
+  {
+   "rva": "0x11E4B0",
+   "kind": "function",
+   "name": "CDistributeDiplomacy::Distribute",
+   "signature": "CFixedPoint* __thiscall CDistributeDiplomacy::Distribute(CDistributeDiplomacy* this@ECX, CFixedPoint* out@stack:4, __int64 available@stack:8, bool flag@stack:16) @EAX",
+   "no_signature": null,
+   "comment": "**Slot 0 - diplomatic influence.** In fixed 15: b = ((base_percentage * available) >> 15 * factor) >> 15; c = (LEADERSHIP_TO_DIPLOMACY as fixed 15 * b) >> 15; then country->diplo_influence (+0xA88) += c as thousandths, rounded down, **floored at zero - there is no upper limit here**, and *out = 0. No modifier is read. The define is economy +0x4 (read at 0x51E4FD); with its slot 5 (0x11E570) this is its only reader.",
+   "confidence": "confirmed",
+   "revises": "The comment said the result is 'clamped' at 0x51E54D, which FINDINGS-production.md's table rendered as 'with a cap'. The compare is against zero and the branch is jge: it is a floor. The signature now places `this` in ECX; the name is unchanged.",
+   "evidence": "`add [esi+0xa88], eax` at 0x51E53C; `cmp [esi+0xa88], edi; jge 0x51e553; mov [esi+0xa88], edi` at 0x51E545 with edi zeroed by `xor edi, edi` at 0x51E523 - a floor, and the only comparison in the function. A vanilla savegame's country with 4.2 leadership has diplo_influence 2.048: 1 and two days of 0.524. What would show it wrong: a country whose influence stops rising."
+  },
+  {
+   "rva": "0xE0170",
+   "kind": "function",
+   "name": "CCountry::GetAllowedResearchSlots",
+   "signature": "int __thiscall CCountry::GetAllowedResearchSlots(CCountry* this)",
+   "no_signature": null,
+   "comment": "How many things the country may research at once: the research share of its leadership, rounded. Off LeadershipDistribution[3]: p = (factor * base_percentage) >> 15; share = p as thousandths, rounded down; x = share * TotalLeadership / 1000; and the answer is `fistp` of x / 1000.0 as a float. **So the share is turned into thousandths before it is multiplied by the leadership, and the rounding is to nearest with ties to even** - 2.5 is 2 and 3.5 is 4 - `fistp` under the default control word.\n\n**Signature**: no arguments at all - `this` in ecx and a bare `ret` - and it answers a plain rounded int, not a CFixedPoint through a hidden pointer.",
+   "confidence": "confirmed",
+   "revises": "The comment gave `round(base_percentage x factor x TotalLeadership)` and called the shifts 'only the fixed point arithmetic'. Two things in that arithmetic are not neutral and are now stated: the share is truncated to thousandths before the multiply, and the round is fistp's ties-to-even. Name and signature are unchanged.",
+   "evidence": "0x4E0196 `__allmul` of +0x10 and +0x8 of [this+0x5e4][3]; `push 0x1f40000 ... shrd eax,edx,0x1e` for the thousandths; `imul esi` with esi = [ecx+0xbd8]; `__alldiv` by 0x3E8; then `cvtsi2ss`, `divsd` by the 1000.0 at 0x160A300, `fld`, `fistp`. What would show it wrong: a country with exactly 10 leadership and a quarter on research being allowed 3 projects."
+  },
+  {
+   "rva": "0x1686208",
+   "kind": "global",
+   "name": "g_static_modifiers",
+   "signature": null,
+   "no_signature": null,
+   "comment": "The static_modifiers.txt database, lazily built by RebuildProvinceModifierValues at 0x49F40D..0x49F43E: operator new(0xBC), the shared container constructor 0x45BD30 (a 0x1FF-bucket hash at +0x0/+0x4/+0x8, an empty vector at +0xC/+0x10/+0x14), installed through 0x45C440. Everything from +0x18 upwards is a named CStaticModifier*, and **the struct CStaticModifierDataBase now names 39 of them**, read off LoadModifierDefinitions, which looks each name up and stores it at a compiled-in offset: `overseas` +0x1C, `non_core` +0x4C, `base_values` +0x64, `war` +0x50, `peace` +0x54 and the rest. The order is the code's, not the file's. It has no RTTI and its constructor writes no vftable. 60 references in 21 functions, including CCountry::UpdateIC and CAddCountryModifierEffect::LoadKey.",
+   "confidence": "confirmed",
+   "revises": "The comment said only +0x40 and +0x48 were identified and that 'the rest are not named', and that no struct is declared. 39 are named now and CStaticModifierDataBase is declared for them. Name and kind are unchanged.",
+   "evidence": "The slots: every `push imm32` in LoadModifierDefinitions (0x45A490..0x45B7B4) whose operand is a C string, paired with the next `mov [esi+disp], eax`, from `war` at 0x45AB17 to `initial_mobilization` at 0x45B73F. It reproduces the three slots already pinned by other means: +0x40 manpower and +0x48 revolt_risk (FINDINGS-revolt.md), +0x98 and +0x9C the two spy modifiers (FINDINGS-espionage.md). What would show it wrong: a reader of one of these slots treating it as something its name does not fit."
+  }
+ ],
+ "structs": [
+  {
+   "name": "CStaticModifierDataBase",
+   "size": "0xBC",
+   "comment": "**The static_modifiers.txt database behind g_static_modifiers (VA 0x1A86208).** No RTTI and no vftable, so the name is ours. +0x0/+0x4/+0x8 is the engine's string hash (0x1FF buckets) and +0xC/+0x10/+0x14 a vector, both set up by 0x45BD30; from +0x1C on it is one CStaticModifier* for each name the engine knows, filled by LoadModifierDefinitions. +0x18 and +0x68 are not written there and are not identified.",
+   "evidence": "operator new(0xBC) at 0x49F40D and at 0x4DDE0C is the size. The slots are LoadModifierDefinitions' stores, one per pushed name string. What would show it wrong: an access past +0xBC.",
+   "source": "reversing/findings/FINDINGS-leadership.md"
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CStaticModifierDataBase",
+   "offset": "0x1C",
+   "name": "overseas",
+   "type": "CStaticModifier*",
+   "comment": "static_modifiers.txt's `overseas`, or null when the file does not declare it. Added to a province in a different area and on a different continent from its controller's acting capital (RebuildProvinceModifierValues_Overseas).",
+   "evidence": "LoadModifierDefinitions pushes the string `overseas` and stores the lookup's answer with `mov [esi+0x1c], eax`. What would show it wrong: the string at that push being another name."
+  },
+  {
+   "struct": "CStaticModifierDataBase",
+   "offset": "0x20",
+   "name": "coastal",
+   "type": "CStaticModifier*",
+   "comment": "static_modifiers.txt's `coastal`, or null when the file does not declare it.",
+   "evidence": "LoadModifierDefinitions pushes the string `coastal` and stores the lookup's answer with `mov [esi+0x20], eax`. What would show it wrong: the string at that push being another name."
+  },
+  {
+   "struct": "CStaticModifierDataBase",
+   "offset": "0x24",
+   "name": "non_coastal",
+   "type": "CStaticModifier*",
+   "comment": "static_modifiers.txt's `non_coastal`, or null when the file does not declare it.",
+   "evidence": "LoadModifierDefinitions pushes the string `non_coastal` and stores the lookup's answer with `mov [esi+0x24], eax`. What would show it wrong: the string at that push being another name."
+  },
+  {
+   "struct": "CStaticModifierDataBase",
+   "offset": "0x28",
+   "name": "coastal_sea",
+   "type": "CStaticModifier*",
+   "comment": "static_modifiers.txt's `coastal_sea`, or null when the file does not declare it.",
+   "evidence": "LoadModifierDefinitions pushes the string `coastal_sea` and stores the lookup's answer with `mov [esi+0x28], eax`. What would show it wrong: the string at that push being another name."
+  },
+  {
+   "struct": "CStaticModifierDataBase",
+   "offset": "0x2C",
+   "name": "no_adjacent_controlled",
+   "type": "CStaticModifier*",
+   "comment": "static_modifiers.txt's `no_adjacent_controlled`, or null when the file does not declare it.",
+   "evidence": "LoadModifierDefinitions pushes the string `no_adjacent_controlled` and stores the lookup's answer with `mov [esi+0x2c], eax`. What would show it wrong: the string at that push being another name."
+  },
+  {
+   "struct": "CStaticModifierDataBase",
+   "offset": "0x30",
+   "name": "out_of_supply",
+   "type": "CStaticModifier*",
+   "comment": "static_modifiers.txt's `out_of_supply`, or null when the file does not declare it.",
+   "evidence": "LoadModifierDefinitions pushes the string `out_of_supply` and stores the lookup's answer with `mov [esi+0x30], eax`. What would show it wrong: the string at that push being another name."
+  },
+  {
+   "struct": "CStaticModifierDataBase",
+   "offset": "0x34",
+   "name": "blockaded",
+   "type": "CStaticModifier*",
+   "comment": "static_modifiers.txt's `blockaded`, or null when the file does not declare it. Only tested for a province that is overseas.",
+   "evidence": "LoadModifierDefinitions pushes the string `blockaded` and stores the lookup's answer with `mov [esi+0x34], eax`. What would show it wrong: the string at that push being another name."
+  },
+  {
+   "struct": "CStaticModifierDataBase",
+   "offset": "0x38",
+   "name": "land_province",
+   "type": "CStaticModifier*",
+   "comment": "static_modifiers.txt's `land_province`, or null when the file does not declare it.",
+   "evidence": "LoadModifierDefinitions pushes the string `land_province` and stores the lookup's answer with `mov [esi+0x38], eax`. What would show it wrong: the string at that push being another name."
+  },
+  {
+   "struct": "CStaticModifierDataBase",
+   "offset": "0x3C",
+   "name": "sea_zone",
+   "type": "CStaticModifier*",
+   "comment": "static_modifiers.txt's `sea_zone`, or null when the file does not declare it.",
+   "evidence": "LoadModifierDefinitions pushes the string `sea_zone` and stores the lookup's answer with `mov [esi+0x3c], eax`. What would show it wrong: the string at that push being another name."
+  },
+  {
+   "struct": "CStaticModifierDataBase",
+   "offset": "0x40",
+   "name": "manpower",
+   "type": "CStaticModifier*",
+   "comment": "static_modifiers.txt's `manpower`, or null when the file does not declare it. Scaled by the province's manpower (FINDINGS-revolt.md).",
+   "evidence": "LoadModifierDefinitions pushes the string `manpower` and stores the lookup's answer with `mov [esi+0x40], eax`. What would show it wrong: the string at that push being another name."
+  },
+  {
+   "struct": "CStaticModifierDataBase",
+   "offset": "0x44",
+   "name": "nationalism",
+   "type": "CStaticModifier*",
+   "comment": "static_modifiers.txt's `nationalism`, or null when the file does not declare it.",
+   "evidence": "LoadModifierDefinitions pushes the string `nationalism` and stores the lookup's answer with `mov [esi+0x44], eax`. What would show it wrong: the string at that push being another name."
+  },
+  {
+   "struct": "CStaticModifierDataBase",
+   "offset": "0x48",
+   "name": "revolt_risk",
+   "type": "CStaticModifier*",
+   "comment": "static_modifiers.txt's `revolt_risk`, or null when the file does not declare it. Scaled by the province's revolt risk in percentage points (FINDINGS-revolt.md).",
+   "evidence": "LoadModifierDefinitions pushes the string `revolt_risk` and stores the lookup's answer with `mov [esi+0x48], eax`. What would show it wrong: the string at that push being another name."
+  },
+  {
+   "struct": "CStaticModifierDataBase",
+   "offset": "0x4C",
+   "name": "non_core",
+   "type": "CStaticModifier*",
+   "comment": "static_modifiers.txt's `non_core`, or null when the file does not declare it. Added to a province whose owner has no core on it and also controls it (RebuildProvinceModifierValues_NonCore).",
+   "evidence": "LoadModifierDefinitions pushes the string `non_core` and stores the lookup's answer with `mov [esi+0x4c], eax`. What would show it wrong: the string at that push being another name."
+  },
+  {
+   "struct": "CStaticModifierDataBase",
+   "offset": "0x50",
+   "name": "war",
+   "type": "CStaticModifier*",
+   "comment": "static_modifiers.txt's `war`, or null when the file does not declare it.",
+   "evidence": "LoadModifierDefinitions pushes the string `war` and stores the lookup's answer with `mov [esi+0x50], eax`. What would show it wrong: the string at that push being another name."
+  },
+  {
+   "struct": "CStaticModifierDataBase",
+   "offset": "0x54",
+   "name": "peace",
+   "type": "CStaticModifier*",
+   "comment": "static_modifiers.txt's `peace`, or null when the file does not declare it.",
+   "evidence": "LoadModifierDefinitions pushes the string `peace` and stores the lookup's answer with `mov [esi+0x54], eax`. What would show it wrong: the string at that push being another name."
+  },
+  {
+   "struct": "CStaticModifierDataBase",
+   "offset": "0x58",
+   "name": "war_exhaustion",
+   "type": "CStaticModifier*",
+   "comment": "static_modifiers.txt's `war_exhaustion`, or null when the file does not declare it.",
+   "evidence": "LoadModifierDefinitions pushes the string `war_exhaustion` and stores the lookup's answer with `mov [esi+0x58], eax`. What would show it wrong: the string at that push being another name."
+  },
+  {
+   "struct": "CStaticModifierDataBase",
+   "offset": "0x5C",
+   "name": "land_maintenance",
+   "type": "CStaticModifier*",
+   "comment": "static_modifiers.txt's `land_maintenance`, or null when the file does not declare it.",
+   "evidence": "LoadModifierDefinitions pushes the string `land_maintenance` and stores the lookup's answer with `mov [esi+0x5c], eax`. What would show it wrong: the string at that push being another name."
+  },
+  {
+   "struct": "CStaticModifierDataBase",
+   "offset": "0x60",
+   "name": "naval_maintenance",
+   "type": "CStaticModifier*",
+   "comment": "static_modifiers.txt's `naval_maintenance`, or null when the file does not declare it.",
+   "evidence": "LoadModifierDefinitions pushes the string `naval_maintenance` and stores the lookup's answer with `mov [esi+0x60], eax`. What would show it wrong: the string at that push being another name."
+  },
+  {
+   "struct": "CStaticModifierDataBase",
+   "offset": "0x64",
+   "name": "base_values",
+   "type": "CStaticModifier*",
+   "comment": "static_modifiers.txt's `base_values`, or null when the file does not declare it. Added whole to every country's modifier, first (RebuildStaticModifiers_AddBaseValues), and read directly by CCountry::UpdateIC for its `ic`.",
+   "evidence": "LoadModifierDefinitions pushes the string `base_values` and stores the lookup's answer with `mov [esi+0x64], eax`. What would show it wrong: the string at that push being another name."
+  },
+  {
+   "struct": "CStaticModifierDataBase",
+   "offset": "0x6C",
+   "name": "total_blockaded",
+   "type": "CStaticModifier*",
+   "comment": "static_modifiers.txt's `total_blockaded`, or null when the file does not declare it.",
+   "evidence": "LoadModifierDefinitions pushes the string `total_blockaded` and stores the lookup's answer with `mov [esi+0x6c], eax`. What would show it wrong: the string at that push being another name."
+  },
+  {
+   "struct": "CStaticModifierDataBase",
+   "offset": "0x70",
+   "name": "very_easy_player",
+   "type": "CStaticModifier*",
+   "comment": "static_modifiers.txt's `very_easy_player`, or null when the file does not declare it.",
+   "evidence": "LoadModifierDefinitions pushes the string `very_easy_player` and stores the lookup's answer with `mov [esi+0x70], eax`. What would show it wrong: the string at that push being another name."
+  },
+  {
+   "struct": "CStaticModifierDataBase",
+   "offset": "0x74",
+   "name": "easy_player",
+   "type": "CStaticModifier*",
+   "comment": "static_modifiers.txt's `easy_player`, or null when the file does not declare it.",
+   "evidence": "LoadModifierDefinitions pushes the string `easy_player` and stores the lookup's answer with `mov [esi+0x74], eax`. What would show it wrong: the string at that push being another name."
+  },
+  {
+   "struct": "CStaticModifierDataBase",
+   "offset": "0x78",
+   "name": "hard_player",
+   "type": "CStaticModifier*",
+   "comment": "static_modifiers.txt's `hard_player`, or null when the file does not declare it.",
+   "evidence": "LoadModifierDefinitions pushes the string `hard_player` and stores the lookup's answer with `mov [esi+0x78], eax`. What would show it wrong: the string at that push being another name."
+  },
+  {
+   "struct": "CStaticModifierDataBase",
+   "offset": "0x7C",
+   "name": "very_hard_player",
+   "type": "CStaticModifier*",
+   "comment": "static_modifiers.txt's `very_hard_player`, or null when the file does not declare it.",
+   "evidence": "LoadModifierDefinitions pushes the string `very_hard_player` and stores the lookup's answer with `mov [esi+0x7c], eax`. What would show it wrong: the string at that push being another name."
+  },
+  {
+   "struct": "CStaticModifierDataBase",
+   "offset": "0x80",
+   "name": "very_easy_ai",
+   "type": "CStaticModifier*",
+   "comment": "static_modifiers.txt's `very_easy_ai`, or null when the file does not declare it.",
+   "evidence": "LoadModifierDefinitions pushes the string `very_easy_ai` and stores the lookup's answer with `mov [esi+0x80], eax`. What would show it wrong: the string at that push being another name."
+  },
+  {
+   "struct": "CStaticModifierDataBase",
+   "offset": "0x84",
+   "name": "easy_ai",
+   "type": "CStaticModifier*",
+   "comment": "static_modifiers.txt's `easy_ai`, or null when the file does not declare it.",
+   "evidence": "LoadModifierDefinitions pushes the string `easy_ai` and stores the lookup's answer with `mov [esi+0x84], eax`. What would show it wrong: the string at that push being another name."
+  },
+  {
+   "struct": "CStaticModifierDataBase",
+   "offset": "0x88",
+   "name": "hard_ai",
+   "type": "CStaticModifier*",
+   "comment": "static_modifiers.txt's `hard_ai`, or null when the file does not declare it.",
+   "evidence": "LoadModifierDefinitions pushes the string `hard_ai` and stores the lookup's answer with `mov [esi+0x88], eax`. What would show it wrong: the string at that push being another name."
+  },
+  {
+   "struct": "CStaticModifierDataBase",
+   "offset": "0x8C",
+   "name": "very_hard_ai",
+   "type": "CStaticModifier*",
+   "comment": "static_modifiers.txt's `very_hard_ai`, or null when the file does not declare it.",
+   "evidence": "LoadModifierDefinitions pushes the string `very_hard_ai` and stores the lookup's answer with `mov [esi+0x8c], eax`. What would show it wrong: the string at that push being another name."
+  },
+  {
+   "struct": "CStaticModifierDataBase",
+   "offset": "0x90",
+   "name": "disrupt_production",
+   "type": "CStaticModifier*",
+   "comment": "static_modifiers.txt's `disrupt_production`, or null when the file does not declare it.",
+   "evidence": "LoadModifierDefinitions pushes the string `disrupt_production` and stores the lookup's answer with `mov [esi+0x90], eax`. What would show it wrong: the string at that push being another name."
+  },
+  {
+   "struct": "CStaticModifierDataBase",
+   "offset": "0x94",
+   "name": "disrupt_research",
+   "type": "CStaticModifier*",
+   "comment": "static_modifiers.txt's `disrupt_research`, or null when the file does not declare it.",
+   "evidence": "LoadModifierDefinitions pushes the string `disrupt_research` and stores the lookup's answer with `mov [esi+0x94], eax`. What would show it wrong: the string at that push being another name."
+  },
+  {
+   "struct": "CStaticModifierDataBase",
+   "offset": "0x98",
+   "name": "spy_lower_national_unity",
+   "type": "CStaticModifier*",
+   "comment": "static_modifiers.txt's `spy_lower_national_unity`, or null when the file does not declare it.",
+   "evidence": "LoadModifierDefinitions pushes the string `spy_lower_national_unity` and stores the lookup's answer with `mov [esi+0x98], eax`. What would show it wrong: the string at that push being another name."
+  },
+  {
+   "struct": "CStaticModifierDataBase",
+   "offset": "0x9C",
+   "name": "spy_raise_national_unity",
+   "type": "CStaticModifier*",
+   "comment": "static_modifiers.txt's `spy_raise_national_unity`, or null when the file does not declare it.",
+   "evidence": "LoadModifierDefinitions pushes the string `spy_raise_national_unity` and stores the lookup's answer with `mov [esi+0x9c], eax`. What would show it wrong: the string at that push being another name."
+  },
+  {
+   "struct": "CStaticModifierDataBase",
+   "offset": "0xA0",
+   "name": "spy_lower_neutrality",
+   "type": "CStaticModifier*",
+   "comment": "static_modifiers.txt's `spy_lower_neutrality`, or null when the file does not declare it.",
+   "evidence": "LoadModifierDefinitions pushes the string `spy_lower_neutrality` and stores the lookup's answer with `mov [esi+0xa0], eax`. What would show it wrong: the string at that push being another name."
+  },
+  {
+   "struct": "CStaticModifierDataBase",
+   "offset": "0xA4",
+   "name": "spy_support_resistance",
+   "type": "CStaticModifier*",
+   "comment": "static_modifiers.txt's `spy_support_resistance`, or null when the file does not declare it.",
+   "evidence": "LoadModifierDefinitions pushes the string `spy_support_resistance` and stores the lookup's answer with `mov [esi+0xa4], eax`. What would show it wrong: the string at that push being another name."
+  },
+  {
+   "struct": "CStaticModifierDataBase",
+   "offset": "0xA8",
+   "name": "dissent",
+   "type": "CStaticModifier*",
+   "comment": "static_modifiers.txt's `dissent`, or null when the file does not declare it.",
+   "evidence": "LoadModifierDefinitions pushes the string `dissent` and stores the lookup's answer with `mov [esi+0xa8], eax`. What would show it wrong: the string at that push being another name."
+  },
+  {
+   "struct": "CStaticModifierDataBase",
+   "offset": "0xAC",
+   "name": "neutrality",
+   "type": "CStaticModifier*",
+   "comment": "static_modifiers.txt's `neutrality`, or null when the file does not declare it.",
+   "evidence": "LoadModifierDefinitions pushes the string `neutrality` and stores the lookup's answer with `mov [esi+0xac], eax`. What would show it wrong: the string at that push being another name."
+  },
+  {
+   "struct": "CStaticModifierDataBase",
+   "offset": "0xB0",
+   "name": "initial_mobilization",
+   "type": "CStaticModifier*",
+   "comment": "static_modifiers.txt's `initial_mobilization`, or null when the file does not declare it. Looked up twice and stored here twice, at 0x45B6F9 and 0x45B73F, with the same string both times.",
+   "evidence": "LoadModifierDefinitions pushes the string `initial_mobilization` and stores the lookup's answer with `mov [esi+0xb0], eax`. What would show it wrong: the string at that push being another name."
+  },
+  {
+   "struct": "CStaticModifierDataBase",
+   "offset": "0xB4",
+   "name": "government_in_exile",
+   "type": "CStaticModifier*",
+   "comment": "static_modifiers.txt's `government_in_exile`, or null when the file does not declare it.",
+   "evidence": "LoadModifierDefinitions pushes the string `government_in_exile` and stores the lookup's answer with `mov [esi+0xb4], eax`. What would show it wrong: the string at that push being another name."
+  },
+  {
+   "struct": "CStaticModifierDataBase",
+   "offset": "0xB8",
+   "name": "fractured_government",
+   "type": "CStaticModifier*",
+   "comment": "static_modifiers.txt's `fractured_government`, or null when the file does not declare it.",
+   "evidence": "LoadModifierDefinitions pushes the string `fractured_government` and stores the lookup's answer with `mov [esi+0xb8], eax`. What would show it wrong: the string at that push being another name."
+  },
+  {
+   "struct": "CTechnologyStatus",
+   "offset": "0xB8",
+   "name": "leadership_gain",
+   "type": "int",
+   "comment": "thousandths; what the technology key `leadership_gain` adds up to. CCountry::UpdateTotalLeadership adds it to 1000 + GLOBAL_LEADERSHIP_MODIFIER and multiplies the country's leadership by the sum, so it adds to the laws' bonus rather than multiplying it. The record carries the same offset on CTechStatistics under the same name, from the loader.",
+   "evidence": "`mov eax,[esi+0xdf8]; mov eax,[eax+0xb8]` at VA 0x4D9292..0x4D9298, then `add eax, ecx` with ecx = 1000 + countryValues[+0x118] and `imul dword ptr [esi+0xbd8]`. What would show it wrong: leadership not moving when a leadership_gain technology is researched."
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0x6F0",
+   "name": "tech_sharing_given",
+   "type": "void*",
+   "comment": "Begin of a vector of twelve-byte entries, { CCountryTag receiver; int category }, end at +0x6F4. CCountry::UpdateTotalLeadership charges SHARE_TECH_LEADERSHIP_COST leadership for each entry and cancels the newest while the country cannot pay; CCountry::StopSharingTechWith erases the entries naming one country. **That it is the technology categories this country shares is inference** from those two readers; its writer was not read.",
+   "evidence": "`mov ebx,[esi+0x6f0]; mov ecx,[esi+0x6f4]; sub ecx,ebx` and the divide by twelve (0x2AAAAAAB, sar 1) at VA 0x4D92D7..0x4D92F9; `lea ecx,[ebx+edx*4-0xc]; call CCountryTag::GetCountry` at 0x4D9375. What would show it wrong: the writer filling it from something else."
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0x6F4",
+   "name": "tech_sharing_given_end",
+   "type": "void*",
+   "comment": "End of the vector whose begin is tech_sharing_given at +0x6F0; the count is the difference over twelve.",
+   "evidence": "`add dword ptr [ecx+0x6f4], -0xc` at VA 0x507C9A, after an entry is erased. What would show it wrong: a capacity word here instead of an end."
+  }
+ ],
+ "vftable_slots": {
+  "CDistributeNCO": {
+   "0": "Distribute"
+  },
+  "CDistributeDiplomacy": {
+   "0": "Distribute"
+  }
+ },
+ "frontier": [
+  {
+   "rva": "0xDDD80",
+   "why": "CCountry::RebuildStaticModifiers from 0x4DDF9E on: what a country's modifier is made of. Triggered modifiers and strategic resources reach it by a savegame."
+  },
+  {
+   "rva": "0x11F620",
+   "why": "CDistributeResearch::Distribute, unread as a body; the rewrite's research needs it."
+  },
+  {
+   "rva": "0x651D20",
+   "why": "the date SetUpCountryForNewGame reads off an active war - its start, by use"
+  },
+  {
+   "rva": "0x651F40",
+   "why": "the date it reads off a previous war - its end, by use"
+  },
+  {
+   "rva": "0x7E540",
+   "why": "the test behind `blockaded`, on an area and a controller"
+  },
+  {
+   "rva": "0x107DF0",
+   "why": "called just before UpdateTotalLeadership with the country in edi; reads +0x6F0"
+  },
+  {
+   "rva": "0xE1C00",
+   "why": "called after RebuildStaticModifiers on entering a game and at the end of the set-up"
+  }
+ ],
+ "notes": [
+  "FINDINGS-revolt.md's table of RebuildProvinceModifierValues labels static +0x34 as non-core and lists +0x4C first in 'the terrain / coast / blockade family'. +0x34 is blockaded and +0x4C is non_core.",
+  "FINDINGS-research.md lists the doubles at 0x160A460 and 0x160A300 as not read. They are 0.0005 and 1000.0, the int-to-thousandths conversion.",
+  "FINDINGS-ic.md's open question, which modifier [0x1A86208]+0x64 is, is answered: base_values."
+ ]
+}

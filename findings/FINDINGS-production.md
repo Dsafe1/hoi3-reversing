@@ -322,6 +322,15 @@ All of these are slot 0 and none had a direct caller, which is why nothing had f
 | `CDistributeEspionage` | `0x51ED00 / 0x11ED00` | `country +0x1C MAX_NUMBER_OF_SPIES` at `0x51ED23` and `economy +0x24 LEADERSHIP_TO_SPIES` at `0x51ED91`; writes then decrements `CCountry +0x1170`; raises two messages; ends in `0x4DDD80` |
 | `CDistributeResearch` | `0x51F620 / 0x11F620` | `0x532EC0`, `0x535760`, `0x532F10` (the research tick another agent has), `0x540D60`/`0x540B50`, and `0x4E02F0` - the same ability gain a finished unit uses. No defines of its own. The only class that also overrides slot 4 (`0x51F4D0`) |
 
+**The last row was read through on 2026-10-08**: `FINDINGS-researchshare.md` has what
+`CDistributeResearch::Distribute` does, which is one point of leadership a project in queue
+order.
+
+**Two rows of that table were corrected on 2026-10-07** (`FINDINGS-leadership.md`, sections 3
+and 4). `CDistributeNCO::Distribute` does store: it adds the officers to `CCountry +0xC4` at
+`0x51E030`, and what goes back through `out` is zero. And `CDistributeDiplomacy::Distribute`
+has no cap - the comparison after its add is a floor at zero.
+
 The brief's claim about the leadership defines is **verified** with `definesMap.py`
 backwards: `LEADERSHIP_TO_OFFICERS` (`economy +0x2C`) is read at `0x51DF91` (NCO slot 0)
 and `0x51E155` (NCO slot 5) and nowhere else; `LEADERSHIP_TO_DIPLOMACY` (`+0x4`) at

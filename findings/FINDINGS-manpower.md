@@ -4,6 +4,9 @@ Written while splitting the manpower tooltip into land, air and naval, and then 
 what "manpower rotation" actually is. Both are in `BiceLib/Hooks/Tooltips/ManpowerText.hpp`;
 this is the reversing behind them.
 
+*Where manpower comes **from** - the daily income, `max_manpower`, and what a new game starts a
+country with - is `FINDINGS-manpowergain.md`, read on 2026-10-08.*
+
 Addresses are rvas, the way `project.json` wants them. The disassembler prints virtual
 addresses, which are these plus `0x400000` - a trap this work fell into once already.
 

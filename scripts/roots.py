@@ -23,7 +23,7 @@ nested checkout, and when it finds nothing it says so instead of guessing.
 | `BICE` | `BiceLib.sln` | the record cites `GameClasses` headers - the seam |
 | `MOD` | `history/countries` | `dupekeys.py`, `definesMap.py` read the mod's own data |
 | `GAME` | `hoi3_tfh.exe` + `tfh` + `common` + `history` | `image.py` and friends read the executable |
-| `OPENHOI3` | `project.godot` | `luabindExtract.py` reads its recovered class list |
+| `OPENHOI3` | `project.godot` | `checkrefs.py` checks the findings citations written there |
 
 `MOD` is derived from `BICE` by walking up rather than searched for, because the install also
 has a `common/` and a `history/` and would match a looser marker. The DLL project sits inside

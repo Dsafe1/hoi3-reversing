@@ -13,6 +13,17 @@ from `bicelib_findings.json`, which sits next to it.
 | `luabindExtract.py` | recovers the Lua API's C++ functions from the executable -> `luabind.json` |
 | `project.json` | everything else BiceLib has found; **add new findings here** |
 | `buildFindings.py` | checks both against the executable and builds `bicelib_findings.json` |
+| `ReconstructClassesFromRtti.java` | creates the class namespaces, vftables and `vf_NN` slots from RTTI - the step the apply expects to have run |
+| `ExportClassHierarchy.java` | writes the two files below; takes the output folder as its argument |
+| `hoi3_tfh-classes.json` | every RTTI class with its bases and vftable addresses; generated, do not edit. `scripts/hoi3.py` and `luabindExtract.py` read it |
+| `hoi3_tfh-class-hierarchy.txt` | the same as an indented tree, names only - 1212 application classes under 58 roots; generated |
+
+The last four came from OpenHOI3's `tools/ghidra/` and `docs/` on 2026-10-07. The rewrite
+had two more scripts there, `ChaseConstructorsAndDestructors` and `ApplyKnownNames`, which
+nothing here used; they were deleted with that folder and are in that repository's history
+(last touched in commit `7380641`). One caution came with them: Ghidra's own
+`~/ghidra_scripts` takes precedence over any `-scriptPath`, so a stale copy of a script
+there runs instead of the one in this folder, silently.
 
 ## Running it
 
@@ -59,13 +70,20 @@ finding came from.
 
 Both of these are easy to lose an hour to, so they are written down rather than elided.
 
-**The installs are under `%USERPROFILE%\Documents\Ghidra\`** - five of them, `ghidra_10.2.2`
-through `ghidra_12.1.2_PUBLIC`, each with `support\analyzeHeadless.bat`. They are at **depth six**
+**The installs are under `%USERPROFILE%\Documents\Ghidra\`** - six of them, `ghidra_10.2.2`
+through `ghidra_12.1.4_PUBLIC`, each with `support\analyzeHeadless.bat`. They are at **depth six**
 from the drive root, so a `find /c -maxdepth 4` finds nothing and says so convincingly; one session
 concluded from exactly that search that Ghidra was not installed on this machine.
 
-**The current project is `Hoi3_v12.1.2`**, in `%USERPROFILE%\GhidraProjects\`, 1.7 GB, and it
-pairs with the 12.1.2 install. `Hoi3.gpr` beside it is from 2023 and is not the one.
+**The current project is `Hoi3_v12.1.2`**, in `%USERPROFILE%\GhidraProjects\`, 1.4 GB.
+`Hoi3.gpr` beside it is from 2023 and is not the one.
+
+**Despite its name it now needs the 12.1.4 install.** The project has been opened with
+Ghidra 12.1.4, which upgraded the program to the x86 language at version 4.9, and 12.1.2 -
+whose language is 4.7 - refuses it: the headless run exits 0 having done nothing, and the only
+sign is one `ERROR ... LanguageNotFoundException: Language version (V4.9 or later) required`
+line with no `failed:` line after it. Found 2026-10-07. **So check that the output has a
+`failed:` line at all**, not only that nothing in it says failed.
 
 **Run against your own copy, never the maintainer's.** Theirs is usually open in the GUI - a live
 `Hoi3_v12.1.2.lock` next to it and a `javaw.exe` holding over a gigabyte - and a headless run would
@@ -78,7 +96,7 @@ owner, so nothing inside it needs renaming:
 Then, from the fact base's root - `<fact base>` below is wherever that repository is
 checked out, which `python scripts/roots.py` will print:
 
-    "$USERPROFILE/Documents/Ghidra/ghidra_12.1.2_PUBLIC/support/analyzeHeadless.bat" \
+    "$USERPROFILE/Documents/Ghidra/ghidra_12.1.4_PUBLIC/support/analyzeHeadless.bat" \
         "<scratch>/hl" Check -process hoi3_tfh.exe -noanalysis \
         -scriptPath "<fact base>/ghidra" \
         -postScript ApplyBiceLibFindings.java overwrite

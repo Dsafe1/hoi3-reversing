@@ -4,8 +4,8 @@ Attaching to the game, turning a class name into the vftable address RTTI gave i
 scanning for instances of it, and reading memory without falling over when a pointer
 turns out not to be one.
 
-The class data comes from OpenHOI3's RTTI export rather than from anything written by
-hand, so a class name here is the name the game's own compiler recorded.
+The class data comes from the RTTI export in `ghidra/` rather than from anything written
+by hand, so a class name here is the name the game's own compiler recorded.
 """
 
 import json
@@ -20,11 +20,12 @@ import roots  # noqa: E402 - needs the folder on the path first
 
 PROCESS = "hoi3_tfh.exe"
 
-# Where OpenHOI3 keeps what Ghidra recovered. `$OPENHOI3_CLASSES` overrides it; otherwise
-# the repository is found by marker, which is what makes a flattened or renamed checkout
-# work. The hardcoded default this replaces named one nesting level too many and had been
-# wrong since that repository was flattened on 2026-10-07. Resolved on first use rather
-# than at import, because most of what imports this module never asks for the classes.
+# What `ghidra/ExportClassHierarchy.java` recovered. It lived in OpenHOI3's `docs` folder
+# until 2026-10-07 and moved here because the fact base depends on nothing - and this file
+# is vftable addresses, which the rewrite is forbidden. `$OPENHOI3_CLASSES` still overrides
+# it and keeps its old name, so an environment that set it goes on working. Resolved on
+# first use rather than at import, because most of what imports this module never asks for
+# the classes.
 CLASS_JSON = os.environ.get("OPENHOI3_CLASSES")
 
 # Instances live above this; below it is the image itself and its data sections, where
@@ -38,7 +39,7 @@ def classes():
     """name -> the RTTI record, loaded once"""
     global _classes
     if _classes is None:
-        path = CLASS_JSON or os.path.join(roots.root("OPENHOI3"), "docs",
+        path = CLASS_JSON or os.path.join(roots.root("REVERSING"), "ghidra",
                                          "hoi3_tfh-classes.json")
         with open(path, "r", encoding="utf-8") as f:
             document = json.load(f)

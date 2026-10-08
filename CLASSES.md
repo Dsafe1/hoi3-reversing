@@ -1229,6 +1229,10 @@ and 6, while Lua puts those two names on 3 and 4 and calls 5 and 6 the `_MODIFIE
 variants; the fifth is 75, `LOCAL_ANTI_AIR` to Lua and `MODIFIER_LOCAL_AA` by its key.
 `CModifier.hpp` keeps the Lua name where there is one and notes the key beside it.
 
+*For the manpower group the Lua names are the ones the code bears out: 3 and 4 are added flat
+and 5 and 6 are added to 1000 and multiplied - `findings/FINDINGS-manpowergain.md`, section 2,
+which is also where a country's manpower income, its `max_manpower` and its starting pool are.*
+
 What 83 up turned out to be: `NEUTRALITY`, the resource pair, **`REINFORCEMENT_BONUS` (86)**,
 five build speeds, `FUEL_CONVERSION`, `TRICKLEBACK`, the attack pair, `NUKE_RESEARCH`, the
 weather effects, `LEADER_DEFENCE`, the intel boosts, `STRATEGIC_RESOURCE_EFFICIENCY`,
@@ -1749,6 +1753,9 @@ The stockpile follows the **acting** capital: `CCountry:GetPool()` (`0xF4DE0`) c
 government in exile, when it answers the pool the country holds itself at `+0x9F8`.
 
 ### Leadership, and the four sliders
+
+*How the total at `+0xBD8` is worked out, and what the officer, diplomacy and espionage
+shares each do with theirs, is `findings/FINDINGS-leadership.md`.*
 
 `+0x5E4` is **the leadership distribution**: a vector - first element here, end at `+0x5E8`,
 capacity at `+0x5EC`, all three zeroed together by the constructor - holding four

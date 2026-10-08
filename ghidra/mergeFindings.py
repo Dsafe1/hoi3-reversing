@@ -104,10 +104,15 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 
 import hoi3
 import image
+import roots
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PROJECT = os.path.join(HERE, "project.json")
-ROOT = os.path.dirname(os.path.dirname(HERE))
+# `reversing/` on the front of a source is the fact base's logical name, not a folder to
+# count up to. This was `dirname(dirname(HERE))` joined with the source - right while the
+# tree was a subfolder called reversing/, and after the 2026-10-07 split it resolved every
+# source against a sibling folder that does not exist, so no fragment could land.
+LOGICAL = "reversing/"
 INCOMING = os.path.join(HERE, "..", "fragments", "incoming")
 MERGED = os.path.join(HERE, "..", "fragments", "merged")
 
@@ -156,6 +161,13 @@ def inTables():
                 value = int.from_bytes(raw[slot * 4:slot * 4 + 4], "little")
                 _inTables.setdefault(value, []).append((name, slot))
     return _inTables
+
+
+def sourceExists(source):
+    """Whether a fragment's `source` names a document that is there. One written with the
+    `reversing/` prefix is looked for in this repository, wherever it is checked out."""
+    relative = source[len(LOGICAL):] if source.startswith(LOGICAL) else source
+    return os.path.exists(os.path.join(roots.root("REVERSING"), relative))
 
 
 def load():
@@ -305,7 +317,7 @@ def problems(document, files):
         source = incoming.get("source")
         if not source:
             said.append("%s: no source" % who)
-        elif not os.path.exists(os.path.join(ROOT, source)):
+        elif not sourceExists(source):
             said.append("%s: source %s does not exist" % (who, source))
 
         for entry in incoming.get("addresses", []):

@@ -9,7 +9,7 @@ Five folders and five documents, and the split is worth knowing before looking f
 
 | | |
 | --- | --- |
-| `findings/` | the 85 `FINDINGS-*.md` write-ups - the long form of everything that has been read |
+| `findings/` | the 89 `FINDINGS-*.md` write-ups - the long form of everything that has been read |
 | `scripts/` | the toolkit, 45 scripts. **Commands are run from this repository's root**, so they read `python scripts/image.py` |
 | `ghidra/` | the Ghidra side: `project.json`, the build and merge scripts, the headless java |
 | `fragments/` | the parallel-agent staging area - `incoming/`, `merged/`, and the contract in its README |
@@ -52,8 +52,8 @@ the last day, week, month, half year and year, split into land, air and naval.
 
 ## What is already known
 
-The RTTI export in OpenHOI3's `docs` folder (`hoi3_tfh-classes.json`,
-found next to this repository) names every class the game's own
+The RTTI export (`ghidra/hoi3_tfh-classes.json`, which lived in OpenHOI3's
+`docs` folder until 2026-10-07) names every class the game's own
 compiler recorded, and gives each one its vftable address - which is the handle on
 finding instances in memory. `hoi3.py` reads it, so a class name is all a script needs.
 

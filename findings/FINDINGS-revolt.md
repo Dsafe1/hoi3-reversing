@@ -328,6 +328,12 @@ building-level change `0x4A39B0` and five more. So it is a rebuild callable from
   `common/static_modifiers.txt`'s database.** It has no RTTI and its constructor writes no
   vftable, so no struct is declared for it here - only the global is recorded.
 
+**Two rows of the table below were corrected on 2026-10-07**, once the static slots had names
+(`FINDINGS-leadership.md`, sections 7 and 8). Static `+0x34` is `blockaded`, not the non-core
+modifier, and it is only tested inside the `overseas` branch; `non_core` is `+0x4C`, the first
+of what the fourth row calls the terrain family, added when the province's *owner* has no core
+on it and also controls it. The rows are left as first written.
+
 The function clears `province + 0xFC` (`0x4595C0`) and `province + 0x12C` (`0x4B6260`), then
 adds, in order:
 

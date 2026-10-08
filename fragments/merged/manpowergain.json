@@ -1,0 +1,138 @@
+{
+ "agent": "manpowergain",
+ "question": "How a country gains manpower: what a day adds, what max_manpower is and whether anything caps the pool at it, and what a new game starts a country with.",
+ "source": "reversing/findings/FINDINGS-manpowergain.md",
+ "addresses": [
+  {
+   "rva": "0xE1DA0",
+   "kind": "function",
+   "name": "GetMonthlyManpowerGain",
+   "signature": "CFixedPoint* __stdcall GetMonthlyManpowerGain(CCountry* country, CFixedPoint* out)",
+   "no_signature": null,
+   "comment": "**What a month adds to a country's manpower.** Two stack arguments, `ret 8` at 0x4E1FB9, the out pointer back in eax. All thousandths, every divide truncating. It zeroes *out and walks ControlledProvinces (+0xD00): for each, part = (province->manpower (+0x320) + provinceValues[3]) * max(1000 + provinceValues[5] + ownerValues[6], 0) / 1000, added only when it is not negative. provinceValues is the province's modifier array (+0x114) and ownerValues the modifier array (+0xDA8) of the country the province's **owner** tag (+0x32C) names - not the controller's, although it is the controller that is paid. Entries 3 and 5 are the script keys `local_manpower` and `local_manpower_modifier`, 6 is `global_manpower_modifier`. So the local and the global percentage are **added**, and a province three quarters down for being overseas under a law that takes half off gives nothing rather than an eighth.\n\nThen it adds countryValues[4] flat - `global_manpower`, the 4 base_values gives every country, which no law scales - multiplies by (1000 + technology_status->manpower_gain (+0x8C)) / 1000, and divides by twelve (`* 1000 / 12000`, the 12000 from floorf(12000.5f)). That is the answer.\n\n**Between the two is a block for a government in exile** (+0x95): it walks the same list and, for a province whose controller_id (+0x338) is not the country's id, *assigns* *out = province->manpower * 100 / 1000 - a `mov`, not an `add`, so each such province overwrites the running total. The 100 is floorf(100.5f), the float at VA 0x160A684, kept in a function-local static at 0x1BEBBA8 behind the guard bit at 0x1BEBBAC. What the block is for was not established.\n\nTwo callers: RunCountryDailyPass at 0x4DA89A and GetManpowerDetailsText at 0x6D0959. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Decoded from its own entry (image.decode(0x4E1DA0, 0x220)): `mov ebx,[eax+0x320]; mov esi,[ecx+0x28]; add ebx,[ecx+0x18]` with ecx = [province+0x114]; `lea ecx,[eax+0x32c]; call CCountryTag::GetCountry; mov ecx,[eax+0xda8]; mov eax,[ecx+0x30]; add eax,esi; jns; xor eax,eax; imul ebx` and the divide by 0x3E8; `mov eax,[eax+0x20]` off +0xDA8 and `add [ebx],eax` at 0x4E1F44..0x4E1F55; `mov esi,[ecx+0x8c]` off +0xDF8; the float at VA 0x160A82C is 12000.5. A vanilla save agrees to the thousandth for 96 of 100 countries two days in: East Germany, with no province, makes 4/12/31 = 0.010 a day. What would show it wrong: an occupier's manpower from a province moving when the occupier changes its conscription law."
+  },
+  {
+   "rva": "0xE1C00",
+   "kind": "function",
+   "name": "UpdateMaxManpower",
+   "signature": "void __stdcall UpdateMaxManpower(CCountry* country)",
+   "no_signature": null,
+   "comment": "**Works out max_manpower (+0xBD0), and is its only writer besides the constructor and a reset.** One stack argument, `ret 4` at 0x4E1D99. The same province walk as GetMonthlyManpowerGain, term for term - part = (province->manpower (+0x320) + provinceValues[3]) * max(1000 + provinceValues[5] + ownerValues[6], 0) / 1000, added only when it is not negative - then + countryValues[4], * (1000 + technology_status->manpower_gain) / 1000, and then * MAX_MANPOWER (the first entry of the `military` defines) / 1000, floored at 1000. So it is **that many years of what the country gets** - ten in Their Finest Hour - and never under 1. It has no government-in-exile block.\n\n**Nothing holds the pool to it**: the daily addition in RunCountryDailyPass does not read it. Its readers are SetUpCountryForNewGame, which starts the pool at it, the `max_manpower` and `manpower_percentage` triggers, GetManpowerDetailsText and 0x4DCD70.\n\nSix callers: SetUpCountryForNewGame at 0x4D7386; CCountry::UpdateMonthly at 0x4DCBA4, after RebuildStaticModifiers; CInGameIdler::Enter at 0x65B2BD, straight after UpdateTotalLeadership; ApplyCustomGameSettings at 0x41DC98; and 0x4DFD69 and 0x559B77, unread. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Decoded from its own entry (image.decode(0x4E1C00, 0x1A0)): `mov [esi+0xbd0],edi` with edi = 0 at 0x4E1C23; the loop 0x4E1CB8..0x4E1D20 is GetMonthlyManpowerGain's with the sum kept in +0xBD0; `call GetDefines; mov edx,[eax+0xac]; mov eax,[edx]; imul dword ptr [esi+0xbd0]` at 0x4E1D5D; `cmp eax,ebx; jge` with ebx = 0x3E8 at 0x4E1D7F. scripts/definesMap.py puts MAX_MANPOWER at military +0x0. A scan for the displacement 0xBD0 finds no other store on a country but CCountry::CCountry (0x4C9515) and the reset at 0x4D4600 in 0x4D2B60, both of a register holding 0. What would show it wrong: a country's pool stopping at this figure."
+  },
+  {
+   "rva": "0xDA932",
+   "kind": "instruction",
+   "name": "RunCountryDailyPass_AddManpower",
+   "signature": null,
+   "no_signature": null,
+   "comment": "**Where a country's manpower grows.** `add [ebx+0xbcc], eax`, the country in ebx, taken only when eax is above nothing. eax = GetMonthlyManpowerGain(country) * 1000 / (days * 1000), where days is the length of the current month: the day of the year, off the tick at [ebp-0x28] less 43800000 hours over 24 and reduced by whole 365-day years, is walked down MonthLengthTable (0x4DA8F0, with the out-of-line `inc edx; jmp` at 0x4DC3FF). So **a day adds the month's figure over the days that month has**, February more than January. Unconditional for every country the pass runs for, and nothing compares the result with max_manpower. It comes after RebuildStaticModifiers (0x4DA5E3) and the strategic-warfare change to national unity (0x4DA890), and before UpdateTotalLeadership (0x4DAEA7).",
+   "confidence": "confirmed",
+   "evidence": "0x4DA89A `call 0x4e1da0` with the out at [ebp-0x1c]; 0x4DA8A2..0x4DA8E6 the day of the year through the double 365.0 at VA 0x160A550; `mov ecx,[edx*4+0x1713294]; sub eax,ecx; jns 0x4dc3ff`; `imul ecx,ecx,0x3e8`, the multiply of [ebp-0x1c] by 0x3E8 and the 64-bit divide; `cmp eax,edi; jle; add [ebx+0xbcc],eax`. East Germany's pool across five saves of one game moves by 0.010 a day in January and March and 0.011 in February and April, which is 0.333 over 31 and over 28 or 30. What would show it wrong: a pool that grows by the same amount a day in February as in January."
+  },
+  {
+   "rva": "0x168747C",
+   "kind": "global",
+   "name": "g_StartingManpowerLostPerMonthAtWar",
+   "signature": null,
+   "no_signature": null,
+   "comment": "A file-scope fixed-point constant, 120 in thousandths, so 0.12. Built at startup by InitStartingManpowerLostPerMonthAtWar (rva 0x8B6680) as (int)floorf(120.5f), and no define moves it. One reader, SetUpCountryForNewGame at 0x4D7439: a country at war starts a new game short of its max_manpower by a year of its manpower times (1 + 0.12 for each month the war has run). The name is ours.",
+   "confidence": "confirmed",
+   "type": "int",
+   "evidence": "image.findValue(0x1A8747C) gives two sites, the initialiser's store at 0xCB669B and `imul dword ptr [0x1a8747c]` at 0x4D7439; image.read(0x160AAF8) is the float 120.5. Italy and Ethiopia, three calendar months into their war on 1 January 1936, both start with max_manpower less 1.36 years of manpower in a vanilla save. What would show it wrong: nothing short of a different float at 0x160AAF8."
+  },
+  {
+   "rva": "0x8B6680",
+   "kind": "function",
+   "name": "InitStartingManpowerLostPerMonthAtWar",
+   "signature": "void __cdecl InitStartingManpowerLostPerMonthAtWar(void)",
+   "no_signature": null,
+   "comment": "Static initialiser for g_StartingManpowerLostPerMonthAtWar (VA 0x1A8747C): floorf(120.5f) through _ftol2_sse, stored, bare `ret` at 0xCB66A0. int3-padded on both sides; the one before it is InitBaseOilConversionRate at rva 0x8B6650.",
+   "confidence": "confirmed",
+   "evidence": "`movss xmm0,[0x160aaf8]; push ecx; movss [esp],xmm0; call 0x401fd0; add esp,4; call 0xc08870; mov [0x1a8747c],eax; ret` at VA 0xCB6680..0xCB66A0. What would show it wrong: a second store to 0x1A8747C."
+  },
+  {
+   "rva": "0xD6230",
+   "kind": "function",
+   "name": "SetUpCountryForNewGame",
+   "signature": "void __stdcall SetUpCountryForNewGame(CCountry* country)",
+   "no_signature": null,
+   "comment": "**What a country starts a new game with**: its war exhaustion, its stockpile, its diplomatic influence and its manpower. One stack argument, `ret 4` at 0x4D757A. One caller, 0x65B4F2 in CInGameIdler::Enter, inside the block that gamestate->loaded_from_save (+0xD9C) == 0 guards, so it never runs on a load. **The function before it ends `ret 4` at 0x4D622D with no padding** - a walk back from inside this one answers 0x4D59D0, which is what fieldchain.py prints (trap 2).\n\nRead from 0x4D69DF to 0x4D7108 and from 0x4D7346 to the end. Months are calendar months, year * 12 + month off the tick. At war (at_war, +0xACC): began = the earliest 0xA51D20(war) over the active wars (gamestate +0xC00) the country is an attacker or defender in, and war_exhaustion (+0xAD0) = min(months since * 0.05, 10). Otherwise war_exhaustion = max(3 - months since the latest 0xA51F40(war) over previous_war (+0xC20) * 0.05, 0). Then **days = 30 + 5 * max(12 - months at war, 2)** - 90 at peace, five fewer a month of war, never under 40 - and amount = MaxIC (+0x60C) * days, **held to 1000 for a subject (isSubject, +0xF34)**. Into the acting capital's pool, each an `add`: crude oil and metal `amount`, energy twice it, rare materials half; money, **only when the pool has none**, amount * IC_TO_MONEY * 0.05; supplies and fuel, `days` times the sum of CUnit::SupplyConsumption and CUnit::FuelConsumption over the country's units (+0xBAC). Then **diplo_influence (+0xA88) = MaxIC / 5 in whole points**. The 0.05 is g_OneTwentieth.\n\n**The tail is the manpower.** ReapplyAllTechnologies (0x4D7346), RebuildStaticModifiers (0x4D7380), UpdateMaxManpower (0x4D7386), and then **manpower (+0xBCC) = max_manpower (+0xBD0)**, a `mov` - so whatever `manpower` a country's history file gave is overwritten. If it owns a province (the count at +0xCF8 above 0) and is at war, it then loses year * (1000 + months at war * g_StartingManpowerLostPerMonthAtWar / 1000) / 1000, where year = max_manpower * 1000 / MAX_MANPOWER and the months are the same thousandths the war exhaustion used; floored at 0. After that it sets the date at +0xAB0 to today's when it holds one before year 3, and calls 0x4F06D0 and 0x4F72F0.\n\nNot read: the first 0x7AF bytes (UpdateIC(country, 0) is called at 0x4D633D, and a loop stamps CDiplomacyStatus +0x54 with the date), and the block 0x4D713A..0x4D733F for a country that holds something.",
+   "confidence": "confirmed",
+   "revises": "The comment said the tail was not read past naming its three calls. It is read now: the starting manpower, and the call the old text gave as 0x4E1C00 is UpdateMaxManpower. Name, signature and everything said about the stockpile are unchanged.",
+   "evidence": "0x4D7380..0x4D7476 decoded from this function's own entry: `call 0x4ddd80; push esi; call 0x4e1c00; mov eax,[esi+0xbd0]; mov [esi+0xbcc],eax`; `cmp [esi+0xcf8],ebx; jle 0x4d7476`; `cmp byte ptr [esi+0xacc],al; je 0x4d7460` with eax = 0; the divide of max_manpower * 1000 by [[defines+0xac]]; `mov eax,[ebp-0x38]; imul dword ptr [0x1a8747c]`, `add eax,0x3e8; imul edi`; `neg eax; add [esi+0xbcc],eax` and the floor. [ebp-0x38] is last written at 0x4D6BD6 with the months at war in thousandths. In a vanilla save 74 of 78 countries that exist and all 23 that do not hold exactly this plus two days' income, Italy and Ethiopia among them. What would show it wrong: a country at peace starting with anything but its max_manpower."
+  },
+  {
+   "rva": "0xDEA50",
+   "kind": "instruction",
+   "name": "RebuildStaticModifiers_AddControlledProvinceModifiers",
+   "signature": null,
+   "no_signature": null,
+   "comment": "**A country's modifier takes in the whole modifier of every province it controls.** In CCountry::RebuildStaticModifiers, the loop 0x4DEA50..0x4DEB98 walks ControlledProvinces (+0xD00) and, for each, adds the province's CProvinceModifier (+0xFC) into the country's accumulator one modifier id at a time - `values[id] += provinceValues[id]` over all ([0x1A86198] - [0x1A86194]) / 4 ids - and records the province modifier in the accumulator's contributor vector. So anything a province's modifier holds reaches its controller's, once for each province, the country-wide kinds included; the local kinds come along too and are read by nothing at country level. **Likely this is how a strategic resource reaches a country**, but where a resource's modifier joins a province's was not found: RebuildProvinceModifierValues was not seen to read it. The same loop then tests, for a country at war, whether a province flagged at +0x36C that it owns is in its capital's area; what that is for was not read.",
+   "confidence": "confirmed",
+   "evidence": "`mov ebx,[ebx+0xd00]` at 0x4DEA50; `mov ebx,[edx+ecx*4]; ... add ebx,0xfc` at 0x4DEB00..0x4DEB10; the loop `mov ecx,[ebx+0x18]; mov eax,[esp+0x10]; mov eax,[eax+0x18]; mov ecx,[ecx+edx*8]; add [eax+edx*8],ecx` at 0x4DEB20..0x4DEB3A, the same five instructions RebuildProvinceModifierValues uses to add a static modifier; `call 0x86cc20` at 0x4DEB4B. [esp+0x10] is set at 0x4DDDFA to country + 0xD90, whose +0x18 is the values pointer the record has at CCountry +0xDA8, and the base_values add at 0x4DDE60 writes through the same object. What would show it wrong: a second write to [esp+0x10] between the two, which a search of the listing does not find."
+  },
+  {
+   "rva": "0xE1FC0",
+   "kind": "function",
+   "name": "UpdateBlockadeLevel",
+   "signature": "void __stdcall UpdateBlockadeLevel(CCountry* country)",
+   "no_signature": null,
+   "comment": "**Works out CCountry +0xBD4, the share of a country's home ports that are cut off.** One stack argument, `ret 4` at 0x4E216B. It walks OwnedProvinces (+0xCF0) and counts each that is in the acting capital's area (+0x2B4) or on its continent (+0x368), has an owner, a map port (+0x354) and a naval base (+0x300) whose level (+0x20) is above 0. Of those it counts again the ones whose byte at +0x36C is set or whose owner is not their controller. +0xBD4 = second count * 1000 / first, or 0 with no such port. **That +0x36C is a blockaded flag is inference** from this use and from CBlockadeTrigger reading the result. Three callers: CCountry::UpdateMonthly at 0x4DCBAA, straight after UpdateMaxManpower; CInGameIdler::Enter at 0x65B2CB; and 0x4A6745 in 0x4A65E0, unread. The name is ours.",
+   "confidence": "inferred",
+   "evidence": "Decoded from its own entry (image.decode(0x4E1FC0, 0x1B0)): the two CCountry::GetActingCapitalLocation calls and compares on +0x2B4 and +0x368 at 0x4E208C..0x4E20B3; `cmp [esi+0x354],ebx`, `mov ecx,[esi+0x300]; cmp [ecx+0x20],ebx; jle`; `add [ebp-0x10],ecx`; `cmp byte ptr [esi+0x36c],bl; jne; cmp eax,[esi+0x338]; je`; `add [ebp-0x14],ecx`; the store to [edi+0xbd4] at 0x4E20FF and 0x4E2155. What it computes is read; only the meaning of +0x36C is inferred. What would show it wrong: +0x36C turning out to mark something other than a blockade."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CTechnologyStatus",
+   "offset": "0x8C",
+   "name": "manpower_gain",
+   "type": "int",
+   "comment": "thousandths; what the technology key `manpower_gain` adds up to. GetMonthlyManpowerGain and UpdateMaxManpower multiply the whole of a country's manpower - what its provinces give and the flat `global_manpower` both - by 1000 + this. It multiplies, where leadership_gain at +0xB8 adds to the laws' bonus. The record carries the same offset on CTechStatistics under the same name, from the loader.",
+   "evidence": "`mov ecx,[ecx+0xdf8]; mov esi,[ecx+0x8c]; add esi,0x3e8` at VA 0x4E1F3E..0x4E1F58 and `mov eax,[ecx+0x8c]; add eax,ebx; imul dword ptr [esi+0xbd0]` at 0x4E1D3B..0x4E1D48. Germany's 882.474 two days into a vanilla save needs exactly 1.4 here with four levels of a technology worth 0.1 each. What would show it wrong: manpower not moving when that technology is researched."
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0xBD0",
+   "name": "max_manpower",
+   "type": "int",
+   "comment": "**So many years of the manpower the country gets, in thousandths, and not a ceiling.** Written by UpdateMaxManpower: the year's manpower times MAX_MANPOWER, at least 1000. A new game starts the pool at it; nothing holds the pool to it afterwards. The field `max_manpower = N` reads, and the denominator of `manpower_percentage`.",
+   "revises": "The comment called it 'the manpower ceiling'. It is not one: the pool passes it. Name and type are unchanged.",
+   "evidence": "UpdateMaxManpower (0x4E1C00) is its only writer besides the constructor and a reset, which store 0; the daily `add [ebx+0xbcc],eax` at 0x4DA932 has no compare against +0xBD0 near it. East Germany's pool in a vanilla save is 40.020 two days in against a figure of 40 here, and 41.158 by 20 April. What would show it wrong: a clamp of +0xBCC against +0xBD0 somewhere on the daily path."
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0xCF8",
+   "name": "owned_province_count",
+   "type": "int",
+   "comment": "The count of OwnedProvinces, the list whose head is at +0xCF0 and tail at +0xCF4. SetUpCountryForNewGame takes the war loss off a country's starting manpower only when this is above 0.",
+   "evidence": "`cmp dword ptr [esi+0xcf8],ebx; jle 0x4d7476` with ebx = 0 at VA 0x4D739B. It is the third dword of the CList at +0xCF0, the same head/tail/count triple ControlledProvinces has at +0xD00..+0xD08. What would show it wrong: OwnedProvinces' node count and this dword disagreeing."
+  }
+ ],
+ "frontier": [
+  {
+   "rva": "0xDCD70",
+   "why": "rewrites CCountry +0x158 from manpower, max_manpower and the units; five callers, unread"
+  },
+  {
+   "rva": "0xDFB90",
+   "why": "a caller of UpdateMaxManpower (0x4DFD69), unread"
+  },
+  {
+   "rva": "0x159AF0",
+   "why": "a caller of UpdateMaxManpower (0x559B77), unread"
+  },
+  {
+   "rva": "0xDDD80",
+   "why": "CCountry::RebuildStaticModifiers: where a strategic resource and a triggered modifier join the country's modifier is still unread"
+  }
+ ],
+ "notes": [
+  "A vanilla save shows the two countries with black soil, the Soviet Union and France, starting with a max_manpower worked out without its +10% and gaining manpower with it from the first day. So a strategic resource is not in a country's modifier when SetUpCountryForNewGame runs.",
+  "CCountry +0x158 (starting_manpower) is rewritten by 0x4DCD70 from the live pool, so it is not only what the history file gave."
+ ]
+}

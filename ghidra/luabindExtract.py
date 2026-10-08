@@ -55,13 +55,14 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 import roots  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-# All three found rather than written down - see scripts/roots.py. Tolerant of a root that
+# The executable and the API file are found rather than written down - see scripts/roots.py;
+# the RTTI export sits beside this script, where it moved from OpenHOI3 on 2026-10-07 (the
+# variable that overrides it keeps its old name). Tolerant of a root that
 # did not resolve, because `progress.py` imports this module and does not need any of them:
 # a missing root has to fail where it is used, not where it is imported.
 EXE = os.environ.get("HOI3_EXE") or (
     os.path.join(roots.GAME, "hoi3_tfh.exe") if roots.GAME else None)
-CLASS_JSON = os.environ.get("OPENHOI3_CLASSES") or (
-    os.path.join(roots.OPENHOI3, "docs", "hoi3_tfh-classes.json") if roots.OPENHOI3 else None)
+CLASS_JSON = os.environ.get("OPENHOI3_CLASSES") or os.path.join(HERE, "hoi3_tfh-classes.json")
 API_FILE = os.path.join(roots.MOD, "script", "LUA API.txt") if roots.MOD else None
 OUT = os.path.join(HERE, "luabind.json")
 

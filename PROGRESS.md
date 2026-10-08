@@ -166,7 +166,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CConvoyConstruction` | `CConstruction` |  | 1 | 1/1 | 2 | CConstruction.hpp | 40 | placed |  |
 | `CConvoyEscortOrder` | `CNavalOrder` |  |  | 1/3 | 2 |  |  | placed |  |
 | `CConvoyRaid` | `CNavalOrder` |  |  | 1/1 | 2 |  | 62 | placed |  |
-| `CCountry` | `CPersistent` |  | 225 + 71 lua | 69/126 | 82 | CCountry.hpp | 108 | read |  |
+| `CCountry` | `CPersistent` |  | 228 + 71 lua | 69/126 | 87 | CCountry.hpp | 108 | read |  |
 | `CCountryDate` | `CPersistent` |  |  | 1/2 | 1 |  |  | placed |  |
 | `CCountryHistory` | `CHistoryContainer` |  |  |  | 1 | CCountryHistory.hpp | 108 | keys | **read**: `history/countries`, where a date is a key. See GameClasses/CCountryHistory.hpp |
 | `CCountryValue` | `CPersistent` | 0x14 | 2 | 1/2 | 1 |  | 9,078 | placed |  |
@@ -300,7 +300,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CSubUnit` | `CReferenceObject` | 0xD8 | 28 | 8/13 | 10 |  |  | read |  |
 | `CSupportAttackOrder` | `COrder` |  | 1 |  | 2 | COrder.hpp |  | keys |  |
 | `CSystemSettings` | `CPersistent` |  |  |  |  |  |  | RTTI |  |
-| `CTechnologyStatus` | `CTechStatistics` `PAVCTechnology::__CArray` |  | 26 + 1 lua |  | 5 | CSubUnitDefinition.hpp | 108 | read |  |
+| `CTechnologyStatus` | `CTechStatistics` `PAVCTechnology::__CArray` |  | 30 + 1 lua |  | 5 | CSubUnitDefinition.hpp | 108 | read |  |
 | `CTheatre` | `CReferenceObject` |  | 24 + 1 lua | 4/7 | 5 | CTheatre.hpp | 99 | read |  |
 | `CTimedModifier` | `CPersistent` |  |  | 2/2 | 1 |  | 6,176 | placed |  |
 | `CTradeAction` | `CDiplomaticAction` |  | 1 + 1 lua |  | 9 |  | 2,354 | keys |  |
@@ -510,7 +510,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CDistributeProduction` | `CDistributionSetting` |  | 2 |  | 6 |  | 108 | part |  |
 | `CDistributeReinforcement` | `CDistributionSetting` |  | 1 |  | 2 |  | 108 | part |  |
 | `CDistributeResearch` | `CDistributionSetting` |  |  |  | 1 |  | 108 | RTTI |  |
-| `CDistributeSupply` | `CDistributionSetting` |  |  |  | 1 |  | 108 | RTTI |  |
+| `CDistributeSupply` | `CDistributionSetting` |  |  |  | 2 |  | 108 | RTTI |  |
 | `CDistributeUpgrade` | `CDistributionSetting` |  |  |  | 2 |  | 108 | RTTI |  |
 | `CDistributionSetting` |  | 0x28 | 3 + 1 lua |  | 1 | CCountry.hpp |  | part |  |
 | `CDivisionDesigner` | `CReloadableInterface` |  |  |  |  |  | 1 | RTTI |  |

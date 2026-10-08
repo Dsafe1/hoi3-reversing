@@ -123,6 +123,12 @@ by `0x7D0`.
 
 Two blocks run only when `applyDailyEffects` is true.
 
+> **Corrected 2026-10-07 by `FINDINGS-distribute.md`, section 6**, which reads this block
+> through. The paragraph below has the rate wrong - it is `0.1 + technologyStatus[+0x98]`, and
+> `1 + 2 * rate` is a divisor in the balance term - and has the cap on the wrong side: it is
+> the crude oil *made* that is capped at `max(total_ic * 0.05, 1.0)`. The pools and the two
+> writes are right.
+
 **The energy to crude-oil conversion**, `0x4F1075`..`0x4F13E2`. It is the half of the pair
 `CLASSES.md` describes as "`+0x8D8` and `+0x8B4` are the conversion pair" and as "Germany
 took 340 oil *and* 178 energy and made 781 fuel *and* 34 oil - synthetic oil from coal":
@@ -266,9 +272,9 @@ Three reasons to drop it rather than keep it:
   is wrong. The hook also writes `offmapIc * 1000` back into the entry every pass, which
   makes the value self-referential from the second day on. **This is the one thing here
   worth measuring in a running game**, and it cannot be settled statically.
-- **Which modifier `[0x1A86208]+0x64` is.** Only that a global `CModifier`'s
-  `MODIFIER_IC` seeds every country's province sum. This is a second, entirely separate
-  channel for flat IC and nobody has looked at it.
+- ~~**Which modifier `[0x1A86208]+0x64` is.**~~ **Answered 2026-10-07: `base_values`**, read
+  off `LoadModifierDefinitions`' stores (`FINDINGS-leadership.md`, section 7). Their Finest
+  Hour's has `ic = 5`, so every country has five IC before any province is counted.
 - **Whether `CCountry +0xD00` is the owned or the controlled provinces.** The IC pass
   walks it; the `+0x610` test then filters on ownership, which only makes sense as a
   *narrowing*, so controlled is the likelier of the two - but that is an inference from the

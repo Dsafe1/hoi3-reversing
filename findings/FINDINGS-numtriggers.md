@@ -147,7 +147,8 @@ Each of these is read off the bytes, not inferred from behaviour.
 cancel and the left side is the ratio in per-mille; the right side is the script number times 1000.
 The condition is therefore `ratio >= <script number>` with the ratio in `0..1`. So
 `manpower_percentage = 0.5` is half and `manpower_percentage = 50` demands fifty times the
-country's own manpower ceiling, which is unreachable. Same for `revolt_percentage = 0.3`.
+country's own `max_manpower`, which is unreachable. (That figure is ten years of income and not
+a ceiling: the pool does pass it - `FINDINGS-manpowergain.md`, section 3.) Same for `revolt_percentage = 0.3`.
 
 **`enemy_ic_ratio` is the only numeric trigger in the family that tests `<=`.** Four `setle`
 (`0f 9e`, not `0f 9d`). It is `my max_ic / Σ(enemies' max_ic) <= <script number>`, false for a

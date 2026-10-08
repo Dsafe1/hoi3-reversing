@@ -1,0 +1,55 @@
+{
+ "agent": "oil-conversion",
+ "question": "What the energy-to-crude-oil block of CCountry::UpdateIC (rva 0xF0FF5..0xF13E2) computes, instruction by instruction, and what the base conversion rate at VA 0x1A87478 is - a savegame shows a small country losing 10 energy a day for one crude oil, which the recorded summary does not explain.",
+ "source": "reversing/findings/FINDINGS-distribute.md",
+ "addresses": [
+  {
+   "rva": "0xF0FF5",
+   "kind": "instruction",
+   "name": "UpdateIC_EnergyToCrudeOil",
+   "signature": null,
+   "no_signature": null,
+   "comment": "**Energy into crude oil, read through.** rva 0xF0FF5..0xF13E2 of CCountry::UpdateIC, the country in ebx, run only with applyDailyEffects. All thousandths. need = TotalIC * 2000; spare = pool.energy - need; most = max(TotalIC * 1000 * 1000 / 20000, 1000), so 0.05 an IC and at least 1. Skipped when spare <= 0. energyNet and crudeNet are yesterday's income less expense for each good, summed off the same fifteen CGoodsPools one slot apart (income: home, convoyed_in, traded_for, +0x848, conversion_made, +0x8FC, back, +0xA64; expense: to, usage, conversion_used, convoyed_out, traded_away, less +0x824 and +0x920). rate = CCountry::GetOilConversionRate = 100 + technology_status->oil_conversion_bonus, so 0.1 plus technology. wanted = (pool.energy + energyNet - 2 * (pool.crude_oil + crudeNet)) * 1000 / (1000 + rate * 2000 / 1000) - the energy that, converted, leaves the country holding exactly twice as much energy as crude oil; `1 + 2 x rate` is this divisor and nothing else. per = max(round(1000000 / rate), 1000), the energy one unit of crude oil costs. energy = min(most * per / 1000, wanted, spare); crude = energy * rate / 1000. Then pool.crude_oil += crude, pool.energy -= energy, conversion_used.energy (+0x8F4) += energy and conversion_made.crude_oil (+0x8C8) += crude. **So a country makes at most max(0.05 x TotalIC, 1) crude oil a day, at 1 / rate energy each** - the cap is on the oil made, not the energy spent, and the rate is not `1 + 2 x technology`, both of which FINDINGS-ic.md had. The min and the final rounding go through single-precision floats: (x / 1000.0 + 0.0005) * 1000.0, then 0x401FD0 / 0xC08870.",
+   "confidence": "confirmed",
+   "evidence": "Decoded from CCountry::UpdateIC's own entry (image.decode(0x4F0CC0, 0x8FE)) so the listing is aligned, and read instruction by instruction from VA 0x4F0FF5 to the two stockpile writes at 0x4F13C8 / 0x4F13D6 and the two pool writes at 0x4F13DC / 0x4F13E2. The divide by 0x4E20 at 0x4F104A is the 0.05; the `add eax,[0x1beb7e0]` at 0x4F11B2 with the *2000/1000 and `lea edi,[eax+0x3e8]` after it is the divisor; `mov eax,0xf4240; idiv ecx` at 0x4F129F is 1000000 / rate; `imul dword ptr [ecx]` at 0x4F13A8 is energy * rate. Fits a vanilla 1936 savegame two daily passes in, with each stockpile's starting energy known: Bhutan (2 IC, no technology) is down 10.000 energy a day, the United States (153 IC, one level) 38.250, Germany (201 IC, two levels) 33.500 - most * per at rates 0.1, 0.2 and 0.3. What would show it wrong: a country whose energy is under twice its crude oil still converting."
+  },
+  {
+   "rva": "0xF17F0",
+   "kind": "function",
+   "name": "CCountry::GetOilConversionRate",
+   "signature": "int* __fastcall CCountry::GetOilConversionRate(int* out@EAX, CCountry* country@EDX) @EAX",
+   "no_signature": null,
+   "comment": "**How much crude oil a unit of energy makes: 0.1 plus the technology bonus**, in thousandths. int3-padded both sides, `ret` with no stack args: the out-pointer in eax, the country in edx. `*out = base + country->technology_status->oil_conversion_bonus (+0x98)`, where base is a function-local static cached from g_BaseOilConversionRate (VA 0x1A87478) - which the static initialiser at rva 0x8B6650 writes as (int)floor(100.5f), so 100. Three callers, all in CCountry::UpdateIC's energy-to-crude-oil block (UpdateIC_EnergyToCrudeOil, rva 0xF0FF5), which also inlines the same read at rva 0xF11A6.",
+   "confidence": "confirmed",
+   "revises": "It was `likely`, with the base an unidentified cached global and the name 'inferred from what its one use converts'. The base is now read - 100, a tenth - and the use is read through, so the comment says what the number is and the confidence is raised. Name and signature are unchanged.",
+   "evidence": "The initialiser at VA 0xCB6650 is `movss xmm0,[0x160a684]; push ecx; movss [esp],xmm0; call 0x401fd0; add esp,4; call 0xc08870; mov [0x1a87478],eax; ret`, and image.read(0x160A684) is the float 100.5. image.findValue(0x1A87478) gives four references: that write, this function's read at 0x4F1803, UpdateIC's inlined read at 0x4F1193 and one unrelated reader at 0x500F3E. The savegame fit in UpdateIC_EnergyToCrudeOil's evidence needs base = 0.1 exactly: 10 energy for 1 crude oil with no technology. What would show it wrong: a country with no conversion technology converting at any other ratio."
+  },
+  {
+   "rva": "0x8B6650",
+   "kind": "function",
+   "name": "InitBaseOilConversionRate",
+   "signature": "void __cdecl InitBaseOilConversionRate()",
+   "no_signature": null,
+   "comment": "A static initialiser, eight instructions: g_BaseOilConversionRate (VA 0x1A87478) = (int)floor(100.5f), the float at VA 0x160A684. One of the floor(N.5f) statics trap 8 describes - the base rate of the energy-to-crude-oil conversion is not a define and no file can move it. In no virtual table. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "scripts/disasm.py 0xCB6650 0x24: the eight instructions end in a bare ret followed by int3, and the function is the only writer image.findValue finds for 0x1A87478. What would show it wrong: a second writer of the global."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CTechnologyStatus",
+   "offset": "0x98",
+   "name": "oil_conversion_bonus",
+   "type": "int",
+   "comment": "thousandths. What technology adds to the crude oil a unit of energy makes: CCountry::GetOilConversionRate (0xF17F0) is 100 - a tenth - plus this, and the energy-to-crude-oil block of CCountry::UpdateIC (UpdateIC_EnergyToCrudeOil, 0xF0FF5) inlines the same sum at 0xF11AC. A savegame's Germany has two levels of the technology whose effect is `energy_to_oil_conversion = 0.1` and converts at 0.3.",
+   "revises": "The comment said UpdateIC reads it 'to get `1 + 2 x rate`', which is one divisor in the block and reads as though it were the rate. The block is now read through; the name and type are unchanged.",
+   "evidence": "`mov eax,[ebx+0xdf8]; mov eax,[eax+0x98]; add eax,[0x1beb7e0]` at VA 0x4F11A6. The savegame fit: Germany down 33.500 energy a day at 201 IC, which is 10.05 crude oil at 1 / 0.3 energy each. What would show it wrong: the conversion not speeding up when the technology is researched."
+  }
+ ],
+ "vftable_slots": {},
+ "frontier": [
+  "0x100F3E - an `imul dword ptr [0x1a87478]` in a function nothing has read: a third use of the 0.1 that is the base oil conversion rate"
+ ],
+ "slots_noted": "None of the three is a virtual: GetOilConversionRate and the initialiser are called directly or from the CRT's initialiser table, and the block is a label inside UpdateIC.",
+ "notes": "g_BaseOilConversionRate (VA 0x1A87478) is not entered as a global: it lies past what the file backs, so nothing can be read at it statically, and it is named only in the comments of the two functions that touch it. FINDINGS-ic.md carries a correction note at the paragraph this supersedes."
+}
