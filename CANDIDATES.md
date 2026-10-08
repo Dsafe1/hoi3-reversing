@@ -922,7 +922,7 @@ of it.
 
 ## What has already been read
 
-99 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
+100 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
 header lives. This replaces the `Done` archive: the archive restated each file's headline and named
 only 40 of the 67 there were then, so it was both longer and less useful than a complete list.
 
@@ -1044,6 +1044,7 @@ the six it was missing were wave 15's.
 | `findings/FINDINGS-history.md` | the history subsystem: a do/undo replay log, read every day, and what it costs |
 | `findings/FINDINGS-guicontainers.md` | the subwindow map, and every `CWindowType::LoadKey` token's container |
 | `findings/FINDINGS-guistatic.md` | the GUI read statically: the child lists, the empty registries, the ledger's class |
+| `findings/FINDINGS-listbox.md` | how a list box lays out what is in it: rows, as many as go whole into the box's height, an entry with no row hidden and none cut off, `spacing` unused, scrolling by the row - and the two lists that go by their entries' heights instead |
 | `findings/FINDINGS-textureload.md` | which file a texture's name loads: a `.tga` is its `.dds` wherever one exists on the search path, one way only, and the three pictures the install holds as both |
 | `findings/FINDINGS-uinumbers.md` | what the interface already computes |
 | `findings/FINDINGS-uinumbers2.md` | what the interface already computes, part two |
