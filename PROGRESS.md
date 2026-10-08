@@ -166,7 +166,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CConvoyConstruction` | `CConstruction` |  | 1 | 1/1 | 2 | CConstruction.hpp | 40 | placed |  |
 | `CConvoyEscortOrder` | `CNavalOrder` |  |  | 1/3 | 2 |  |  | placed |  |
 | `CConvoyRaid` | `CNavalOrder` |  |  | 1/1 | 2 |  | 62 | placed |  |
-| `CCountry` | `CPersistent` |  | 238 + 71 lua | 69/126 | 89 | CCountry.hpp | 108 | read |  |
+| `CCountry` | `CPersistent` |  | 239 + 71 lua | 69/126 | 89 | CCountry.hpp | 108 | read |  |
 | `CCountryDate` | `CPersistent` |  |  | 1/2 | 1 |  |  | placed |  |
 | `CCountryHistory` | `CHistoryContainer` |  |  |  | 1 | CCountryHistory.hpp | 108 | keys | **read**: `history/countries`, where a date is a key. See GameClasses/CCountryHistory.hpp |
 | `CCountryValue` | `CPersistent` | 0x14 | 2 | 1/2 | 1 |  | 9,078 | placed |  |
@@ -297,7 +297,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CStrategicRedeploymentOrder` | `COrder` |  | 2 | 5/10 | 3 | CStrategicRedeploymentOrder.hpp | 1,197 | part |  |
 | `CStrategicWarfare` | `CPersistent` |  | 3 lua |  | 1 |  | 108 | keys |  |
 | `CStringIntInt` | `CPersistent` | 0x2C | 3 |  | 1 |  |  | keys |  |
-| `CSubUnit` | `CReferenceObject` | 0xD8 | 28 | 8/13 | 10 |  |  | read |  |
+| `CSubUnit` | `CReferenceObject` | 0xD8 | 28 | 8/13 | 14 |  |  | read |  |
 | `CSupportAttackOrder` | `COrder` |  | 1 |  | 2 | COrder.hpp |  | keys |  |
 | `CSystemSettings` | `CPersistent` |  |  |  |  |  |  | RTTI |  |
 | `CTechnologyStatus` | `CTechStatistics` `PAVCTechnology::__CArray` |  | 30 + 1 lua |  | 5 | CSubUnitDefinition.hpp | 108 | read |  |
@@ -308,7 +308,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CTraitGainTracker` | `CPersistent` |  | 4 |  | 6 | CTrait.hpp | 24,137 | keys |  |
 | `CTransportSuppliesOrder` | `CAirOrder` |  |  | 2/2 | 2 |  |  | placed |  |
 | `CUndeclaredWar` | `CPersistent` |  | 6 |  | 3 | CWar.hpp | 1 | read | **read**: the save's record of a war nobody declared |
-| `CUnit` | `PAVCSubUnit::__CList` `CSelectable` `CReferenceObject` |  | 81 + 1 lua |  | 43 | CUnit.hpp |  | read |  |
+| `CUnit` | `PAVCSubUnit::__CList` `CSelectable` `CReferenceObject` |  | 82 + 1 lua |  | 44 | CUnit.hpp |  | read |  |
 | `CUnitDeployment` | `CDeployment` |  |  | 3/4 | 1 |  | 49 | placed |  |
 | `CUnitPlan` | `CPersistent` | 0x90 | 15 | 10/16 | 13 |  | 8,827 | read | **read**: a battle plan as the save keeps it |
 | `CVariables` | `_0A::anon::PAUCVariable::__CTernary` `CPersistent` |  | 1 |  | 3 | CFlags.hpp | 216 | part |  |
@@ -363,7 +363,7 @@ Definitions out of `common/` and the rest of the mod. Their `LoadKey` is the gra
 | `CGovernmentPosition` | `CModifier` |  | 4 + 3 lua |  | 1 |  | 11 | keys | one government position, a CModifier; its key and index are read |
 | `CGraphicalCultureType` | `CPersistent` |  |  |  |  |  | 8 | RTTI |  |
 | `CHasCombinedArmsBonus` | `CBoolTrigger` |  |  | 2/153 |  |  |  | RTTI |  |
-| `CHistoricalModel` | `CPersistent` | 0x30 | 6 |  | 2 | CHistoricalModel.hpp | 2,484,216 | read | the unit models. **2.48 million objects, 114 MB** - every country keeps a set per unit type. The picker they feed is where `historicalModelLogicFix` patches |
+| `CHistoricalModel` | `CPersistent` | 0x30 | 6 |  | 4 | CHistoricalModel.hpp | 2,484,216 | read | the unit models. **2.48 million objects, 114 MB** - every country keeps a set per unit type. The picker they feed is where `historicalModelLogicFix` patches |
 | `CHistoryContainer` | `CPersistent` |  |  |  | 9 | CCountryHistory.hpp | 251 | keys |  |
 | `CHistoryEntry` | `CPersistent` |  | 1 |  | 3 |  | 420 | part |  |
 | `CIdeology` | `CModifier` |  | 3 + 2 lua |  | 1 |  | 10 | keys | one ideology, a CModifier; its key and index are read |
@@ -510,7 +510,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CDistributeProduction` | `CDistributionSetting` |  | 2 |  | 6 |  | 108 | part |  |
 | `CDistributeReinforcement` | `CDistributionSetting` |  | 1 |  | 4 |  | 108 | part |  |
 | `CDistributeResearch` | `CDistributionSetting` |  |  |  | 4 |  | 108 | RTTI |  |
-| `CDistributeSupply` | `CDistributionSetting` |  |  |  | 3 |  | 108 | RTTI |  |
+| `CDistributeSupply` | `CDistributionSetting` |  |  |  | 4 |  | 108 | RTTI |  |
 | `CDistributeUpgrade` | `CDistributionSetting` |  |  |  | 4 |  | 108 | RTTI |  |
 | `CDistributionSetting` |  | 0x28 | 4 + 1 lua |  | 3 | CCountry.hpp |  | part |  |
 | `CDivisionDesigner` | `CReloadableInterface` |  |  |  |  |  | 1 | RTTI |  |

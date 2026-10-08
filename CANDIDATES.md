@@ -922,7 +922,7 @@ of it.
 
 ## What has already been read
 
-93 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
+95 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
 header lives. This replaces the `Done` archive: the archive restated each file's headline and named
 only 40 of the 67 there were then, so it was both longer and less useful than a complete list.
 
@@ -986,6 +986,8 @@ the six it was missing were wave 15's.
 | `findings/FINDINGS-navaldetection.md` | naval detection, positioning and fleet disengagement |
 | `findings/FINDINGS-airnaval.md` | air and naval missions, and that a naval row's `+0x84` counts ships |
 | `findings/FINDINGS-unitdef.md` | what a division's stats are made of - sum, cap, mean |
+| `findings/FINDINGS-unitstart.md` | what a brigade starts a new game with: its historical model's levels and where a default model comes from, strength and the reserve penalty, organisation, the experience a training law gives, the officers a country's units bring - and all 3706 starting brigades reproduced against a save |
+| `findings/FINDINGS-unitdaily.md` | what a unit draws each day: supply and fuel consumption (a hundredth more a technology level), the draw and when in the day it falls, `CDistributeReinforcement::Distribute` and `CDistributeUpgrade::Distribute` read through, the build discount with `ic_efficiency` in it, the supply slider's need - with brigade strength, doctrines and Germany's 1,469 upgrade lines reproduced from a savegame |
 | `findings/FINDINGS-leaders.md` | leaders: experience, skill, traits, and that promotion skill loss does not exist |
 | `findings/FINDINGS-supply.md` | how supply reaches a unit |
 | `findings/FINDINGS-manpower.md` | manpower: what the drain is made of |

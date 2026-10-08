@@ -3499,9 +3499,10 @@
    "kind": "function",
    "name": "CCountry::GetCategoryBuildDiscount",
    "signature": "int* __stdcall CCountry::GetCategoryBuildDiscount(int* out@ESI, CCountry* country@stack:4, CTechnologyCategory* category@stack:8)",
-   "comment": "The discount a technology category earns, in thousandths, which the build cost is scaled by as (1000 - this). Takes the country's ability in that category - its own level at +0x698, or the sharer's if a tag at +0x6A8 names one with a higher level, the same lookup GetAbility makes - floors it at 0 and measures it against 5.000: below that the result is negative and the cost goes up, at 100 per point; above it 50 per point with everything past 1.000 halved first. Then adds the country's INDUSTRIAL_EFFICIENCY modifier (74) and CTechnologyStatus +0x94, and caps the whole at 990, so at most 99% off. The name is BiceLib's.\n\n**The out pointer travels in ESI, not on the stack** - that is the whole of why the recorded signature wanted ret 12 and the function does ret 8. Only two things are pushed, the country and the category; ESI is never written in the body, only read (every store is `mov [esi], ...`), and the return is `mov eax, esi` at 0x4E1BCA.",
+   "no_signature": null,
+   "comment": "The discount a technology category earns, in thousandths, which a build cost is scaled by as (1000 - this) and a build time takes off its first factor. Takes the country's ability in that category - its own level at +0x698, or the sharer's if a tag at +0x6A8 names one with a higher level, the same lookup GetAbility makes - floors it at 0 and measures it against 5.000. Below that the result is negative and the cost goes up, at 100 a point. Above it, **a surplus of more than one point is first put through FixedPointSqrt** (0x69CEC0, the rough square root research uses for the same purpose), and what comes out is worth 50 a point. Then it adds the country's INDUSTRIAL_EFFICIENCY modifier (74) and CTechnologyStatus +0x94 - what the technology key `ic_efficiency` adds up to - and caps the whole at 990, so at most 99% off. The name is BiceLib's.\n\n**The out pointer travels in ESI, not on the stack** - that is the whole of why the recorded signature wanted ret 12 and the function does ret 8. Only two things are pushed, the country and the category; ESI is never written in the body, only read (every store is `mov [esi], ...`), and the return is `mov eax, esi` at 0x4E1BCA. See reversing/findings/FINDINGS-unitdaily.md, section 6.",
    "confidence": "confirmed",
-   "source": "BiceLib/GameClasses/CProvinceBuilding.hpp:62"
+   "source": "reversing/findings/FINDINGS-unitdaily.md"
   },
   {
    "rva": "0xE21E0",
@@ -4167,9 +4168,10 @@
    "kind": "function",
    "name": "CDistributeReinforcement::Distribute",
    "signature": "CFixedPoint* __thiscall CDistributeReinforcement::Distribute(CDistributeReinforcement* this, CFixedPoint* result@stack:4, __int64 available@stack:8, bool flag@stack:16)",
-   "comment": "**Slot 0 of its virtual table, and where the manpower tooltip's two numbers come from.** The class derives from `CDistributionSetting`, so this is the reinforcement slider spending what it has been allocated; every sibling distributor - supply, upgrade, production, research, consumer goods, lend lease, NCO, diplomacy, espionage - has its own body at the same slot.\n\nIt zeroes `CCountry +0xA98`, `+0xA9C` and `+0xAA0`, then walks the country's units and every subunit under each, and rebuilds all three from nothing. `this + 0x18` is the country throughout.\n\n**The stack arguments are three, not one**, which is why the recorded signature wanted ret 4 and the function does ret 16: a hidden return pointer at [ebp+8] for the eight-byte fixed point it answers, the amount it has been given as a 64-bit `fpml::fixed_point<__int64,48,15>` split across [ebp+0xC] and [ebp+0x10], and a byte flag at [ebp+0x14]. This body ignores the flag; the consumer-goods (0x118C50) and production (0x119D10) bodies read it and skip their last step when it is set. `__int64` is written for the middle argument only so the arithmetic sizes - it is the same fixed point type as the return.",
+   "no_signature": null,
+   "comment": "**Slot 0, read through**: 0x51BA60 to the `ret 0x10` at 0x51C669. The reinforcement slider spending what it has been allocated, and where the manpower tooltip's two numbers come from. `this + 0x18` is the country throughout.\n\nbudget = base_percentage x available x factor in thousandths; free = the same share of lend_lease_ic (+0x608). It zeroes CCountry +0xA98, +0xA9C and +0xAA0, then builds a list: the country's units (+0xBAC) less those with an expeditionary owner, then its second unit list (+0xBBC), each needing reinforcements_active (+0xA6), **a unit with +0xA4 set going to the front**. For a fleet or an air unit a crowding factor is worked out from its base - the base's room over the brigades stationed there, clamped to 250..1000 (g_ReinforcementCrowdingFloor).\n\nPer brigade that passes CSubUnit::CanReinforce: max = GetMaxStrength(0,0); share = (max - strength) x 1000 / max, **and a share of zero skips the brigade** - it is not touched until it is short by a thousandth of what it may have. speed = (1000 + REINFORCEMENT_BONUS) x (1000 + UNIT_REPAIR) x crowding x the unit's supply_received_percentage; a day's gain = speed x (definition max_strength / 30) x g_ReinforcementDailyShare, **a sixtieth of full strength at full speed**. The men it takes are the gain's share of build_cost_manpower, and where the country has fewer the gain is cut to what it has. ic = max(BuildCostIC, 1.000) x repair_cost_multiplier (+0x104), x max(1, -5 x RESERVES_PENALTY_SIZE) for a reserve - **a cost by the day, with no term in how much is brought back**. Where the gain would overfill the brigade, what is added is **missing x 1000 / speed** and ic and the men are scaled to that.\n\nOnly while budget > 0: resources are charged for ic less what is left of `free`, the strength is raised and clamped, the experience becomes (1 - g) x old + g x UNIT_START_EXPERIENCE where g is the share of full strength added (and PRIDE_BONUS_EXP is added to the old figure of a ship that is the pride - read, not understood), the manpower comes off the pool, and **the whole ic comes off the budget afterwards, so the share overspends by one brigade**. ic and the manpower needed are added to the counters whether or not anything was spent, which is what makes +0xA98 the slider's need. It ignores the flag and returns zero.\n\n**The stack arguments are three, not one**: a hidden return pointer at [ebp+8], the allocation as a 64-bit fpml::fixed_point<__int64,48,15> across [ebp+0xC] and [ebp+0x10], and a byte flag at [ebp+0x14]. See reversing/findings/FINDINGS-unitdaily.md, section 4, and reversing/findings/FINDINGS-manpower.md for the counters.",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-manpower.md"
+   "source": "reversing/findings/FINDINGS-unitdaily.md"
   },
   {
    "rva": "0x11BBFC",
@@ -4212,10 +4214,11 @@
    "rva": "0x11CE60",
    "kind": "function",
    "name": "CDistributeUpgrade::Distribute",
-   "comment": "**Slot 0.** Not read line by line. It zeroes CCountry +0xAA4, upgrade_cost, at 0x51CF4C and rebuilds it at 0x51D4E1; reads CCountry +0x608 at 0x51CEE9; reads the three `military` defines SHIP_UPGRADE_SPEED_MOD (+0x2AC), AIR_UPGRADE_SPEED_MOD (+0x2B0) and LAND_UPGRADE_SPEED_MOD (+0x2B4) at 0x51D197, 0x51D1AC and 0x51D1C1; calls CCountry::GetBuildTime (0x51D286) and CCountry::GetCategoryBuildDiscount (0x51D34F); and charges resources at 0x51D56E.",
-   "confidence": "inferred",
-   "source": "reversing/findings/FINDINGS-production.md",
-   "signature": "CFixedPoint* __thiscall CDistributeUpgrade::Distribute(CDistributeUpgrade* this, CFixedPoint* out@stack:4, __int64 available@stack:8, bool flag@stack:16)"
+   "signature": "CFixedPoint* __thiscall CDistributeUpgrade::Distribute(CDistributeUpgrade* this, CFixedPoint* out@stack:4, __int64 available@stack:8, bool flag@stack:16)",
+   "no_signature": null,
+   "comment": "**Slot 0, read through**: 0x51CE60 to the `ret 0x10` at 0x51D5B5. budget = base_percentage x available x factor in thousandths; free = the same share of lend_lease_ic. It zeroes its own +0x20 (an __int64, the count of brigades upgrading in fixed 15, which the tooltip prints as UNITS) and CCountry +0xAA4, upgrade_cost. The list is the country's second unit list (+0xBBC) and then its own units (+0xBAC) less those with an expeditionary owner, each needing upgrade_active (+0xA5), a unit with +0xA4 set going to the front.\n\nFor every node of every brigade's `technologies` whose technology has canUpgrade (+0x314) and whose level is below the country's level_by_technology (or, for a government in exile, the first member of its faction's if higher): days = CCountry::GetBuildTime(country, the brigade's definition, 0); rate = max(1000000 / (days x 1000) x 2, g_UpgradeLeastRate) x the SHIP_/AIR_/LAND_UPGRADE_SPEED_MOD define, **thousandths of a level a day**. cost = BuildCostIC x (1000 + build_cost_by_unit_type - GetCategoryBuildDiscount) / 1000, x (1000 + RESERVES_PENALTY_SIZE) / 1000 for a reserve; daily = cost / the brigade's technology count x g_ReinforcementDailyShare / levels behind. **A technology whose `change` (+0x288) is clear - a doctrine - costs nothing and moves a whole level a day.** Where daily is more than the budget left, the progress is budget x 2 x rate / 1000 and the rest of the budget is paid; after that nothing more moves. progress is added to the node's +0x8; at 1000 it goes back to zero and the level goes up one, and after the brigade's last technology CUnit::RebuildDefinition is called on its unit. upgrade_cost takes every `daily`, spent or not - the slider's need. Resources are charged once at the end for what was spent less `free`. It ignores the flag and returns zero.\n\n**Checked against a savegame two days in**: with the save's shares and the laws the day ran under, two days of this reproduce the `{level progress}` pair on all 1,469 of Germany's technology lines, including the wing the share ran out on (0.008 where its neighbours have 0.020) and the three after it with nothing. See reversing/findings/FINDINGS-unitdaily.md, section 5.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-unitdaily.md"
   },
   {
    "rva": "0x11DBB0",
@@ -7233,18 +7236,20 @@
    "kind": "function",
    "name": "CSubUnit::LoadKey",
    "signature": "void __thiscall CSubUnit::LoadKey(CSubUnit* this, CParseContext* parse, SaveToken key)",
-   "comment": "**The keys its switch names**, 13 of them, one case each: `builder`, `current_distance`, `experience`, `highest`, `historical_model`, `home`, `is_reserve`, `name`, `organisation`, `pride`, `strength`, `sunk_by`, `type`. Inherited by 3 classes in all. Read from the switch by reversing/scripts/definitions.py. A loader may resolve further keys as names out of a database - CGovernment and CMinister both do - but anything that is neither is dropped in silence.",
+   "no_signature": null,
+   "comment": "**The keys its switch names**, 13 of them, one case each: `builder`, `current_distance`, `experience`, `highest`, `historical_model`, `home`, `is_reserve`, `name`, `organisation`, `pride`, `strength`, `sunk_by`, `type`. Inherited by 3 classes in all. Read from the switch by reversing/scripts/definitions.py. **Where each lands**: name 0x1A; type 0xD9, a lookup in the sub unit database and CSubUnit::SetType, a miss logging `Unknown subunit` from subunit.cpp; home 0x254 into +0x64; strength 0x259 into +0x5C; experience 0x48B into +0x3C; organisation 0x4C8 into +0x60; current_distance 0x504 into +0xC8; historical_model 0x513, `atoi` into +0xD0; builder 0x57E into +0x34; is_reserve 0x57F into +0xA4; sunk_by 0x5A0 into +0x9C; highest 0x5C0 into +0x30; pride 0x750 into +0xA5. **A key that is none of them is looked up as a technology's name**: on a hit the value is read as `{ level progress }` and written into the brigade's node for that technology, where it has one - which is how a save's `infantry_guns = { 1 0.024 }` comes back, and an order of battle may carry the same. Anything else goes to CReferenceObject::LoadKey.",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-definitions.md"
+   "source": "reversing/findings/FINDINGS-unitstart.md"
   },
   {
    "rva": "0x1A9130",
    "kind": "function",
    "name": "CSubUnit::AfterLoad",
    "signature": "void __thiscall CSubUnit::AfterLoad(CSubUnit* this)",
-   "comment": "CPersistent slot 5 on a brigade, and the same id minting as CUnit::AfterLoad: it reads and writes the generator at 0x170AF78. Reached from CRegiment's vftable slot 5. See reversing/findings/FINDINGS-oob.md.",
+   "no_signature": null,
+   "comment": "CPersistent slot 5 on a brigade. **First the id**, the same minting as CUnit::AfterLoad: it reads and writes the generator at 0x170AF78. **Then, only where historical_model is not -1:** the owner's model of that number for this type is applied (CHistoricalModel::ApplyTo), and every technology of the brigade's whose `change` is no and whose level is still 0 takes the country's level. Then CSubUnit::ApplyTechnologies with keepStrength set. **Then, again only where there is a model:** strength_ceiling is zeroed, strength becomes min(strength, slot 12's maximum with the flags 1 and 0), organisation becomes min(organisation, CSubUnit::GetMaxOrganisation with 1 and 0), and strength_ceiling is raised to the strength. A brigade with no historical_model line gets none of that: every level stays 0 and it keeps the constructor's 100.000 of both. Reached from CRegiment's vftable slot 5. See reversing/findings/FINDINGS-oob.md and reversing/findings/FINDINGS-unitstart.md, section 4.",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-oob.md"
+   "source": "reversing/findings/FINDINGS-unitstart.md"
   },
   {
    "rva": "0x1AB680",
@@ -7271,9 +7276,10 @@
    "kind": "function",
    "name": "CSubUnit::GetMaxOrganisation",
    "signature": "int* __stdcall GetMaxOrganisation(int* out@EAX, CSubUnit* subunit@stack:4, int zero@stack:8, int alsoZero@stack:12)",
-   "comment": "Answers through a hidden return pointer, ret 0xC, the same shape as slot 12's maximum strength. Walks the HQ chain above the unit - +0x1F4 being the oob level, 4 for a theatre, 3 for an army group, 2 for an army. The name is BiceLib's, from what CSubUnit::ApplyTechnologies clamps with it.",
+   "no_signature": null,
+   "comment": "Works out one number and hands the rest to CSubUnit::GetMaxOrganisationWithBonus (0x1AB7C0): **what the army headquarters above the brigade adds.** From the brigade's unit it looks for a unit of oob_level 2 - the unit itself, or its parent, or its parent's parent through a level 3 - and where there is one the bonus is CUnit::CommandReach from it times its leader's skill (CLeader +0x70) x1000, over 1000. No such unit, no bonus. The two stack arguments after the brigade are the reserve gate's two flags and are passed straight on; CSubUnit::AfterLoad passes (1, 0). Answers through a hidden return pointer, `ret 0xC`. The name is BiceLib's, from what CSubUnit::ApplyTechnologies clamps with it. See reversing/findings/FINDINGS-unitstart.md, section 8.",
    "confidence": "confirmed",
-   "source": "BiceLib/GameClasses/CRegiment.hpp:99"
+   "source": "reversing/findings/FINDINGS-unitstart.md"
   },
   {
    "rva": "0x1ABA60",
@@ -7333,9 +7339,10 @@
    "kind": "function",
    "name": "CRegiment::FuelConsumption",
    "signature": "int* __stdcall FuelConsumption(CRegiment* regiment@EAX, int* out@stack:4)",
-   "comment": "Per regiment fuel consumption; the regiment in eax, ret 4. The same shape as the unit level one, reached through the regiment's own unit at +0xB0.",
+   "no_signature": null,
+   "comment": "Per regiment fuel consumption; the regiment in eax, ret 4. The same potency as the unit level one, reached through the regiment's own unit at +0xB0, and zero for a land regiment whose unit is on a strategic redeployment. **Unlike CUnit::FuelConsumption it scales by strength**: unless the regiment's slot 10 answers true, the figure is multiplied by strength x 1000 / the definition's max_strength. So the fuel a brigade shows for itself and the fuel its unit is charged are not the same sum; only the unit level routine is called by anything that moves goods.",
    "confidence": "confirmed",
-   "source": "reversing/CLASSES.md:267"
+   "source": "reversing/findings/FINDINGS-unitdaily.md"
   },
   {
    "rva": "0x1ADBF0",
@@ -7404,10 +7411,11 @@
    "rva": "0x1B0870",
    "kind": "function",
    "name": "CSubUnitDataBase::BuildHistoricalModels",
-   "comment": "Called once, at 0x6385C8, on CSubUnitDataBase::GetInstance' result, right after the `country database <` timer and before `Historical Models Initialized` (eu3application.cpp:1144). Extent 0x5B0870..0x5B1B95, `ret 4`. **This is where the 255 MB of historical models comes from** - census.py measured 5,323,320 objects at 48 bytes, being 108 country tags x 1,643 unit types x HISTORICAL_MODEL_MAX (30). It needs both the sub-unit definitions and the country database, which is why it sits after both.",
+   "signature": "void __stdcall CSubUnitDataBase::BuildHistoricalModels(CSubUnitDataBase* database)",
+   "no_signature": null,
+   "comment": "Called once, at 0x6385C8, on CSubUnitDataBase::GetInstance' result, right after the `country database <` timer and before `Historical Models Initialized` (eu3application.cpp:1144). Extent 0x5B0870..0x5B1B95, `ret 4`. **It reads the files under units/models over the defaults every country already has** - the models themselves are made by CHistoricalModelSet's constructor, one set a type, as each country is built. Per file: the name is upper-cased and given to CCountryDataBase::GetTag, and a file whose name does not begin with a known tag is skipped whole; each statement's key is split on the dot into a unit type and a number (`broken statement in model file`, `unknown unit type in model file`); the country's model of that number is taken, or a new one added when the number is exactly one past the last (`error in model order in model file` otherwise); **the model's list is emptied** and the block loaded into it through CHistoricalModel::LoadKey. So a model from a file holds only what the file lists. The last loop runs CHistoricalModelSet::CheckComplete over every country's every set. census.py measured 5,323,320 model objects in BlackICE, 108 tags x 1,643 types x HISTORICAL_MODEL_MAX (30).",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-startup.md",
-   "signature": "void __stdcall CSubUnitDataBase::BuildHistoricalModels(CSubUnitDataBase* database)"
+   "source": "reversing/findings/FINDINGS-unitstart.md"
   },
   {
    "rva": "0x1B1BE0",
@@ -7680,9 +7688,10 @@
    "kind": "function",
    "name": "CUnit::SupplyConsumption",
    "signature": "int* __stdcall SupplyConsumption(CUnit* unit, int* out, bool withoutLeaders)",
-   "comment": "Unit supply consumption in thousandths, written through out and returned in eax; ret 0xC.",
+   "no_signature": null,
+   "comment": "Unit supply consumption in thousandths, written through out and returned in eax; ret 0xC. A potency starts at 1000; unless withoutLeaders, it takes the owner's SUPPLY_CONSUMPTION modifier (49), loses the army group leader's skill x 50 scaled by CommandReach - only where the unit stands in a province (+0x130) - and gains CommandEffect(unit, 2), floored at 0. Then per brigade: (potency + extra_consumption (+0xCC) x 10) x the definition's supply_consumption / 1000, and **unless the unit is naval** (slot 16) x strength x 1000 / the definition's max_strength / 1000. extra_consumption is the sum of every technology level the brigade holds, so each level is 1% more. Last, a land unit whose order answers 0x5A4 - a strategic redeployment - has the total x STRAT_REDEP_SUPPLY_MOD (military +0x1E8) / 1000, twice in Their Finest Hour. Both callers that move goods pass withoutLeaders = 0. **Measured**: with no leaders, the formula gives a capital's garrison to the thousandth in 38 of 65 savegame capitals. See reversing/findings/FINDINGS-unitdaily.md, section 2.",
    "confidence": "confirmed",
-   "source": "reversing/CLASSES.md:243"
+   "source": "reversing/findings/FINDINGS-unitdaily.md"
   },
   {
    "rva": "0x1BB7A0",
@@ -7698,9 +7707,10 @@
    "kind": "function",
    "name": "CUnit::ConsumeSuppliesAndFuel",
    "signature": "void __stdcall ConsumeSuppliesAndFuel(CUnit* unit)",
-   "comment": "The daily supply and fuel draw for one unit. Asks CUnit::SupplyConsumption (0x1BB560) and CUnit::FuelConsumption (0x1BB7A0) what the unit wants, takes what it can get, and writes CUnit::supply_received_percentage (+0xFC) and CUnit::fuel_received_percentage (+0x100) as taken*1000/wanted (1000 when fully supplied, -1 when nothing was wanted, 0 when nothing was available). The country it bills is the expeditionary_owner (+0x28C) where CUnit +0x290 is set, the owner (+0x124) otherwise, through CCountryTag::GetCountry (0x2610). Two paths, chosen on g_CCurrentGameState +0xC9C: >0 draws straight out of CCountry::GetPool(country) (0xF4DE0 - pool_in_exile at +0x9F8 when use_own_pool, the capital province's pool at +0x15C otherwise), the inline copy of that function appearing four times; <=0 walks the supply network - the unit's supply source province, its supply_depot_id (+0x48) into g_CMap +0x2200, and draws that province's pool.supplies (+0x164) and pool.fuel (+0x168) pro rata against the province's need.supplies (+0x24C) and need.fuel (+0x250). Where the depot is controlled by another country a lend-lease conversion runs: the amount is scaled by a rate built from CDefines +0xCC and the receiving country's CGoodsPool at +0x7DC is credited, the supplier's at +0x86C, and both countries' pools are moved. Fuel is only taken when the unit is moving (movement_order_remaining_provinces_count > 0) or is naval and 0x1CDC30 says no; a land or air unit standing still burns none. The last act, for the player's own units only, is to set the byte at +0x1BC on both objects hanging off CUnit +0x164 (+0x13C and +0x140) when either received percentage has fallen below Define50 - the out-of-supply marker on the counter.",
+   "no_signature": null,
+   "comment": "The daily supply and fuel draw for one unit. Asks CUnit::SupplyConsumption (0x1BB560) and CUnit::FuelConsumption (0x1BB7A0), both with leaders, what the unit wants, takes what it can get, and writes CUnit::supply_received_percentage (+0xFC) and fuel_received_percentage (+0x100) as taken*1000/wanted. The country it bills is the expeditionary_owner (+0x28C) where CUnit +0x290 is set, the owner (+0x124) otherwise.\n\n**Three callers**: CUnit::UpdateDaily at 0x5BB32C, after troop rotation and before attrition; RunCountryDailyPass at 0x4DB2C0, for each finished unit still in the deployment queue; and 0x678FD9, in the pass CInGameIdler::Enter runs as a game starts.\n\nTwo paths, chosen on g_CCurrentGameState +0xC9C. **> 0, the arcade path**: taken = min(wanted, CCountry::GetPool(payer)) straight out of the national stockpile, the payer's unit_demand (+0xA48, +0xA4C) takes what was asked, and nothing is booked to `usage`; a unit that wants nothing keeps the figure it had. **<= 0** walks the supply network - the unit's supply source province, its supply_depot_id (+0x48) into g_CMap +0x2200, and draws that province's pool.supplies (+0x164) and pool.fuel (+0x168) pro rata against the province's need (+0x24C, +0x250). On that path the amount taken is added to the supplying country's usage.supplies (+0x994) **only when the unit stands in that country's acting capital** (0x5BC197), which is why a save's `usage.supplies` is the capital's garrison plus the capital's throughput. Where the depot is controlled by another country a lend-lease conversion runs: the amount is scaled by a rate built from SUPPLYPOOL_DAYS and the pools at +0x7DC and +0x86C are credited.\n\n**Fuel is only taken when the unit is moving** (movement_order_remaining_provinces_count > 0) **or is a fleet out of its own port** (naval and CUnit_IsAtOwnBase says no), on both paths; a land or air unit standing still burns none. The last act, for the player's own units only, is the out-of-supply marker on the counter. See reversing/findings/FINDINGS-unitdaily.md, sections 1 and 3.",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-manpower.md"
+   "source": "reversing/findings/FINDINGS-unitdaily.md"
   },
   {
    "rva": "0x1BD240",
@@ -23749,6 +23759,136 @@
    "comment": "Builds an instantTextBoxType widget: writes the vftable 0x15FDB70, keeps the name at +0x54, maxWidth and maxHeight at +0x8C and +0x90, the text at +0xD0 and the format at +0xF0, and makes the CGuiText that draws it at +0x94 from the same arguments. `ret 0x38`. The struct's name is the record's own; the class has no RTTI.",
    "confidence": "confirmed",
    "source": "reversing/findings/FINDINGS-textdraw.md"
+  },
+  {
+   "rva": "0x1A88F0",
+   "kind": "function",
+   "name": "CSubUnit::CSubUnit",
+   "signature": "CSubUnit* __stdcall CSubUnit::CSubUnit(CSubUnit* this) @EAX",
+   "no_signature": null,
+   "comment": "**What a brigade, ship or wing holds before any key is read.** The object is on the stack and comes back in eax, `ret 4`. Writes CSubUnit's vftable 0x15C79F4 over CReferenceObject's, then: strength (+0x5C) and organisation (+0x60) **100000**, more than any type has; experience (+0x3C) **-1000, 'not given'**, which CInGameIdler::Enter looks for when a new game starts; historical_model (+0xD0) -1; strength_ceiling (+0x30) 0; is_reserve and pride (+0xA4, +0xA5) 0 in one word store; contributes_to_unit (+0xD4) 1; both tags `---`. It also makes the 0x228 byte definition the brigade owns at +0x58. The regiment, wing and ship constructors all start here and then write their own vftable. See reversing/findings/FINDINGS-unitstart.md, section 2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-unitstart.md"
+  },
+  {
+   "rva": "0x1ABCF0",
+   "kind": "function",
+   "name": "CSubUnit::GetOwner",
+   "signature": "CCountry* __cdecl CSubUnit::GetOwner(CSubUnit* subunit@EAX) @EAX",
+   "no_signature": null,
+   "comment": "**The country a brigade answers to.** Where it is in a unit (+0xB0): the unit's expeditionary_owner (+0x28C) when that tag's id half is set, else the unit's owner (+0x124). Where it is in none: its builder (+0x34) when that id is set, else its own owner tag (+0x94). Bare `ret`s, the brigade in eax. So a brigade on loan is reckoned by the country it was lent from - for its reserve penalty, its officers and its organisation modifier alike. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-unitstart.md"
+  },
+  {
+   "rva": "0x1AB7C0",
+   "kind": "function",
+   "name": "CSubUnit::GetMaxOrganisationWithBonus",
+   "signature": "int* __stdcall CSubUnit::GetMaxOrganisationWithBonus(int* out@ESI, CSubUnit* subunit@stack:4, bool penaltyWhenOwnerAtWar@stack:8, bool penaltyAlways@stack:12, int bonus@stack:16) @EAX",
+   "no_signature": null,
+   "comment": "**The whole of a brigade's organisation ceiling**, `ret 0x10`, the answer through esi. Starts from the brigade's own definition's default_organisation (+0xF0), and **returns that alone when the game state's in_game is clear** - which is why a brigade read from an order of battle starts at its type's figure and nothing else. In a game: where the brigade is in a unit it adds the bonus, then for a reserve multiplies by (1000 + RESERVES_PENALTY_SIZE)/1000 behind the same gate as CSubUnit::GetMaxStrength (penaltyAlways applies it; else a mobilised owner skips it; else an owner not at war applies it; else penaltyWhenOwnerAtWar decides), then multiplies by the owner's OfficerRatio (+0xD4)/1000 - unless a scenario is loaded and does not list the owner. Last, for every brigade: (1000 + m)/1000 with m the owner's LAND_ORGANISATION (70) where slot 9 says land, NAVAL_ORGANISATION (72) where slot 10 says so, else AIR_ORGANISATION (71). The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-unitstart.md"
+  },
+  {
+   "rva": "0x182CA0",
+   "kind": "function",
+   "name": "CHistoricalModel::ApplyTo",
+   "signature": "void __stdcall CHistoricalModel::ApplyTo(CHistoricalModel* model, CSubUnit* subunit)",
+   "no_signature": null,
+   "comment": "**Gives a brigade a model's technology levels.** For each of the model's twelve-byte entries (+0x14 to +0x18) it walks the brigade's technologies list for the node of the same technology and overwrites that node's level with the entry's. Nothing is compared with what the country has researched, so a model can hand a brigade a level its country does not hold. `ret 8`. One caller, CSubUnit::AfterLoad. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-unitstart.md"
+  },
+  {
+   "rva": "0x182CF0",
+   "kind": "function",
+   "name": "CHistoricalModelSet::CHistoricalModelSet",
+   "signature": "CHistoricalModelSet* __stdcall CHistoricalModelSet::CHistoricalModelSet(CHistoricalModelSet* this, CSubUnitDefinition* definition, int tagChars, int tagId) @EAX",
+   "no_signature": null,
+   "comment": "**Makes a country's default models for one unit type.** `ret 0x10`; one caller, 0x4CA5A5 in CCountry's constructor. HISTORICAL_MODEL_MAX of them (the military define at +4 of the block, over 1000; 10 in the base game), each 0x28 bytes with its number at +0x24, and each given one entry for every technology of the type: **level 0 where the technology's `allow` block holds any condition and its additional_offset is 0, else level n** - the model's own number. So a default model n is 'everything with more than one level at n', and a one-level technology that has a precondition is left at nought. A file under units/models then replaces a model's list: CSubUnitDataBase::BuildHistoricalModels. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-unitstart.md"
+  },
+  {
+   "rva": "0x1832E0",
+   "kind": "function",
+   "name": "CHistoricalModelSet::CheckComplete",
+   "signature": "void __stdcall CHistoricalModelSet::CheckComplete(CHistoricalModelSet* models)",
+   "no_signature": null,
+   "comment": "Walks a set's models and logs `Not all technologies for TAG #n - type are defined.` from model.cpp for each whose list is not as long as its type's technologies. **It changes nothing**: a model a file left short stays short, and the technologies it does not list are simply not in it. `ret 4`. One caller, the last loop of CSubUnitDataBase::BuildHistoricalModels, over every country and every type. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-unitstart.md"
+  },
+  {
+   "rva": "0x181E90",
+   "kind": "function",
+   "name": "CHistoricalModel::CHistoricalModel",
+   "signature": null,
+   "no_signature": "the object in EDI and three stack arguments by `ret 0xC` - the number, then the tag's two halves; the order of the last two was not checked",
+   "comment": "Builds one model, 0x28 bytes: vftable 0x15C52F8, the tag at +8, the null definition at +0x10 until the caller writes the real one, an empty list at +0x14 and the number at +0x24. `ret 0xC`. Called by CSubUnitDataBase::BuildHistoricalModels at 0x5B1872 for a model numbered one past a set's last; CHistoricalModelSet's constructor builds its own inline. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-unitstart.md"
+  },
+  {
+   "rva": "0x1AC1C0",
+   "kind": "function",
+   "name": "CSubUnit::CanReinforce",
+   "signature": null,
+   "no_signature": "the brigade arrives in esi and nothing is on the stack; a bool comes back in al",
+   "comment": "**Whether a brigade, ship or wing is in a state to be brought back to strength.** The brigade in esi, a bool in al, bare `ret`s at 0x5AC1E3 and 0x5AC2AC. False unless strength (+0x5C) is below GetMaxStrength(0, 0), that maximum is positive and the brigade is in a unit (+0xB0). Then false for a land unit (the unit's slot 15) with a combat (unit +0x11C > 0), for any unit that is retreating (unit +0x158), and for a land unit that is being carried - the unit's slot 9 answers an object whose +0x300 or +0x304 is set. Last, for a ship (the brigade's own slot 10) false unless the unit's province's info byte +0x22 is set: **a ship is reinforced only in a province that is land, which is to say in port.** One caller, CDistributeReinforcement::Distribute at 0x51BF9C. The name is ours. See reversing/findings/FINDINGS-unitdaily.md, section 4.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-unitdaily.md"
+  },
+  {
+   "rva": "0x11B660",
+   "kind": "function",
+   "name": "CDistributeSupply::GetNeeded",
+   "signature": "__int64* __thiscall CDistributeSupply::GetNeeded(CDistributeSupply* this, __int64* out)",
+   "no_signature": null,
+   "comment": "**Slot 3: the supply slider's need**, a 48.15 fixed point through the out pointer, `ret 4`. supplies = the country's unit_demand.supplies (+0xA48) + traded_away.supplies (+0x7E4) - tribute_sent.supplies (+0x928) - traded_for.supplies (+0x874) - tribute_received.supplies (+0x904), each turned from thousandths into fixed 15; zero where that is not positive. Otherwise it is divided by IC_TO_SUPPLIES (economy +0x10) x (1 + technology_status->supply_production_bonus (+0x9C) + MODIFIER_GLOBAL_SUPPLIES) - exactly what CDistributeSupply::GetSuppliesMade multiplies an allocation by. So the need is **the IC that would make the supplies the country's units asked for today**. See reversing/findings/FINDINGS-unitdaily.md, section 7.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-unitdaily.md"
+  },
+  {
+   "rva": "0x1B5010",
+   "kind": "function",
+   "name": "CUnit::CUnit",
+   "signature": null,
+   "no_signature": "the body was not read to its return, so neither the arguments nor the cleanup is known",
+   "comment": "**CUnit's constructor.** Not read through; recorded for what a unit starts with, which three readings depend on. At 0x5B5410 it writes the word 0x0100 to +0xA4 and the byte 1 to +0xA6: **priority off, upgrades on, reinforcement on**. At 0x5B52A1 it writes 1000 to both supply_received_percentage (+0xFC) and fuel_received_percentage (+0x100), having zeroed them at 0x5B5154, so a unit that has never drawn counts as fully supplied - which is what the first day's troop rotation sees. See reversing/findings/FINDINGS-unitdaily.md, section 8.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-unitdaily.md"
+  },
+  {
+   "rva": "0x1687710",
+   "kind": "global",
+   "name": "g_ReinforcementCrowdingFloor",
+   "signature": null,
+   "no_signature": null,
+   "comment": "250, a quarter: the floor of the float 250.5 at 0x160A688, written once at startup by the initialiser at 0xCB846B. The least CDistributeReinforcement::Distribute will slow a fleet's or an air unit's reinforcement for a crowded base (0x51BF70). No define moves it.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-unitdaily.md"
+  },
+  {
+   "rva": "0x1687730",
+   "kind": "global",
+   "name": "g_ReinforcementDailyShare",
+   "signature": null,
+   "no_signature": null,
+   "comment": "500, a half: the floor of the float 500.5 at 0x160A5E8, written once at startup at 0xCB858B. Two readers. CDistributeReinforcement::Distribute multiplies a thirtieth of a brigade's full strength by it (0x51C150), so a day at full speed brings back a sixtieth; CDistributeUpgrade::Distribute divides it by the levels a brigade is behind (0x51D3A1), so a day of one technology costs half the brigade's price over all its technologies. No define moves it.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-unitdaily.md"
+  },
+  {
+   "rva": "0x168776C",
+   "kind": "global",
+   "name": "g_UpgradeLeastRate",
+   "signature": null,
+   "no_signature": null,
+   "comment": "1, a thousandth: the floor of the float 1.5 at 0x17179AC, written once at startup at 0xCB82BB. The least a day moves one level of one technology on in CDistributeUpgrade::Distribute, however long the brigade takes to build (0x51D2C5). No define moves it.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-unitdaily.md"
   }
  ],
  "structs": [
@@ -23908,6 +24048,13 @@
   {
    "name": "CCountry",
    "fields": [
+    {
+     "offset": "0x1C",
+     "name": "officers_ratio",
+     "type": "int",
+     "comment": "**Taken to be the history key `officers_ratio`**, thousandths: 1500 for Germany. Read once, as a new game starts: CInGameIdler::Enter adds each unit's officers to the country's, times this over 1000 where it is not zero. The name rests on the arithmetic and not on the loader, whose case for the key was not found: with the history's ratio the sum reproduces the officers 95 countries of 100 hold in a save two days in, less their two days of training. It is not the ratio the game shows - that is OfficerRatio at +0xD4.",
+     "source": "reversing/findings/FINDINGS-unitstart.md"
+    },
     {
      "offset": "0x1090",
      "name": "distribution_locked",
@@ -27946,8 +28093,8 @@
      "offset": "0x3C",
      "name": "experience",
      "type": "int",
-     "comment": "x1000, saved as `experience`",
-     "source": "BiceLib/GameClasses/CRegiment.hpp:61"
+     "comment": "x1000, saved as `experience`. **The constructor writes -1000, 'not given'**, and a new game replaces a negative with the owner's UNIT_START_EXPERIENCE - times (1000 + RESERVES_PENALTY_SIZE)/1000 for a reserve, with no mobilisation gate - capped at 100000. A figure from the file is kept as it is.",
+     "source": "reversing/findings/FINDINGS-unitstart.md"
     },
     {
      "offset": "0x40",
@@ -28966,6 +29113,13 @@
    "name": "CUnit",
    "fields": [
     {
+     "offset": "0x96",
+     "name": "is_reserve",
+     "type": "bool",
+     "comment": "The unit's own `is_reserve` key, token 0x57F, a plain ParseBool. **Its one use in the loader is to be copied onto each brigade read after it**: the `regiment` case of CUnit::LoadKey tests it either side of the brigade's own load and sets CSubUnit +0xA4. Nothing goes back over brigades already read, and the `wing` case does not test it.",
+     "source": "reversing/findings/FINDINGS-unitstart.md"
+    },
+    {
      "offset": "0x2E0",
      "name": "ai_combat_estimate_attack_dirty",
      "type": "uint8_t",
@@ -29074,22 +29228,22 @@
      "offset": "0xA4",
      "name": "upgrade_prio",
      "type": "bool",
-     "comment": "bool",
-     "source": "BiceLib/GameClasses/CUnit.hpp:24"
+     "comment": "**The unit's priority, for reinforcement as much as for upgrades**, saved as `is_prioritized`. CDistributeReinforcement::Distribute (0x51BC4F) and CDistributeUpgrade::Distribute (0x51CF96, 0x51D087) both read it for the same thing: a unit with it set joins the front of the list the share works through, the rest the back. The constructor clears it. The name is older than the second reader and is left as it is.",
+     "source": "reversing/findings/FINDINGS-unitdaily.md"
     },
     {
      "offset": "0xA5",
      "name": "upgrade_active",
      "type": "bool",
-     "comment": "bool",
-     "source": "BiceLib/GameClasses/CUnit.hpp:25"
+     "comment": "Whether the unit's brigades are re-equipped, saved as `can_upgrade`. CDistributeUpgrade::Distribute leaves a unit with it clear out of its list (0x51CF82, 0x51D07A). **The constructor sets it**, so a unit upgrades unless told not to.",
+     "source": "reversing/findings/FINDINGS-unitdaily.md"
     },
     {
      "offset": "0xA6",
      "name": "reinforcements_active",
      "type": "bool",
-     "comment": "bool",
-     "source": "BiceLib/GameClasses/CUnit.hpp:26"
+     "comment": "Whether the unit's brigades are brought back to strength, saved as `can_reinforce`. CDistributeReinforcement::Distribute leaves a unit with it clear out of its list (0x51BC42, 0x51BD26). **The constructor sets it.**",
+     "source": "reversing/findings/FINDINGS-unitdaily.md"
     },
     {
      "offset": "0xA8",
@@ -33467,8 +33621,8 @@
      "offset": "0x94",
      "name": "build_discount_extra",
      "type": "int",
-     "comment": "added to the technology category discount by 0xE1AC0; the neighbour of GetIcModifier at +0x90 and not the same figure",
-     "source": "BiceLib/GameClasses/CSubUnitDefinition.hpp:144"
+     "comment": "thousandths, added to the technology category discount by CCountry::GetCategoryBuildDiscount (0xE1AC0), its one reader - so it comes off the cost of every unit and off its build time alike. **What the technology key `ic_efficiency` adds up to**: the effect of `industral_efficiency`, 0.025 a level. That is measured, not read off a loader: with Germany's four levels two days of the upgrade share reproduce a savegame on all 1,469 of its technology lines, and without them none of its build times fit. The neighbour of ic_bonus at +0x90, which is `ic_modifier`, and not the same figure.",
+     "source": "reversing/findings/FINDINGS-unitdaily.md"
     },
     {
      "offset": "0x98",
@@ -43708,6 +43862,7 @@
    "11": "GetLimit"
   },
   "CDistributeUpgrade": {
+   "0": "Distribute",
    "1": "GetNeedTooltip",
    "0": "Distribute",
    "1": "GetNeedTooltip",
@@ -43715,6 +43870,7 @@
    "6": "GetName"
   },
   "CDistributeReinforcement": {
+   "0": "Distribute",
    "1": "GetNeedTooltip",
    "0": "Distribute",
    "1": "GetNeedTooltip",
@@ -43810,6 +43966,7 @@
    "0": "Distribute"
   },
   "CDistributeSupply": {
+   "3": "GetNeeded",
    "6": "GetName",
    "11": "GetNoLimit",
    "0": "Distribute"
@@ -44378,12 +44535,17 @@
    "36": "CFixedWindow::DetachChildren"
   },
   "CWing": {
+   "4": "LoadKey",
+   "5": "AfterLoad",
    "12": "GetMaxStrength"
   },
   "CShip": {
+   "5": "AfterLoad",
    "12": "GetMaxStrength"
   },
   "CSubUnit": {
+   "4": "LoadKey",
+   "5": "AfterLoad",
    "12": "GetMaxStrength"
   },
   "CStrategicRedeploymentOrder": {
@@ -44644,6 +44806,8 @@
    "6": "RouteUnit"
   },
   "CRegiment": {
+   "4": "LoadKey",
+   "5": "AfterLoad",
    "12": "GetMaxStrength"
   },
   "COrder": {

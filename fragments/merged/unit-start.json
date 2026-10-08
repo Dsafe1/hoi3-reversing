@@ -1,0 +1,190 @@
+{
+  "agent": "unit-start",
+  "question": "What a brigade read from an order of battle holds on the first hour of a new game: its technology levels, its strength, its organisation and its experience.",
+  "source": "reversing/findings/FINDINGS-unitstart.md",
+  "addresses": [
+    {
+      "rva": "0x1A88F0",
+      "kind": "function",
+      "name": "CSubUnit::CSubUnit",
+      "signature": "CSubUnit* __stdcall CSubUnit::CSubUnit(CSubUnit* this) @EAX",
+      "no_signature": null,
+      "comment": "**What a brigade, ship or wing holds before any key is read.** The object is on the stack and comes back in eax, `ret 4`. Writes CSubUnit's vftable 0x15C79F4 over CReferenceObject's, then: strength (+0x5C) and organisation (+0x60) **100000**, more than any type has; experience (+0x3C) **-1000, 'not given'**, which CInGameIdler::Enter looks for when a new game starts; historical_model (+0xD0) -1; strength_ceiling (+0x30) 0; is_reserve and pride (+0xA4, +0xA5) 0 in one word store; contributes_to_unit (+0xD4) 1; both tags `---`. It also makes the 0x228 byte definition the brigade owns at +0x58. The regiment, wing and ship constructors all start here and then write their own vftable. See reversing/findings/FINDINGS-unitstart.md, section 2.",
+      "confidence": "confirmed",
+      "evidence": "`mov dword ptr [esi],0x15c79f4`; `mov ecx,0x186a0; mov [esi+0x5c],ecx; mov [esi+0x60],ecx`; `mov dword ptr [esi+0x3c],0xfffffc18`; `mov dword ptr [esi+0xd0],0xffffffff`; `mov word ptr [esi+0xa4],bx` with ebx zero; `push 0x228; call operator new` and `mov [esi+0x58],eax`; `ret 4` at 0x5A8A99. Called at 0x5B73A9 before `mov dword ptr [esi],0x15bdd7c` (CRegiment) and at 0x5B79A1 before `mov dword ptr [esi],0x15bddc4`."
+    },
+    {
+      "rva": "0x1ABCF0",
+      "kind": "function",
+      "name": "CSubUnit::GetOwner",
+      "signature": "CCountry* __cdecl CSubUnit::GetOwner(CSubUnit* subunit@EAX) @EAX",
+      "no_signature": null,
+      "comment": "**The country a brigade answers to.** Where it is in a unit (+0xB0): the unit's expeditionary_owner (+0x28C) when that tag's id half is set, else the unit's owner (+0x124). Where it is in none: its builder (+0x34) when that id is set, else its own owner tag (+0x94). Bare `ret`s, the brigade in eax. So a brigade on loan is reckoned by the country it was lent from - for its reserve penalty, its officers and its organisation modifier alike. The name is ours.",
+      "confidence": "confirmed",
+      "evidence": "`mov ecx,[eax+0xb0]; test ecx,ecx; je`; `cmp dword ptr [ecx+0x290],0; je`; `add ecx,0x28c; call CCountryTag::GetCountry` against `add ecx,0x124; call`; then `cmp dword ptr [eax+0x38],0` and the two indexed loads from the country database's array at +0x16C. Called by CSubUnit::GetMaxStrength, by CSubUnit::AfterLoad twice and by the organisation ceiling at 0x5AB86E."
+    },
+    {
+      "rva": "0x1AB7C0",
+      "kind": "function",
+      "name": "CSubUnit::GetMaxOrganisationWithBonus",
+      "signature": "int* __stdcall CSubUnit::GetMaxOrganisationWithBonus(int* out@ESI, CSubUnit* subunit@stack:4, bool penaltyWhenOwnerAtWar@stack:8, bool penaltyAlways@stack:12, int bonus@stack:16) @EAX",
+      "no_signature": null,
+      "comment": "**The whole of a brigade's organisation ceiling**, `ret 0x10`, the answer through esi. Starts from the brigade's own definition's default_organisation (+0xF0), and **returns that alone when the game state's in_game is clear** - which is why a brigade read from an order of battle starts at its type's figure and nothing else. In a game: where the brigade is in a unit it adds the bonus, then for a reserve multiplies by (1000 + RESERVES_PENALTY_SIZE)/1000 behind the same gate as CSubUnit::GetMaxStrength (penaltyAlways applies it; else a mobilised owner skips it; else an owner not at war applies it; else penaltyWhenOwnerAtWar decides), then multiplies by the owner's OfficerRatio (+0xD4)/1000 - unless a scenario is loaded and does not list the owner. Last, for every brigade: (1000 + m)/1000 with m the owner's LAND_ORGANISATION (70) where slot 9 says land, NAVAL_ORGANISATION (72) where slot 10 says so, else AIR_ORGANISATION (71). The name is ours.",
+      "confidence": "confirmed",
+      "evidence": "`mov eax,[eax+0x58]; mov ecx,[eax+0xf0]; mov [esi],ecx`; `cmp byte ptr [ebx+0xda4],0; je` to the exit; `mov ecx,[ebp+0x14]; add [esi],ecx`; `cmp byte ptr [eax+0xa4],0`; the gate on [ebp+0x10], [edi+0x94], [edi+0xacc] and [ebp+0xc]; `mov eax,[edi+0xda8]; mov eax,[eax+0x268]; add eax,0x3e8; imul ecx` and a divide by 0x3e8; `cmp dword ptr [ebx+0xd0c],0` and the walk of its +0x88 list for `[edi+0xca8]`; `imul dword ptr [edi+0xd4]`; `mov edx,[eax+0x24]; call edx` choosing `[eax+0x230]`, `mov eax,[edx+0x28]; call eax` choosing `[ecx+0x240]` or `[edx+0x238]`; `ret 0x10` at 0x5AB993."
+    },
+    {
+      "rva": "0x1AB700",
+      "kind": "function",
+      "name": "CSubUnit::GetMaxOrganisation",
+      "signature": "int* __stdcall GetMaxOrganisation(int* out@EAX, CSubUnit* subunit@stack:4, int zero@stack:8, int alsoZero@stack:12)",
+      "no_signature": null,
+      "comment": "Works out one number and hands the rest to CSubUnit::GetMaxOrganisationWithBonus (0x1AB7C0): **what the army headquarters above the brigade adds.** From the brigade's unit it looks for a unit of oob_level 2 - the unit itself, or its parent, or its parent's parent through a level 3 - and where there is one the bonus is CUnit::CommandReach from it times its leader's skill (CLeader +0x70) x1000, over 1000. No such unit, no bonus. The two stack arguments after the brigade are the reserve gate's two flags and are passed straight on; CSubUnit::AfterLoad passes (1, 0). Answers through a hidden return pointer, `ret 0xC`. The name is BiceLib's, from what CSubUnit::ApplyTechnologies clamps with it. See reversing/findings/FINDINGS-unitstart.md, section 8.",
+      "confidence": "confirmed",
+      "evidence": "`mov eax,[ebx+0xb0]`; the three `cmp ..[+0x1f4]` against 4, 3 and 2 with `mov ecx,[..+0x1e0]` between; `mov edx,[ecx+0x12c]; mov edi,[edx+0x70]; imul edi,edi,0x3e8`; `call CUnit::CommandReach`; `imul edi` and a divide by 0x3e8; `push edx; push eax; push ebx; call 0x5ab7c0` with edx and eax the arguments at [ebp+0x10] and [ebp+0xc].",
+      "revises": "the comment said only that it walks the HQ chain; the walk, the bonus and the callee that holds every other factor are now read"
+    },
+    {
+      "rva": "0x1A9130",
+      "kind": "function",
+      "name": "CSubUnit::AfterLoad",
+      "signature": "void __thiscall CSubUnit::AfterLoad(CSubUnit* this)",
+      "no_signature": null,
+      "comment": "CPersistent slot 5 on a brigade. **First the id**, the same minting as CUnit::AfterLoad: it reads and writes the generator at 0x170AF78. **Then, only where historical_model is not -1:** the owner's model of that number for this type is applied (CHistoricalModel::ApplyTo), and every technology of the brigade's whose `change` is no and whose level is still 0 takes the country's level. Then CSubUnit::ApplyTechnologies with keepStrength set. **Then, again only where there is a model:** strength_ceiling is zeroed, strength becomes min(strength, slot 12's maximum with the flags 1 and 0), organisation becomes min(organisation, CSubUnit::GetMaxOrganisation with 1 and 0), and strength_ceiling is raised to the strength. A brigade with no historical_model line gets none of that: every level stays 0 and it keeps the constructor's 100.000 of both. Reached from CRegiment's vftable slot 5. See reversing/findings/FINDINGS-oob.md and reversing/findings/FINDINGS-unitstart.md, section 4.",
+      "confidence": "confirmed",
+      "evidence": "`mov edi,[esi+0xd0]; cmp edi,-1; je 0x5a9217`; `call 0x5abcf0; mov ecx,[esi+0x58]; mov edx,[ecx+0x24]; mov eax,[eax+0x48]; mov eax,[eax+edx*4]`; `push esi; push edi; call 0x582ca0`; the loop on `[esi+0x84]` with `cmp byte ptr [ebx+0x288],0; jne` and `cmp dword ptr [edi+4],0; jne`, storing `[edx+ecx*4]` from the owner's `[+0xdf8]->[+0x218]`; `push 1; push esi; call 0x5abfc0`; `cmp dword ptr [esi+0xd0],-1; je`; `mov dword ptr [esi+0x30],0`; `push 0; push 1` before `call edx` on vftable +0x30 and before `call 0x5ab700`; the two `cmp edi,[esp+0xc]; jl` minimums.",
+      "revises": "the comment covered the id only; the model, the doctrine levels and the two clamps are the rest of the function"
+    },
+    {
+      "rva": "0x1A8BF0",
+      "kind": "function",
+      "name": "CSubUnit::LoadKey",
+      "signature": "void __thiscall CSubUnit::LoadKey(CSubUnit* this, CParseContext* parse, SaveToken key)",
+      "no_signature": null,
+      "comment": "**The keys its switch names**, 13 of them, one case each: `builder`, `current_distance`, `experience`, `highest`, `historical_model`, `home`, `is_reserve`, `name`, `organisation`, `pride`, `strength`, `sunk_by`, `type`. Inherited by 3 classes in all. Read from the switch by reversing/scripts/definitions.py. **Where each lands**: name 0x1A; type 0xD9, a lookup in the sub unit database and CSubUnit::SetType, a miss logging `Unknown subunit` from subunit.cpp; home 0x254 into +0x64; strength 0x259 into +0x5C; experience 0x48B into +0x3C; organisation 0x4C8 into +0x60; current_distance 0x504 into +0xC8; historical_model 0x513, `atoi` into +0xD0; builder 0x57E into +0x34; is_reserve 0x57F into +0xA4; sunk_by 0x5A0 into +0x9C; highest 0x5C0 into +0x30; pride 0x750 into +0xA5. **A key that is none of them is looked up as a technology's name**: on a hit the value is read as `{ level progress }` and written into the brigade's node for that technology, where it has one - which is how a save's `infantry_guns = { 1 0.024 }` comes back, and an order of battle may carry the same. Anything else goes to CReferenceObject::LoadKey.",
+      "confidence": "confirmed",
+      "evidence": "The compare chain from `cmp eax,0x504` at 0x5A8C19; `lea edi,[ebx+0x5c]`, `lea edi,[ebx+0x60]`, `lea edi,[ebx+0x3c]`, `lea edi,[ebx+0x30]` each before `call ParseFixedPoint`; `call atoi; mov [ebx+0xd0],eax`; `add ebx,0xa4; push ebx; call ParseBool` and the same with 0xa5; in the default arm `call GetTechnologyDataBase`, `call 0x542cd0`, two token advances around `call atoi` and `call TokenToFixedPoint`, the walk of `[ebx+0x84]` comparing `[eax]` and the stores to `[eax+8]` and `[eax+4]`.",
+      "revises": "the comment listed the keys; it now says where each lands and that an unknown key is tried as a technology"
+    },
+    {
+      "rva": "0x182CA0",
+      "kind": "function",
+      "name": "CHistoricalModel::ApplyTo",
+      "signature": "void __stdcall CHistoricalModel::ApplyTo(CHistoricalModel* model, CSubUnit* subunit)",
+      "no_signature": null,
+      "comment": "**Gives a brigade a model's technology levels.** For each of the model's twelve-byte entries (+0x14 to +0x18) it walks the brigade's technologies list for the node of the same technology and overwrites that node's level with the entry's. Nothing is compared with what the country has researched, so a model can hand a brigade a level its country does not hold. `ret 8`. One caller, CSubUnit::AfterLoad. The name is ours.",
+      "confidence": "confirmed",
+      "evidence": "`mov edx,[eax+0x14]` and the bounds against `[eax+0x18]` stepping `add edx,0xc`; `mov eax,[ebx+0x84]`; `cmp [ecx],esi; je`; `mov eax,[edi+4]; mov [ecx+4],eax`; `ret 8` at 0x582CEB."
+    },
+    {
+      "rva": "0x182CF0",
+      "kind": "function",
+      "name": "CHistoricalModelSet::CHistoricalModelSet",
+      "signature": "CHistoricalModelSet* __stdcall CHistoricalModelSet::CHistoricalModelSet(CHistoricalModelSet* this, CSubUnitDefinition* definition, int tagChars, int tagId) @EAX",
+      "no_signature": null,
+      "comment": "**Makes a country's default models for one unit type.** `ret 0x10`; one caller, 0x4CA5A5 in CCountry's constructor. HISTORICAL_MODEL_MAX of them (the military define at +4 of the block, over 1000; 10 in the base game), each 0x28 bytes with its number at +0x24, and each given one entry for every technology of the type: **level 0 where the technology's `allow` block holds any condition and its additional_offset is 0, else level n** - the model's own number. So a default model n is 'everything with more than one level at n', and a one-level technology that has a precondition is left at nought. A file under units/models then replaces a model's list: CSubUnitDataBase::BuildHistoricalModels. The name is ours.",
+      "confidence": "confirmed",
+      "evidence": "`call GetDefines; mov eax,[eax+0xac]; mov ecx,[eax+4]` and the divide by 1000 through 0x10624dd3; `push 0x28; call operator new`; `mov [edi+0x24],edx` with edx the loop counter; the walk of `[edi+0x44]`..`[edi+0x48]`; `cmp dword ptr [eax+0x258],ecx; jle` and `cmp dword ptr [eax+0x2c0],ecx; jne` with ecx zero at 0x582E26, the one arm storing ecx and the other `[ebp-0x10]` as the level before `call 0x511d90`; `ret 0x10` at 0x582EDF. CTechnology +0x248 is the allow trigger by value and CTrigger +0x10 its children's count, which makes +0x258 that count."
+    },
+    {
+      "rva": "0x1832E0",
+      "kind": "function",
+      "name": "CHistoricalModelSet::CheckComplete",
+      "signature": "void __stdcall CHistoricalModelSet::CheckComplete(CHistoricalModelSet* models)",
+      "no_signature": null,
+      "comment": "Walks a set's models and logs `Not all technologies for TAG #n - type are defined.` from model.cpp for each whose list is not as long as its type's technologies. **It changes nothing**: a model a file left short stays short, and the technologies it does not list are simply not in it. `ret 4`. One caller, the last loop of CSubUnitDataBase::BuildHistoricalModels, over every country and every type. The name is ours.",
+      "confidence": "confirmed",
+      "evidence": "`mov ecx,[eax+0x48]; sub ecx,[eax+0x44]; sar ecx,2` against `[esi+0x18] - [esi+0x14]` over twelve through 0x2aaaaaab; `je` past the log; the strings 'Not all technologies for ', ' #', ' - ' and ' are defined.'; `ret 4` at 0x58357E."
+    },
+    {
+      "rva": "0x181E90",
+      "kind": "function",
+      "name": "CHistoricalModel::CHistoricalModel",
+      "signature": null,
+      "no_signature": "the object in EDI and three stack arguments by `ret 0xC` - the number, then the tag's two halves; the order of the last two was not checked",
+      "comment": "Builds one model, 0x28 bytes: vftable 0x15C52F8, the tag at +8, the null definition at +0x10 until the caller writes the real one, an empty list at +0x14 and the number at +0x24. `ret 0xC`. Called by CSubUnitDataBase::BuildHistoricalModels at 0x5B1872 for a model numbered one past a set's last; CHistoricalModelSet's constructor builds its own inline. The name is ours.",
+      "confidence": "confirmed",
+      "evidence": "`mov [edi+0xc],ecx`, `mov [edi+0x10],eax` after the null definition's lazy construction through 0x5a8840, `mov [edi+0x24],edx`; `ret 0xc` at 0x581F1B. At the call: `push ecx; push edx; push edi; mov edi,eax` with eax fresh from `push 0x28; call operator new`."
+    },
+    {
+      "rva": "0x1B0870",
+      "kind": "function",
+      "name": "CSubUnitDataBase::BuildHistoricalModels",
+      "signature": "void __stdcall CSubUnitDataBase::BuildHistoricalModels(CSubUnitDataBase* database)",
+      "no_signature": null,
+      "comment": "Called once, at 0x6385C8, on CSubUnitDataBase::GetInstance' result, right after the `country database <` timer and before `Historical Models Initialized` (eu3application.cpp:1144). Extent 0x5B0870..0x5B1B95, `ret 4`. **It reads the files under units/models over the defaults every country already has** - the models themselves are made by CHistoricalModelSet's constructor, one set a type, as each country is built. Per file: the name is upper-cased and given to CCountryDataBase::GetTag, and a file whose name does not begin with a known tag is skipped whole; each statement's key is split on the dot into a unit type and a number (`broken statement in model file`, `unknown unit type in model file`); the country's model of that number is taken, or a new one added when the number is exactly one past the last (`error in model order in model file` otherwise); **the model's list is emptied** and the block loaded into it through CHistoricalModel::LoadKey. So a model from a file holds only what the file lists. The last loop runs CHistoricalModelSet::CheckComplete over every country's every set. census.py measured 5,323,320 model objects in BlackICE, 108 tags x 1,643 types x HISTORICAL_MODEL_MAX (30).",
+      "confidence": "confirmed",
+      "evidence": "`push 0x15c7964` ('/models') and `push 0x15c3454` ('.txt') before `call ListFilesWithExtension`; `call dword ptr [0xd2b294]`, the import of USER32 CharUpperBuffA; `call CCountryDataBase::GetTag; cmp [esp+0x2c],ebx; jne` with ebx zero; `push 0x2e` before the split at 0x5B1297; `call StringHashFind`; `call atoi`; `mov ecx,[edx+0x48]; mov eax,[esi+0x24]; mov eax,[ecx+eax*4]` and the bounds test; `cmp edi,edx; je 0x5b184b` to `push 0x28; call operator new; call 0x581e90`; the erase loop ending `mov [ecx+0x18],eax` at 0x5B18EF; `mov edx,[edx+0xc]; call edx`; `call 0x5832e0` at 0x5B1A59.",
+      "revises": "the comment said this is where the models come from; they come from each country's constructor, and this reads the files over them"
+    }
+  ],
+  "structs": [],
+  "struct_fields": [
+    {
+      "struct": "CUnit",
+      "offset": "0x96",
+      "name": "is_reserve",
+      "type": "bool",
+      "comment": "The unit's own `is_reserve` key, token 0x57F, a plain ParseBool. **Its one use in the loader is to be copied onto each brigade read after it**: the `regiment` case of CUnit::LoadKey tests it either side of the brigade's own load and sets CSubUnit +0xA4. Nothing goes back over brigades already read, and the `wing` case does not test it.",
+      "evidence": "`add ebx,0x8e; push ebx; call ParseBool` at 0x5B7C83 with ebx the unit's CPersistent half at +8; `cmp byte ptr [ebx+0x8e],0; je; mov byte ptr [esi+0xa4],1` at 0x5B73E4 and 0x5B7405."
+    },
+    {
+      "struct": "CCountry",
+      "offset": "0x1C",
+      "name": "officers_ratio",
+      "type": "int",
+      "comment": "**Taken to be the history key `officers_ratio`**, thousandths: 1500 for Germany. Read once, as a new game starts: CInGameIdler::Enter adds each unit's officers to the country's, times this over 1000 where it is not zero. The name rests on the arithmetic and not on the loader, whose case for the key was not found: with the history's ratio the sum reproduces the officers 95 countries of 100 hold in a save two days in, less their two days of training. It is not the ratio the game shows - that is OfficerRatio at +0xD4.",
+      "evidence": "`mov eax,[esi+0x1c]; cmp eax,edx; jne` then `imul ecx` and a divide by 0x3e8 before `add [esi+0xc4],eax`, at 0x65B67D. Measured through OpenHOI3's SaveCheck against Germany1936_01_01_00.hoi3; the five that miss are the five whose leadership a triggered modifier changes, and they miss by a fraction."
+    },
+    {
+      "struct": "CSubUnit",
+      "offset": "0x3C",
+      "name": "experience",
+      "type": "int",
+      "comment": "x1000, saved as `experience`. **The constructor writes -1000, 'not given'**, and a new game replaces a negative with the owner's UNIT_START_EXPERIENCE - times (1000 + RESERVES_PENALTY_SIZE)/1000 for a reserve, with no mobilisation gate - capped at 100000. A figure from the file is kept as it is.",
+      "evidence": "`mov dword ptr [esi+0x3c],0xfffffc18` in CSubUnit::CSubUnit; `cmp dword ptr [esi+0x3c],0; jge` at 0x65B9E0 and the two stores at 0x65BA11 and 0x65BAAC, each followed by a compare with 0x186a0.",
+      "revises": "the comment said only what it is saved as; what it starts as and what a new game does with a negative are added"
+    }
+  ],
+  "vftable_slots": {
+    "CSubUnit": {
+      "4": "LoadKey",
+      "5": "AfterLoad"
+    },
+    "CRegiment": {
+      "4": "LoadKey",
+      "5": "AfterLoad"
+    },
+    "CWing": {
+      "4": "LoadKey",
+      "5": "AfterLoad"
+    },
+    "CShip": {
+      "5": "AfterLoad"
+    }
+  },
+  "frontier": [
+    {
+      "rva": "0xD59D0",
+      "why": "run on each country just before its order of battle is read, at a new game"
+    },
+    {
+      "rva": "0x1CD5B0",
+      "why": "run on each unit whose leader answers no to slot 8, right after the officers are added up"
+    },
+    {
+      "rva": "0xCB580",
+      "why": "names a unit that has no name, at a new game"
+    },
+    {
+      "rva": "0x1C3A6",
+      "why": "the third caller of CCountry::LoadOobFile, as an rva of the call site"
+    }
+  ],
+  "notes": [
+    "Where CCountry +0xD4 OfficerRatio is written and capped was not read; the save says Germany's is 1.4 where its history's officers_ratio is 1.5.",
+    "The 86 theatres a new game has beyond its files' 22 were not traced to the code that makes them.",
+    "The id generator at 0x170AF78 gives a military_construction block five numbers: the construction the first, its brigade the fifth, and three that nothing in a savegame holds. Measured on all thirty in the base game, each building one brigade; the code that spends the three was not read.",
+    "Checked end to end through OpenHOI3's SaveCheck: 3706 of 3706 brigades match the save by number, type, reserve flag, starting strength, experience and every equipment level."
+  ]
+}

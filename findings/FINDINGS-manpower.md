@@ -5,7 +5,10 @@ what "manpower rotation" actually is. Both are in `BiceLib/Hooks/Tooltips/Manpow
 this is the reversing behind them.
 
 *Where manpower comes **from** - the daily income, `max_manpower`, and what a new game starts a
-country with - is `FINDINGS-manpowergain.md`, read on 2026-10-08.*
+country with - is `FINDINGS-manpowergain.md`, read on 2026-10-08. The reinforcement pass below
+is read through line by line in `FINDINGS-unitdaily.md`, section 4, the same day: what a day
+brings back, what it costs in IC, and that a brigade short by less than a thousandth of its
+strength is skipped.*
 
 Addresses are rvas, the way `project.json` wants them. The disassembler prints virtual
 addresses, which are these plus `0x400000` - a trap this work fell into once already.

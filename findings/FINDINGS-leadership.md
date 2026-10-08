@@ -430,9 +430,10 @@ for the bigger members of its faction.*
   10, and the two war dates it reads through `0xA51D20` and `0xA51F40`.
 - **What takes the starting war exhaustion off again.** Section 10 gives Italy 0.150 for its
   three months at war; the save, two days on, has every country at 0.000.
-- **What sets `officers` at the start.** A whole number in every country that has units;
-  country history files carry `officers_ratio`. It is not in the part of section 10 that was
-  read.
+- ~~**What sets `officers` at the start.**~~ **Settled 2026-10-08**, and it is not in
+  `SetUpCountryForNewGame` at all: `CInGameIdler::Enter` adds up each unit's officers, times
+  the history's `officers_ratio`, straight after it reads the order of battle.
+  `FINDINGS-unitstart.md`, section 7.
 - **`0x47E540`**, the test behind `blockaded`, and what marks a `COwnerArea`'s edges - whether
   an area is land one country *owns* or *controls*, and whether a strait joins two.
 - **`0x507DF0`**, called just before the total is worked out, with the country in `edi`. It

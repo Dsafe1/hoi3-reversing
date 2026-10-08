@@ -434,7 +434,9 @@ values (**read**, all four functions):
 
 - **A land unit on a strategic redeployment consumes nothing**: where the unit is land
   (slot 15) and its order's slot 16 answers `0x5A4` - the id `CStrategicRedeploymentOrder`
-  carries, see below - it writes 0 and returns. Fuel only; supply is still consumed.
+  carries, see below - it writes 0 and returns. Fuel only; its supplies are multiplied by
+  `STRAT_REDEP_SUPPLY_MOD` (`military +0x1E8`, 2.0) instead - `findings/FINDINGS-unitdaily.md`,
+  section 2, which reads the four functions again and has the whole formula in one place.
 - starts a potency at **1000** and adds the country's global modifier
   `SUPPLY_CONSUMPTION` (entry 49, so `+0x188` of the modifier's values). Fuel uses the
   supply modifier too - there is no fuel one here.
@@ -448,7 +450,8 @@ values (**read**, all four functions):
 - then, per regiment: `potency + regiment[+0xCC] x Define10` (`0x168873C`), times the
   definition's base figure, over 1000. `+0xCC` is a cached total the game recomputes at
   `0x1ABFC0` by summing the second dword of every element of the list at `+0x84`; each point
-  is another 1% of consumption. **What that list holds has not been established.**
+  is another 1% of consumption. *(Since established: the list is the brigade's technology
+  levels, `CSubUnit +0x84`, so every level it holds of anything is another 1%.)*
 
 Both constants are **defines whose names are not known**. `Define10` is 10 and `Define50`
 is 50, each the floor of a float - 10.5 and 50.5 - taken at startup, so thousandths: 0.010
@@ -1850,9 +1853,11 @@ The discount is `0xE1AC0` (`GetCategoryBuildDiscount` here, the name is BiceLib'
   `infantry_practical` 12.000, `construction_practical` 5.000. The discount does that lookup
   inline rather than calling `GetAbility`.
 - floored at 0, then measured against **5.000**. Below it the result is negative and the cost
-  **goes up**, at 100 per point; above it 50 per point, with everything past 1.000 halved
-  first.
-- plus the country's `INDUSTRIAL_EFFICIENCY` modifier (74) and `CTechnologyStatus +0x94`.
+  **goes up**, at 100 per point; above it 50 per point, with a surplus past 1.000 put through
+  `FixedPointSqrt` first. *(Corrected 2026-10-08: this said "halved first", which is the
+  square root's first guess - `findings/FINDINGS-unitdaily.md`, section 6.)*
+- plus the country's `INDUSTRIAL_EFFICIENCY` modifier (74) and `CTechnologyStatus +0x94`,
+  which is what the technology key `ic_efficiency` adds up to (measured, same section).
 - capped at 990, so never more than 99% off.
 
 So 5.0 in a category is the break even point, and a country that has neglected one pays a
