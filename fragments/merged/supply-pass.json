@@ -1,0 +1,153 @@
+{
+ "wave": "supply-pass",
+ "date": "2026-10-10",
+ "summary": "The daily supply pass read instruction for instruction, the sort it is ordered by, what a unit draws and what it carries with it, and what a new game runs before its first hour - for the rewrite's second piece of supply.",
+ "source": "reversing/findings/FINDINGS-supplypass.md",
+ "addresses": [
+  {
+   "rva": "0x2872D0",
+   "kind": "function",
+   "name": "CSupply::DailySupplyPass",
+   "signature": "void __stdcall CSupply::DailySupplyPass(CCurrentGameState* state, int* capacity, int* fuelNeed, int* supplyNeed, int* stepLoss)",
+   "no_signature": null,
+   "comment": "**The daily carrying of supplies and fuel**, for a game not in arcade mode. Five stack arguments, `ret 0x14`, no `this`; the four arrays hold one entry per province id. **Phase 1**: every simulated province swaps drawn with last_drawn and throughput with last_throughput and zeroes today's two and `need`. **Phase 2**, the supply order's first element - the furthest from its depot - first: a province that is its controller's acting capital copies pool to last_pool and no more. Any other: need = the array's figure, raised to 1.000 where it is between nothing and that and the pool holds under 5.000; want = SUPPLYPOOL_DAYS x need - pool - min(need, current_producing), held between 0 and 2 x need (the 2 is floor(2000.5f)), added to `drawn`. With S and F what `drawn` then holds - its own want and all that was passed in to it - the province is left, **last_pool not copied**, where both are under a thousandth; otherwise stepLoss[id] is **added** to each that is above nothing: what a load loses is an amount asked for on top, not a share. Three sweeps over the template's edges follow, each over the provinces with the same supply_depot_id and a strictly smaller supply_depot_distance. (1) Goods: offered = min(N.last_pool, capacity[N]) - **what N held when the pass last came to it**, which for a province further out is yesterday - cut to this province's share S x 1000 / N.last_drawn, at most all, where N passed less yesterday than was asked of it, and never more than N.pool; the take is added to N.drawn and N.throughput, taken off N.pool, and max(take - stepLoss[id], 0) reaches this pool; where N is its controller's acting capital the take is that country's `usage`. For fuel the first of the three tests behind the cut reads today's drawn where supplies read last_drawn. The sweep stops counting once S and F are both under a thousandth. (2) Shares: S x 1000 / (count x 1000), cut to capacity[N] - N.drawn at each N **and left cut for those after**, added to N.drawn where above nothing, and taken off S whatever its sign - so a province asked for more than it can pass throws the difference back. (3) What is left is added to each N.drawn in turn, up to capacity[N]. Then last_pool = pool. **Phase 3**, the order's last element first: a capital at distance 0, a province empty of both and one short of what was asked of it in both keep what they have; otherwise spare = pool - (drawn + SUPPLYPOOL_DAYS x the array's need, as counted and not as raised). At distance 0 it goes to the controller's acting capital, up to the sum over the province's convoys that end there and start in the capital's area of NavalBaseCapacity x efficiency, and never more than NavalBaseCapacity; elsewhere **all of it goes to the first nearer province in edge order, with no limit** - one province a day, since the nearer were visited first. Both count in sent_back where they land in a capital. No supply is made here. See reversing/findings/FINDINGS-supplypass.md, section 3.",
+   "confidence": "confirmed",
+   "evidence": "Read from the decompiled C against the listing, 0x6872D0 to the `ret 0x14`; set against a savegame, where a replay of it reproduces 124 of 234 networks in every figure (section 9).",
+   "source": "reversing/findings/FINDINGS-supplypass.md",
+   "revises": "The comment said a take arrives less the loss and left it open whether the loss is a share; it is an amount, added to what is asked. It had SUPPLYPOOL_DAYS as 35, which is BlackICE's. New: last_pool is not copied for a province nothing was asked of, the fuel arm's different first test, the share that stays cut and can go negative, phase 3 using the need as counted, and the surplus moving one province a day."
+  },
+  {
+   "rva": "0x796750",
+   "kind": "function",
+   "name": "_qsort",
+   "signature": "void __cdecl qsort(void* base, size_t count, size_t size, void* compare)",
+   "no_signature": null,
+   "comment": "**The C runtime's qsort**, which the supply order is sorted with (SupplyOrder_CallQsort): Ghidra's library match is Visual Studio 2010's. Runs of eight or fewer go to shortsort. Longer: the middle of the first, the middle and the last element is the pivot - three compares, each swapping on `> 0` - the run is partitioned about it, everything equal to the pivot is stepped over, the longer half is pushed and the shorter gone on with. It is not stable, so the order of provinces equally far from their depots is whatever it leaves, and that order decides who takes first from a province with too little. See reversing/findings/FINDINGS-supplypass.md, section 2.",
+   "confidence": "confirmed",
+   "evidence": "Read from the decompiled C; the calls through [ebp+0x14] are the comparator's, the one direct call is shortsort's.",
+   "source": "reversing/findings/FINDINGS-supplypass.md"
+  },
+  {
+   "rva": "0x7966C0",
+   "kind": "function",
+   "name": "shortsort",
+   "signature": null,
+   "no_signature": "a static of the runtime's with the run's end in EAX and the rest on the stack: start, width, comparator",
+   "comment": "The C runtime's sort for a run of eight or fewer: from the end of the run back, the element that belongs last - the first found for which the comparator answers above nothing against the best so far - is swapped into the last place. The comparator is called as (candidate, best). See reversing/findings/FINDINGS-supplypass.md, section 2.",
+   "confidence": "confirmed",
+   "evidence": "Read from the listing from 0xB966C0: the compare at 0xB966F2 with `jle` after it, the byte swap, and the step back of the end.",
+   "source": "reversing/findings/FINDINGS-supplypass.md"
+  },
+  {
+   "rva": "0xF28B0",
+   "kind": "function",
+   "name": "CCountry::ClearDailyPools",
+   "signature": "void __stdcall CCountry::ClearDailyPools(CCountry* country@EAX)",
+   "no_signature": null,
+   "comment": "**Zeroes what a country counts afresh each day**: all seven goods of usage (+0x98C), the pool at +0xA1C, unit_demand (+0xA40), the pool at +0xA64, tribute_received (+0x8FC), sent_back (+0x9D4) and sent_to (+0x9B0). RunDailyPass calls it for every country that exists, straight before RunDailySupplyPass - so what the pass and the units book that day starts from nothing. The name is ours. See reversing/findings/FINDINGS-supplypass.md, section 2.",
+   "confidence": "confirmed",
+   "evidence": "Read whole: forty-nine stores of the fixed-point zero at 0x1A87818 and a bare `ret`.",
+   "source": "reversing/findings/FINDINGS-supplypass.md"
+  },
+  {
+   "rva": "0x278AB0",
+   "kind": "function",
+   "name": "RunSupplyAndConvoyIterations",
+   "signature": "void __stdcall RunSupplyAndConvoyIterations(CList<CCountry*>* countries, int unknown)",
+   "no_signature": null,
+   "comment": "**What fills the provinces before a game's first hour.** passes = max_supply_depot_distance (+0x58) + 2, or 1 in the tutorial and in arcade mode. The four per-province arrays are made once. Each pass: every country's stockpile is kept, all seven goods; CSupply::DailySupplyPass; then per country its convoys' deliveries (one carrying supplies or fuel every pass, any other on the first only), CUnit::ConsumeSuppliesAndFuel for every unit, and - **where its acting capital's supply_depot_id is the capital itself - the stockpile put back as it was kept**; on the second pass only, three calls that set its convoys up. After the passes every unit whose supplies received is 0 gets CUnit::CarrySupplies out of its country's stockpile. Then RunDailyPass, RunMonthlyPass and RunHourlyPass. So the provinces are filled for nothing, but a stockpile that draws on another's depot is drained as on any day, and whatever reaches a stockpile during the passes - a day's supplies made at the factories the day before, on their way in - is lost when it is put back. Two callers: CInGameIdler::Enter at 0x65CC64, for a new game and after its own RunDailyPass at 0x65CB2E, and ApplyCustomGameSettings at 0x41E0A2. See reversing/findings/FINDINGS-supplypass.md, section 7.",
+   "confidence": "confirmed",
+   "evidence": "Read from the decompiled C, 0x678AB0 to the `RunHourlyPass` call; the fuel of a country two days into a savegame is short of what it began with and refined by one day's refining outside its capital (section 9).",
+   "source": "reversing/findings/FINDINGS-supplypass.md",
+   "revises": "Was `inferred`, and said the loop snapshots the stockpiles without saying they are put back, or when. New: the restore and its condition, the units that got nothing, and the three passes that follow the loop."
+  },
+  {
+   "rva": "0x25CB2E",
+   "kind": "instruction",
+   "name": "Enter_FirstDailyPass",
+   "signature": null,
+   "no_signature": null,
+   "comment": "`call RunDailyPass` in CInGameIdler::Enter, for a session not loaded from a save (the byte tested at 0x65C7FA jumps past it and past the call below otherwise), after the weather is run in and before RunSupplyAndConvoyIterations at 0x65CC64. **A new game's first day comes before its provinces are filled**, and the second is the one RunSupplyAndConvoyIterations ends with: the two days every save of a start date is on from. See reversing/findings/FINDINGS-supplypass.md, section 7.",
+   "confidence": "confirmed",
+   "evidence": "The listing of CInGameIdler::Enter from its entry: the calls at 0x65C611 (CSupply::RebuildSupplyNetwork), 0x65CB2E and 0x65CC64, and the three direct calls to RunDailyPass in the image - this, 0x679157 and the tick's 0x68213A.",
+   "source": "reversing/findings/FINDINGS-supplypass.md"
+  },
+  {
+   "rva": "0x1BB950",
+   "kind": "function",
+   "name": "CUnit::ConsumeSuppliesAndFuel",
+   "signature": "void __stdcall ConsumeSuppliesAndFuel(CUnit* unit)",
+   "no_signature": null,
+   "comment": "**One unit's day at the supplies.** It asks CUnit::SupplyConsumption and CUnit::FuelConsumption what the unit uses. In arcade mode it takes that straight out of its country's stockpile. Otherwise it draws on **a province**: the one the unit is in - its owner's acting capital where it is in none - or, where it has a home base (+0x98), the base's, wherever the unit is; an air unit based on a carrier takes the carrier's own base's. `need` is that province's (+0x244) and depot the province its supply_depot_id names. Where the depot's controller is not the payer (the expeditionary owner, else the owner) but is its friend, the payer **pays**: price = (1000 - full) x 250 / 1000 + 1000 with full = pool x 1000 / (SUPPLYPOOL_DAYS x need), 1000 where there is no need, for supplies and fuel apart; price x asked is added to the payer's TradedAway, moved from its stockpile to the depot holder's as far as it has it, and added to the holder's TradedFor and unit_demand. A fleet under a rebase order (0x6DE) has province and depot replaced by its owner's capital after that. Where there is a depot and its controller is no friend of the unit's owner both received figures are 0 and nothing more happens. Then: have = the province's pool, and where that is under `need`, have x (asked x 1000 / need) / 1000 - the unit's share of what there is; received = 1000 and all taken where that covers what was asked, else have x 1000 / asked and `have` taken. Without a friend's payment what was asked is the unit_demand of **whoever controls the province drawn on**. The take is that country's `usage` only where the unit stands in its acting capital. **Fuel is worked out the same but only taken, and only counted as usage, for a unit that is moving or a fleet away from its base.** Last, the red mark on the counters of the player's own units. See reversing/findings/FINDINGS-supplypass.md, section 4.",
+   "confidence": "confirmed",
+   "evidence": "Read from the decompiled C, both arms; the 250 is the float 250.5 at 0x160A688 through floor.",
+   "source": "reversing/findings/FINDINGS-supplypass.md",
+   "revises": "The comment had the draw as 'pro rata against the province's need' and the lend as 'a rate built from SUPPLYPOOL_DAYS'. Both are now spelled out, with which country's unit_demand is counted, the friend test that gives a unit nothing, the rebase case and the fuel that is told but not taken."
+  },
+  {
+   "rva": "0x1BED80",
+   "kind": "function",
+   "name": "CUnit::CarrySupplies",
+   "signature": "void __stdcall CUnit::CarrySupplies(CUnit* unit, CMapProvince* province, bool parachuted, bool fromStockpile)",
+   "no_signature": null,
+   "comment": "**What a unit brings with it into a province**: SUPPLYPOOL_DAYS - PARASUPPLYPOOL_DAYS where `parachuted` - of what it uses in supplies and in fuel, as far as the source has them, moved into the province's pool. The source is its owner's stockpile; but the pool of the unit's previous province (+0x134) where it has one and that is land; and for a unit with none, where `fromStockpile` is clear, the game is under way and the province's controller is not the owner, the pool of the province's depot - or nothing at all where the province is not the owner's own or has no depot. Five callers: CUnit::EnterProvince (0x5BF313) for a land unit aboard nothing entering a land province other than its own, before current_province_ptr is changed; RemoveFromTransport (0x5CF1B8) and CNavy::UnloadCarried (0x5CFEC2) for units put ashore; CAir::ReleaseCarried (0x5D09F8) with the parachute byte; and RunSupplyAndConvoyIterations (0x6790D7) for every unit the filling left with nothing. So a marching army takes its days of supplies out of the province it leaves. The name is ours. See reversing/findings/FINDINGS-supplypass.md, section 5.",
+   "confidence": "confirmed",
+   "evidence": "Read whole from the decompiled C, 0x5BED80 to the `ret 0x10` at 0x5BEFC8, and each call site's context.",
+   "source": "reversing/findings/FINDINGS-supplypass.md"
+  },
+  {
+   "rva": "0x1CFE10",
+   "kind": "function",
+   "name": "CNavy::UnloadCarried",
+   "signature": null,
+   "no_signature": "one stack argument, the fleet; the return was not read",
+   "comment": "Takes every unit off a fleet's `carrying` list: for each, the carried-by pointers (+0x300, +0x1C8, +0x2E4, +0x2E8 of the land unit) are cleared, CUnit::CarrySupplies is called with the unit's province and the from-the-stockpile byte set, the list node is freed and CCombatManager::CheckForCombat is run. The same body as RemoveFromTransport, for all of them at once. The name is ours. See reversing/findings/FINDINGS-supplypass.md, section 5.",
+   "confidence": "inferred",
+   "evidence": "Read from the decompiled C for what it does around the CarrySupplies call; its callers were not looked for.",
+   "source": "reversing/findings/FINDINGS-supplypass.md"
+  },
+  {
+   "rva": "0x1D0990",
+   "kind": "function",
+   "name": "CAir::ReleaseCarried",
+   "signature": null,
+   "no_signature": "the carried unit arrives in EDI, with the carrier and a byte on the stack; the return was not read",
+   "comment": "Lets go of a land unit an air unit is carrying: clears the unit's +0x304 and +0x2E8, takes it off the carrier's list, and - where its byte argument is set - calls CUnit::CarrySupplies with that byte as `parachuted` and from-the-stockpile set, then CCombatManager::CheckForCombat. So a dropped unit lands with PARASUPPLYPOOL_DAYS of supplies out of its country's stockpile. The name is ours. See reversing/findings/FINDINGS-supplypass.md, section 5.",
+   "confidence": "inferred",
+   "evidence": "Read from the decompiled C for what it does around the CarrySupplies call; its callers were not looked for.",
+   "source": "reversing/findings/FINDINGS-supplypass.md"
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CMapProvince",
+   "offset": "0x180",
+   "name": "last_pool",
+   "type": "CGoodsPool",
+   "comment": "**The pool as the daily supply pass left it when it came to this province** - after the province's own takes, before anything further in the day. A province further from the depot is offered no more than this, and since it is visited first, what it reads is yesterday's: goods move one province a day. A province nothing was asked of does not have it brought up to date. Not saved. See reversing/findings/FINDINGS-supplypass.md, section 3.",
+   "evidence": "CSupply::DailySupplyPass: read in the first sweep of phase 2 for what a nearer province offers, written at the end of a province's turn in phase 2 and for a capital.",
+   "source": "reversing/findings/FINDINGS-supplypass.md",
+   "revises": "Was 'pool as the last daily supply pass left it'; now says when in the pass, who reads it and what follows from it."
+  },
+  {
+   "struct": "CMapProvince",
+   "offset": "0x244",
+   "name": "need",
+   "type": "CGoodsPool",
+   "comment": "**What the units drawing on the province ask for in a day, as phase 2 of the daily supply pass set it**: SupplyNeed's figure, raised to 1.000 where it is between nothing and that and the pool holds under 5.000. Zeroed in phase 1 and not set for a capital, so there it is nothing. CUnit::ConsumeSuppliesAndFuel shares a short pool out by it. See reversing/findings/FINDINGS-supplypass.md, section 3.",
+   "evidence": "Zeroed in phase 1 of CSupply::DailySupplyPass and written in phase 2 before the want is worked out; read by CUnit::ConsumeSuppliesAndFuel.",
+   "source": "reversing/findings/FINDINGS-supplypass.md",
+   "revises": "The name was marked as inferred; the pass's write and the unit's read confirm it."
+  }
+ ],
+ "frontier": [
+  "0x4FDF40",
+  "0x4FE7E0",
+  "0x4FD750",
+  "0x688000"
+ ],
+ "notes": [
+  "Nothing here was watched in a running game.",
+  "A replay of the pass by the rewrite reproduces 124 of 234 networks of the maintainer's start-date savegame in every figure the save keeps; the findings file's section 9 has the comparison and what the rest differ by."
+ ]
+}

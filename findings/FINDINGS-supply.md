@@ -103,6 +103,13 @@ makes walking it this way safe.
 
 ## The three phases
 
+**`FINDINGS-supplypass.md` has these read instruction for instruction, on 2026-10-10**, and
+corrects three things in the outline below: what a load loses is an **amount** asked for on top
+and taken off on arrival, not a share of the load; a province nothing was asked of does not
+have its `last_pool` brought up to date; and `SUPPLYPOOL_DAYS` is 15 in Their Finest Hour, the
+35 here being BlackICE's. That file also has what the outline leaves out - the unit's draw,
+what a unit carries with it, and what a new game runs before its first hour.
+
 **Phase 1** swaps `drawn`↔`last_drawn` and `throughput`↔`last_throughput`, then zeroes
 today's `drawn`, `throughput` and `need`. So the `last_*` buffers are yesterday's, and
 phase 2 reads them.
@@ -163,23 +170,27 @@ pass.
 
 ## Not settled
 
-- **Which other countries can label a province.** `CCountry::FindSupplyDepot` recurses
-  through `CCountry +0xF34`/`+0xF38` and the area's `+0x34` list, and until those are named
-  it is not settled whether that reaches allies, puppets or lend-lease partners.
-- **`COwnerArea +0x69`/`+0x70`**, the area-level override that gets first refusal on a
-  province's label. `COwnerArea` is not in `project.json` at all.
+**Five of the seven points that stood here were settled on 2026-10-09, in
+`FINDINGS-supplynetwork.md`**, which is the network this pass runs on: who can label a
+province (a supply group of areas on one side picks one depot; `CCountry::FindSupplyDepot`
+is only the fallback, and it reaches the master, fellow puppets and friends);
+`COwnerArea +0x69`/`+0x70` (may hold a depot; the supply group); `CProvinceTemplate +0x24`
+(a size class of 1 to 4 from the bounding box, so the weighted distance and a hop count do
+not coincide); `CProvinceTemplate +0x13D` (the province takes part in this session, which
+the record's `MarkSimulatedProvinces` entry already said); and `CMapProvince +0x54`/`+0x58`
+(the air base's wings and the naval base's fleets). That file also has what the three
+per-province figures compute, and what the `capital` byte that makes a capacity unlimited
+really marks. Still open:
+
 - **What reads `CCurrentGameState +0x58`**, the largest distance on the map clamped to 500.
-- **`CProvinceTemplate +0x24`**, the per-province traversal cost the relaxation multiplies
-  its step by. Its runtime values were never sampled, and that is the one thing that would
-  say whether the weighted distance and a hop count coincide in practice.
+  (`RunSupplyAndConvoyIterations` takes its loop count from it; nothing else was found.)
 - **`CCountry +0xA1C`** is an unnamed `CGoodsPool` - the slot between `pool_in_exile`
   (`+0x9F8`) and `unit_demand` (`+0xA40`) is exactly one pool wide, and this pass writes
   its supplies and fuel at `+0xA24`/`+0xA28`, as does `CUnit::ConsumeSuppliesAndFuel`.
   Left unnamed deliberately.
-- **`CProvinceTemplate +0x13D`**, the flag that decides whether a province takes part at
-  all. Tested at every level; still unidentified.
-- `CMapProvince +0x54`/`+0x58`, the two extra unit lists `SupplyNeed` walks, and
-  `CConvoy +0xAC`, the lend-lease efficiency factor.
+- `CConvoy +0xAC`, the lend-lease efficiency factor.
+- **`SUPPLYPOOL_DAYS` is 35 in BlackICE and 15 in Their Finest Hour**; the 35 in the phases
+  below is the mod's.
 
 ## defines.lua is read by name, not by position
 

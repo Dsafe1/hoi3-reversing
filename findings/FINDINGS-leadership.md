@@ -257,8 +257,11 @@ It agrees with the three the record already had by other routes: `+0x40` `manpow
   however far away it is, and an island off the capital's own continent is not overseas either.
 - **`blockaded` is only ever tested for a province that is overseas.** It sits inside that
   branch. A province with an owner, a port and a naval base above level 0 is exempt; otherwise
-  it is blockaded when `0x47E540` answers no for its area and controller. `0x47E540` was not
-  read.
+  it is blockaded when `0x47E540` answers no for its area and controller. **Read on
+  2026-10-09** (`FINDINGS-supplynetwork.md`, section 2): it is `COwnerArea::FindOpenPort`, the
+  id of the area's first province with an owner, a port, a naval base above level 0 and a clear
+  byte at `+0x36C`, or 0 - and it never reads the tag it is handed. So a province overseas is
+  blockaded when its area has no such port. What sets `+0x36C` is still unread.
 - **`non_core`: the province's owner has no core on it, and the owner is also its
   controller.** The test is against the *owner*, and an occupied province gets nothing here -
   it gets the occupier's policy further down instead (`FINDINGS-occupation.md`).
@@ -434,8 +437,11 @@ for the bigger members of its faction.*
   `SetUpCountryForNewGame` at all: `CInGameIdler::Enter` adds up each unit's officers, times
   the history's `officers_ratio`, straight after it reads the order of battle.
   `FINDINGS-unitstart.md`, section 7.
-- **`0x47E540`**, the test behind `blockaded`, and what marks a `COwnerArea`'s edges - whether
-  an area is land one country *owns* or *controls*, and whether a strait joins two.
+- ~~**`0x47E540`**, the test behind `blockaded`, and what marks a `COwnerArea`'s edges - whether
+  an area is land one country *owns* or *controls*, and whether a strait joins two.~~ Settled
+  2026-10-09 in `FINDINGS-supplynetwork.md`, section 2: an area is land one country
+  **controls**, a province needs more than one level of infrastructure to be in one, and every
+  edge joins - a crossing too. Only the byte at `CMapProvince +0x36C` is left.
 - **`0x507DF0`**, called just before the total is worked out, with the country in `edi`. It
   reads the same vector at `+0x6F0`.
 - **Who writes the vector at `CCountry +0x6F0`.**
