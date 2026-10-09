@@ -294,13 +294,18 @@ pointer, starting at 1000 and multiplying term after term into it. The weather t
 */)`:
 
 ```
-province = unit->+0x130                                   # where it is heading
+province = unit->+0x130                                   # where it is - see the correction below
 w        = CWeather::MovementEffect(&province->weather, unit->owner)   # 0xB4230, negative
 out = out * (1000 + w + province->modifiers[MODIFIER_LOCAL_UNIT_SPEED]) / 1000
 ```
 
 so the weather and the province's own `LOCAL_UNIT_SPEED` share **one** multiplier rather than
 composing.
+
+**Corrected 2026-10-09.** This section used to call that province "where it is heading".
+`CUnit +0x130` is `current_province_ptr`: both the weather and the local speed are those of the
+province the unit is **in**, and only the terrain term looks at the next one.
+`FINDINGS-movement.md`, section 5.1, has every term of the routine read through.
 
 `CWeather::MovementEffect` (`0xB4230`), `this` in EDI, `int* out` in ESI, a `CCountryTag` by
 value on the stack (`ret 8`):

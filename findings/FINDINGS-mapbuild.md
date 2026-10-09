@@ -352,6 +352,12 @@ edges the ratio of stored distance to centre-to-centre pixel distance runs 950, 
 1342, 1532 — no constant. Every value seen is a multiple of 50. `CALC_PATHS` and
 `map.cpp:605 fix naval distances` are where to look.
 
+**Settled 2026-10-09, in `FINDINGS-movement.md` section 6.** The distance is the sum of the
+terrain `movement_cost` of each pixel on a walk between the two provinces' unit points - hence
+the multiples of 50 and the ratios above - written by `CProvinceTemplate::MeasureEdges`
+(`0x4A9E70`), which is also the pass that fills the bearing in place, the one §5 here could not
+find. That write-up reproduces every edge of the base game's `adjacencies.bin` from it.
+
 ## 7. Which pixel `CProvinceTemplate +0x64/+0x68` is — closed
 
 Both write sites are inside **one** function, `0x48FBB0` (rva `0x8FBB0`,

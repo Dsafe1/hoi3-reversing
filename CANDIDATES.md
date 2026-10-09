@@ -922,7 +922,7 @@ of it.
 
 ## What has already been read
 
-100 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
+103 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
 header lives. This replaces the `Done` archive: the archive restated each file's headline and named
 only 40 of the 67 there were then, so it was both longer and less useful than a complete list.
 
@@ -995,6 +995,7 @@ the six it was missing were wave 15's.
 | `findings/FINDINGS-countrymodifier.md` | everything a country's modifier is rebuilt from, in order: ministers and their `decay`, laws, government, strategic resources and who shares them, province modifiers, the scaled statics, event and triggered modifiers, difficulty |
 | `findings/FINDINGS-manpowergain.md` | manpower: what a day adds, what `max_manpower` is, what a new game starts with, and that a country's modifier takes in its provinces' |
 | `findings/FINDINGS-redeploy.md` | strategic redeployment and the route finder |
+| `findings/FINDINGS-movement.md` | movement: the click and the move command, the order the route search really runs in, the hourly march - speed, every term of its modifier, progress against the distance, arrival and cancelling - whose ground a unit may enter, and what an edge's distance is: the terrain `movement_cost` summed along a pixel walk, checked against all 83,596 edges of the game's own cache. Also how adjacencies are ordered, the four edge kinds, and the rule that gives a province its terrain |
 | `findings/FINDINGS-topbar.md` | the top bar: what `CTopBar` writes into each element, in what format and colour, the buttons it wires, and the orientation keywords |
 | `findings/FINDINGS-countryviews.md` | the production and technology screens: `CCountryView` and its country skin, the slider both share and what a `CDistributionSetting` tells it, the resource and research figures, where a technology goes in the tree, and the three entry classes |
 | `findings/FINDINGS-textdraw.md` | where a text box puts its text: the font's slot 8, what `borderSize`, `format` and `orientation` do, the half pixel every glyph is drawn off by, and the `colorcodes` the colour escapes come from |
@@ -1034,6 +1035,7 @@ the six it was missing were wave 15's.
 | `findings/FINDINGS-temperature.md` | temperature, and the one missing `abs()` that gives the south no winter |
 | `findings/FINDINGS-mapmode.md` | the VP map mode, and where to take it over |
 | `findings/FINDINGS-camera.md` | the map camera, and what moves it |
+| `findings/FINDINGS-counters.md` | a unit's counter on the map: the four textures and the colour its quad is made of, its size by rank, the flag and the two texts on the top one, the five stacks a province keeps and which units have no counter at all - a fleet in port, a wing at its base - and that `CUnit +0x1F8` is the player's intel level |
 
 **The interface, and text**
 
@@ -1045,6 +1047,7 @@ the six it was missing were wave 15's.
 | `findings/FINDINGS-guicontainers.md` | the subwindow map, and every `CWindowType::LoadKey` token's container |
 | `findings/FINDINGS-guistatic.md` | the GUI read statically: the child lists, the empty registries, the ledger's class |
 | `findings/FINDINGS-listbox.md` | how a list box lays out what is in it: rows, as many as go whole into the box's height, an entry with no row hidden and none cut off, `spacing` unused, scrolling by the row - and the two lists that go by their entries' heights instead |
+| `findings/FINDINGS-deploymenu.md` | how a finished unit gets to the map: the sixteen alerts and the one that opens the deploy menu, the menu's two lists - the units waiting, then the units one of them may join - what a click on a line of each posts, and what joining is: one brigade moved into the target, anything larger put under it |
 | `findings/FINDINGS-textureload.md` | which file a texture's name loads: a `.tga` is its `.dds` wherever one exists on the search path, one way only, and the three pictures the install holds as both |
 | `findings/FINDINGS-uinumbers.md` | what the interface already computes |
 | `findings/FINDINGS-uinumbers2.md` | what the interface already computes, part two |

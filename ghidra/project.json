@@ -7019,9 +7019,9 @@
    "name": "CPathFind::Find",
    "signature": "bool __stdcall CPathFind::Find(CPathFind* finder, CUnit* unit, CProvince* from, CProvince* to, CList* path)",
    "no_signature": null,
-   "comment": "The A* search itself, and **not a member call**: the finder is the first stack argument, not a receiver. The call site at rva 0x1D8F08 pushes five and adds nothing back (the body does `ret 0x14`), and ECX there holds the unit's own province from CUnit +0x130 - so nothing puts the finder in a register.\n\nWhat it does: refuses unless unit, from and to are all non-null, then asks the finder's slot 1 (MayUse) whether it may run at all. It allocates three arrays the size of the game state's province vector - a visited byte per province, a 16-byte open-list record per province and a came-from index per province - and loops: take the cheapest open province, ask slot 3 (IsGoal), and for each edge of its template (CProvince +0xD4) ask slot 2 (MayStep) and then slot 0 (StepCost). The heuristic added on top is the straight-line distance between the two templates' +0x2C/+0x30 coordinates, wrapped at the map width in CMap +0x2A74 and scaled by [0x1688618]. On success rva 0x1A11F0 fills `path` with 16-byte nodes holding province **ids** (the CList head is first/last/count/flag, the nodes are data/prev/next/flag).",
+   "comment": "The A* search itself, and **not a member call**: the finder is the first stack argument. It asks slot 1 (MayUse) once, then loops: take the head of the open list, ask slot 3 (IsGoal), and for each edge of its template in the vector's order ask slot 2 (MayStep) and slot 0 (StepCost). **A province is marked visited when MayStep allows the step to it, not when it is taken off the list, and is never looked at again** - so a cheaper way found later does not replace the first and the route is not always the cheapest. The open list is one chain sorted by `f`, a new province going in before the first whose `f` is not smaller. `f = g + IntegerSqrt(dx*dx + dy*dy) * 1000 * g_RouteStraightLineWeight / 1000` between the templates' +0x2C/+0x30, dx wrapped at CMap +0x2A74. The path handed back leaves out the start and includes the goal: 0x1A11F0 builds it and the first node is then dropped. See reversing/findings/FINDINGS-movement.md.",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-redeploy.md"
+   "source": "reversing/findings/FINDINGS-redeploy.md; reversing/findings/FINDINGS-movement.md"
   },
   {
    "rva": "0x1A1A90",
@@ -7802,10 +7802,11 @@
    "rva": "0x1BE640",
    "kind": "function",
    "name": "AddRegimentToUnit",
-   "comment": "The counterpart of `RemoveRegimentFromUnit` (0x1BE9A0), which abuts its `ret 4` at 0x1BE995: it pushes the regiment onto the unit's `regiments` list (+0x38), writes the regiment's `unit_ptr` (+0xB0) at 0x1BE6CD, renames the unit after its first brigade's type key where `[unit+0x1F8] >= 3` and there is a brigade, and ends by calling `CUnit::RebuildDefinition(unit, false)` at 0x1BE937. The unit arrives in **edi** and is never loaded from the frame.",
+   "signature": "void __stdcall AddRegimentToUnit(CUnit* unit@EDI, CSubUnit* regiment@stack:4)",
+   "no_signature": null,
+   "comment": "The counterpart of `RemoveRegimentFromUnit` (0x1BE9A0), which abuts its `ret 4` at 0x1BE995: it pushes the regiment onto the unit's `regiments` list (+0x38), writes the regiment's `unit_ptr` (+0xB0) at 0x1BE6CD, and - where the unit is on the map - gives its two counters their size again and, if the key CUnit_GetCounterTypeKey answers has changed with the new brigade, their colour and the picture `GFX_small_counter_<key>` or `GFX_map_counter_<key>` again; it ends by calling `CUnit::RebuildDefinition(unit, false)` at 0x1BE937. The unit arrives in **edi** and is never loaded from the frame.",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-unitdef.md",
-   "signature": "void __stdcall AddRegimentToUnit(CUnit* unit@EDI, CSubUnit* regiment@stack:4)"
+   "source": "reversing/findings/FINDINGS-counters.md"
   },
   {
    "rva": "0x1BE9A0",
@@ -7821,9 +7822,10 @@
    "kind": "function",
    "name": "CUnit::EnterProvince",
    "signature": "void __thiscall CUnit::EnterProvince(CUnit* this, CMapProvince* province)",
-   "comment": "Puts a unit into a province: it writes `current_province_ptr` (`+0x130`) at `0x1BF4D3`.\\n\\n**Only that much was read.** The function is over 2.5KB and does a great deal besides - it reads the province's path node in half a dozen places - so the name is what it is *for* at the one call site traced here, not a full account of it. The convention is read off that call site: `ecx` is the unit and the province is pushed.",
+   "no_signature": null,
+   "comment": "**Puts a unit into a province**: it writes `current_province_ptr` (+0x130) at 0x1BF4D3, after taking the unit's counter out of the old province's stack and before putting it in the new one's. It refreshes the unit's intel level (+0x1F8) and marks the avatar stale where that or land-and-sea changed, and then places the avatar: at the province's point +0xCC for a land or sea unit with no path, +0xD8 for one with a path, +0xFC for an air unit, and for a fleet in a land province or a wing at its own base at the port or the unit point less the label point. A fleet entering takes what it carries with it, and puts ashore and checks for combat what it carries into a land province at the end of its path. For a selected unit with a path the arrow is made again. Logs 'is located in illegal province 0!' (unit.cpp). See reversing/findings/FINDINGS-movement.md.",
    "confidence": "inferred",
-   "source": "reversing/findings/FINDINGS-manpower.md"
+   "source": "reversing/findings/FINDINGS-manpower.md; reversing/findings/FINDINGS-movement.md"
   },
   {
    "rva": "0x1C01F0",
@@ -8002,9 +8004,11 @@
    "rva": "0x1C8D10",
    "kind": "function",
    "name": "CUnit::MovementSpeedModifier",
-   "comment": "Builds a unit's movement speed multiplier in thousandths through an out pointer: `(CUnit* u@[ebp+8], int* out@[ebp+0xC])`. Starts at 1000 and multiplies in, in order: a combat term where the unit is in a battle it is attacking; the owner's MODIFIER_COMBAT_MOVEMENT_SPEED (entry 63) with the leader/HQ effect of type 5, capped at 1000 and floored at Define10; a fuel term; the terrain's `movement` adjuster for the next province out of the definition's terrain vector (+0x54); the unit's own type/order term (0x1D0F80 with effect 0x1C); and, where the unit is land (slot 15), **(1000 + CWeather::MovementEffect(next province's weather, owner) + the province's MODIFIER_LOCAL_UNIT_SPEED)/1000** at 0x1C900A-0x1C9028; then a river/strait term. Named for what it produces; the non-weather terms were read once each and are summarised rather than confirmed.\n\n**Its one caller, added 2026-10-02** (reversing/findings/FINDINGS-uinumbers.md): `BuildSpeedModifierTooltip` (rva 0x1C82A0) calls it at 0x5C82D4 as the first thing it does, passing both the value of its own first argument **and the address of it**, then re-reading that slot - so this writes through. A proposed rename to `ComputeSpeedModifierTerms` was declined: that name was a guess from the call position by an agent that had not read the body, and this entry's own account of the formula is the better-founded one.",
+   "signature": "int* __stdcall CUnit::MovementSpeedModifier(CUnit* unit, int* out)",
+   "no_signature": null,
+   "comment": "**A unit's movement speed multiplier**, thousandths through an out pointer: `(CUnit* u@[ebp+8], int* out@[ebp+0xC])`. Starts at 1000 and multiplies, each term cut: (1) in a battle with a path, `min(1000, max(10, (1000 + combat_movement_speed + technology + leader effect 5) * (COMBAT_MOVEMENT_SPEED + the battle's figure) / 1000))` where the unit is on the attacking side, and 10 otherwise; (2) for a land or sea unit that is not retreating and whose definition burns fuel, `fuel_received * 900 / 1000 + 100`; (3) with a path, for the **next** province: `1000 +` the definition's terrain adjuster's movement, `1000 +` the leader's trait for that terrain (0x5D0F80), and over an edge of kind 1 or 2 `1000 +` the river adjuster's movement (+0xA4); (4) for a land unit, `1000 + CWeather::MovementEffect + local_unit_speed` of the province it is **in**; (5) for a land unit, `1000 + amm_movement_speed * (the share of its brigades that are is_mobile) / 1000`; (6) retreating, `1000 + 100`. One caller besides CUnit::MovementSpeed: BuildSpeedModifierTooltip. See reversing/findings/FINDINGS-movement.md.",
    "confidence": "inferred",
-   "source": "reversing/findings/FINDINGS-weather.md; reversing/findings/FINDINGS-uinumbers.md"
+   "source": "reversing/findings/FINDINGS-weather.md; reversing/findings/FINDINGS-uinumbers.md; reversing/findings/FINDINGS-movement.md"
   },
   {
    "rva": "0x1C900A",
@@ -8027,10 +8031,11 @@
    "rva": "0x1C9AC0",
    "kind": "function",
    "name": "SetUnitPath",
-   "signature": null,
-   "comment": "Gives a found route to a unit: (unit, path, 1). Gives a route to a unit (same function as RVA 0x1C9AC0).",
+   "signature": "void __stdcall SetUnitPath(CUnit* unit, CList* path, bool clear)",
+   "no_signature": null,
+   "comment": "**Gives a route to a unit**: `(unit, path, clear)`. A unit in a battle first asks every battle whether it may leave and does nothing if none says so; otherwise it leaves them all and is marked retreating where it was still holding ground. With `clear`, `movement_progress` (+0x14C) and +0x154 are zeroed **unless the new path begins with the province the old one began with**, and the old path is emptied; without it the new provinces are added to the end. Then the nodes are appended and, with a path now set, CUnit::ShowMoving is called. See reversing/findings/FINDINGS-movement.md.",
    "confidence": "confirmed",
-   "source": "BiceLib/GameClasses/CStrategicRedeploymentOrder.hpp:33; reversing/findings/FINDINGS-redeploy.md:106"
+   "source": "BiceLib/GameClasses/CStrategicRedeploymentOrder.hpp:33; reversing/findings/FINDINGS-redeploy.md:106; reversing/findings/FINDINGS-movement.md"
   },
   {
    "rva": "0x1CD180",
@@ -8277,10 +8282,11 @@
    "rva": "0x1D2A40",
    "kind": "function",
    "name": "CArmy::GetAttackValue",
-   "comment": "**CUnit slot 39 for a land unit.** Returns -1 where `[this+0x1F8] < 7`; otherwise `(hard_attack + soft_attack)` out of the unit's own definition (+0xC8 then +0x138 and +0x134), x1000 and divided. Both fields are plain sums over the brigades, so the figure scales with division size. CNavy's override (0x1D2BA0) uses `sea_attack` (+0x168) and CAir's (0x1D2CE0) `air_attack` (+0x140); CUnit's own slot is the pure-virtual stub at rva 0x7961D5. What `[this+0x1F8]` holds is **not** established.",
-   "confidence": "likely",
-   "source": "reversing/findings/FINDINGS-unitdef.md",
-   "signature": "int __thiscall CArmy::GetAttackValue(CArmy* this)"
+   "signature": "int __thiscall CArmy::GetAttackValue(CArmy* this)",
+   "no_signature": null,
+   "comment": "**CUnit slot 39 for a land unit, and the first of the two figures on its counter.** Returns -1 where the player's intel level on the unit (`[this+0x1F8]`) is under 7; otherwise `(hard_attack + soft_attack)` out of the unit's own definition (+0xC8 then +0x138 and +0x134) as `sum * 1000 / 6000`, that over 1000 rounded to a whole number, and no more than 9. Both fields are plain sums over the brigades, so the figure grows with the division. CNavy's override (0x1D2BA0) uses `sea_attack` (+0x168) over 25 and CAir's (0x1D2CE0) `air_attack` (+0x140) over 10; CUnit's own slot is the pure-virtual stub at rva 0x7961D5. CHoiAvatar_SetCounterFigures writes the answer beside slot 40's, with `?` for -1. See reversing/findings/FINDINGS-counters.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-counters.md"
   },
   {
    "rva": "0x1D2AF0",
@@ -8462,9 +8468,9 @@
    "name": "CMoveCommand::RouteUnit",
    "signature": "void __thiscall CMoveCommand::RouteUnit(CMoveCommand* this)",
    "no_signature": null,
-   "comment": "CMoveCommand vftable slot 6: works the unit's route out with one of three finders and gives it to the unit. Ordinary __thiscall - the command is in ecx (`mov esi,ecx` at 0x1D88E0, then +0x40/+0x44, the object reference pair) and it takes nothing on the stack (bare `ret`). Nothing is returned: eax at the exit is the leftover of the list-freeing loop at 0x1D9120.",
+   "comment": "**CMoveCommand's `Execute`, slot 6**: works the unit's route out with one of three finders and gives it to the unit. Target -1 means retreat (CUnit::FindRetreatProvince). With `clear` (+0x68) unset and a path already there the route starts from the **last** province of that path, otherwise from the province the unit is in. `very_safe` (+0x6A) picks CVerySafePathFind, `safe` (+0x69) CSafePathFind, neither CPathFind. On success: SetUnitPath(unit, path, clear), the unit's dates +0xCC and +0xD0 to the null date, and a null order. On failure the unit keeps its path and +0x8C/+0x90 take the target and the hour. Ordinary __thiscall, nothing on the stack. See reversing/findings/FINDINGS-movement.md.",
    "confidence": "confirmed",
-   "source": "BiceLib/GameClasses/CMoveCommand.hpp:58; reversing/findings/FINDINGS-redeploy.md:90"
+   "source": "BiceLib/GameClasses/CMoveCommand.hpp:58; reversing/findings/FINDINGS-redeploy.md:90; reversing/findings/FINDINGS-movement.md"
   },
   {
    "rva": "0x1D8A96",
@@ -24827,6 +24833,916 @@
    "comment": "**Makes a list box from its declaration.** Allocates 0x160 bytes, hands the declaration's position (+0xF4, +0xF8), size (+0x104, +0x108), borderSize (+0x10C, +0x110) as pairs of shorts, its background (+0x84), its scrollbar's name (+0x160) and its orientation to GuiListBoxBase_Construct, and writes the widget's tables 0x15FE6D0 and 0x15FE758. The declaration in ECX. The name is ours.",
    "confidence": "inferred",
    "source": "reversing/findings/FINDINGS-listbox.md"
+  },
+  {
+   "rva": "0x4277A0",
+   "kind": "function",
+   "name": "CSideMenuDeploy::CSideMenuDeploy",
+   "signature": "CSideMenuDeploy* __stdcall CSideMenuDeploy::CSideMenuDeploy(CSideMenuDeploy* this, void* inGameScreen)",
+   "no_signature": null,
+   "comment": "Makes the deploy menu: a CDeploymentMenuMouseObserver for the map (0x1C bytes, built inline), CSideMenu's constructor with the window name `sidebar_deploy`, and its own button observer on `close`. See reversing/findings/FINDINGS-deploymenu.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-deploymenu.md"
+  },
+  {
+   "rva": "0x427A70",
+   "kind": "function",
+   "name": "CSideMenuDeploy::Update",
+   "signature": "void __thiscall CSideMenuDeploy::Update(CSideMenuDeploy* this)",
+   "no_signature": null,
+   "comment": "**Slot 7, and the whole of the menu's behaviour.** Not choosing a target: when `deployment_queue` holds a different number of lines than the country has deployments, or `list_stale` is set, CSideMenuDeploy_BuildList; and when the list is empty the menu closes itself (CInGameIdler_CloseSideMenus). Choosing a target: once, the list is emptied, the title set to the text of DEPLOY_SEL_TARGET, and a CDeploymentTargetEntry added for each unit of the country - walked by oob_level 0 to 7 and within a level in the country's order - that stands where the deployment may be placed, is not lent out, and: for a new land unit of one brigade, is land with fewer brigades than CCountry_GetMaxBrigadesInDivision; for another new land unit, passes CUnit_MayTakeSubordinate; for a new air unit, is an air unit (with a rule about carrier air groups that was not read through); for a new fleet, is a fleet. No such unit puts the menu back to its plain list. See reversing/findings/FINDINGS-deploymenu.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-deploymenu.md"
+  },
+  {
+   "rva": "0x4287B0",
+   "kind": "function",
+   "name": "CSideMenuDeploy_BuildList",
+   "signature": "void __stdcall CSideMenuDeploy_BuildList(CSideMenuDeploy* menu)",
+   "no_signature": null,
+   "comment": "Sets `title_view_deploy` to the text of DEPLOY_UNITS, empties `deployment_queue` and adds one CDeploymentEntry (0xA8 bytes) for each of the country's deployments (CCountry +0x688), in that list's order. See reversing/findings/FINDINGS-deploymenu.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-deploymenu.md"
+  },
+  {
+   "rva": "0x4279B0",
+   "kind": "function",
+   "name": "CSideMenuDeploy_ChooseDeployment",
+   "signature": null,
+   "no_signature": "the menu in ESI and the deployment on the stack; `ret 4`",
+   "comment": "**A unit has been chosen to place**: stores the deployment's id in the menu (+0x5C, +0x60), sets `choosing_target` (+0x58) and `targets_stale` (+0x64), and remembers the list's scroll position (+0x68). See reversing/findings/FINDINGS-deploymenu.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-deploymenu.md"
+  },
+  {
+   "rva": "0x427950",
+   "kind": "function",
+   "name": "CSideMenuDeploy::Show",
+   "signature": "void __thiscall CSideMenuDeploy::Show(CSideMenuDeploy* this)",
+   "no_signature": null,
+   "comment": "Slot 2: shows the window, clears `choosing_target` and `targets_stale`, builds the list.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-deploymenu.md"
+  },
+  {
+   "rva": "0x427980",
+   "kind": "function",
+   "name": "CSideMenuDeploy::Hide",
+   "signature": "void __thiscall CSideMenuDeploy::Hide(CSideMenuDeploy* this)",
+   "no_signature": null,
+   "comment": "Slot 3: hides the window and calls the in-game screen's slot 30 with 0 - no deployment is being placed.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-deploymenu.md"
+  },
+  {
+   "rva": "0x426F40",
+   "kind": "function",
+   "name": "CDeploymentEntry::CDeploymentEntry",
+   "signature": "CDeploymentEntry* __stdcall CDeploymentEntry::CDeploymentEntry(CDeploymentEntry* this, void* inGameScreen, CSideMenuDeploy* menu, void* deployment)",
+   "no_signature": null,
+   "comment": "**One finished unit's line**, on a `deployment_entry` window: `name` is the deployment's own name (its slot 11); for a unit's deployment (slot 8 answering 0x4B4) `counter_type` gets the sprite `GFX_counter_<key of the unit's first brigade's type>` where that sprite exists, and `counter_size` the frame CUnit::GetCounterSize + 1, worked out inline; for any other deployment both icons are hidden. See reversing/findings/FINDINGS-deploymenu.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-deploymenu.md"
+  },
+  {
+   "rva": "0x427650",
+   "kind": "function",
+   "name": "CDeploymentEntry::OnSelect",
+   "signature": "void __thiscall CDeploymentEntry::OnSelect(CDeploymentEntry* this)",
+   "no_signature": null,
+   "comment": "Slot 4, the `select` button: finds the deployment by its id, resets the menu's mouse observer, tells the in-game screen which deployment is being placed (its slot 30), and for a unit's deployment calls CSideMenuDeploy_ChooseDeployment; for any other kind the in-game screen's slot 46. See reversing/findings/FINDINGS-deploymenu.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-deploymenu.md"
+  },
+  {
+   "rva": "0x426480",
+   "kind": "function",
+   "name": "CDeploymentTargetEntry::CDeploymentTargetEntry",
+   "signature": "CDeploymentTargetEntry* __stdcall CDeploymentTargetEntry::CDeploymentTargetEntry(CDeploymentTargetEntry* this, void* inGameScreen, void* list, void* deployment, CUnit* unit)",
+   "no_signature": null,
+   "comment": "**One unit the new one may join**, on a `deployment_target_entry` window: `name` the unit's name (slot 7), `location` the name of the province it is in, `counter_type` and `counter_size` as CDeploymentEntry's, from this unit. See reversing/findings/FINDINGS-deploymenu.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-deploymenu.md"
+  },
+  {
+   "rva": "0x426AD0",
+   "kind": "function",
+   "name": "CDeploymentTargetEntry::OnSelect",
+   "signature": "void __thiscall CDeploymentTargetEntry::OnSelect(CDeploymentTargetEntry* this)",
+   "no_signature": null,
+   "comment": "Slot 4, the `select` button: posts a CDeployUnitCommand with the target unit's province, the player's tag, the deployment's id and the unit's id as the target, tells the in-game screen no deployment is being placed, and clears the menu's `choosing_target`. See reversing/findings/FINDINGS-deploymenu.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-deploymenu.md"
+  },
+  {
+   "rva": "0x426A00",
+   "kind": "function",
+   "name": "CDeploymentTargetEntry_Refresh",
+   "signature": null,
+   "no_signature": "`this` is the object's second base, at +0x1C",
+   "comment": "Slot 9 of the line's second table: finds its deployment and its unit again by id, and where the deployment may no longer be placed in the unit's province (the deployment's slot 10) calls CSideMenuDeploy_ChooseDeployment, so the target list is made again.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-deploymenu.md"
+  },
+  {
+   "rva": "0x426130",
+   "kind": "function",
+   "name": "CDropAndAssignUnitDeploymentCallback::Call",
+   "signature": "void __thiscall CDropAndAssignUnitDeploymentCallback::Call(CDropAndAssignUnitDeploymentCallback* this, CUnit* unit)",
+   "no_signature": null,
+   "comment": "Slot 0: posts a CDeployUnitCommand for the deployment the callback holds (+4), with the unit it is called with as the target and that unit's province as the place. It is what answers when a deployment's line is dropped on a unit on the map. See reversing/findings/FINDINGS-deploymenu.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-deploymenu.md"
+  },
+  {
+   "rva": "0x428C20",
+   "kind": "function",
+   "name": "CDeploymentMenuMouseObserver::OnMouse",
+   "signature": "void __thiscall CDeploymentMenuMouseObserver::OnMouse(CDeploymentMenuMouseObserver* this)",
+   "no_signature": null,
+   "comment": "Slot 1 of the deploy menu's observer of the map. On a left click with a deployment's line under way and the pointer inside the map's rectangle, it finds the unit that deployment holds (0x8274A0), makes a CDropAndAssignUnitDeploymentCallback, and opens the routine that lets a unit be dropped on another - 0x73B280 for a unit of one brigade, 0x73AE80 otherwise. Likely; only its outline was read, and the plain click on a province is not here. See reversing/findings/FINDINGS-deploymenu.md.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-deploymenu.md"
+  },
+  {
+   "rva": "0x1067D0",
+   "kind": "function",
+   "name": "CUnitDeployment::JoinUnit",
+   "signature": "void __thiscall CUnitDeployment::JoinUnit(CUnitDeployment* this, CCountry* country, CUnit* target, bool findAnother)",
+   "no_signature": null,
+   "comment": "**Puts a finished unit with one already in the field.** The place is the target's province, or - where the deployment may not be placed there - the nearest province of the capital's area where it may (its ports for a fleet, its air bases for an air unit); none, and nothing happens. The unit is placed (slot 9), the deployment unlinked from the country's list and freed, and then: **a unit of exactly one brigade, of the same service as the target, has that brigade moved into the target** (RemoveRegimentFromUnit, AddRegimentToUnit), a TRANSFEREDSUBUNIT message is raised for the player, and the emptied unit is removed from the game; any other unit is put under the target (0x5B9760). With the flag set the target is first swapped by one of two AI helpers, not read. Called by CDeployUnitCommand::Execute. See reversing/findings/FINDINGS-deploymenu.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-deploymenu.md"
+  },
+  {
+   "rva": "0x1B96B0",
+   "kind": "function",
+   "name": "CUnit_MayTakeSubordinate",
+   "signature": null,
+   "no_signature": "the commander in EAX, the subordinate and a flag on the stack",
+   "comment": "**Whether one unit may be put under another.** False unless the commander's oob_level is lower than the subordinate's. For a land subordinate under anything but a theatre (level 0): false where the commander already has more than four land units under it - the limit BiceLib hooks. For a naval or air subordinate: false where the commander's level is above 3. With the flag set the subordinate itself is not counted. See reversing/findings/FINDINGS-deploymenu.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-deploymenu.md"
+  },
+  {
+   "rva": "0xE1360",
+   "kind": "function",
+   "name": "CCountry_GetMaxBrigadesInDivision",
+   "signature": "int __stdcall CCountry_GetMaxBrigadesInDivision(CCountry* country)",
+   "no_signature": null,
+   "comment": "`(BRIGADES_IN_DIVISION + the int at +0x1C of the object at CCountry +0xDF8) / 1000`: how many brigades the country may put in one division.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-deploymenu.md"
+  },
+  {
+   "rva": "0x2012F0",
+   "kind": "function",
+   "name": "CAlertManager::CAlertManager",
+   "signature": null,
+   "no_signature": "the manager is the first of three stack arguments and ECX carries another object",
+   "comment": "Makes the alert manager: sixteen alert records of 0x88 bytes, a button observer whose handler is CAlertManager::OnIconClicked, the places `alerticon_startposition`, `alerticon_offset` and `alerticon_mp_offset` read from the interface files, and the sixteen alerts registered by name and number - 0 alert_nap_expiry, 1 alert_deployable_units, 2 alert_troops_in_foreign_territory, 3 alert_revoltrisk_in_provinces, 4 alert_can_invite_to_faction, 5 alert_resource_panic, 6 alert_possible_law, 7 alert_free_tech_slots, 8 alert_wasted_ic, 9 alert_tech_far_ahead, 10 alert_lack_of_troops, 11 alert_bad_supply, 12 alert_national_decisions, 13 alert_mobilized_in_peace, 14 alert_victory_conditions, 15 alert_allied_objectives. See reversing/findings/FINDINGS-deploymenu.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-deploymenu.md"
+  },
+  {
+   "rva": "0x201B70",
+   "kind": "function",
+   "name": "CAlertManager_Register",
+   "signature": null,
+   "no_signature": "the name in ECX, the manager and the number on the stack; `ret 8`",
+   "comment": "Records one alert's name and renders its two tooltips, from the localisation keys `<name>_instant` and `<name>_delayed`, into the record `manager + number * 0x88`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-deploymenu.md"
+  },
+  {
+   "rva": "0x207FE0",
+   "kind": "function",
+   "name": "CAlertManager_Show",
+   "signature": null,
+   "no_signature": "the manager in EDI and the number on the stack; `ret 4`",
+   "comment": "**Puts an alert's icon on screen**: makes an `alerticon_window`, sets its `alerticon` to frame `number + 1` and its `alerticon_banner` to frame 0, hooks the icon to the manager's observer, and places the window at the manager's next place (+8, +0xC), which then moves on by `alerticon_offset`'s x (+0x10). Plays the `message` sound. Likely. See reversing/findings/FINDINGS-deploymenu.md.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-deploymenu.md"
+  },
+  {
+   "rva": "0x207ED0",
+   "kind": "function",
+   "name": "CAlertManager::OnIconClicked",
+   "signature": "void __thiscall CAlertManager::OnIconClicked(void* this, void* button)",
+   "no_signature": null,
+   "comment": "Finds which of the sixteen alerts a clicked icon is - by its frame less one, or by being that alert's banner - and hands the alert's name to the in-game screen's slot 80. See reversing/findings/FINDINGS-deploymenu.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-deploymenu.md"
+  },
+  {
+   "rva": "0x24ACB0",
+   "kind": "function",
+   "name": "CInGameIdler::OnAlertClicked",
+   "signature": "void __thiscall CInGameIdler::OnAlertClicked(CInGameIdler* this, Hoi3CString* name)",
+   "no_signature": null,
+   "comment": "**Slot 80: what a click on an alert does**, by the alert's name. It closes the open side menu first. For `alert_deployable_units` it opens side menu 5, the deploy menu (CInGameIdler_OpenSideMenu). Only that arm was read; the function goes on through the other alerts. See reversing/findings/FINDINGS-deploymenu.md.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-deploymenu.md"
+  },
+  {
+   "rva": "0x2655C0",
+   "kind": "function",
+   "name": "CInGameIdler_OpenSideMenu",
+   "signature": null,
+   "no_signature": "the screen in a register and the number on the stack; `ret 4`",
+   "comment": "Opens one of the in-game screen's side menus by number; 5 is the deploy menu. Only its call was read.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-deploymenu.md"
+  },
+  {
+   "rva": "0x265320",
+   "kind": "function",
+   "name": "CInGameIdler_CloseSideMenus",
+   "signature": null,
+   "no_signature": "the screen in EAX",
+   "comment": "Closes every side menu that says it is open (each one's slot 4, then its slot 3) from the vector at CInGameIdler +0xD10, and tidies the selection panel. The deploy menu calls it on itself when its list is empty.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-deploymenu.md"
+  },
+  {
+   "rva": "0x267DB0",
+   "kind": "function",
+   "name": "CInGameIdler::SetDeploymentBeingPlaced",
+   "signature": "void __thiscall CInGameIdler::SetDeploymentBeingPlaced(CInGameIdler* this, void* deployment)",
+   "no_signature": null,
+   "comment": "Slot 30. Called with the deployment when a line of the deploy menu is chosen and with 0 when the menu closes or a target is picked. The name is from those three calls; the body was not read. See reversing/findings/FINDINGS-deploymenu.md.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-deploymenu.md"
+  },
+  {
+   "rva": "0x438B60",
+   "kind": "function",
+   "name": "CCounterObject::CCounterObject",
+   "signature": null,
+   "no_signature": "the type in ECX and the object first of four stack arguments",
+   "comment": "**Makes a counter.** Stores its type (+0x138) and three things from the type's owner, sets its colour to white, `is_top` and `is_shown` to 1, and makes its two parts at once: a CShield3dObject of `shieldtype.x * scale` by `shieldtype.y * scale` (+0x16C) and a `counter_arrow` billboard looked up by name (+0x1B4). See reversing/findings/FINDINGS-counters.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-counters.md"
+  },
+  {
+   "rva": "0x438E60",
+   "kind": "function",
+   "name": "CCounterObject::Render",
+   "signature": "void __thiscall CCounterObject::Render(CCounterObject* this, void* graphics, void* device, float* matrix, int a, int b, int c)",
+   "no_signature": null,
+   "comment": "**Slot 10. Draws nothing itself**: where `is_shown` (+0x1BA) is set it copies the matrix to +0x94, appends itself to the global vector CCounterObject_DrawBatch empties (VA 0x1A8C224), sets `is_top` (+0x1B9), and where `shows_arrow` (+0x1B8) and it has an arrow draws that, scaled by the counter's own scale. See reversing/findings/FINDINGS-counters.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-counters.md"
+  },
+  {
+   "rva": "0x439620",
+   "kind": "function",
+   "name": "CCounterObject::HitTest",
+   "signature": "float __thiscall CCounterObject::HitTest(CCounterObject* this, float x, float y, float* matrix, float a, float b, float c, int d, int e)",
+   "no_signature": null,
+   "comment": "**Slot 20: whether a point of the screen is on the counter.** Asks CCounterType_IsPointOnQuad with the counter's scale and answers `(order + 1) * 0.1 + 1` on a hit and -1 on a miss, so that of several the one highest in its stack wins. Likely, not confirmed: read in the decompiled C. See reversing/findings/FINDINGS-counters.md.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-counters.md"
+  },
+  {
+   "rva": "0x438B30",
+   "kind": "function",
+   "name": "CCounterObject::SetSelection",
+   "signature": "void __thiscall CCounterObject::SetSelection(CCounterObject* this, short state)",
+   "no_signature": null,
+   "comment": "Slot 23: stores the word at +0x1B0 - 0 not selected, 1 white, 2 the type's `color1`, 3 its `color2`. See reversing/findings/FINDINGS-counters.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-counters.md"
+  },
+  {
+   "rva": "0x438B50",
+   "kind": "function",
+   "name": "CCounterObject::GetSelection",
+   "signature": "short __thiscall CCounterObject::GetSelection(CCounterObject* this)",
+   "no_signature": null,
+   "comment": "Slot 94: the word at +0x1B0. The batch calls it through the table (+0x178) for each counter to pick the shader's SelectionColor. See reversing/findings/FINDINGS-counters.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-counters.md"
+  },
+  {
+   "rva": "0x4396C0",
+   "kind": "function",
+   "name": "CCounterObject_DrawBatch",
+   "signature": "void __cdecl CCounterObject_DrawBatch(void* graphics)",
+   "no_signature": null,
+   "comment": "**Draws every counter CCounterObject::Render queued this frame, in three passes, and empties the queue** (VA 0x1A8C224..0x1A8C22C): each counter's quad (CCounterType_DrawQuad), each a step nearer the camera than the one before; then the flag of every counter whose `is_top` is set (CCounterObject_DrawShield); then the texts of the same ones (CCounterObject_DrawTexts). Likely, not confirmed: the passes were read in the decompiled C. See reversing/findings/FINDINGS-counters.md.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-counters.md"
+  },
+  {
+   "rva": "0x43BC80",
+   "kind": "function",
+   "name": "CCounterType_DrawQuad",
+   "signature": "void __stdcall CCounterType_DrawQuad(CCounterType* type, void* graphics, void* device, float* position, int size, void* picture, CColor* colour, bool markA, bool markB, bool markC, short selection, float scale)",
+   "no_signature": null,
+   "comment": "**Draws one counter's quad with gfx/FX/counter.fx.** Sets the shader's BackgroundTex, MaskTex and SizeTex from the type's three textures (+0xA4, +0xA8, +0xAC), CounterTex from the picture it is given, SizeOffset from the type's +0x198, SizeFrame from the size, CountryColor from the colour, vOtherColor from one of four static colours by the three marks (none; markB red; else markC orange; else markA yellow), SelectionColor by the selection word (1 white, 2 the type's color1 at +0x1E0, 3 its color2 at +0x1FC), SelectionIntensity as `0.5 + 0.5 * |f|`, Selected, CounterScale, and a WorldMatrix that is the camera's rotation with the counter's position. Likely: read in the decompiled C; the parameter names of the shader are literals. See reversing/findings/FINDINGS-counters.md.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-counters.md"
+  },
+  {
+   "rva": "0x438F50",
+   "kind": "function",
+   "name": "CCounterObject_DrawShield",
+   "signature": null,
+   "no_signature": "the matrix in EAX and the counter in EDX, with two stack arguments",
+   "comment": "Draws a counter's flag (+0x16C) where its type has a `shieldtype` (+0x1CC): at the counter's position plus `offset * scale * 0.1 * s`, `offset` being the type's three floats at +0x1A0 and `s` the counter's own scale. Likely. See reversing/findings/FINDINGS-counters.md.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-counters.md"
+  },
+  {
+   "rva": "0x439110",
+   "kind": "function",
+   "name": "CCounterObject_DrawTexts",
+   "signature": null,
+   "no_signature": "the counter in EDX, with three stack arguments",
+   "comment": "Draws a counter's two texts in the type's font (+0x19C): `figures` (+0x170) at `offset2 * scale * 0.1 * s` in the size `size * scale * 0.1 * s` (the type's +0x1AC and +0x1D4), and `name` (+0x18C) at `offset3 * scale * 0.1 * s` (+0x1B8) in the size `3.5 * scale * 0.1 * s`. Neither where its string is empty. Likely. See reversing/findings/FINDINGS-counters.md.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-counters.md"
+  },
+  {
+   "rva": "0x43C2B0",
+   "kind": "function",
+   "name": "CCounterType_IsPointOnQuad",
+   "signature": "bool __stdcall CCounterType_IsPointOnQuad(CCounterType* type, float* point, void* object, float scale)",
+   "no_signature": null,
+   "comment": "Whether a screen point is inside a counter's quad: `scale_key * scale` up and down from its position and that times the background texture's width over its height left and right, through the camera. So a counter is `2 * scale_key * scale` map units high. Likely: the projection was read in the decompiled C only. See reversing/findings/FINDINGS-counters.md.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-counters.md"
+  },
+  {
+   "rva": "0x43BB00",
+   "kind": "function",
+   "name": "CCounterType::CreateInstance",
+   "signature": "CCounterObject* __thiscall CCounterType::CreateInstance(CCounterType* this)",
+   "no_signature": null,
+   "comment": "Slot 18: `new 0x1C0` and CCounterObject::CCounterObject. See reversing/findings/FINDINGS-counters.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-counters.md"
+  },
+  {
+   "rva": "0x439B60",
+   "kind": "function",
+   "name": "CCounterStack::CCounterStack",
+   "signature": "CCounterStack* __stdcall CCounterStack::CCounterStack(CCounterStack* this)",
+   "no_signature": null,
+   "comment": "Makes an empty stack: the list at +0x138, a tree at +0x144, `is_fanned` (+0x154) clear. See reversing/findings/FINDINGS-counters.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-counters.md"
+  },
+  {
+   "rva": "0x439D20",
+   "kind": "function",
+   "name": "CCounterStack::Render",
+   "signature": "void __thiscall CCounterStack::Render(CCounterStack* this, void* graphics, void* device, float* matrix, int a, int b, int c)",
+   "no_signature": null,
+   "comment": "**Slot 10: draws the stack.** Sorts its counters by `order` (CCounterStack_Sort), then draws the last one - or, where `is_fanned` (+0x154), the last six - the first of them at the stack's place raised by 2 and each next one 0.3 further west and 0.3 further north. Clears `is_top` on each as it goes and sets it on the last of the list, so one counter of a stack carries the flag and the texts. See reversing/findings/FINDINGS-counters.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-counters.md"
+  },
+  {
+   "rva": "0x43A6F0",
+   "kind": "function",
+   "name": "CCounterStack_Sort",
+   "signature": null,
+   "no_signature": "the list in a register and one stack argument; `ret 8`",
+   "comment": "Sorts a stack's list of counters by `order` (CCounterObject +0x1A8), smallest first: a std::list merge sort whose merge (0x83ABF0) compares `[a+0x1a8] < [b+0x1a8]`. See reversing/findings/FINDINGS-counters.md.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-counters.md"
+  },
+  {
+   "rva": "0x439FA0",
+   "kind": "function",
+   "name": "CCounterStack_Add",
+   "signature": null,
+   "no_signature": "the stack in EAX, the unit and the counter on the stack; `ret 8`",
+   "comment": "Puts a counter in a stack: copies the unit's intel level (CUnit +0x1F8) to the counter's +0x1AC, appends the counter to the list and counts it. The caller passes the avatar's `unit_counter_close` (+0x140). See reversing/findings/FINDINGS-counters.md.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-counters.md"
+  },
+  {
+   "rva": "0x449B00",
+   "kind": "function",
+   "name": "CHoiAvatar::CHoiAvatar",
+   "signature": "CHoiAvatar* __stdcall CHoiAvatar::CHoiAvatar(CHoiAvatar* this, Hoi3CString* figure, int size, void* a, void* b, void* c, void* d, float e)",
+   "no_signature": null,
+   "comment": "**Makes a unit's avatar**: looks its figure up by name and makes it (+0x124), then `unit_counter_close` (+0x140) and `unit_counter` (+0x13C) by those two names, and for a size above 1 an object named `Rank` and `size + 1` (+0x128). Hides all of them. See reversing/findings/FINDINGS-counters.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-counters.md"
+  },
+  {
+   "rva": "0x449AF0",
+   "kind": "function",
+   "name": "CHoiAvatar::SetSeenFromFar",
+   "signature": "void __thiscall CHoiAvatar::SetSeenFromFar(CHoiAvatar* this, bool far)",
+   "no_signature": null,
+   "comment": "Slot 92: stores the byte at +0x152, which CHoiAvatar::HitTest reads as \"the far counter is the one on screen\". The name is ours, and who calls it was not found. See reversing/findings/FINDINGS-counters.md.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-counters.md"
+  },
+  {
+   "rva": "0x44A2F0",
+   "kind": "function",
+   "name": "CHoiAvatar::HitTest",
+   "signature": "float __thiscall CHoiAvatar::HitTest(CHoiAvatar* this, float x, float y, float* matrix, float a, float b, float c, int d, int e)",
+   "no_signature": null,
+   "comment": "Slot 20. With `seen_from_far` (+0x152) it asks `unit_counter` (+0x13C) where that is shown; else with the setting at CSettings +0xF9 it asks `unit_counter_close` (+0x140) where that is the top counter of one of its province's stacks; else it tests the figure. So the near view is counters or figures by a setting, and the far view counters always. Likely. See reversing/findings/FINDINGS-counters.md.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-counters.md"
+  },
+  {
+   "rva": "0x44AD10",
+   "kind": "function",
+   "name": "CHoiAvatar_SetCounterFigures",
+   "signature": "void __stdcall CHoiAvatar_SetCounterFigures(CHoiAvatar* avatar, int attack, int defence)",
+   "no_signature": null,
+   "comment": "Writes the first text of both counters (+0x170 of each): the two numbers with ` - ` between, each as `?` when negative. Called with the unit's slots 39 and 40. See reversing/findings/FINDINGS-counters.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-counters.md"
+  },
+  {
+   "rva": "0x44AEB0",
+   "kind": "function",
+   "name": "CHoiAvatar_SetCounterName",
+   "signature": null,
+   "no_signature": "the avatar in ESI and the string in EDX",
+   "comment": "Writes the second text of `unit_counter_close` only (+0x18C of the avatar's +0x140): the string it is given, cut to its first 8 characters where it is longer. See reversing/findings/FINDINGS-counters.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-counters.md"
+  },
+  {
+   "rva": "0x1BDC70",
+   "kind": "function",
+   "name": "CUnit::RebuildAvatar",
+   "signature": "void __stdcall CUnit::RebuildAvatar(CUnit* unit)",
+   "no_signature": null,
+   "comment": "**Throws a unit's avatar away and makes it again** (CUnit::CreateAvatar), then gives each of its two counters the owner's colour (CCountry +0xC34), CUnit::GetCounterSize, and the texture of the sprite `GFX_small_counter_<key>` for `unit_counter` or `GFX_map_counter_<key>` for `unit_counter_close`, `<key>` from CUnit_GetCounterTypeKey; then the two figures and the name. Does nothing without an in-game screen. Called from 23 places, whenever the unit's `avatar_stale` (+0x10C) is found set. See reversing/findings/FINDINGS-counters.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-counters.md"
+  },
+  {
+   "rva": "0x1BC550",
+   "kind": "function",
+   "name": "CUnit::CreateAvatar",
+   "signature": "CHoiAvatar* __thiscall CUnit::CreateAvatar(CUnit* this, Hoi3CString* a, Hoi3CString* b, CSubUnit* firstBrigade, bool* out)",
+   "no_signature": null,
+   "comment": "Finds the figure for a unit - `<tag>_<type>_<model>_actor`, falling back through earlier models, then `Generic<kind>`, then `GenericInfantry` with the log line 'Missing avatar graphics for type' - and makes its CHoiAvatar with CUnit::GetCounterSize. Only the counter side was read; the figure's naming is from the literals. See reversing/findings/FINDINGS-counters.md.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-counters.md"
+  },
+  {
+   "rva": "0x1BDB60",
+   "kind": "function",
+   "name": "CUnit_GetCounterTypeKey",
+   "signature": null,
+   "no_signature": "the unit in EAX",
+   "comment": "**Which unit type a counter shows**: the key of the unit's FIRST brigade's type (`regiments.first->data->definition + 8`) where its intel level (+0x1F8) is above 2 and it has a brigade; otherwise the static string at VA 0x170D858, which is empty in the file and whose run-time value was not read. See reversing/findings/FINDINGS-counters.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-counters.md"
+  },
+  {
+   "rva": "0x1BD1C0",
+   "kind": "function",
+   "name": "CUnit::GetCounterSize",
+   "signature": "int __thiscall CUnit::GetCounterSize(CUnit* this)",
+   "no_signature": null,
+   "comment": "**The frame of the size strip a unit's counter shows, 0 to 5**, by `oob_level` (+0x1F4): 0 -> 5, 1 -> 4, 2 -> 3, 3 -> 2, 4 -> 1 with more than one brigade else 0, 5 -> 1, anything else 0. The strip's frames are X, XX, XXX and on. CUnit::CreateAvatar, CDeploymentEntry and CDeploymentTargetEntry each carry the same jump inline. See reversing/findings/FINDINGS-counters.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-counters.md"
+  },
+  {
+   "rva": "0x1BE500",
+   "kind": "function",
+   "name": "CUnit_RefreshCounterName",
+   "signature": null,
+   "no_signature": "the unit in EDI",
+   "comment": "Chooses the name a unit's near counter shows and hands it to CHoiAvatar_SetCounterName: `???` where the intel level (+0x1F8) is under 5; else, with the setting at CSettings +0xE9 clear, the unit's leader's name (CLeader +0x4C) where its slot 8 says it is a real one and an empty string where not; with the setting set, the unit's own name (slot 7). See reversing/findings/FINDINGS-counters.md.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-counters.md"
+  },
+  {
+   "rva": "0xAB880",
+   "kind": "function",
+   "name": "CProvinceTemplate_AddUnitCounter",
+   "signature": null,
+   "no_signature": "the template in EDI and the unit on the stack; `ret 4`",
+   "comment": "**Gives a unit that has entered a province its place in one of the province's five stacks - or none.** Returns at once for a naval unit in a land province, for a land unit there whose slot 9 object has +0x300 set, and for an air unit that CUnit_IsAtOwnBase. Otherwise the stack is 4 for an air unit; 2 or 3 for one in a combat (by 0x5C5BA0); 1 for one with provinces left to move through, or a land unit whose slot 9 object's +0x300 has units; 4 for a land unit whose slot 9 object has +0x304; else 0. It makes the stack on first use (+0x108 + 4 * n) at the stack's point (+0xCC + 12 * n), adds the avatar's near counter (CCounterStack_Add), sorts, and marks the stacks for CProvinceTemplate_RefreshStacks. It also keeps up to seven small flags a stack (+0x140). See reversing/findings/FINDINGS-counters.md.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-counters.md"
+  },
+  {
+   "rva": "0xABF00",
+   "kind": "function",
+   "name": "CProvinceTemplate::MoveUnitCounter",
+   "signature": "void __thiscall CProvinceTemplate::MoveUnitCounter(CProvinceTemplate* this, CUnit* unit)",
+   "no_signature": null,
+   "comment": "The same choice of stack as CProvinceTemplate_AddUnitCounter for a unit already in the province whose state has changed: takes its counter out of the stack it was in, hiding that stack if it is now empty, and puts it in the new one. Twelve callers, in the unit's movement and combat code. The name is ours. See reversing/findings/FINDINGS-counters.md.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-counters.md"
+  },
+  {
+   "rva": "0xABD80",
+   "kind": "function",
+   "name": "CProvinceTemplate_RemoveUnitCounter",
+   "signature": null,
+   "no_signature": "the template in EAX and the unit on the stack; `ret 4`",
+   "comment": "Takes a unit's counter out of its stack, hiding the stack when it is left empty, and frees the small flag kept for it. CUnit::EnterProvince calls it for the province being left and CUnit::RebuildAvatar before it rebuilds. See reversing/findings/FINDINGS-counters.md.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-counters.md"
+  },
+  {
+   "rva": "0xAC4C0",
+   "kind": "function",
+   "name": "CProvinceTemplate_RefreshStacks",
+   "signature": null,
+   "no_signature": "the template in EAX",
+   "comment": "Where `stacks_stale` (+0x13C) is set: for each of the five stacks, by the intel level of its FIRST counter (CCounterObject +0x1AC) - under 2 the stack and its small flags are hidden; under 3 they are shown and `is_fanned` cleared; otherwise shown and `is_fanned` set. See reversing/findings/FINDINGS-counters.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-counters.md"
+  },
+  {
+   "rva": "0xAC5D0",
+   "kind": "function",
+   "name": "CProvinceTemplate_IsTopOfAStack",
+   "signature": null,
+   "no_signature": "the template in EDX and the counter in ESI",
+   "comment": "Whether a counter is the last, and so the top, of any of a province's five stacks.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-counters.md"
+  },
+  {
+   "rva": "0x1D2BA0",
+   "kind": "function",
+   "name": "CNavy::GetAttackValue",
+   "signature": "int __thiscall CNavy::GetAttackValue(CNavy* this)",
+   "no_signature": null,
+   "comment": "**CUnit slot 39 for a fleet**: -1 where the intel level (+0x1F8) is under 7; else `sea_attack` off the unit's own definition (+0xC8 then +0x168) as `value * 1000 / 25000`, that over 1000 rounded to a whole number, and no more than 9. The first of the two figures on a counter. See reversing/findings/FINDINGS-counters.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-counters.md"
+  },
+  {
+   "rva": "0x1D2CE0",
+   "kind": "function",
+   "name": "CAir::GetAttackValue",
+   "signature": "int __thiscall CAir::GetAttackValue(CAir* this)",
+   "no_signature": null,
+   "comment": "**CUnit slot 39 for an air unit**: as CNavy::GetAttackValue with `air_attack` (+0x140) and 10000. See reversing/findings/FINDINGS-counters.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-counters.md"
+  },
+  {
+   "rva": "0x1CA430",
+   "kind": "function",
+   "name": "CUnit::AdvanceMovement",
+   "signature": "bool __stdcall CUnit::AdvanceMovement(CUnit* unit, bool addSpeed)",
+   "no_signature": null,
+   "comment": "**One pass of a moving unit's hour.** CUnit::UpdateHourly calls it for a unit with a path, once with `addSpeed` set and then again with it clear for as long as it answers true, so one hour can carry a unit through several short provinces. With `addSpeed` it adds CUnit::MovementSpeed to `movement_progress` (+0x14C); when the progress reaches CUnit::MovementDistance and the unit is in no battle it drops the first province of the path, takes the distance off the progress (zeroing it under an attack delay), stores the current province at +0x134, and calls CUnit::EnterProvince and CCombatManager::CheckForCombat. It cancels the move where the province the unit is in has no edge to the next, where the crossing is blocked, where the unit may no longer stand there, and for a land unit with no supplies headed onto enemy ground. In a battle the progress is held at the distance. Answers true when a path is left, the unit is in no battle and its progress already covers the next distance. See reversing/findings/FINDINGS-movement.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0x1C9140",
+   "kind": "function",
+   "name": "CUnit::MovementSpeed",
+   "signature": "CFixedPoint* __stdcall CUnit::MovementSpeed(CUnit* unit@EAX, CFixedPoint* out@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "**What an hour adds to a unit's movement progress**, thousandths. Ordinarily the unit definition's `max_speed` (CUnit +0xC8 then +0x108, the minimum over its brigades) times CUnit::MovementSpeedModifier / 1000, then times LAND_SPEED_MODIFIER, NAVAL_SPEED_MODIFIER or AIR_SPEED_MODIFIER / 1000 by the unit's kind. Two special cases come first: a land unit at sea bound for land and carried by a fleet moves at AMPHIBIOUS_INVADE_SPEED_BASE plus the fleet's amphibious_invasion_speed, and a land unit under a strategic redeployment order (type 0x5A4) at STRAT_REDEP_BASE_SPEED times a clamped figure of the province's infrastructure. Infrastructure is no part of an ordinary march. See reversing/findings/FINDINGS-movement.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0x1C9340",
+   "kind": "function",
+   "name": "CUnit::MovementDistance",
+   "signature": "CFixedPoint* __stdcall CUnit::MovementDistance(CUnit* unit@ESI, CFixedPoint* out@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "**How far a unit has to go to be in the next province of its path**: 0 with no path; AMPHIBIOUS_INVADE_MOVEMENT_COST for a land unit at sea bound for land; otherwise the `distance` (+0xC) of the edge from the province it is in to the path's first province, found with CProvinceTemplate::EdgeIndexTo - and 1000 where there is no such edge. See reversing/findings/FINDINGS-movement.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0x1C9430",
+   "kind": "function",
+   "name": "CUnit::CancelMovement",
+   "signature": "void __stdcall CUnit::CancelMovement(CUnit* unit, bool resetOrder)",
+   "no_signature": null,
+   "comment": "**Stops a unit where it stands.** Sets its two dates +0xCC and `end_date` to the null date, gives it a null order where `resetOrder` is set, takes it out of any battle it was attacking in, zeroes `movement_progress` (+0x14C) and +0x154, empties the path, frees the arrow (+0x188), puts the avatar back at the province's standing point with the animation `idle` and moves its counter to the standing stack; and where it now stands on enemy ground, not retreating and in no battle, calls CCombatManager::CheckForCombat. 23 callers. See reversing/findings/FINDINGS-movement.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0x1C9E10",
+   "kind": "function",
+   "name": "CUnit::ShowMoving",
+   "signature": "void __fastcall CUnit::ShowMoving(CUnit* unit)",
+   "no_signature": null,
+   "comment": "What SetUnitPath calls once a unit has a path: moves the avatar (+0x164) to the province's **moving** point (CProvinceTemplate +0xD8, or +0xFC for an air unit), plays `move`, makes the selected unit's arrow (0x5CC230 into +0x188) and moves the counter to the moving stack with CProvinceTemplate::MoveUnitCounter. The name is ours. See reversing/findings/FINDINGS-movement.md.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0x1CA1A0",
+   "kind": "function",
+   "name": "CUnit::NextArrivalHour",
+   "signature": "void __stdcall CUnit::NextArrivalHour(CUnit* unit, int* out)",
+   "no_signature": null,
+   "comment": "**The hour a unit reaches the next province of its path**: now + attack_delay / 1000 + ceil((CUnit::MovementDistance - movement_progress) / CUnit::MovementSpeed), or `end_date` (+0xD0) where that is later. What an arrival date is shown from. See reversing/findings/FINDINGS-movement.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0x1CA3E0",
+   "kind": "function",
+   "name": "CUnit::SetMovementProgressShare",
+   "signature": "void __stdcall CUnit::SetMovementProgressShare(CUnit* unit@EAX, int share@stack:4)",
+   "no_signature": null,
+   "comment": "Sets `movement_progress` to `share` thousandths of CUnit::MovementDistance, or to zero for a unit with no path. One caller, 0x565AF0 in the combat code, not read. The name is ours. See reversing/findings/FINDINGS-movement.md.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0x1C0D50",
+   "kind": "function",
+   "name": "CUnit::AnnounceArrival",
+   "signature": "void __stdcall CUnit::AnnounceArrival(CUnit* unit)",
+   "no_signature": null,
+   "comment": "Posts the message that a unit has arrived - UNITARRIVED_LAND, UNITARRIVED_NAVAL or UNITARRIVED_AIR, with NAME, PROV and TYPE - to the player, only for the player's own units and not under orders of type 0x42E, 0x6E8 or 0x6E9. Called by CUnit::AdvanceMovement when the path runs out with no battle. See reversing/findings/FINDINGS-movement.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0x1CCE90",
+   "kind": "function",
+   "name": "CUnit::PathDistance",
+   "signature": "CFixedPoint* __stdcall CUnit::PathDistance(CUnit* unit@EAX, CFixedPoint* out@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "The length of the whole path, for the arrow: CUnit::AdvanceMovement divides the progress by it into the arrow's +0x15C. It walks the path's nodes looking each province up among the edges of the province the unit is in; the decompilation loses the sum, so what exactly is added was not established. The name is ours. See reversing/findings/FINDINGS-movement.md.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0x1C1AD0",
+   "kind": "function",
+   "name": "CUnit::OrderToProvince",
+   "signature": "void __thiscall CUnit::OrderToProvince(CUnit* this, CMapProvince* province, bool append)",
+   "no_signature": null,
+   "comment": "**CUnit slot 6: a right click on a province with this unit selected.** A unit in a battle is never appended to. Nothing happens for a unit with no brigades, a retreating one, or one with an AI agent on a unit above it. For a land unit outside the battle plan branch: the province it stands in, with `append` clear or no path, posts a CCancelMovementCommand; a province CUnit::CanMoveTo refuses gets the `illegal_selection_projection` effect and the `error` sound; otherwise `legal_selection_projection`, the sound `army_move`, and `CMoveCommand(unit, province id, !append, 0, 0)`. Fleets and wings take branches of their own (`navy_move`, `air_move`), not read through. See reversing/findings/FINDINGS-movement.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0x1C2AE0",
+   "kind": "function",
+   "name": "CUnit::MayStandIn",
+   "signature": "bool __thiscall CUnit::MayStandIn(CUnit* this, CMapProvince* province)",
+   "no_signature": null,
+   "comment": "**CUnit slot 34: whether this unit may stand in that province.** No where the province's template flag +0x13D is clear. Yes where its controller is the controller of the province the unit is in, or where CCountry::MayEnterProvince(owner, province, false) says so. One exception: a unit on land asked about the sea province its own province names (+0xA4) is allowed where slot 34 refuses the province it is in. CPathFind::MayUse asks it of the goal and CPathFind::MayStep of every step; CUnit::CanMoveTo begins with it. See reversing/findings/FINDINGS-movement.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0x1CE2A0",
+   "kind": "function",
+   "name": "CArmy::MayStandIn",
+   "signature": "bool __thiscall CArmy::MayStandIn(CArmy* this, CMapProvince* province)",
+   "no_signature": null,
+   "comment": "**CArmy slot 34.** A sea province only where a fleet of the same owner is there that is in no battle, not moving, not retreating and can still carry the unit's weight (0x5CEFB0). A land province only where its owner area's slot 0 (province +0x2B4) says yes - then yes outright where the byte at CArmy +0x1A8 is set and the province's owner is the owner of the province the unit is in, and CUnit::MayStandIn otherwise. See reversing/findings/FINDINGS-movement.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0x1D35C0",
+   "kind": "function",
+   "name": "CArmy::CanFight",
+   "signature": "bool __thiscall CArmy::CanFight(CArmy* this)",
+   "no_signature": null,
+   "comment": "**CArmy slot 33**: over the brigades that hold frontage (definition `width` > 0), whether their average strength is at least 100 thousandths and their average organisation at least 1000. CUnit::AdvanceMovement asks it of a land unit landing from the sea on enemy ground. The name is ours and inferred from that use. See reversing/findings/FINDINGS-movement.md.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0xEFA50",
+   "kind": "function",
+   "name": "CCountry::MayEnterProvince",
+   "signature": "bool __stdcall CCountry::MayEnterProvince(CCountry* country@stack:4, bool askCanals@stack:8, CMapProvince* province@EDI) @AL",
+   "no_signature": null,
+   "comment": "**Whose ground a country may walk on.** No where the province's template flag +0x13D is clear, and with `askCanals` where 0x4A7E30 says an enemy holds the canal. Otherwise no only when all of these hold: the country is at war with neither the province's owner nor its controller; the province is land; its controller is not friendly (CCountry::IsFriendly with true); its owner is not friendly either, or is at war with the controller; the province has an owner; and the country is not REB. So: one's own ground and a friend's, nobody's, and that of anyone one is at war with. See reversing/findings/FINDINGS-movement.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0x1A2600",
+   "kind": "function",
+   "name": "IsCrossingBlocked",
+   "signature": "bool __cdecl IsCrossingBlocked(ProvinceEdge* edge@EAX, CUnit* unit@stack:4) @AL",
+   "no_signature": null,
+   "comment": "Whether an edge is closed to a unit: only an edge of **kind 1** with a crossed province (+8), and never to an air unit. Where the crossed province is land it is closed when a country hostile to the unit's owner controls it; where it is sea, when a hostile fleet that is not retreating and has ships stands in it. CPathFind::MayStep refuses such a step and CUnit::AdvanceMovement cancels a move over one, every hour. The name is ours. See reversing/findings/FINDINGS-movement.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0x1C0030",
+   "kind": "function",
+   "name": "CUnit::HasCombatIn",
+   "signature": "bool __cdecl CUnit::HasCombatIn(CUnit* unit@EAX, CMapProvince* province@EDX) @AL",
+   "no_signature": null,
+   "comment": "Whether one of the unit's battles (the list at +0x114) is in a province: it compares each battle's +0x18 with the province. The name is ours. See reversing/findings/FINDINGS-movement.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0x1C2E80",
+   "kind": "function",
+   "name": "CUnit::IsLandingFromSea",
+   "signature": "bool __stdcall CUnit::IsLandingFromSea(CUnit* unit@EAX, bool onAnyGround@stack:4) @AL",
+   "no_signature": null,
+   "comment": "Whether a land unit with a path stands in a sea province with a land province next: with `onAnyGround` that is the answer, without it the land has also to be controlled by an enemy of the unit's owner. CUnit::MovementSpeed and CUnit::MovementDistance inline the same test for the amphibious figures. The name is ours. See reversing/findings/FINDINGS-movement.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0xA9E70",
+   "kind": "function",
+   "name": "CProvinceTemplate::MeasureEdges",
+   "signature": "void __cdecl CProvinceTemplate::MeasureEdges(CProvinceTemplate* this@EDI)",
+   "no_signature": null,
+   "comment": "**What fills `ProvinceEdge +0xC distance`, +0x10 `bearing` and kind 2.** For each edge: a walk from this province's unit point (+0x64/+0x68) to the neighbour's - between land and sea the land end is the naval base position instead - one pixel at a time, x and y both stepping towards the target in the same turn and x the short way round the map. Every pixel walked from adds the `movement_cost` (CTerrain +0x44) of the terrain painted on it in the terrain bitmap, found through CMap +0x2220; a pixel whose byte in the river bitmap (CMap +0x20E8) is under 0xFE turns an edge of kind 0 into kind 2. The bearing is taken from the same two points before the walk. Called by CMap::LoadMapFiles for every province from 1 up, only when the map cache is rebuilt; otherwise the figures come from map/cache/adjacencies.bin. **Checked against that file**: the rewrite reproduces all 83,596 distances and kinds of the base game from this rule. See reversing/findings/FINDINGS-movement.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0xA9C40",
+   "kind": "function",
+   "name": "CProvinceTemplate::HasEdgeTo",
+   "signature": "bool __stdcall CProvinceTemplate::HasEdgeTo(CProvinceTemplate* this@EDI, int province@stack:4) @AL",
+   "no_signature": null,
+   "comment": "Whether the province has an edge to another: a walk of +0x90..+0x94 comparing `to_province`. CUnit::AdvanceMovement cancels a move when it says no. See reversing/findings/FINDINGS-movement.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0xA9CE0",
+   "kind": "function",
+   "name": "CProvinceTemplate::EdgeIndexTo",
+   "signature": "int __stdcall CProvinceTemplate::EdgeIndexTo(CProvinceTemplate* this@EDI, int province@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "The index of the province's edge to another, or -1: the same walk as CProvinceTemplate::HasEdgeTo, answering the index. See reversing/findings/FINDINGS-movement.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0x8E520",
+   "kind": "function",
+   "name": "CMap::LoadAdjacenciesFile",
+   "signature": "void __stdcall CMap::LoadAdjacenciesFile(CMap* this)",
+   "no_signature": null,
+   "comment": "**Reads adjacencies.csv**, the file CMap +0x2054 names: per line `From;To;Type;Through`. `Type` is `river` for kind 2, `sea` for kind 1, `impassable` for kind 3 and anything else - `canal` included - for kind 0. Where `From` already has an edge to `To` the kind and the crossed province are written over both directions; where it has none an edge is added each way with CProvinceTemplate::AddEdge. The crossed province's template byte +0x15 is set. See reversing/findings/FINDINGS-movement.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0x1688618",
+   "kind": "global",
+   "name": "g_RouteStraightLineWeight",
+   "signature": null,
+   "no_signature": null,
+   "comment": "1250, the floor of the float 1250.5 taken at startup: what CPathFind::Find multiplies the straight-line distance still to go by, in thousandths, to make the estimate it orders its open list by. See reversing/findings/FINDINGS-movement.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0x168874C",
+   "kind": "global",
+   "name": "Define100",
+   "signature": null,
+   "no_signature": null,
+   "comment": "A define, 100 - the floor of the float 100.5, taken at startup. In CUnit::MovementSpeedModifier it is the share of its speed a unit with no fuel keeps and what a retreat adds; seven references in all. See reversing/findings/FINDINGS-movement.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0x16887B0",
+   "kind": "global",
+   "name": "Define900",
+   "signature": null,
+   "no_signature": null,
+   "comment": "A define, 900 - the floor of the float 900.5, taken at startup: what a full ration of fuel gives back of a unit's speed in CUnit::MovementSpeedModifier. See reversing/findings/FINDINGS-movement.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0x1CB520",
+   "kind": "function",
+   "name": "CUnit::FaceNextProvince",
+   "signature": "void __cdecl CUnit::FaceNextProvince(CUnit* unit@ESI)",
+   "no_signature": null,
+   "comment": "**Turns a moving unit towards the next province of its path.** Takes the unit point of the province it is in and of the path's first province (slot 30), asks 0xC0BDBA for the angle between them with the map's width, takes pi/2 off, stores the result at +0x104 and +0x108 and hands it to the avatar's slot 37, CHoiAvatar::SetRotation - which turns the figure and the `counter_arrow` pointer of both counters. Does nothing for a unit with no province or no path. Called by CUnit::ShowMoving and by CUnit::AdvanceMovement after an arrival that leaves a path. The name is ours. See reversing/findings/FINDINGS-counters.md, section 9.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-counters.md"
+  },
+  {
+   "rva": "0x1CB4F0",
+   "kind": "function",
+   "name": "CUnit::SetHeading",
+   "signature": null,
+   "no_signature": "the unit in EAX and the angle in XMM0",
+   "comment": "Stores an angle at CUnit +0x108 and +0x104 and hands it to the avatar's slot 37, CHoiAvatar::SetRotation, where the unit has an avatar. CUnit::AdvanceMovement and CUnit::CancelMovement call it when a unit comes to a stop. The name is ours. See reversing/findings/FINDINGS-counters.md, section 9.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-counters.md"
+  },
+  {
+   "rva": "0x44AC70",
+   "kind": "function",
+   "name": "CHoiAvatar::SetRotation",
+   "signature": "void __thiscall CHoiAvatar::SetRotation(CHoiAvatar* this, float radians)",
+   "no_signature": null,
+   "comment": "**CHoiAvatar slot 37.** Gives the angle to the `counter_arrow` billboard of the far counter (`[+0x13C]->+0x1B4`) and of the near one (`[+0x140]->+0x1B4`), each through its own slot 37, CBillboardObject::SetRotation, and then to the figure (+0x124) - less `[+0x14C]` times a constant where the byte +0x151 is set. So a moving unit's pointer and its figure are turned together. See reversing/findings/FINDINGS-counters.md, section 9.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-counters.md"
+  },
+  {
+   "rva": "0x6B6A80",
+   "kind": "function",
+   "name": "CBillboardObject::Draw",
+   "signature": "void __stdcall CBillboardObject::Draw(CBillboardObject* this@ESI, void* graphics@stack:4, void* device@stack:8, float* matrix@stack:12, float time@stack:16)",
+   "no_signature": null,
+   "comment": "Draws one billboard: for a type of more than two frames it steps the frame it shows by the clock, and then calls the type's slot 31, CBillboardType::DrawQuad, with the frame (+0x150), the rotation (+0xB24) and the scale. A two-frame type such as `counter_arrow` keeps the frame it was given. The name is ours; likely, read in the decompiled C. See reversing/findings/FINDINGS-counters.md, section 9.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-counters.md"
+  },
+  {
+   "rva": "0x7076D0",
+   "kind": "function",
+   "name": "CBillboardType::DrawQuad",
+   "signature": "void __thiscall CBillboardType::DrawQuad(CBillboardType* this, int animationFrame, void* graphics, void* device, float* matrix, float time, short mode, int a, int column, bool flip, float rotation, int b, float scale)",
+   "no_signature": null,
+   "comment": "**Slot 31 of the billboard type: where a billboard goes and how it is turned.** Builds `T * R * inverse(view rotation)` and places it at the object's position, T a translation of [this+0xF8] along x - the declaration's `offset`, inferred - and R `D3DXMatrixRotationZ(rotation)`. Translation first, rotation second: the picture stands `offset` from the object **in the direction it is turned to**. Sets the shader's `vMultiplier`, `WorldMatrix`, `vXOffset` (the frame's column), `vScale` and `vFlip`. See reversing/findings/FINDINGS-counters.md, section 9.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-counters.md"
+  },
+  {
+   "rva": "0x7071C0",
+   "kind": "function",
+   "name": "CBillboardType::LoadKey",
+   "signature": "void __thiscall CBillboardType::LoadKey(CBillboardType* this, CParseContext* parse, SaveToken key)",
+   "no_signature": null,
+   "comment": "**Slot 4 of the table at VA 0x1605258: the keys of a `billboardType`.** `noOfFrames` to +0xF0, `font` to +0x114, `textureFile` to +0x9C, `effect` to +0xB8, `effectFile` to +0xD4, `font_size` to +0x104 through `sscanf`; `scale`, `offset` and `offset2` go to two list readers (0xA7B640, 0xA7B070) whose destinations the decompilation loses. Anything else goes to the base class's loader. The record had this slot as read by nobody. See reversing/findings/FINDINGS-counters.md, section 9.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-counters.md"
+  },
+  {
+   "rva": "0x1CC230",
+   "kind": "function",
+   "name": "CUnit::MakeArrow",
+   "signature": "CUnitArrow* __fastcall CUnit::MakeArrow(CUnit* unit)",
+   "no_signature": null,
+   "comment": "**Makes the arrow drawn along a selected unit's way.** Null for a unit with no graphics owner or no path. Its points are the unit's own place - its stack's point plus the province's label point - and the unit point of every province of the path, x moved by the map's width where that is the short way round, each with a height of 0.02 over land and 0 over sea; a fleet starts and ends at a naval base position where it is in a land province, a wing at an air base. A point is added 5 beyond each end in line with the end's leg. The type is looked up by name: `unitInvasionArrow`, `retreatArrow`, `attackArrow`, `stratArrow` under order type 0x5A4, else `moveArrow`. Then `new 0x160` and the CUnitArrow constructor, and the arrow's +0x15C is set to movement_progress over CUnit::PathDistance. Callers: CUnit::ShowMoving and CUnit::EnterProvince, both only for a selected unit, and CUnit::RemakeArrow. See reversing/findings/FINDINGS-movement.md, section 10.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0x1CC200",
+   "kind": "function",
+   "name": "CUnit::RemakeArrow",
+   "signature": "void __cdecl CUnit::RemakeArrow(CUnit* unit@EDI)",
+   "no_signature": null,
+   "comment": "Frees the unit's arrow (+0x188) where it has one, through CUnit::FreeArrow, and stores a new one from CUnit::MakeArrow. CUnit::AdvanceMovement calls it on an arrival. See reversing/findings/FINDINGS-movement.md, section 10.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0x1CB920",
+   "kind": "function",
+   "name": "CUnit::FreeArrow",
+   "signature": "void __stdcall CUnit::FreeArrow(CUnit* unit@EAX, CUnitArrow** arrow@stack:4)",
+   "no_signature": null,
+   "comment": "Hides an arrow, takes it out of the scene of the unit's graphics owner (+0x160) and destroys it through CGraphics::DestroyVisibleObject, then stores null where it was held. See reversing/findings/FINDINGS-movement.md, section 10.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0x47F250",
+   "kind": "function",
+   "name": "CUnitArrow::CUnitArrow",
+   "signature": null,
+   "no_signature": "the type in ECX and the object first of six stack arguments",
+   "comment": "The arrow's constructor: the C3dVisibleObject constructor, the table at VA 0x15E3C14, the type at +0x138, and a copy of the list of points it is given into the vector at +0x14C - a point within 0.1 of the next is dropped. Ends by calling CUnitArrow::BuildMesh. See reversing/findings/FINDINGS-movement.md, section 10.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0x47FA30",
+   "kind": "function",
+   "name": "CUnitArrow::BuildMesh",
+   "signature": "void __stdcall CUnitArrow::BuildMesh(CUnitArrow* arrow, bool overLand)",
+   "no_signature": null,
+   "comment": "**Makes the band of an arrow out of its points.** For each leg between two real points, twenty times: a point of `D3DXVec3CatmullRom` through the four points round the leg at `t = k / 20`, a second at `t + 0.05` for the direction, the direction turned a quarter in the ground plane and - from the second leg on - averaged with the cut before's; two vertices 2.0 either side. The texture's column is 0.5 for the shaft and, within 4.0 of the end, `0.5 + 0.5 * clamp(1 - distance * 0.25, 0, 1)`: the head is the right half of the picture over the last four units. Each vertex carries its cut's number over the number of cuts, which gfx/FX/arrow.fx compares with CurrentProgress to choose the filled half of the texture or the outlined one. So the band is 4 map units wide whatever the arrowType's `size` says. See reversing/findings/FINDINGS-movement.md, section 10.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-movement.md"
   }
  ],
  "structs": [
@@ -27793,10 +28709,10 @@
     },
     {
      "offset": "0x2220",
-     "name": "unknown_2220",
-     "type": "char[1024]",
-     "comment": "A 0x400-byte table the constructor zeroes in one memset. Paired with the 0x400 bytes at +0x2620, which it fills with 0xFF instead - a value/validity pair, on the usual reading, but **what they are indexed by is not established here** and 256 dwords fits neither the provinces nor the countries.",
-     "source": "reversing/CLASSES.md"
+     "name": "terrain_by_palette_index",
+     "type": "void*[256]",
+     "comment": "**256 pointers, one per palette index of the terrain bitmap**, each to the entry terrain.txt declares for that index; the entry's +0xC is its CTerrain. CProvinceTemplate::MeasureEdges and the terrain pass of CMap::LoadMapFiles read a pixel's terrain as `[[map+0x2220+index*4]+0xc]`. See reversing/findings/FINDINGS-movement.md.",
+     "source": "reversing/findings/FINDINGS-movement.md"
     },
     {
      "offset": "0x2620",
@@ -28364,6 +29280,62 @@
    "name": "CProvinceTemplate",
    "fields": [
     {
+     "offset": "0x70",
+     "name": "pixels_end",
+     "type": "int*",
+     "comment": "One past the last of the province's pixels (see +0x6C). See reversing/findings/FINDINGS-movement.md.",
+     "source": "reversing/findings/FINDINGS-movement.md"
+    },
+    {
+     "offset": "0x6C",
+     "name": "pixels_begin",
+     "type": "int*",
+     "comment": "Begin of the province's own pixels, pairs of x and y, ending at +0x70. CMap::BuildAdjacencyFromRaster walks it to find the province's neighbours, which is what orders its edges; the order agreeing with adjacencies.bin for every province shows it runs from the south row by row, west to east. See reversing/findings/FINDINGS-movement.md.",
+     "source": "reversing/findings/FINDINGS-movement.md"
+    },
+    {
+     "offset": "0x15",
+     "name": "is_crossed",
+     "type": "uint8_t",
+     "comment": "Set to 1 on a province a row of adjacencies.csv names as what a crossing goes through. No reader was looked for. See reversing/findings/FINDINGS-movement.md.",
+     "source": "reversing/findings/FINDINGS-movement.md"
+    },
+    {
+     "offset": "0x278",
+     "name": "stack_intel",
+     "type": "int",
+     "comment": "the intel level of the unit last put in a stack here",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0x140",
+     "name": "stack_flags",
+     "type": "void*",
+     "comment": "5 x 7 pairs of (unit, small flag), 0x118 bytes",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0x13C",
+     "name": "stacks_stale",
+     "type": "bool",
+     "comment": "CProvinceTemplate_RefreshStacks has work to do",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0x108",
+     "name": "stacks",
+     "type": "CCounterStack*",
+     "comment": "five stacks, each made on first use: 0 standing, 1 moving, 2 and 3 in combat, 4 in the air",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0xCC",
+     "name": "stack_points",
+     "type": "float",
+     "comment": "five points of three floats, one per stack: where each of the province's stacks stands, **as an offset from the province's label point** (+0x5C/+0x60) - CUnit::MakeArrow adds the label point to one to start its arrow there. **Point 0 (+0xCC) is for a land or sea unit with no path, point 1 (+0xD8) for one with a path, point 4 (+0xFC) for an air unit**; 2 and 3 are the two sides of a battle. CUnit::EnterProvince, CUnit::ShowMoving, CUnit::AdvanceMovement and CUnit::CancelMovement all pick that way. No writer was found. See reversing/findings/FINDINGS-movement.md, section 10.",
+     "source": "reversing/findings/FINDINGS-movement.md"
+    },
+    {
      "offset": "0x270",
      "name": "building_nudges_capacity",
      "type": "float*",
@@ -28639,8 +29611,8 @@
      "offset": "0x0",
      "name": "kind",
      "type": "int",
-     "comment": "What sort of edge this is. Only two values are tested here: CPathFind::MayStep and CPlannedPathFind::MayStep refuse an edge whose kind is 3 outright, and the helper at rva 0x1A2600 acts only on kind 1, which is a crossing through the province named at +8. The full set of values is not known.",
-     "source": "reversing/findings/FINDINGS-redeploy.md"
+     "comment": "What sort of edge this is: **0** plain, **1** a crossing through the province at +8 that can be closed (IsCrossingBlocked), **2** a river, **3** impassable. CMap::LoadAdjacenciesFile sets 1, 2 and 3 from the `Type` column - `sea`, `river`, `impassable` - and CProvinceTemplate::MeasureEdges turns a 0 into 2 where the edge's walk touches the river bitmap. CUnit::MovementSpeedModifier applies the river adjuster over 1 and 2 alike. See reversing/findings/FINDINGS-movement.md.",
+     "source": "reversing/findings/FINDINGS-movement.md"
     },
     {
      "offset": "0x4",
@@ -28660,15 +29632,15 @@
      "offset": "0xC",
      "name": "distance",
      "type": "int",
-     "comment": "distance in thousandths",
-     "source": "BiceLib/GameClasses/CPathFind.hpp:100"
+     "comment": "**Not a geometric distance**: the sum of the terrain `movement_cost` of every pixel on a walk from this province's unit point to the neighbour's, in thousandths - so about a thousand a pixel of plains. Written by CProvinceTemplate::MeasureEdges, cached in adjacencies.bin, and what CUnit::MovementDistance answers. See reversing/findings/FINDINGS-movement.md.",
+     "source": "reversing/findings/FINDINGS-movement.md"
     },
     {
      "offset": "0x10",
      "name": "bearing",
      "type": "int",
-     "comment": "The compass bearing from this province to the neighbour, in thousandths of a full turn (0..999) - the last unnamed field of the 20-byte edge record. Its only reader in the image is CWeatherFront::Tick (0xB48AD), which hands it to IsAngleWithinArc (0xB4490) together with the front's heading and its spread arc; that routine takes both modulo 1000, and the heading it is compared against is seeded Random()%1000 and stepped by 1000000/MAXFROMEACHPRESSURE, which is what fixes the units. WHAT WRITES IT WAS NOT FOUND: there is no fpatan anywhere in the map loader and the edge builder was not located, so the name is inferred from the one consumer.",
-     "source": "reversing/findings/FINDINGS-weatherfront.md"
+     "comment": "The compass bearing from this province to the neighbour, in thousandths of a full turn. **Written by CProvinceTemplate::MeasureEdges**, from the same two points as the distance and before the walk: `floor((angle / 2pi + 0.5 + 0.0005) * 1000)`, the angle from the call at 0xC0BDBA, which was not read. Its one reader is still CWeatherFront::Tick. See reversing/findings/FINDINGS-movement.md.",
+     "source": "reversing/findings/FINDINGS-movement.md"
     }
    ]
   },
@@ -28686,8 +29658,8 @@
      "offset": "0x68",
      "name": "mode_68",
      "type": "uint8_t",
-     "comment": "picks between two ways of routing; set by every player move",
-     "source": "BiceLib/GameClasses/CMoveCommand.hpp:51"
+     "comment": "**`clear`**: whether the order replaces the path the unit has. It is the key the command is saved under, and CUnit::OrderToProvince passes `!append`. Unset with a path already there, the route starts from the path's last province and is added to it. See reversing/findings/FINDINGS-movement.md.",
+     "source": "reversing/findings/FINDINGS-movement.md"
     },
     {
      "offset": "0x69",
@@ -29265,6 +30237,13 @@
   {
    "name": "CSubUnitDefinition",
    "fields": [
+    {
+     "offset": "0x35",
+     "name": "is_mobile",
+     "type": "bool",
+     "comment": "The `is_mobile` key. CUnit::MovementSpeedModifier counts the brigades that have it and scales the country's `amm_movement_speed` by their share. See reversing/findings/FINDINGS-movement.md.",
+     "source": "reversing/findings/FINDINGS-movement.md"
+    },
     {
      "offset": "0x100",
      "name": "BuildTime",
@@ -29882,8 +30861,8 @@
      "offset": "0x44",
      "name": "movement_cost",
      "type": "int",
-     "comment": "x1000, from the terrain's `movement_cost` - mountain 1.6, plains 2.0, ocean 1.0, urban 1.25, woods 1.45, all matching `map/terrain.txt`. **Parsed and then never used**: the game does not take it into account, so a unit's speed in a terrain is its own per-terrain modifier on max_speed and nothing else",
-     "source": "BiceLib/GameClasses/CTerrain.hpp:28"
+     "comment": "x1000, from the terrain's `movement_cost`. **What one pixel of this terrain adds to the distance of an edge whose walk crosses it** - CProvinceTemplate::MeasureEdges sums it into `ProvinceEdge +0xC` when the map cache is built, and nothing reads it afterwards. So it does shape movement, once: a change to it takes effect when the cache is rebuilt, which a changed terrain.txt causes by itself. See reversing/findings/FINDINGS-movement.md.",
+     "source": "reversing/findings/FINDINGS-movement.md"
     },
     {
      "offset": "0x48",
@@ -30071,6 +31050,76 @@
   {
    "name": "CUnit",
    "fields": [
+    {
+     "offset": "0x108",
+     "name": "heading_copy",
+     "type": "float",
+     "comment": "Written with the same angle as `heading` (+0x104) by both of its writers, one instruction apart. What reads this one apart from that was not looked for. See reversing/findings/FINDINGS-counters.md, section 9.",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0x104",
+     "name": "heading",
+     "type": "float",
+     "comment": "Which way the unit faces: the angle from its province's unit point to the next province's, less pi/2, as CUnit::FaceNextProvince works it out. Its avatar's figure and the pointer beside its counter are turned by it. See reversing/findings/FINDINGS-counters.md, section 9.",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0x188",
+     "name": "arrow",
+     "type": "CUnitArrow*",
+     "comment": "The selected unit's movement arrow, made by CUnit::MakeArrow and freed by CUnit::FreeArrow. CUnit::AdvanceMovement writes the share of the path walked into its +0x15C. See reversing/findings/FINDINGS-movement.md, section 10.",
+     "source": "reversing/findings/FINDINGS-movement.md"
+    },
+    {
+     "offset": "0x154",
+     "name": "arrow_step_percent",
+     "type": "int",
+     "comment": "A running sum of each hour's share of the way, in whole per cent, zeroed on arrival and by SetUnitPath and CUnit::CancelMovement. For the arrow; what reads it was not found. See reversing/findings/FINDINGS-movement.md.",
+     "source": "reversing/findings/FINDINGS-movement.md"
+    },
+    {
+     "offset": "0x150",
+     "name": "arrow_percent",
+     "type": "int",
+     "comment": "How far along the way to the next province the unit is, in whole per cent, capped at 100: `movement_progress * 100 / distance`. Written by CUnit::AdvanceMovement each hour. See reversing/findings/FINDINGS-movement.md.",
+     "source": "reversing/findings/FINDINGS-movement.md"
+    },
+    {
+     "offset": "0xCC",
+     "name": "move_not_before",
+     "type": "int",
+     "comment": "An hour before which the unit does not move at all: CUnit::AdvanceMovement returns while the game's hour is under it. Set to the null date by CMoveCommand::RouteUnit and CUnit::CancelMovement together with `end_date`. The name is ours. See reversing/findings/FINDINGS-movement.md.",
+     "source": "reversing/findings/FINDINGS-movement.md"
+    },
+    {
+     "offset": "0x144",
+     "name": "path_no_unlink",
+     "type": "uint8_t",
+     "comment": "The `no_unlink` byte of the path's CList at +0x138: where set, a node reached is marked rather than freed. See reversing/findings/FINDINGS-movement.md.",
+     "source": "reversing/findings/FINDINGS-movement.md"
+    },
+    {
+     "offset": "0x1F8",
+     "name": "intel_level",
+     "type": "int",
+     "comment": "**How well the player knows this unit**: 9 for an observer, else the byte of `intel_by_country` for the player in the province the unit is in (0 unseen, 3 partial, 9 own). Under 2 its stack is not drawn, under 3 its counter shows the unknown picture, under 5 its name is `???`, under 7 its two figures are `?`",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0x164",
+     "name": "avatar",
+     "type": "CHoiAvatar*",
+     "comment": "what the unit is on the map",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0x10C",
+     "name": "avatar_stale",
+     "type": "bool",
+     "comment": "the avatar is to be made again: set when the intel level changes or the unit crosses between land and sea",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
     {
      "offset": "0x97",
      "name": "paradrop_org_pending",
@@ -30360,24 +31409,24 @@
     },
     {
      "offset": "0x134",
-     "name": "supplied_from_province_ptr",
+     "name": "previous_province_ptr",
      "type": "CMapProvince*",
-     "comment": "**CUnit::LoadKey reads it under the key `previous`**, putting a province here, which fits a previous province better than a supply source - and +0x138 and +0x13C are the movement pointers. The BiceLib name is left as it is; which is right has not been settled",
-     "source": "BiceLib/GameClasses/CUnit.hpp:36"
+     "comment": "The province the unit was in before the one it is in. CUnit::AdvanceMovement stores `current_province_ptr` here immediately before CUnit::EnterProvince, and the save key is `previous`. See reversing/findings/FINDINGS-movement.md.",
+     "source": "reversing/findings/FINDINGS-movement.md"
     },
     {
      "offset": "0x138",
      "name": "movement_order_next_province_ptr",
-     "type": "CMapProvince*",
-     "comment": "",
-     "source": "BiceLib/GameClasses/CUnit.hpp:37"
+     "type": "LinkedListNode*",
+     "comment": "**The first node of the unit's path**, a CList of province ids - not a province pointer. The next province is `map->provinces[*node]`. With +0x13C and +0x140 it is the list's first, last and count; +0x144 is its no-unlink byte. See reversing/findings/FINDINGS-movement.md.",
+     "source": "reversing/findings/FINDINGS-movement.md"
     },
     {
      "offset": "0x13C",
      "name": "movement_order_last_current_province_ptr",
-     "type": "CMapProvince*",
-     "comment": "",
-     "source": "BiceLib/GameClasses/CUnit.hpp:38"
+     "type": "LinkedListNode*",
+     "comment": "**The last node of the unit's path** (see +0x138). CMoveCommand::RouteUnit starts an appended route from `map->provinces[*this]`. See reversing/findings/FINDINGS-movement.md.",
+     "source": "reversing/findings/FINDINGS-movement.md"
     },
     {
      "offset": "0x140",
@@ -30658,6 +31707,34 @@
   {
    "name": "GameSettings",
    "fields": [
+    {
+     "offset": "0x100",
+     "name": "counter_scale",
+     "type": "float",
+     "comment": "the `counter_scale` key; 1 from the constructor, which also writes it to the global at VA 0x170AF84 that every counter's scale is multiplied through",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0xFC",
+     "name": "counter_distance",
+     "type": "float",
+     "comment": "the `counter_distance` key; 100 from the constructor",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0xF9",
+     "name": "counters_when_near",
+     "type": "bool",
+     "comment": "the near view is counters and not figures; which of the keys `onmap` and `alwaysCounters` it is was not read",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0xE9",
+     "name": "show_unit_names",
+     "type": "bool",
+     "comment": "a near counter's second text is the unit's name and not its leader's; likely the `show_unit_names` key",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
     {
      "offset": "0xEC",
      "name": "layer_mask_ec",
@@ -45035,6 +46112,528 @@
      "source": "reversing/findings/FINDINGS-listbox.md"
     }
    ]
+  },
+  {
+   "name": "CSideMenuDeploy",
+   "vftable_rva": "0x11E02F0",
+   "comment": "The side menu that lists a country's finished units, on the `sidebar_deploy` window of interface/sidebar.gui. See reversing/findings/FINDINGS-deploymenu.md.",
+   "source": "reversing/findings/FINDINGS-deploymenu.md",
+   "fields": [
+    {
+     "offset": "0x6C",
+     "name": "list_stale",
+     "type": "bool",
+     "comment": "the plain list is to be made again",
+     "source": "reversing/findings/FINDINGS-deploymenu.md"
+    },
+    {
+     "offset": "0x68",
+     "name": "list_scroll",
+     "type": "float",
+     "comment": "the list's scroll position when a unit was chosen",
+     "source": "reversing/findings/FINDINGS-deploymenu.md"
+    },
+    {
+     "offset": "0x64",
+     "name": "targets_stale",
+     "type": "bool",
+     "comment": "the target list is to be made again",
+     "source": "reversing/findings/FINDINGS-deploymenu.md"
+    },
+    {
+     "offset": "0x60",
+     "name": "deployment_id",
+     "type": "int",
+     "comment": "the other half",
+     "source": "reversing/findings/FINDINGS-deploymenu.md"
+    },
+    {
+     "offset": "0x5C",
+     "name": "deployment_id_type",
+     "type": "int",
+     "comment": "the type half of the chosen deployment's id",
+     "source": "reversing/findings/FINDINGS-deploymenu.md"
+    },
+    {
+     "offset": "0x58",
+     "name": "choosing_target",
+     "type": "bool",
+     "comment": "0: the list is the finished units. 1: it is the units the chosen one may join",
+     "source": "reversing/findings/FINDINGS-deploymenu.md"
+    },
+    {
+     "offset": "0x24",
+     "name": "window",
+     "type": "void*",
+     "comment": "the `sidebar_deploy` window",
+     "source": "reversing/findings/FINDINGS-deploymenu.md"
+    },
+    {
+     "offset": "0x20",
+     "name": "in_game_screen",
+     "type": "CInGameIdler*",
+     "comment": "the screen it belongs to",
+     "source": "reversing/findings/FINDINGS-deploymenu.md"
+    }
+   ]
+  },
+  {
+   "name": "CCounterType",
+   "vftable_rva": "0x11E1324",
+   "comment": "A `CounterType` of interface/mapitems.gfx: how one kind of map counter is drawn. `unit_counter` is the far one and `unit_counter_close` the near one. See reversing/findings/FINDINGS-counters.md.",
+   "source": "reversing/findings/FINDINGS-counters.md",
+   "fields": [
+    {
+     "offset": "0x210",
+     "name": "delay_after_attack_color",
+     "type": "CColor",
+     "comment": "`delayAfterAttackColor`; no use of it was found",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0x1F4",
+     "name": "color2",
+     "type": "CColor",
+     "comment": "`color2`: selection colour 3",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0x1D8",
+     "name": "color1",
+     "type": "CColor",
+     "comment": "`color1`: selection colour 2",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0x1D4",
+     "name": "text_size",
+     "type": "float",
+     "comment": "`size`: the first text's size, in tenths of `scale`",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0x1D0",
+     "name": "level_scale",
+     "type": "float",
+     "comment": "`level_scale`: a counter's own scale is `(size - 1) * level_scale * g + 1`",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0x1CC",
+     "name": "has_flag",
+     "type": "bool",
+     "comment": "set by a `shieldtype` key",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0x1C8",
+     "name": "flag_height",
+     "type": "float",
+     "comment": "`shieldtype`'s second number",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0x1C4",
+     "name": "flag_width",
+     "type": "float",
+     "comment": "`shieldtype`'s first number",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0x1B8",
+     "name": "name_offset",
+     "type": "float",
+     "comment": "`offset3`: three floats, where the second text goes",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0x1AC",
+     "name": "figures_offset",
+     "type": "float",
+     "comment": "`offset2`: three floats, where the first text goes",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0x1A0",
+     "name": "flag_offset",
+     "type": "float",
+     "comment": "`offset`: three floats, where the flag goes, in tenths of `scale`",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0x19C",
+     "name": "font",
+     "type": "void*",
+     "comment": "the font object the two texts are drawn with",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0x198",
+     "name": "size_offset",
+     "type": "float",
+     "comment": "what the shader gets as SizeOffset, which it multiplies `u + SizeFrame` by - so one over `frames`; where it is computed was not read",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0x194",
+     "name": "frames",
+     "type": "int",
+     "comment": "`noOfFrames`: how many frames the size strip has",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0x178",
+     "name": "font_name",
+     "type": "Hoi3CString",
+     "comment": "`font`",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0x15C",
+     "name": "effect_file",
+     "type": "Hoi3CString",
+     "comment": "`effectFile`",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0x140",
+     "name": "effect_name",
+     "type": "Hoi3CString",
+     "comment": "`effect`",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0x124",
+     "name": "texture_file4",
+     "type": "Hoi3CString",
+     "comment": "`textureFile4`",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0xEC",
+     "name": "texture_file3",
+     "type": "Hoi3CString",
+     "comment": "`textureFile3`",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0xD0",
+     "name": "texture_file2",
+     "type": "Hoi3CString",
+     "comment": "`textureFile2`",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0xB4",
+     "name": "texture_file",
+     "type": "Hoi3CString",
+     "comment": "`textureFile`",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0xAC",
+     "name": "size_texture",
+     "type": "int",
+     "comment": "`textureFile3`; the shader's SizeTex",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0xA8",
+     "name": "mask_texture",
+     "type": "int",
+     "comment": "`textureFile2`; the shader's MaskTex",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0xA4",
+     "name": "background_texture",
+     "type": "int",
+     "comment": "`textureFile`, as an index; the shader's BackgroundTex",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0xA0",
+     "name": "effect",
+     "type": "int",
+     "comment": "the shader, as a 1-based index into the owner's effects",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0x9C",
+     "name": "scale",
+     "type": "float",
+     "comment": "`scale`: half a counter's height in map units, before the counter's own scale",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    }
+   ]
+  },
+  {
+   "name": "CCounterObject",
+   "vftable_rva": "0x11E0F6C",
+   "size": "0x1C0",
+   "comment": "One counter on the map, made by CCounterType::CreateInstance. Each unit's avatar holds two. See reversing/findings/FINDINGS-counters.md.",
+   "source": "reversing/findings/FINDINGS-counters.md",
+   "fields": [
+    {
+     "offset": "0x1BD",
+     "name": "mark_orange",
+     "type": "bool",
+     "comment": "the corner is orange, where mark_red is clear",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0x1BC",
+     "name": "mark_red",
+     "type": "bool",
+     "comment": "the corner is red, before either other mark",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0x1BB",
+     "name": "mark_yellow",
+     "type": "bool",
+     "comment": "the corner is yellow, where neither of the other two marks is set; what sets it was not read",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0x1BA",
+     "name": "is_shown",
+     "type": "bool",
+     "comment": "whether CCounterObject::Render queues it",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0x1B9",
+     "name": "is_top",
+     "type": "bool",
+     "comment": "the one counter of its stack that carries the flag and the texts",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0x1B8",
+     "name": "shows_arrow",
+     "type": "bool",
+     "comment": "whether CCounterObject::Render draws the arrow",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0x1B4",
+     "name": "arrow",
+     "type": "void*",
+     "comment": "the `counter_arrow` billboard",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0x1B0",
+     "name": "selection",
+     "type": "short",
+     "comment": "0 not selected, 1 white, 2 the type's color1, 3 its color2",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0x1AC",
+     "name": "intel",
+     "type": "int",
+     "comment": "a copy of the unit's intel level (CUnit +0x1F8)",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0x1A8",
+     "name": "order",
+     "type": "int",
+     "comment": "where it sorts in its stack, smallest first, and how soon a click finds it; what sets it was not read",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0x18C",
+     "name": "name",
+     "type": "Hoi3CString",
+     "comment": "the second text: a leader's or the unit's name, at most 8 characters",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0x170",
+     "name": "figures",
+     "type": "Hoi3CString",
+     "comment": "the first text, `a - b`",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0x16C",
+     "name": "shield",
+     "type": "void*",
+     "comment": "the flag: a CShield3dObject of 0x238 bytes",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0x150",
+     "name": "colour",
+     "type": "CColor",
+     "comment": "the owner's colour, white from the constructor",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0x14C",
+     "name": "picture",
+     "type": "int",
+     "comment": "the texture of the unit type's picture; -1 from the constructor",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0x148",
+     "name": "size",
+     "type": "int",
+     "comment": "0 to 5: the frame of the size strip, from CUnit::GetCounterSize",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0x138",
+     "name": "type",
+     "type": "CCounterType*",
+     "comment": "the declaration it was made from",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    }
+   ]
+  },
+  {
+   "name": "CCounterStack",
+   "vftable_rva": "0x11E10EC",
+   "size": "0x158",
+   "comment": "The counters of the units doing one thing in one province, drawn one on another. A province has five. See reversing/findings/FINDINGS-counters.md.",
+   "source": "reversing/findings/FINDINGS-counters.md",
+   "fields": [
+    {
+     "offset": "0x154",
+     "name": "is_fanned",
+     "type": "bool",
+     "comment": "draw the last six counters, each offset, and not only the last",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0x13C",
+     "name": "count",
+     "type": "int",
+     "comment": "how many counters are in it",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0x138",
+     "name": "counters",
+     "type": "void*",
+     "comment": "a std::list of CCounterObject*, its sentinel node",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    }
+   ]
+  },
+  {
+   "name": "CHoiAvatar",
+   "vftable_rva": "0x11E193C",
+   "size": "0x154",
+   "comment": "What a unit is on the map: its figure and its two counters. At CUnit +0x164. See reversing/findings/FINDINGS-counters.md.",
+   "source": "reversing/findings/FINDINGS-counters.md",
+   "fields": [
+    {
+     "offset": "0x150",
+     "name": "arrows_shown",
+     "type": "bool",
+     "comment": "Set to 1 by CUnit::ShowMoving when it sets `shows_arrow` on both of the avatar's counters, so that it is done once. What clears it was not read. See reversing/findings/FINDINGS-counters.md, section 9.",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0x153",
+     "name": "counters_when_near",
+     "type": "bool",
+     "comment": "a copy of the setting at CSettings +0xF9",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0x152",
+     "name": "seen_from_far",
+     "type": "bool",
+     "comment": "the far counter is the one on screen",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0x148",
+     "name": "province_id",
+     "type": "int",
+     "comment": "the province it stands in",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0x140",
+     "name": "near_counter",
+     "type": "CCounterObject*",
+     "comment": "`unit_counter_close`, the one that goes into a province's stack",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0x13C",
+     "name": "far_counter",
+     "type": "CCounterObject*",
+     "comment": "`unit_counter`",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0x128",
+     "name": "rank",
+     "type": "void*",
+     "comment": "the `Rank<n>` object, for a size above 1",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0x124",
+     "name": "figure",
+     "type": "void*",
+     "comment": "the 3D figure",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    }
+   ]
+  },
+  {
+   "name": "CUnitArrow",
+   "vftable_rva": "0x11E3C14",
+   "size": "0x160",
+   "inherits": "C3dVisibleObject",
+   "comment": "The arrow drawn on the map along the way a selected unit is going: a band along a Catmull-Rom curve through the provinces of its path, hollow ahead of the unit and filled behind it. See reversing/findings/FINDINGS-movement.md, section 10.",
+   "source": "reversing/findings/FINDINGS-movement.md",
+   "fields": [
+    {
+     "offset": "0x15C",
+     "name": "progress",
+     "type": "float",
+     "comment": "How much of the arrow is drawn filled, 0 to 1: the unit's movement_progress over CUnit::PathDistance. Written by CUnit::MakeArrow and each hour by CUnit::AdvanceMovement; the shader's CurrentProgress. See reversing/findings/FINDINGS-movement.md, section 10.",
+     "source": "reversing/findings/FINDINGS-movement.md"
+    },
+    {
+     "offset": "0x150",
+     "name": "points_end",
+     "type": "float*",
+     "comment": "One past the last control point (see +0x14C). See reversing/findings/FINDINGS-movement.md, section 10.",
+     "source": "reversing/findings/FINDINGS-movement.md"
+    },
+    {
+     "offset": "0x14C",
+     "name": "points_begin",
+     "type": "float*",
+     "comment": "Begin of the arrow's control points, 12 bytes each - x, height, y - ending at +0x150: the point added before the start, the unit's place, the unit point of each province of the path, and the point added beyond the end. See reversing/findings/FINDINGS-movement.md, section 10.",
+     "source": "reversing/findings/FINDINGS-movement.md"
+    },
+    {
+     "offset": "0x148",
+     "name": "mesh",
+     "type": "void*",
+     "comment": "The vertex and index buffers CUnitArrow::BuildMesh makes, a 0x24-byte holder; freed and made again on each call. See reversing/findings/FINDINGS-movement.md, section 10.",
+     "source": "reversing/findings/FINDINGS-movement.md"
+    },
+    {
+     "offset": "0x138",
+     "name": "type",
+     "type": "void*",
+     "comment": "The `arrowType` the arrow was made from, by name out of the object-type registry. See reversing/findings/FINDINGS-movement.md, section 10.",
+     "source": "reversing/findings/FINDINGS-movement.md"
+    }
+   ]
   }
  ],
  "equates": [
@@ -45075,6 +46674,9 @@
   }
  ],
  "vftable_slots": {
+  "CHoiAvatar": {
+   "37": "SetRotation"
+  },
   "CPossibleBrigadeEntry": {
    "34": "OnSelect"
   },
@@ -45933,6 +47535,8 @@
   },
   "_about": "Slot names BiceLib has established but that cannot be read off the slot's body - the linker folds identical bodies together, so the three unit predicates are one `mov al,1; ret` and one `xor al,al; ret` between them. Keyed by class, then slot. A record on a base class names that slot in every table below it, which is how CPersistent's six virtuals reach all 754 classes that derive from it; a name read off the slot's own body wins over one inherited this way.",
   "CUnit": {
+   "6": "OrderToProvince",
+   "34": "MayStandIn",
    "15": "IsLand",
    "16": "IsNaval",
    "17": "IsAir",
@@ -45942,6 +47546,8 @@
    "32": "UpdateDaily"
   },
   "CArmy": {
+   "33": "CanFight",
+   "34": "MayStandIn",
    "15": "IsLand",
    "16": "IsNaval",
    "17": "IsAir"

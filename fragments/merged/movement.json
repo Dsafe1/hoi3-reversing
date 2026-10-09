@@ -1,0 +1,540 @@
+{
+ "agent": "main session",
+ "question": "How a unit is ordered to move, how its route is found, what an hour of the march does, and what the distance between two provinces is.",
+ "source": "reversing/findings/FINDINGS-movement.md",
+ "structs": [],
+ "addresses": [
+  {
+   "rva": "0x1CA430",
+   "kind": "function",
+   "name": "CUnit::AdvanceMovement",
+   "signature": "bool __stdcall CUnit::AdvanceMovement(CUnit* unit, bool addSpeed)",
+   "no_signature": null,
+   "comment": "**One pass of a moving unit's hour.** CUnit::UpdateHourly calls it for a unit with a path, once with `addSpeed` set and then again with it clear for as long as it answers true, so one hour can carry a unit through several short provinces. With `addSpeed` it adds CUnit::MovementSpeed to `movement_progress` (+0x14C); when the progress reaches CUnit::MovementDistance and the unit is in no battle it drops the first province of the path, takes the distance off the progress (zeroing it under an attack delay), stores the current province at +0x134, and calls CUnit::EnterProvince and CCombatManager::CheckForCombat. It cancels the move where the province the unit is in has no edge to the next, where the crossing is blocked, where the unit may no longer stand there, and for a land unit with no supplies headed onto enemy ground. In a battle the progress is held at the distance. Answers true when a path is left, the unit is in no battle and its progress already covers the next distance. See reversing/findings/FINDINGS-movement.md.",
+   "confidence": "confirmed",
+   "evidence": "The two calls at 0x5BAB26 (`push 1`) and 0x5BAB33 (`push 0`, looped on `test al,al; jne`); `add dword ptr [esi],eax` at 0x5CA837 with esi = &unit->+0x14C; the pop of the path's first node and `sub dword ptr [eax],edx` at 0x5CABF2; `mov al,1` at 0x5CB4DA after the compare against a fresh CUnit::MovementDistance. `ret 8`. Wrong if a unit can be shown entering a province with its progress under the edge's distance.",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0x1C9140",
+   "kind": "function",
+   "name": "CUnit::MovementSpeed",
+   "signature": "CFixedPoint* __stdcall CUnit::MovementSpeed(CUnit* unit@EAX, CFixedPoint* out@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "**What an hour adds to a unit's movement progress**, thousandths. Ordinarily the unit definition's `max_speed` (CUnit +0xC8 then +0x108, the minimum over its brigades) times CUnit::MovementSpeedModifier / 1000, then times LAND_SPEED_MODIFIER, NAVAL_SPEED_MODIFIER or AIR_SPEED_MODIFIER / 1000 by the unit's kind. Two special cases come first: a land unit at sea bound for land and carried by a fleet moves at AMPHIBIOUS_INVADE_SPEED_BASE plus the fleet's amphibious_invasion_speed, and a land unit under a strategic redeployment order (type 0x5A4) at STRAT_REDEP_BASE_SPEED times a clamped figure of the province's infrastructure. Infrastructure is no part of an ordinary march. See reversing/findings/FINDINGS-movement.md.",
+   "confidence": "confirmed",
+   "evidence": "`mov eax,[eax+0xc8]`-style read of +0x108 before the call of 0x5C8D10, the `__alldiv` by 1000, and the three GetDefines reads of military +0x70, +0x74 and +0x78 chosen on slots 15 and 17. `ret 4` with the unit in EAX. Two callers, 0x5CA1D8 and 0x5CA800.",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0x1C9340",
+   "kind": "function",
+   "name": "CUnit::MovementDistance",
+   "signature": "CFixedPoint* __stdcall CUnit::MovementDistance(CUnit* unit@ESI, CFixedPoint* out@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "**How far a unit has to go to be in the next province of its path**: 0 with no path; AMPHIBIOUS_INVADE_MOVEMENT_COST for a land unit at sea bound for land; otherwise the `distance` (+0xC) of the edge from the province it is in to the path's first province, found with CProvinceTemplate::EdgeIndexTo - and 1000 where there is no such edge. See reversing/findings/FINDINGS-movement.md.",
+   "confidence": "confirmed",
+   "evidence": "The call of 0x4A9CE0 with the next province's id and `mov eax,[edx+0xc+eax*0x14]`-style read of the edge; `mov dword ptr [eax],0x3e8` on a negative index. `ret 4`, unit in ESI. Five callers.",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0x1C9430",
+   "kind": "function",
+   "name": "CUnit::CancelMovement",
+   "signature": "void __stdcall CUnit::CancelMovement(CUnit* unit, bool resetOrder)",
+   "no_signature": null,
+   "comment": "**Stops a unit where it stands.** Sets its two dates +0xCC and `end_date` to the null date, gives it a null order where `resetOrder` is set, takes it out of any battle it was attacking in, zeroes `movement_progress` (+0x14C) and +0x154, empties the path, frees the arrow (+0x188), puts the avatar back at the province's standing point with the animation `idle` and moves its counter to the standing stack; and where it now stands on enemy ground, not retreating and in no battle, calls CCombatManager::CheckForCombat. 23 callers. See reversing/findings/FINDINGS-movement.md.",
+   "confidence": "confirmed",
+   "evidence": "The stores of g_NullDate to +0xCC and +0xD0, `mov dword ptr [ebx+0x14c],0` at 0x5C94B9 and +0x154 at 0x5C94C3, the literals 'idle' and 'Cancel movement, graphics owner is null,' (unit.cpp). `ret 8`.",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0x1C9E10",
+   "kind": "function",
+   "name": "CUnit::ShowMoving",
+   "signature": "void __fastcall CUnit::ShowMoving(CUnit* unit)",
+   "no_signature": null,
+   "comment": "What SetUnitPath calls once a unit has a path: moves the avatar (+0x164) to the province's **moving** point (CProvinceTemplate +0xD8, or +0xFC for an air unit), plays `move`, makes the selected unit's arrow (0x5CC230 into +0x188) and moves the counter to the moving stack with CProvinceTemplate::MoveUnitCounter. The name is ours. See reversing/findings/FINDINGS-movement.md.",
+   "confidence": "inferred",
+   "evidence": "The decompiled C: the 12-byte copies from template +0xD8 and +0xFC handed to the avatar's slot 90 (+0x168), the literal 'move', the call of 0x5CC230 guarded by `is_selected` (+0x4), the call of 0x4ABF00. Bare `ret`, unit in ECX. One caller, SetUnitPath.",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0x1CA1A0",
+   "kind": "function",
+   "name": "CUnit::NextArrivalHour",
+   "signature": "void __stdcall CUnit::NextArrivalHour(CUnit* unit, int* out)",
+   "no_signature": null,
+   "comment": "**The hour a unit reaches the next province of its path**: now + attack_delay / 1000 + ceil((CUnit::MovementDistance - movement_progress) / CUnit::MovementSpeed), or `end_date` (+0xD0) where that is later. What an arrival date is shown from. See reversing/findings/FINDINGS-movement.md.",
+   "confidence": "confirmed",
+   "evidence": "The calls of 0x5C9340 and 0x5C9140, the subtraction of +0x14C, the division and the round-up through the double 1000.0 at 0x160A300, `g_CCurrentGameState->tick + [+0xd4]/1000 + hours` and the compare with +0xD0. `ret 8`.",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0x1CA3E0",
+   "kind": "function",
+   "name": "CUnit::SetMovementProgressShare",
+   "signature": "void __stdcall CUnit::SetMovementProgressShare(CUnit* unit@EAX, int share@stack:4)",
+   "no_signature": null,
+   "comment": "Sets `movement_progress` to `share` thousandths of CUnit::MovementDistance, or to zero for a unit with no path. One caller, 0x565AF0 in the combat code, not read. The name is ours. See reversing/findings/FINDINGS-movement.md.",
+   "confidence": "inferred",
+   "evidence": "Read end to end, 0x5CA3E0 to the `ret 4` at 0x5CA42B: `cmp [eax+0x140],0`, the call of 0x5C9340, `__alldiv(distance * share, 1000)` stored at +0x14C.",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0x1C0D50",
+   "kind": "function",
+   "name": "CUnit::AnnounceArrival",
+   "signature": "void __stdcall CUnit::AnnounceArrival(CUnit* unit)",
+   "no_signature": null,
+   "comment": "Posts the message that a unit has arrived - UNITARRIVED_LAND, UNITARRIVED_NAVAL or UNITARRIVED_AIR, with NAME, PROV and TYPE - to the player, only for the player's own units and not under orders of type 0x42E, 0x6E8 or 0x6E9. Called by CUnit::AdvanceMovement when the path runs out with no battle. See reversing/findings/FINDINGS-movement.md.",
+   "confidence": "confirmed",
+   "evidence": "The three literals and 'MESSAGE_HEAD_MARS', 'NAME', 'PROV', 'TYPE', 'ARMY', 'NAVY', 'EXP_SQUADRON' in the body, and the compare of unit->owner_id with the player's. `ret 4`.",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0x1CCE90",
+   "kind": "function",
+   "name": "CUnit::PathDistance",
+   "signature": "CFixedPoint* __stdcall CUnit::PathDistance(CUnit* unit@EAX, CFixedPoint* out@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "The length of the whole path, for the arrow: CUnit::AdvanceMovement divides the progress by it into the arrow's +0x15C. It walks the path's nodes looking each province up among the edges of the province the unit is in; the decompilation loses the sum, so what exactly is added was not established. The name is ours. See reversing/findings/FINDINGS-movement.md.",
+   "confidence": "inferred",
+   "evidence": "Its one use read: 0x5CB456, whose result divides `movement_progress` into [arrow+0x15C]. `ret 4`, unit in EAX.",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0x1C1AD0",
+   "kind": "function",
+   "name": "CUnit::OrderToProvince",
+   "signature": "void __thiscall CUnit::OrderToProvince(CUnit* this, CMapProvince* province, bool append)",
+   "no_signature": null,
+   "comment": "**CUnit slot 6: a right click on a province with this unit selected.** A unit in a battle is never appended to. Nothing happens for a unit with no brigades, a retreating one, or one with an AI agent on a unit above it. For a land unit outside the battle plan branch: the province it stands in, with `append` clear or no path, posts a CCancelMovementCommand; a province CUnit::CanMoveTo refuses gets the `illegal_selection_projection` effect and the `error` sound; otherwise `legal_selection_projection`, the sound `army_move`, and `CMoveCommand(unit, province id, !append, 0, 0)`. Fleets and wings take branches of their own (`navy_move`, `air_move`), not read through. See reversing/findings/FINDINGS-movement.md.",
+   "confidence": "confirmed",
+   "evidence": "The literals 'legal_selection_projection', 'illegal_selection_projection', 'army_move', 'navy_move', 'air_move' and 'error'; the three calls of CMoveCommand::CMoveCommand at 0x5C2298, 0x5C23D5 and 0x5C25BD each with `param_2 == 0` as the third value. `ret 8`; vtable.py puts 0x5C1AD0 at slot 6 of CUnit, CArmy, CNavy and CAir.",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0x1C2AE0",
+   "kind": "function",
+   "name": "CUnit::MayStandIn",
+   "signature": "bool __thiscall CUnit::MayStandIn(CUnit* this, CMapProvince* province)",
+   "no_signature": null,
+   "comment": "**CUnit slot 34: whether this unit may stand in that province.** No where the province's template flag +0x13D is clear. Yes where its controller is the controller of the province the unit is in, or where CCountry::MayEnterProvince(owner, province, false) says so. One exception: a unit on land asked about the sea province its own province names (+0xA4) is allowed where slot 34 refuses the province it is in. CPathFind::MayUse asks it of the goal and CPathFind::MayStep of every step; CUnit::CanMoveTo begins with it. See reversing/findings/FINDINGS-movement.md.",
+   "confidence": "confirmed",
+   "evidence": "Read end to end, 0x5C2AE0 to the `ret 4`: `cmp byte ptr [+0x13d],0`, the compare of province +0x338 with current province +0x338, the call of 0x4EFA50 with `push 0`. Slot 34 of CUnit and CAir by vtable.py; CArmy and CNavy override it.",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0x1CE2A0",
+   "kind": "function",
+   "name": "CArmy::MayStandIn",
+   "signature": "bool __thiscall CArmy::MayStandIn(CArmy* this, CMapProvince* province)",
+   "no_signature": null,
+   "comment": "**CArmy slot 34.** A sea province only where a fleet of the same owner is there that is in no battle, not moving, not retreating and can still carry the unit's weight (0x5CEFB0). A land province only where its owner area's slot 0 (province +0x2B4) says yes - then yes outright where the byte at CArmy +0x1A8 is set and the province's owner is the owner of the province the unit is in, and CUnit::MayStandIn otherwise. See reversing/findings/FINDINGS-movement.md.",
+   "confidence": "confirmed",
+   "evidence": "The decompiled C: the walk of province +0x2B8 calling slot 16 and 0x5CEFB0 on a sea province (`is_land` +0x22 clear), the indirect call through [province+0x2b4], the compare of province +0x330 with the current province's owner id, the tail call of 0x5C2AE0. `ret 4`.",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0x1D35C0",
+   "kind": "function",
+   "name": "CArmy::CanFight",
+   "signature": "bool __thiscall CArmy::CanFight(CArmy* this)",
+   "no_signature": null,
+   "comment": "**CArmy slot 33**: over the brigades that hold frontage (definition `width` > 0), whether their average strength is at least 100 thousandths and their average organisation at least 1000. CUnit::AdvanceMovement asks it of a land unit landing from the sea on enemy ground. The name is ours and inferred from that use. See reversing/findings/FINDINGS-movement.md.",
+   "confidence": "inferred",
+   "evidence": "Read end to end: the sums of +0x5C and +0x60 over the brigades whose definition +0xE8 is positive, the compares against [0x1A88780] (100, a startup constant) and [0x170D7EC] (1000, read from the image). Bare `ret`, `this` in ECX.",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0xEFA50",
+   "kind": "function",
+   "name": "CCountry::MayEnterProvince",
+   "signature": "bool __stdcall CCountry::MayEnterProvince(CCountry* country@stack:4, bool askCanals@stack:8, CMapProvince* province@EDI) @AL",
+   "no_signature": null,
+   "comment": "**Whose ground a country may walk on.** No where the province's template flag +0x13D is clear, and with `askCanals` where 0x4A7E30 says an enemy holds the canal. Otherwise no only when all of these hold: the country is at war with neither the province's owner nor its controller; the province is land; its controller is not friendly (CCountry::IsFriendly with true); its owner is not friendly either, or is at war with the controller; the province has an owner; and the country is not REB. So: one's own ground and a friend's, nobody's, and that of anyone one is at war with. See reversing/findings/FINDINGS-movement.md.",
+   "confidence": "confirmed",
+   "evidence": "Read end to end: the two reads of `diplomacy[owner_id]->+0x20` and `diplomacy[controller_id]->+0x20`, `is_land` +0x22, the two calls of CCountry::IsFriendly with `push 1`, the owner's own status against the controller, `cmp [edi+0x330],0`, and the tail into the REB test 0x42EFD0. `ret 8`, province in EDI.",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0x1A2600",
+   "kind": "function",
+   "name": "IsCrossingBlocked",
+   "signature": "bool __cdecl IsCrossingBlocked(ProvinceEdge* edge@EAX, CUnit* unit@stack:4) @AL",
+   "no_signature": null,
+   "comment": "Whether an edge is closed to a unit: only an edge of **kind 1** with a crossed province (+8), and never to an air unit. Where the crossed province is land it is closed when a country hostile to the unit's owner controls it; where it is sea, when a hostile fleet that is not retreating and has ships stands in it. CPathFind::MayStep refuses such a step and CUnit::AdvanceMovement cancels a move over one, every hour. The name is ours. See reversing/findings/FINDINGS-movement.md.",
+   "confidence": "confirmed",
+   "evidence": "Read end to end: `cmp dword ptr [eax],1`, the slot 17 call on the unit, `is_land` of `map->provinces[edge->+8]`, CCountry::IsEnemy on its controller, and on a sea province the walk of its units with slot 16, IsEnemy, `retreat` (+0x158) and the brigade count. Bare `ret`; the caller at 0x5CAB5F does `add esp,4`.",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0x1C0030",
+   "kind": "function",
+   "name": "CUnit::HasCombatIn",
+   "signature": "bool __cdecl CUnit::HasCombatIn(CUnit* unit@EAX, CMapProvince* province@EDX) @AL",
+   "no_signature": null,
+   "comment": "Whether one of the unit's battles (the list at +0x114) is in a province: it compares each battle's +0x18 with the province. The name is ours. See reversing/findings/FINDINGS-movement.md.",
+   "confidence": "confirmed",
+   "evidence": "Read end to end, eleven instructions: the walk of [eax+0x114] and `cmp [ecx+0x18],edx`. Bare `ret`.",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0x1C2E80",
+   "kind": "function",
+   "name": "CUnit::IsLandingFromSea",
+   "signature": "bool __stdcall CUnit::IsLandingFromSea(CUnit* unit@EAX, bool onAnyGround@stack:4) @AL",
+   "no_signature": null,
+   "comment": "Whether a land unit with a path stands in a sea province with a land province next: with `onAnyGround` that is the answer, without it the land has also to be controlled by an enemy of the unit's owner. CUnit::MovementSpeed and CUnit::MovementDistance inline the same test for the amphibious figures. The name is ours. See reversing/findings/FINDINGS-movement.md.",
+   "confidence": "confirmed",
+   "evidence": "Read end to end: +0x140 > 0, slot 15, `is_land` of the current province's template and of `map->provinces[*path_first]`, CCountry::IsEnemy on its controller. `ret 4`.",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0xA9E70",
+   "kind": "function",
+   "name": "CProvinceTemplate::MeasureEdges",
+   "signature": "void __cdecl CProvinceTemplate::MeasureEdges(CProvinceTemplate* this@EDI)",
+   "no_signature": null,
+   "comment": "**What fills `ProvinceEdge +0xC distance`, +0x10 `bearing` and kind 2.** For each edge: a walk from this province's unit point (+0x64/+0x68) to the neighbour's - between land and sea the land end is the naval base position instead - one pixel at a time, x and y both stepping towards the target in the same turn and x the short way round the map. Every pixel walked from adds the `movement_cost` (CTerrain +0x44) of the terrain painted on it in the terrain bitmap, found through CMap +0x2220; a pixel whose byte in the river bitmap (CMap +0x20E8) is under 0xFE turns an edge of kind 0 into kind 2. The bearing is taken from the same two points before the walk. Called by CMap::LoadMapFiles for every province from 1 up, only when the map cache is rebuilt; otherwise the figures come from map/cache/adjacencies.bin. **Checked against that file**: the rewrite reproduces all 83,596 distances and kinds of the base game from this rule. See reversing/findings/FINDINGS-movement.md.",
+   "confidence": "confirmed",
+   "evidence": "The loop at 0x48AE90..0x48AEB5 with edi = `map->+0x2A60[i]`; in the body the zeroing of edge +0xC, the reads of +0x64/+0x68 and of `building_positions[naval_base]`, the byte read of the terrain bitmap and `[[map+0x2220+index*4]+0xc]+0x44` added to edge +0xC, the `< 0xfe` test on the river bitmap storing 2 at edge +0. Bare `ret`, the template in EDI. Wrong if one edge of adjacencies.bin can be shown not to equal the sum.",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0xA9C40",
+   "kind": "function",
+   "name": "CProvinceTemplate::HasEdgeTo",
+   "signature": "bool __stdcall CProvinceTemplate::HasEdgeTo(CProvinceTemplate* this@EDI, int province@stack:4) @AL",
+   "no_signature": null,
+   "comment": "Whether the province has an edge to another: a walk of +0x90..+0x94 comparing `to_province`. CUnit::AdvanceMovement cancels a move when it says no. See reversing/findings/FINDINGS-movement.md.",
+   "confidence": "confirmed",
+   "evidence": "Read end to end: the count `(end - begin) / 0x14` and `cmp [ecx],param`. `ret 4`, template in EDI.",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0xA9CE0",
+   "kind": "function",
+   "name": "CProvinceTemplate::EdgeIndexTo",
+   "signature": "int __stdcall CProvinceTemplate::EdgeIndexTo(CProvinceTemplate* this@EDI, int province@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "The index of the province's edge to another, or -1: the same walk as CProvinceTemplate::HasEdgeTo, answering the index. See reversing/findings/FINDINGS-movement.md.",
+   "confidence": "confirmed",
+   "evidence": "Read end to end: the same loop, `or eax,0xffffffff` on a miss. `ret 4`, template in EDI.",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0x8E520",
+   "kind": "function",
+   "name": "CMap::LoadAdjacenciesFile",
+   "signature": "void __stdcall CMap::LoadAdjacenciesFile(CMap* this)",
+   "no_signature": null,
+   "comment": "**Reads adjacencies.csv**, the file CMap +0x2054 names: per line `From;To;Type;Through`. `Type` is `river` for kind 2, `sea` for kind 1, `impassable` for kind 3 and anything else - `canal` included - for kind 0. Where `From` already has an edge to `To` the kind and the crossed province are written over both directions; where it has none an edge is added each way with CProvinceTemplate::AddEdge. The crossed province's template byte +0x15 is set. See reversing/findings/FINDINGS-movement.md.",
+   "confidence": "confirmed",
+   "evidence": "The three string compares - 'river', the string at 0x15BE2E8, which is `sea`, and 'impassable' - storing 2, 1 and 3; the two overwrite loops storing at edge +8 and +0; the two calls of 0x4A9C90; `mov byte ptr [..+0x15],1`. `ret 4`. Checked by the same comparison with adjacencies.bin: every kind and crossed province of the base game agrees.",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0x1688618",
+   "kind": "global",
+   "name": "g_RouteStraightLineWeight",
+   "signature": null,
+   "no_signature": null,
+   "comment": "1250, the floor of the float 1250.5 taken at startup: what CPathFind::Find multiplies the straight-line distance still to go by, in thousandths, to make the estimate it orders its open list by. See reversing/findings/FINDINGS-movement.md.",
+   "confidence": "confirmed",
+   "evidence": "One writer, 0xCC361B, after `floorf` of the float at 0x160A7C0 (1250.5); two references.",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0x168874C",
+   "kind": "global",
+   "name": "Define100",
+   "signature": null,
+   "no_signature": null,
+   "comment": "A define, 100 - the floor of the float 100.5, taken at startup. In CUnit::MovementSpeedModifier it is the share of its speed a unit with no fuel keeps and what a retreat adds; seven references in all. See reversing/findings/FINDINGS-movement.md.",
+   "confidence": "confirmed",
+   "evidence": "One writer, 0xCC3F8B, after `floorf` of the float at 0x160A684 (100.5).",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0x16887B0",
+   "kind": "global",
+   "name": "Define900",
+   "signature": null,
+   "no_signature": null,
+   "comment": "A define, 900 - the floor of the float 900.5, taken at startup: what a full ration of fuel gives back of a unit's speed in CUnit::MovementSpeedModifier. See reversing/findings/FINDINGS-movement.md.",
+   "confidence": "confirmed",
+   "evidence": "One writer, 0xCC431B, after `floorf` of the float at 0x160AAC8 (900.5); three references.",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0x1C9AC0",
+   "kind": "function",
+   "name": "SetUnitPath",
+   "signature": "void __stdcall SetUnitPath(CUnit* unit, CList* path, bool clear)",
+   "no_signature": null,
+   "comment": "**Gives a route to a unit**: `(unit, path, clear)`. A unit in a battle first asks every battle whether it may leave and does nothing if none says so; otherwise it leaves them all and is marked retreating where it was still holding ground. With `clear`, `movement_progress` (+0x14C) and +0x154 are zeroed **unless the new path begins with the province the old one began with**, and the old path is emptied; without it the new provinces are added to the end. Then the nodes are appended and, with a path now set, CUnit::ShowMoving is called. See reversing/findings/FINDINGS-movement.md.",
+   "confidence": "confirmed",
+   "evidence": "The decompiled C: the three-way test `[+0x140] == 0 || path->count == 0 || *path->first != *[+0x138]` guarding the two stores of zero, CList_FreeAndClear on +0x138, the append loop of 16-byte nodes, the call of 0x5C9E10. `ret 0xc`.",
+   "source": "BiceLib/GameClasses/CStrategicRedeploymentOrder.hpp:33; reversing/findings/FINDINGS-redeploy.md:106; reversing/findings/FINDINGS-movement.md",
+   "revises": "the comment said only that it gives a route to a unit; this is what it does, with a signature the record lacked"
+  },
+  {
+   "rva": "0x1D88C0",
+   "kind": "function",
+   "name": "CMoveCommand::RouteUnit",
+   "signature": "void __thiscall CMoveCommand::RouteUnit(CMoveCommand* this)",
+   "no_signature": null,
+   "comment": "**CMoveCommand's `Execute`, slot 6**: works the unit's route out with one of three finders and gives it to the unit. Target -1 means retreat (CUnit::FindRetreatProvince). With `clear` (+0x68) unset and a path already there the route starts from the **last** province of that path, otherwise from the province the unit is in. `very_safe` (+0x6A) picks CVerySafePathFind, `safe` (+0x69) CSafePathFind, neither CPathFind. On success: SetUnitPath(unit, path, clear), the unit's dates +0xCC and +0xD0 to the null date, and a null order. On failure the unit keeps its path and +0x8C/+0x90 take the target and the hour. Ordinary __thiscall, nothing on the stack. See reversing/findings/FINDINGS-movement.md.",
+   "confidence": "confirmed",
+   "evidence": "The decompiled C against the listing already cited: the `mode_68 == 0 && [+0x140] > 0` test choosing `map->provinces[*[unit+0x13c]]` over `unit->+0x130` as the start; the `-1` test into CUnit::FindRetreatProvince; CreateOrder(0x18D) after SetUnitPath.",
+   "source": "BiceLib/GameClasses/CMoveCommand.hpp:58; reversing/findings/FINDINGS-redeploy.md:90; reversing/findings/FINDINGS-movement.md",
+   "revises": "adds what the body does around the three finders, which the comment did not say"
+  },
+  {
+   "rva": "0x1C8D10",
+   "kind": "function",
+   "name": "CUnit::MovementSpeedModifier",
+   "signature": "int* __stdcall CUnit::MovementSpeedModifier(CUnit* unit, int* out)",
+   "no_signature": null,
+   "comment": "**A unit's movement speed multiplier**, thousandths through an out pointer: `(CUnit* u@[ebp+8], int* out@[ebp+0xC])`. Starts at 1000 and multiplies, each term cut: (1) in a battle with a path, `min(1000, max(10, (1000 + combat_movement_speed + technology + leader effect 5) * (COMBAT_MOVEMENT_SPEED + the battle's figure) / 1000))` where the unit is on the attacking side, and 10 otherwise; (2) for a land or sea unit that is not retreating and whose definition burns fuel, `fuel_received * 900 / 1000 + 100`; (3) with a path, for the **next** province: `1000 +` the definition's terrain adjuster's movement, `1000 +` the leader's trait for that terrain (0x5D0F80), and over an edge of kind 1 or 2 `1000 +` the river adjuster's movement (+0xA4); (4) for a land unit, `1000 + CWeather::MovementEffect + local_unit_speed` of the province it is **in**; (5) for a land unit, `1000 + amm_movement_speed * (the share of its brigades that are is_mobile) / 1000`; (6) retreating, `1000 + 100`. One caller besides CUnit::MovementSpeed: BuildSpeedModifierTooltip. See reversing/findings/FINDINGS-movement.md.",
+   "confidence": "inferred",
+   "evidence": "Read through in the decompiled C and the listing: Define900 and Define100 at 0x5C8E6A and 0x5C8E7E; `[def+0x54]+terrain->id*0x18+0x10`; the edge kind test `== 1 || == 2` before `[def+0xa4]`; `mov eax,[ebx+0x130]` at 0x5C8FDF feeding both the modifier block and the weather; the count of brigades with definition +0x35 set; `add eax,0x3e8` on Define100 at 0x5C911E under `cmp byte ptr [ebx+0x158],0`.",
+   "source": "reversing/findings/FINDINGS-weather.md; reversing/findings/FINDINGS-uinumbers.md; reversing/findings/FINDINGS-movement.md",
+   "revises": "every term is now read rather than summarised, the fuel, river, mobile and retreat terms are given their numbers, and the weather term's province is corrected from the one the unit is heading for to the one it is in"
+  },
+  {
+   "rva": "0x1A12B0",
+   "kind": "function",
+   "name": "CPathFind::Find",
+   "signature": "bool __stdcall CPathFind::Find(CPathFind* finder, CUnit* unit, CProvince* from, CProvince* to, CList* path)",
+   "no_signature": null,
+   "comment": "The A* search itself, and **not a member call**: the finder is the first stack argument. It asks slot 1 (MayUse) once, then loops: take the head of the open list, ask slot 3 (IsGoal), and for each edge of its template in the vector's order ask slot 2 (MayStep) and slot 0 (StepCost). **A province is marked visited when MayStep allows the step to it, not when it is taken off the list, and is never looked at again** - so a cheaper way found later does not replace the first and the route is not always the cheapest. The open list is one chain sorted by `f`, a new province going in before the first whose `f` is not smaller. `f = g + IntegerSqrt(dx*dx + dy*dy) * 1000 * g_RouteStraightLineWeight / 1000` between the templates' +0x2C/+0x30, dx wrapped at CMap +0x2A74. The path handed back leaves out the start and includes the goal: 0x1A11F0 builds it and the first node is then dropped. See reversing/findings/FINDINGS-movement.md.",
+   "confidence": "confirmed",
+   "evidence": "The decompiled C: `visited[id] = 1` inside the `if (MayStep)` block and after the queue insert; the insert loop breaking on `f <= f[cur]`; the `__alldiv` by 1000 of `sqrt * 1000 * [0x1A88618]`; the removal of `path->first` before `return true`.",
+   "source": "reversing/findings/FINDINGS-redeploy.md; reversing/findings/FINDINGS-movement.md",
+   "revises": "adds the order of the search - visited on discovery, the sorted chain, the weight of the estimate and the dropped first node - which the comment did not have"
+  },
+  {
+   "rva": "0x1BEFD0",
+   "kind": "function",
+   "name": "CUnit::EnterProvince",
+   "signature": "void __thiscall CUnit::EnterProvince(CUnit* this, CMapProvince* province)",
+   "no_signature": null,
+   "comment": "**Puts a unit into a province**: it writes `current_province_ptr` (+0x130) at 0x1BF4D3, after taking the unit's counter out of the old province's stack and before putting it in the new one's. It refreshes the unit's intel level (+0x1F8) and marks the avatar stale where that or land-and-sea changed, and then places the avatar: at the province's point +0xCC for a land or sea unit with no path, +0xD8 for one with a path, +0xFC for an air unit, and for a fleet in a land province or a wing at its own base at the port or the unit point less the label point. A fleet entering takes what it carries with it, and puts ashore and checks for combat what it carries into a land province at the end of its path. For a selected unit with a path the arrow is made again. Logs 'is located in illegal province 0!' (unit.cpp). See reversing/findings/FINDINGS-movement.md.",
+   "confidence": "inferred",
+   "evidence": "The decompiled C: the three 12-byte reads at template +0xCC, +0xD8 and +0xFC chosen on slot 17 and `[+0x140] < 1`; the recursive calls on the list at +0x2E4; the literal; the call of 0x5CC230 under `is_selected` and `[+0x140] > 0`.",
+   "source": "reversing/findings/FINDINGS-manpower.md; reversing/findings/FINDINGS-movement.md",
+   "revises": "the comment said only that much was read; the rest of the body is now read"
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CUnit",
+   "offset": "0x134",
+   "name": "previous_province_ptr",
+   "type": "CMapProvince*",
+   "comment": "The province the unit was in before the one it is in. CUnit::AdvanceMovement stores `current_province_ptr` here immediately before CUnit::EnterProvince, and the save key is `previous`. See reversing/findings/FINDINGS-movement.md.",
+   "evidence": "`mov [ebx+0x134],eax`-style store of +0x130 before the call of 0x5BEFD0 at both entry sites of 0x5CA430 (the decompiled `param_1[0x4d] = param_1[0x4c]`).",
+   "source": "reversing/findings/FINDINGS-movement.md",
+   "revises": "the name said it was where the unit is supplied from; its own comment doubted that, and the writer settles it"
+  },
+  {
+   "struct": "CUnit",
+   "offset": "0x138",
+   "name": "movement_order_next_province_ptr",
+   "type": "LinkedListNode*",
+   "comment": "**The first node of the unit's path**, a CList of province ids - not a province pointer. The next province is `map->provinces[*node]`. With +0x13C and +0x140 it is the list's first, last and count; +0x144 is its no-unlink byte. See reversing/findings/FINDINGS-movement.md.",
+   "evidence": "SetUnitPath appends 16-byte nodes {id, prev, next, flag} here; every reader indexes `CMap +0x2200` by `*[unit+0x138]`.",
+   "source": "reversing/findings/FINDINGS-movement.md",
+   "revises": "the type was a province pointer and is a list node"
+  },
+  {
+   "struct": "CUnit",
+   "offset": "0x13C",
+   "name": "movement_order_last_current_province_ptr",
+   "type": "LinkedListNode*",
+   "comment": "**The last node of the unit's path** (see +0x138). CMoveCommand::RouteUnit starts an appended route from `map->provinces[*this]`. See reversing/findings/FINDINGS-movement.md.",
+   "evidence": "The append loop in SetUnitPath writes it as the list's `last`; 0x5D88C0 reads `[*[unit+0x13c]]` as a province id.",
+   "source": "reversing/findings/FINDINGS-movement.md",
+   "revises": "the type was a province pointer and is a list node"
+  },
+  {
+   "struct": "CUnit",
+   "offset": "0x144",
+   "name": "path_no_unlink",
+   "type": "uint8_t",
+   "comment": "The `no_unlink` byte of the path's CList at +0x138: where set, a node reached is marked rather than freed. See reversing/findings/FINDINGS-movement.md.",
+   "evidence": "`cmp byte ptr [ebx+0x144],0` before each pop in 0x5CA430, with `mov byte ptr [ecx+0xc],1` on the set branch.",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "struct": "CUnit",
+   "offset": "0xCC",
+   "name": "move_not_before",
+   "type": "int",
+   "comment": "An hour before which the unit does not move at all: CUnit::AdvanceMovement returns while the game's hour is under it. Set to the null date by CMoveCommand::RouteUnit and CUnit::CancelMovement together with `end_date`. The name is ours. See reversing/findings/FINDINGS-movement.md.",
+   "evidence": "`cmp [ebx+0xcc],esi; jg` at 0x5CA576 with esi the game state's +0xBDC.",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "struct": "CUnit",
+   "offset": "0x150",
+   "name": "arrow_percent",
+   "type": "int",
+   "comment": "How far along the way to the next province the unit is, in whole per cent, capped at 100: `movement_progress * 100 / distance`. Written by CUnit::AdvanceMovement each hour. See reversing/findings/FINDINGS-movement.md.",
+   "evidence": "The store at 0x5CAAFA and the cap `mov dword ptr [ebx+0x150],0x64` at 0x5CAB05.",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "struct": "CUnit",
+   "offset": "0x154",
+   "name": "arrow_step_percent",
+   "type": "int",
+   "comment": "A running sum of each hour's share of the way, in whole per cent, zeroed on arrival and by SetUnitPath and CUnit::CancelMovement. For the arrow; what reads it was not found. See reversing/findings/FINDINGS-movement.md.",
+   "evidence": "The `add dword ptr [ebx+0x154],..` at 0x5CA92B, 0x5CA9C2 and 0x5CAA6E and the store of zero at 0x5CABF4.",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "struct": "CUnit",
+   "offset": "0x188",
+   "name": "arrow",
+   "type": "void*",
+   "comment": "The selected unit's movement arrow, made by 0x5CC230 and freed through 0x5CB920. CUnit::AdvanceMovement writes the share of the path walked into its +0x15C. See reversing/findings/FINDINGS-movement.md.",
+   "evidence": "`mov ebx,[ebx+0x188]` then `movss [ebx+0x15c],xmm0` at 0x5CA8CB; the store of 0x5CC230's result in CUnit::ShowMoving.",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "struct": "CMoveCommand",
+   "offset": "0x68",
+   "name": "mode_68",
+   "type": "uint8_t",
+   "comment": "**`clear`**: whether the order replaces the path the unit has. It is the key the command is saved under, and CUnit::OrderToProvince passes `!append`. Unset with a path already there, the route starts from the path's last province and is added to it. See reversing/findings/FINDINGS-movement.md.",
+   "evidence": "CMoveCommand::LoadKey's keys are avoid, clear, location, province, safe and unit; 0x5C1AD0 pushes `param_2 == 0`; SetUnitPath takes it as its third argument.",
+   "source": "reversing/findings/FINDINGS-movement.md",
+   "revises": "named for what it is rather than 'picks between two ways of routing'"
+  },
+  {
+   "struct": "CTerrain",
+   "offset": "0x44",
+   "name": "movement_cost",
+   "type": "int",
+   "comment": "x1000, from the terrain's `movement_cost`. **What one pixel of this terrain adds to the distance of an edge whose walk crosses it** - CProvinceTemplate::MeasureEdges sums it into `ProvinceEdge +0xC` when the map cache is built, and nothing reads it afterwards. So it does shape movement, once: a change to it takes effect when the cache is rebuilt, which a changed terrain.txt causes by itself. See reversing/findings/FINDINGS-movement.md.",
+   "evidence": "`mov eax,[..+0xc]; mov eax,[eax+0x44]` added to edge +0xC in 0x4A9E70; and the rewrite reproducing all 83,596 distances of adjacencies.bin from the base game's terrain.txt.",
+   "source": "reversing/findings/FINDINGS-movement.md",
+   "revises": "it was recorded as parsed and then never used; it is used, by the map build"
+  },
+  {
+   "struct": "CMap",
+   "offset": "0x2220",
+   "name": "terrain_by_palette_index",
+   "type": "void*[256]",
+   "comment": "**256 pointers, one per palette index of the terrain bitmap**, each to the entry terrain.txt declares for that index; the entry's +0xC is its CTerrain. CProvinceTemplate::MeasureEdges and the terrain pass of CMap::LoadMapFiles read a pixel's terrain as `[[map+0x2220+index*4]+0xc]`. See reversing/findings/FINDINGS-movement.md.",
+   "evidence": "`movzx edx,byte ptr [edi+edx]; mov edx,[ebx+edx*4+0x2220]; mov edx,[edx+0xc]` at 0x48A99B..0x48A9AA, and the same in 0x4A9E70.",
+   "source": "reversing/findings/FINDINGS-movement.md",
+   "revises": "it was an unidentified 0x400-byte table"
+  },
+  {
+   "struct": "CProvinceTemplate",
+   "offset": "0x15",
+   "name": "is_crossed",
+   "type": "uint8_t",
+   "comment": "Set to 1 on a province a row of adjacencies.csv names as what a crossing goes through. No reader was looked for. See reversing/findings/FINDINGS-movement.md.",
+   "evidence": "`mov byte ptr [..+0x15],1` in CMap::LoadAdjacenciesFile for a non-zero `Through`.",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "struct": "CProvinceTemplate",
+   "offset": "0x6C",
+   "name": "pixels_begin",
+   "type": "int*",
+   "comment": "Begin of the province's own pixels, pairs of x and y, ending at +0x70. CMap::BuildAdjacencyFromRaster walks it to find the province's neighbours, which is what orders its edges; the order agreeing with adjacencies.bin for every province shows it runs from the south row by row, west to east. See reversing/findings/FINDINGS-movement.md.",
+   "evidence": "The walk `piVar12 = *(template+0x6c)` .. `< *(template+0x70)` reading two ints a step in 0x4911B0.",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "struct": "CProvinceTemplate",
+   "offset": "0x70",
+   "name": "pixels_end",
+   "type": "int*",
+   "comment": "One past the last of the province's pixels (see +0x6C). See reversing/findings/FINDINGS-movement.md.",
+   "evidence": "The loop bound in 0x4911B0.",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "struct": "CProvinceTemplate",
+   "offset": "0xCC",
+   "name": "stack_points",
+   "type": "float",
+   "comment": "five points of three floats, one per stack: where each of the province's stacks stands. **Point 0 (+0xCC) is for a land or sea unit with no path, point 1 (+0xD8) for one with a path, point 4 (+0xFC) for an air unit**; 2 and 3 are the two sides of a battle. CUnit::EnterProvince, CUnit::ShowMoving, CUnit::AdvanceMovement and CUnit::CancelMovement all pick that way. No writer was found. See reversing/findings/FINDINGS-movement.md.",
+   "evidence": "The 12-byte reads at +0xCC, +0xD8 and +0xFC in 0x5BEFD0 and 0x5C9E10, and the index `(isAir ? 4 : 0) * 3 + 0x33` dwords in 0x5CA430 and 0x5C9430.",
+   "source": "reversing/findings/FINDINGS-movement.md",
+   "revises": "adds which point is whose, read from the four routines that place an avatar"
+  },
+  {
+   "struct": "ProvinceEdge",
+   "offset": "0x0",
+   "name": "kind",
+   "type": "int",
+   "comment": "What sort of edge this is: **0** plain, **1** a crossing through the province at +8 that can be closed (IsCrossingBlocked), **2** a river, **3** impassable. CMap::LoadAdjacenciesFile sets 1, 2 and 3 from the `Type` column - `sea`, `river`, `impassable` - and CProvinceTemplate::MeasureEdges turns a 0 into 2 where the edge's walk touches the river bitmap. CUnit::MovementSpeedModifier applies the river adjuster over 1 and 2 alike. See reversing/findings/FINDINGS-movement.md.",
+   "evidence": "The three string compares in 0x48E520; the `< 0xfe` test in 0x4A9E70; `== 1 || == 2` in 0x5C8D10; `== 3` in CPathFind::MayStep.",
+   "source": "reversing/findings/FINDINGS-movement.md",
+   "revises": "the full set of values is now known"
+  },
+  {
+   "struct": "ProvinceEdge",
+   "offset": "0xC",
+   "name": "distance",
+   "type": "int",
+   "comment": "**Not a geometric distance**: the sum of the terrain `movement_cost` of every pixel on a walk from this province's unit point to the neighbour's, in thousandths - so about a thousand a pixel of plains. Written by CProvinceTemplate::MeasureEdges, cached in adjacencies.bin, and what CUnit::MovementDistance answers. See reversing/findings/FINDINGS-movement.md.",
+   "evidence": "0x4A9E70 zeroes it and adds CTerrain +0x44 per pixel; all 83,596 of the base game's reproduced from that.",
+   "source": "reversing/findings/FINDINGS-movement.md",
+   "revises": "says what the number is, which FINDINGS-mapbuild.md left unsettled"
+  },
+  {
+   "struct": "ProvinceEdge",
+   "offset": "0x10",
+   "name": "bearing",
+   "type": "int",
+   "comment": "The compass bearing from this province to the neighbour, in thousandths of a full turn. **Written by CProvinceTemplate::MeasureEdges**, from the same two points as the distance and before the walk: `floor((angle / 2pi + 0.5 + 0.0005) * 1000)`, the angle from the call at 0xC0BDBA, which was not read. Its one reader is still CWeatherFront::Tick. See reversing/findings/FINDINGS-movement.md.",
+   "evidence": "The store at edge +0x10 in 0x4A9E70 after the float arithmetic with the doubles at 0x160A4F0 (2pi), 0x160A308 (0.5), 0x160A460 (0.0005) and 0x160A300 (1000).",
+   "source": "reversing/findings/FINDINGS-movement.md",
+   "revises": "its writer was recorded as not found; it is the edge measuring pass"
+  },
+  {
+   "struct": "CSubUnitDefinition",
+   "offset": "0x35",
+   "name": "is_mobile",
+   "type": "bool",
+   "comment": "The `is_mobile` key. CUnit::MovementSpeedModifier counts the brigades that have it and scales the country's `amm_movement_speed` by their share. See reversing/findings/FINDINGS-movement.md.",
+   "evidence": "FINDINGS-fieldmap.md places the key at +0x35; 0x5C8D10 counts `[[brigade+0x58]+0x35] != 0` over the unit's brigades.",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  }
+ ],
+ "vftable_slots": {
+  "CUnit": {
+   "6": "OrderToProvince",
+   "34": "MayStandIn"
+  },
+  "CArmy": {
+   "33": "CanFight",
+   "34": "MayStandIn"
+  }
+ },
+ "slots_noted": "CMoveCommand slot 6 keeps its recorded name RouteUnit; it is the command's Execute",
+ "frontier": [
+  "0x1D0F80",
+  "0x1B59C0",
+  "0x1CC230",
+  "0x1CEFB0",
+  "0xA7E30",
+  "0x1C2F20",
+  "0x1C0000",
+  "0x1C0160",
+  "0x1BFF70",
+  "0x1A11F0",
+  "0x19EB10"
+ ],
+ "notes": []
+}
