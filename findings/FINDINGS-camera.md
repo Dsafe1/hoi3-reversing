@@ -87,7 +87,67 @@ Five ways in, all to the same byte; everything else is one of the four skipping 
 body. That is the fact the whole approach rests on, and it is worth re-running if the
 range is ever revisited.
 
+## How high it is, and what that decides
+
+Read on 2026-10-09 for the rewrite, after the maintainer's word that the original has "2
+modes, the close and far", and that "in the far only the map shows, no counters or
+buildings". Addresses in this section are **VAs**.
+
+**The camera hangs straight over the point it looks at, and its one figure is its height.**
+`MapCamera_Construct` (`0x63C1D0`; the graphics object in ECX, the camera on the stack,
+`ret 4`) builds it on `Camera_Construct` (`0xABE270`: `(camera, fovY, aspect, near, far)`,
+`ret 0x14`), which calls `D3DXMatrixPerspectiveFovLH`:
+
+| | | |
+| --- | --- | --- |
+| field of view, top to bottom | **0.785 radians** | the float at `0x160AA58` |
+| aspect | the screen's width over its height | the graphics object's `+0x6B9BC` / `+0x6B9C0` |
+| near, far | 8 and 1200 | `0x160A664`, `0x160AA5C` |
+
+and then fills in:
+
+| offset | | |
+| --- | --- | --- |
+| `+0x2E8` | the eye, three floats | `(0, height, 0)`: `UpdateMapCamera` writes the height into the middle one and zeroes the others |
+| `+0x2F4` | where it looks, three floats | `(0, -8, 0)` with `always_counters` on; `(0, 12, 30)` with it off - `MapCamera_SetAim`, `0x63D400` |
+| `+0x344` | the height wanted | 330 at the start (`0x160AA50`) |
+| `+0x348` | **the height** | 330; it follows `+0x344` by 0.197 of the difference a frame, or at once where the settings' `+0x188` is set |
+| `+0x34C` | the lowest height, an int | **40**: the constructor stores 50 and `MapCamera_SetAim` then overwrites it with the float at `+0x35C`, which is 40 (`0x171DBB4`) |
+| `+0x350` | the highest, an int | **1000** |
+| `+0x365` | a copy of the settings' `always_counters` | |
+
+So with counters only - `always_counters` - the camera looks **straight down**, and a pixel of
+the screen is the same length of map anywhere on it; with figures it leans north, the more
+the lower it is. From a height `h` it sees `2 h tan(0.785 / 2)`, which is `0.828 h` map units,
+from the top of the screen to the bottom.
+
+**What the height decides**, each a compare of `+0x348`:
+
+| against | where | what |
+| --- | --- | --- |
+| **500** (the double at `0x160A538`) | `ProvinceGraphics_HitTest` (`0x640F40`): the counters and building pictures of a province are asked about a click only at 500 or under | the far view takes no clicks on them |
+| 500 | `0x640DA0`, the same test for a province's battles | |
+| 500 | the frame routine `0x656E10`, already recorded: the hierarchy lines are drawn only under 500 | |
+| **`counter_distance`** (settings `+0xFC`, 100 in a new game) | `0x641950`, the scene's draw: the figures (`0x85BB60`) are drawn only **under** it, with the settings' `+0x58` and bit 4 of the rendering word | above it a unit is a counter whatever the settings say |
+| `counter_distance` | `ProvinceGraphics_HitTest`: above it the province's current unit is taken from its list instead of by its figure | |
+| `counter_distance` | the frame routine: the hierarchy lines are drawn above it, or under it with `always_counters` | |
+| 100 (the double at `0x160A358`, not the setting) | `0x6418B0`: under it something is drawn with `(height - lowest) / (highest - lowest)` handed to it | not followed |
+
+**So there are three bands**, by the camera's height: under `counter_distance` the near view
+- figures, or with `always_counters` the near counter; from there to 500 the counters seen
+from far; and **from 500 up the far view**, where nothing on the map answers a click and the
+hierarchy is not drawn. That nothing is *drawn* there either is the maintainer's word; the
+compare that hides the counters and the buildings was not found, only the ones that stop
+their clicks and their lines.
+
+The same arithmetic places the maintainer's screenshot of a near counter
+(`FINDINGS-counters.md`, section 8): 14.6 pixels to a map unit is a height of 89 on a screen
+1080 high, under 100.
+
 ## What is still open
 
 The zoom and rotation arithmetic in the same function, and the two unidentified stack
-arguments it takes. Neither matters to the scrolling.
+arguments it takes. Neither matters to the scrolling. Of the height: what draws or hides a
+counter and a building's picture by it, who tells a unit's avatar it is seen from far
+(`FINDINGS-counters.md`), what `0x6418B0` draws, and the two `large_` pictures a province
+keeps for its bases, which `ProvinceGraphics_HitTest` asks at any height.

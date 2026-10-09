@@ -922,7 +922,7 @@ of it.
 
 ## What has already been read
 
-105 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
+106 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
 header lives. This replaces the `Done` archive: the archive restated each file's headline and named
 only 40 of the 67 there were then, so it was both longer and less useful than a complete list.
 
@@ -998,6 +998,7 @@ the six it was missing were wave 15's.
 | `findings/FINDINGS-movement.md` | movement: the click and the move command, the order the route search really runs in, the hourly march - speed, every term of its modifier, progress against the distance, arrival and cancelling - whose ground a unit may enter, and what an edge's distance is: the terrain `movement_cost` summed along a pixel walk, checked against all 83,596 edges of the game's own cache. Also how adjacencies are ordered, the four edge kinds, and the rule that gives a province its terrain |
 | `findings/FINDINGS-unitpanel.md` | the unit panel: the list `CSingleUnitPanel::Rebuild` fills for a selected unit and the eighteen entry classes it is made of; what the header, the status, the order, the brigades', the subordinates' and the buttons' rows write into each element - the activity strip's frames, the strength as men, the two bars, the speed without `LAND_SPEED_MODIFIER`, the supply bars as the province's, `CUnit::DescribeOrder` and its `WHERE` being the next province; the tooltips and seven of the entries not read |
 | `findings/FINDINGS-hierarchy.md` | the hierarchy lines of a selected unit: the `render_hierarchy` setting and the H key that flips it, the whole of `CMapRenderingOptions`' block in the settings, which units get a line and to where, a line's five colours and its width by rank, the picture and `hierarchy.fx`, when the mesh is made again and when it is drawn; and the rings: white on the selected counter or green where an AI commands it, and `color2` on every unit under it, given by `CUnit::OnSelected` |
+| `findings/FINDINGS-seaair.md` | fleets and air units on the move: the right click's branches for both and the three orders views; the naval window's list and the air one's; `CMoveOrder`, `CRebaseOrder` and `CRebaseAirOrder` slot by slot, with the base changed the first hour and an air unit landing on half its organisation; **the correction that `AdvanceMovement` is called from `CheckOrderAndCombat`, not `UpdateHourly`**; `IsTargetInRange`, the sea index, ports as `naval_base` positions on sea pixels, lakes, and `CMap::BuildNavalDistances` - checked against `navaldist.bin` in all 17,621,016 cells; `CNavy::MayStandIn`, the five waters of the defines' `map` section, the fleet's rule in `MayStep`; building pictures on the map, the port's and the air base's frames, and `CPort::OnSelected`; checked against savegames for 17 fleets and an air unit |
 | `findings/FINDINGS-topbar.md` | the top bar: what `CTopBar` writes into each element, in what format and colour, the buttons it wires, and the orientation keywords |
 | `findings/FINDINGS-countryviews.md` | the production and technology screens: `CCountryView` and its country skin, the slider both share and what a `CDistributionSetting` tells it, the resource and research figures, where a technology goes in the tree, and the three entry classes |
 | `findings/FINDINGS-textdraw.md` | where a text box puts its text: the font's slot 8, what `borderSize`, `format` and `orientation` do, the half pixel every glyph is drawn off by, and the `colorcodes` the colour escapes come from |
@@ -1036,7 +1037,7 @@ the six it was missing were wave 15's.
 | `findings/FINDINGS-weatherfront.md` | `CWeatherFront`: the source of every weather number |
 | `findings/FINDINGS-temperature.md` | temperature, and the one missing `abs()` that gives the south no winter |
 | `findings/FINDINGS-mapmode.md` | the VP map mode, and where to take it over |
-| `findings/FINDINGS-camera.md` | the map camera, and what moves it |
+| `findings/FINDINGS-camera.md` | the map camera, and what moves it; and how high it is - its lens of 0.785 radians, its heights from 40 to 1000, and the two heights the map changes at: `counter_distance` for the near view and 500 for the far one |
 | `findings/FINDINGS-counters.md` | a unit's counter on the map: the four textures and the colour its quad is made of, its size by rank, the flag and the two texts on the top one, the five stacks a province keeps and which units have no counter at all - a fleet in port, a wing at its base - and that `CUnit +0x1F8` is the player's intel level |
 
 **The interface, and text**

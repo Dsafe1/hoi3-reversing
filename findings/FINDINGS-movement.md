@@ -192,10 +192,18 @@ are recorded as province pointers and are list nodes: a province is reached as
 
 ## 5. The hour: `CUnit::AdvanceMovement`
 
-`0x5CA430`, `bool (unit, bool addSpeed)`, `ret 8`. `CUnit::UpdateHourly` calls it near its end,
-for a unit with a path, **once with `addSpeed` set and then again with it clear for as long as
-it answers true** (`0x5BAB26`..`0x5BAB3A`) - which is how one hour can carry a unit through
-more than one short province. In order:
+`0x5CA430`, `bool (unit, bool addSpeed)`, `ret 8`. `CUnit::CheckOrderAndCombat` (slot 31)
+calls it for a unit with a path, **once with `addSpeed` set and then again with it clear for as
+long as it answers true** (`0x5BAB26`..`0x5BAB3A`) - which is how one hour can carry a unit
+through more than one short province.
+
+**Corrected 2026-10-09.** This said `CUnit::UpdateHourly` calls it near its end. The two calls
+lie in the function that starts at `0x5BA2F0`, which is `CheckOrderAndCombat`; `UpdateHourly` is
+the function before it. So a unit moves **before** its organisation is seen to, on the tick
+thread, one country after another - not on the worker threads. `FINDINGS-seaair.md`, section 3,
+has the whole of that routine in order.
+
+In order:
 
 1. no brigades: stop.
 2. progress zero, an attack delay still running, and the order not a strategic redeployment
@@ -558,10 +566,11 @@ made out, the decompilation losing the operands.
 ## What was not read
 
 - **`0x5D0F80`**, the leader's term in the speed, and `CommandEffect` type 5.
-- **the branch of the click behind `0x5B59C0`** and the fleet's and the wing's. The test itself
-  is read since: `CUnit::HasAgentAbove`, true where the unit or one above it has an AI agent
+- **the branch of the click behind `0x5B59C0`.** The test itself is read since:
+  `CUnit::HasAgentAbove`, true where the unit or one above it has an AI agent
   (`FINDINGS-unitpanel.md`, section 2) - so the branch is what a click does to a unit an AI
-  commands.
+  commands. The fleet's and the wing's branches are read since too: `FINDINGS-seaair.md`,
+  section 1.
 - **of the arrow** (section 10): the loader of an `arrowType` and what its `size`, `height`,
   `endAt`, `heading`, `type` and two colours do; the test `0x5C5B20` for the attack arrow;
   and what the head's distance is measured to.
@@ -571,7 +580,8 @@ made out, the decompilation losing the operands.
   at `CUnit +0x8C/+0x90`.
 - **the owner area's slot 0**, which `CArmy::MayStandIn` asks of every land province.
 - **`0x5C2F20` and slot 33** in step 3 of the hour were read only as far as said there.
-- **the naval distances**: `map.cpp:605 fix naval distances` and `navaldist.bin`.
+- ~~the naval distances~~: read since, and checked against `navaldist.bin` cell for cell -
+  `FINDINGS-seaair.md`, section 4.
 - **what `CProvinceTemplate +0x13D` is.** Every test here treats a province with it clear as
   one nothing may enter; it is 1 on every province seen.
 - **the default of a naval base position** where `positions.txt` gives none.
