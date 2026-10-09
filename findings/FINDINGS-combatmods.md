@@ -171,7 +171,7 @@ A per-side "which modifiers were in play this tick" bitmap, reset every tick, al
 
 ## 5. What decides each modifier, land
 
-`CLandCombatant::ApplyCombatModifiers` (`0x569B50`) walks `this->units` and runs these per `CUnit`. `unit` = the division, `def` = `unit->+0xC8` (the **summed** definition), `country` = `unit->+0x290 ? unit->+0x28C : unit->+0x124` through `0x402610`, `combat` = `this->+0x3C`, `prov` = `combat->+0x18`. Thousandths; `trait(n)` = `CUnit::GetTraitEffect(unit, n)`. Every land site passes the same number for attack and defence.
+`CLandCombatant::ApplyCombatModifiers` (`0x569B50`) walks `this->units` and runs these per `CUnit`. `unit` = the division, `def` = `unit->+0xC8` (the **summed** definition), `country` = `unit->+0x290 ? unit->+0x28C : unit->+0x124` through `0x402610`, `combat` = `this->+0x3C`, `prov` = `combat->+0x18`. Thousandths; `trait(n)` = `CUnit::GetTraitEffect(unit, n)`. Every land site passes the same number for attack and defence **but two: `BM_WEATHER` and `BM_NIGHT_MODIFIER` pass their figure for the attack and 0 for the defence** (*corrected 2026-10-09; see each below and `FINDINGS-landbattle.md`, section 8*).
 
 Before the loop it also does the amphibious-invasion interpolation already in `FINDINGS-combat.md`, writing `CUnit+0xF4`/`+0xF8` — a different pair of fields, not a list entry.
 
@@ -250,15 +250,15 @@ per unit:
 ```
 `BASE_STACKING_PENALTY` is `-0.025`, so the factor is `0.975^(n-1)`. **The exponent falls by 3 for each extra province the enemy attacks from.** The doubles are `0.0005` (`0x160A460`) and `1000.0` (`0x160A300`) — the engine's `int_thousandths(float)` idiom.
 
-**BM_WEATHER (0x1A)**, `0x56A9B7`: calls slot 20 (`AddTerrainModifier`) first, then `v = CWeather::LandCombatEffect(&prov->+0x68, &out, unit->owner)` (`0x4B4000`, already in `project.json`, answers a positive penalty); `add(-v, -v)`.
+**BM_WEATHER (0x1A)**, `0x56A9B7`: calls slot 20 (`AddTerrainModifier`) first, then `v = CWeather::LandCombatEffect(&prov->+0x68, &out, unit->owner)` (`0x4B4000`, already in `project.json`, answers a positive penalty); `add(-v, 0)` - **against the attack only**. *Corrected 2026-10-09: this said `add(-v, -v)`. The two argument slots are filled at `0x56A99F` and `0x56A9AD`, both with 0, and only the upper one - the attack - is then overwritten with `-v` at `0x56A9B5`.*
 
 **BM_NIGHT_MODIFIER (0x1B)**, `0x56AA1B`: calls slot 21 (the no-op stub) first, then
 ```
 if prov->is_night (+0x2C):
    v = BASE_NIGHT_PENALTY + def->night.attack (+0x6C) + trait(18 night_attack)
-   if v < 0: add(v, v)
+   if v < 0: add(v, 0)
 ```
-Land uses `night.attack` for **both** sides, unlike naval and air; and `def` is the summed definition, so the brigades' `night` blocks add up.
+Land uses `night.attack` for **both** sides, unlike naval and air; and `def` is the unit's own definition, in which `FINDINGS-unitdef.md` has the adjusters **averaged** over the brigades, not summed. *Corrected 2026-10-09: this said `add(v, v)`. The defence slot is given 0 at `0x56AA0B` and the attack slot `edi` at `0x56AA19` - and `FINDINGS-combat.md` had watched it: a division under Night -70% printed a defend modifier that is the product of its other three and "the same product without the night term".*
 
 **BM_LEADER_BONUS (0x01)**, `0x56AB59`:
 ```

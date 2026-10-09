@@ -922,7 +922,7 @@ of it.
 
 ## What has already been read
 
-106 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
+108 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
 header lives. This replaces the `Done` archive: the archive restated each file's headline and named
 only 40 of the 67 there were then, so it was both longer and less useful than a complete list.
 
@@ -990,6 +990,8 @@ the six it was missing were wave 15's.
 | `findings/FINDINGS-unitdaily.md` | what a unit draws each day: supply and fuel consumption (a hundredth more a technology level), the draw and when in the day it falls, `CDistributeReinforcement::Distribute` and `CDistributeUpgrade::Distribute` read through, the build discount with `ic_efficiency` in it, the supply slider's need - with brigade strength, doctrines and Germany's 1,469 upgrade lines reproduced from a savegame |
 | `findings/FINDINGS-organisation.md` | the officer ratio and where it is capped, the hourly return of organisation (`CUnit::RegainOrganisation`, `CSubUnit::RegainOrganisation`), what a crowded base has room for, and that a change of law holds every brigade to its ceilings - with 2676 of 2676 brigades' organisation reproduced from a savegame, and what three Waffen-SS brigades say about the two days before the first screen |
 | `findings/FINDINGS-leaders.md` | leaders: experience, skill, traits, and that promotion skill loss does not exist |
+| `findings/FINDINGS-landbattle.md` | a land battle from its first hour to its last: the hourly look that starts one and the unit that fights from next door; `CheckForCombat`'s joining, starting and **taking a province**, with who gets it (`CMapProvince::TakeControl`); which side a bystander joins; the combat width by the attacker's directions and a unit's own; the front set up in order and kept each hour, with the reserve's roll and score; the hour of `CCombat::Tick` in order and **that it answers whether the battle is over**; the two generators of a round; **a brigade's damage divided by a hundred** and the strength clamp `FINDINGS-combat.md` denied; `HasLost` and the empty front; `Conclude`, the retreat of an attacker that stays where it is, the buildings damaged by a pushback; the four figures the tactics give a battle; the attack delay - 168 hours and more, cut by how long the attack lasted; **read, not watched** |
+| `findings/FINDINGS-combatview.md` | a battle on screen: selecting a battle and `CInGameIdler::ShowCombatView`; the `CCombatView` window of `interface/combat.gui`, element by element - the share bar, the width, the counter arrow, the modifier icons `CMOD_...`, and each side's flag, leader, tactic and two lists of `CUnitOption`; the retreat button; the unit panel's `CCombatEntry` and the battle's name; the marker's frame, number and place; **the share's arithmetic for a land battle**; and **tactics**: the `CCombatTactic` layout (correcting which offset is the tactic's own number), `CCombatant::PickTactic`'s weights and its two draws, who picks first, the six battle conditions of a `trigger`, and a technology's `tactic_` keys |
 | `findings/FINDINGS-supply.md` | how supply reaches a unit |
 | `findings/FINDINGS-manpower.md` | manpower: what the drain is made of |
 | `findings/FINDINGS-countrymodifier.md` | everything a country's modifier is rebuilt from, in order: ministers and their `decay`, laws, government, strategic resources and who shares them, province modifiers, the scaled statics, event and triggered modifiers, difficulty |

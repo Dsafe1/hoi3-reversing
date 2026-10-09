@@ -519,7 +519,9 @@ graphics owner; `CUnit::ShowMoving` calls it only for a selected unit, and so do
 2. **A point is added beyond each end**, 5 from it in line with the end's own leg, so that
    the curve has something to bend from.
 3. **Which arrow**: `unitInvasionArrow` for a landing from the sea, `retreatArrow` for a
-   retreat, `attackArrow` where `0x5C5B20` says so, `stratArrow` under a strategic
+   retreat, `attackArrow` where `CUnit::IsNextProvinceEnemyHeld` (`0x5C5B20`) says so - an
+   enemy of the unit's owner controls the next province of its path
+   (`FINDINGS-combatview.md`, section 9) - `stratArrow` under a strategic
    redeployment order (type `0x5A4`), and `moveArrow` otherwise - the names of `arrowType`
    blocks in `interface/arrows.gfx`.
 4. The object is a **`CUnitArrow`**, 0x160 bytes, a `C3dVisibleObject`
