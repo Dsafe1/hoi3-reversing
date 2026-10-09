@@ -114,12 +114,25 @@ With `+0x13E` set, `Layout` (from `0xA8E3A6`) goes by the entries' own heights:
         hide the scrollbar; each goes `gap` under the one before, the first `gap` down
 
 `likely`: read in the decompiled C only, and the function is one where the decompiler
-shares stack slots. No list the rewrite draws is in this mode.
+shares stack slots.
+
+**The gap is not what a screenshot shows, 2026-10-09.** The maintainer's screenshot of the
+running game's unit panel - the list `list` of `single_unitpanel`, which declares
+`spacing = 2` - has every entry beginning on the pixel row after the one before ends: two
+`sup_parent_unit_entry` rows 18 apart, then the header 40, the status 44, the order 28, the
+buttons 32 and the brigades' window, eleven border lines over 290 rows with nothing between.
+So either `gap` is not the box's `spacing` or the reading of where each entry goes is wrong;
+the `(gap - 1) * entries` in the total is at least a sign that the gap is not simply added.
+Not followed up in the bytes. OpenHOI3 lays that list out touching, from the screenshot.
 
 ## Not established
 
-- **Which lists the two callers of `UseEntryHeights` are.** One is made as the game is
-  entered; the message log would fit and was not confirmed.
+- **Which list `CInGameIdler::Enter`'s call of `UseEntryHeights` is for.** It is made as the
+  game is entered; the message log would fit and was not confirmed. **The other is known
+  since 2026-10-09**: `0x7628A3` is inside `CSingleUnitPanel::Rebuild`, and the list is the
+  one a selected unit's panel is made of, whose entries are windows of very different
+  heights and two of which grow with their own rows (`FINDINGS-unitpanel.md`, sections 2
+  and 8).
 - **Where `+0xE0` and `+0xE4` are filled.** The base constructor's own base (`0xA8D660`) was
   not read, so that they are `spacing` and `borderSize` is from their use.
 - **The wheel.** Slot 1 of the second table (`0xA8EA70`) takes it and moves the scrollbar;

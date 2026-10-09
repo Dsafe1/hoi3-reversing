@@ -922,7 +922,7 @@ of it.
 
 ## What has already been read
 
-103 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
+105 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
 header lives. This replaces the `Done` archive: the archive restated each file's headline and named
 only 40 of the 67 there were then, so it was both longer and less useful than a complete list.
 
@@ -996,6 +996,8 @@ the six it was missing were wave 15's.
 | `findings/FINDINGS-manpowergain.md` | manpower: what a day adds, what `max_manpower` is, what a new game starts with, and that a country's modifier takes in its provinces' |
 | `findings/FINDINGS-redeploy.md` | strategic redeployment and the route finder |
 | `findings/FINDINGS-movement.md` | movement: the click and the move command, the order the route search really runs in, the hourly march - speed, every term of its modifier, progress against the distance, arrival and cancelling - whose ground a unit may enter, and what an edge's distance is: the terrain `movement_cost` summed along a pixel walk, checked against all 83,596 edges of the game's own cache. Also how adjacencies are ordered, the four edge kinds, and the rule that gives a province its terrain |
+| `findings/FINDINGS-unitpanel.md` | the unit panel: the list `CSingleUnitPanel::Rebuild` fills for a selected unit and the eighteen entry classes it is made of; what the header, the status, the order, the brigades', the subordinates' and the buttons' rows write into each element - the activity strip's frames, the strength as men, the two bars, the speed without `LAND_SPEED_MODIFIER`, the supply bars as the province's, `CUnit::DescribeOrder` and its `WHERE` being the next province; the tooltips and seven of the entries not read |
+| `findings/FINDINGS-hierarchy.md` | the hierarchy lines of a selected unit: the `render_hierarchy` setting and the H key that flips it, the whole of `CMapRenderingOptions`' block in the settings, which units get a line and to where, a line's five colours and its width by rank, the picture and `hierarchy.fx`, when the mesh is made again and when it is drawn; and the rings: white on the selected counter or green where an AI commands it, and `color2` on every unit under it, given by `CUnit::OnSelected` |
 | `findings/FINDINGS-topbar.md` | the top bar: what `CTopBar` writes into each element, in what format and colour, the buttons it wires, and the orientation keywords |
 | `findings/FINDINGS-countryviews.md` | the production and technology screens: `CCountryView` and its country skin, the slider both share and what a `CDistributionSetting` tells it, the resource and research figures, where a technology goes in the tree, and the three entry classes |
 | `findings/FINDINGS-textdraw.md` | where a text box puts its text: the font's slot 8, what `borderSize`, `format` and `orientation` do, the half pixel every glyph is drawn off by, and the `colorcodes` the colour escapes come from |

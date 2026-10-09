@@ -24,8 +24,9 @@ the province the unit is *heading for* (section 4: it is the one it is *in*).
 ## 1. The click: `CUnit::OrderToProvince`
 
 `CUnit` slot 6 (`0x5C1AD0`, `ret 8`): `(province, bool append)`. It is what a right click on the
-map reaches for each selected unit; `append` is the shift key as far as its use here shows -
-it is what keeps the path the unit already has.
+map reaches for each selected unit; `append` is the shift key - it is what keeps the path the
+unit already has, and the maintainer confirmed the key from play on 2026-10-09 ("Yes it is
+shift"); the caller that reads the keyboard was not looked for.
 
 - a unit in a battle is never appended to: `append` is cleared;
 - nothing happens for a unit with no brigades, for one that is retreating, or for one with an
@@ -291,6 +292,39 @@ Read through now; it starts at 1000 and multiplies, each `x * term / 1000` cut:
 Infrastructure is not a term. It decides the speed of a strategic redeployment and nothing of
 an ordinary march.
 
+**Checked against savegames, 2026-10-09.** Four saves of one unmodded game, 4 January 12:00 to
+8 January 02:00 of 1936, in which the AI has some 480 of 950 divisions on the move. For every
+division with the same `location` and the same `path` in two saves, no
+`strategic_redeployment`, no `attack_delay` and no `combat`, the speed above was worked out
+from the earlier save - its regiments, its `fuel`, the `weather` block of the province it is
+in - and multiplied by the hours between, and set against the difference of the two
+`movement_progress` figures (OpenHOI3's `tools/OpenHOI3.SaveCheck`, `march`):
+
+| saves | weather effect and fuel the same in both | one of them changed in between |
+| --- | --- | --- |
+| 7 Jan 22:00 -> 8 Jan 02:00, 4 hours | **301 of 301 equal to the thousandth** | 73 of 73 between the two speeds |
+| 7 Jan 14:00 -> 22:00, 8 hours | 289 of 290 | 65 of 68 |
+| 4 Jan 12:00 -> 7 Jan 14:00, 74 hours | 151 of 167 | 32 of 40 |
+
+That is terms 2 (fuel), 3 (terrain), the river part of 3, 4 (weather plus local speed) and 5
+(`is_mobile`), both truncations and `LAND_SPEED_MODIFIER`, over infantry, cavalry, motorised,
+armoured, garrison and mountain divisions. The misses of the longer spans are weather that was
+something else in between than at either end. Three things the saves add:
+
+- **`-637`** is what a frozen Soviet province costs: `COLDMOVEMENTMODIFIER` -750 times
+  `(1000 - 150)/1000`, the 150 being `winter_effects` from the strategic resource `fur`. The
+  country scaling of section 3 of `FINDINGS-weather.md` is therefore live in the base game.
+- **the day's fuel arrives between 22:00 and 02:00**: a division with `fuel=0.000` in one save
+  and `0.344` in the next gained two hours at each speed.
+- **`movement_progress` is below the edge's distance in all 1,482 moving divisions** of the
+  three earlier saves, and the first province of every `path` is a neighbour of `location` -
+  the arrival of section 5, seen from outside.
+
+Not covered by it: the hour of an arrival, a strategic redeployment, and the route. Of the
+AI's paths 436 of 475 are what `CPathFind` as read in section 3 finds from `location` to the
+path's end; the others may be `CSafePathFind`'s or `CVerySafePathFind`'s, or orders given in
+stages, and were not followed up.
+
 ### 5.2 Distance
 
 `CUnit::MovementDistance` (`0x5C9340`):
@@ -524,7 +558,10 @@ made out, the decompilation losing the operands.
 ## What was not read
 
 - **`0x5D0F80`**, the leader's term in the speed, and `CommandEffect` type 5.
-- **the battle plan branch** of the click (`0x5B59C0`) and the fleet's and the wing's.
+- **the branch of the click behind `0x5B59C0`** and the fleet's and the wing's. The test itself
+  is read since: `CUnit::HasAgentAbove`, true where the unit or one above it has an AI agent
+  (`FINDINGS-unitpanel.md`, section 2) - so the branch is what a click does to a unit an AI
+  commands.
 - **of the arrow** (section 10): the loader of an `arrowType` and what its `size`, `height`,
   `endAt`, `heading`, `type` and two colours do; the test `0x5C5B20` for the attack arrow;
   and what the head's distance is measured to.
