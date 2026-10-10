@@ -300,9 +300,11 @@ integers should reproduce it for any value a stockpile can hold, but that was no
   here and skips the dissent change in `CDistributeConsumerGoods::Distribute`; what a scenario
   pointer has to do with either was not followed.
 - **`0x5195A0`**, the second caller of the demand term.
-- **Whether `ConsumeIcResources` can take a stockpile below zero.** Supply and consumer goods
-  call it without asking what the stockpile will bear, and its own body is recorded as a plain
-  subtraction.
+- ~~**Whether `ConsumeIcResources` can take a stockpile below zero.**~~ It can, for a day:
+  supply and consumer goods call it without asking what the stockpile will bear, its own body
+  is a plain subtraction, and `RunDailyProvincePass` ends by holding each of a land province's
+  seven goods between nothing and 99999. Settled 2026-10-10 against a savegame -
+  `FINDINGS-supplyconvoys.md`, section 8.
 - **`0x500F3E`**, a third reader of the base conversion rate at `0x1A87478`, in a function
   nothing here has read.
 - **Which technology keys fill `CTechnologyStatus +0x20` and `+0x9C`.** Both are named here

@@ -331,9 +331,8 @@ writes, read out of its setter:
 | --- | --- |
 | 0 | Terrain, Theatre |
 | 2 | Political, Diplomatic, mode 3 |
-| 6 | Supply |
 | 8 | Infrastructure, **Simplified Terrain** |
-| 9 | Intel, VP |
+| 9 | Intel, VP, **Supply** |
 | 0xB, 0xC, 0xD, 0xF | Weather, Strength and friends |
 | **0x12 (18)** | **Air** |
 | **0x13 (19)** | **Naval** |
@@ -341,6 +340,11 @@ writes, read out of its setter:
 
 Air and Naval are exactly the two modes where the sea is coloured in game, and they are
 exactly the two that pass the test. That is the whole explanation.
+
+*Corrected 2026-10-10: this table had a row "6 - Supply". The supply setter (`0x266EE0`) writes
+9, at `0x267074`, with the layer mask `0xFFBA`; nothing was found writing 6. See
+`FINDINGS-supplyconvoys.md`, section 1. The correction does not touch the argument above: 9 fails
+the test like 6.*
 
 A third place reads `+0xF4` - `0x480F1D`, inside the province colour texture builder -
 but only ever compares it against 0, so 8 and 18 behave identically there. It is the

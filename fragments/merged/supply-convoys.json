@@ -1,0 +1,485 @@
+{
+ "wave": "supply-convoys",
+ "date": "2026-10-10",
+ "summary": "Who makes a convoy and when, its route and the heap the search uses, how transports and escorts are shared out, what a new game gives for nothing, where cut-off production goes, and the supply map mode's colours - for the rewrite's third piece of supply.",
+ "source": "reversing/findings/FINDINGS-supplyconvoys.md",
+ "addresses": [
+  {
+   "rva": "0xFDF40",
+   "kind": "function",
+   "name": "CCountry::MaintainSupplyConvoys",
+   "signature": "void __stdcall CCountry::MaintainSupplyConvoys(CCountry* country)",
+   "no_signature": null,
+   "comment": "**Makes and unmakes a country's supply convoys.** Nothing for a country with one area and no convoy, or whose acting capital is in no area. Making, not in arcade mode: for every area that is not the capital's, with D the depot of its first province (CMapProvince::DepotOrAreaPort), need = max(D.drawn.supplies, D.drawn.fuel) less NavalBaseCapacity of the end of each supply convoy of the country's ending in the area; `found` where one ends at D. Then while need > 0, or no convoy was found at D and the country is at peace: the port of the area with no supply convoy of the country's ending at it and the highest score - supply_depot_hops x 1000, or 100000.000 for D itself - gets a convoy from COwnerArea::NearestPortTo(port, the capital's area), and its capacity comes off need. **`found` is never set inside the loop**, so at peace every port of the area gets one, the depot first and then the furthest. Unmaking, only with a game on screen: a supply convoy four or more days old goes - its ships back to the country's free ones - unless its end is the country's, the depot it serves had something drawn today, it runs from the capital's area, and it ends at the depot, or the area is still short, or the area's spare room is under twice (floor(2000.5f)) its own harbour's capacity. Called for every country on RunSupplyAndConvoyIterations' second pass, and from RunCountryDailyPass behind CCountry +0x749. See reversing/findings/FINDINGS-supplyconvoys.md, section 2.",
+   "confidence": "confirmed",
+   "evidence": "Read from the decompiled C with the record applied, 0x4FDF40 to the `ret 4` at 0x4FE7B2, and from the listing for the loop's test at 0x4FE1A3..0x4FE1BB, the port score at 0x4FE24F..0x4FE270, the four-day test at 0x4FE570 and the keep tests at 0x4FE62E..0x4FE71A. The float at 0x160A5F4 is 2000.5.",
+   "source": "reversing/findings/FINDINGS-supplyconvoys.md"
+  },
+  {
+   "rva": "0xFE7E0",
+   "kind": "function",
+   "name": "CCountry::MaintainResourceConvoys",
+   "signature": "void __stdcall CCountry::MaintainResourceConvoys(CCountry* country)",
+   "no_signature": null,
+   "comment": "**Makes and unmakes a country's resource convoys.** For every area that is not the capital's and has a port: where the pool of the area's **first port** holds any crude oil, metal, energy or rare materials (CGoodsPool::HasResources) and no convoy starting in the area is the country's and trade, lend-lease or without supplies and fuel, a convoy from that port to COwnerArea::NearestPortTo(it, the capital's area), both being owned ports with a naval base. Then for every vassal whose capital's area has no convoy starting in it and touches no area of the country's: one from the first port of that area. Then every resource convoy is removed whose ends are in one area or whose either end is controlled by a country that is no friend. Called beside CCountry::MaintainSupplyConvoys, behind CCountry +0x74A in play. See reversing/findings/FINDINGS-supplyconvoys.md, section 8.",
+   "confidence": "inferred",
+   "evidence": "Read from the decompiled C with the record applied, 0x4FE7E0 on; the vassal loop's choice of port was followed in the C only.",
+   "source": "reversing/findings/FINDINGS-supplyconvoys.md"
+  },
+  {
+   "rva": "0xFD750",
+   "kind": "function",
+   "name": "CCountry::DistributeConvoyShips",
+   "signature": "void __stdcall CCountry::DistributeConvoyShips(CCountry* country)",
+   "no_signature": null,
+   "comment": "**Shares a country's transports and escorts out among its convoys.** Sorts the convoys into three lists - idle (no path, unusable, or a resource run with nothing to load), first (supply convoys, each put at the **head**; resource runs of importance 100.000 or more at the head and over 20.000 at the tail) and last (over 1.000 at the head, the rest at the tail) - setting transports_wanted and escorts_wanted on the way. Then: idle convoys give everything back; last, tail to head, give back what they have over wanted, or all of it where the supply convoys are short or the convoy is under strength; first give back their surplus, **and all they have where they are under strength**; first and then last are filled from the free transports in list order. Escorts: each convoy is due escorts_wanted x min(1, owned / wanted); a surplus goes back, and a shortfall of one or more is made up from the free ones **only for a convoy attacked within 99 days**; a convoy with no transports gives its escorts back. Writes TotalNeededTransports, TotalConvoyTransports and TotalNeededConvoyTransports. Called after the two Maintain routines, behind CCountry +0x748 in play. See reversing/findings/FINDINGS-supplyconvoys.md, section 7.",
+   "confidence": "confirmed",
+   "evidence": "Read from the decompiled C with the record applied, 0x4FD750 on, and from the listing for which list each branch appends to and at which end (0x4FD868..0x4FDA97) and the three thresholds 0x186A0, 0x4E20, 0x3E8.",
+   "source": "reversing/findings/FINDINGS-supplyconvoys.md"
+  },
+  {
+   "rva": "0xFD2E0",
+   "kind": "function",
+   "name": "CCountry::CreateConvoy",
+   "signature": "void __thiscall CCountry::CreateConvoy(CCountry* this, CMapProvince* from, CMapProvince* to, bool carriesSupplies, int idType, int id, int lendLeaseTag, int lendLeaseId)",
+   "no_signature": null,
+   "comment": "Makes a CConvoy for the country: the goods mask is supplies and fuel (CConvoy::SetSupplyMask) or crude oil, metal, energy and rare materials, or - with a non-zero last argument - the convoy is lend-lease and keeps the tag and id at +0xA4. Sets the ends, calls CConvoy::RebuildPath, and puts the convoy on both end provinces' lists, at the tail of the country's, and on the start area's +0x4 and the end area's +0x14 vectors. **Where CInGameIdler +4 is set - a new game is being made - the convoy starts with GetDesiredTransports transports and one escort, out of no pool**; otherwise with none. See reversing/findings/FINDINGS-supplyconvoys.md, section 6.",
+   "confidence": "confirmed",
+   "evidence": "Read from the decompiled C with the record applied, 0x4FD2E0 on, and the listing 0x4FD4A6..0x4FD4D8 for the test of the idler's byte. The call site at 0x4FE37F..0x4FE3A5 gives the argument order.",
+   "source": "reversing/findings/FINDINGS-supplyconvoys.md"
+  },
+  {
+   "rva": "0xA6FC0",
+   "kind": "function",
+   "name": "CMapProvince::DepotOrAreaPort",
+   "signature": "int __fastcall CMapProvince::DepotOrAreaPort(CMapProvince* province@EDI)",
+   "no_signature": null,
+   "comment": "The province's supply_depot_id where that depot's controller is the province's own; otherwise the id of the first port of the province's area, or 0 where the area has none. What CCountry::MaintainSupplyConvoys counts a network's need at. See reversing/findings/FINDINGS-supplyconvoys.md, section 2.",
+   "confidence": "confirmed",
+   "evidence": "Read from the decompiled C with the record applied, 0x4A6FC0, with EDI from the two call sites (0x4FE0C8..0x4FE0CD and 0x4FE596).",
+   "source": "reversing/findings/FINDINGS-supplyconvoys.md"
+  },
+  {
+   "rva": "0x7E5E0",
+   "kind": "function",
+   "name": "COwnerArea::NearestPortTo",
+   "signature": "int __fastcall COwnerArea::NearestPortTo(int provinceId@ECX, COwnerArea* area@EDX, int countryTag@stack:4, int countryId@stack:8)",
+   "no_signature": null,
+   "comment": "**The harbour of an area a convoy to a province sails from.** With T the sea province the target's port opens onto: of the area's ports in list order, the one whose own port-sea is SeaConnected with T for the country and has the smallest CMap::DistanceBetweenProvinces to T - the two **sea** provinces, a straight line - the first of equals. 0 where the area has no port, the id is 0 or none is connected. See reversing/findings/FINDINGS-supplyconvoys.md, section 4.",
+   "confidence": "confirmed",
+   "evidence": "Read from the listing, 0x47E5E0 to the `ret 8` at 0x47E6A2; the best starts at 0x3B9AC618 and is replaced on `jge` skipped, so only a strictly smaller one wins.",
+   "source": "reversing/findings/FINDINGS-supplyconvoys.md"
+  },
+  {
+   "rva": "0xC6930",
+   "kind": "function",
+   "name": "CConvoy::RebuildPath",
+   "signature": "void __fastcall CConvoy::RebuildPath(CConvoy* convoy@EDI)",
+   "no_signature": null,
+   "comment": "**Throws a convoy's path away and finds it again.** Takes the convoy off every province of the old path (CMapProvince::RemoveConvoy) and off those provinces' areas, frees the list, then calls FindConvoyPath from the start to the end for the owner and, where it answers, writes the start and then the found provinces to the path, adding the convoy to each found province's convoy vector. Called for a new convoy, the day after an attack, and by the daily look for a path that is too short or broken. Was CConvoy::ClearPath until 2026-10-10, when only its first half had been read. See reversing/findings/FINDINGS-supplyconvoys.md, section 1.",
+   "confidence": "confirmed",
+   "evidence": "Read from the decompiled C with the record applied, 0x4C6930 on: the call to 0x5A1F50 and the two append loops after it.",
+   "source": "reversing/findings/FINDINGS-supplyconvoys.md",
+   "revises": "Renamed from CConvoy::ClearPath and raised from likely: the rebuild is inside it."
+  },
+  {
+   "rva": "0xC7A10",
+   "kind": "function",
+   "name": "CConvoy::IsRouteUsable",
+   "signature": "char __fastcall CConvoy::IsRouteUsable(CConvoy* convoy@ESI)",
+   "no_signature": null,
+   "comment": "The gate before every delivery. False where either end has no controller; false for a convoy that is trade, lend-lease or carries neither supplies nor fuel and has both ends in one area. Then a trade or lend-lease convoy is refused where the controller of either end is an enemy of the owner; any other needs each end's controller to be the owner or a country whose overlord is the owner. Last, not CConvoy::IsPathBroken. See reversing/findings/FINDINGS-supplyconvoys.md, section 5.",
+   "confidence": "confirmed",
+   "evidence": "Read from the decompiled C with the record applied, 0x4C7A10 whole.",
+   "source": "reversing/findings/FINDINGS-supplyconvoys.md",
+   "revises": "Was likely, on its entry conditions only; the body is read."
+  },
+  {
+   "rva": "0xC7670",
+   "kind": "function",
+   "name": "CConvoy::IsPathBroken",
+   "signature": "bool __stdcall CConvoy::IsPathBroken(CConvoy* convoy)",
+   "no_signature": null,
+   "comment": "True where any sea province on the convoy's path may not be entered by the owner (CCountry::MayEnterProvince) or is not SeaConnected, for the owner, with the sea province the start's port opens onto. See reversing/findings/FINDINGS-supplyconvoys.md, section 5.",
+   "confidence": "inferred",
+   "evidence": "Read from the decompiled C with the record applied, 0x4C7670; a register it reads besides its argument was not placed.",
+   "source": "reversing/findings/FINDINGS-supplyconvoys.md"
+  },
+  {
+   "rva": "0xC7CB0",
+   "kind": "function",
+   "name": "CConvoy::IsSupplyConvoy",
+   "signature": "bool __fastcall CConvoy::IsSupplyConvoy(CConvoy* convoy@EAX)",
+   "no_signature": null,
+   "comment": "Not lend-lease, not trade, and the goods mask has supplies or fuel. See reversing/findings/FINDINGS-supplyconvoys.md, section 2.",
+   "confidence": "confirmed",
+   "evidence": "Read from the decompiled C, eleven lines.",
+   "source": "reversing/findings/FINDINGS-supplyconvoys.md"
+  },
+  {
+   "rva": "0xC7BD0",
+   "kind": "function",
+   "name": "CConvoy::SetSupplyMask",
+   "signature": "void __fastcall CConvoy::SetSupplyMask(CConvoy* convoy@EAX)",
+   "no_signature": null,
+   "comment": "Zeroes the seven entries of the goods mask and sets the first two: supplies and fuel. See reversing/findings/FINDINGS-supplyconvoys.md, section 6.",
+   "confidence": "confirmed",
+   "evidence": "Read from the decompiled C.",
+   "source": "reversing/findings/FINDINGS-supplyconvoys.md"
+  },
+  {
+   "rva": "0xC7740",
+   "kind": "function",
+   "name": "CConvoy::UpdateLoadingProduction",
+   "signature": "void __fastcall CConvoy::UpdateLoadingProduction(CConvoy* convoy@EAX)",
+   "no_signature": null,
+   "comment": "Sets loading_production (+0x6C) to the sum of current_producing, all seven goods, over the provinces of the **area the convoy starts in**. See reversing/findings/FINDINGS-supplyconvoys.md, section 7.",
+   "confidence": "confirmed",
+   "evidence": "Read from the decompiled C.",
+   "source": "reversing/findings/FINDINGS-supplyconvoys.md"
+  },
+  {
+   "rva": "0xC78D0",
+   "kind": "function",
+   "name": "CConvoy::GetImportance",
+   "signature": "int* __fastcall CConvoy::GetImportance(CConvoy* convoy@EDI, int* out@stack:4)",
+   "no_signature": null,
+   "comment": "What a resource run is worth to CCountry::DistributeConvoyShips. Nothing for lend-lease. Over the five goods that are not supplies or fuel: loading_production[g] times a weight of 1.0, or 2.0 where the amount is over 0.100 of the owner's CCountry::GetDailyIncome of the good, or 0.5 where it is under 0.020 of it. A trade convoy tests its `daily` in place of its loading production but is still weighed by the latter. See reversing/findings/FINDINGS-supplyconvoys.md, section 7.",
+   "confidence": "confirmed",
+   "evidence": "Read from the listing, 0x4C78D0 to the `ret 4` at 0x4C7A07. The three statics at 0x1A873D0, 0x1A87398 and 0x1A873E0 are start-up initialised from the floats 100.5, 20.5 and 500.5 through floor.",
+   "source": "reversing/findings/FINDINGS-supplyconvoys.md"
+  },
+  {
+   "rva": "0xC7810",
+   "kind": "function",
+   "name": "CConvoy::CarriesFuel",
+   "signature": null,
+   "no_signature": "the convoy arrives in EAX; the answer is a byte in AL",
+   "comment": "Answers whether the goods mask has fuel - after working AreaSupplyAndFuelHeadroom out for the end and discarding it. CCountry::DistributeConvoyShips asks it and its twin of a supply convoy. See reversing/findings/FINDINGS-supplyconvoys.md, section 7.",
+   "confidence": "confirmed",
+   "evidence": "Read from the decompiled C.",
+   "source": "reversing/findings/FINDINGS-supplyconvoys.md"
+  },
+  {
+   "rva": "0xC7870",
+   "kind": "function",
+   "name": "CConvoy::CarriesSupplies",
+   "signature": null,
+   "no_signature": "the convoy arrives in EAX; the answer is a byte in AL",
+   "comment": "Answers whether the goods mask has supplies, with the same discarded headroom as CConvoy::CarriesFuel. See reversing/findings/FINDINGS-supplyconvoys.md, section 7.",
+   "confidence": "confirmed",
+   "evidence": "Read from the decompiled C.",
+   "source": "reversing/findings/FINDINGS-supplyconvoys.md"
+  },
+  {
+   "rva": "0x1A1F50",
+   "kind": "function",
+   "name": "FindConvoyPath",
+   "signature": "bool __stdcall FindConvoyPath(CMapProvince* from, CMapProvince* to, CList<int>* out, CCountryTag* owner)",
+   "no_signature": null,
+   "comment": "**A convoy's route**: a best-first search over provinces with a CDynamicHeap<CProvincePathNode> of { province, f, g, parent }. From the popped province each edge not of kind 3 is tried in order; the province across must be the goal, or sea that is not landlocked and is simulated, not closed to the start's controller (WaterIsClosed) and not yet visited. The step costs the edge's distance - five times that where the popped province saw a convoy attacked within five days, and 8, or 13 + twice its naval base's maximum level, plus 5 + twice its air base's level, times that where the popped province has a neighbour held by an enemy of the owner (CMapProvince::HasEnemyNeighbour). f = g + 1.25 x the whole-pixel straight line to the goal. **A province is marked visited when first reached**, so a cheaper way found later does not replace the first. The out list comes back without the start. See reversing/findings/FINDINGS-supplyconvoys.md, section 3.",
+   "confidence": "confirmed",
+   "evidence": "Read from the listing 0x5A20A0..0x5A2590 and the decompiled C around it, to the `ret 0x10` at 0x5A25A2. The float at 0x160A7C0 is 1250.5.",
+   "source": "reversing/findings/FINDINGS-supplyconvoys.md"
+  },
+  {
+   "rva": "0x1A30E0",
+   "kind": "function",
+   "name": "CDynamicHeap_ProvincePathNode::Push",
+   "signature": null,
+   "no_signature": "the heap in EAX, the item in EDI",
+   "comment": "Adds an item to the heap: the count goes up, the row size doubles when the count reaches twice it, and 0x5A3140 puts the item at the count's position in the complete tree and sifts it up. An empty heap gets its root here. See reversing/findings/FINDINGS-supplyconvoys.md, section 3.",
+   "confidence": "confirmed",
+   "evidence": "Read from the listing, 0x5A30E0 to 0x5A313E.",
+   "source": "reversing/findings/FINDINGS-supplyconvoys.md"
+  },
+  {
+   "rva": "0x1A3140",
+   "kind": "function",
+   "name": "CDynamicHeap_ProvincePathNode::InsertAt",
+   "signature": null,
+   "no_signature": "the node in ECX with four stack arguments: the item, the index, the base and the span",
+   "comment": "Walks from a node towards position `index` of the complete tree - left where index < base + half, right otherwise - makes the leaf, and on the way back exchanges each child's item with its parent's where the child's f is **strictly less**. Recursive. See reversing/findings/FINDINGS-supplyconvoys.md, section 3.",
+   "confidence": "confirmed",
+   "evidence": "Read from the listing, 0x5A3140 to the `ret 0x10` at 0x5A31B4; the exchange is at 0x5A319C..0x5A31AE behind `jge`.",
+   "source": "reversing/findings/FINDINGS-supplyconvoys.md"
+  },
+  {
+   "rva": "0x82050",
+   "kind": "function",
+   "name": "CDynamicHeap::RemoveLast",
+   "signature": null,
+   "no_signature": "the node in ECX with three stack arguments: the index, the base and the span",
+   "comment": "Finds the leaf at position `index` of the complete tree by the same descent as the insert, frees it, nulls the link and returns its item. Recursive; shared by heaps of more than one item type. See reversing/findings/FINDINGS-supplyconvoys.md, section 3.",
+   "confidence": "confirmed",
+   "evidence": "Read from the listing, 0x482050 to the `ret 0xc` at 0x4820A1.",
+   "source": "reversing/findings/FINDINGS-supplyconvoys.md"
+  },
+  {
+   "rva": "0x1A31C0",
+   "kind": "function",
+   "name": "CDynamicHeap_ProvincePathNode::SiftDown",
+   "signature": null,
+   "no_signature": "the node in EAX, the item on the stack",
+   "comment": "Sifts an item down from a node: the left child is the candidate where its f is **less than or equal to** the right's, the right otherwise, and the candidate's item moves up only where its f is **strictly less** than the item's; the item lands where neither does. See reversing/findings/FINDINGS-supplyconvoys.md, section 3.",
+   "confidence": "confirmed",
+   "evidence": "Read from the listing, 0x5A31C0 to the `ret 4` at 0x5A3247: `jg` at 0x5A320E, `jge` at 0x5A3216 and 0x5A3227.",
+   "source": "reversing/findings/FINDINGS-supplyconvoys.md"
+  },
+  {
+   "rva": "0x1A11F0",
+   "kind": "function",
+   "name": "ProvincePathNode_WritePath",
+   "signature": null,
+   "no_signature": "the node on the stack, the list in ESI",
+   "comment": "Walks a found node's parents back to the start, putting each province's id at the front of a CList<int> - so the list reads start to goal. See reversing/findings/FINDINGS-supplyconvoys.md, section 3.",
+   "confidence": "inferred",
+   "evidence": "Read from the decompiled C.",
+   "source": "reversing/findings/FINDINGS-supplyconvoys.md"
+  },
+  {
+   "rva": "0xA6920",
+   "kind": "function",
+   "name": "CMapProvince::HasEnemyNeighbour",
+   "signature": "bool __fastcall CMapProvince::HasEnemyNeighbour(CMapProvince* province@EAX, CCountryTag* country@stack:4)",
+   "no_signature": null,
+   "comment": "True where an edge of the province's template that is not of kind 3 leads to a simulated province whose controller is another country and an enemy of the one given (CCountry::IsEnemy). See reversing/findings/FINDINGS-supplyconvoys.md, section 3.",
+   "confidence": "confirmed",
+   "evidence": "Read from the decompiled C, with EAX from the call site at 0x5A22E7.",
+   "source": "reversing/findings/FINDINGS-supplyconvoys.md"
+  },
+  {
+   "rva": "0x816E0",
+   "kind": "function",
+   "name": "COwnerArea::RemoveEndingConvoy",
+   "signature": null,
+   "no_signature": "the convoy in EAX, the area on the stack",
+   "comment": "Takes a convoy out of the area's vector of convoys ending in it (+0x14..+0x18). See reversing/findings/FINDINGS-supplyconvoys.md, section 6.",
+   "confidence": "confirmed",
+   "evidence": "Read from the decompiled C: an erase-remove over the vector.",
+   "source": "reversing/findings/FINDINGS-supplyconvoys.md"
+  },
+  {
+   "rva": "0x81760",
+   "kind": "function",
+   "name": "COwnerArea::RemoveStartingConvoy",
+   "signature": null,
+   "no_signature": "the convoy in EAX, the area on the stack",
+   "comment": "Takes a convoy out of the area's vector of convoys starting in it (+0x4..+0x8). See reversing/findings/FINDINGS-supplyconvoys.md, section 6.",
+   "confidence": "confirmed",
+   "evidence": "Read from the decompiled C: an erase-remove over the vector.",
+   "source": "reversing/findings/FINDINGS-supplyconvoys.md"
+  },
+  {
+   "rva": "0xA7550",
+   "kind": "function",
+   "name": "CMapProvince::RemoveConvoy",
+   "signature": null,
+   "no_signature": "the convoy in EAX, the province on the stack",
+   "comment": "Takes a convoy out of the province's convoy vector (+0x38..+0x3C). See reversing/findings/FINDINGS-supplyconvoys.md, section 6.",
+   "confidence": "confirmed",
+   "evidence": "Read from the decompiled C: an erase-remove over the vector.",
+   "source": "reversing/findings/FINDINGS-supplyconvoys.md"
+  },
+  {
+   "rva": "0xF1F50",
+   "kind": "function",
+   "name": "CCountry::CollectDailyProduction",
+   "signature": "void __stdcall CCountry::CollectDailyProduction(CCountry* country)",
+   "no_signature": null,
+   "comment": "**Where a day's resources go.** Zeroes home_produced and total_produced, adds the base income of metal, energy and rare materials (BaseResourceIncome) to home_produced and the stockpile, then for every province the country controls and each of the five goods that are not supplies or fuel takes CMapProvince::ResourceYield. **Home** - the province's area is the capital's, or its supply depot is a province of the capital's area: the yield goes to the stockpile, home_produced and total_produced. **Cut off** - neither: it goes into the province's own pool and total_produced, and then everything that pool holds of the five goods is moved (CGoodsPool::TakeResources) to the pool of the area's loading port - the start of the first convoy starting in the area that is the country's and trade, lend-lease or without supplies and fuel, else the area's first port - where there is one and it is another province. A subject then calls 0x4F25E0, and a loop after moves money between countries; neither was read. Called from RunCountryDailyPass at 0x4DB434. See reversing/findings/FINDINGS-supplyconvoys.md, section 8.",
+   "confidence": "confirmed",
+   "evidence": "Read from the decompiled C with the record applied, 0x4F1F50 on, and the listing 0x4F2150..0x4F23B4 for the home test and the two branches.",
+   "source": "reversing/findings/FINDINGS-supplyconvoys.md"
+  },
+  {
+   "rva": "0xF1E00",
+   "kind": "function",
+   "name": "BaseResourceIncome",
+   "signature": "int* __fastcall BaseResourceIncome(int* out@EDI, int goods@stack:4)",
+   "no_signature": null,
+   "comment": "What every country makes whatever it holds: with X one value (+0x78) of a static modifier, X of metal (goods 4), 2 X of energy (5), X / 2 of rare materials (6), nothing of anything else. See reversing/findings/FINDINGS-supplyconvoys.md, section 8.",
+   "confidence": "confirmed",
+   "evidence": "Read from the listing, 0x4F1E00 to 0x4F1F4B; which static modifier and which value were not named.",
+   "source": "reversing/findings/FINDINGS-supplyconvoys.md"
+  },
+  {
+   "rva": "0xA6EB0",
+   "kind": "function",
+   "name": "CMapProvince::ResourceYield",
+   "signature": "int* __fastcall CMapProvince::ResourceYield(CMapProvince* province@ESI, int* out@stack:4, int goods@stack:8)",
+   "no_signature": null,
+   "comment": "What a province yields of one good in a day: current_producing[goods], times 1 + the controller's technology for metal (+0xAC), rare materials (+0xB0) or energy (+0xB4), times 1 + a province modifier and a country modifier chosen by the good from two tables (0x1713F40, 0x1713F5C) + the province's modifier 85 + the country's modifier 84, that sum not below nothing. See reversing/findings/FINDINGS-supplyconvoys.md, section 8.",
+   "confidence": "confirmed",
+   "evidence": "Read from the listing, 0x4A6EB0 to the `ret 8` at 0x4A6FAA.",
+   "source": "reversing/findings/FINDINGS-supplyconvoys.md"
+  },
+  {
+   "rva": "0x123A20",
+   "kind": "function",
+   "name": "CGoodsPool::TakeResources",
+   "signature": "CGoodsPool* __fastcall CGoodsPool::TakeResources(CGoodsPool* out@EDI, CGoodsPool* from@stack:4, int share@stack:8)",
+   "no_signature": null,
+   "comment": "Builds a pool holding `share` thousandths of each of the five goods that are not supplies or fuel and **takes that much out of the source**. Supplies and fuel are left where they are and are nothing in the answer. See reversing/findings/FINDINGS-supplyconvoys.md, section 8.",
+   "confidence": "confirmed",
+   "evidence": "Read from the listing, 0x523A20 to the `ret 8` at 0x523A82: the `sub` at 0x523A71.",
+   "source": "reversing/findings/FINDINGS-supplyconvoys.md"
+  },
+  {
+   "rva": "0x1239F0",
+   "kind": "function",
+   "name": "CGoodsPool::HasResources",
+   "signature": null,
+   "no_signature": "the pool in EDX; ECX is not read; a byte back in AL",
+   "comment": "True where the pool holds any crude oil, metal, energy or rare materials - goods 3 to 6 compared against the fixed-point zero. See reversing/findings/FINDINGS-supplyconvoys.md, section 8.",
+   "confidence": "confirmed",
+   "evidence": "Read from the decompiled C.",
+   "source": "reversing/findings/FINDINGS-supplyconvoys.md"
+  },
+  {
+   "rva": "0x266EE0",
+   "kind": "function",
+   "name": "MapMode_Supply_Colour",
+   "signature": "void __fastcall MapMode_Supply_Colour(CInGameIdler* idler@ECX)",
+   "no_signature": null,
+   "comment": "**The supply map mode's setter**, not its colouring loop: plays the click, sets current_map_mode and CMap +0x2A90 to 4, the layer mask to 0xFFBA and the **map style to 9** (0x667074), and calls MapMode_Supply_ColourLoop (0x4669B0) on the map's colour table. The name is kept because BiceLib and other entries use it. See reversing/findings/FINDINGS-supplyconvoys.md, section 1.",
+   "confidence": "confirmed",
+   "evidence": "Read from the decompiled C and the listing's writes at 0x66703F..0x667074.",
+   "source": "reversing/findings/FINDINGS-supplyconvoys.md",
+   "revises": "The comment said it was the colouring routine; it is the setter that calls it. FINDINGS-mapmode.md's style table had 6 for this mode; the write is 9."
+  },
+  {
+   "rva": "0x4669B0",
+   "kind": "function",
+   "name": "MapMode_Supply_ColourLoop",
+   "signature": "void __stdcall MapMode_Supply_ColourLoop(void* colourTable)",
+   "no_signature": null,
+   "comment": "**Colours every province for the supply map mode**, from the supplies - never the fuel - of its pool P, last_pool LP, throughput T, drawn D and need N, with b = 1.0 where the viewer's intelligence is 2 or more and 0.5 below, and grey = 0.4 b. Black under two levels of infrastructure; grey under intelligence 6; a flat green (grey, 0.8b, grey) at 6 and 7. Otherwise the first of: green where P >= D > 0; red (0.6b, grey, grey) where P < D, nothing lay there or passed and the need is above the pool; blue-green (grey, 0.6b, 0.6b) where P > 0 and D = 0; yellow (y, y, grey) where D > 0 and anything lies or passes, y = 0.8b with infrastructure below its maximum and 0.5b without; else grey. The second colour - the stripes - is (0.7b, grey, grey) where D is over SupplyCapacity. See reversing/findings/FINDINGS-supplyconvoys.md, section 9.",
+   "confidence": "confirmed",
+   "evidence": "Read from the listing, 0x8669B0 to 0x866F69, branch by branch; the doubles at 0x160A618, 0x160A3E0, 0x160A560, 0x160A308 and 0x160A5D0 are 0.4, 0.8, 0.6, 0.5 and 0.7, and the static at 0x1A8C858 is start-up initialised from the float 200.5.",
+   "source": "reversing/findings/FINDINGS-supplyconvoys.md"
+  },
+  {
+   "rva": "0x6627A0",
+   "kind": "function",
+   "name": "CColor::Set",
+   "signature": null,
+   "no_signature": "the colour in EAX, the four floats in XMM0 to XMM3; returns in EAX",
+   "comment": "Makes a CColor from four floats - red, green, blue, alpha - and sets its byte at +0x18 where all four are above 0.999. See reversing/findings/FINDINGS-supplyconvoys.md, section 9.",
+   "confidence": "confirmed",
+   "evidence": "Read from the listing, 0xA627A0 to 0xA627FE.",
+   "source": "reversing/findings/FINDINGS-supplyconvoys.md"
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CCountry",
+   "offset": "0x748",
+   "name": "auto_maintain_convoy",
+   "type": "bool",
+   "comment": "Guards CCountry::DistributeConvoyShips in RunCountryDailyPass. Named for the save key written first of the three; the loader was not read, so the pairing is by order and by what each byte guards. See reversing/findings/FINDINGS-supplyconvoys.md, section 6.",
+   "evidence": "RunCountryDailyPass tests the three bytes in turn before the three calls.",
+   "source": "reversing/findings/FINDINGS-supplyconvoys.md"
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0x749",
+   "name": "auto_supply_convoy",
+   "type": "bool",
+   "comment": "Guards CCountry::MaintainSupplyConvoys in RunCountryDailyPass. Named for the save key; inferred as for +0x748. See reversing/findings/FINDINGS-supplyconvoys.md, section 6.",
+   "evidence": "RunCountryDailyPass tests the three bytes in turn before the three calls.",
+   "source": "reversing/findings/FINDINGS-supplyconvoys.md"
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0x74A",
+   "name": "auto_resource_convoy",
+   "type": "bool",
+   "comment": "Guards CCountry::MaintainResourceConvoys in RunCountryDailyPass. Named for the save key; inferred as for +0x748. See reversing/findings/FINDINGS-supplyconvoys.md, section 6.",
+   "evidence": "RunCountryDailyPass tests the three bytes in turn before the three calls.",
+   "source": "reversing/findings/FINDINGS-supplyconvoys.md"
+  },
+  {
+   "struct": "COwnerArea",
+   "offset": "0x4",
+   "name": "convoys_starting_begin",
+   "type": "CConvoy**",
+   "comment": "Begin of the vector of convoys that **start** in the area; end at +0x8. CCountry::CreateConvoy appends, COwnerArea::RemoveStartingConvoy erases. See reversing/findings/FINDINGS-supplyconvoys.md, section 6.",
+   "evidence": "CCountry::CreateConvoy's push for the start's area; walked by CCountry::CollectDailyProduction and CCountry::MaintainResourceConvoys.",
+   "source": "reversing/findings/FINDINGS-supplyconvoys.md"
+  },
+  {
+   "struct": "COwnerArea",
+   "offset": "0x8",
+   "name": "convoys_starting_end",
+   "type": "CConvoy**",
+   "comment": "End of the vector at +0x4. See reversing/findings/FINDINGS-supplyconvoys.md, section 6.",
+   "evidence": "As +0x4.",
+   "source": "reversing/findings/FINDINGS-supplyconvoys.md"
+  },
+  {
+   "struct": "COwnerArea",
+   "offset": "0x14",
+   "name": "convoys_ending_begin",
+   "type": "CConvoy**",
+   "comment": "Begin of the vector of convoys that **end** in the area; end at +0x18. CCountry::CreateConvoy appends, COwnerArea::RemoveEndingConvoy erases. See reversing/findings/FINDINGS-supplyconvoys.md, section 6.",
+   "evidence": "CCountry::CreateConvoy's push for the end's area; walked by CCountry::MaintainSupplyConvoys.",
+   "source": "reversing/findings/FINDINGS-supplyconvoys.md"
+  },
+  {
+   "struct": "COwnerArea",
+   "offset": "0x18",
+   "name": "convoys_ending_end",
+   "type": "CConvoy**",
+   "comment": "End of the vector at +0x14. See reversing/findings/FINDINGS-supplyconvoys.md, section 6.",
+   "evidence": "As +0x14.",
+   "source": "reversing/findings/FINDINGS-supplyconvoys.md"
+  },
+  {
+   "struct": "CInGameIdler",
+   "offset": "0x4",
+   "name": "starting_new_game",
+   "type": "bool",
+   "comment": "**Set while a new game is being made.** CInGameIdler::Enter sets it at 0x65C9C7, before its first RunDailyPass and RunSupplyAndConvoyIterations, and clears it at 0x65CD19. CCountry::CreateConvoy gives a convoy made while it is set its transports and an escort for nothing. The name is ours; other readers were not looked for. See reversing/findings/FINDINGS-supplyconvoys.md, section 6.",
+   "evidence": "The two writes in CInGameIdler::Enter and the read at 0x4FD4AC.",
+   "source": "reversing/findings/FINDINGS-supplyconvoys.md"
+  },
+  {
+   "struct": "CConvoy",
+   "offset": "0x94",
+   "name": "escorts_wanted",
+   "type": "int",
+   "comment": "Escorts wanted, set by CConvoy::ComputeDesiredEscorts; CCountry::DistributeConvoyShips sums it over a country's running convoys and shares the escorts out in its proportion. See reversing/findings/FINDINGS-supplyconvoys.md, section 7.",
+   "evidence": "Read by CCountry::DistributeConvoyShips for the ratio and for each convoy's due.",
+   "source": "reversing/findings/FINDINGS-supplyconvoys.md",
+   "revises": "Was 'possibly escorts wanted; not established'."
+  },
+  {
+   "struct": "CConvoy",
+   "offset": "0xA4",
+   "name": "lend_lease_partner",
+   "type": "CCountryTag",
+   "comment": "The tag and id CCountry::CreateConvoy is handed for a lend-lease convoy; `---` and 0 for any other. Which end of the lend-lease it names was not read. See reversing/findings/FINDINGS-supplyconvoys.md, section 6.",
+   "evidence": "Written by CCountry::CreateConvoy on its lend-lease branch only.",
+   "source": "reversing/findings/FINDINGS-supplyconvoys.md"
+  },
+  {
+   "struct": "CMap",
+   "offset": "0x2A90",
+   "name": "map_mode",
+   "type": "int",
+   "comment": "A copy of the map mode on screen: the supply setter writes 4 here beside CInGameIdler::current_map_mode. Readers were not looked for. See reversing/findings/FINDINGS-supplyconvoys.md, section 9.",
+   "evidence": "The write at 0x667049.",
+   "source": "reversing/findings/FINDINGS-supplyconvoys.md"
+  }
+ ],
+ "frontier": [
+  "0x4F25E0",
+  "0x4C5600",
+  "0x463EC0"
+ ],
+ "notes": [
+  "Nothing here was watched in a running game.",
+  "The start-date savegame agrees with the reading on free transports being half a country's IC and free escorts being its number of convoys."
+ ]
+}

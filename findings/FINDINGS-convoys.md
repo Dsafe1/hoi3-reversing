@@ -4,6 +4,13 @@ Read out of the executable on 2026-10-01, with one savegame used as an oracle fo
 of a convoy's goods mask. Addresses are virtual, based `0x400000`, with the rva where a
 finding names one. Nothing here needed a running game.
 
+**Read on from here in `FINDINGS-supplyconvoys.md` (2026-10-10)**: who makes a convoy, its route,
+how transports and escorts are shared out, and what a new game gives for nothing. It corrects
+three things below - `AreaSupplyAndFuelHeadroom` sums over the **ports of the destination's
+supply group**, not over the area's provinces, and has a second case for a harbour of the home
+area; `CConvoy::ClearPath` **rebuilds** the path and is now `CConvoy::RebuildPath`; and
+`CConvoy::IsRouteUsable` is read whole.
+
 `CLASSES.md` already had `CConvoy`'s saved layout and the pools a convoy credits; this is the
 behaviour - who moves a convoy, what it carries, what a lost one costs, and how a raid is
 resolved. It also closes three open questions that were not in this subject:

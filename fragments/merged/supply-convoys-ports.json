@@ -1,0 +1,77 @@
+{
+ "wave": "supply-convoys-ports",
+ "date": "2026-10-10",
+ "summary": "An area's port list is kept by naval base level, largest first, so \"the first port\" is the largest; and max_ic is the unscaled base. Both found by setting the rewrite's replay against the savegame's 261 convoys.",
+ "source": "reversing/findings/FINDINGS-supplyconvoys.md",
+ "addresses": [
+  {
+   "rva": "0x81AA0",
+   "kind": "function",
+   "name": "PortList_InsertByLevel",
+   "signature": "void __stdcall PortList_InsertByLevel(CList<CMapProvince*>* ports, CMapProvince** province)",
+   "no_signature": null,
+   "comment": "**Keeps an area's port list by size, largest first.** Walks the list from its tail and puts the new province behind the first one whose CMapProvince::UsableNavalBaseLevel is not smaller than its own; where every one is smaller it goes to the front. So of two ports alike the one handed in first stays ahead, and `ports_first`'s first element is the area's largest harbour - which is what every reader of \"the area's first port\" gets. Called by COwnerArea::RefreshBases for each port of the area in the area's province order. See reversing/findings/FINDINGS-supplyconvoys.md, section 4.",
+   "confidence": "confirmed",
+   "evidence": "Read from the decompiled C and the listing 0x481AA0..0x481AF8: `cmp [eax], ecx; jge` at 0x481ADB leaves the walk at the first node whose level is at least the new one's; the fall-through at 0x481AE6 is the push to the front (0x45F5E0). `ret 8`.",
+   "source": "reversing/findings/FINDINGS-supplyconvoys.md"
+  },
+  {
+   "rva": "0x81B90",
+   "kind": "function",
+   "name": "AirBaseList_InsertByLevel",
+   "signature": "void __stdcall AirBaseList_InsertByLevel(CList<CMapProvince*>* bases, CMapProvince** province)",
+   "no_signature": null,
+   "comment": "Keeps an area's air base list by size, largest first, the way PortList_InsertByLevel keeps its ports: from the tail, behind the first whose air base's maximum level in whole levels is not smaller, else at the front. See reversing/findings/FINDINGS-supplyconvoys.md, section 4.",
+   "confidence": "confirmed",
+   "evidence": "Read from the decompiled C, 0x481B90 on; `ret 8`.",
+   "source": "reversing/findings/FINDINGS-supplyconvoys.md"
+  },
+  {
+   "rva": "0xA7EE0",
+   "kind": "function",
+   "name": "CMapProvince::UsableNavalBaseLevel",
+   "signature": "int* __fastcall CMapProvince::UsableNavalBaseLevel(CMapProvince* province@EAX, int* out@EDI)",
+   "no_signature": null,
+   "comment": "The naval base's **current** level, in thousandths - or 0 for an owned port with a base whose sea province is in one particular sea region (the first entry of the sea province's +0x358 list equal to the global at 0x1A8558C) while WaterIsClosed says the water at the third pair of the defines' `map` block is shut to the province's owner. Which region that is was not established. What PortList_InsertByLevel orders an area's ports by. See reversing/findings/FINDINGS-supplyconvoys.md, section 4.",
+   "confidence": "confirmed",
+   "evidence": "Read from the listing, 0x4A7EE0 to the `ret` at 0x4A7F77: the level is written to the out at 0x4A7EF3 before any test, and zeroed only at 0x4A7F6C.",
+   "source": "reversing/findings/FINDINGS-supplyconvoys.md"
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "COwnerArea",
+   "offset": "0x48",
+   "name": "ports_first",
+   "type": "CList<CMapProvince*>",
+   "comment": "Head of the list of the area's provinces that have a naval base; count at +0x50. **Kept by size, largest first** (PortList_InsertByLevel), and of two alike in the area's province order - so its first element is the area's largest harbour, which is what the convoy routines mean by an area's first port. CAIInvasion stage 1 walks it at 0x8A0377 to find the nearest reachable port for a land unit, and CEU3AI::PlanAmphibiousInvasion walks it at 0x892C87 to pick the invasion's objective port, reading NavalBaseCapacity off a member at 0x8930AD. See reversing/findings/FINDINGS-supplyconvoys.md, section 4.",
+   "evidence": "COwnerArea::RefreshBases fills it through PortList_InsertByLevel and nothing else was found appending to it.",
+   "source": "reversing/findings/FINDINGS-supplyconvoys.md",
+   "revises": "The comment did not say the list is ordered; it is, by naval base level."
+  },
+  {
+   "struct": "COwnerArea",
+   "offset": "0x58",
+   "name": "air_bases_first",
+   "type": "CList<CMapProvince*>",
+   "comment": "The area's provinces with an air base of level 1 or more; count at +0x60. Filled by COwnerArea::RefreshBases beside the port list, and **kept by size, largest first** (AirBaseList_InsertByLevel). See reversing/findings/FINDINGS-supplynetwork.md, section 2, and reversing/findings/FINDINGS-supplyconvoys.md, section 4.",
+   "evidence": "COwnerArea::RefreshBases fills it through AirBaseList_InsertByLevel.",
+   "source": "reversing/findings/FINDINGS-supplyconvoys.md",
+   "revises": "The comment did not say the list is ordered."
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0x60C",
+   "name": "max_ic",
+   "type": "int",
+   "comment": "**GetMaxIC: the IC of the country's provinces summed, in whole IC, with no country scaling on it.** CCountry::UpdateIC writes the summed province base to this and to the total at +0x604 from one register at 0xF0FA3 and never touches this one again; only +0x604 is then scaled by the country's modifiers and technology, capped at what resources support and topped up with the resource-free IC at +0x608. RunSupplyAndConvoyIterations gives a country with no transports half of this, and the start-date savegame has exactly half the unscaled figure free for 19 of 19 countries. See reversing/findings/FINDINGS-supplyconvoys.md, section 6.",
+   "evidence": "The read at 0x67906F in RunSupplyAndConvoyIterations, and the savegame: Germany 72 free of a base of 144 where the scaled figure is 201.",
+   "source": "reversing/findings/FINDINGS-supplyconvoys.md",
+   "revises": "The comment said it was the province base 'with the country scaling'; the comment on +0x604 beside it already said this one is the base, and the save agrees with that."
+  }
+ ],
+ "frontier": [],
+ "notes": [
+  "Nothing here was watched in a running game."
+ ]
+}
