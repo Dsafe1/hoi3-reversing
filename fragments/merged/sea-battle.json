@@ -1,0 +1,318 @@
+{
+ "wave": "sea-battle",
+ "date": "2026-10-10",
+ "summary": "A battle between fleets read through: each ship's distance and how it closes, who a ship shoots at, the shot, sinking, the four hours a fleet needs to leave, and how a side loses.",
+ "source": "reversing/findings/FINDINGS-seabattle.md",
+ "addresses": [
+  {
+   "rva": "0x1CE000",
+   "kind": "function",
+   "name": "DefenderAcceptsBattle",
+   "signature": "bool __stdcall DefenderAcceptsBattle(CUnit* found@EAX, CUnit* asker@EDI) @AL",
+   "no_signature": null,
+   "comment": "**Whether a unit found in a province may be made the defender of a battle**, by the found unit's order. Under a patrol (0x42E): yes with stance 0 (aggressive), no with stance 2 (passive), otherwise only where the asking unit's GetPower is under its own. Under convoy_raid (0x6E9) or transport (0x3A8): no. Anything else: yes. CCombatManager::StartCombat asks it of each unit CUnit::CanEngage passes, so a fleet on a defensive patrol is only brought to battle by a weaker one and a raider or a transport never is. The name is ours. See reversing/findings/FINDINGS-seabattle.md, section 1.",
+   "confidence": "confirmed",
+   "evidence": "Read from the decompiled C, 0x5CE000 to the bare `ret`s at 0x5CE034 and 0x5CE06E; slot 16 of the order is GetTypeId, slot 19 the stance, slot 27 of the units GetPower.",
+   "source": "reversing/findings/FINDINGS-seabattle.md"
+  },
+  {
+   "rva": "0x02EFD0",
+   "kind": "function",
+   "name": "IsRebelTag",
+   "signature": "bool __stdcall IsRebelTag(char* tag@EAX) @AL",
+   "no_signature": null,
+   "comment": "True where the three letters at the pointer are `REB`. CUnit::CanEngage ends on it for each of the two owners: with a rebel on either side no war is needed. The name is ours. See reversing/findings/FINDINGS-seabattle.md, section 1.",
+   "confidence": "confirmed",
+   "evidence": "Read from the decompiled C; five instructions and a bare `ret`.",
+   "source": "reversing/findings/FINDINGS-seabattle.md"
+  },
+  {
+   "rva": "0x166F20",
+   "kind": "function",
+   "name": "CNavalCombatant::AddUnit",
+   "signature": "void __thiscall CNavalCombatant::AddUnit(CNavalCombatant* this, CUnit* unit)",
+   "no_signature": null,
+   "comment": "CCombatant slot 12 for a naval side: **where every ship is given its distance.** After the base (CCombatant::AddUnit) and CNavalCombatant::UpdatePositioning it counts the unit's ships by type into +0x74 and then sets each ship's current_distance (CSubUnit +0xC8): half the definition's firing_distance, plus a roll of up to `max(300 - spread_out trait, 100) / 1000 * half * (5 - leader skill) * (1 - positioning)` (2 at least); the fleet's first capital ship sets a line, every other ship is put before or behind that line at even odds; a unit joining a battle that has had a round starts 100.000 further out, measured from the side's first capital ship that has a distance; never under 1.000. The 300 is the floor of the float 300.5 (0x1A881A8). See reversing/findings/FINDINGS-seabattle.md, section 2.",
+   "confidence": "confirmed",
+   "evidence": "Read from the decompiled C and the listing 0x566F20..0x567245 (`ret 4`): the base at +0x186A0 set at 0x566F83, the capital branch at 0x56715F, the even odds at 0x567213 (`cmp ecx, 0x32`), the store to +0xC8 at 0x567233.",
+   "source": "reversing/findings/FINDINGS-seabattle.md",
+   "revises": "Was `likely`, named off the factory's use of slot 12 with only the call to UpdatePositioning read. Now read through."
+  },
+  {
+   "rva": "0x166480",
+   "kind": "function",
+   "name": "CNavalCombatant::ApplyCombatModifiers",
+   "signature": "void __thiscall CNavalCombatant::ApplyCombatModifiers(CNavalCombatant* this, CCombatant* other, int flag)",
+   "no_signature": null,
+   "comment": "Slot 19 for a naval fight: per fleet and per ship, each modifier put on the ship (CSubUnit::AddCombatModifier). Poor screens (defence only), the submarines' surprise (attack only), difficulty, the ship's own experience with its pride bonus, mission efficiency, dissent, lack of supplies, wind and rain (attack only), the night (attack only, by the side's own adjuster) and the leader. **The surprise is rolled in the first round only** - an attacking fleet with a submarine, `Random() % 100 < NAVAL_COMBAT_SUB_SURPRISE_CHANCE` - and then holds while CCombat +0x1C is under NAVAL_COMBAT_SUB_SURPRISE_ROUNDS, because the function reads its own flag byte (+0x25) as the last round left it before the base clears it; a later fleet of the side shares an earlier one's success. The formulas are in reversing/findings/FINDINGS-combatmods.md, section 6. See reversing/findings/FINDINGS-seabattle.md, section 3.",
+   "confidence": "confirmed",
+   "evidence": "Read from the decompiled C: `local_68 = this->field_0x25` before the call to CCombatant::ApplyCombatModifiers, and the two tests on it at 0x56664F.",
+   "source": "reversing/findings/FINDINGS-seabattle.md",
+   "revises": "The entry said `Not read through`. It has been, twice."
+  },
+  {
+   "rva": "0x167930",
+   "kind": "function",
+   "name": "CNavalCombatant::Attack",
+   "signature": "void __thiscall CNavalCombatant::Attack(CNavalCombatant* this, CCombatant* other)",
+   "no_signature": null,
+   "comment": "CCombatant slot 15 for a naval side, **read from end to end.** Head: leader combat hours, the doctrine practical, the positioning creep, the ENEMY side's NavalStackingPositionPenalty and this side's AverageMaxSpeedOfEngaged. Then each ship: one with sea_attack and organisation picks a target (CSubUnit::PickTarget) and fires `attack * its attack product` shots, the fraction a chance of one more - sea_attack, or convoy_attack for the attacker of a battle with +0x2B set, or sub_attack with the submarine_attack trait against a submarine. Each shot: two dice sizes (NAVAL_COMBAT_ORG_DICE_SIZE + 5 x the enemy's penalty, NAVAL_COMBAT_STR_DICE_SIZE + 3 x it, each fraction a chance of one more), a draw nothing reads, the flat roll against CHANCE_TO_AVOID_HIT_AT_NO_DEF, then organisation and strength dice, the critical hit on strength, both over the target's hull, the two damage modifiers, and onto the target's pending figures; a target whose notes pass its strength takes this ship as `sunk_by`, and a pride sunk gives 5 experience and fires on_enemy_pride_sunk / on_our_pride_sunk. **Then the ship moves**: it closes by a quarter of max_speed while it has a target and is further than half its FiringRange, by all of it with no target, not at all in a fleet with a carrier, plus whatever the enemy's ships are faster on average; a ship of a disengaging fleet or with no organisation opens by half its speed over its hull; never under 1.000. Tail: each fleet's `disengage` above 0 goes up by one, and one that WantsToDisengage with a province at CUnit +0xAC is given its path there (SetUnitPath) and, unless +0x2B is set, a null order. Every roll is the game's own generator. It reads neither sea_defence nor surface_defence (reversing/findings/FINDINGS-airdefence.md). See reversing/findings/FINDINGS-seabattle.md, section 3.",
+   "confidence": "confirmed",
+   "evidence": "Read from the decompiled C and the listings 0x567930..0x567A70 and 0x568966..0x568CDA: the second speed average at 0x568A8B with `eax = other + 0x40`, the closing at 0x568AA0, the opening at 0x568AAA..0x568B1A with the hull of the ship's own definition, the floor at 0x568B20. The floats 5000.5, 3000.5 and 100000.5 at 0x160A9F8, 0x160A948 and 0x160A718.",
+   "source": "reversing/findings/FINDINGS-seabattle.md",
+   "revises": "The entry said only the positioning creep was read. The whole body is; and the two dice are widened by different amounts, which reversing/findings/FINDINGS-combatmods.md had as one."
+  },
+  {
+   "rva": "0x1D6AC0",
+   "kind": "function",
+   "name": "AverageMaxSpeedOfEngaged",
+   "signature": "void __stdcall AverageMaxSpeedOfEngaged(CList<CUnit*>* units@EAX, int* out@ESI)",
+   "no_signature": null,
+   "comment": "Over the units of a list whose `disengage` (+0xA8) is under 1: the sum of every sub unit's definition max_speed (+0x108), divided by the count of those sub units. CNavalCombatant::Attack takes it of its own side once and of the other side for each ship, and a ship closes faster by what the enemy's figure is above its own side's. The name is ours. See reversing/findings/FINDINGS-seabattle.md, section 3.",
+   "confidence": "confirmed",
+   "evidence": "Read from the decompiled C; two callers, 0x567A5C and 0x568A8B; bare `ret`.",
+   "source": "reversing/findings/FINDINGS-seabattle.md"
+  },
+  {
+   "rva": "0x17BA00",
+   "kind": "function",
+   "name": "CNavalCombat::Tick",
+   "signature": "bool __thiscall CNavalCombat::Tick(CNavalCombat* this, int unused)",
+   "no_signature": null,
+   "comment": "**The naval hour**, CCombat slot 15 overridden: CCombat::Tick first - which is the shared hour, modifiers, shooting, losses and all - and where that says the battle goes on, the roll to break off. From the third hour: `Random() % 1000 < (duration * 1000 + 10000 + (night ? 11000 : 1000) + wind speed * NAVALWINDSPEEDMODIFIER / 1000 + precipitation * NAVALRAINMODIFIER / 1000) / 1000`; on a pass every fleet of the attacker and then of the defender has `disengage` set to 1 where it was 0 and raised by one otherwise, and **the answer is 1 - the battle is over - at the first fleet that WantsToDisengage**. See reversing/findings/FINDINGS-seabattle.md, section 5.",
+   "confidence": "confirmed",
+   "evidence": "The listing 0x57BA00..0x57BB3E: `call CCombat::Tick` at 0x57BA10, both loops leave by `jne 0x57BA19`, which is `mov al, 1`.",
+   "source": "reversing/findings/FINDINGS-seabattle.md",
+   "revises": "The entry said it makes no virtual call and never reaches CCombatant slot 19, from a live watch on the wrong object; its first act is CCombat::Tick, which calls slot 19 of both sides. The signature's return is a bool, not void."
+  },
+  {
+   "rva": "0x1675D0",
+   "kind": "function",
+   "name": "CSubUnit::PickTarget",
+   "signature": "CSubUnit* __thiscall CSubUnit::PickTarget(CSubUnit* attacker, CNavalCombatant* side, CCombatant* other)",
+   "no_signature": null,
+   "comment": "**Who a ship shoots at this hour.** `p = (definition.positioning + side.positioning) * 100 * (1 + the country's naval_positioning_bonus)`, a whole number, halved at night for the second test. A remembered target (+0xB8/+0xBC) that still exists is forgotten on `Random() % 50 > p + 10`, and at night on a further `Random() % 100 > 80`; one of another country is kept only while its fleet is on the other side, and one of the ship's own country is kept a quarter of the time. With none: `Random() % 80 > p` means the ship has lost the enemy - no target, or with `Random() % 100 < 7 - the admiral's skill` **one of its own side's ships** (the walk does not stop at the ship drawn and ends on the last one of the side). Otherwise CNavalCombatant::CollectTargets fills the side's list with the enemy ships in reach, and the target is a random one of them, or - on `Random() % 100 <= CSubUnit::TargetingSkill / 10` - CNavalCombatant::PickBestTarget's. The pick is remembered. So positioning buys a ship a target at all, and keeps the one it has. See reversing/findings/FINDINGS-seabattle.md, section 4.",
+   "confidence": "confirmed",
+   "evidence": "Read from the decompiled C, 0x5675D0 to the `ret 8`: the draws at 0x5677BB (80), the friendly-fire walk over the side's own +0x40 list, the `idiv` over the count at +0x10B0.",
+   "source": "reversing/findings/FINDINGS-seabattle.md",
+   "revises": "The entry had the head and said the selection past the gate was not read, and that +0xB8/+0xBC were unidentified. Both are settled: they are the remembered target."
+  },
+  {
+   "rva": "0x167250",
+   "kind": "function",
+   "name": "CNavalCombatant::CollectTargets",
+   "signature": "void __thiscall CNavalCombatant::CollectTargets(CNavalCombatant* this, CNavalCombatant* out, CSubUnit* attacker)",
+   "no_signature": null,
+   "comment": "**Fills a side's target list with the enemy ships one ship can reach.** `this` is the side whose ships are looked at; the first argument is the side whose array (+0xB0, count at +0x10B0, 1024 at most) is filled; the second the shooting ship. A ship is added where its current_distance plus the shooter's is within the shooter's reach (definition firing_distance, scaled by `1 + precipitation * FIRINGRANGEMODIFIER`), its strength less its pending damage is not under 0, and - for a submarine - the shooter has a sub_attack and either the submarine has a target of its own remembered or `Random() % 100 <= sub_detection * 5`. See reversing/findings/FINDINGS-seabattle.md, section 4.",
+   "confidence": "confirmed",
+   "evidence": "Read from the decompiled C, 0x567250 on: `iVar11 + iVar4 <= iVar8` on the two +0xC8 fields, the bound `< 0x400` before the store.",
+   "source": "reversing/findings/FINDINGS-seabattle.md",
+   "revises": "Was inferred, with the filters unread and the receiver taken for the side being filled. The filters are read; the receiver is the side being looked at."
+  },
+  {
+   "rva": "0x167510",
+   "kind": "function",
+   "name": "CNavalCombatant::PickBestTarget",
+   "signature": "CSubUnit* __stdcall CNavalCombatant::PickBestTarget(CNavalCombatant* side)",
+   "no_signature": null,
+   "comment": "Of the ships on a side's target list, the one with the largest `priority * 1000 * ((its most strength - its strength) * 10 / 1000 + 250) / 1000`, the first of equals: the most valuable ship by the unit file's `priority`, and of two alike the more damaged. The 250 is the floor of the float 250.5 (0x1A881A4). The name is ours. See reversing/findings/FINDINGS-seabattle.md, section 4.",
+   "confidence": "confirmed",
+   "evidence": "The listing 0x567510..0x5675C5, `ret 4`: +0x194 of the definition, slot 12 of the sub unit with two zero flags, `jle` at 0x56759E keeping the first of equals.",
+   "source": "reversing/findings/FINDINGS-seabattle.md"
+  },
+  {
+   "rva": "0x1AC3C0",
+   "kind": "function",
+   "name": "CSubUnit::TargetingSkill",
+   "signature": "void __stdcall CSubUnit::TargetingSkill(CSubUnit* subunit@EDI, int* out@ESI)",
+   "no_signature": null,
+   "comment": "Ten times the skill of the leader of the sub unit's unit, plus a technology figure of its owner: CTechnologyStatus +0x74 for a ship, +0xC8 and +0xCC together for a wing. CSubUnit::PickTarget takes a tenth of it as the chance in a hundred of the best target in place of a random one. The name is ours. See reversing/findings/FINDINGS-seabattle.md, section 4.",
+   "confidence": "confirmed",
+   "evidence": "Read from the decompiled C; bare `ret`s at 0x5AC40F and 0x5AC42E.",
+   "source": "reversing/findings/FINDINGS-seabattle.md"
+  },
+  {
+   "rva": "0x16881A8",
+   "kind": "global",
+   "name": "k_thousandths_300",
+   "signature": null,
+   "no_signature": null,
+   "comment": "The int 300, from `(int)floor(300.5f)`: the base of the spread of a fleet's ships when CNavalCombatant::AddUnit draws them up, less the spread_out trait and not under 100. See reversing/findings/FINDINGS-seabattle.md, section 2.",
+   "confidence": "confirmed",
+   "evidence": "staticconst: written at 0xCC003B from the float at 0x160AAB4; two references.",
+   "source": "reversing/findings/FINDINGS-seabattle.md"
+  },
+  {
+   "rva": "0x16881A4",
+   "kind": "global",
+   "name": "k_thousandths_250",
+   "signature": null,
+   "no_signature": null,
+   "comment": "The int 250, from `(int)floor(250.5f)`: what CNavalCombatant::PickBestTarget adds to a hundredth of a ship's damage before weighing it by its priority. See reversing/findings/FINDINGS-seabattle.md, section 4.",
+   "confidence": "confirmed",
+   "evidence": "staticconst: written at 0xCC000B from the float at 0x160A688; three references.",
+   "source": "reversing/findings/FINDINGS-seabattle.md"
+  },
+  {
+   "rva": "0x164010",
+   "kind": "function",
+   "name": "CNavalCombat::MayLeave",
+   "signature": "bool __thiscall CNavalCombat::MayLeave(CNavalCombat* this)",
+   "no_signature": null,
+   "comment": "CCombat slot 12 for a naval battle: `duration > 3`. CUnit::MayLeaveCombats asks it before SetUnitPath gives a fighting unit a path, and CCombatant::HasLost before it asks IsSpent - so a fleet cannot be taken out of a sea battle in its first four hours. The base, and the land and air battles, hold the shared `true` there. The name is ours. See reversing/findings/FINDINGS-seabattle.md, section 5.",
+   "confidence": "confirmed",
+   "evidence": "Two instructions: `cmp dword ptr [ecx + 0x20], 3; setg al`. vtable.py --holding puts it in CNavalCombat's table alone.",
+   "source": "reversing/findings/FINDINGS-seabattle.md"
+  },
+  {
+   "rva": "0x1C0000",
+   "kind": "function",
+   "name": "CUnit::MayLeaveCombats",
+   "signature": "bool __stdcall CUnit::MayLeaveCombats(CUnit* unit@EAX) @AL",
+   "no_signature": null,
+   "comment": "True where some combat on the unit's list answers true to slot 12. That is the shared `true` for a land or an air battle, so a unit in one always may; **a naval battle answers `duration > 3`** (CNavalCombat::MayLeave). SetUnitPath asks it and does nothing for a unit that may not. The name is ours. See reversing/findings/FINDINGS-seabattle.md, section 5.",
+   "confidence": "confirmed",
+   "evidence": "As before, with vtable.py CCombat CNavalCombat CAirCombat --all for slot 12.",
+   "source": "reversing/findings/FINDINGS-seabattle.md",
+   "revises": "The entry said slot 12 is the shared `true` in every combat class. CNavalCombat has its own."
+  },
+  {
+   "rva": "0x17B850",
+   "kind": "function",
+   "name": "CNavalCombat::End",
+   "signature": "void __thiscall CNavalCombat::End(CNavalCombat* this)",
+   "no_signature": null,
+   "comment": "CCombat slot 14 for a naval battle and for a naval bombing: a strategic warfare call (0x464EE0, not read) and then CCombat::End. See reversing/findings/FINDINGS-seabattle.md, section 5.",
+   "confidence": "confirmed",
+   "evidence": "Read from the decompiled C; vtable.py --holding gives CNavalCombat and CNavalBombing, slot 14.",
+   "source": "reversing/findings/FINDINGS-seabattle.md"
+  },
+  {
+   "rva": "0x165670",
+   "kind": "function",
+   "name": "CCombatant::GetAverageOrganisation",
+   "signature": "int* __thiscall CCombatant::GetAverageOrganisation(CCombatant* this, int* out)",
+   "no_signature": null,
+   "comment": "CCombatant slot 22, one body in all seven tables: CUnitList::AverageOrganisation over the side's units. CCombatant::IsSpent is this under 1000, which is how a naval or an air side has lost. The name is ours. See reversing/findings/FINDINGS-seabattle.md, section 5.",
+   "confidence": "confirmed",
+   "evidence": "The listing: `lea eax, [ecx + 0x40]; call 0x5D6710`, `ret 4`.",
+   "source": "reversing/findings/FINDINGS-seabattle.md"
+  },
+  {
+   "rva": "0x1D6710",
+   "kind": "function",
+   "name": "CUnitList::AverageOrganisation",
+   "signature": "int* __stdcall CUnitList::AverageOrganisation(CUnitList* units@EAX, int* out@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "The average organisation of the sub units of a list of units: each unit's own average (slot 20) times its count of sub units, summed, over the count of them all. The name is ours. See reversing/findings/FINDINGS-seabattle.md, section 5.",
+   "confidence": "confirmed",
+   "evidence": "Read from the decompiled C and the listing, 0x5D6710 on: the list in EAX, the out at [ebp+8].",
+   "source": "reversing/findings/FINDINGS-seabattle.md"
+  },
+  {
+   "rva": "0x1C7C70",
+   "kind": "function",
+   "name": "CNavy::SendCarrierAircraft",
+   "signature": "void __stdcall CNavy::SendCarrierAircraft(CNavy* fleet)",
+   "no_signature": null,
+   "comment": "What CNavy::CheckOrderAndCombat calls for a fleet in a battle: for each ship with a carrier_size, each air unit aboard (the list at the ship's +0xDC) whose order is 0x56C, that is in the fleet's province, in no battle and no bombing, going nowhere and able to fight (slot 33), goes to CCombatManager::CheckForCombat for that province. How a carrier's aircraft join a sea battle. The name is ours. See reversing/findings/FINDINGS-seabattle.md, section 5.",
+   "confidence": "inferred",
+   "evidence": "Read from the decompiled C, 0x5C7C70 to the `ret 4` at 0x5C7E0A.",
+   "source": "reversing/findings/FINDINGS-seabattle.md"
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CUnit",
+   "offset": "0xAC",
+   "name": "disengage_to",
+   "type": "int",
+   "comment": "The id of the province a fleet in a battle is to go to once it has counted its `disengage` (+0xA8) up: CMoveCommand::RouteUnit puts an ordered move here in place of a path, CUnit::RetreatFromCombat where a fleet beaten in one battle is still in another, and the tail of CNavalCombatant::Attack finds the path once WantsToDisengage. CUnit::ShowFighting zeroes it with the count. See reversing/findings/FINDINGS-seabattle.md, section 5.",
+   "evidence": "The store of the command's target province in CMoveCommand::RouteUnit's naval arm and of the retreat province in CUnit::RetreatFromCombat, both from the decompiled C, and the reads at 0x568B87 and 0x568BC3 in CNavalCombatant::Attack.",
+   "source": "reversing/findings/FINDINGS-seabattle.md"
+  },
+  {
+   "struct": "CSubUnit",
+   "offset": "0xB8",
+   "name": "target_id_type",
+   "type": "int",
+   "comment": "The type half of the persistent id of the ship this one last shot at; with +0xBC, the remembered target CSubUnit::PickTarget keeps from hour to hour. Cleared by CCombatant::AddUnit and for a ship that cannot shoot. See reversing/findings/FINDINGS-seabattle.md, section 4.",
+   "evidence": "CSubUnit::PickTarget resolves the pair through FindPersistentById and stores the new target's +0x8/+0xC there.",
+   "source": "reversing/findings/FINDINGS-seabattle.md"
+  },
+  {
+   "struct": "CSubUnit",
+   "offset": "0xBC",
+   "name": "target_id",
+   "type": "int",
+   "comment": "The id half of the remembered target at +0xB8. See reversing/findings/FINDINGS-seabattle.md, section 4.",
+   "evidence": "As +0xB8.",
+   "source": "reversing/findings/FINDINGS-seabattle.md"
+  },
+  {
+   "struct": "CSubUnit",
+   "offset": "0xC0",
+   "name": "has_target",
+   "type": "bool",
+   "comment": "Set when CSubUnit::PickTarget found a target this hour and cleared when it did not. See reversing/findings/FINDINGS-seabattle.md, section 4.",
+   "evidence": "The two stores at the end of CSubUnit::PickTarget.",
+   "source": "reversing/findings/FINDINGS-seabattle.md"
+  },
+  {
+   "struct": "CTechnologyStatus",
+   "offset": "0x74",
+   "name": "naval_targeting_bonus",
+   "type": "int",
+   "comment": "A technology figure CSubUnit::TargetingSkill adds for a ship: a tenth of it, with the admiral's skill, is the chance in a hundred that a ship takes the best target in reach. Named by its one use; which technology key fills it was not read. See reversing/findings/FINDINGS-seabattle.md, section 4.",
+   "evidence": "CSubUnit::TargetingSkill, the naval arm.",
+   "source": "reversing/findings/FINDINGS-seabattle.md"
+  },
+  {
+   "struct": "CCombat",
+   "offset": "0x2B",
+   "name": "flag",
+   "type": "uint8_t",
+   "comment": "A flag the history entry keeps at its +0x20. **Read in the naval battle as what a convoy raid would set** (inferred; its writer is unread): while it is set CCombat::Tick asks HasLost of neither side, an attacking ship shoots with convoy_attack in place of sea_attack, a defending ship's hit does an eightieth of its strength damage and twice its organisation damage, and a fleet that disengages keeps its order. See reversing/findings/FINDINGS-seabattle.md, section 6.",
+   "evidence": "The four reads in CNavalCombatant::Attack and the one in CCombat::Tick.",
+   "source": "reversing/findings/FINDINGS-seabattle.md",
+   "revises": "The comment only: the name stays `flag` until the writer is read."
+  }
+ ],
+ "vftable_slots": {
+  "CNavalCombat": {
+   "12": {
+    "name": "MayLeave",
+    "signature": "bool __thiscall MayLeave(CNavalCombat* this)"
+   },
+   "14": {
+    "name": "End",
+    "signature": "void __thiscall End(CNavalCombat* this)"
+   }
+  },
+  "CNavalBombing": {
+   "14": {
+    "name": "End",
+    "signature": "void __thiscall End(CNavalCombat* this)"
+   }
+  },
+  "CCombatant": {
+   "22": {
+    "name": "GetAverageOrganisation",
+    "signature": "int* __thiscall GetAverageOrganisation(CCombatant* this, int* out)"
+   }
+  }
+ },
+ "slots_noted": "0x57B570 is slot 7 of CLandCombat, CNavalCombat and CAirCombat alike and of no base, so it is described in the write-up and not named.",
+ "frontier": [
+  "0x57B570",
+  "0x464EE0",
+  "0x684CE0",
+  "0x5D6540",
+  "0x57F700",
+  "0x7049E0"
+ ],
+ "notes": [
+  "Nothing here was watched in a running game.",
+  "CCombat +0x2B keeps the name `flag`; what it means is inferred from five reads."
+ ]
+}
