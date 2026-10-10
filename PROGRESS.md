@@ -114,14 +114,14 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CAddPlayer` | `CCommand` |  |  |  | 1 |  | 1 | keys |  |
 | `CAddTraitEntry` | `CLeaderHistoryEntry` |  |  |  | 2 |  |  | RTTI |  |
 | `CAddWarGoalAction` | `CWarGoalBaseAction` |  |  |  |  |  |  | RTTI |  |
-| `CAir` | `CUnit` |  |  |  | 8 |  | 2,052 | keys |  |
+| `CAir` | `CUnit` |  |  |  | 9 |  | 2,052 | keys |  |
 | `CAirCombat` | `CCombat` |  |  | 4/6 | 4 |  | 4 | RTTI |  |
-| `CAirCombatant` | `CCombatant` | 0x10B4 | 2 |  | 4 |  | 28 | keys |  |
+| `CAirCombatant` | `CCombatant` | 0x10B4 | 2 |  | 7 |  | 28 | keys |  |
 | `CAirConvoyRaid` | `CAirOrder` |  |  |  | 1 |  |  | RTTI |  |
-| `CAirInterceptOrder` | `CAirOrder` |  |  |  | 5 |  | 208 | RTTI |  |
+| `CAirInterceptOrder` | `CAirOrder` |  |  |  | 10 |  | 208 | RTTI |  |
 | `CAirInterdictionOrder` | `CAirOrder` |  |  |  | 1 |  |  | RTTI |  |
-| `CAirOrder` | `COrder` |  | 5 |  | 2 | COrder.hpp | 2,493 | read |  |
-| `CAirPatrol` | `CAirOrder` |  |  |  | 1 |  |  | RTTI |  |
+| `CAirOrder` | `COrder` |  | 10 |  | 10 | COrder.hpp | 2,493 | read |  |
+| `CAirPatrol` | `CAirOrder` |  |  |  | 6 |  |  | RTTI |  |
 | `CAirReserveOrder` | `CAirOrder` |  |  |  | 2 |  |  | keys |  |
 | `CAlign` | `CRelation` |  |  | 5/5 | 1 |  | 9 | RTTI |  |
 | `CAlignment` | `CPersistent` |  | 4 |  | 17 |  | 108 | keys |  |
@@ -308,7 +308,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CTraitGainTracker` | `CPersistent` |  | 4 |  | 6 | CTrait.hpp | 24,137 | keys |  |
 | `CTransportSuppliesOrder` | `CAirOrder` |  |  | 2/2 | 2 |  |  | placed |  |
 | `CUndeclaredWar` | `CPersistent` |  | 6 |  | 3 | CWar.hpp | 1 | read | **read**: the save's record of a war nobody declared |
-| `CUnit` | `PAVCSubUnit::__CList` `CSelectable` `CReferenceObject` |  | 97 + 1 lua |  | 97 | CUnit.hpp |  | read |  |
+| `CUnit` | `PAVCSubUnit::__CList` `CSelectable` `CReferenceObject` |  | 99 + 1 lua |  | 99 | CUnit.hpp |  | read |  |
 | `CUnitDeployment` | `CDeployment` |  |  | 3/4 | 4 |  | 49 | placed |  |
 | `CUnitPlan` | `CPersistent` | 0x90 | 15 | 10/16 | 13 |  | 8,827 | read | **read**: a battle plan as the save keeps it |
 | `CVariables` | `_0A::anon::PAUCVariable::__CTernary` `CPersistent` |  | 1 |  | 3 | CFlags.hpp | 216 | part |  |
