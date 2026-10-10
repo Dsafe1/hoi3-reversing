@@ -112,7 +112,10 @@ In this order:
    - a land battle: where either side has no units (`CCombatant +0x48`), or both lists of the
      attacker's side window are empty, or both of the defender's;
    - a naval battle: where either side has no units;
-   - an air battle or a bombing: where a `planes` list is empty.
+   - an air battle: where the attacker's `planes` list is empty, or the defender's;
+   - a bombing: where the **attacker's** `planes` list is empty. The defender's is not asked
+     (the listing `0x730220`..`0x730440`, read on 2026-10-10: slot 8 first with the child
+     `attacker` alone, then kind 3 with both).
 8. Otherwise: `UpdateSides(false)`; the child `attacker` is put at the place of the icon
    `left_pos` and `defender` at `right_pos`; and unless the byte at `+0x68` is set, when the
    sound it last started (`+0x84`) is over it starts another: `land_combat_` 1 to 6,
@@ -155,7 +158,8 @@ Then, for every kind of battle:
   **where that file exists**; without it the picture is left as it was.
 
 For a naval battle the side has one list, `ships`, a label `SHIPS_LABEL` and a `positioning`
-figure; for an air battle one list, `planes`, and `PLANES_LABEL`. Neither was read further.
+figure - section 12; for an air battle and for a bombing one list, `planes`, and `PLANES_LABEL`
+- section 13.
 
 ## 5. A unit in a list: `CUnitOption`
 
@@ -243,6 +247,15 @@ which is what brings the window up, by section 1 - and centres the map on the ba
 with the battle - and how it is placed and turned. Read again here for what that write-up left
 open:
 
+- **Which battles, and from when** (read on 2026-10-10, from the tail of `CCombat::Tick`,
+  `0x56EBE0`). The call is the last thing in the block that asks each side whether it has lost,
+  so it is not reached before the battle's **fourth hour** (`duration > 3`, the count already
+  added to this hour) and never for a convoy battle; and it is made only where slot 8 says the
+  battle is **no bombing**, its kind is **neither 3 nor 2**, and the player is among the
+  defender's countries or the attacker's. `findRefs.py --callers 0x57BD70` gives that one call
+  in the image. So **the marker is a land battle's alone**: a battle at sea, a battle in the
+  air and a bombing have none, and a land battle has none in its first three hours. Section 14
+  has what the map shows of the others.
 - **The frame**, from the listing of `0x57C1E7..0x57C296`. The player's id is looked for among the
   **defender's** countries:
 
@@ -458,8 +471,133 @@ with the **ship's own** two products (`CSubUnit +0x54`, `+0x50`) and nothing of 
 Section 3 already has the rest of what differs for a naval battle: `combat_naval_bg` shown and
 `combat_terrain` hidden, `combat_attack_indicator` hidden, the retreat button enabled by
 `CNavalCombat::MayLeave` - not in the battle's first four rounds - and the window gone when
-either side has no unit. The marker of section 9 is the base class's and is the same for a
-battle at sea.
+either side has no unit.
+
+**Corrected 2026-10-10: a battle at sea has no marker.** This section ended "the marker of
+section 9 is the base class's and is the same for a battle at sea". The routine is the base
+class's, but its one caller leaves out kinds 2 and 3 and every bombing - section 9.
+
+## 13. The air side, and a bombing's
+
+Read on 2026-10-10 for the rewrite's air combat on screen. An air battle (kind 3) and a bombing
+(kinds 4 to 6, slot 8) both take the side window **`air_combat_side`**, twice, the background
+`combat_air_bg`, no picture of the ground and no arrow between tactics. The retreat button is
+always enabled: slot 12 is the shared "true" for `CAirCombat` and for the three bombings.
+
+**`CCombatView::UpdateSide`, the air arm** (`0x733285`..`0x73360A`):
+
+- **`planes_label`**: the two bytes of yellow, `CUnitList::CountSubUnits` of the side's units,
+  white and a space, and the text `PLANES_LABEL` - as `ships_label` is made.
+- **The list `planes`**: where it has as many rows as `CUnitList::SumSubUnitCounts` (`0x5D6670`,
+  each unit's own count added up) and every row's sub unit still resolves
+  (`CWingOption::GetSubUnit`, `0x72E650`) and is on a unit of the side, each row is only
+  refreshed (its slot 8); otherwise the list is emptied and a `CWingOption` made for every sub
+  unit of every unit, **in the side's order of units and each unit's order of sub units**.
+
+**The bombing arm** (`0x73360F`..`0x733DCA`):
+
+- **`planes_label`**: the attacker's as above; **the defender's is set to nothing**.
+- **The defender's list has more than units in it.** Where the attacker has a unit, with
+  `order` the order of the attacker's **first** unit and `province` the battle's:
+
+      for each building of the game's list, in its order:
+          the building's slot 8 (which was not identified), and order's slot 30 (bombs this building),
+          and the province has built any of it (its building's +0x20 above 0)   ->  a row
+      for each good from 0 to 6:
+          order's slot 31 (bombs stockpiles of this good)                        ->  a row of what is held
+          order's slot 32 (bombs production of this good)
+          and the province can make any (CMapProvince +0x294 + good * 4 above 0) ->  a row of what is made
+
+  and then, as the attacker's list has alone, a row for every sub unit of every unit of the side.
+- The list is filled again when its number of rows is not that number, when a row is no longer
+  there (`CWingOption::IsStillThere`, `0x72E690`: a sub unit's row by its id, a building's by
+  slot 8 of its definition, a good's always), when a row's sub unit is on no unit of the side,
+  or when the routine's last argument - the constructor's "first" - is set.
+
+Then the leader and the shield, as section 4 has them for every kind; neither kind has a tactic.
+
+**`CWingOption::CWingOption`** (`0x72C160`; `0x44` bytes), a list entry made from the window
+**`wing_option`**. It keeps the id of a sub unit (`+0x28`), a building of the province (`+0x30`),
+a good made (`+0x34`) and a good held (`+0x38`) - 7 for neither - the province (`+0x3C`) and the
+battle (`+0x40`), and is one of four things:
+
+| the row stands for | `name` | the picture |
+| --- | --- | --- |
+| a sub unit | its name (slot 8) | `counter_type` takes the sprite `GFX_counter_` + the key of its definition, **where a sprite of that name exists**; `produce` and `pool` hidden |
+| a building | the building's name (slot 6 of its definition) | `counter_type` takes `icon_build_` + the building's key, where there is such a sprite; `produce` and `pool` hidden |
+| a good held | the good's name | `pool` takes the frame good + 1; `counter_type` is left as the file gives it |
+| a good made | the good's name | `produce` takes the frame good + 1; `counter_type` likewise |
+
+A good's name is `GoodName` (`0x523860`): the text whose key is `SUPPLIES_IRO`, `FUEL_IRO`,
+`MONEY_IRO`, `CRUDE_OIL_IRO`, `METAL_IRO`, `ENERGY_IRO` or `RAREMAT_IRO` for goods 0 to 6 (the
+table at `0x170AF54`). The entry's group is `wing_option`.
+
+**`CWingOption::Update`** (`0x72C950`, slot 8), each bar a whole number of hundredths:
+
+| the row stands for | `str_bar` | hidden |
+| --- | --- | --- |
+| a sub unit | strength * 1000 / its full strength (slot 12); and `org_bar` is organisation * 1000 / the definition's `max_organisation` | `produce`, `pool` |
+| a building | its present level (`+0x24`) * 1000 / its built level (`+0x20`) | `org_bar`, `produce`, `pool` |
+| a good held | the province's pool of it (`CMapProvince +0x164 + good * 4`) * 1000 / **200000** - full at two hundred | `org_bar`, `produce` |
+| a good made | what the province makes of it now (`+0x270 + good * 4`) * 1000 / the most it can make (`+0x294 + good * 4`) | `org_bar`, `pool` |
+
+So a strategic bombing's window shows the factory, the anti-aircraft guns and the rest wearing
+down as bars, beside the wings that do it. **The rows are by the first bomber's order**: a
+second unit under another order adds nothing to the list.
+
+**The share** behind the bar is section 10's for every kind, and it is taken **sub unit by sub
+unit**: `CCombatant::SumSubUnitStrength` asks each sub unit's slot 9 and gives a land one the
+land arm - its unit's products and a tenth of its arms - and a ship or a wing its own two
+products and nothing else. So the regiments of a division under bombs are worth what they are
+in a land battle, and a side with no unit is worth the least there is, 1.
+
+**The row in a unit's panel** (section 8) is made for a unit's bombing as for its battles, and a
+bombing's slot 9 is the shared "true", so the row is written for as long as the bombing is the
+unit's. Its name is `BOMBING_OF` and the province.
+
+## 14. What the map shows of a battle that is not on land
+
+Read on 2026-10-10. With no marker of their own (section 9), an air battle and a bombing are on
+the map only **after they are over, and only in the air map mode** - mode 18, `mapmode_15` of
+`FINDINGS-mapmode.md`. `CInGameIdler::DailyUpdate` (`0x661CA0`) calls **`UpdateAirMapIcons`**
+(`0x86A1E0`) in that mode, as it calls the supply colours in mode 4; the routine has two more
+callers (`0x66801A`, `0x678A20`) that were not read.
+
+It goes through **the combat manager's list of finished battles** (`FINDINGS-combat.md`) and
+keeps three counts for every province. For each entry of kind 3 or of kinds 4 to 6, by the
+entry's province:
+
+    ours  =  the player owns the province, or controls it, or is the entry's defender
+          or the entry's defender is a country other than REB, and
+                 is on the player's side (CCountry::IsSameSide)
+                 or exists and is no enemy of the player's
+    if ours:                              a bombing counts as "bombed us", an air battle as an air battle
+    else if the player is the entry's attacker
+         or the attacker passes CCountry::CanOperateIn
+         or the entry's defender is the player's enemy:
+                                          a bombing counts as "bombed them", an air battle as an air battle
+    else:                                 the entry is left out
+
+Then for every province three billboards of `interface/mapitems.gfx`, each made when its count
+is above 0 and destroyed when it is not:
+
+| count | type | routine | vector given to its slot 33 |
+| --- | --- | --- | --- |
+| bombed us | `air_bombed_us_icon` | `ShowBombedUsIcon` (`0x642690`) | (0, 3, 3) |
+| bombed them | `air_bombed_them_icon` | `ShowBombedThemIcon` (`0x6427F0`) | (0, 3, -3) |
+| air battles | `air_battle_icon` | `ShowAirBattleIcon` (`0x642530`) | (3, 3, 0) |
+
+What slot 33 does with the vector was not read; the three differ so that the icons of one
+province do not lie on one another. The routine then goes on to two more icons of each land
+province, by the levels of two of its buildings (`CMapProvince +0x304`, `+0x308`) - the level
+for a province the player knows better than 1, and otherwise only whether there is one.
+
+The naval mode, 19, has its own routine (`0x86A6F0`) and its own icons -
+`naval_convoy_sunk_icon`, `naval_raider_attacked_icon` and their two fellows - which were not
+read. `airnaval_combat_icon` is declared in the file and named nowhere in the image.
+
+**Not read:** the mode's colours and its tooltip (`AIR_TOOLTIP_*`), when an entry leaves the
+list of finished battles, and `0x86AD60`, the mode's second call.
 
 ## What was not read, and what is not established
 
@@ -467,8 +605,9 @@ battle at sea.
   `0x734720`).
 - **The object at `CInGameIdler +0x1CC0`** that opening a battle hides.
 - **How a technology's `tactic_` figures reach the country's table**, and `CTraitTrigger`.
-- **The air side** of the window beyond its element names (the naval side is section 12), the
-  tooltip at `0x72BD70`, and everything a tooltip writes - a ship entry's own among them.
+- The tooltip at `0x72BD70`, and everything a tooltip writes - a ship entry's and a wing
+  entry's own among them.
+- **The air map mode** beyond its three icons, and the naval mode's icons: section 14.
 - **What the two frames of a ship's picture show**, and the ship entry's button handler.
 - **The second pair of multipliers** (`CUnit +0xF4`, `+0xF8`): reset to 1000 with the products
   and read by the share and by `FireUnit`; no writer of any other value was found in what was

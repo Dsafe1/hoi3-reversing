@@ -308,7 +308,9 @@ It also bears out section 4: the unit's own name, cut to eight characters, with
 `FINDINGS-fieldmap.md` lists for `CMapRenderingOptions`.
 
 `positions.txt` gives a province one `unit` point and nothing else for units (2754 `unit`
-blocks in Their Finest Hour's), so the five points of section 6 are made from that one.
+blocks in Their Finest Hour's), so the five points of section 6 are made from that one -
+by `CProvinceTemplate::SetStackPoints`, read on 2026-10-10 (`FINDINGS-movement.md`,
+section 9): the aircraft's point is the standing one.
 
 ## 9. The pointer beside a moving unit's counter
 

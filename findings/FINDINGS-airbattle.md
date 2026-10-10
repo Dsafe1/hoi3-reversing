@@ -273,6 +273,12 @@ hour, which comes after that hour's movement. **An air unit out of a battle has 
 which it may move and cannot be fought.** `CUnit::AdvanceMovement` zeroes both counts on one
 of its paths (`0x5CA8DE`), which was not followed.
 
+> *Corrected 2026-10-10, the same day, by `FINDINGS-bombing.md` section 12, which followed
+> it.* That path is **every pass of the march of a unit that is in no battle**. So the hour
+> holds only while the unit stays where it is: its first move wipes both counts, and it may
+> start or join a battle in the very next province it enters. And the count is the unit's own
+> - it keeps *it* from starting or joining; a unit that finds it is not asked for its.
+
 ## 5. The shot: `CAirCombatant::Attack` (`0x56D750`)
 
 After the leaders' hours and the practical's gain (`0x565430` with `AIR_DOCTRINE_INCREASE`),

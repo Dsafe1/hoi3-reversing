@@ -220,6 +220,13 @@ Constructor `0x752710`, update `0x752880`: the instant text box `orders` takes
 path that is not retreating gets a `CCancelMovementCommand`**; otherwise, where the order's
 slot 12 says it may be cancelled, a `CSetOrderCommand` for a null order.
 
+**Which orders slot 12 lets go** (`vtable.py`, 2026-10-10): every order class holds the
+shared "true" (`0xA92590`) there **but `CRebaseAirOrder`**, which holds the shared "false"
+(`0x592360`). So the button takes back every mission and move of a fleet or an air unit, and
+not an air unit's change of base. A null order does not touch the unit's path: **a fleet sent
+somewhere keeps sailing** when its order is taken back, and an air unit away from home is sent
+there by the null order itself (`FINDINGS-seaair.md`, section 3, step 2).
+
 `CUnit::DescribeOrder` (`0x5D2E90`, the unit in ECX, the string out on the stack):
 
     the order's slot 24 says it describes itself          -> the order's own text (slot 15)

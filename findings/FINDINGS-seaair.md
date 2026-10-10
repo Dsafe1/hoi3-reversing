@@ -237,7 +237,13 @@ through, in order:
 
 1. the two "estimate is stale" bytes are set and `0x5CB630` is called;
 2. `order->slot14()`; false: the unit's two dates `+0xCC` and `+0xD0` go to null and its order
-   becomes a null order;
+   becomes a null order. **The null order's own slot 14** (`CNullOrder::IsActive`,
+   `0x5877E0`, read on 2026-10-10) always answers true, and on the way sends an air unit
+   home: one with no path, not at its own base, in no battle (`+0x11C`) and no bombing
+   (`+0x110`), and with a base is given the way to its base's province where there is one.
+   So an air unit whose order is taken back - the unit panel's cancel button,
+   `FINDINGS-unitpanel.md`, section 6 - stays over a bombing or a battle it is in and flies
+   home the hour after it ends;
 3. an air unit whose order's slot 24 is false and whose base is a carrier gets order `0x56C`
    for the province it is in;
 4. an air unit away from its base: with less strength in all than `floor(1.5)` it is removed;

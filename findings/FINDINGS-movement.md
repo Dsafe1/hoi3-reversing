@@ -248,6 +248,12 @@ dates to null, a null order if asked, out of any battle it was attacking in, pro
 arrow counter zeroed, the path emptied, the avatar back to `idle` at the standing point, and -
 standing on enemy ground, not retreating, in no battle - `CheckForCombat`.
 
+**The halt the player gives is that, with the order reset**: `CCancelMovementCommand::Execute`
+(`0x5D9770`, slot 6; read 2026-10-10) finds the unit by its id and calls
+`CUnit::CancelMovement(unit, true)` and nothing else. Both a click on the unit's own province
+and the unit panel's cancel button (for a land unit with a path that is not retreating,
+`FINDINGS-unitpanel.md`, section 6) post it. The attack delay is not touched.
+
 `CUnit::NextArrivalHour` (`0x5CA1A0`) is what an arrival date is shown from:
 
     hours = ceil( (distance - progress) / speed )
@@ -490,8 +496,38 @@ province's name is written.
 
 A fleet in a land province is put at the naval base position instead, and a wing at its own
 base at the province's unit point, each less the label point `+0x5C/+0x60`. Points 2 and 3
-are the two sides of a battle (`FINDINGS-counters.md`). What writes the five was still not
-found.
+are the two sides of a battle (`FINDINGS-counters.md`).
+
+**What writes the five** - found on 2026-10-10, after the maintainer saw an air unit in the
+rewrite stand apart from the units it was bombing - is **`CProvinceTemplate::SetStackPoints`**
+(`0x4AB310`, the template in EAX, a bare `ret`), read off its listing. Each point is
+(x, height, y), an offset from the label point:
+
+| point | | x, y |
+| --- | --- | --- |
+| 0 | standing | the unit point (`+0x64/+0x68`) less the label point |
+| 1 | on the move | point 0 + (2.5, 1.0) |
+| 2 | one side of a battle | point 0; **at sea only**, + (-2.4, -2.4) |
+| 3 | the other side | point 0; **at sea only**, + (2.4, 2.4) |
+| 4 | **air units** | **point 0** - copied from it as the routine's last act |
+
+So **a stack of aircraft stands on the same point as the standing stack** - the original's
+screenshot of a bombing has the bombers' counter lying over the defenders' stack, a quarter
+of a counter south and east of its top counter, which is the four counters under that top one
+fanned 0.3 west and north each. On land the two battle points are the standing point too: the
+land branch (is_land, `+0x22`, set) looks the heights of points 2 and 3 up at their offsets
+and never moves them by those offsets, which only a sea zone gets. Where it is land each
+height is 0.5, plus 0.02 where the province under the point is land - the arrow's 0.02 of
+section 10. The offsets are floats of the image: 2.5 (`0x171DBBC`), 1.0 (`0x171DBAC`), -2.4
+(`0x160A60C`), 2.4 (`0x160A608`), 0.02 (`0x17179B0`), and the double 0.5 (`0x160A308`). Its four
+callers (`0x69F6F7`, `0x69FA07`, `0x69FD17`, `0x856BC4`) were not read; each comes just after
+the province's hemisphere byte (`+0xA2`) is set, which is what the positions loader does
+beside the unit point.
+
+`inferred`: that the third coordinate grows northwards, as the map's y does - the rewrite's
+moving stack, measured on a screenshot as 2.6 east and 1.5 north, agrees in x and is half a
+unit off in y, which is within what a tilted view and a fanned stack make of a screen
+measurement.
 
 **The five are offsets from the province's label point, not places on the map.**
 `CUnit::MakeArrow` (section 10) starts its arrow at

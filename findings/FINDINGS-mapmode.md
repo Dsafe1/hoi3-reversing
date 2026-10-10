@@ -341,6 +341,10 @@ writes, read out of its setter:
 Air and Naval are exactly the two modes where the sea is coloured in game, and they are
 exactly the two that pass the test. That is the whole explanation.
 
+*Added 2026-10-10: the Air mode is also where the map shows air battles and bombings - three
+icons to a province, made each day from the list of finished battles.
+`FINDINGS-combatview.md`, section 14.*
+
 *Corrected 2026-10-10: this table had a row "6 - Supply". The supply setter (`0x266EE0`) writes
 9, at `0x267074`, with the layer mask `0xFFBA`; nothing was found writing 6. See
 `FINDINGS-supplyconvoys.md`, section 1. The correction does not touch the argument above: 9 fails
