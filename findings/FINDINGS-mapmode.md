@@ -345,6 +345,11 @@ exactly the two that pass the test. That is the whole explanation.
 icons to a province, made each day from the list of finished battles.
 `FINDINGS-combatview.md`, section 14.*
 
+*Added 2026-10-11: "generic path" in the table above is true of the colouring dispatch only. The
+Air mode's setter (`0x267EE0`) colours the map itself, through `MapMode_Air_Colour`
+(`0x4673B0`): grey, green under the player's intercepts, red under its air superiority. It also
+draws circles of range round the player's air bases. `FINDINGS-airmap.md`.*
+
 *Corrected 2026-10-10: this table had a row "6 - Supply". The supply setter (`0x266EE0`) writes
 9, at `0x267074`, with the layer mask `0xFFBA`; nothing was found writing 6. See
 `FINDINGS-supplyconvoys.md`, section 1. The correction does not touch the argument above: 9 fails

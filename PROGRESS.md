@@ -25,12 +25,12 @@ how many objects a census found (taken 2026-09-20).
 
 | | classes |
 | --- | --- |
-| `read` | 83 |
+| `read` | 85 |
 | `placed` | 160 |
 | `keys` | 81 |
 | `part` | 43 |
 | `named` | 6 |
-| `RTTI` | 768 |
+| `RTTI` | 766 |
 | **all** | **1141** |
 
 ## What to read next
@@ -118,10 +118,10 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CAirCombat` | `CCombat` |  |  | 4/6 | 4 |  | 4 | RTTI |  |
 | `CAirCombatant` | `CCombatant` | 0x10B4 | 2 |  | 7 |  | 28 | keys |  |
 | `CAirConvoyRaid` | `CAirOrder` |  |  |  | 3 |  |  | RTTI |  |
-| `CAirInterceptOrder` | `CAirOrder` |  |  |  | 10 |  | 208 | RTTI |  |
+| `CAirInterceptOrder` | `CAirOrder` |  |  |  | 11 |  | 208 | RTTI |  |
 | `CAirInterdictionOrder` | `CAirOrder` |  |  |  | 4 |  |  | RTTI |  |
-| `CAirOrder` | `COrder` |  | 11 |  | 16 | COrder.hpp | 2,493 | read |  |
-| `CAirPatrol` | `CAirOrder` |  |  |  | 6 |  |  | RTTI |  |
+| `CAirOrder` | `COrder` |  | 12 |  | 17 | COrder.hpp | 2,493 | read |  |
+| `CAirPatrol` | `CAirOrder` |  |  |  | 7 |  |  | RTTI |  |
 | `CAirReserveOrder` | `CAirOrder` |  |  |  | 2 |  |  | keys |  |
 | `CAlign` | `CRelation` |  |  | 5/5 | 1 |  | 9 | RTTI |  |
 | `CAlignment` | `CPersistent` |  | 4 |  | 17 |  | 108 | keys |  |
@@ -157,8 +157,8 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CClearBookmark` | `CCommand` |  |  |  |  |  | 1 | RTTI |  |
 | `CCoastlines` | `CPersistent` |  |  |  |  |  | 1 | RTTI |  |
 | `CCombat` | `CPersistent` `CSelectable` |  | 17 | 4/6 | 25 | CCombat.hpp | 24 | read |  |
-| `CCombatHistory` | `CPersistent` |  | 3 |  | 2 | CCombatManager.hpp | 1 | keys |  |
-| `CCombatHistoryEntry` | `CPersistent` |  | 9 | 5/6 | 2 |  | 413 | read |  |
+| `CCombatHistory` | `CPersistent` |  | 4 |  | 3 | CCombatManager.hpp | 1 | keys |  |
+| `CCombatHistoryEntry` | `CPersistent` |  | 10 | 5/6 | 2 |  | 413 | read |  |
 | `CCombatManager` | `CPersistent` |  | 3 | 1/7 | 8 | CCombatManager.hpp | 1 | placed |  |
 | `CCombatant` | `CPersistent` |  | 23 | 4/6 | 20 | CCombat.hpp |  | read |  |
 | `CConstruction` | `CReferenceObject` |  | 10 + 2 lua |  | 4 | CConstruction.hpp |  | read |  |
@@ -227,7 +227,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CLobbyStartGame` | `CCommand` |  |  |  |  |  | 1 | RTTI |  |
 | `CLoginHandler` | `TLoginInterface` `CLoginObservable` |  |  |  |  |  |  | RTTI |  |
 | `CMapPoint` | `CPersistent` | 0x10 | 2 |  | 2 |  | 879,780 | keys |  |
-| `CMapProvince` | `CProvince` |  | 75 | 14/26 | 12 | CMapProvince.hpp | 28,380 | read |  |
+| `CMapProvince` | `CProvince` |  | 80 | 14/26 | 12 | CMapProvince.hpp | 28,380 | read |  |
 | `CMapRenderingOptions` | `CPersistent` |  |  | 2/9 | 1 |  | 1 | placed |  |
 | `CMessageHandlerInterface` | `CReferenceObject` |  |  |  |  |  |  | RTTI |  |
 | `CMessageType` | `CPersistent` |  |  | 1/7 | 1 |  | 185 | placed |  |
@@ -271,7 +271,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CRebelFaction` | `CReferenceObject` |  | 17 | 8/10 | 1 | CRebelFaction.hpp | 1 | read |  |
 | `CReferenceObject` | `CPersistent` |  |  |  | 1 |  | 4,725 | keys |  |
 | `CRegiment` | `CSubUnit` | 0xD8 | 1 | 8/13 | 4 | CRegiment.hpp | 27,277 | part |  |
-| `CRegion` | `CPersistent` `H::__CArray` |  | 3 + 2 lua |  |  |  | 2,308 | part |  |
+| `CRegion` | `CPersistent` `H::__CArray` |  | 5 + 2 lua |  |  |  | 2,308 | read |  |
 | `CRelation` | `CPersistent` | 0x24 | 5 | 5/5 | 1 |  | 6,684 | read |  |
 | `CRemoveTraitEntry` | `CLeaderHistoryEntry` |  |  |  | 2 |  |  | RTTI |  |
 | `CReopenLobby` | `CCommand` |  |  |  |  |  | 1 | RTTI |  |
@@ -346,7 +346,7 @@ Definitions out of `common/` and the rest of the mod. Their `LoadKey` is the gra
 | `CCounterType` | `C3dObjectType` |  | 26 | 11/18 | 2 |  | 2 | read | **read**: how a map counter is drawn, 18 keys |
 | `CCountryHistoryEntry` | `CHistoryEntry` |  | 1 |  | 1 |  |  | part |  |
 | `CCovertOpsMission` | `CPersistent` |  |  | 1/4 | 1 |  | 39 | placed |  |
-| `CDefines` | `CPersistent` |  | 8 | 1/11 | 1 | CDefines.hpp | 1 | read | **read**: the nine top-level blocks of `defines.lua` |
+| `CDefines` | `CPersistent` |  | 10 | 1/11 | 1 | CDefines.hpp | 1 | read | **read**: the nine top-level blocks of `defines.lua` |
 | `CDirectorySettings` | `CPersistent` |  |  |  | 1 |  | 1 | keys | **read**: the path table; `replace` and `extend` are how a mod says whether its folder replaces the base game's |
 | `CDivisionTemplate` | `CPersistent` |  |  |  |  |  | 1,955 | RTTI |  |
 | `CEU3Application` | `CApplication` |  | 4 |  | 8 |  | 2 | keys | plumbing: the settings file |
@@ -372,7 +372,7 @@ Definitions out of `common/` and the rest of the mod. Their `LoadKey` is the gra
 | `CLawGroup` | `PAVCLaw::__CList` `CPersistent` |  | 3 + 2 lua |  | 1 |  | 8 | keys |  |
 | `CLocalIntelBoost` | `CIntEffect` |  |  | 3/91 |  |  | 9 | RTTI |  |
 | `CMTTHModifier` | `CAndTrigger` |  | 1 | 1/1 | 1 |  | 650 | placed |  |
-| `CMap` | `CPersistent` `CReloadableInterface` |  | 39 | 15/22 | 16 | CMap.hpp | 2 | read | the map load rather than a `common/` file |
+| `CMap` | `CPersistent` `CReloadableInterface` |  | 41 | 15/22 | 17 | CMap.hpp | 2 | read | the map load rather than a `common/` file |
 | `CMasked3dFlagType` | `C3dObjectType` |  |  | 1/4 | 1 |  | 1 | placed |  |
 | `CMaskedSpriteType` | `CSpriteType` |  |  |  | 1 |  | 12 | keys |  |
 | `CMeanTimeToHappen` | `CPersistent` |  |  | 5/5 | 3 |  | 9,821 | placed | **read**: the MTTH grammar every event and decision is timed by |
@@ -424,13 +424,13 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CAirCombatMember` | `COutLinerMember` |  |  |  |  |  |  | RTTI |  |
 | `CAirDefenceComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CAirMember` | `COutLinerMember` |  |  |  |  |  |  | RTTI |  |
-| `CAirOrdersView` | `COrdersView` |  |  |  | 3 |  |  | RTTI |  |
+| `CAirOrdersView` | `COrdersView` | 0x37C | 21 |  | 24 |  |  | read |  |
 | `CAirSortInterface` |  |  |  |  |  |  |  | RTTI |  |
 | `CAirStanceChangeEntry` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
 | `CAlliedItem` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
 | `CAlliedObjectiveMember` | `COutLinerMember` |  |  |  |  |  |  | RTTI |  |
 | `CApplicationObservable` | `VCApplicationClassObservable::anon::VCApplicationObserver::__CObservable` |  |  |  |  |  |  | RTTI |  |
-| `CAreaCircleObject` | `C3dVisibleObject` |  |  |  |  |  |  | RTTI |  |
+| `CAreaCircleObject` | `C3dVisibleObject` | 0x218 | 4 |  | 4 |  |  | part |  |
 | `CAreaCostCallback` |  |  |  |  |  |  |  | RTTI |  |
 | `CArmoredComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CArmyMember` | `COutLinerMember` |  |  |  |  |  | 3 | RTTI |  |
@@ -543,7 +543,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CICCostComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CIcon` | `CButton` |  |  |  | 1 |  |  | RTTI |  |
 | `CIdler` |  |  |  |  |  |  |  | RTTI |  |
-| `CInGameIdler` | `CEU3Idler` `CLostDeviceInterface` `CReloadDispatcher` |  | 21 |  | 26 | CInGameIdler.hpp | 3 | read |  |
+| `CInGameIdler` | `CEU3Idler` `CLostDeviceInterface` `CReloadDispatcher` |  | 26 |  | 26 | CInGameIdler.hpp | 3 | read |  |
 | `CIngameSettingsScreen` | `CSettingsScreen` |  |  |  |  |  | 1 | RTTI |  |
 | `CLandOrdersView` | `COrdersView` |  |  |  |  |  |  | RTTI |  |
 | `CLawEntry` | `CStandardlistboxItem` |  |  |  |  |  | 16 | RTTI |  |

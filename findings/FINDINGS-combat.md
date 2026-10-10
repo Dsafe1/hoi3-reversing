@@ -195,6 +195,10 @@ list held nine entries, the oldest dated 1936-02-01 - **that entry was gone**. S
 game prunes its history, keeping something like the last few days or the last N
 entries; which of the two is not yet known.
 
+*Answered 2026-10-11: a week of hours.* `CCombatHistory::Prune` (`0x2F830`) is the first thing
+`CCombatManager::Tick` does each hour, and takes off the front of the list every entry that ended
+more than 168 hours ago (and any that ended after the hour). `FINDINGS-airmap.md`, section 3.
+
 This is the thing that decides how the page gets built. It is asked for a day, a week,
 a month, a half year and a year, and the game keeps days. So the page cannot read the
 answer out of the game on demand:

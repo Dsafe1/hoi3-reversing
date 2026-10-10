@@ -106,8 +106,9 @@ order's province)`:
             the same again from the neighbour
 
 So **a mission's area is the provinces joined to its target through provinces the unit can fly
-to, within the area's range of it, each within the unit's own range of its base**. What shapes
-0 and 1 are, the cone's test, and what the window starts with were not read.
+to, within the area's range of it, each within the unit's own range of its base**. The shapes -
+0 the point, 2 the circle, 3 the cone, 4 the region; nothing makes a 1 - the cone's test, the
+right click that aims an area and what the window starts with are `FINDINGS-airorders.md`.
 
 ## 2. Air superiority: `CAirPatrol` (`0x6FA`)
 
@@ -450,9 +451,10 @@ section 9).
 
 ## Not read
 
-- The window's part in a mission's area: shapes 0 and 1, the cone's angle test (`0x588E60`,
+- ~~The window's part in a mission's area: shapes 0 and 1, the cone's angle test (`0x588E60`,
   `0x589320`), the three sliders' ranges and what the window starts with; the day, night,
-  both and continuous boxes and the two dates, and which fields they fill.
+  both and continuous boxes and the two dates, and which fields they fill.~~ Read on
+  2026-10-11: `FINDINGS-airorders.md`.
 - `CAir` slots 25, 36 and 37; `CAirCombat` slots 13 and 14.
 - The path in `CUnit::AdvanceMovement` that zeroes `+0x9C` and `+0xA0`.
 - `CCarrierProtection`, and a carrier's aircraft in a sea battle.

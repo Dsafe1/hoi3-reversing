@@ -147,8 +147,11 @@ in **`CAirOrdersView::BuildOrders`** (`0x746260`, `(view, unit, token of the ord
 **There is no `CMoveOrder` in it**: an air unit is sent somewhere to stay only by changing its
 base. The row ticked at first is `rebase_air` where the unit may stand in the province, its
 controller is not at war with the unit's country, it has an air base and the rebase could be
-given; otherwise one of the missions by a ladder of tests that was read only as far as its
-first rung.
+given; otherwise one of the missions by a ladder of tests, read whole on 2026-10-11 with the
+rest of the window's controls (`FINDINGS-airorders.md`, sections 2 and 3). The air window's
+accept sends the stance and not the priority (there, section 10); whether the naval one's
+priority reaches its order - copied into each order of the list, `CNavalOrder +0x38` - was not
+read again for it.
 
 ### An order's name
 

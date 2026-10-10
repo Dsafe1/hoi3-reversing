@@ -570,7 +570,7 @@ entry's province:
     ours  =  the player owns the province, or controls it, or is the entry's defender
           or the entry's defender is a country other than REB, and
                  is on the player's side (CCountry::IsSameSide)
-                 or exists and is no enemy of the player's
+                 or is the player's co-belligerent and no enemy of the player's
     if ours:                              a bombing counts as "bombed us", an air battle as an air battle
     else if the player is the entry's attacker
          or the attacker passes CCountry::CanOperateIn
@@ -596,8 +596,11 @@ The naval mode, 19, has its own routine (`0x86A6F0`) and its own icons -
 `naval_convoy_sunk_icon`, `naval_raider_attacked_icon` and their two fellows - which were not
 read. `airnaval_combat_icon` is declared in the file and named nowhere in the image.
 
-**Not read:** the mode's colours and its tooltip (`AIR_TOOLTIP_*`), when an entry leaves the
-list of finished battles, and `0x86AD60`, the mode's second call.
+*Corrected 2026-10-11: the last line of the test read "or exists and is no enemy of the
+player's". The byte it tests is the player's diplomacy status with the defender, `+0x58`,
+`co_belligerent`, not anything of the defender's own. The rest of the mode - its colours, its
+tooltip, the circles of `0x86AD60`, the large air base and anti-aircraft pictures, and how long an
+entry stays on the list (a week) - was read that day: `FINDINGS-airmap.md`.*
 
 ## What was not read, and what is not established
 
