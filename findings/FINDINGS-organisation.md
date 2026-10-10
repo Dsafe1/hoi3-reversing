@@ -267,6 +267,18 @@ each brigade's `organisation` beside the save's. All **measured**, on the save o
   hour before the second day gives them 0.107, and nothing after the second day's upgrades
   runs an hour. The routine that runs those two days has never been found; this is what it
   has to do.
+
+  **Superseded on 2026-10-10: the routine was found, and it is one hour, after both days.**
+  `FINDINGS-supplypass.md`, section 7, reads it out of `CInGameIdler::Enter` and
+  `RunSupplyAndConvoyIterations`: `RunDailyPass`, the filling, `RunDailyPass`,
+  `RunMonthlyPass`, `RunHourlyPass` - all before `in_game` is set, which is the half of this
+  inference that stands. "An hour before each day" was what three brigades could tell apart
+  and no more: the Waffen-SS are raised on the first day and gain 0.107 in the one hour either
+  way. The rewrite runs the read order as its own new game and its check gives the same
+  figures as the inferred one did - every brigade not under a commanded army, 2942 of 2942
+  (`measured`, on the same save). What the read order adds is that **a brigade whose figure
+  is raised on the second day gains in that hour too**. This save does not tell the two
+  orders apart - both give all 2942 - so that much rests on the reading.
 - **A month on, every German brigade is at its ceiling**: all 172 in the save of 1 February
   1936 are at their own figure times 1.4 - 56.000 for the 40s, 49.000 for the 35s, 70.000 for
   mountain troops, 42.000 for ships of 30, 84.000 for the Waffen-SS - and the reserves at half
@@ -274,8 +286,9 @@ each brigade's `organisation` beside the save's. All **measured**, on the save o
 
 ## What is not established
 
-- **The loop that runs the two days**, and with it whether "an hour before each day" is how
-  it is written or only what it comes to.
+- ~~**The loop that runs the two days**, and with it whether "an hour before each day" is how
+  it is written or only what it comes to.~~ Read on 2026-10-10: `FINDINGS-supplypass.md`,
+  section 7. It is one hour, after both days.
 - **A commander's reach** in the bonus: `CUnit::CommandReach` is recorded (`CLASSES.md`) and
   falls with distance; the twelve fractional bonuses above were not reproduced.
 - **`CUnit +0x97`**, the flag that multiplies organisation by `PARATROOP_DROP_ORG_MULT` once

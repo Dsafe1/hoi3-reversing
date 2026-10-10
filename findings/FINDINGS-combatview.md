@@ -389,14 +389,87 @@ are not 0 (`CCombatTactic::BuildEffectsText`, `0x438C10`: `COMEV_COMBATWIDTH`,
 `TACTIC_COUNTERED_BY` with the name of the tactic at `+0x78`, then `TACTIC_COUNTERS` and every
 tactic whose `+0x78` is this one's number.
 
+## 12. The naval side
+
+Read on 2026-10-10 for the rewrite's sea battle on screen; sections 2 to 4 said only what its
+elements are called.
+
+**`CCombatView::UpdateSide`, the naval arm** (`0x732F1F`..`0x733190`, the battle's slot 11
+answering 2):
+
+- **`positioning`**: `FormatFixedPoint(side.positioning * 100000 / 1000, 1)` and a `%` - the
+  side's positioning (`CNavalCombatant`) as a percentage with one decimal.
+- **`ships_label`**: the two bytes `A7 59` (the colour escape for yellow, at `0x15B5C54`), the
+  count of the side's ships, the three bytes `A7 57 20` (white, and a space; `0x15C73CC`), and the
+  text `SHIPS_LABEL`. The count is `CUnitList::CountSubUnits` (`0x5D6330`, the list in EAX): for
+  each unit its sub units - the list's own count for a unit that is no fleet, the nodes counted
+  for one that is.
+- **The list `ships`**: where it has as many entries as that count and every entry's ship is still
+  on a unit of the side, each entry is only refreshed (its slot 8); otherwise the list is emptied
+  and a `CShipOption` made for every ship of every unit of the side, **in the side's order of
+  units and each unit's order of ships**.
+
+Then the leader and the shield, as section 4 has them for every kind; a naval side has no
+tactic and no initiative marker.
+
+**`CShipOption::CShipOption`** (`0x7273C0`; `0x58` bytes), a list entry made from the window
+**`ship_l_option`** for the attacker's side and **`ship_r_option`** for the defender's; it keeps
+a reference to the ship (`+0x28`), the battle (`+0x50`) and whether its side attacks (`+0x54`).
+
+| element | what it is given |
+| --- | --- |
+| `name` | the ship's name (its slot 8) |
+| `ship_icon` | the sprite `GFX_navalcombat_` + `l_` or `r_` by the side + the key of the ship's definition, **where a sprite of that name exists**; without one the icon keeps the sprite the file gives it |
+
+and then its **`CShipOption::Update`** (`0x7277B0`, slot 8), which is also what a refresh calls;
+the entry's group is `navy_option`.
+
+| element | what it is given |
+| --- | --- |
+| `str_bar` | `strength * 1000 / GetMaxStrength`, as a whole number of hundredths |
+| `org_bar` | `organisation * 1000 /` the definition's `max_organisation` (`+0xF0`), the same |
+| `ship_icon`, its place | below |
+| `ship_icon`, its frame | by whether the ship's remembered target (`CSubUnit +0xB8`, resolved by `0x5ABD70`) still exists: the attacker's 2 with a target and 1 with none, **the defender's 1 with a target and 2 with none** |
+
+**Where the picture stands** (`0x7279B5`..`0x727B40`). With `W` the entry window's width (its
+slot 24), `w` the icon's (the icon's slot 61) and `x0` the entry window's own place (slot 15 of
+the object at its `+0x18`):
+
+    t = min(current_distance / 1000.0 / 40.0, 1.0)        the doubles 1000.0 (0x160A300) and
+                                                          40.0 (0x160A2F8), the float 1.0 (0x171DBAC)
+    o = (int)(t * (W - w))
+    the defender's:  x = x0 + o - 19
+    the attacker's:  x = W + (x0 - o - w) + 19
+    y is left as it was
+
+So **each row is a scale of the ship's distance**, nothing at the end nearer the middle of the
+battle's window and forty or more at the far end, and both sides' pictures are put nineteen past
+their near end towards the middle. The two sides' sprites are different pictures - a ship seen
+from the one side and from the other - which is presumably why their two frames are used the
+other way round; what the frames show was not looked at.
+
+**The share** for a naval battle - `CCombatant::SumSubUnitStrength`'s other arm, read from the
+decompiled C: for every ship of every unit of the side,
+
+    sum += (organisation * strength / 1000) * (defend_product * attack_product / 1000) / 1000
+
+with the **ship's own** two products (`CSubUnit +0x54`, `+0x50`) and nothing of its definition.
+
+Section 3 already has the rest of what differs for a naval battle: `combat_naval_bg` shown and
+`combat_terrain` hidden, `combat_attack_indicator` hidden, the retreat button enabled by
+`CNavalCombat::MayLeave` - not in the battle's first four rounds - and the window gone when
+either side has no unit. The marker of section 9 is the base class's and is the same for a
+battle at sea.
+
 ## What was not read, and what is not established
 
 - **What a click on the marker does**, and the two small button handlers (`0x734710`,
   `0x734720`).
 - **The object at `CInGameIdler +0x1CC0`** that opening a battle hides.
 - **How a technology's `tactic_` figures reach the country's table**, and `CTraitTrigger`.
-- **The naval and the air side** of the window beyond their element names, the tooltip at
-  `0x72BD70`, and everything a tooltip writes.
+- **The air side** of the window beyond its element names (the naval side is section 12), the
+  tooltip at `0x72BD70`, and everything a tooltip writes - a ship entry's own among them.
+- **What the two frames of a ship's picture show**, and the ship entry's button handler.
 - **The second pair of multipliers** (`CUnit +0xF4`, `+0xF8`): reset to 1000 with the products
   and read by the share and by `FireUnit`; no writer of any other value was found in what was
   read for land battles, and none was looked for elsewhere.

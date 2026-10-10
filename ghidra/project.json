@@ -6490,10 +6490,11 @@
    "rva": "0x187A30",
    "kind": "function",
    "name": "COrder::GetMissionOrgPenalty",
-   "comment": "0x587A30..0x587A7D, bare `ret`, no stack arguments, answers `out` in EAX. The twin of COrder::GetMissionEfficiency (0x1879B0) 0xC bytes above it, and **the only reader of CTechStatistics +0x164 in the image** (fieldchain.py --holder 0xDF8 --field 0x164; the same scan on +0xE0 finds all six known readers, which is the positive control). Body: `eax = order->slot16(); eax = OrderTypeToMissionIndex(eax) (0x584410); country = g_CCountryDataBase[+0x16C][order->unit(+8)->+0x128]; *out = *(int*)(country->+0xDF8 + 0x164 + eax*4)`. The tooltip at 0x538D60 labels that array ORD_RED, which the mod's localisation renders \"Organisation Penalty\", and the mod declares it as `<mission> = { reduction_modifier = -0.1 }`. One caller, 0x5C80C2 inside 0x1C7E10 - which has two `ret 4`s with this read past the first, so trap 3 applies to anyone reading it next.",
+   "signature": "int* __fastcall COrder::GetMissionOrgPenalty(COrder* order@ESI, int* out@EDI)",
+   "no_signature": null,
+   "comment": "0x587A30..0x587A7D, bare `ret`, answers `out` in EAX: the technology figure a file gives as `<mission> = { reduction_modifier = x }` (CTechnologyStatus +0x164 by mission index) for the order's mission. **Its one caller throws the answer away**: CUnit::ShowCombatOver calls it at 0x5C80C2 with the out at [esp+0x14], and the next instruction is the draw for the fleet's wait; nothing reads the local. So `reduction_modifier` does nothing in this build. See reversing/findings/FINDINGS-navalmissions.md, section 10.",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-uinumbers2.md",
-   "signature": "int* __fastcall COrder::GetMissionOrgPenalty(COrder* order@ESI, int* out@EDI)"
+   "source": "reversing/findings/FINDINGS-navalmissions.md"
   },
   {
    "rva": "0x188340",
@@ -8267,10 +8268,11 @@
    "rva": "0x1D1250",
    "kind": "function",
    "name": "ResolveConvoyRaid",
-   "comment": "**The convoy raid, end to end.** One body from 0x5D1250 with an early `ret 4` at 0x5D201C and the success path continuing at 0x5D201F in the same frame (trap 3). Three callers, all in the order code: 0x1998EF (CAirConvoyRaid), 0x19C66B and 0x1A02CD (CConvoyRaid).\n\n**1. The raider's attack.** Over the raider's regiments (+0x38), with def = CSubUnit->+0x58:\n\n    a = raider->IsNaval() ? def->convoy_attack (+0x164) : def->sea_attack (+0x168)\n    attack += a * strength(+0x5C)/1000 * 0.01 * organisation(+0x60)/1000 * 0.01\n    detect  = max over the regiments of def->surface_detection (+0x150)\n\nThe two 0.01 factors are `x * 1000 / 100000`, so the term is really attack x (strength/100) x (org/100). **A naval raider uses `convoy_attack`; an air raider uses `sea_attack`** - the air mission reads the surface-combat stat, not the convoy one.\n\n**2. Target selection**, over every convoy in the raider's own sea zone (raider->current_province (+0x130)->convoys (+0x38..+0x3C)): skip our own; if CDiplomacyStatus->war (+0x20) is null the pair must involve \"REB\" or pass 0x763A0 on the status's +0x24; skip a convoy with no transports; then `if (Random() % 50 < detect/1000)` consider it, preferring one whose CConvoy::GetDefence is at or below our attack and otherwise keeping the first seen. So **the raider's `surface_detection` is the per-convoy find chance, out of 50**.\n\n**3. The test.** An **air** raid multiplies the attack by 5.0 (the literal 0x1388) before comparing. If GetDefence(target) > attack the raid fails with CONVOY_TOO_STRONG and the victim's statistics series at CCountry +0x1184 takes -(STRAT_CONVOY_DAMAGE / victim->convoys_count (+0xA8)) / 10.\n\n**4. The sinking.** It builds a throwaway CNavy (CNavy::CNavy 0x1CEE20, byte +0x48 set) filled with CShip regiments of the `convoy` and `escort` subunit definitions from the singleton at 0x1ADE80 (+0x88 and +0xA8), in counts scaled by `max(path_count * 0.2, 1.0)` so a long route exposes fewer ships per raid, fights it, rounds the two loss counts and calls CConvoy::LoseShips (0xC5940).\n\n**5.** It writes `raider->current_province->last_convoy_attack (+0x1C) = gameState->tick` at 0x1D286D.\n\nIt never touches CNavy::carrying (+0x2E4): a convoy is a record with two integer ship counts, not cargo on a real fleet.",
+   "signature": "char __stdcall ResolveConvoyRaid(CUnit* raider)",
+   "no_signature": null,
+   "comment": "**The convoy raid, end to end.** One body from 0x5D1250 with an early `ret 4` at 0x5D201C and the success path continuing at 0x5D201F in the same frame (trap 3). Three callers: 0x1998EF (CAirConvoyRaid), **0x19C66B (CPatrolOrder::IsActive)** and 0x1A02CD (CConvoyRaid::IsActive). **1. The raider's attack**, over its ships or wings: `convoy_attack` for a fleet, `sea_attack` for an air unit, times strength/100 and organisation/100; `detect` is the best `surface_detection`. **2. A convoy**, over those registered in the raider's province (CMapProvince +0x38): not its own, at war (or REB, or an undeclared war covering the province), with a transport, and `Random() % 50 < detect / 1000`; one whose CConvoy::GetDefence is no more than the attack is preferred, else the first. **3. The test**: an air raid's attack is multiplied by 5; a defence above it fails with CONVOY_TOO_STRONG and a tenth of STRAT_CONVOY_DAMAGE / the victim's convoys off its series. **4. The battle.** A throwaway CNavy (byte +0x48 set) of the convoy's owner is filled with `(escorts + transports) / scale` ships, scale = a fifth of the path's length and 1 at least, each count raised to 1 where it was above nothing: the first escorts/scale of them `destroyer`s (CSubUnitDataBase +0xA8), the rest `transport_ship`s (+0x88); the destroyers get the owner's technology levels and the transports none, the loop's bounds being the destroyer's list for both. It enters the raider's province; a CNavalCombat (a CNavalBombing for an air raider) is made with **byte +0x2B set**, the raider attacking; every ship of both is put at distance 1.000; and **five rounds are fought at once** (slot 15 five times, GrantCombatExperience before the first three). **5. The count**: strength lost by the destroyers and by the transports, each `* 2 / 100`, the transports' raised to one ship where above 0.3 of one (the fixed point at 0x1A88748, which a startup initialiser fills with the float 300.5 at 0x160AAB4, floored); with either at one or more, CConvoy::LoseShips with both rounded, and the victim's series. **6.** The province's last_convoy_attack is the hour, the battle goes to the history, and the throwaway fleet is removed. See reversing/findings/FINDINGS-navalmissions.md, section 9.",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-convoys.md",
-   "signature": "char __stdcall ResolveConvoyRaid(CUnit* raider)"
+   "source": "reversing/findings/FINDINGS-navalmissions.md"
   },
   {
    "rva": "0x1D286D",
@@ -26464,9 +26466,9 @@
    "name": "CNavalOrder::IsActive",
    "signature": "bool __thiscall CNavalOrder::IsActive(CNavalOrder* this)",
    "no_signature": null,
-   "comment": "Slot 14 of a naval order that has none of its own, and what CRebaseOrder's asks first. For a unit with a base: unless the byte +0x34 is set and the unit is at its base's province (which clears the byte and answers false), true until the order's +0x2C differs from +0x28 and is not after the hour. **Not made out**: the three fields are not named. The name is ours. See reversing/findings/FINDINGS-seaair.md, section 3.",
-   "confidence": "inferred",
-   "source": "reversing/findings/FINDINGS-seaair.md"
+   "comment": "Slot 14 of a naval order that has none of its own, and what every mission's slot 14 asks after its own first tests. False for a unit with no base. Where the byte +0x34 - **CNavalOrder's own return_to_base** - is set and the unit is in its base's province, the byte is cleared and the answer is false. Otherwise true where death_date (+0x2C) equals start_date (+0x28), and else `death_date > the hour`. **Nothing in play sets +0x34**: the naval order code writes it twice, both zeroes (the constructor at 0x59A94C and here at 0x59B0B4), and COrder::OrderReturnToBase sets COrder +0x18 instead. So for an order given in a game this is 'has it a base, and has its last date not passed'. See reversing/findings/FINDINGS-navalmissions.md, section 1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-navalmissions.md"
   },
   {
    "rva": "0x19B1F0",
@@ -28477,6 +28479,386 @@
    "comment": "What CNavy::CheckOrderAndCombat calls for a fleet in a battle: for each ship with a carrier_size, each air unit aboard (the list at the ship's +0xDC) whose order is 0x56C, that is in the fleet's province, in no battle and no bombing, going nowhere and able to fight (slot 33), goes to CCombatManager::CheckForCombat for that province. How a carrier's aircraft join a sea battle. The name is ours. See reversing/findings/FINDINGS-seabattle.md, section 5.",
    "confidence": "inferred",
    "source": "reversing/findings/FINDINGS-seabattle.md"
+  },
+  {
+   "rva": "0x1A0000",
+   "kind": "function",
+   "name": "CPatrolOrder::MayBeGiven",
+   "signature": "bool __thiscall CPatrolOrder::MayBeGiven(CPatrolOrder* this)",
+   "no_signature": null,
+   "comment": "**Slot 11 of CPatrolOrder, CNavalInterceptOrder, CNavalSortieOrder and CConvoyRaid alike**: the unit is in no battle, the order's province is not land (CProvinceTemplate +0x22), and slot 8 says it is in range. Named for the first of the four. See reversing/findings/FINDINGS-navalmissions.md, section 1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-navalmissions.md"
+  },
+  {
+   "rva": "0x19A990",
+   "kind": "function",
+   "name": "CNavalOrder::IsTooWorn",
+   "signature": "bool __stdcall CNavalOrder::IsTooWorn(CNavalOrder* order)",
+   "no_signature": null,
+   "comment": "**Whether a fleet on a mission should make for a harbour**, asked first by slot 14 of patrol, intercept, sortie, raid and escort. False outright for a fleet whose country no person plays (CCurrentGameState +0xBCC). Otherwise each ship's lost share, `(GetMaxStrength - strength) * 1000 / GetMaxStrength`, is set against a limit - 0.25, 0.5 under stance 0, 0.1 under stance 2, the floats 250.5 (0x160A688), 500.5 (0x160A5E8) and 100.5 (0x160A684) floored, not the *_STRENGTH_LIMIT defines - and the answer is true unless fewer ships are over it than not. A fleet with no ship answers true. The name is ours. See reversing/findings/FINDINGS-navalmissions.md, section 1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-navalmissions.md"
+  },
+  {
+   "rva": "0x19AB80",
+   "kind": "function",
+   "name": "CNavalOrder::HeadForNearestBase",
+   "signature": "void __stdcall CNavalOrder::HeadForNearestBase(CNavalOrder* order)",
+   "no_signature": null,
+   "comment": "What a mission's slot 14 calls when CNavalOrder::IsTooWorn says yes. Only for a fleet in no battle, with no path, in a sea province: of the naval bases of its country - or of every member of its faction, where the faction's slot 7 says so - the one with the least CMapProvince::NavalDistanceTo to the fleet's province, the first of equals; a path there by CSafeNavalPathFind, and SetUnitPath(clear) where one was found. Neither the base nor the order changes. Ghidra names it as a CSafeNavalPathFind constructor, for the vftable it stores. The name is ours. See reversing/findings/FINDINGS-navalmissions.md, section 1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-navalmissions.md"
+  },
+  {
+   "rva": "0x19A700",
+   "kind": "function",
+   "name": "NavalOrder_GoTo",
+   "signature": null,
+   "no_signature": "The unit arrives in EAX and the province in ECX; no convention says that.",
+   "comment": "Sends a fleet to a province for its order: nothing where it is there already or its slot 35 (CanMoveTo) says no; otherwise NavalOrder_SetPathFrom(the province it is in, safe = 1). The unit is in EAX and the province in ECX. The name is ours. See reversing/findings/FINDINGS-navalmissions.md, section 1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-navalmissions.md"
+  },
+  {
+   "rva": "0x19A640",
+   "kind": "function",
+   "name": "NavalOrder_SetPathFrom",
+   "signature": null,
+   "no_signature": "Two stack arguments and two more in ESI and EDI.",
+   "comment": "`(from, safe)` on the stack, cdecl, with the unit in ESI and the goal in EDI. Nothing where the unit is in the goal or CanMoveTo says no; otherwise CPathFind::Find(unit, from, goal) - with CSafeNavalPathFind's vftable where `safe`, the plain CPathFind's otherwise - and **SetUnitPath(unit, path, clear = 1) whether or not a way was found**. The path starts at `from`, which need not be where the unit is: CNavalSortieOrder's plotting hands it each waypoint in turn. The name is ours. See reversing/findings/FINDINGS-navalmissions.md, section 1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-navalmissions.md"
+  },
+  {
+   "rva": "0x19B160",
+   "kind": "function",
+   "name": "CNavalOrder::GetPriority",
+   "signature": "int __thiscall CNavalOrder::GetPriority(CNavalOrder* this)",
+   "no_signature": null,
+   "comment": "Slot 18 of every naval order: `return this->+0x38`, the naval order's own priority. The base returns 0. See reversing/findings/FINDINGS-navalmissions.md, section 1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-navalmissions.md"
+  },
+  {
+   "rva": "0x19A740",
+   "kind": "function",
+   "name": "FindEnemyFleetIn",
+   "signature": null,
+   "no_signature": "The province arrives in ECX and the two others on the stack; the early exit is a bare `ret`.",
+   "comment": "**The enemy fleet in a province worth going for**, for an intercept and a sortie; the province in ECX, then `(unit, order)`. None in a land province. Over the units standing in it, in list order: its owner at war with the order's unit's owner, the unit has a ship and ShouldStartNavalCombat(unit, it) - the sighting, asked from wherever the unit is, so from its own port with no roll - and its GetPower no more than the order's unit's; of those, the one whose ships have the most strength in all. Nothing asks whether what is found is a fleet. The name is ours. See reversing/findings/FINDINGS-navalmissions.md, section 2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-navalmissions.md"
+  },
+  {
+   "rva": "0x1C3120",
+   "kind": "function",
+   "name": "UnitSumStrength",
+   "signature": null,
+   "no_signature": "The unit arrives in ECX and the out pointer in EAX.",
+   "comment": "The strength of every sub unit of a unit added up: the unit in ECX, the answer written through EAX. CNavalSortieOrder's slot 14 ranks the fleets it finds by it. The name is ours. See reversing/findings/FINDINGS-navalmissions.md, section 7.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-navalmissions.md"
+  },
+  {
+   "rva": "0x19B520",
+   "kind": "function",
+   "name": "CReserveOrder::MayBeGiven",
+   "signature": "bool __thiscall CReserveOrder::MayBeGiven(CReserveOrder* this)",
+   "no_signature": null,
+   "comment": "Slot 11: the unit is in no battle, the province has a naval base of a level above nothing (CMapProvince +0x300, its +0x20), the province's controller (+0x338, the id half of the tag at +0x334) is the unit's owner, and slot 8 says it is in range. See reversing/findings/FINDINGS-navalmissions.md, section 3.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-navalmissions.md"
+  },
+  {
+   "rva": "0x19B560",
+   "kind": "function",
+   "name": "CReserveOrder::Start",
+   "signature": "void __thiscall CReserveOrder::Start(CReserveOrder* this)",
+   "no_signature": null,
+   "comment": "Slot 13: where the unit's base is not the order's province, that province's naval base object (+0x58) becomes its base (CUnit::SetBase's body, inlined); and where the unit is not in the province, COrder::OrderReturnToBase. See reversing/findings/FINDINGS-navalmissions.md, section 3.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-navalmissions.md"
+  },
+  {
+   "rva": "0x19B5E0",
+   "kind": "function",
+   "name": "CReserveOrder::IsActive",
+   "signature": "bool __thiscall CReserveOrder::IsActive(CReserveOrder* this)",
+   "no_signature": null,
+   "comment": "Slot 14: the unit has a base, CNavalOrder::IsActive, and either COrder +0x18 is set or the unit has no path and is in the order's province. See reversing/findings/FINDINGS-navalmissions.md, section 3.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-navalmissions.md"
+  },
+  {
+   "rva": "0x19B630",
+   "kind": "function",
+   "name": "CReserveOrder::RunDaily",
+   "signature": "void __thiscall CReserveOrder::RunDaily(CReserveOrder* this)",
+   "no_signature": null,
+   "comment": "**Slot 23, which only this order fills**: CUnit::UpdateDaily calls it once a day for a unit whose order's slot 24 says yes. Only where the fleet is in the order's province: the units based at the fleet's base whose order's slot 24 says yes and for which COrder::IsTargetInRange holds are put in four lists by their order's priority (slot 18), and from priority 3 down to 0 each is handed to ReserveOrder_ExchangeShips, until the reserve has no ship left. See reversing/findings/FINDINGS-navalmissions.md, section 3.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-navalmissions.md"
+  },
+  {
+   "rva": "0x19B850",
+   "kind": "function",
+   "name": "ReserveOrder_ExchangeShips",
+   "signature": "void __stdcall ReserveOrder_ExchangeShips(CReserveOrder* order, CUnit* other)",
+   "no_signature": null,
+   "comment": "**A reserve's sound ships change places with another fleet's worn ones.** Only where `other` is a fleet, its order's slot 24 says yes, its byte +0x94 is clear, it has the reserve's owner and **is in the same province**. The limit is DEFENSIVE_STRENGTH_LIMIT, or PASSIVE_STRENGTH_LIMIT under the other's stance 2 - stance 0 reads the defensive one a second time, so the aggressive limit is never read. Then, again and again: the other's ship with the least strength over default strength that is under the limit and under 1.000 (the constant at 0x170D710); the reserve's ship of the same definition index with the most, above that; the two change fleets. Stops when either is wanting. The name is ours. See reversing/findings/FINDINGS-navalmissions.md, section 3.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-navalmissions.md"
+  },
+  {
+   "rva": "0x19C4E0",
+   "kind": "function",
+   "name": "CPatrolOrder::Start",
+   "signature": "void __thiscall CPatrolOrder::Start(CPatrolOrder* this)",
+   "no_signature": null,
+   "comment": "Slot 13: CPatrolOrder_Move, and a refresh of the map mode 0x13 where the fleet is the player's. See reversing/findings/FINDINGS-navalmissions.md, section 4.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-navalmissions.md"
+  },
+  {
+   "rva": "0x19C5F0",
+   "kind": "function",
+   "name": "CPatrolOrder::IsActive",
+   "signature": "bool __thiscall CPatrolOrder::IsActive(CPatrolOrder* this)",
+   "no_signature": null,
+   "comment": "Slot 14, the patrol's hour. False with no base; true and nothing else in a battle; CNavalOrder::IsTooWorn -> HeadForNearestBase, true; false where CNavalOrder::IsActive says so; then CPatrolOrder_Move; and for a fleet in no battle, with CUnit +0x110 clear, COrder +0x18 clear and not retreating, the counter at +0x74 goes down by one and under 1 **ResolveConvoyRaid(the fleet) is called and the counter set to 12**. So a patrol tries the convoys of the water it is in every twelve hours, exactly as a raider does. See reversing/findings/FINDINGS-navalmissions.md, section 4.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-navalmissions.md"
+  },
+  {
+   "rva": "0x19CA40",
+   "kind": "function",
+   "name": "CPatrolOrder_Move",
+   "signature": null,
+   "no_signature": "The order arrives in EDI.",
+   "comment": "The patrol's move, the order in EDI. Shadowing nobody, near its province (CPatrolOrder_IsNear) and with no path: the next step of its round - `i` = +0x70 against the count of the province's edges: at the count, back to the province itself and `i` = 0; under it, `i` + 1 and on to the province of edge `i` where that is sea, simulated and in range (COrder::IsTargetInRange). Otherwise, with no path and not in its province, a path there by CSafeNavalPathFind. Shadowing a fleet that has a path whose next province is not its own next: a path to that province by the plain CPathFind. Then CPatrolOrder::UpdateShadow. The name is ours. See reversing/findings/FINDINGS-navalmissions.md, section 4.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-navalmissions.md"
+  },
+  {
+   "rva": "0x19CDA0",
+   "kind": "function",
+   "name": "CPatrolOrder_IsNear",
+   "signature": null,
+   "no_signature": "The order arrives in EAX.",
+   "comment": "True where the order's unit is in the order's province or in a province one of that province's edges leads to. The order in EAX. The name is ours. See reversing/findings/FINDINGS-navalmissions.md, section 4.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-navalmissions.md"
+  },
+  {
+   "rva": "0x19CE10",
+   "kind": "function",
+   "name": "CPatrolOrder::UpdateShadow",
+   "signature": "bool __stdcall CPatrolOrder::UpdateShadow(CPatrolOrder* order)",
+   "no_signature": null,
+   "comment": "**Which fleet a patrol shadows**, every hour after its move. The one it shadowed has its byte CUnit +0x95 cleared and the reference at +0x48 is emptied. Then the first unit in the patrol's province, in list order, that is another country's fleet, in range by the order's slot 8, not of the patrol's faction and with no friendly agreement (CDiplomacyStatus::HasFriendlyAgreement), and that ShouldStartNavalCombat(patrol, it) sights: the reference becomes it and its +0x95 is set; a new one for the player's patrol raises the message PATROLTRACK. **No war is asked for.** The reference is what the intelligence refresh reads to give the country level 9 of the province. See reversing/findings/FINDINGS-navalmissions.md, section 4.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-navalmissions.md"
+  },
+  {
+   "rva": "0x19C680",
+   "kind": "function",
+   "name": "CPatrolOrder::Describe",
+   "signature": "Hoi3CString* __thiscall CPatrolOrder::Describe(CPatrolOrder* this, Hoi3CString* out)",
+   "no_signature": null,
+   "comment": "Slot 15, interface text: ORDER_PATROL_S with ACTION either PATROL_SHADOW, where the reference at +0x48 resolves, or PATROL_SEARCH. See reversing/findings/FINDINGS-navalmissions.md, section 4.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-navalmissions.md"
+  },
+  {
+   "rva": "0x1A0140",
+   "kind": "function",
+   "name": "CConvoyRaid::Start",
+   "signature": "void __thiscall CConvoyRaid::Start(CConvoyRaid* this)",
+   "no_signature": null,
+   "comment": "Slot 13: CConvoyRaid::Move, and the map mode refresh of CPatrolOrder::Start. See reversing/findings/FINDINGS-navalmissions.md, section 5.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-navalmissions.md"
+  },
+  {
+   "rva": "0x1A0250",
+   "kind": "function",
+   "name": "CConvoyRaid::IsActive",
+   "signature": "bool __thiscall CConvoyRaid::IsActive(CConvoyRaid* this)",
+   "no_signature": null,
+   "comment": "Slot 14: CPatrolOrder::IsActive line for line, with CConvoyRaid::Move for the move and the counter at +0x4C - ResolveConvoyRaid every twelve hours for a fleet in no battle, not retreating, with COrder +0x18 clear. See reversing/findings/FINDINGS-navalmissions.md, section 5.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-navalmissions.md"
+  },
+  {
+   "rva": "0x1A0390",
+   "kind": "function",
+   "name": "CConvoyRaid::Move",
+   "signature": "void __thiscall CConvoyRaid::Move(CConvoyRaid* this)",
+   "no_signature": null,
+   "comment": "The raider's move. Near its province (CConvoyRaid_IsNear) and with no path: the patrol's round over the province's edges, `i` at +0x48, with no test of the range. Otherwise, with no path and not in its province: a path there by CSafeNavalPathFind. The name is ours. See reversing/findings/FINDINGS-navalmissions.md, section 5.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-navalmissions.md"
+  },
+  {
+   "rva": "0x1A05C0",
+   "kind": "function",
+   "name": "CConvoyRaid_IsNear",
+   "signature": null,
+   "no_signature": "The order arrives in EDI.",
+   "comment": "False for a unit at its own base (CUnit_IsAtOwnBase); otherwise true where it is in the order's province or in one that province has an edge to. The order in EDI. The name is ours. See reversing/findings/FINDINGS-navalmissions.md, section 5.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-navalmissions.md"
+  },
+  {
+   "rva": "0x19D9B0",
+   "kind": "function",
+   "name": "CNavalInterceptOrder::Start",
+   "signature": "void __thiscall CNavalInterceptOrder::Start(CNavalInterceptOrder* this)",
+   "no_signature": null,
+   "comment": "Slot 13: a unit that is not in its base's province is told to return there (COrder::OrderReturnToBase). See reversing/findings/FINDINGS-navalmissions.md, section 6.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-navalmissions.md"
+  },
+  {
+   "rva": "0x19D9E0",
+   "kind": "function",
+   "name": "CNavalInterceptOrder::IsActive",
+   "signature": "bool __thiscall CNavalInterceptOrder::IsActive(CNavalInterceptOrder* this)",
+   "no_signature": null,
+   "comment": "Slot 14, the interceptor's hour. False with no base. **True and nothing else in a battle or once COrder +0x18 is set** - and no naval order code clears that byte, so an interceptor that has been told to return to base does nothing more under this order. Otherwise: IsTooWorn -> HeadForNearestBase; IsActive; after nobody and away from its base's province -> OrderReturnToBase; retreating -> the reference at +0x48 emptied, OrderReturnToBase; after nobody and in its base's province -> FindEnemyFleetIn the order's province and then each province its edges lead to, the first found becoming the reference, and the fleet goes to where it is; after somebody and in no battle -> out of range: OrderReturnToBase; the target under way and this fleet not: to the target's next province; else, with no path, to the province the target is in, or OrderReturnToBase where that is land. See reversing/findings/FINDINGS-navalmissions.md, section 6.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-navalmissions.md"
+  },
+  {
+   "rva": "0x19DD10",
+   "kind": "function",
+   "name": "CNavalInterceptOrder::Describe",
+   "signature": "Hoi3CString* __thiscall CNavalInterceptOrder::Describe(CNavalInterceptOrder* this, Hoi3CString* out)",
+   "no_signature": null,
+   "comment": "Slot 15, interface text: ORDER_INTERCEPT_S with STATE one of INTERCEPT_ATTACK (the reference resolves), INTERCEPT_RETURN (COrder +0x18 set) or INTERCEPT_WAITING. See reversing/findings/FINDINGS-navalmissions.md, section 6.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-navalmissions.md"
+  },
+  {
+   "rva": "0x19E360",
+   "kind": "function",
+   "name": "CNavalSortieOrder::Start",
+   "signature": "void __thiscall CNavalSortieOrder::Start(CNavalSortieOrder* this)",
+   "no_signature": null,
+   "comment": "Slot 13: CNavalSortieOrder::PlotRoute and nothing else. See reversing/findings/FINDINGS-navalmissions.md, section 7.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-navalmissions.md"
+  },
+  {
+   "rva": "0x19EB80",
+   "kind": "function",
+   "name": "CNavalSortieOrder::PlotRoute",
+   "signature": "void __stdcall CNavalSortieOrder::PlotRoute(CNavalSortieOrder* order)",
+   "no_signature": null,
+   "comment": "Nothing once COrder +0x18 is set. `current` (+0x4C) becomes the first waypoint (the list at +0x50) where it is none. Then for each waypoint from `current` on, NavalOrder_SetPathFrom(from, safe = it is `current`) with the waypoint for goal, `from` starting at the fleet's province and becoming each waypoint in turn; and where the last waypoint has no naval base and the fleet is not in its base's province, a plain path from the last waypoint to the base's province. **Every one of these calls SetUnitPath with clear**, so only the last survives: with the one waypoint the constructor gives, the way out for a fleet that starts in its base's province, and for any other the leg home, which does not begin where the fleet is. The name is ours. See reversing/findings/FINDINGS-navalmissions.md, section 7.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-navalmissions.md"
+  },
+  {
+   "rva": "0x19E370",
+   "kind": "function",
+   "name": "CNavalSortieOrder::IsActive",
+   "signature": "bool __thiscall CNavalSortieOrder::IsActive(CNavalSortieOrder* this)",
+   "no_signature": null,
+   "comment": "Slot 14, the sortie's hour. False with no base; true in a battle. In the last waypoint: OrderReturnToBase where the FIRST waypoint has no naval base, and true. Otherwise IsTooWorn -> HeadForNearestBase; IsActive; in `current` and in no battle, `current` moves on to the next waypoint, and where that is the last and has a naval base it becomes the fleet's base (CUnit::SetBase); in no battle, FindEnemyFleetIn each sea province next to the one the fleet is in, and the one whose ships have the most strength (UnitSumStrength) is gone for; and a last test - no path and in a battle -> PlotRoute - that cannot be met, the function having answered for a fleet in a battle at its head. See reversing/findings/FINDINGS-navalmissions.md, section 7.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-navalmissions.md"
+  },
+  {
+   "rva": "0x19ED80",
+   "kind": "function",
+   "name": "ConvoyEscort_FindBeat",
+   "signature": "void __cdecl ConvoyEscort_FindBeat(CMapProvince* base, CList* path, int range, CMapProvince** first, CMapProvince** last)",
+   "no_signature": null,
+   "comment": "**The stretch of a convoy's route an escort sails**: over the provinces of the path from its start, the first run of sea provinces whose CMapProvince::NavalDistanceTo(base, it) is under the range; `first` and `last` are its two ends, written only where found. The name is ours. See reversing/findings/FINDINGS-navalmissions.md, section 8.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-navalmissions.md"
+  },
+  {
+   "rva": "0x19F0A0",
+   "kind": "function",
+   "name": "CConvoyEscortOrder::MayBeGiven",
+   "signature": "bool __thiscall CConvoyEscortOrder::MayBeGiven(CConvoyEscortOrder* this)",
+   "no_signature": null,
+   "comment": "Slot 11: the beat has a first end (+0x74), the unit is in no battle, and the order's province is not land. See reversing/findings/FINDINGS-navalmissions.md, section 8.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-navalmissions.md"
+  },
+  {
+   "rva": "0x19F0D0",
+   "kind": "function",
+   "name": "CConvoyEscortOrder::Start",
+   "signature": "void __thiscall CConvoyEscortOrder::Start(CConvoyEscortOrder* this)",
+   "no_signature": null,
+   "comment": "Slot 13: the convoy is looked up by its id (+0x4C/+0x50 into +0x48); where its path has more than one province, ConvoyEscort_FindBeat with the unit's base and its definition's range, and with a first end a path there by CSafeNavalPathFind - SetUnitPath(clear) whether or not found - and +0x70 is that province's id. See reversing/findings/FINDINGS-navalmissions.md, section 8.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-navalmissions.md"
+  },
+  {
+   "rva": "0x19F440",
+   "kind": "function",
+   "name": "CConvoyEscortOrder::IsActive",
+   "signature": "bool __thiscall CConvoyEscortOrder::IsActive(CConvoyEscortOrder* this)",
+   "no_signature": null,
+   "comment": "Slot 14, the escort's hour. False with no base; true in a battle; false, with the reference emptied, once the convoy is gone; IsTooWorn -> HeadForNearestBase; IsActive; a missing end has the beat worked out again and false where one is still missing; and a fleet in no battle that is in the province +0x70 turns about (CConvoyEscortOrder::TurnAbout). Nothing in it touches the convoy. See reversing/findings/FINDINGS-navalmissions.md, section 8.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-navalmissions.md"
+  },
+  {
+   "rva": "0x19FE50",
+   "kind": "function",
+   "name": "CConvoyEscortOrder::TurnAbout",
+   "signature": "void __stdcall CConvoyEscortOrder::TurnAbout(CConvoyEscortOrder* order)",
+   "no_signature": null,
+   "comment": "Turns the byte +0x7C over and gives the fleet a path, by CSafeNavalPathFind and with SetUnitPath(clear), to the first end of its beat (+0x74) where the byte is now set and to the last (+0x78) where it is clear - as the listing has it, the byte being set from `was it clear` - and +0x70 becomes that end's id. Ghidra names it as a CSafeNavalPathFind constructor. The name is ours. See reversing/findings/FINDINGS-navalmissions.md, section 8.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-navalmissions.md"
+  },
+  {
+   "rva": "0x3273C0",
+   "kind": "function",
+   "name": "CShipOption::CShipOption",
+   "signature": null,
+   "no_signature": "The gui in ECX and five stack arguments of which two were not identified.",
+   "comment": "**A ship in a side's list of the battle window**, 0x58 bytes: an entry made from the window `ship_l_option` for the attacker's side and `ship_r_option` for the defender's, which keeps a reference to the ship (+0x28), the battle (+0x50) and whether its side attacks (+0x54). `name` is the ship's name; `ship_icon` takes the sprite `GFX_navalcombat_` + `l_` or `r_` + the key of the ship's definition where a sprite of that name exists; then CShipOption::Update, and the entry's group is `navy_option`. See reversing/findings/FINDINGS-combatview.md, section 12.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-combatview.md"
+  },
+  {
+   "rva": "0x3277B0",
+   "kind": "function",
+   "name": "CShipOption::Update",
+   "signature": "void __thiscall CShipOption::Update(CShipOption* this)",
+   "no_signature": null,
+   "comment": "Slot 8, what a refresh of the list calls. `str_bar` is strength * 1000 / GetMaxStrength and `org_bar` organisation * 1000 / the definition's max_organisation (+0xF0), each a whole number of hundredths. **`ship_icon` is moved along the row by the ship's distance**: t = min(current_distance / 1000.0 / 40.0, 1.0), o = (int)(t * (the entry's width - the icon's)); the defender's x = the entry's x + o - 19, the attacker's x = the entry's width + (the entry's x - o - the icon's width) + 19; its y is left. And its frame is by whether the ship's remembered target still exists (CSubUnit::ResolveTarget): the attacker's 2 with one and 1 with none, the defender's 1 with one and 2 with none. See reversing/findings/FINDINGS-combatview.md, section 12.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-combatview.md"
+  },
+  {
+   "rva": "0x1D6330",
+   "kind": "function",
+   "name": "CUnitList::CountSubUnits",
+   "signature": "int __stdcall CUnitList::CountSubUnits(CUnitList* units@EAX, int unread_a@stack:4, int unread_b@stack:8) @EAX",
+   "no_signature": null,
+   "comment": "How many sub units the units of a list have between them: for a unit whose slot 16 (IsNaval) says no the regiment list's own count (+0x40), for a fleet the nodes of the list counted. The battle window's `ships_label` and `planes_label` are written from it. The name is ours. See reversing/findings/FINDINGS-combatview.md, section 12.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-combatview.md"
+  },
+  {
+   "rva": "0x1ABD70",
+   "kind": "function",
+   "name": "CSubUnit::ResolveTarget",
+   "signature": "void* __stdcall CSubUnit::ResolveTarget(CSubUnit* ship@EAX) @EAX",
+   "no_signature": null,
+   "comment": "The object a sub unit's remembered target id (+0xB8, +0xBC) names, or null where it has none or the object is gone. CShipOption::Update picks the frame of a ship's picture by it. The name is ours. See reversing/findings/FINDINGS-combatview.md, section 12.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-combatview.md"
   }
  ],
  "structs": [
@@ -34122,10 +34504,10 @@
     },
     {
      "offset": "0x95",
-     "name": "unknown_flag_95",
-     "type": "uint8_t",
-     "comment": "A byte on the **target** of a naval spotting roll: when set, ShouldStartNavalCombat doubles the computed detection value (0x31ED6). CUnit's constructor zeroes it as part of a merged dword store at 0x1B50D6 and **no writer was found anywhere in the image**, so its meaning is not established. Not to be confused with CCountry +0x95, a different class's field at the same offset, which the supply code reads at 0x1BEDAC to choose between the national pool at CCountry +0x9F8 and the capital province's.",
-     "source": "reversing/findings/FINDINGS-navaldetection.md"
+     "name": "shadowed_by_patrol",
+     "type": "bool",
+     "comment": "**Set on a fleet a patrol is shadowing**, and cleared when the patrol lets go: CPatrolOrder::UpdateShadow is its only writer in the naval order code (0x59CED5 clears, 0x59D17F sets). ShouldStartNavalCombat doubles the figure of every roll made against a fleet that has it. See reversing/findings/FINDINGS-navalmissions.md, section 4.",
+     "source": "reversing/findings/FINDINGS-navalmissions.md"
     },
     {
      "offset": "0x98",
@@ -34968,10 +35350,10 @@
     },
     {
      "offset": "0x2B",
-     "name": "flag",
-     "type": "uint8_t",
-     "comment": "A flag the history entry keeps at its +0x20. **Read in the naval battle as what a convoy raid would set** (inferred; its writer is unread): while it is set CCombat::Tick asks HasLost of neither side, an attacking ship shoots with convoy_attack in place of sea_attack, a defending ship's hit does an eightieth of its strength damage and twice its organisation damage, and a fleet that disengages keeps its order. See reversing/findings/FINDINGS-seabattle.md, section 6.",
-     "source": "reversing/findings/FINDINGS-seabattle.md"
+     "name": "is_convoy_battle",
+     "type": "bool",
+     "comment": "**Set on the battle a convoy raid fights** against the throwaway fleet made of the convoy: ResolveConvoyRaid writes it at 0x5D2368, right after making the battle. While it is set CCombat::Tick asks HasLost of neither side, an attacking ship shoots with convoy_attack, a defending ship's hit does an eightieth of its strength damage and twice its organisation damage, and a fleet that disengages keeps its order. See reversing/findings/FINDINGS-navalmissions.md, section 9.",
+     "source": "reversing/findings/FINDINGS-navalmissions.md"
     },
     {
      "offset": "0x2C",
@@ -37314,8 +37696,8 @@
      "offset": "0x18",
      "name": "return_to_base",
      "type": "bool",
-     "comment": "saved as `return_to_base`. **Read live**: set on 30 of 357 air orders. CNavalOrder keeps its own at +0x34 instead of using this",
-     "source": "BiceLib/GameClasses/COrder.hpp:42"
+     "comment": "saved as `return_to_base`. Set by COrder::OrderReturnToBase. **For a naval order nothing clears it**: CAirOrder's code does (0x58A6C4), the naval order code has no write to it but the constructor's, and CNavalOrder::IsActive clears the naval order's own byte at +0x34 instead. So a fleet's order that has once been told to return to base stays so while the order lives. **Read live**: set on 30 of 357 air orders. See reversing/findings/FINDINGS-navalmissions.md, section 1.",
+     "source": "reversing/findings/FINDINGS-navalmissions.md"
     },
     {
      "offset": "0x1C",
@@ -40771,8 +41153,8 @@
      "offset": "0x34",
      "name": "return_to_base",
      "type": "bool",
-     "comment": "**CNavalOrder's own, not COrder's +0x18**: its loader takes the `return_to_base` key before COrder sees it and stores it here",
-     "source": "BiceLib/GameClasses/COrder.hpp:119"
+     "comment": "**CNavalOrder's own, not COrder's +0x18**: its loader takes the `return_to_base` key before COrder sees it and its saver writes it under the same key after COrder's. CNavalOrder::IsActive ends the order where it is set and the unit is in its base's province. **Nothing in play sets it** - the constructor zeroes it and IsActive clears it - so only a loaded save can have it. See reversing/findings/FINDINGS-navalmissions.md, section 1.",
+     "source": "reversing/findings/FINDINGS-navalmissions.md"
     },
     {
      "offset": "0x38",
@@ -50093,6 +50475,42 @@
   }
  ],
  "vftable_slots": {
+  "CShipOption": {
+   "8": {"name": "Update", "signature": "void __thiscall Update(CShipOption* this)"}
+  },
+  "CConvoyEscortOrder": {
+   "11": {"name": "MayBeGiven", "signature": "bool __thiscall MayBeGiven(CConvoyEscortOrder* this)"},
+   "13": {"name": "Start", "signature": "void __thiscall Start(CConvoyEscortOrder* this)"},
+   "14": {"name": "IsActive", "signature": "bool __thiscall IsActive(CConvoyEscortOrder* this)"}
+  },
+  "CReserveOrder": {
+   "11": {"name": "MayBeGiven", "signature": "bool __thiscall MayBeGiven(CReserveOrder* this)"},
+   "13": {"name": "Start", "signature": "void __thiscall Start(CReserveOrder* this)"},
+   "14": {"name": "IsActive", "signature": "bool __thiscall IsActive(CReserveOrder* this)"},
+   "23": {"name": "RunDaily", "signature": "void __thiscall RunDaily(CReserveOrder* this)"}
+  },
+  "CConvoyRaid": {
+   "11": {"name": "MayBeGiven", "signature": "bool __thiscall MayBeGiven(CPatrolOrder* this)"},
+   "13": {"name": "Start", "signature": "void __thiscall Start(CConvoyRaid* this)"},
+   "14": {"name": "IsActive", "signature": "bool __thiscall IsActive(CConvoyRaid* this)"}
+  },
+  "CNavalSortieOrder": {
+   "11": {"name": "MayBeGiven", "signature": "bool __thiscall MayBeGiven(CPatrolOrder* this)"},
+   "13": {"name": "Start", "signature": "void __thiscall Start(CNavalSortieOrder* this)"},
+   "14": {"name": "IsActive", "signature": "bool __thiscall IsActive(CNavalSortieOrder* this)"}
+  },
+  "CNavalInterceptOrder": {
+   "11": {"name": "MayBeGiven", "signature": "bool __thiscall MayBeGiven(CPatrolOrder* this)"},
+   "13": {"name": "Start", "signature": "void __thiscall Start(CNavalInterceptOrder* this)"},
+   "14": {"name": "IsActive", "signature": "bool __thiscall IsActive(CNavalInterceptOrder* this)"},
+   "15": {"name": "Describe", "signature": "Hoi3CString* __thiscall Describe(CNavalInterceptOrder* this, Hoi3CString* out)"}
+  },
+  "CPatrolOrder": {
+   "11": {"name": "MayBeGiven", "signature": "bool __thiscall MayBeGiven(CPatrolOrder* this)"},
+   "13": {"name": "Start", "signature": "void __thiscall Start(CPatrolOrder* this)"},
+   "14": {"name": "IsActive", "signature": "bool __thiscall IsActive(CPatrolOrder* this)"},
+   "15": {"name": "Describe", "signature": "Hoi3CString* __thiscall Describe(CPatrolOrder* this, Hoi3CString* out)"}
+  },
   "COwnerArea": {
    "1": {"name": "AddProvince", "signature": "void __thiscall AddProvince(COwnerArea* this, CMapProvince* province)"},
    "2": {"name": "RemoveProvince", "signature": "bool __thiscall RemoveProvince(COwnerArea* this, CMapProvince* province)"}
@@ -50952,6 +51370,8 @@
    "4": "LoadKey"
   },
   "CNavalOrder": {
+   "14": {"name": "IsActive", "signature": "bool __thiscall IsActive(CNavalOrder* this)"},
+   "18": {"name": "GetPriority", "signature": "int __thiscall GetPriority(CNavalOrder* this)"},
    "4": "LoadKey"
   },
   "CStrategicBombOrder": {
@@ -51244,6 +51664,8 @@
    "12": "GetMaxStrength"
   },
   "COrder": {
+   "18": {"name": "GetPriority", "signature": "int __thiscall GetPriority(COrder* this)"},
+   "23": {"name": "RunDaily", "signature": "void __thiscall RunDaily(COrder* this)"},
    "6": "GetNameKey",
    "7": "GetDescription",
    "8": "IsInRange",
