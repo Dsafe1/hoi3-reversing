@@ -922,7 +922,7 @@ of it.
 
 ## What has already been read
 
-128 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
+130 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
 header lives. This replaces the `Done` archive: the archive restated each file's headline and named
 only 40 of the 67 there were then, so it was both longer and less useful than a complete list.
 
@@ -937,6 +937,7 @@ the six it was missing were wave 15's.
 | --- | --- |
 | `findings/FINDINGS-tick.md` | the tick: the clock, the command it posts, the five periodic passes and the TBB fan-out |
 | `findings/FINDINGS-schedule.md` | when each unit-level update runs, and on which thread |
+| `findings/FINDINGS-scrollbar.md` | **a scrollbar's end buttons**: a press's step (a declared thousandth counts as ten), the input object's two keys that multiply it by ten and by a hundred - slot 12 likely Ctrl - and **the hold that repeats it**, each frame counting the whole time held in 0.15 s repeats, so it speeds up the longer it is held and with the frame rate; the platform clock's `Start` and `Reset` |
 | `findings/FINDINGS-commands.md` | the command queue, the four channel classes, and the one `Execute` caller |
 | `findings/FINDINGS-session.md` | the session lifecycle: what `in_game` means, and what creates and destroys a game |
 | `findings/FINDINGS-session2.md` | the startup reset's second half, and what `CInGameIdler +0x1790` really is |
@@ -1029,6 +1030,7 @@ the six it was missing were wave 15's.
 | `findings/FINDINGS-ic.md` | how a country's IC is worked out |
 | `findings/FINDINGS-production.md` | the build queue, and how IC and leadership are split |
 | `findings/FINDINGS-buildqueue.md` | what `FINDINGS-production.md` left of the queue: a unit of several brigades' cost and days, the hundredth a level a queued brigade costs more, `CMilitaryConstruction::Deliver`, the order, cancel, move and place commands, how a new game turns an order of battle's `duration` into work done, and that a change of law prices the queue again - with all thirty starting lines' cost and days, and Germany's queue over four months, reproduced from savegames |
+| `findings/FINDINGS-buildertooltips.md` | **the four builder windows' tooltips**, each window's slot 6 read whole: every column header's short name and description, the step buttons' "Ctrl + LMB" line, the designer's combined arms icons and **terrain summary** - its brigades' terrain, river, night, fort and landing adjusters averaged with the terrain's own figures and the defines' penalties - and **the practical icon's discount** from the in-game screen's own arm. Corrects `BuildBuilderSortColumnLabel`, which is the ledger's and has no builder caller |
 | `findings/FINDINGS-builders.md` | the four windows a unit is ordered from - the division designer and its brigade picker, the ship, air and brigade builders: which types each lists and what rations an elite brigade, every column and total with its decimals, the order panel they share (serial and parallel, the three cost figures, the traffic light), what disables `accept`, the choice of a level for each of a ship's technologies, `CConstructSingleUnitCommand`, and how a new unit is named |
 | `findings/FINDINGS-distribute.md` | the daily loop over the IC shares, the army term of consumer goods demand, the supply share, and crude oil into fuel |
 | `findings/FINDINGS-leadership.md` | how leadership is worked out, the officer, diplomacy and espionage shares, when a province is overseas or non-core, the static modifier slots, and what a country starts a game with |

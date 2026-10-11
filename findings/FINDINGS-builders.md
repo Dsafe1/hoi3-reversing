@@ -512,10 +512,11 @@ background, is not brought back.
 
 ## What is not established
 
-- **Which key makes a step ten.**
+- **Which key makes a step ten** in the code. The step buttons' own tooltip says Ctrl
+  (`FINDINGS-buildertooltips.md`, section 2).
 - **`CProductionView` slot 5** (`0x7FFA80`), which each of the four handlers ends on, and
   the game screen's slot 37.
-- **The four tooltip builders** (slot 6), beyond their keys.
+- ~~The four tooltip builders (slot 6), beyond their keys.~~ Read in `FINDINGS-buildertooltips.md`.
 - **`CCountry::CountMaxUnitsStillBuildable` past its early returns** in the listing, and
   what `0x5ADF70` groups brigades by when it counts "of the type's branch".
 - **The photo and the label**: `0x582FA0`, `CHistoricalModel::PickBestModel` and `0x581F70`

@@ -193,7 +193,7 @@ Five functions, 66/51/44/43/41 keys — the five highest game-key counts in the 
 
 | rva | holder |
 | --- | --- |
-| `0x3C3510` | none; `__thiscall(this@ECX, Hoi3CString* out)` `ret 4`, called by the four below |
+| `0x3C3510` | none; `__thiscall(this@ECX, Hoi3CString* out)` `ret 4`, called by the four below - **wrong**: it has one caller, `0x662C69`, ECX is the element under the mouse and it answers the ledger's `ledger_sort_*` headers (`FINDINGS-buildertooltips.md`, section 4) |
 | `0x3D3AB0` | `CAirBuilder` slot 6 |
 | `0x3DC090` | `CBrigadeBuilder` slot 6 |
 | `0x3EA930` | `CDivisionDesigner` slot 6 |
@@ -635,7 +635,7 @@ exists; **!** additionally reads global UI state.
 | the long description for a mission index | `OrderMissionIndexToDescription` | `0x185B70` | the same shape, the `_DESC` twin | as above | 0x1380 bytes | **A**, `likely` |
 | convoy efficiency as the lend-lease panel shows it | `BuildConvoyEfficiencyTooltip` | `0x3FA710` | `__stdcall(CConvoy* convoy, Hoi3CString* out)` `ret 8`, convoy in EDI | `Hoi3CString` at `[ebp+0xC]` | 0xA8A bytes | **A/C** — one caller, `0x801806`; but call `CConvoy::GetEfficiency` (`0xC6B80`) instead and divide by 1000 |
 | which function draws a given ledger page | `LedgerPage_Update` | `0x3C1ED0` | `__stdcall(void* ledgerWindow)` `ret 4`; dispatches on `[this+4]` | — | 0x40B bytes plus the page | **do not call** — it rebuilds a GUI window. The **page table in §2 is the deliverable**, not the function |
-| the name or description of a builder's sort column | `BuildBuilderSortColumnLabel` | `0x3C3510` | `__thiscall(this@ECX, Hoi3CString* out)` `ret 4` | `Hoi3CString` at `[ebp+8]` | 0x26FC bytes | **C** — reads the window's own current sort column (slot 17) and returns text only |
+| the name or description of a ledger column (was "a builder's sort column") | `BuildLedgerColumnTooltip` (was `BuildBuilderSortColumnLabel`) | `0x3C3510` | the element in ECX, `out` on the stack, `ret 4` (`FINDINGS-buildertooltips.md`, section 4) | `GuiTooltipText` at `[ebp+8]` | 0x26FC bytes | **C** — asks the element's own name (slot 17) and returns text only |
 
 ---
 

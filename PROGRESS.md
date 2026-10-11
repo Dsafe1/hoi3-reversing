@@ -420,7 +420,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CAccessAreaCostCallback` | `CAreaCostCallback` |  |  |  |  |  |  | RTTI |  |
 | `CAdjMember` | `CStandardlistboxItem` |  |  |  |  |  | 12 | RTTI |  |
 | `CAirAttackComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
-| `CAirBuilder` | `CReloadableInterface` |  |  |  | 2 |  | 1 | RTTI |  |
+| `CAirBuilder` | `CReloadableInterface` |  |  |  | 3 |  | 1 | RTTI |  |
 | `CAirCombatMember` | `COutLinerMember` |  |  |  |  |  |  | RTTI |  |
 | `CAirDefenceComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CAirMember` | `COutLinerMember` |  |  |  |  |  |  | RTTI |  |
@@ -453,7 +453,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CBombCombatMember` | `COutLinerMember` |  |  |  |  |  |  | RTTI |  |
 | `CBookmarkEntry` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
 | `CBorderManager` | `CLostDeviceInterface` |  |  |  |  |  | 1 | RTTI |  |
-| `CBrigadeBuilder` | `CReloadableInterface` |  |  |  | 2 |  | 1 | RTTI |  |
+| `CBrigadeBuilder` | `CReloadableInterface` |  |  |  | 3 |  | 1 | RTTI |  |
 | `CBrigadePicker` | `CReloadableInterface` |  |  |  | 3 |  | 1 | RTTI |  |
 | `CBrigadeSortInterface` |  |  |  |  |  |  |  | RTTI |  |
 | `CBrigadeStatsEntry` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
@@ -645,7 +645,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CSettingsScreen` |  |  |  |  |  |  |  | RTTI |  |
 | `CShield3dObject` | `C3dVisibleObject` |  |  |  |  |  | 23,393 | RTTI |  |
 | `CShieldObject` | `CSprite` |  |  |  |  |  | 187 | RTTI |  |
-| `CShipBuilder` | `CReloadableInterface` |  | 9 |  | 6 |  | 1 | read |  |
+| `CShipBuilder` | `CReloadableInterface` |  | 9 |  | 7 |  | 1 | read |  |
 | `CShipSortInterface` |  |  |  |  |  |  |  | RTTI |  |
 | `CSideMenu` | `CReloadableInterface` |  |  |  |  |  |  | RTTI |  |
 | `CSideMenuAir` | `CSideMenu` |  |  |  |  |  | 1 | RTTI |  |

@@ -156,9 +156,11 @@ for the arithmetic; it reads as a bug, and is what the original does.
    `MAPMODE_7G` for the seventh), `zoom_in`, `zoom_out`, `button_home`, `button_goto`,
    `ledger_button`, `menu_button`, the multi-unit buttons and more;
 8. and, when none matches, `0x6C43B0`: `topbar` (the top bar's own), the message categories, the
-   speed buttons, `trait_icon` (the trait's name with its description in `delayed`), technology
-   icons ("TC_BUILD_COST_AND_TIME"), `message_dialog` (`0x6446D0`, the open dialogs at idler
-   `+0xA0`), and last `0x662C50` - the builder window's sort column (`+0x1CE0`), or the open
+   speed buttons, `trait_icon` (the trait's name with its description in `delayed`), the practical
+   icon `on_complete_icon` and `on_complete_impact` ("TC_BUILD_COST_AND_TIME" - "technology icons"
+   here until `FINDINGS-buildertooltips.md`, section 3), `message_dialog` (`0x6446D0`, the open
+   dialogs at idler `+0xA0`), and last `0x662C50` - the ledger's column headers (`+0x1CE0`; "the
+   builder window's sort column" here until `FINDINGS-buildertooltips.md`, section 4), or the open
    country view's slot 10 - after which `text` and `delayed` are trimmed.
 
 **The point** (`0x6C9471`), `confirmed` off the decompilation:
@@ -216,7 +218,8 @@ reading reached:
 - the country views (production, technology): their slot 10 through `0x662C50` -
   `CProductionView::BuildTooltip` (`0x7FFD30`), `CTechTreeEntry::BuildTooltip` (`0x8193C0`),
   `CCurrentResearchEntry::BuildTooltip` (`0x816A10`);
-- the builder windows: `0x662C50`'s `+0x1CE0` arm, `CDivisionDesigner::BuildTooltip` (`0x7EA930`);
+- the builder windows: their slot 6, through `CProductionView::BuildTooltip` - read in
+  `FINDINGS-buildertooltips.md`;
 - a unit's panel and the battle's window: `0x764F40`, `0x762670`, `CCombatView::BuildTooltip`
   (`0x731120`), `CCombatView::BuildUnitTooltip` (`0x729D40`);
 - the orders windows: `CNavalOrdersView::GetTooltip` (`0x73F660`), `CAirOrdersView::GetTooltip`
