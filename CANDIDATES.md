@@ -922,7 +922,7 @@ of it.
 
 ## What has already been read
 
-126 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
+128 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
 header lives. This replaces the `Done` archive: the archive restated each file's headline and named
 only 40 of the 67 there were then, so it was both longer and less useful than a complete list.
 
@@ -1076,6 +1076,8 @@ the six it was missing were wave 15's.
 | `findings/FINDINGS-text.md` | how the game measures text |
 | `findings/FINDINGS-provincetooltip.md` | **the tooltip of a province**, `ProvinceTooltip_Build` read whole: a selected army's `UTM_*` line, the name and the owner, the terrain mode's flags, terrain and figures, the political mode's, the supply mode's lines put together with their colours and the line on infrastructure, the tail's distances; **the `@TAG` flag icon** in text, 23 by 11 below the line's top; `CArmy +0x300` the fleet carrying it |
 | `findings/FINDINGS-topbartooltip.md` | **the top bar's tooltips**, `CTopBar::BuildTooltip` read whole by element name: the goods ledger's lines and colours, IC, dissent, diplomacy, national unity, officers and manpower; **how a modifier lists its contributors** (`CModifier` slots 6 to 9), and each modifier kind's two flags, percent and more-is-better; **corrects `BuildModifierEffectsText`, which is the definitions' initialiser** |
+| `findings/FINDINGS-productiontooltip.md` | **the production screen's tooltips**, `CProductionView::BuildTooltip` read whole by element name: the resources' ledgers, a strategic resource's provinces by their infrastructure, the bombs, the escort, convoy, underground, theatre and building buttons; **what each of the ten shares' sliders says** at the slider's position (`CDistributionSetting` slot 5); a build queue line's; and **what `£name` draws in a text**, the middle of `GFX_counter_` + name. Corrects `BuildProductionPenaltyTooltip`, the whole line's tooltip with its arguments the other way round |
+| `findings/FINDINGS-techtooltip.md` | **the technology screen's tooltips**, `CTechnologyView` slot 10 read whole: where leadership comes from, a tree entry's heading and double-click line, a theory's sharer, a queue line's priority buttons and research efficiency, a category icon's speed, and **the start button's days at full funding, carried over the year's end**. Its effects text and the `allow` trigger's account are not read |
 | `findings/FINDINGS-tooltips.md` | **how a tooltip is shown**: `core.gui`'s `ToolTip` box, made by `CEU3Idler::Enter`; each frame `CEU3Idler::UpdateTooltip` asks slot 20 for it, adds the `delayed` halves under fourteen dashes once the clock is past the next whole second after the mouse stopped, trims, wraps at `maxWidth - 3 * border`, grows the box to fit and keeps it inside the right and bottom edges; an element's tooltip hangs 64 below its corner, or stands on it in the lowest fifth; a province's stands above the mouse; the console's `tooltips`; a button's shortcut line; `GuiTooltipText`'s fields named; **corrects `g_random_object`, which is the platform factory**; no `.gui` file sets a tooltip key |
 
 **The record itself**

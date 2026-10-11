@@ -28,9 +28,9 @@ how many objects a census found (taken 2026-09-20).
 | `read` | 86 |
 | `placed` | 160 |
 | `keys` | 81 |
-| `part` | 42 |
+| `part` | 43 |
 | `named` | 6 |
-| `RTTI` | 766 |
+| `RTTI` | 765 |
 | **all** | **1141** |
 
 ## What to read next
@@ -161,12 +161,12 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CCombatHistoryEntry` | `CPersistent` |  | 10 | 5/6 | 2 |  | 413 | read |  |
 | `CCombatManager` | `CPersistent` |  | 3 | 1/7 | 8 | CCombatManager.hpp | 1 | placed |  |
 | `CCombatant` | `CPersistent` |  | 23 | 4/6 | 20 | CCombat.hpp |  | read |  |
-| `CConstruction` | `CReferenceObject` |  | 10 + 2 lua |  | 4 | CConstruction.hpp |  | read |  |
+| `CConstruction` | `CReferenceObject` |  | 13 + 2 lua |  | 4 | CConstruction.hpp |  | read |  |
 | `CConvoy` | `CReferenceObject` |  | 22 + 3 lua | 6/13 | 17 | CConvoy.hpp | 839 | read |  |
 | `CConvoyConstruction` | `CConstruction` |  | 1 | 1/1 | 2 | CConstruction.hpp | 40 | placed |  |
 | `CConvoyEscortOrder` | `CNavalOrder` |  |  | 1/3 | 6 |  |  | placed |  |
 | `CConvoyRaid` | `CNavalOrder` |  |  | 1/1 | 5 |  | 62 | placed |  |
-| `CCountry` | `CPersistent` |  | 246 + 71 lua | 69/126 | 106 | CCountry.hpp | 108 | read |  |
+| `CCountry` | `CPersistent` |  | 246 + 71 lua | 69/126 | 107 | CCountry.hpp | 108 | read |  |
 | `CCountryDate` | `CPersistent` |  |  | 1/2 | 1 |  |  | placed |  |
 | `CCountryHistory` | `CHistoryContainer` |  |  |  | 1 | CCountryHistory.hpp | 108 | keys | **read**: `history/countries`, where a date is a key. See GameClasses/CCountryHistory.hpp |
 | `CCountryValue` | `CPersistent` | 0x14 | 2 | 1/2 | 1 |  | 9,078 | placed |  |
@@ -350,7 +350,7 @@ Definitions out of `common/` and the rest of the mod. Their `LoadKey` is the gra
 | `CDirectorySettings` | `CPersistent` |  |  |  | 1 |  | 1 | keys | **read**: the path table; `replace` and `extend` are how a mod says whether its folder replaces the base game's |
 | `CDivisionTemplate` | `CPersistent` |  |  |  |  |  | 1,955 | RTTI |  |
 | `CEU3Application` | `CApplication` |  | 4 |  | 8 |  | 2 | keys | plumbing: the settings file |
-| `CEU3BitmapFont` | `CBitmapFont` |  | 2 | 1/6 | 7 |  | 126 | placed |  |
+| `CEU3BitmapFont` | `CBitmapFont` |  | 2 | 1/6 | 9 |  | 126 | placed |  |
 | `CEU3DialogGuiType` | `CWindowType` |  |  | 1/1 | 1 |  | 30 | placed |  |
 | `CEU3Graphics` | `CGraphics` |  |  |  | 2 |  | 2 | keys |  |
 | `CEU3Gui` | `CGui` |  |  |  | 1 |  | 3 | RTTI |  |
@@ -502,16 +502,16 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CDiplomacyView` | `CCountryView` |  |  |  |  |  | 1 | RTTI |  |
 | `CDiplomaticActionItem` | `CStandardlistboxItem` |  |  |  |  |  | 26 | RTTI |  |
 | `CDirectSound` | `CSound` |  |  |  |  |  |  | RTTI |  |
-| `CDistributeConsumerGoods` | `CDistributionSetting` |  |  |  | 6 |  | 108 | RTTI |  |
-| `CDistributeDiplomacy` | `CDistributionSetting` |  |  |  | 4 |  | 108 | RTTI |  |
-| `CDistributeEspionage` | `CDistributionSetting` |  | 3 |  | 2 |  | 108 | part |  |
-| `CDistributeLendLease` | `CDistributionSetting` |  |  |  | 4 |  | 108 | RTTI |  |
-| `CDistributeNCO` | `CDistributionSetting` |  |  |  | 2 |  | 108 | RTTI |  |
-| `CDistributeProduction` | `CDistributionSetting` |  | 2 |  | 6 |  | 108 | part |  |
-| `CDistributeReinforcement` | `CDistributionSetting` |  | 1 |  | 4 |  | 108 | part |  |
-| `CDistributeResearch` | `CDistributionSetting` |  |  |  | 4 |  | 108 | RTTI |  |
-| `CDistributeSupply` | `CDistributionSetting` |  |  |  | 4 |  | 108 | RTTI |  |
-| `CDistributeUpgrade` | `CDistributionSetting` |  |  |  | 4 |  | 108 | RTTI |  |
+| `CDistributeConsumerGoods` | `CDistributionSetting` |  |  |  | 7 |  | 108 | RTTI |  |
+| `CDistributeDiplomacy` | `CDistributionSetting` |  |  |  | 5 |  | 108 | RTTI |  |
+| `CDistributeEspionage` | `CDistributionSetting` |  | 3 |  | 3 |  | 108 | part |  |
+| `CDistributeLendLease` | `CDistributionSetting` |  |  |  | 5 |  | 108 | RTTI |  |
+| `CDistributeNCO` | `CDistributionSetting` |  |  |  | 3 |  | 108 | RTTI |  |
+| `CDistributeProduction` | `CDistributionSetting` |  | 2 |  | 7 |  | 108 | part |  |
+| `CDistributeReinforcement` | `CDistributionSetting` |  | 1 |  | 5 |  | 108 | part |  |
+| `CDistributeResearch` | `CDistributionSetting` |  |  |  | 5 |  | 108 | RTTI |  |
+| `CDistributeSupply` | `CDistributionSetting` |  |  |  | 5 |  | 108 | RTTI |  |
+| `CDistributeUpgrade` | `CDistributionSetting` |  |  |  | 5 |  | 108 | RTTI |  |
 | `CDistributionSetting` |  | 0x28 | 4 + 1 lua |  | 3 | CCountry.hpp |  | part |  |
 | `CDivisionDesigner` | `CReloadableInterface` |  | 13 |  | 15 |  | 1 | read |  |
 | `CDriftItem` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
@@ -522,7 +522,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CEU3Idler` | `CIdler` |  |  |  | 2 |  |  | RTTI |  |
 | `CEU3Minimap` | `CIcon` |  |  |  | 1 |  | 2 | RTTI |  |
 | `CEasymodeView` | `CFrontEndView` |  |  |  |  |  |  | RTTI |  |
-| `CEntryForTechCategory` | `CStandardlistboxItem` |  |  |  | 1 |  | 4 | RTTI |  |
+| `CEntryForTechCategory` | `CStandardlistboxItem` |  | 4 |  | 2 |  | 4 | part |  |
 | `CEspionageView` | `CCountryView` |  |  |  | 1 |  | 1 | RTTI |  |
 | `CFactory` |  |  |  |  |  |  |  | RTTI |  |
 | `CForeignMinisterItem` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
@@ -674,10 +674,10 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CSuppressionComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CTableLedgerItem` |  |  |  |  |  |  |  | RTTI |  |
 | `CTechMember` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
-| `CTechTreeEntry` |  | 0x40 | 4 |  | 3 |  |  | part |  |
+| `CTechTreeEntry` |  | 0x40 | 4 |  | 4 |  |  | part |  |
 | `CTechnologyCategory` |  |  | 4 + 2 lua |  |  | CProvinceBuilding.hpp | 48 | part |  |
 | `CTechnologyFolder` |  |  | 2 lua |  |  |  | 36 | named |  |
-| `CTechnologyView` | `CCountryView` |  | 11 |  | 11 |  | 1 | read |  |
+| `CTechnologyView` | `CCountryView` |  | 11 |  | 12 |  | 1 | read |  |
 | `CTheatreView` | `CCountryView` |  |  |  |  |  | 1 | RTTI |  |
 | `CTitleMember` | `COutLinerMember` |  |  |  |  |  | 220 | RTTI |  |
 | `CTopBar` | `CReloadableInterface` | 0x384 | 20 |  | 7 |  | 1 | read |  |
