@@ -1,0 +1,93 @@
+{
+ "wave": "command-reach",
+ "date": "2026-10-11",
+ "summary": "How far a headquarters' command reaches a unit, a trait's effect down the chain of command, and the organisation ceiling's, the hourly return's and the supply routines' use of them.",
+ "source": "reversing/findings/FINDINGS-commandreach.md",
+ "addresses": [
+  {
+   "rva": "0xA5500",
+   "kind": "function",
+   "name": "ProvinceDistanceSquared",
+   "signature": "int __stdcall ProvinceDistanceSquared(CMapProvince* a@EAX, CMapProvince* b@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "The square of the distance between two provinces, in quarters of a pixel: the two provinces' templates (g_CMap +0x2A60 by id +0xD0), across = |centre_x (+0x2C) difference|, taken as map_width (+0x2A74) less it where over half the map's width, up = the centre_y (+0x30) difference, and (across^2 + up^2) << 4. CUnit::CommandReachFrom calls it; CUnit::CommandReach and CUnit::IsOutOfRadioRange inline the same body. See reversing/findings/FINDINGS-commandreach.md, section 3.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x4A5500..0x4A5562, `ret 4`; called at 0x5B689E with the unit's province in eax and the headquarters' pushed.",
+   "source": "reversing/findings/FINDINGS-commandreach.md"
+  },
+  {
+   "rva": "0x1B67B0",
+   "kind": "function",
+   "name": "CUnit::CommandReachFrom",
+   "signature": "int* __stdcall CommandReachFrom(CUnit* unit, int* out, CUnit* hq)",
+   "no_signature": null,
+   "comment": "**How much of one headquarters' command reaches one unit**, thousandths. 0 where the unit has no province (+0x130) or there is no headquarters; 1000 where the headquarters' oob_level is 4 or more or it has no province. Otherwise the radius r is its first brigade's definition radio_strength (+0x180) times the RADIO_*_LEADER_DISTANCE define for its level (military +0x21C theatre, +0x218 army group, +0x214 army, +0x210 corps) / 1000, then / 1000 - 0 for a unit with no brigade; d2 = ProvinceDistanceSquared. 1000 where d2 is 0 or at most r^2, 0 where d2 is over 4r^2, else with d = IntegerSqrt(d2) 1000 - (d - r) * 1000000 / (d * 1000): the radius over the distance, 1000 down to 500, and none past twice the radius. A guard answers 1001 where d * 1000 is 0, which cannot happen by then. The name is BiceLib's. See reversing/findings/FINDINGS-commandreach.md, section 4.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x5B67B0..0x5B695E, `ret 0xC`; the jump table at 0x5B6964 by oob_level.",
+   "source": "reversing/findings/FINDINGS-commandreach.md",
+   "revises": "The formula, the edge cases and the radius's arithmetic are given exactly; the old comment said only that it falls with the square of the distance."
+  },
+  {
+   "rva": "0x1B6980",
+   "kind": "function",
+   "name": "CUnit::CommandReach",
+   "signature": "int* __stdcall CommandReach(CUnit* unit@EAX, int* out@stack:4, int hqLevel@stack:8) @EAX",
+   "no_signature": null,
+   "comment": "**The reach compounded up the chain to a level**, thousandths. 1000 where the unit is at that level. Otherwise it walks up higher_oob_unit (+0x1E0) while the headquarters' oob_level is at least the level asked for, and each link - CUnit::CommandReachFrom's rule, inline, measured from the unit below that headquarters, not from the unit asked about - multiplies the running figure, which starts at 1000: reach = link * reach / 1000. GetMaxOrganisation and CUnit::RegainOrganisation ask it at level 2 (the army), the supply and fuel routines at level 1 (the army group). The name is BiceLib's. See reversing/findings/FINDINGS-commandreach.md, section 5.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x5B6980..0x5B6BE0, `ret 8`: the product is kept at [ebp-8] (0x5B6BC4) and stored through out at 0x5B6BDA. Ghidra's C loses it and shows out written from an uninitialised local.",
+   "source": "reversing/findings/FINDINGS-commandreach.md",
+   "revises": "Says how each link is measured and what the callers ask; the old comment said only that it compounds over every headquarters. The return is placed in EAX."
+  },
+  {
+   "rva": "0x1B6C00",
+   "kind": "function",
+   "name": "CUnit::IsOutOfRadioRange",
+   "signature": "bool __fastcall CUnit::IsOutOfRadioRange(CUnit* unit@EAX) @AL",
+   "no_signature": null,
+   "comment": "Walks up every headquarters above a unit, to the top, and answers true at the first link whose reach is under 1000 - CUnit::CommandReachFrom's rule, inline, each link measured from the unit below it. A unit with no headquarters is never out; a unit with no province is out at its first link, which is 0; a headquarters of oob_level 4 or more, or with no province, lets all through. The status row's unitstatus_distance shows frame 2 for it, and the hierarchy lines draw its line broken and dark red. The name is ours. See reversing/findings/FINDINGS-commandreach.md, section 6.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x5B6C00..0x5B6E35; the compare at 0x5B6E0A against 1000.",
+   "source": "reversing/findings/FINDINGS-commandreach.md",
+   "revises": "Says that it walks to the top and what a unit or headquarters with no province does."
+  },
+  {
+   "rva": "0x1D1120",
+   "kind": "function",
+   "name": "CUnit::CommandEffect",
+   "signature": "int* __thiscall CommandEffect(CUnit* this, int* out, int effectType)",
+   "no_signature": null,
+   "comment": "**One kind of trait effect for a unit**, thousandths: where it has a higher_oob_unit (+0x1E0), that unit's own CommandEffect (recursive) - where not 0 - times max(CommandReachFrom(unit, it), 0) / 1000, then * 1000 / 2000, halved toward nothing; plus, where its leader (+0x12C) is not the null leader (vslot 8), every effect of every trait of his (+0x30) whose kind (+0xA8 array) matches, by value (+0x68 array), count at +0x2A8. So a commander's trait is worth half to the units under him and a quarter to theirs, by reach. Kinds are numbered in the order traits.txt's opening comment lists them; 2 is supply_consumption, which the supply and fuel routines ask for, and 0 xp_gain, asked for at 0x1C457E. **This is how a trait reaches a combat or a unit, and it does not go through the CModifier base's value array.** 63 call sites. Also read as CUnit::GetTraitEffect, kept as an alias. The name is BiceLib's. See reversing/findings/FINDINGS-commandreach.md, section 7.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled C of 0x5D1120, checked against the listing: the zero from above skipped at 0x5D1153, the reach clamped at 0x5D1172, the halving at 0x5D1196..0x5D11A5 (* 1000, then the 0x10624DD3 multiply and sar 7, which is / 2000 toward nothing), with a 64-bit path beside it.",
+   "source": "reversing/findings/FINDINGS-commandreach.md",
+   "revises": "Gives the halving's rounding, the clamp, that a zero from above is skipped, and that the null leader brings nothing.",
+   "aliases": [
+    "CUnit::GetTraitEffect"
+   ]
+  },
+  {
+   "rva": "0x1AB700",
+   "kind": "function",
+   "name": "CSubUnit::GetMaxOrganisation",
+   "signature": "int* __stdcall GetMaxOrganisation(int* out@EAX, CSubUnit* subunit@stack:4, int zero@stack:8, int alsoZero@stack:12) @EAX",
+   "no_signature": null,
+   "comment": "Works out one number and hands the rest to CSubUnit::GetMaxOrganisationWithBonus (0x1AB7C0): **what the army's commander adds.** From the brigade's unit (+0xB0) it looks for a unit of oob_level 2 - the unit itself, its parent, or its parent's parent through a corps (3) - and where there is one the bonus is CUnit::CommandReach(the brigade's unit, 2) times that army's leader's skill (CLeader +0x70) x1000, over 1000. The leader is read untested; a headquarters with nobody in command holds CLeader::null's leader, whose skill is 0 - 0x17F380, which builds it, first calls 0x17F580, and that writes a zeroed ebx to +0x70 and +0x74 (0x57F5BF, 0x57F695, 0x57F698). No army, no bonus. The two stack arguments after the brigade are the reserve gate's two flags and are passed straight on; CSubUnit::AfterLoad passes (1, 0). Answers through a hidden return pointer, `ret 0xC`. The name is BiceLib's, from what CSubUnit::ApplyTechnologies clamps with it. See reversing/findings/FINDINGS-commandreach.md, section 8.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x5AB700..0x5AB79E: eax is the unit from 0x5AB70A to the call at 0x5AB76C, and the army's oob_level is pushed at 0x5AB761.",
+   "source": "reversing/findings/FINDINGS-commandreach.md",
+   "revises": "Names CommandReach's arguments - the brigade's unit and level 2. FINDINGS-unitstart.md section 8 had them as (hq, brigade), corrected there. The return is placed in EAX."
+  }
+ ],
+ "struct_fields": [],
+ "vftable_slots": {},
+ "slots_noted": "ProvinceDistanceSquared sits in no virtual table (vtable.py --holding).",
+ "frontier": [
+  "0x17F380",
+  "0x17F580"
+ ],
+ "notes": [
+  "Nothing here was watched in a running game.",
+  "Checked against the start save by OpenHOI3's SaveCheck: 764 of 764 brigades under an army with a commander, 27 of 28 capitals where a unit has a leader."
+ ]
+}

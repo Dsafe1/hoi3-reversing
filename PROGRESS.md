@@ -166,7 +166,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CConvoyConstruction` | `CConstruction` |  | 1 | 1/1 | 2 | CConstruction.hpp | 40 | placed |  |
 | `CConvoyEscortOrder` | `CNavalOrder` |  |  | 1/3 | 6 |  |  | placed |  |
 | `CConvoyRaid` | `CNavalOrder` |  |  | 1/1 | 5 |  | 62 | placed |  |
-| `CCountry` | `CPersistent` |  | 245 + 71 lua | 69/126 | 102 | CCountry.hpp | 108 | read |  |
+| `CCountry` | `CPersistent` |  | 246 + 71 lua | 69/126 | 105 | CCountry.hpp | 108 | read |  |
 | `CCountryDate` | `CPersistent` |  |  | 1/2 | 1 |  |  | placed |  |
 | `CCountryHistory` | `CHistoryContainer` |  |  |  | 1 | CCountryHistory.hpp | 108 | keys | **read**: `history/countries`, where a date is a key. See GameClasses/CCountryHistory.hpp |
 | `CCountryValue` | `CPersistent` | 0x14 | 2 | 1/2 | 1 |  | 9,078 | placed |  |
@@ -219,7 +219,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CLandCombatant` | `CCombatant` | 0xE4 | 3 | 2/2 | 15 |  | 324 | placed |  |
 | `CLandTargetCombatant` | `CBombTargetCombatant` |  |  | 4/6 | 1 |  | 13 | RTTI |  |
 | `CLargefileHandlerInterface` | `CReferenceObject` |  |  |  |  |  |  | RTTI |  |
-| `CLeader` | `CReferenceObject` | 0xD0 | 17 | 10/16 | 8 | CLeader.hpp | 24,137 | read |  |
+| `CLeader` | `CReferenceObject` | 0xD0 | 17 | 10/16 | 10 | CLeader.hpp | 24,137 | read |  |
 | `CLeaderHistory` | `CHistoryContainer` | 0x24 | 4 |  | 2 |  | 24,138 | keys |  |
 | `CLeaderHistoryEntry` | `CHistoryEntry` |  |  |  |  |  |  | RTTI |  |
 | `CLicenceTechnologyAction` | `CDiplomaticAction` |  | 4 lua | 1/4 | 3 |  | 1 | placed |  |
@@ -308,7 +308,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CTraitGainTracker` | `CPersistent` |  | 4 |  | 6 | CTrait.hpp | 24,137 | keys |  |
 | `CTransportSuppliesOrder` | `CAirOrder` |  |  | 2/2 | 2 |  |  | placed |  |
 | `CUndeclaredWar` | `CPersistent` |  | 6 |  | 3 | CWar.hpp | 1 | read | **read**: the save's record of a war nobody declared |
-| `CUnit` | `PAVCSubUnit::__CList` `CSelectable` `CReferenceObject` |  | 99 + 1 lua |  | 99 | CUnit.hpp |  | read |  |
+| `CUnit` | `PAVCSubUnit::__CList` `CSelectable` `CReferenceObject` |  | 100 + 1 lua |  | 103 | CUnit.hpp |  | read |  |
 | `CUnitDeployment` | `CDeployment` |  |  | 3/4 | 4 |  | 49 | placed |  |
 | `CUnitPlan` | `CPersistent` | 0x90 | 15 | 10/16 | 13 |  | 8,827 | read | **read**: a battle plan as the save keeps it |
 | `CVariables` | `_0A::anon::PAUCVariable::__CTernary` `CPersistent` |  | 1 |  | 3 | CFlags.hpp | 216 | part |  |

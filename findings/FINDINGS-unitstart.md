@@ -243,7 +243,10 @@ This closes `FINDINGS-leadership.md`'s "what sets `officers` at the start".
 
     hq = the brigade's unit if that is an army (oob_level 2), else the army above it,
          reached through a corps (3) from a division (4) - or none
-    bonus = hq ? CommandReach(hq, brigade) * hq->leader->skill * 1000 / 1000 : 0
+    bonus = hq ? CommandReach(the brigade's unit, 2) * hq->leader->skill * 1000 / 1000 : 0
+
+(Corrected on 2026-10-11: this read `CommandReach(hq, brigade)`. The unit goes in `EAX` and the
+army's level is pushed - `FINDINGS-commandreach.md`, section 8.)
 
 and `0x5AB7C0` (`ret 0x10`, the answer through `ESI`) does the rest:
 
