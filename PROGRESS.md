@@ -362,7 +362,7 @@ Definitions out of `common/` and the rest of the mod. Their `LoadKey` is the gra
 | `CGovernment` | `CModifier` | 0x80 | 11 | 1/2 | 2 | CGovernment.hpp | 18 | read | `governments.txt`, a CModifier. Where the **null at index 0** of a name database was found |
 | `CGovernmentPosition` | `CModifier` |  | 4 + 3 lua |  | 1 |  | 11 | keys | one government position, a CModifier; its key and index are read |
 | `CGraphicalCultureType` | `CPersistent` |  |  |  |  |  | 8 | RTTI |  |
-| `CHasCombinedArmsBonus` | `CBoolTrigger` |  |  | 2/153 |  |  |  | RTTI |  |
+| `CHasCombinedArmsBonus` | `CBoolTrigger` |  |  | 2/153 | 1 |  |  | RTTI |  |
 | `CHistoricalModel` | `CPersistent` | 0x30 | 6 |  | 4 | CHistoricalModel.hpp | 2,484,216 | read | the unit models. **2.48 million objects, 114 MB** - every country keeps a set per unit type. The picker they feed is where `historicalModelLogicFix` patches |
 | `CHistoryContainer` | `CPersistent` |  |  |  | 9 | CCountryHistory.hpp | 251 | keys |  |
 | `CHistoryEntry` | `CPersistent` |  | 1 |  | 3 |  | 420 | part |  |
@@ -874,7 +874,7 @@ One class per effect, trigger, command and decision the event scripts can use. E
 | `CCombatIsWinnerTrigger` | `CBoolTrigger` |  |  | 2/153 | 1 |  | 2 | RTTI |  |
 | `CCombatModifierTrigger` | `CStringTrigger` |  |  | 2/153 | 1 |  | 99 | RTTI |  |
 | `CCombatTemperatureTrigger` | `CIntTrigger` | 0x44 |  | 2/153 | 1 |  | 2 | RTTI |  |
-| `CCombatTerrainTrigger` | `CStringTrigger` |  |  | 2/153 |  |  | 16 | RTTI |  |
+| `CCombatTerrainTrigger` | `CStringTrigger` |  |  | 2/153 | 1 |  | 16 | RTTI |  |
 | `CCombinedArmsTrigger` | `CBoolTrigger` |  |  | 2/153 |  |  |  | RTTI |  |
 | `CCommand` | `CPersistent` |  | 7 | 1/3 | 4 |  | 26,074 | read |  |
 | `CConquerProvinceCommand` | `CCommand` |  |  | 2/2 | 1 |  | 1 | placed |  |
