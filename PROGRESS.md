@@ -1200,7 +1200,7 @@ One class per effect, trigger, command and decision the event scripts can use. E
 | `CTotalSeaBattlesTrigger` | `CValueTrigger` | 0x44 |  | 2/153 | 1 |  |  | RTTI |  |
 | `CTotalSunkByUsTrigger` | `CValueTrigger` | 0x44 |  | 2/153 |  |  | 1 | RTTI |  |
 | `CTotalWeBombTrigger` | `CValueTrigger` | 0x44 |  | 2/153 | 1 |  |  | RTTI |  |
-| `CTraitTrigger` | `CTrigger` |  |  | 2/153 |  |  | 512 | RTTI |  |
+| `CTraitTrigger` | `CTrigger` |  |  | 2/153 | 1 |  | 512 | RTTI |  |
 | `CTransferSubUnitCommand` | `CCommand` |  |  | 2/2 | 1 |  | 1 | placed |  |
 | `CTrigger` | `PAVCTrigger::__CList` `CPersistent` | 0x40 | 6 | 2/153 | 4 |  | 11,343 | read | **read**: 152 keywords, one class each - the whole trigger half of the event script language. See findings/FINDINGS-script.md |
 | `CTriggeredModifier` | `CStaticModifier` | 0xC8 | 2 |  | 2 |  | 1,693 | keys |  |

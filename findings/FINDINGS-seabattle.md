@@ -139,7 +139,8 @@ up to `0.3 * 5 * (1 - positioning)` times that further out; the first capital sh
 sets a line, and **every other ship is put in front of that line or behind it at even odds**, by
 half its own reach and its own roll. A ship can come out nearer than 1, and is put at 1. A fleet
 that joins a battle already begun starts a hundred further out. A leader of skill 5 draws his
-ships up at exactly half their reach.
+ships up at half their reach or one further - *corrected 2026-10-11*: this said "exactly half",
+which missed that the roll's floor of 2 survives (`FINDINGS-seaairleaders.md`, section 2).
 
 `CCombat::Begin` for a naval battle is `CNavalCombat::RollPositioning` (already recorded): the
 two positioning rolls, the attacker's first, and both sides' positioning made again with them.

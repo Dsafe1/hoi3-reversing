@@ -248,12 +248,13 @@ defender through `0x57D190`):
 
     attacker:  (soft_attack + hard_attack + toughness     + 1000) * average organisation / 1000
                                                                    * total strength / 1000
-    defender:  (soft_attack + defensiveness + skill * 1000 + ... + 1000) * the same two
+    defender:  (soft_attack + hard_attack + defensiveness + skill * 1000 + 1000) * the same two
 
 on the unit's own summed definition (`CUnit +0xC8`: `+0x134`, `+0x138`, `+0x120`, `+0x11C`), the
 unit with the larger figure first. The attacker's is read off the instructions and is exact. The
-defender's adds its leader's skill (`CLeader +0x70`) and was read from the decompiler only,
-which lost two of its terms - **`likely` for the shape, not for the terms**.
+defender's adds its leader's skill (`CLeader +0x70`). *Corrected 2026-10-11: this was read from
+the decompiler alone and had two terms lost; the instructions give `hard_attack` as the missing
+one, and the whole is `confirmed` now - `FINDINGS-battleleaders.md`, section 7.*
 
 `CArmy::CanFight` (slot 33, `0x5D35C0`, already recorded): over the brigades with a width, the
 average strength is at least 100 (0.1) and the average organisation at least 1000 (1.0).

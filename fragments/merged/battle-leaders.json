@@ -1,0 +1,77 @@
+{
+ "wave": "battle-leaders",
+ "date": "2026-10-11",
+ "summary": "Leaders in a land battle: the trait trigger, a side's leader, the defender's front order and a corps commander's reserve chance, checked off the instructions.",
+ "source": "reversing/findings/FINDINGS-battleleaders.md",
+ "addresses": [
+  {
+   "rva": "0x607880",
+   "kind": "function",
+   "name": "CTraitTrigger::Evaluate",
+   "signature": "bool __thiscall CTraitTrigger::Evaluate(CTraitTrigger* this, void* scope) @AL",
+   "no_signature": null,
+   "comment": "`trait`, a tactic's condition: with a side in the scope (+0x40), the side's highest ranked leader's own trait list (CLeader +0x30) is walked for the trait this trigger holds at +0x40; true where it is there. Only the leader's own traits - nothing the chain of command brings. Slot 6 of CTraitTrigger. Its slot 7 (0x6077C0) reads the value as a string and resolves it with 0x5B4E00 through a registry built lazily at 0x1A855EC, taken to be the lookup of a trait by name (inferred). See reversing/findings/FINDINGS-battleleaders.md, section 2.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0xA07880..0xA078BB, `ret 4`; the call of CCombatant::GetHighestRankedLeader at 0xA07892 and the walk of [eax+0x30] comparing [eax] with the trigger's +0x40.",
+   "source": "reversing/findings/FINDINGS-battleleaders.md"
+  },
+  {
+   "rva": "0x165F20",
+   "kind": "function",
+   "name": "CCombatant::GetHighestRankedLeader",
+   "signature": "CLeader* __stdcall CCombatant::GetHighestRankedLeader(CCombatant* this)",
+   "no_signature": null,
+   "comment": "Walks this->units (+0x40), takes each unit's leader_ptr (+0x12C), calls the leader's slot 8 and keeps the one whose rank (+0x6C) is **strictly** above the best so far, which starts at 0 - so the first of equal ranks wins and a leader of rank 0 never does. Falls back to g_NullLeader (the lazily built 0xD0-byte singleton at 0x16855E0), skill 0, which is what makes the slot-8 test in UpdatePositioning a real-leader test. `ret 4`. See reversing/findings/FINDINGS-battleleaders.md, section 1.",
+   "confidence": "confirmed",
+   "evidence": "0x565FA0 cmp ecx,ebx; jle with ebx the best rank so far, zeroed at 0x565F3F.",
+   "source": "reversing/findings/FINDINGS-battleleaders.md",
+   "revises": "Says the comparison is strict and starts at 0: the first of equals, never rank 0."
+  },
+  {
+   "rva": "0x16C340",
+   "kind": "function",
+   "name": "CompareDefenderFrontOrder",
+   "signature": "bool __stdcall CompareDefenderFrontOrder(CUnit* a@ECX, CUnit* b@EAX) @AL",
+   "no_signature": null,
+   "comment": "The order of a defender's units for the front: `(defensiveness (+0x11C) + hard_attack (+0x138) + leader skill (CLeader +0x70) * 1000 + soft_attack (+0x134) + 1000) * average organisation (slot 20) / 1000 * the brigades' strength summed (+0x5C) / 1000`, of the unit's summed definition (+0xC8) - the attacker's with defensiveness for toughness and the leader's skill, whole, whatever his rank. The name is ours. See reversing/findings/FINDINGS-battleleaders.md, section 7.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x56C340..0x56C431: the first unit's figure at 0x56C34D..0x56C3D3, the second's the same from 0x56C3D6.",
+   "source": "reversing/findings/FINDINGS-battleleaders.md",
+   "revises": "Promoted from inferred to confirmed off the instructions: the term the decompiler lost was hard_attack. FINDINGS-landbattle.md section 2 is corrected."
+  },
+  {
+   "rva": "0x1CDA40",
+   "kind": "function",
+   "name": "CUnit::ReinforceChance",
+   "signature": "int* __stdcall CUnit::ReinforceChance(CUnit* unit, int* out, bool attacker)",
+   "no_signature": null,
+   "comment": "A reserve's chance of coming up, thousandths: 0 where it cannot fight; else `(10 + the owner's technology +0x58 + its ATTACK_ or DEFEND_REINFORCE_CHANCE modifier + where the unit is a corps, or a division under one, and that corps stands in the unit's province or its province has an edge to the unit's (CProvinceTemplate::HasEdgeTo): the corps commander's skill * 1000 * 10 / 1000 * CUnit::CommandReach(unit, 3) / 1000) * (average organisation * 1000 / 100000) / 1000`. The 10 is the global Define10. The name is ours. See reversing/findings/FINDINGS-battleleaders.md, section 8.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x5CDA40..0x5CDBCF: 0x5CDADF..0x5CDAE4 takes the unit itself at oob_level 3; 0x5CDB07 asks the corps' province template for an edge to the unit's province id.",
+   "source": "reversing/findings/FINDINGS-battleleaders.md",
+   "revises": "A corps in reserve counts its own commander, and the edge is asked from the corps' province; the old comment had only a division under a corps."
+  },
+  {
+   "rva": "0x169750",
+   "kind": "function",
+   "name": "CLandCombatant::AddAssaultModifiers",
+   "signature": "void __thiscall CLandCombatant::AddAssaultModifiers(CLandCombatant* this, CUnit* unit, int unknown)",
+   "no_signature": null,
+   "comment": "**Slot 27, land only, and called for the attacker only** (from 0x16A347, inside `if (is_attacker)`). Decides four modifiers. First it classifies the assault: if the unit's own province is water then amphibious, unless the owner tag is literally 'REB'; otherwise it finds the ProvinceEdge from the unit's province to the combat's province and reads its `kind` - **2 is a river crossing, 1 is a sea crossing**.\n\nBM_RIVER_PENALTY (0x0E) at 0x169864: `v = RIVER_CROSSING_PENALTY + unit->+0xC8->river.attack(+0x9C) + GetTraitEffect(unit, 7 river_attack)`; added only when negative, and sets +0x16.\n\nBM_PARATROOP_PENALTY (0x0D) at 0x1698A5: when unit->+0x97 is set, `v = PARADROP_PENALTY + GetTraitEffect(unit, 27 paradrop_mission)`, negative only, sets +0x15, and clears the amphibious flag.\n\nBM_AMPH_PENALTY (0x0B) at 0x169A63: `v = AMPHIBIOUS_LANDING_PENALTY + unit->+0xC8->amphibious.attack(+0xB4) + GetTraitEffect(unit, 25 amph_attack)`. When that is negative and 0x1C2E80(unit, 0) and the province has a naval base (+0x300), the penalty is cut by the landing-craft technology: `s = 1000 + sum over the division's regiments of lookup(base->+0xC8->+0x218.., regiment->def->type_index)->+0x10`, `r = min(s * base->+0xC8->+0x18C / 1000, AMPHIBIOUS_INVADE_LANDING_PENALTY_DECREASE)`, `v = v * (1010 - r * 1000 / cap) / 1000`, then `v = max(v, -990)`. 1010 and -990 are inline floorf of the literals 1010.5 (0x120A7C8) and -989.5 (0x120A7C4), not defines. Sets +0x13.\n\nBM_FORT_MODIFIER (0x0C) at 0x169B3D: `level = prov->modifiers(+0x114)[amphibious ? 11 COASTAL_FORT_LEVEL : 10 FORT_LEVEL] / 1000 * 1000` (truncated to whole levels); for the attacker `v = level * BASE_FORT_PENALTY / 1000 + GetTraitEffect(unit, 8 fort_attack) + unit->+0xC8->fort.attack(+0x84)`, zeroed if positive; **for the defender v is GetTraitEffect(unit, 24 fort_defence) and nothing else** - the fort itself reaches land combat only as the attacker's penalty. Sets +0x14. Signature corrected 2026-10-02 by the signature audit (reversing/findings/FINDINGS-sigaudit.md). **The defender's arm of BM_FORT_MODIFIER is never reached**: the one call the record has, at 0x16A347, is behind the side's attacker flag (`cmp byte [ebx+0x38],0; je` at 0x16A335), so a leader's fort_defence trait does nothing in a land battle; other calls of slot 27 were not searched for. See reversing/findings/FINDINGS-battleleaders.md, section 6.",
+   "confidence": "inferred",
+   "evidence": "0x56A335 cmp byte ptr [ebx+0x38],0; je 0x56A349; the slot call at 0x56A347.",
+   "source": "reversing/findings/FINDINGS-battleleaders.md",
+   "revises": "Adds that the defender's fort arm is dead from this caller."
+  }
+ ],
+ "struct_fields": [],
+ "vftable_slots": {},
+ "slots_noted": "CTraitTrigger::Evaluate is slot 6 of CTraitTrigger's table (vtable.py).",
+ "frontier": [
+  "0x6077C0",
+  "0x5B4E00"
+ ],
+ "notes": [
+  "Nothing here was watched in a running game."
+ ]
+}
