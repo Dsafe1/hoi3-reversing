@@ -25,10 +25,10 @@ how many objects a census found (taken 2026-09-20).
 
 | | classes |
 | --- | --- |
-| `read` | 85 |
+| `read` | 86 |
 | `placed` | 160 |
 | `keys` | 81 |
-| `part` | 43 |
+| `part` | 42 |
 | `named` | 6 |
 | `RTTI` | 766 |
 | **all** | **1141** |
@@ -166,7 +166,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CConvoyConstruction` | `CConstruction` |  | 1 | 1/1 | 2 | CConstruction.hpp | 40 | placed |  |
 | `CConvoyEscortOrder` | `CNavalOrder` |  |  | 1/3 | 6 |  |  | placed |  |
 | `CConvoyRaid` | `CNavalOrder` |  |  | 1/1 | 5 |  | 62 | placed |  |
-| `CCountry` | `CPersistent` |  | 246 + 71 lua | 69/126 | 105 | CCountry.hpp | 108 | read |  |
+| `CCountry` | `CPersistent` |  | 246 + 71 lua | 69/126 | 106 | CCountry.hpp | 108 | read |  |
 | `CCountryDate` | `CPersistent` |  |  | 1/2 | 1 |  |  | placed |  |
 | `CCountryHistory` | `CHistoryContainer` |  |  |  | 1 | CCountryHistory.hpp | 108 | keys | **read**: `history/countries`, where a date is a key. See GameClasses/CCountryHistory.hpp |
 | `CCountryValue` | `CPersistent` | 0x14 | 2 | 1/2 | 1 |  | 9,078 | placed |  |
@@ -359,7 +359,7 @@ Definitions out of `common/` and the rest of the mod. Their `LoadKey` is the gra
 | `CFlagType` | `C3dObjectType` |  |  | 1/1 | 1 |  | 1 | placed |  |
 | `CFormGovernmentInExileAction` | `CBoolEffect` |  |  | 3/91 |  |  | 15 | RTTI |  |
 | `CGainableTrait` | `CPersistent` |  | 5 | 4/4 | 1 | CTrait.hpp | 463 | read | `gainable_traits.txt`; its trigger grammar belongs to CTrigger, unread |
-| `CGovernment` | `CModifier` | 0x80 | 11 | 1/2 | 2 | CGovernment.hpp | 18 | read | `governments.txt`, a CModifier. Where the **null at index 0** of a name database was found |
+| `CGovernment` | `CModifier` | 0x80 | 11 | 1/2 | 3 | CGovernment.hpp | 18 | read | `governments.txt`, a CModifier. Where the **null at index 0** of a name database was found |
 | `CGovernmentPosition` | `CModifier` |  | 4 + 3 lua |  | 1 |  | 11 | keys | one government position, a CModifier; its key and index are read |
 | `CGraphicalCultureType` | `CPersistent` |  |  |  |  |  | 8 | RTTI |  |
 | `CHasCombinedArmsBonus` | `CBoolTrigger` |  |  | 2/153 | 1 |  |  | RTTI |  |
@@ -368,7 +368,7 @@ Definitions out of `common/` and the rest of the mod. Their `LoadKey` is the gra
 | `CHistoryEntry` | `CPersistent` |  | 1 |  | 3 |  | 420 | part |  |
 | `CIdeology` | `CModifier` |  | 3 + 2 lua |  | 1 |  | 10 | keys | one ideology, a CModifier; its key and index are read |
 | `CIdeologyGroup` | `PAVCIdeology::__CList` `CPersistent` |  | 5 + 2 lua | 1/2 | 2 |  | 3 | read | **read**: `ideologies.txt`. Two keys of its own; every other key in a group is an ideology's name |
-| `CLaw` | `CModifier` |  | 4 + 3 lua | 1/2 | 1 |  | 35 | placed |  |
+| `CLaw` | `CModifier` |  | 4 + 3 lua | 1/2 | 2 |  | 35 | placed |  |
 | `CLawGroup` | `PAVCLaw::__CList` `CPersistent` |  | 3 + 2 lua |  | 1 |  | 8 | keys |  |
 | `CLocalIntelBoost` | `CIntEffect` |  |  | 3/91 |  |  | 9 | RTTI |  |
 | `CMTTHModifier` | `CAndTrigger` |  | 1 | 1/1 | 1 |  | 650 | placed |  |
@@ -377,9 +377,9 @@ Definitions out of `common/` and the rest of the mod. Their `LoadKey` is the gra
 | `CMaskedSpriteType` | `CSpriteType` |  |  |  | 1 |  | 12 | keys |  |
 | `CMeanTimeToHappen` | `CPersistent` |  |  | 5/5 | 3 |  | 9,821 | placed | **read**: the MTTH grammar every event and decision is timed by |
 | `CMinister` | `CReferenceObject` | 0x90 | 12 + 1 lua | 2/7 | 1 | CFaction.hpp | 6,257 | read | a person, from `common/countries/<Country>.txt` - **not** `minister_types.txt`, which is CMinisterType |
-| `CMinisterType` | `CModifier` |  | 2 lua |  | 1 | CMinister.hpp | 106 | keys | `minister_types.txt`, a CModifier |
+| `CMinisterType` | `CModifier` |  | 2 lua |  | 2 | CMinister.hpp | 106 | keys | `minister_types.txt`, a CModifier |
 | `CMission` | `CPersistent` |  |  | 1/6 | 1 |  |  | placed |  |
-| `CModifier` | `CPersistent` | 0x2C | 3 | 1/2 | 1 | CModifier.hpp | 108 | placed | one loader shared by `CProvinceModifier`, `CStaticModifier`, `CFactionModifier` and two more - `static_modifiers.txt` and `event_modifiers.txt`, which reach everything |
+| `CModifier` | `CPersistent` | 0x2C | 3 | 1/2 | 4 | CModifier.hpp | 108 | placed | one loader shared by `CProvinceModifier`, `CStaticModifier`, `CFactionModifier` and two more - `static_modifiers.txt` and `event_modifiers.txt`, which reach everything |
 | `CNationalProvinceTigger` | `CValueTrigger` | 0x44 |  | 2/153 | 1 |  | 8 | RTTI |  |
 | `COccupationPolicy` | `CModifier` |  |  |  | 1 |  | 7 | keys |  |
 | `CProjectionType` | `C3dObjectType` |  |  | 7/10 | 1 |  | 3 | placed |  |
@@ -394,7 +394,7 @@ Definitions out of `common/` and the rest of the mod. Their `LoadKey` is the gra
 | `CSelectionGroupReader` | `CPersistent` |  |  |  | 1 |  |  | keys | plumbing |
 | `CSessionConfiguration` | `CPersistent` |  |  | 5/7 | 1 |  | 3 | placed |  |
 | `CSong` | `CPersistent` |  |  |  | 1 |  | 91 | keys |  |
-| `CStaticModifier` | `CModifier` | 0x48 | 1 | 1/2 |  |  | 31,318 | part |  |
+| `CStaticModifier` | `CModifier` | 0x48 | 1 | 1/2 | 1 |  | 31,318 | part |  |
 | `CStrategicResource` | `CModifier` | 0x50 | 3 | 1/2 |  |  | 337 | part |  |
 | `CSubUnitAmphibiousMult` | `CPersistent` |  |  |  | 1 |  | 60,489 | keys |  |
 | `CSubUnitDefinition` | `CPersistent` |  | 80 + 20 lua | 71/73 | 8 | CSubUnitDefinition.hpp | 60,485 | read | **the unit files**, and the most used class in the mod. The stat block is done; nine keys are still unplaced, most of them moved by technology |
@@ -570,7 +570,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CMicrotransactionInterface` | `CReloadableInterface` |  |  |  |  |  |  | RTTI |  |
 | `CMilAccessAreaCostCallback` | `CAreaCostCallback` |  |  |  |  |  |  | RTTI |  |
 | `CMinisterItem` | `CStandardlistboxItem` |  |  |  |  |  | 22 | RTTI |  |
-| `CModifierDefinition` |  |  | 3 |  |  | CModifier.hpp | 143 | part |  |
+| `CModifierDefinition` |  |  | 5 |  |  | CModifier.hpp | 143 | read |  |
 | `CModifierEntry` |  | 0x8 | 2 |  |  |  |  | part |  |
 | `CMultiCancelPrompt` | `CEU3Dialog` |  |  |  |  |  |  | RTTI |  |
 | `CMultiplayerHandler` | `CSessionInfoObserver` |  |  |  |  |  |  | RTTI |  |
