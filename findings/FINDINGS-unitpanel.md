@@ -157,10 +157,13 @@ Constructor `0x769940` `(object, unit, screen, bool inPanel, list)`, update `0x7
    `CUnit::MaxOrganisation` (slot 38, `0x5BB430`) is the brigades' definitions'
    `max_organisation` averaged, times `1000 + ` the country's `land_organisation` (or
    `naval_organisation`, `air_organisation`) over 1000. It does not look at officers.
-7. `leader_button` is disabled for an expeditionary force, a retreating unit, a unit in a
-   battle, a fleet outside a port, an enemy's unit, and an air or sea unit without the base it
-   needs; enabled otherwise. (Read as branches; which branch is which was matched by the tests
-   and not by provoking them.)
+7. `leader_button` is disabled for a retreating unit, a unit in a battle, a fleet in a sea
+   province, a unit standing where an enemy of the player holds the province, and a land unit
+   aboard a ship or an aircraft; enabled otherwise. **Corrected 2026-10-11**
+   (`FINDINGS-leaderwindow.md`, section 9): this said "an enemy's unit" for the province's
+   controller test, "an air or sea unit without the base it needs" for the land unit's `+0x300`
+   and `+0x304`, and listed the expeditionary force - whose disabling the last branch undoes in
+   the same pass.
 8. `leader_types` again.
 
 Its three handlers are registered in the order `0x76DC00`, `0x76DD70`, `0x76DE30`, and the
@@ -169,7 +172,10 @@ established**, and the plain reading of that order does not fit the names: `0x76
 this unit to the screen's slot 43, which with a null is "clear the selection" and so with a
 unit is by all appearance "take this one out of it"; `0x76DC00` clears the selection and then
 selects every unit of a list (`+0x2E4` of what the unit's slot 11 answers). `0x76DE30` was not
-read.
+read. **Added 2026-10-11**: the listing at `0x769A73`..`0x769C1A` shows three glues - `+0x38`,
+`+0xD8` (`0x76DE30`, given to `only_unit_from_selection_button`) and `+0x128`, given to
+`leader_button` and `leader_photo` with **`CUnitView::OnLeaderButton` (`0x76E2E0`)** as its
+ordinary click and `0x76E3F0` as another event - `FINDINGS-leaderwindow.md`, section 1.
 
 ## 5. The status: `CUnitStatusEntry`
 
