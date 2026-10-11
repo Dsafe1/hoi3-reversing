@@ -922,7 +922,7 @@ of it.
 
 ## What has already been read
 
-123 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
+125 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
 header lives. This replaces the `Done` archive: the archive restated each file's headline and named
 only 40 of the 67 there were then, so it was both longer and less useful than a complete list.
 
@@ -1074,6 +1074,8 @@ the six it was missing were wave 15's.
 | `findings/FINDINGS-messages.md` | the message system |
 | `findings/FINDINGS-effecttext.md` | how an event option's effect text is built |
 | `findings/FINDINGS-text.md` | how the game measures text |
+| `findings/FINDINGS-provincetooltip.md` | **the tooltip of a province**, `ProvinceTooltip_Build` read whole: a selected army's `UTM_*` line, the name and the owner, the terrain mode's flags, terrain and figures, the political mode's, the supply mode's lines put together with their colours and the line on infrastructure, the tail's distances; **the `@TAG` flag icon** in text, 23 by 11 below the line's top; `CArmy +0x300` the fleet carrying it |
+| `findings/FINDINGS-tooltips.md` | **how a tooltip is shown**: `core.gui`'s `ToolTip` box, made by `CEU3Idler::Enter`; each frame `CEU3Idler::UpdateTooltip` asks slot 20 for it, adds the `delayed` halves under fourteen dashes once the clock is past the next whole second after the mouse stopped, trims, wraps at `maxWidth - 3 * border`, grows the box to fit and keeps it inside the right and bottom edges; an element's tooltip hangs 64 below its corner, or stands on it in the lowest fifth; a province's stands above the mouse; the console's `tooltips`; a button's shortcut line; `GuiTooltipText`'s fields named; **corrects `g_random_object`, which is the platform factory**; no `.gui` file sets a tooltip key |
 
 **The record itself**
 
