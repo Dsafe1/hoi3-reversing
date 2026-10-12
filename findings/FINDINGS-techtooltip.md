@@ -103,7 +103,7 @@ technology of one level** (`additional_offset` nought), whatever the country has
 3. `text += CTechStatistics::BuildEffectsText(technology, level, 0, the country)` - what a level does:
    the units and the building it allows (`ENABLE_UNIT_TECH`, `ENABLE_BUILDING_TECH`), each unit type's
    statistics scaled by `level` through `CSubUnitDefinition::BuildStatsTooltip`, and the country-wide
-   figures of `BuildEffectsTooltip`. **Not read here.**
+   figures of `BuildEffectsTooltip`. Read in `FINDINGS-techtext.md`.
 4. `delayed_extra`: `TECH_DC_TO_STOP` when the technology is on the queue, `TECH_DC_TO_START` when not.
    With custom game settings, in its place: `LOWEST_TECH_LEVEL` where that mode sets one, and the three
    `CGM_TOOLTIP_TECH_*_SHORTCUT` lines.
@@ -193,7 +193,6 @@ Each is rendered with the game settings' tooltip colours (`0x40C630`), not the p
 
 ## Not established
 
-- `CTechStatistics::BuildEffectsText` and `BuildEffectsTooltip` - a technology's effects as text, which a
-  tree entry carries and the panel's `effects` list is made of.
-- What a trigger's slot 9 writes: the `allow` block's account of why a technology may not be researched.
+- ~~`CTechStatistics::BuildEffectsText` and `BuildEffectsTooltip`~~ and ~~what a trigger's slot 9
+  writes~~: read in `FINDINGS-techtext.md`.
 - What sets the strings at the elements' `+8` that the sliders are found by.

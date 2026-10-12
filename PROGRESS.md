@@ -954,9 +954,9 @@ One class per effect, trigger, command and decision the event scripts can use. E
 | `CGuaranteeChange` | `CDiplomaticHistoryEntry` |  |  |  |  |  |  | RTTI |  |
 | `CGuaranteeEffect` | `CCountryTargetEffect` |  |  | 3/91 |  |  | 5 | RTTI |  |
 | `CGuaranteeTrigger` | `CTagTrigger` |  |  | 2/153 |  |  | 2 | RTTI |  |
-| `CHasBuildingTrigger` | `CTrigger` |  |  | 2/153 | 1 |  | 62 | RTTI |  |
+| `CHasBuildingTrigger` | `CTrigger` |  |  | 2/153 | 2 |  | 62 | RTTI |  |
 | `CHasCasusBelliTrigger` | `CTrigger` |  |  | 3/4 | 1 |  | 10 | placed |  |
-| `CHasCountryFlagTrigger` | `CTrigger` | 0x5C | 1 | 2/153 | 1 |  | 18,966 | part |  |
+| `CHasCountryFlagTrigger` | `CTrigger` | 0x5C | 1 | 2/153 | 2 |  | 18,966 | part |  |
 | `CHasCountryModifierTrigger` | `CTrigger` |  |  | 2/153 |  |  | 4,035 | RTTI |  |
 | `CHasEmptyAdjacentProvinceTrigger` | `CBoolTrigger` |  |  | 2/153 |  |  |  | RTTI |  |
 | `CHasGlobalFlagTrigger` | `CTrigger` |  |  | 2/153 |  |  | 347 | RTTI |  |
@@ -1048,7 +1048,7 @@ One class per effect, trigger, command and decision the event scripts can use. E
 | `CNumOfAlliesTrigger` | `CIntTrigger` | 0x44 |  | 2/153 |  |  |  | RTTI |  |
 | `CNumOfCitiesTrigger` | `CIntTrigger` | 0x44 |  | 2/153 |  |  | 3 | RTTI |  |
 | `CNumOfConvoysTrigger` | `CValueTrigger` | 0x44 |  | 2/153 |  |  |  | RTTI |  |
-| `CNumOfPortsTrigger` | `CIntTrigger` | 0x44 |  | 2/153 |  |  | 39 | RTTI |  |
+| `CNumOfPortsTrigger` | `CIntTrigger` | 0x44 |  | 2/153 | 1 |  | 39 | RTTI |  |
 | `CNumOfRevoltsFractionTrigger` | `CValueTrigger` | 0x44 |  | 2/153 | 1 |  |  | RTTI |  |
 | `CNumOfRevoltsTrigger` | `CIntTrigger` | 0x44 |  | 2/153 | 1 |  |  | RTTI |  |
 | `CNumOfVassalsTrigger` | `CIntTrigger` | 0x44 |  | 2/153 |  |  | 15 | RTTI |  |
@@ -1175,7 +1175,7 @@ One class per effect, trigger, command and decision the event scripts can use. E
 | `CTagTrigger` | `CTrigger` | 0x48 | 1 | 2/153 | 1 |  | 11,196 | part |  |
 | `CTechnologyChange` | `CCountryHistoryEntry` |  |  |  |  |  |  | RTTI |  |
 | `CTechnologyInvestmentEffect` | `CIntEffect` |  |  | 3/91 |  |  | 1,317 | RTTI |  |
-| `CTechnologyTrigger` | `CIntTrigger` |  | 2 | 2/153 | 1 |  | 33,204 | part |  |
+| `CTechnologyTrigger` | `CIntTrigger` |  | 2 | 2/153 | 2 |  | 33,204 | part |  |
 | `CTerrainChange` | `CProvinceHistoryEntry` |  |  |  |  |  |  | RTTI |  |
 | `CThreatChange` | `CCountryHistoryEntry` |  |  |  |  |  |  | RTTI |  |
 | `CThreatEffect` | `CEffect` |  |  | 3/3 | 1 |  | 387 | placed |  |
