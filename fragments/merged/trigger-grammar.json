@@ -1,0 +1,1195 @@
+{
+ "agent": "wave A - trigger grammar",
+ "question": "How CTrigger::LoadKey turns a key that is not one of its keywords into a condition, what the fifteen unread slot-7 LoadArgument bodies accept, what the block triggers' own keys take, and which keywords take a block of child triggers.",
+ "source": "reversing/findings/FINDINGS-triggergrammar.md",
+ "addresses": [
+  {
+   "rva": "0x5C8D10",
+   "kind": "function",
+   "name": "CTrigger::LoadKey",
+   "signature": "void __thiscall CTrigger::LoadKey(CTrigger* this, CParseContext* parse, SaveToken key)",
+   "no_signature": null,
+   "comment": "**The whole trigger half of the event script language**, and the loader all 157 trigger classes inherit. One switch over the key's save token with **153 cases** (`port`, token 201, `CPortTrigger`, is the one FINDINGS-script.md's 152-row table lacks), each building the class that implements that keyword. A **leaf** case allocates, appends the child to `this`'s child list (16-byte node at +8/+0xC/+0x10) and calls the child's slot 7 `LoadArgument` with the value CToken copied from `parse +0x228` (tail 0x5C8E04). A **block** case - `and` `or` `not` `any_core` `any_neighbor_country` `any_neighbor_province` `any_owned_province` `enemy` `check_variable` `has_cb` `relation` `threat` `spy_mission_count` and, oddly, `has_hostile_spy_mission` - appends, sets the child's `is_script_block (+0x3C)` and calls the child's slot 3 `CPersistent::Load` (tail 0x5C914E), which reads `key = value` pairs to the closing brace through the child's own slot 4 - this function again for every CAndTrigger heir. **Neither tail tests the value's token**, so a block keyword written with a scalar swallows the rest of its enclosing block, and a leaf written with `{ }` ends its parent at its own closing brace.\n\nThe default arm (0x5CAD19), in order: (1) `Trigger_LoadDatabaseKey` (0x5CFD60) with the key text, the value text and `this->is_script_block` - a government position, a building, a technology, a unit type, a law group, a combined-arms unit group, each building its leaf and calling slot 7 with a CToken of class 0xF; a positive answer ends here. (2) An ideology by name (`GetIdeologies` + `CNameDataBase::GetByName`) - a 0x4C `CAllOrganisationPopularityTrigger` loaded as a block. (3) A region name (`StringHashFind_At18` on `g_CMap +0x2A50`) - `CRegionScopeTrigger`, a block. (4) A trial scope rebinding (0x5CAE62) - `CContextTrigger`, a block. (5) Only if step 1 answered **0** - which it does when `is_script_block` is clear - `Unknown trigger-type <key> in <file>` through trigger.cpp line 0x10B on channel 0x10004. When `is_script_block` is set step 1 answers -1 after queuing the pair on `this`'s deferred lists, and an unrecognised key is then **dropped without a word** (replayed later only by CTrigger::ResolveDeferredKeys, which only technology loading calls).\n\nKey tokens come from a case-insensitive ternary search tree (the text tokenizer's next-token, rva 0x66A2E0, looks every bare word up in g_dynamic_tokens through TernarySearchTreeFind), so `AND`, `Or`, `NOT`, `THIS`, `YES` are the keywords. Every lookup of the key's or value's **text** in the default arm and the LoadArgument bodies is case-sensitive (the engine string hash and a byte compare), except a country tag (CCountryDataBase::GetTag compares three characters with `_strnicmp` after hashing them case-sensitively). See reversing/findings/FINDINGS-triggergrammar.md.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x9CAD19-0x9CAFA2 (the default arm and the error tail), the leaf tail 0x9C8E04-0x9C8E85 and the block tail 0x9C914E-0x9C91DF; every case's tail classified by script (wave/A/work/cases.py over switchmap.cases). The -1 path: 0x9CAD79 `test esi,esi; jg` falls on into the ideology arm, and 0x9CAEE3 `cmp [esp+0xc],0; jne` skips the error for any non-zero answer. Revised: the old comment said the default tried 'a province id, then an ideology, then the technology database' - the order and the list were both wrong. Would be shown wrong by a case whose tail is neither 0x9C8E04 nor 0x9C914E (none found among the 153).",
+   "revises": "The default branch was described as 'a province id, then an ideology, then the technology database'. It is six database lookups (government position, building, technology, unit type, law group, unit group), then ideology, region, scope; the error is suppressed inside script-written blocks; and the leaf/block tails and the case rules are new."
+  },
+  {
+   "rva": "0x5CFD60",
+   "kind": "function",
+   "name": "Trigger_LoadDatabaseKey",
+   "signature": "int __stdcall Trigger_LoadDatabaseKey(CTrigger* parent, Hoi3CString* key, Hoi3CString* value, bool defer)",
+   "no_signature": null,
+   "comment": "**The first step of CTrigger::LoadKey's default arm: a key that names something in a database.** Tries the key text, case-sensitively, in this order, and on the first hit allocates 0x48 bytes, constructs the leaf, appends it to `parent`'s child list and calls its slot 7 (`LoadArgument`) with a CToken whose class is forced to **0xF** and whose text is `value` (snprintf \"%s\", 255 characters): (1) `g_government_positions` by name -> CGovernmentPositionTrigger; (2) `g_CBuildingDataBase` (StringHashFind_At1C) -> CBuildingTrigger; (3) the technology hash at `GetTechnologyDataBase() +0x10` -> CTechnologyTrigger; (4) `CSubUnitDataBase::by_name (+0x10)` through StringHashFind -> CSubUnitTrigger; (5) the law-group map at `GetLawDataBase() +0xC` (StringHashFind_At18) -> CLawTrigger, whose value is then a law name; (6) a combined-arms unit group (CSubUnitDataBase_FindUnitGroup, accepted only when the group's index at +0 is above 0) -> CCombinedArmsTrigger. Answers 1 on any of them. On none: if `defer` (the parent's `is_script_block`) it pushes `key` onto the parent's `deferred_keys (+0x1C)` and `value` onto `deferred_values (+0x2C)` and answers -1, else answers 0.\n\nBecause the CToken is class 0xF whatever the text, `THIS`/`FROM` never reach a CIntTrigger's flags through here (atoi gives 0), and `CCombinedArmsTrigger`'s `CBoolTrigger` slot 7 (`token == yes`) always stores **false**. See reversing/findings/FINDINGS-triggergrammar.md, section 2.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x9CFD60-0x9D011E end to end: three exits all `ret 0x10`, `ebx = [ebp+8]` used as the child-list owner, the 0xA69470 token builder writing `mov [esi],0xF`. Constructors identified by the vftable each writes. Called from CTrigger::LoadKey at 0x5CAD5D (defer = movzx [ebx+0x3C]) and CTrigger::ResolveDeferredKeys at 0x5D01BA (defer = 0). Would be wrong if a second caller passed a different first argument than the trigger - findRefs shows only these two.",
+   "source": "reversing/findings/FINDINGS-triggergrammar.md"
+  },
+  {
+   "rva": "0x5D0130",
+   "kind": "function",
+   "name": "CTrigger::ResolveDeferredKeys",
+   "signature": "void __thiscall CTrigger::ResolveDeferredKeys(CTrigger* this)",
+   "no_signature": null,
+   "comment": "**Replays the keys a script-written trigger block could not resolve when it was parsed.** Recurses over `children_first (+8)` first; then, when `is_script_block (+0x3C)` is set, walks `deferred_keys (+0x1C)` and `deferred_values (+0x2C)` (vectors of 0x1C-byte strings, counted with the /0x1C magic 0x92492493) and calls Trigger_LoadDatabaseKey(this, key, value, defer = 0) on each pair, logging `Fixed trigger dependency for K = V` (trigger.cpp line 0x16D, channel 0x10002) or `Failed to post process trigger dependency K = V` (line 0x16B, channel 0x10004); then clears both vectors. **Its only outside caller is in CTechnologyDataBase::LoadTechnologies (rva 0x14195C), over every technology's `allow` (+0x248)**, so a forward reference to a technology in a technology's allow is resolved here, and nothing replays the deferred keys of an event's or decision's trigger. The maintainer's own game.log carries 38 `Fixed trigger dependency` lines under the base game and 3306 under BlackICE (e.g. `infantry_activation = 1`, written directly in an allow in technologies/ArtilleryTechnologies.txt), and none of the failure line.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x9D0130-0x9D03EA, bare `ret`, ecx = this (and recursion through `mov ecx,[ebx]; call 0x9d0130`). findRefs --callers 0x9D0130: 0x54195C and itself. The log lines are the live positive control for the line number 0x16D = 365 and the channel. Would be wrong if another trigger tree were walked by a second caller - only one outside caller exists.",
+   "source": "reversing/findings/FINDINGS-triggergrammar.md"
+  },
+  {
+   "rva": "0x17620",
+   "kind": "function",
+   "name": "StringVector_PushBack",
+   "signature": "void __cdecl StringVector_PushBack(Hoi3CString* value@ECX, void* vector@EDI)",
+   "no_signature": null,
+   "comment": "MSVC's `std::vector<std::string>::push_back`, statically linked with a register convention: the string in ECX, the vector `{first, last, end}` in EDI, 0x1C-byte elements; grows through 0x176F0 when `last == end` and handles the element-aliases-the-vector case. 201 direct callers. Trigger_LoadDatabaseKey uses it to queue a trigger key and its value on CTrigger +0x1C/+0x2C.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled and read: [edi] first, [edi+4] last, [edi+8] end, stride 0x1C, std::string::assignString into the new slot, bare ret. findRefs --callers counts 201.",
+   "source": "reversing/findings/FINDINGS-triggergrammar.md"
+  },
+  {
+   "rva": "0x1AE010",
+   "kind": "function",
+   "name": "CSubUnitDataBase_FindUnitGroup",
+   "signature": "void* __stdcall CSubUnitDataBase_FindUnitGroup(CSubUnitDataBase* database@EAX, Hoi3CString* name@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "**A combined-arms unit group by name**, out of the vector of group pointers at CSubUnitDataBase +0x0/+0x4 (common/combined_arms.txt's groups; name a std::string at group +8, compared byte for byte). Answers the group, or **the vector's first element** when no name matches. The group's dword at +0 is its one-based index, which is what CSubUnitDefinition::LoadKey's `unit_group` case stores (rva 0x1A4CEB-0x1A4CF1, `mov edx,[eax]; mov [edi+0x1B4],edx`) and what Trigger_LoadDatabaseKey tests `> 0` to tell a real group from that fallback. Three callers: CSubUnitDefinition::LoadKey, CTechStatistics::LoadKey (rva 0x1388E9) and Trigger_LoadDatabaseKey.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x5AE010-0x5AE0BB: `(end - begin) >> 2` count, element `[begin + i*4]`, name at element +8, both exits `ret 4`, the miss path `mov eax,[ebx]` with ebx = begin. FINDINGS-builders.md already said the groups are 'in a vector at its +0x00'.",
+   "source": "reversing/findings/FINDINGS-triggergrammar.md"
+  },
+  {
+   "rva": "0x8F150",
+   "kind": "function",
+   "name": "CMap_FindContinent",
+   "signature": "CContinent* __stdcall CMap_FindContinent(CMap* map, Hoi3CString* name)",
+   "no_signature": null,
+   "comment": "A continent by name: walks the vector of continent pointers at `CMap +0x2A30`/`+0x2A34`, asks each for its name through its slot 7 (a std::string returned by value) and compares byte for byte; answers the continent or null. CContinentTrigger::LoadArgument's lookup.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled and the prologue disassembled: [ebp+8] is the map (reads +0x2A30), both exits `ret 8`, MemCompareRegs on the two strings with the length tie-break.",
+   "source": "reversing/findings/FINDINGS-triggergrammar.md"
+  },
+  {
+   "rva": "0x127FC0",
+   "kind": "function",
+   "name": "IdeologyGroup_FindByName",
+   "signature": "CIdeologyGroup* __stdcall IdeologyGroup_FindByName(void* ideologies@EAX, Hoi3CString* name@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "An ideology **group** (`fascism`, `democracy`, `communism`) by name: a linear walk of the group vector at `g_ideologies +0x1C`/`+0x20`, the name a std::string at group +0x18, compared byte for byte; null on a miss. CIdeologyGroupTrigger::LoadArgument's lookup.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled: `(+0x20 - +0x1C) >> 2` count, key at +0x18/+0x28/+0x2C, two `ret 4`; caller loads `mov eax,[0x1a878bc]` (g_ideologies) at 0x9F4850.",
+   "source": "reversing/findings/FINDINGS-triggergrammar.md"
+  },
+  {
+   "rva": "0x5C8970",
+   "kind": "function",
+   "name": "SpyMissionTypeFromName",
+   "signature": "int __cdecl SpyMissionTypeFromName(Hoi3CString* name@EDI) @EAX",
+   "no_signature": null,
+   "comment": "`SPYMISSION_COUNTER_ESPIONAGE` 0, `_MILITARY` 1, `_TECH` 2, `_BOOST_RULING_PARTY` 3, `_BOOST_OUR_PARTY` 4, `_LOWER_NATIONAL_UNITY` 5, `_INCREASE_THREAT` 6, `_RAISE_NATIONAL_UNITY` 7, `_COVERT_OPS` 8 - a chain of case-sensitive string compares. **Anything else answers 0**, the same as counter-espionage. CSpyMissionCountTrigger::LoadKey's `type`.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled: the nine literals in order and `return -((match & 0xff) != 0) & 8` at the end; every exit a bare `ret`, the string in EDI (the caller does `lea edi,[ebp-0x20]` at 0xA06093).",
+   "source": "reversing/findings/FINDINGS-triggergrammar.md"
+  },
+  {
+   "rva": "0x5F1610",
+   "kind": "function",
+   "name": "CActiveMissionTrigger::LoadArgument",
+   "signature": "void __thiscall CActiveMissionTrigger::LoadArgument(CActiveMissionTrigger* this, CToken value)",
+   "no_signature": null,
+   "comment": "Slot 7 for `active_mission`: the value's text, made into a string, looked up with StringHashFind (key at +8) in the CMission database at 0x1B1597C (made on demand); `mission (+0x40)` is the CMission or **null** on a miss. No THIS/FROM, no message. Case-sensitive.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x9F1610-0x9F16C2 (`ret 0x104`): `mov eax,[0x1b1597c]; lea ecx,[ebp-0x2c]; call 0x9c7d60; mov [edi+0x40],eax`. The global is written by CMission::LoadKey (refs at 0x9C55AA..0x9C743E), hence the type. Single holder (slot table).",
+   "source": "reversing/findings/FINDINGS-triggergrammar.md"
+  },
+  {
+   "rva": "0x5E4AB0",
+   "kind": "function",
+   "name": "CContinentTrigger::LoadArgument",
+   "signature": "void __thiscall CContinentTrigger::LoadArgument(CContinentTrigger* this, CToken value)",
+   "no_signature": null,
+   "comment": "Slot 7 for `continent`: clears `continent (+0x40)`; token `this` sets `arg_is_this (+0x18)`, `from` sets `arg_is_from (+0x19)`; otherwise CMap_FindContinent(g_CMap, text) - the continent or **null** on a miss. Case-sensitive.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled; the clear `mov [esi+0x40],ebx` at 0x9E4AD4 and the two token tests against 0x377/0x34F before the lookup. Single holder.",
+   "source": "reversing/findings/FINDINGS-triggergrammar.md"
+  },
+  {
+   "rva": "0x5DF9D0",
+   "kind": "function",
+   "name": "CControlledByTrigger::LoadArgument",
+   "signature": "void __thiscall CControlledByTrigger::LoadArgument(CControlledByTrigger* this, CToken value)",
+   "no_signature": null,
+   "comment": "Slot 7 for `controlled_by`: `this` -> `arg_is_this (+0x18)`; `from` -> `arg_is_from (+0x19)`; **`owner` (token 0x1EC) -> `is_owner (+0x48)` = 1**, the keyword that selects Evaluate's 'controller equals owner' arm; anything else -> CCountryDataBase::GetTag into `tag (+0x40/+0x44)`, `---`/0 for an unknown tag.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled: tests 0x377, 0x34F, 0x1EC in that order; the constructor at 0x9DF940 initialises +0x40/+0x44 and clears +0x48 (`mov byte [esi+0x48],bl`). Single holder.",
+   "source": "reversing/findings/FINDINGS-triggergrammar.md"
+  },
+  {
+   "rva": "0x5D3610",
+   "kind": "function",
+   "name": "CDateTrigger::LoadArgument",
+   "signature": "void __thiscall CDateTrigger::LoadArgument(CDateTrigger* this, CToken value)",
+   "no_signature": null,
+   "comment": "Slot 7 for `date`: Date_SetFromString on `date (+0x40)` with the value text - `y.m.d.h`, sscanf with the result never tested, so text that is not a date gives a date before the epoch and no message.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled: `lea eax,[ebp+0xc]; lea esi,[ecx+0x40]; call 0x44cda0; ret 0x104`. Single holder.",
+   "source": "reversing/findings/FINDINGS-triggergrammar.md"
+  },
+  {
+   "rva": "0x5DA0D0",
+   "kind": "function",
+   "name": "CExistsTrigger::LoadArgument",
+   "signature": "void __thiscall CExistsTrigger::LoadArgument(CExistsTrigger* this, CToken value)",
+   "no_signature": null,
+   "comment": "Slot 7 for `exists`: first `value (+0x40)` = 0 and `tag (+0x44/+0x48)` = `---`/0; then token `yes` -> `value` = 1; token `no` -> `value` = 0; anything else -> CCountryDataBase::GetTag into `tag`. So `exists = yes|no` asks about the scope's country and `exists = TAG` about the tag (Evaluate ignores `value` in that form). No THIS/FROM: `exists = THIS` is looked up as a tag and gives `---`.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled: the defaults, then tests 0x1F6 and 0x1F7. Single holder.",
+   "source": "reversing/findings/FINDINGS-triggergrammar.md"
+  },
+  {
+   "rva": "0x5FC7A0",
+   "kind": "function",
+   "name": "CFactionTrigger::LoadArgument",
+   "signature": "void __thiscall CFactionTrigger::LoadArgument(CFactionTrigger* this, CToken value)",
+   "no_signature": null,
+   "comment": "Slot 7 for `faction`: clears `arg_is_this (+0x18)`; token `this` sets it; otherwise FindFactionByName(g_ideologies, text) into `faction (+0x40)`. Finally a null `faction` is replaced by the CNullFaction singleton, so `faction` is never null. **`from` is not a keyword here**: `faction = FROM` is looked up as a faction name and gives CNullFaction.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x9FC7A0..0x9FC8A6: one token test (0x377), the lookup, `cmp [edi+0x40],ebx` and the CNullFaction fallback. Single holder.",
+   "source": "reversing/findings/FINDINGS-triggergrammar.md"
+  },
+  {
+   "rva": "0x5D9AD0",
+   "kind": "function",
+   "name": "CGovernmentTrigger::LoadArgument",
+   "signature": "void __thiscall CGovernmentTrigger::LoadArgument(CGovernmentTrigger* this, CToken value)",
+   "no_signature": null,
+   "comment": "Slot 7 for `government`: StringHashFind_At44([0x1A87864], text) into `government (+0x40)` - **null** on a miss, no message, no THIS/FROM. Case-sensitive.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x9D9AD0-0x9D9B82: `mov eax,[0x1a87864]; lea ecx,[ebp-0x2c]; call 0x5264a0; mov [edi+0x40],eax`, `ret 0x104`. Single holder.",
+   "source": "reversing/findings/FINDINGS-triggergrammar.md"
+  },
+  {
+   "rva": "0x5E3FC0",
+   "kind": "function",
+   "name": "CHasBuildingTrigger::LoadArgument",
+   "signature": "void __thiscall CHasBuildingTrigger::LoadArgument(CHasBuildingTrigger* this, CToken value)",
+   "no_signature": null,
+   "comment": "Slot 7 for `has_building`: StringHashFind_At1C(g_CBuildingDataBase, text) into `building (+0x40)` - **null** on a miss, no message. Case-sensitive.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled; the result stored at +0x40. Single holder.",
+   "source": "reversing/findings/FINDINGS-triggergrammar.md"
+  },
+  {
+   "rva": "0x5E3160",
+   "kind": "function",
+   "name": "CHasCountryModifierTrigger::LoadArgument",
+   "signature": "void __thiscall CHasCountryModifierTrigger::LoadArgument(CHasCountryModifierTrigger* this, CToken value)",
+   "no_signature": null,
+   "comment": "Slot 7 for `has_country_modifier`: the text looked up with CTraitDataBase_Find in `g_static_modifiers` (0x1A86208) into `modifier (+0x40)`; on a miss it stays null and `Unknown modifier '<text>' referred to in has_country_modifier trigger.` goes to trigger.cpp line 0x86B, channel 0x10004. Case-sensitive. Event modifiers resolve through the same table (vanilla `has_country_modifier = us_new_deal` names an event_modifiers.txt entry) - inferred, the loader that fills it was not read here.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled: `cmp [0x1a86208],ebx` at 0x9E31BF, the lookup, the log literal and line 0x86B. Single holder.",
+   "source": "reversing/findings/FINDINGS-triggergrammar.md"
+  },
+  {
+   "rva": "0x5E3840",
+   "kind": "function",
+   "name": "CHasProvinceModifierTrigger::LoadArgument",
+   "signature": "void __thiscall CHasProvinceModifierTrigger::LoadArgument(CHasProvinceModifierTrigger* this, CToken value)",
+   "no_signature": null,
+   "comment": "Slot 7 for `has_province_modifier`: CHasCountryModifierTrigger::LoadArgument's body with the message `... referred to in has_province_modifier trigger.` at trigger.cpp line 0x885. `modifier (+0x40)` null on a miss.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled; identical to 0x5E3160 but for the literal and the line. Single holder - two bodies, not a fold.",
+   "source": "reversing/findings/FINDINGS-triggergrammar.md"
+  },
+  {
+   "rva": "0x5F47D0",
+   "kind": "function",
+   "name": "CIdeologyGroupTrigger::LoadArgument",
+   "signature": "void __thiscall CIdeologyGroupTrigger::LoadArgument(CIdeologyGroupTrigger* this, CToken value)",
+   "no_signature": null,
+   "comment": "Slot 7 for `ideology_group`: IdeologyGroup_FindByName(g_ideologies, text) into `group (+0x40)` - **null** on a miss, no message, no THIS/FROM. Case-sensitive.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled: `mov eax,[0x1a878bc]; lea ecx,[ebp-0x2c]; call 0x527fc0; mov [edi+0x40],eax`, `ret 0x104`. Single holder.",
+   "source": "reversing/findings/FINDINGS-triggergrammar.md"
+  },
+  {
+   "rva": "0x5FBB70",
+   "kind": "function",
+   "name": "CLawTrigger::LoadArgument",
+   "signature": "void __thiscall CLawTrigger::LoadArgument(CLawTrigger* this, CToken value)",
+   "no_signature": null,
+   "comment": "Slot 7 for a **law group** key (`conscription_law = service_by_requirement`): the value text looked up by name in the law database (`[0x1A878C8]`, CNameDataBase::GetByName) into `law (+0x44)`; on a miss `law` keeps the CNullLaw the constructor put there and `Unknown law '<text>' in trigger.` goes to trigger.cpp line 0x10EC, channel 0x10004. **The law is not checked against the group in the key**, so a law of another group parses and can never match.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled: GetByName on DAT_01a878c8, the store at +0x44 only on a hit, the log literal; CLawTrigger::CLawTrigger (0x5FBAB0) writes CNullLaw to +0x44. Single holder.",
+   "source": "reversing/findings/FINDINGS-triggergrammar.md"
+  },
+  {
+   "rva": "0x5E5550",
+   "kind": "function",
+   "name": "CRegionTrigger::LoadArgument",
+   "signature": "void __thiscall CRegionTrigger::LoadArgument(CRegionTrigger* this, CToken value)",
+   "no_signature": null,
+   "comment": "Slot 7 for `region`: StringHashFind_At18(g_CMap +0x2A50, text) into `region (+0x40)` - the CRegion, **null** on a miss, no message. The same table the region-scope arm of CTrigger::LoadKey uses. Case-sensitive.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled: `mov eax,[0x1a8557c]; add eax,0x2a50; call 0x52a710; mov [esi+0x40],eax`, `ret 0x104`. Single holder.",
+   "source": "reversing/findings/FINDINGS-triggergrammar.md"
+  },
+  {
+   "rva": "0x605300",
+   "kind": "function",
+   "name": "CStrategicResourceTrigger::LoadArgument",
+   "signature": "void __thiscall CStrategicResourceTrigger::LoadArgument(CStrategicResourceTrigger* this, CToken value)",
+   "no_signature": null,
+   "comment": "Slot 7 for `strategic_resource`: `resource (+0x40)` = the CNullStrategicResource singleton (0x1A85568, made on demand); unless the token is `none` (0x18D) it is then **overwritten** with CNameDataBase::GetByName(g_strategic_resources, text) - so an unknown name leaves **null**, not the null resource. No message.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled and disassembled: `cmp dword ptr [ebp+8],0x18d` at 0xA05354 after the default store. Single holder.",
+   "source": "reversing/findings/FINDINGS-triggergrammar.md"
+  },
+  {
+   "rva": "0x6077C0",
+   "kind": "function",
+   "name": "CTraitTrigger::LoadArgument",
+   "signature": "void __thiscall CTraitTrigger::LoadArgument(CTraitTrigger* this, CToken value)",
+   "no_signature": null,
+   "comment": "Slot 7 for `trait`: CTraitDataBase_Find(g_CTraitDataBase, text) into `trait (+0x40)`, **CNullTrait_Instance() on a miss**, no message. Case-sensitive.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled; `mov eax,[0x1a855ec]` and `call 0x5b4e00` in the disassembly. Single holder.",
+   "source": "reversing/findings/FINDINGS-triggergrammar.md"
+  },
+  {
+   "rva": "0x5FA760",
+   "kind": "function",
+   "name": "CAllOrganisationPopularityTrigger::LoadKey",
+   "signature": "void __thiscall CAllOrganisationPopularityTrigger::LoadKey(CAllOrganisationPopularityTrigger* this, CParseContext* parse, SaveToken key)",
+   "no_signature": null,
+   "comment": "**`<ideology> = { organisation = N popularity = N }`** - the block an ideology's name opens (CTrigger::LoadKey's default arm, after the database names). **Two keys, not one**: `organisation` (token 0x4C8) -> `organisation (+0x44)` and `popularity` (0x4FB) -> `popularity (+0x48)`, each `atoi(text) * 1000` **at load**, so no decimals. Any other key is ignored without a message. Both default to 0, and Evaluate is an OR of the two, so a block naming only one of them is always true.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x9FA760-0x9FA7B1: `sub eax,0x4c8; je` -> +0x44, `sub eax,0x33; jne out` -> +0x48, both `imul eax,eax,0x3e8`. definitions.py had reported one key.",
+   "revises": "Said one key, `popularity`. There are two, `organisation` and `popularity`, and both are scaled by 1000 here - not in Evaluate, as CThreatTrigger::Evaluate's comment says of this class.",
+   "source": "reversing/findings/FINDINGS-triggergrammar.md"
+  },
+  {
+   "rva": "0x5FA6B0",
+   "kind": "function",
+   "name": "CAllOrganisationPopularityTrigger::Evaluate",
+   "signature": "bool __thiscall CAllOrganisationPopularityTrigger::Evaluate(CAllOrganisationPopularityTrigger* this, CEventScope* scope)",
+   "no_signature": null,
+   "comment": "False when `ideology (+0x40)` is null; otherwise, with `i = ideology->+0x4C` and the scope's country, **`organisation_by_ideology (+0x10C4)[i] >= organisation (+0x44)` OR `popularity_by_ideology (+0x10FC)[i] >= popularity (+0x48)`**. So vanilla's coup events' `social_conservative = { organisation = 60 popularity = 60 }` holds when either figure reaches 60. Also an independent reading that +0x10C4 is organisation and +0x10FC popularity: each key is compared against its own array here.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x9FA6B0-0x9FA75C, `ret 4`: both-pass -> true; else organisation alone -> true; else popularity alone -> true; else false. vtable.py --holding: CAllOrganisationPopularityTrigger slot 6 only.",
+   "source": "reversing/findings/FINDINGS-triggergrammar.md"
+  },
+  {
+   "rva": "0x5C4A00",
+   "kind": "function",
+   "name": "CMTTHModifier::LoadKey",
+   "signature": "void __thiscall CMTTHModifier::LoadKey(CMTTHModifier* this, CParseContext* parse, SaveToken key)",
+   "no_signature": null,
+   "comment": "**A mean-time-to-happen `modifier = { factor = F <conditions> }`.** `factor` -> ParseFixedPoint into `factor (+0x40)`, thousandths with decimals; **every other key goes to CTrigger::LoadKey on the modifier**, so the rest of the block is an implicit AND of ordinary triggers with the whole trigger grammar.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled: `if (key != factor) CTrigger::LoadKey(this, parse, key)` else ParseFixedPoint.",
+   "revises": "The comment was definitions.py's 'keys its switch names: factor'; it now says what factor is parsed as and that every other key is a condition.",
+   "source": "reversing/findings/FINDINGS-triggergrammar.md"
+  },
+  {
+   "rva": "0x5E82B0",
+   "kind": "function",
+   "name": "CHasCasusBelliTrigger::LoadKey",
+   "signature": "void __thiscall CHasCasusBelliTrigger::LoadKey(CHasCasusBelliTrigger* this, CParseContext* parse, SaveToken key)",
+   "no_signature": null,
+   "comment": "**`has_cb = { type = <cb> actor = <tag> }` - two keys, not four.** `type` (0xD9) -> the raw value text into `type (+0x48)`, a std::string, not looked up; `actor` (0x2E9) -> value token `this` sets `arg_is_this (+0x18)`, `from` sets `arg_is_from (+0x19)`, anything else CCountryDataBase::GetTag into `actor (+0x40/+0x44)`. `this` and `from` are values of `actor`, not keys. Any other key is ignored without a message.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x9E82B0..: `cmp eax,0xd9` then `cmp eax,0x2e9`, and the 0x377/0x34F compares are against `[edi+0x228]`, the value token.",
+   "revises": "Said four keys - `actor`, `from`, `this`, `type`. `this` and `from` are compared against the value of `actor`, so there are two keys.",
+   "source": "reversing/findings/FINDINGS-triggergrammar.md"
+  },
+  {
+   "rva": "0x5DDE50",
+   "kind": "function",
+   "name": "CRelationTrigger::LoadKey",
+   "signature": "void __thiscall CRelationTrigger::LoadKey(CRelationTrigger* this, CParseContext* parse, SaveToken key)",
+   "no_signature": null,
+   "comment": "**`relation = { who = <tag> value = N }` - two keys, not four.** `value` (0x2A6) -> `atoi` into `value (+0x48)`, no decimals (Evaluate multiplies by 1000); `who` (0x376) -> value token `this` sets `arg_is_this`, `from` sets `arg_is_from`, otherwise CCountryDataBase::GetTag into `who (+0x40/+0x44)`. Any other key is ignored without a message.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled: `cmp eax,0x2a6` / `cmp eax,0x376`, the this/from compares on `[edi+0x228]`; CRelationTrigger::Evaluate (0x5DDC00) does `imul ecx,[ecx+0x48],0x3e8`.",
+   "revises": "Said four keys - `from`, `this`, `value`, `who`. `this` and `from` are values of `who`.",
+   "source": "reversing/findings/FINDINGS-triggergrammar.md"
+  },
+  {
+   "rva": "0x606020",
+   "kind": "function",
+   "name": "CSpyMissionCountTrigger::LoadKey",
+   "signature": "void __thiscall CSpyMissionCountTrigger::LoadKey(CSpyMissionCountTrigger* this, CParseContext* parse, SaveToken key)",
+   "no_signature": null,
+   "comment": "**`spy_mission_count = { type = SPYMISSION_<X> value = N }`.** `type` (0xD9) -> SpyMissionTypeFromName into `mission_type (+0x40)`, 0..8, **0 for an unknown name** (the same as counter-espionage); `value` (0x2A6) -> ParseFixedPoint into `value (+0x44)`, thousandths. Any other key goes to ReportUnknownKey - queued on the parse context, the only block trigger here that does.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0xA06020-0xA060B8: `cmp eax,0xd9`, `cmp eax,0x2a6`, else `call 0xa7a7b0`; `mov [ecx+0x40],eax` after the name call.",
+   "revises": "The comment was definitions.py's key list; it now says what each key is parsed into and what an unknown one does.",
+   "source": "reversing/findings/FINDINGS-triggergrammar.md"
+  },
+  {
+   "rva": "0x5F2CC0",
+   "kind": "function",
+   "name": "CThreatTrigger::LoadKey",
+   "signature": "void __thiscall CThreatTrigger::LoadKey(CThreatTrigger* this, CParseContext* parse, SaveToken key)",
+   "no_signature": null,
+   "comment": "**`threat = { which = <tag> value = N }`.** `value` (0x2A6) -> `atoi` into `value (+0x48)`, no decimals (Evaluate multiplies by 1000); `which` (0x61E) -> the value CToken handed to the class's own slot 7, the shared TriggerLoadCountryTagArgument (0x5E8F40) - `this`, `from` or a tag into `tag (+0x40/+0x44)`. Any other key is ignored without a message.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x9F2CC0..: `cmp eax,0x2a6` then `cmp eax,0x61e`, the 0x41-dword copy of `parse+0x228` and `call [vftable+0x1c]`.",
+   "revises": "The comment was definitions.py's key list; it now says that `which` goes through slot 7 and what `value` is.",
+   "source": "reversing/findings/FINDINGS-triggergrammar.md"
+  },
+  {
+   "rva": "0x5F0260",
+   "kind": "function",
+   "name": "CVariableTrigger::LoadKey",
+   "signature": "void __thiscall CVariableTrigger::LoadKey(CVariableTrigger* this, CParseContext* parse, SaveToken key)",
+   "no_signature": null,
+   "comment": "**`check_variable = { which = <name> value = N }`.** `which` (0x61E) -> the raw value text into `name (+0x40)`; `value` (0x2A6) -> TokenToFixedPoint into `value (+0x5C)`, thousandths with decimals. Any other key is ignored without a message.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x9F0260..: `cmp eax,0x2a6`, `cmp eax,0x61e`; decompiled the two stores.",
+   "revises": "The comment was definitions.py's key list; it now says what each key is parsed into.",
+   "source": "reversing/findings/FINDINGS-triggergrammar.md"
+  },
+  {
+   "rva": "0x5F2C40",
+   "kind": "function",
+   "name": "CThreatTrigger::Evaluate",
+   "signature": "bool __thiscall CThreatTrigger::Evaluate(CThreatTrigger* this, CEventScope* scope)",
+   "no_signature": null,
+   "comment": "0x5F2C40 to the single `ret 4` at 0x5F2CBB, 56 instructions; five int3 before, and above it the already-recorded `CThreatTrigger::LoadKey` at 0x5F2CC0, which bounds it (the two `ret 8` further on are LoadKey's).\n\n    threshold = this->value (+0x48) * 1000\n    if (this->arg_is_this (+0x18))      tag = EventScope_GetCountryTag(scope)\n    elif (this->arg_is_from (+0x19))    tag = scope->from_country (+0x18/+0x1C)\n    else                                    tag = this->tag (+0x40/+0x44)\n    ... threat held in the scope country's diplomacy_status_array (+0xE28) entry for that tag\n\n**A third operand shape, and the third scale.** `CThreatTrigger` derives from `CTagTrigger`, so slot 7 takes the *country*, and its own `LoadKey` (0x5F2CC0, recorded, keys `which` and `value`) parses `value` with plain `atoi` into **+0x48** - not through `TokenToFixedPoint`. Evaluate then multiplies by 1000. So `threat = 50` is fifty points of threat and `threat = 50.5` is read as 50: the decimals a `CValueTrigger` keyword accepts are silently unavailable here. `CRelationTrigger::LoadKey` (0x5DDE50, recorded) does the same thing into the same +0x48, and its Evaluate multiplies by 1000 the same way. `CAllOrganisationPopularityTrigger::LoadKey` (0x5FA760) also uses `atoi`, but multiplies by 1000 at load and keeps two values, `organisation` at +0x44 and `popularity` at +0x48.",
+   "confidence": "confirmed",
+   "evidence": "Only the last sentence changed. CAllOrganisationPopularityTrigger::LoadKey disassembled: `imul eax,eax,0x3e8` before both stores; its Evaluate (0x5FA6B0) compares +0x44/+0x48 directly.",
+   "revises": "The last sentence grouped CAllOrganisationPopularityTrigger with CRelationTrigger as multiplying in Evaluate; it multiplies at load and has two values.",
+   "source": "reversing/findings/FINDINGS-numtriggers.md"
+  },
+  {
+   "rva": "0x5DFAB0",
+   "kind": "function",
+   "name": "CControlledByTrigger::Evaluate",
+   "signature": "bool __thiscall CControlledByTrigger::Evaluate(CControlledByTrigger* this, CEventScope* scope)",
+   "no_signature": null,
+   "comment": "**`controlled_by`, four argument forms, and it is false on a scope with no province.** 0x5DFAB0 to 0x5DFC2C; 14 int3 before, 4 after; **five** `ret 4` (0x5DFB9C, 0x5DFBC9, 0x5DFBF2, 0x5DFC13, 0x5DFC29) all restoring the same SEH slot `[esp+0x1C]`, so it is one function (trap 3, benign).\n\n    if (scope->province (+0x28) == 0) return false\n    p = g_CCurrentGameState (0x1A89790) ->+0xB8C [scope->province]\n    if (this->arg_is_this (+0x18))  return p->controller_id (+0x338) == EventScope_GetCountryTag(scope).id\n    if (this->arg_is_from (+0x19))  return p->controller_id == scope->from_country_id (+0x1C)\n    if (this->is_owner (+0x48))     return p->controller_id == p->owner_id (+0x330)\n    else                            return p->controller_id == this->tag id (+0x44)\n\nThe third arm is **`controlled_by = owner`**: CControlledByTrigger::LoadArgument (0x5DF9D0) sets the byte at +0x48 on token 0x1EC, so the form asks \"is this province not occupied\". `owned_by` has no such arm (COwnedByTrigger::Evaluate, 0x5DF250).\n\n`controlled_by` on a country-only scope is **false, not an error** - the same shape as an unresolvable context.",
+   "confidence": "confirmed",
+   "evidence": "The flag test is `cmp byte ptr [ecx+0x48],bl` at 0x9DFBCC and the tag compare `cmp edx,[ecx+0x44]` at 0x9DFBFB; LoadArgument tests 0x1EC = `owner`.",
+   "revises": "The pseudocode put the owner-arm flag at '+0x44 byte'; it is the byte at +0x48 (+0x44 is the tag's id), and the keyword that selects it - `owner` - is now read.",
+   "source": "reversing/findings/FINDINGS-scopetriggers.md"
+  },
+  {
+   "rva": "0x5DF250",
+   "kind": "function",
+   "name": "COwnedByTrigger::Evaluate",
+   "signature": "bool __thiscall COwnedByTrigger::Evaluate(COwnedByTrigger* this, CEventScope* scope)",
+   "no_signature": null,
+   "comment": "**`owned_by`** - CControlledByTrigger::Evaluate (0x5DFAB0) with `CProvince::owner_id (+0x330)` where that one reads `controller_id (+0x338)`, but with **three** argument forms, not four: `this`, `from` and a literal tag at `+0x44`. There is no keyword arm - the object is 0x48 bytes, so it has no +0x48 flag - and `owned_by = owner` is looked up as a tag, gives `---`/0, and holds only for an unowned province. Same `return false` when the scope names no province. Its slot 7 loader is the shared 0x5E8F40, which is what puts the tag at `+0x40`/`+0x44` and sets `arg_is_this`/`arg_is_from`.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x9DF250-0x9DF39C: three exits returning true (0x9DF338, 0x9DF365, 0x9DF386) and one false, with no read of +0x48 anywhere; CTrigger::LoadKey allocates it with `push 0x48`.",
+   "revises": "Said 'same four argument forms (... and a keyword arm)'. It has three.",
+   "source": "reversing/findings/FINDINGS-scopetriggers.md"
+  },
+  {
+   "rva": "0x5FBD40",
+   "kind": "function",
+   "name": "CLawTrigger::Evaluate",
+   "signature": "bool __thiscall CLawTrigger::Evaluate(CLawTrigger* this, CEventScope* scope)",
+   "no_signature": null,
+   "comment": "`<law_group> = <law>`: true when the scope country's `laws (+0x628)` entry at `law_group (+0x40) ->+0x50` (the group's index) **is** `law (+0x44)`. An unknown law leaves CNullLaw there, which no country holds once its laws are set.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x9FBD40-0x9FBD7F, `ret 4`, `cmp edx,[ecx+0x44]; sete al`. vtable.py --holding: CLawTrigger slot 6 only.",
+   "source": "reversing/findings/FINDINGS-triggergrammar.md"
+  },
+  {
+   "rva": "0x607A00",
+   "kind": "function",
+   "name": "CCombinedArmsTrigger::Evaluate",
+   "signature": "bool __thiscall CCombinedArmsTrigger::Evaluate(CCombinedArmsTrigger* this, CEventScope* scope)",
+   "no_signature": null,
+   "comment": "`<unit_group> = yes|no` (`armor_unit_type` and the other common/combined_arms.txt names) inside a combat. False with no `combatant (+0x40)` or when the combatant's slot 6 answers false; then over the combatant's units (`+0x40` list): with `value (+0x40)` set, true if **some** unit's presence vector (`+0x1D0`) is non-zero at the group's index; with it clear, true if **none** is. **The parser always stores it clear** - Trigger_LoadDatabaseKey hands slot 7 a class-0xF token, never `yes` - so the form as written means \"this side has no unit of the group\", whatever its value. Neither vanilla nor BlackICE uses it.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0xA07A00-0xA07A8A, two loops split on `cmp byte [edi+0x40],0`; vtable.py --holding: CCombinedArmsTrigger slot 6 only. The usage negative: grep for `(infantry|armor|artillery|direct_fire|support)_unit_type =` over events, decisions and common of both trees finds only combined_arms.txt's own definitions.",
+   "source": "reversing/findings/FINDINGS-triggergrammar.md"
+  },
+  {
+   "rva": "0x5EBA00",
+   "kind": "function",
+   "name": "CUnitHasLeaderTrigger::Evaluate",
+   "signature": "bool __thiscall CUnitHasLeaderTrigger::Evaluate(CUnitHasLeaderTrigger* this, CEventScope* scope)",
+   "no_signature": null,
+   "comment": "`unit_has_leader`: true when some unit in the scope province's `units (+0x2B8)` has a leader (`+0x12C`) whose slot 8 answers true - `mov al,1` on CLeader, `xor al,al` on CNullLeader. **The keyword's value is never read**: the class keeps CTrigger's empty slot 7, so `unit_has_leader = no` asks the same as `= yes`.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x9EBA90-0x9EBAEF: `mov ecx,[eax+0x12c]; mov eax,[edx+0x20]; call eax`; CLeader slot 8 is 0xA92590 (`mov al,1; ret`), CNullLeader's 0x592360 (`xor al,al; ret`). Slot 7 of the table is 0x415FF0.",
+   "source": "reversing/findings/FINDINGS-triggergrammar.md"
+  },
+  {
+   "rva": "0x5EB660",
+   "kind": "function",
+   "name": "CUnitInBattleTrigger::Evaluate",
+   "signature": "bool __thiscall CUnitInBattleTrigger::Evaluate(CUnitInBattleTrigger* this, CEventScope* scope)",
+   "no_signature": null,
+   "comment": "`unit_in_battle`: true when some unit in the scope province has `combats_count (+0x11C) >= 1` and `owner_id (+0x128)` equal to the province's `owner_id (+0x330)`. **The value is never read** (CTrigger's empty slot 7), so `= no` is not a negation.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled: `cmp [ecx+0x11c],ebx`, `cmp ecx,[edx+0x330]`, two `ret 4`. Slot 7 of the table is 0x415FF0.",
+   "source": "reversing/findings/FINDINGS-triggergrammar.md"
+  },
+  {
+   "rva": "0x5FA630",
+   "kind": "function",
+   "name": "CAllOrganisationPopularityTrigger::CAllOrganisationPopularityTrigger",
+   "signature": "CAllOrganisationPopularityTrigger* __stdcall CAllOrganisationPopularityTrigger::CAllOrganisationPopularityTrigger(CAllOrganisationPopularityTrigger* this, CIdeology* ideology)",
+   "no_signature": null,
+   "comment": "The CTrigger base inlined, then `ideology (+0x40)` = the argument, `organisation (+0x44)` = `popularity (+0x48)` = 0. Called only by CTrigger::LoadKey's ideology arm, with the ideology the key names.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled; `ret 8`, stores its own vftable last. Caller 0x5CADB6.",
+   "source": "reversing/findings/FINDINGS-triggergrammar.md"
+  },
+  {
+   "rva": "0x5C8BB0",
+   "kind": "function",
+   "name": "CCombinedArmsTrigger::CCombinedArmsTrigger",
+   "signature": "CCombinedArmsTrigger* __stdcall CCombinedArmsTrigger::CCombinedArmsTrigger(CCombinedArmsTrigger* this, void* unitGroup)",
+   "no_signature": null,
+   "comment": "The CTrigger base inlined, `unit_group (+0x44)` = the argument, then the vftable at VA 0x15F9B2C. Called only from Trigger_LoadDatabaseKey's unit-group arm.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x9C8BB0-0x9C8C26, `ret 8`, `mov [esi+0x44],ecx`, the last vftable store is CCombinedArmsTrigger's.",
+   "source": "reversing/findings/FINDINGS-triggergrammar.md"
+  },
+  {
+   "rva": "0x5FBAB0",
+   "kind": "function",
+   "name": "CLawTrigger::CLawTrigger",
+   "signature": "CLawTrigger* __stdcall CLawTrigger::CLawTrigger(CLawTrigger* this, CLawGroup* group)",
+   "no_signature": null,
+   "comment": "The CTrigger base inlined, `law_group (+0x40)` = the argument, `law (+0x44)` = the CNullLaw singleton (0x1A855B8, made on demand) until slot 7 finds the law.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled; `ret 8` at 0x9FBB63, `mov [edi+0x44],eax; mov eax,edi`.",
+   "source": "reversing/findings/FINDINGS-triggergrammar.md"
+  },
+  {
+   "rva": "0x5F4DA0",
+   "kind": "function",
+   "name": "CIsIdeologyEqualTrigger::CIsIdeologyEqualTrigger",
+   "signature": "CIsIdeologyEqualTrigger* __stdcall CIsIdeologyEqualTrigger::CIsIdeologyEqualTrigger(CIsIdeologyEqualTrigger* this, Hoi3CString name)",
+   "no_signature": null,
+   "comment": "Built by CTrigger::LoadKey's `ideology` case with the **value** text by value: the CTrigger base, an empty string at +0x40, then `ideology (+0x5C)` = CNameDataBase::GetByName(g_ideologies, name), **null** on a miss. The leaf tail then calls the CStringTrigger slot 7, which puts the same text into `value (+0x40)`.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled: `mov eax,[0x1a878bc]; call 0x52a5f0; mov [edi+0x5c],eax`, `ret 0x20` at 0x9F4E7D (this + a 0x1C string). Trap 2: two `ret 4` follow with no padding, another function's.",
+   "source": "reversing/findings/FINDINGS-triggergrammar.md"
+  },
+  {
+   "rva": "0x5CF4E0",
+   "kind": "function",
+   "name": "CHasHostileSpyMissionTrigger::CHasHostileSpyMissionTrigger",
+   "signature": "CHasHostileSpyMissionTrigger* __stdcall CHasHostileSpyMissionTrigger::CHasHostileSpyMissionTrigger(CHasHostileSpyMissionTrigger* this)",
+   "no_signature": null,
+   "comment": "The CTrigger base and the vftable at VA 0x15F998C, and **nothing at +0x40** - the CBoolTrigger value Evaluate compares against is left as the heap had it. CTrigger::LoadKey builds this class on the **block** tail, so its slot 7 is never called either: `has_hostile_spy_mission = yes` swallows the rest of its enclosing block and compares against an uninitialised byte. Unused in vanilla and BlackICE.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x9CF4E0-0x9CF550, `ret 4`: stores at +0,+4,+8,+0xC,+0x10,+0x14,+0x18,+0x1C..(ehvec),+0x3C only. The case at 0x9CAAA1 ends `jmp 0x9c914e`. grep for the keyword over both trees' events, decisions and common: no hits.",
+   "source": "reversing/findings/FINDINGS-triggergrammar.md"
+  },
+  {
+   "rva": "0x5F5960",
+   "kind": "function",
+   "name": "CGovernmentPositionTrigger::CGovernmentPositionTrigger",
+   "signature": "CGovernmentPositionTrigger* __stdcall CGovernmentPositionTrigger::CGovernmentPositionTrigger(CGovernmentPositionTrigger* this, CGovernmentPosition* position)",
+   "no_signature": null,
+   "comment": "The CTrigger base inlined and `position (+0x44)` = the argument. Built by Trigger_LoadDatabaseKey for a key naming a government position (`minister_of_security = 11189`); the value is then a minister id through CIntTrigger's slot 7.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled; `ret 8`, `param_1[0x11] = param_2`.",
+   "source": "reversing/findings/FINDINGS-triggergrammar.md"
+  },
+  {
+   "rva": "0x5DBFC0",
+   "kind": "function",
+   "name": "CBuildingTrigger::CBuildingTrigger",
+   "signature": "CBuildingTrigger* __stdcall CBuildingTrigger::CBuildingTrigger(CBuildingTrigger* this, CBuilding* building)",
+   "no_signature": null,
+   "comment": "The CTrigger base inlined and `building (+0x44)` = the argument. Built by Trigger_LoadDatabaseKey for a key naming a building (`industry = 3`).",
+   "confidence": "confirmed",
+   "evidence": "Decompiled; `ret 8`, `param_1[0x11] = param_2`.",
+   "source": "reversing/findings/FINDINGS-triggergrammar.md"
+  },
+  {
+   "rva": "0x5DB3B0",
+   "kind": "function",
+   "name": "CTechnologyTrigger::CTechnologyTrigger",
+   "signature": "CTechnologyTrigger* __stdcall CTechnologyTrigger::CTechnologyTrigger(CTechnologyTrigger* this, CTechnology* technology)",
+   "no_signature": null,
+   "comment": "The CTrigger base inlined and `technology (+0x44)` = the argument. Built by Trigger_LoadDatabaseKey for a key naming a technology.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled; `ret 8`, `param_1[0x11] = param_2`.",
+   "source": "reversing/findings/FINDINGS-triggergrammar.md"
+  },
+  {
+   "rva": "0x5C8B30",
+   "kind": "function",
+   "name": "CSubUnitTrigger::CSubUnitTrigger",
+   "signature": "CSubUnitTrigger* __stdcall CSubUnitTrigger::CSubUnitTrigger(CSubUnitTrigger* this, CSubUnitDefinition* definition)",
+   "no_signature": null,
+   "comment": "The CTrigger base inlined and `definition (+0x44)` = the argument. Built by Trigger_LoadDatabaseKey for a key naming a unit type (`infantry_brigade = 20`).",
+   "confidence": "confirmed",
+   "evidence": "Decompiled; `ret 8`, `param_1[0x11] = param_2`.",
+   "source": "reversing/findings/FINDINGS-triggergrammar.md"
+  }
+ ],
+ "structs": [
+  {
+   "name": "CBoolTrigger",
+   "size": "0x44",
+   "inherits": "CTrigger",
+   "comment": "The base of the yes/no leaves: slot 7 is `value (+0x40) = (token == yes)`.",
+   "evidence": "RTTI base CTrigger at 0; every one of its keyword leaves is `push 0x44` in CTrigger::LoadKey; slot 7 0x5D1480 writes the byte at +0x40."
+  },
+  {
+   "name": "CStringTrigger",
+   "size": "0x5C",
+   "inherits": "CTrigger",
+   "comment": "The base of the leaves whose argument is kept as text: slot 7 assigns the value text to the string at +0x40.",
+   "evidence": "RTTI base CTrigger at 0; its plain heirs (brigade_exist, brigade_in_combat, has_leader, has_combat_modifier, terrain) are all `push 0x5C` = 0x40 + a 0x1C string; slot 7 0x5D1450 `add ecx,0x40; call std::string::assign`."
+  },
+  {
+   "name": "CActiveMissionTrigger",
+   "size": "0x44",
+   "inherits": "CTrigger",
+   "comment": "`active_mission = <mission>`.",
+   "evidence": "`push 0x44` at 0x9CA632; RTTI base CTrigger."
+  },
+  {
+   "name": "CContinentTrigger",
+   "size": "0x44",
+   "inherits": "CTrigger",
+   "comment": "`continent = <name> | THIS | FROM`.",
+   "evidence": "`push 0x44` at 0x9C9647; RTTI base CTrigger."
+  },
+  {
+   "name": "CControlledByTrigger",
+   "size": "0x4C",
+   "inherits": "CTrigger",
+   "comment": "`controlled_by = <tag> | THIS | FROM | owner`.",
+   "evidence": "`push 0x4C` at 0x9CA353; RTTI base CTrigger."
+  },
+  {
+   "name": "CDateTrigger",
+   "size": "0x44",
+   "inherits": "CTrigger",
+   "comment": "`date = y.m.d`.",
+   "evidence": "`push 0x44` at 0x9C8ED8; RTTI base CTrigger."
+  },
+  {
+   "name": "CExistsTrigger",
+   "size": "0x4C",
+   "inherits": "CTrigger",
+   "comment": "`exists = yes | no | <tag>`.",
+   "evidence": "`push 0x4C` at 0x9C94F5; RTTI base CTrigger."
+  },
+  {
+   "name": "CFactionTrigger",
+   "size": "0x44",
+   "inherits": "CTrigger",
+   "comment": "`faction = <faction> | THIS`.",
+   "evidence": "`push 0x44` at 0x9CA600; RTTI base CTrigger."
+  },
+  {
+   "name": "CGovernmentTrigger",
+   "size": "0x44",
+   "inherits": "CTrigger",
+   "comment": "`government = <government type>`.",
+   "evidence": "`push 0x44` at 0x9C8F6E; RTTI base CTrigger."
+  },
+  {
+   "name": "CHasBuildingTrigger",
+   "size": "0x44",
+   "inherits": "CTrigger",
+   "comment": "`has_building = <building>`.",
+   "evidence": "`push 0x44` at 0x9C96A5; RTTI base CTrigger."
+  },
+  {
+   "name": "CHasCountryModifierTrigger",
+   "size": "0x44",
+   "inherits": "CTrigger",
+   "comment": "`has_country_modifier = <modifier>`.",
+   "evidence": "`push 0x44` at 0x9C95E3; RTTI base CTrigger."
+  },
+  {
+   "name": "CHasProvinceModifierTrigger",
+   "size": "0x44",
+   "inherits": "CTrigger",
+   "comment": "`has_province_modifier = <modifier>`.",
+   "evidence": "`push 0x44` at 0x9C9615; RTTI base CTrigger."
+  },
+  {
+   "name": "CIdeologyGroupTrigger",
+   "size": "0x44",
+   "inherits": "CTrigger",
+   "comment": "`ideology_group = <group>`.",
+   "evidence": "`push 0x44` at 0x9C9DA9; RTTI base CTrigger."
+  },
+  {
+   "name": "CLawTrigger",
+   "size": "0x48",
+   "inherits": "CTrigger",
+   "comment": "`<law group> = <law>`, reached through CTrigger::LoadKey's default arm.",
+   "evidence": "`push 0x48` before the constructor at 0x9D0070; RTTI base CTrigger."
+  },
+  {
+   "name": "CRegionTrigger",
+   "size": "0x44",
+   "inherits": "CTrigger",
+   "comment": "`region = <region>` (membership test; `<region> = { }` is CRegionScopeTrigger).",
+   "evidence": "`push 0x44` at 0x9C991B; RTTI base CTrigger."
+  },
+  {
+   "name": "CStrategicResourceTrigger",
+   "size": "0x44",
+   "inherits": "CTrigger",
+   "comment": "`strategic_resource = <resource> | none`.",
+   "evidence": "`push 0x44` at 0x9C9D45; RTTI base CTrigger."
+  },
+  {
+   "name": "CTraitTrigger",
+   "size": "0x44",
+   "inherits": "CTrigger",
+   "comment": "`trait = <trait>`, in a combat scope.",
+   "evidence": "`push 0x44` at 0x9CAB31; RTTI base CTrigger."
+  },
+  {
+   "name": "CAllOrganisationPopularityTrigger",
+   "size": "0x4C",
+   "inherits": "CTrigger",
+   "comment": "`<ideology> = { organisation = N popularity = N }`, an OR of the two.",
+   "evidence": "`push 0x4C` at 0x9CAD9A; RTTI base CTrigger; constructor 0x5FA630 writes +0x40/+0x44/+0x48."
+  },
+  {
+   "name": "CHasCasusBelliTrigger",
+   "size": "0x64",
+   "inherits": "CTrigger",
+   "comment": "`has_cb = { type = <cb> actor = <tag> }`.",
+   "evidence": "`push 0x64` at 0x9CACED; RTTI base CTrigger; 0x40 + 8 + 0x1C = 0x64."
+  },
+  {
+   "name": "CRelationTrigger",
+   "size": "0x4C",
+   "inherits": "CTrigger",
+   "comment": "`relation = { who = <tag> value = N }`.",
+   "evidence": "`push 0x4C` at 0x9C9553; RTTI base CTrigger."
+  },
+  {
+   "name": "CSpyMissionCountTrigger",
+   "size": "0x48",
+   "inherits": "CTrigger",
+   "comment": "`spy_mission_count = { type = SPYMISSION_X value = N }`.",
+   "evidence": "`push 0x48` at 0x9CAA75; RTTI base CTrigger."
+  },
+  {
+   "name": "CThreatTrigger",
+   "size": "0x4C",
+   "inherits": "CTagTrigger",
+   "comment": "`threat = { which = <tag> value = N }`.",
+   "evidence": "`push 0x4C` at 0x9CA570; RTTI base CTagTrigger at 0."
+  },
+  {
+   "name": "CCombinedArmsTrigger",
+   "size": "0x48",
+   "inherits": "CBoolTrigger",
+   "comment": "`<combined-arms unit group> = yes|no`, in a combat scope; reached through CTrigger::LoadKey's default arm.",
+   "evidence": "`push 0x48` at 0x9D00B0; RTTI base CBoolTrigger at 0."
+  },
+  {
+   "name": "CIsIdeologyEqualTrigger",
+   "size": "0x60",
+   "inherits": "CStringTrigger",
+   "comment": "`ideology = <ideology>`.",
+   "evidence": "`push 0x60` at 0x9C997F; RTTI base CStringTrigger at 0."
+  },
+  {
+   "name": "CHasHostileSpyMissionTrigger",
+   "size": "0x44",
+   "inherits": "CBoolTrigger",
+   "comment": "`has_hostile_spy_mission`, built as a block, its value never loaded.",
+   "evidence": "`push 0x44` at 0x9CAAA1; RTTI base CBoolTrigger at 0."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CTrigger",
+   "offset": "0x1C",
+   "name": "deferred_keys",
+   "type": "Hoi3CString*",
+   "comment": "First element of a std::vector<std::string> (`{first, last, end, ?}`, 0x10 bytes; the second vector is at +0x2C): the keys Trigger_LoadDatabaseKey could not resolve while this script-written block was parsed. CTrigger::ResolveDeferredKeys replays and clears it.",
+   "evidence": "StringVector_PushBack with EDI = this+0x1C at 0x9D00E3; ResolveDeferredKeys counts (+0x20 - +0x1C)/0x1C and indexes +0x1C. The constructor's __ehvec_ctor builds two 0x10 elements here whose ctor zeroes three dwords."
+  },
+  {
+   "struct": "CTrigger",
+   "offset": "0x20",
+   "name": "deferred_keys_last",
+   "type": "Hoi3CString*",
+   "comment": "One past the last deferred key.",
+   "evidence": "As +0x1C."
+  },
+  {
+   "struct": "CTrigger",
+   "offset": "0x24",
+   "name": "deferred_keys_end",
+   "type": "Hoi3CString*",
+   "comment": "End of the deferred keys' storage.",
+   "evidence": "StringVector_PushBack compares [edi+4] with [edi+8] before growing."
+  },
+  {
+   "struct": "CTrigger",
+   "offset": "0x2C",
+   "name": "deferred_values",
+   "type": "Hoi3CString*",
+   "comment": "First element of the second std::vector<std::string>: the value written beside each deferred key, index for index.",
+   "evidence": "StringVector_PushBack with EDI = this+0x2C at 0x9D00EE; ResolveDeferredKeys passes [esi+0x2c] + i*0x1C as the value."
+  },
+  {
+   "struct": "CTrigger",
+   "offset": "0x30",
+   "name": "deferred_values_last",
+   "type": "Hoi3CString*",
+   "comment": "One past the last deferred value.",
+   "evidence": "As +0x2C; erased with +0x2C at 0x9D03C0."
+  },
+  {
+   "struct": "CTrigger",
+   "offset": "0x34",
+   "name": "deferred_values_end",
+   "type": "Hoi3CString*",
+   "comment": "End of the deferred values' storage.",
+   "evidence": "As +0x24."
+  },
+  {
+   "struct": "CTrigger",
+   "offset": "0x3C",
+   "name": "is_script_block",
+   "type": "bool",
+   "comment": "Set on every block CTrigger::LoadKey builds (`and`, a scope, a region, a context, an ideology block ...) and by CTechnology's constructor on its two embedded triggers; cleared by every constructor. While set, a key in this block that no lookup resolves is queued on +0x1C/+0x2C and dropped without a message, instead of being reported as `Unknown trigger-type`; CTrigger::ResolveDeferredKeys replays the queue only where it is set.",
+   "evidence": "Writers (rvas): 0x5C915B (block tail), 0x5CAE09 (default-arm tail), 0x133B39/0x133B32 in the function at 0x1339A0 (technology +0x284 and +0x314, i.e. +0x248+0x3C and +0x2D8+0x3C). Readers: 0x5CAD4F (pushed as Trigger_LoadDatabaseKey's defer flag) and 0x5D0171 (ResolveDeferredKeys' gate). Positive control: game.log's 'Fixed trigger dependency for infantry_activation = 1', a key written directly in a technology's allow."
+  },
+  {
+   "struct": "CBoolTrigger",
+   "offset": "0x40",
+   "name": "value",
+   "type": "bool",
+   "comment": "`token == yes` - so `yes`/`YES` is true and anything else, a quoted \"yes\" included, false.",
+   "evidence": "Slot 7 0x5D1480: `cmp [ebp+8],0x1f6; sete al; mov [ecx+0x40],al`."
+  },
+  {
+   "struct": "CStringTrigger",
+   "offset": "0x40",
+   "name": "value",
+   "type": "Hoi3CString",
+   "comment": "The value's text, as written.",
+   "evidence": "Slot 7 0x5D1450 assigns into this+0x40."
+  },
+  {
+   "struct": "CActiveMissionTrigger",
+   "offset": "0x40",
+   "name": "mission",
+   "type": "CMission*",
+   "comment": "Null when the name is unknown.",
+   "evidence": "CActiveMissionTrigger::LoadArgument's store at 0x9F16A2."
+  },
+  {
+   "struct": "CContinentTrigger",
+   "offset": "0x40",
+   "name": "continent",
+   "type": "CContinent*",
+   "comment": "Null for THIS/FROM and for an unknown name.",
+   "evidence": "CContinentTrigger::LoadArgument clears and then stores it."
+  },
+  {
+   "struct": "CControlledByTrigger",
+   "offset": "0x40",
+   "name": "tag",
+   "type": "CCountryTag",
+   "comment": "The literal tag; `---`/0 for an unknown one.",
+   "evidence": "CControlledByTrigger::LoadArgument stores GetTag's pair at +0x40/+0x44; Evaluate compares +0x44."
+  },
+  {
+   "struct": "CControlledByTrigger",
+   "offset": "0x48",
+   "name": "is_owner",
+   "type": "bool",
+   "comment": "`controlled_by = owner`: compare the controller with the owner.",
+   "evidence": "Set on token 0x1EC by LoadArgument; read at 0x9DFBCC by Evaluate."
+  },
+  {
+   "struct": "CDateTrigger",
+   "offset": "0x40",
+   "name": "date",
+   "type": "int",
+   "comment": "The date, as the engine's hour tick.",
+   "evidence": "LoadArgument: `lea esi,[ecx+0x40]; call Date_SetFromString`."
+  },
+  {
+   "struct": "CExistsTrigger",
+   "offset": "0x40",
+   "name": "value",
+   "type": "bool",
+   "comment": "yes/no form; ignored when a tag was given.",
+   "evidence": "LoadArgument writes it on 0x1F6/0x1F7."
+  },
+  {
+   "struct": "CExistsTrigger",
+   "offset": "0x44",
+   "name": "tag",
+   "type": "CCountryTag",
+   "comment": "The tag form; `---`/0 for yes/no.",
+   "evidence": "LoadArgument stores GetTag's pair at +0x44/+0x48."
+  },
+  {
+   "struct": "CFactionTrigger",
+   "offset": "0x40",
+   "name": "faction",
+   "type": "CFaction*",
+   "comment": "Never null: CNullFaction for THIS and for an unknown name.",
+   "evidence": "CFactionTrigger::LoadArgument's lookup and fallback."
+  },
+  {
+   "struct": "CGovernmentTrigger",
+   "offset": "0x40",
+   "name": "government",
+   "type": "CGovernment*",
+   "comment": "Null for an unknown name.",
+   "evidence": "LoadArgument's store at 0x9D9B62."
+  },
+  {
+   "struct": "CHasBuildingTrigger",
+   "offset": "0x40",
+   "name": "building",
+   "type": "CBuilding*",
+   "comment": "Null for an unknown name.",
+   "evidence": "LoadArgument's store."
+  },
+  {
+   "struct": "CHasCountryModifierTrigger",
+   "offset": "0x40",
+   "name": "modifier",
+   "type": "CStaticModifier*",
+   "comment": "Null, with a logged error, for an unknown name.",
+   "evidence": "LoadArgument: CTraitDataBase_Find on g_static_modifiers into +0x40."
+  },
+  {
+   "struct": "CHasProvinceModifierTrigger",
+   "offset": "0x40",
+   "name": "modifier",
+   "type": "CStaticModifier*",
+   "comment": "Null, with a logged error, for an unknown name.",
+   "evidence": "LoadArgument: CTraitDataBase_Find on g_static_modifiers into +0x40."
+  },
+  {
+   "struct": "CIdeologyGroupTrigger",
+   "offset": "0x40",
+   "name": "group",
+   "type": "CIdeologyGroup*",
+   "comment": "Null for an unknown name.",
+   "evidence": "LoadArgument's store at 0x9F4862."
+  },
+  {
+   "struct": "CLawTrigger",
+   "offset": "0x40",
+   "name": "law_group",
+   "type": "CLawGroup*",
+   "comment": "The group the key named; its +0x50 indexes CCountry::laws.",
+   "evidence": "The constructor stores its argument here; Evaluate reads `[ecx+0x40] ->+0x50`."
+  },
+  {
+   "struct": "CLawTrigger",
+   "offset": "0x44",
+   "name": "law",
+   "type": "CLaw*",
+   "comment": "The law the value named; CNullLaw when unknown.",
+   "evidence": "Constructor writes CNullLaw, LoadArgument the hit; Evaluate compares it."
+  },
+  {
+   "struct": "CRegionTrigger",
+   "offset": "0x40",
+   "name": "region",
+   "type": "CRegion*",
+   "comment": "Null for an unknown name.",
+   "evidence": "LoadArgument's store at 0x9E55BA."
+  },
+  {
+   "struct": "CStrategicResourceTrigger",
+   "offset": "0x40",
+   "name": "resource",
+   "type": "CStrategicResource*",
+   "comment": "CNullStrategicResource for `none`; null for an unknown name.",
+   "evidence": "LoadArgument's two stores."
+  },
+  {
+   "struct": "CTraitTrigger",
+   "offset": "0x40",
+   "name": "trait",
+   "type": "CTrait*",
+   "comment": "CNullTrait_Instance() for an unknown name.",
+   "evidence": "LoadArgument's store."
+  },
+  {
+   "struct": "CAllOrganisationPopularityTrigger",
+   "offset": "0x40",
+   "name": "ideology",
+   "type": "CIdeology*",
+   "comment": "The ideology the key named.",
+   "evidence": "Constructor 0x5FA630; Evaluate reads `->+0x4C` as the index."
+  },
+  {
+   "struct": "CAllOrganisationPopularityTrigger",
+   "offset": "0x44",
+   "name": "organisation",
+   "type": "int",
+   "comment": "`organisation = N`, atoi * 1000; 0 when absent.",
+   "evidence": "LoadKey case 0x4C8; Evaluate compares with CCountry +0x10C4[i]."
+  },
+  {
+   "struct": "CAllOrganisationPopularityTrigger",
+   "offset": "0x48",
+   "name": "popularity",
+   "type": "int",
+   "comment": "`popularity = N`, atoi * 1000; 0 when absent.",
+   "evidence": "LoadKey case 0x4FB; Evaluate compares with CCountry +0x10FC[i]."
+  },
+  {
+   "struct": "CHasCasusBelliTrigger",
+   "offset": "0x40",
+   "name": "actor",
+   "type": "CCountryTag",
+   "comment": "`actor = <tag>`; THIS/FROM go to the flags at +0x18/+0x19.",
+   "evidence": "LoadKey's `actor` case stores GetTag's pair here."
+  },
+  {
+   "struct": "CHasCasusBelliTrigger",
+   "offset": "0x48",
+   "name": "type",
+   "type": "Hoi3CString",
+   "comment": "`type = <cb>`, the raw text, not looked up at load.",
+   "evidence": "LoadKey's `type` case: `lea ecx,[esi+0x48]; call std::string::assign`."
+  },
+  {
+   "struct": "CRelationTrigger",
+   "offset": "0x40",
+   "name": "who",
+   "type": "CCountryTag",
+   "comment": "`who = <tag>`; THIS/FROM go to the flags.",
+   "evidence": "LoadKey's `who` case."
+  },
+  {
+   "struct": "CRelationTrigger",
+   "offset": "0x48",
+   "name": "value",
+   "type": "int",
+   "comment": "`value = N`, plain atoi; Evaluate multiplies by 1000.",
+   "evidence": "LoadKey's `value` case; Evaluate 0x5DDC00 `imul ecx,ecx,0x3e8`."
+  },
+  {
+   "struct": "CSpyMissionCountTrigger",
+   "offset": "0x40",
+   "name": "mission_type",
+   "type": "int",
+   "comment": "SpyMissionTypeFromName of `type`, 0..8; 0 for an unknown name.",
+   "evidence": "LoadKey: `mov [ecx+0x40],eax` after the call."
+  },
+  {
+   "struct": "CSpyMissionCountTrigger",
+   "offset": "0x44",
+   "name": "value",
+   "type": "int",
+   "comment": "`value = N` in thousandths.",
+   "evidence": "LoadKey: `lea edi,[ecx+0x44]; call ParseFixedPoint`."
+  },
+  {
+   "struct": "CThreatTrigger",
+   "offset": "0x48",
+   "name": "value",
+   "type": "int",
+   "comment": "`value = N`, plain atoi; Evaluate multiplies by 1000.",
+   "evidence": "LoadKey's `value` case; CThreatTrigger::Evaluate."
+  },
+  {
+   "struct": "CCombinedArmsTrigger",
+   "offset": "0x44",
+   "name": "unit_group",
+   "type": "void*",
+   "comment": "The combined-arms group the key named; its dword at +0 is the one-based index Evaluate uses into CUnit +0x1D0.",
+   "evidence": "Constructor `mov [esi+0x44],ecx`; Evaluate `mov ecx,[edi+0x44]; mov edx,[ecx]`."
+  },
+  {
+   "struct": "CIsIdeologyEqualTrigger",
+   "offset": "0x5C",
+   "name": "ideology",
+   "type": "CIdeology*",
+   "comment": "The ideology the value named; null when unknown.",
+   "evidence": "Constructor `mov [edi+0x5c],eax` after GetByName."
+  },
+  {
+   "struct": "CSubUnitTrigger",
+   "offset": "0x44",
+   "name": "definition",
+   "type": "CSubUnitDefinition*",
+   "comment": "The unit type the key named.",
+   "evidence": "CSubUnitTrigger::CSubUnitTrigger stores its argument at +0x44; the argument is StringHashFind on CSubUnitDataBase::by_name."
+  },
+  {
+   "struct": "CGovernmentPositionTrigger",
+   "offset": "0x44",
+   "name": "position",
+   "type": "CGovernmentPosition*",
+   "comment": "The government position the key named.",
+   "evidence": "Constructor stores its argument at +0x44; the argument is GetByName on g_government_positions."
+  },
+  {
+   "struct": "CBuildingTrigger",
+   "offset": "0x44",
+   "name": "building",
+   "type": "CBuilding*",
+   "comment": "The building the key named.",
+   "evidence": "Constructor stores its argument at +0x44; CBuildingTrigger::Evaluate reads `this->+0x44 ->+0x54`."
+  },
+  {
+   "struct": "CSubUnitDataBase",
+   "offset": "0x0",
+   "name": "unit_groups",
+   "type": "void**",
+   "comment": "First element of the vector of combined-arms unit groups (common/combined_arms.txt), each with its one-based index at +0, its name at +8, `base` at +0x24 and `value` at +0x28. CSubUnitDataBase_FindUnitGroup walks it.",
+   "evidence": "CSubUnitDataBase_FindUnitGroup reads [db+0] and [db+4] as begin and end, counts (end - begin) >> 2 and indexes 4-byte elements; FINDINGS-builders.md already said the groups are a vector at +0x00.",
+   "revises": "Was `all`, a CList 'of everything the database holds'. Every reader treats it as a pointer vector of unit groups."
+  },
+  {
+   "struct": "CSubUnitDataBase",
+   "offset": "0x4",
+   "name": "unit_groups_last",
+   "type": "void**",
+   "comment": "One past the last unit group.",
+   "evidence": "As +0x0."
+  }
+ ],
+ "vftable_slots": {
+  "CActiveMissionTrigger": {
+   "7": "LoadArgument"
+  },
+  "CContinentTrigger": {
+   "7": "LoadArgument"
+  },
+  "CControlledByTrigger": {
+   "7": "LoadArgument"
+  },
+  "CDateTrigger": {
+   "7": "LoadArgument"
+  },
+  "CExistsTrigger": {
+   "7": "LoadArgument"
+  },
+  "CFactionTrigger": {
+   "7": "LoadArgument"
+  },
+  "CGovernmentTrigger": {
+   "7": "LoadArgument"
+  },
+  "CHasBuildingTrigger": {
+   "7": "LoadArgument"
+  },
+  "CHasCountryModifierTrigger": {
+   "7": "LoadArgument"
+  },
+  "CHasProvinceModifierTrigger": {
+   "7": "LoadArgument"
+  },
+  "CIdeologyGroupTrigger": {
+   "7": "LoadArgument"
+  },
+  "CLawTrigger": {
+   "7": "LoadArgument",
+   "6": {
+    "name": "Evaluate",
+    "signature": "bool __thiscall Evaluate(CLawTrigger* this, CEventScope* scope)"
+   }
+  },
+  "CRegionTrigger": {
+   "7": "LoadArgument"
+  },
+  "CStrategicResourceTrigger": {
+   "7": "LoadArgument"
+  },
+  "CTraitTrigger": {
+   "7": "LoadArgument"
+  },
+  "CAllOrganisationPopularityTrigger": {
+   "4": {
+    "name": "LoadKey",
+    "signature": "void __thiscall LoadKey(CAllOrganisationPopularityTrigger* this, CParseContext* parse, SaveToken key)"
+   },
+   "6": {
+    "name": "Evaluate",
+    "signature": "bool __thiscall Evaluate(CAllOrganisationPopularityTrigger* this, CEventScope* scope)"
+   }
+  },
+  "CMTTHModifier": {
+   "4": {
+    "name": "LoadKey",
+    "signature": "void __thiscall LoadKey(CMTTHModifier* this, CParseContext* parse, SaveToken key)"
+   }
+  },
+  "CHasCasusBelliTrigger": {
+   "4": {
+    "name": "LoadKey",
+    "signature": "void __thiscall LoadKey(CHasCasusBelliTrigger* this, CParseContext* parse, SaveToken key)"
+   }
+  },
+  "CRelationTrigger": {
+   "4": {
+    "name": "LoadKey",
+    "signature": "void __thiscall LoadKey(CRelationTrigger* this, CParseContext* parse, SaveToken key)"
+   }
+  },
+  "CSpyMissionCountTrigger": {
+   "4": {
+    "name": "LoadKey",
+    "signature": "void __thiscall LoadKey(CSpyMissionCountTrigger* this, CParseContext* parse, SaveToken key)"
+   }
+  },
+  "CThreatTrigger": {
+   "4": {
+    "name": "LoadKey",
+    "signature": "void __thiscall LoadKey(CThreatTrigger* this, CParseContext* parse, SaveToken key)"
+   }
+  },
+  "CVariableTrigger": {
+   "4": {
+    "name": "LoadKey",
+    "signature": "void __thiscall LoadKey(CVariableTrigger* this, CParseContext* parse, SaveToken key)"
+   }
+  },
+  "COwnedByTrigger": {
+   "7": "LoadArgument"
+  },
+  "CCombinedArmsTrigger": {
+   "6": {
+    "name": "Evaluate",
+    "signature": "bool __thiscall Evaluate(CCombinedArmsTrigger* this, CEventScope* scope)"
+   }
+  },
+  "CUnitHasLeaderTrigger": {
+   "6": {
+    "name": "Evaluate",
+    "signature": "bool __thiscall Evaluate(CUnitHasLeaderTrigger* this, CEventScope* scope)"
+   }
+  },
+  "CUnitInBattleTrigger": {
+   "6": {
+    "name": "Evaluate",
+    "signature": "bool __thiscall Evaluate(CUnitInBattleTrigger* this, CEventScope* scope)"
+   }
+  }
+ },
+ "frontier": [
+  "0x1339A0",
+  "0x5C7D10",
+  "0x1D62B0",
+  "0x5F59E0",
+  "0x5DABE0",
+  "0x6060C0",
+  "0x5D3920",
+  "0x669CA0"
+ ],
+ "notes": "0x1339A0 (VA 0x5339A0) is by its stores CTechnology's constructor and sets +0x3C on the triggers at +0x248 and +0x2D8 - unrecorded. 0x6060C0 is CHasHostileSpyMissionTrigger::Evaluate (compares CSpyPresence::IsHostileMission with the uninitialised +0x40). Whether the event and decision containers set is_script_block on their own trigger blocks is the container agent's question."
+}

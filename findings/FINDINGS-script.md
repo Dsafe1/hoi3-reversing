@@ -23,11 +23,18 @@ That also explains why `PROGRESS.md` ranks these two first and counts 157 and 74
 against them: **a `LoadKey` is inherited**, so every one of those classes has this same
 loader and reading it once reads all of them.
 
-A key that is not a keyword falls through to the default, which tries, in order: a
-province id, an ideology, and then a lookup that ends in the technology database - which
-is how `divisonal_command_structure = 1` works as a condition. Anything that is none of
-those is a parse error, and **the condition or effect is dropped**. That is the failure
-mode `scriptcheck.py` looks for.
+A key that is not a keyword falls through to the default, which tries a list of
+databases by name - which is how `divisonal_command_structure = 1` works as a condition -
+and then a scope. Anything that is none of those is dropped. That is the failure mode
+`scriptcheck.py` looks for.
+
+**Corrected 2026-10-12.** This said the default tried "a province id, an ideology, and
+then a lookup that ends in the technology database", which was wrong in order and in
+list. The trigger side tries six databases, an ideology, a region and a scope, and reports
+an unknown key only directly inside a block the engine made
+(`findings/FINDINGS-triggergrammar.md`, sections 2 and 3); the effect side tries seven
+databases and then, for a block, a scope (`findings/FINDINGS-effectgrammar.md`, section
+3). And the trigger switch has **153** keywords: the table below lacks `port`.
 
 ## Reading a switch this wide
 
