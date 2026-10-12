@@ -387,7 +387,8 @@ already, and for a theatre under conditions of `0x5D2A00` that were not read.
 
 ## What was not read
 
-- **every tooltip** (slot 13 of each class), beyond the three texts named above;
+- ~~every tooltip (slot 13 of each class), beyond the three texts named above~~ - read in
+  `FINDINGS-unitpaneltooltips.md`, but for the battle row's;
 - the three stance entries, `CPowerRatioEntry`, `CDesiredAssetsEntry`,
   `CWindowForLoadedUnitsEntry` with `CLoadedUnitEntry`, `CCombatEntry`; of `CObjectivesEntry`
   its handlers and slot 22 (`0x74F910`);

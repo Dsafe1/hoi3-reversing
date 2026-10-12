@@ -297,7 +297,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CStrategicRedeploymentOrder` | `COrder` |  | 2 | 5/10 | 3 | CStrategicRedeploymentOrder.hpp | 1,197 | part |  |
 | `CStrategicWarfare` | `CPersistent` |  | 3 lua |  | 1 |  | 108 | keys |  |
 | `CStringIntInt` | `CPersistent` | 0x2C | 3 |  | 1 |  |  | keys |  |
-| `CSubUnit` | `CReferenceObject` | 0xD8 | 31 | 8/13 | 21 |  |  | read |  |
+| `CSubUnit` | `CReferenceObject` | 0xD8 | 31 | 8/13 | 22 |  |  | read |  |
 | `CSupportAttackOrder` | `COrder` |  | 1 |  | 2 | COrder.hpp |  | keys |  |
 | `CSystemSettings` | `CPersistent` |  |  |  |  |  |  | RTTI |  |
 | `CTechnologyStatus` | `CTechStatistics` `PAVCTechnology::__CArray` |  | 42 + 1 lua |  | 5 | CSubUnitDefinition.hpp | 108 | read |  |
@@ -308,7 +308,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CTraitGainTracker` | `CPersistent` |  | 4 |  | 6 | CTrait.hpp | 24,137 | keys |  |
 | `CTransportSuppliesOrder` | `CAirOrder` |  |  | 2/2 | 2 |  |  | placed |  |
 | `CUndeclaredWar` | `CPersistent` |  | 6 |  | 3 | CWar.hpp | 1 | read | **read**: the save's record of a war nobody declared |
-| `CUnit` | `PAVCSubUnit::__CList` `CSelectable` `CReferenceObject` |  | 100 + 1 lua |  | 103 | CUnit.hpp |  | read |  |
+| `CUnit` | `PAVCSubUnit::__CList` `CSelectable` `CReferenceObject` |  | 100 + 1 lua |  | 104 | CUnit.hpp |  | read |  |
 | `CUnitDeployment` | `CDeployment` |  |  | 3/4 | 4 |  | 49 | placed |  |
 | `CUnitPlan` | `CPersistent` | 0x90 | 15 | 10/16 | 13 |  | 8,827 | read | **read**: a battle plan as the save keeps it |
 | `CVariables` | `_0A::anon::PAUCVariable::__CTernary` `CPersistent` |  | 1 |  | 3 | CFlags.hpp | 216 | part |  |
@@ -466,7 +466,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CCategoryItem` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
 | `CChatMessageObserver` |  |  |  |  |  |  |  | RTTI |  |
 | `CCheckBoxObserver` |  |  |  |  |  |  | 225 | RTTI |  |
-| `CChildUnitEntry` | `CUnitViewBaseEntry` |  |  |  | 2 |  |  | RTTI |  |
+| `CChildUnitEntry` | `CUnitViewBaseEntry` |  |  |  | 3 |  |  | RTTI |  |
 | `CCombatEntry` | `CUnitViewBaseEntry` | 0x80 | 3 |  | 4 |  |  | part |  |
 | `CCombatList` | `PAVCCombat::__CList` |  |  |  |  |  |  | RTTI |  |
 | `CCombatMember` | `COutLinerMember` |  |  |  | 1 |  |  | RTTI |  |
@@ -492,7 +492,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CCountrylistItem` | `CStandardlistboxItem` |  |  |  |  |  | 152 | RTTI |  |
 | `CCreditsScreen` | `CFrontEndView` |  |  |  |  |  |  | RTTI |  |
 | `CCurrentModelEntry` | `CStandardlistboxItem` |  |  |  |  |  | 48 | RTTI |  |
-| `CCurrentOrdersEntry` | `CUnitViewBaseEntry` |  |  |  | 3 |  |  | RTTI |  |
+| `CCurrentOrdersEntry` | `CUnitViewBaseEntry` |  |  |  | 4 |  |  | RTTI |  |
 | `CCurrentResearchEntry` | `CStandardlistboxItem` |  | 3 |  | 3 |  | 1 | part |  |
 | `CDefensivenessComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CDeploymentEntry` | `CStandardlistboxItem` |  |  |  | 2 |  | 1 | RTTI |  |
@@ -583,7 +583,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CNudgeIdler` | `CEU3Idler` `CReloadableInterface` |  |  |  |  |  | 1 | RTTI |  |
 | `COOBBrowser` | `CReloadableInterface` |  |  |  |  |  | 1 | RTTI |  |
 | `COOBUnitEntry` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
-| `CObjectivesEntry` | `CUnitViewBaseEntry` |  |  |  | 2 |  |  | RTTI |  |
+| `CObjectivesEntry` | `CUnitViewBaseEntry` |  |  |  | 3 |  |  | RTTI |  |
 | `COfficersComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `COptionObservable` | `VCOptionClassObservable::anon::VCOptionObserver::__CObservable` |  |  |  |  |  |  | RTTI |  |
 | `COrdersView` |  |  |  |  |  |  |  | RTTI |  |
@@ -591,7 +591,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `COutLinerMember` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
 | `COwnedMicroItemMember` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
 | `COwnerArea` |  |  | 17 |  | 15 |  | 335 | read |  |
-| `CParentUnitEntry` | `CUnitViewBaseEntry` |  |  |  | 2 |  |  | RTTI |  |
+| `CParentUnitEntry` | `CUnitViewBaseEntry` |  |  |  | 3 |  |  | RTTI |  |
 | `CPathFind` |  |  |  |  | 5 | CPathFind.hpp |  | RTTI |  |
 | `CPersistent` |  |  | 1 |  | 2 | CPersistent.hpp |  | part |  |
 | `CPieChartLedgerGraphical` | `CGuiObject` |  |  |  |  |  |  | RTTI |  |
@@ -647,11 +647,11 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CShieldObject` | `CSprite` |  |  |  |  |  | 187 | RTTI |  |
 | `CShipBuilder` | `CReloadableInterface` |  | 9 |  | 7 |  | 1 | read |  |
 | `CShipSortInterface` |  |  |  |  |  |  |  | RTTI |  |
-| `CSideMenu` | `CReloadableInterface` |  |  |  |  |  |  | RTTI |  |
+| `CSideMenu` | `CReloadableInterface` |  |  |  | 1 |  |  | RTTI |  |
 | `CSideMenuAir` | `CSideMenu` |  |  |  |  |  | 1 | RTTI |  |
 | `CSideMenuArmy` | `CSideMenu` |  |  |  |  |  | 1 | RTTI |  |
 | `CSideMenuCombat` | `CSideMenu` |  |  |  |  |  | 1 | RTTI |  |
-| `CSideMenuDeploy` | `CSideMenu` |  | 8 |  | 4 |  | 2 | read |  |
+| `CSideMenuDeploy` | `CSideMenu` |  | 8 |  | 6 |  | 2 | read |  |
 | `CSideMenuMouseObserver` |  |  |  |  |  |  | 1 | RTTI |  |
 | `CSideMenuNaval` | `CSideMenu` |  |  |  |  |  | 1 | RTTI |  |
 | `CSideMenuProvinces` | `CSideMenu` |  |  |  |  |  | 1 | RTTI |  |
@@ -698,17 +698,17 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CUnitList` | `PAVCUnit::__CList` |  |  |  | 5 |  |  | RTTI |  |
 | `CUnitNavalStanceEntry` | `CUnitViewBaseEntry` |  |  |  |  |  |  | RTTI |  |
 | `CUnitStanceEntry` | `CUnitViewBaseEntry` |  |  |  |  |  |  | RTTI |  |
-| `CUnitStatusEntry` | `CUnitViewBaseEntry` |  |  |  | 3 |  |  | RTTI |  |
-| `CUnitView` | `CUnitViewBaseEntry` |  |  |  | 3 |  |  | RTTI |  |
+| `CUnitStatusEntry` | `CUnitViewBaseEntry` |  |  |  | 4 |  |  | RTTI |  |
+| `CUnitView` | `CUnitViewBaseEntry` |  |  |  | 4 |  |  | RTTI |  |
 | `CUnitViewBaseEntry` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
 | `CUpdateable` |  |  |  |  |  |  | 1 | RTTI |  |
 | `CVerySafePathFind` | `CPathFind` |  |  |  | 1 |  |  | RTTI |  |
 | `CVictoryConditionItem` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
 | `CVictoryConditionsView` | `CReloadableInterface` |  |  |  |  |  | 1 | RTTI |  |
 | `CViewsTextureManager` | `CLostDeviceInterface` |  |  |  |  |  | 1 | RTTI |  |
-| `CWindowForChildUnitsEntry` | `CUnitViewBaseEntry` |  |  |  | 2 |  |  | RTTI |  |
+| `CWindowForChildUnitsEntry` | `CUnitViewBaseEntry` |  |  |  | 3 |  |  | RTTI |  |
 | `CWindowForLoadedUnitsEntry` | `CUnitViewBaseEntry` |  |  |  |  |  |  | RTTI |  |
-| `CWindowForSubUnitsEntry` | `CUnitViewBaseEntry` |  |  |  | 3 |  |  | RTTI |  |
+| `CWindowForSubUnitsEntry` | `CUnitViewBaseEntry` |  |  |  | 4 |  |  | RTTI |  |
 | `CWindowObservable` | `VCWindowClassObservable::anon::VCWindowObserver::__CObservable` |  |  |  |  |  |  | RTTI |  |
 | `TCollisionObserver` |  |  |  |  |  |  |  | RTTI |  |
 | `TGui` |  |  |  |  |  |  |  | RTTI |  |
@@ -1263,7 +1263,7 @@ Windows, pages, sprites and the map's own drawing.
 | `CQuitDialog` | `CEU3Dialog` |  |  |  |  |  |  | RTTI |  |
 | `CRadioButtonGroupObserver` |  |  |  |  |  |  | 1 | RTTI |  |
 | `CShareTechnologyDialog` | `CEU3Dialog` |  |  |  |  |  |  | RTTI |  |
-| `CSingleUnitButtons` | `CUnitViewBaseEntry` |  |  |  | 2 |  |  | RTTI |  |
+| `CSingleUnitButtons` | `CUnitViewBaseEntry` |  |  |  | 3 |  |  | RTTI |  |
 | `CSprite` | `C2dVisibleObject` |  |  |  |  |  |  | RTTI |  |
 | `CSpriteType` | `C2dObjectType` |  |  |  |  |  |  | RTTI |  |
 | `CStratWarfareWindow` | `CReloadableInterface` |  |  |  | 1 |  | 1 | RTTI |  |

@@ -489,7 +489,10 @@ The record already has what sits under them: `FormatFixedPoint` (`0x65ACA0`),
 - **`BuildUnitStatsTooltip`'s (`0x31F460`) return object.** It constructs something with vftables
   `0x15D626C` and `0x15D6280`, a self-pointer at `+8` and `0x727120` at `+0xC`, inside a 0x17E0
   byte frame. Until that type is identified the function must not be called from the DLL. What
-  would settle it: `whoslot.py` on `0x15D626C`.
+  would settle it: `whoslot.py` on `0x15D626C`. **Partly answered 2026-10-12**
+  (`FINDINGS-unitpaneltooltips.md`, section 7): it is a window's constructor, called on a click
+  of a brigade's row with a fresh 0xBC-byte block, and is now `UnitStatsWindow_Construct`; the
+  window's class has no RTTI. The speed breakdown's two arguments are settled there too.
 - **`BuildModifierEffectsText` (`0x56E00`) is esp-framed** and no stack argument was located.
   108 keys and one caller; worth a proper read because a province's effective modifier list is
   something BiceLib's map modes would use.
