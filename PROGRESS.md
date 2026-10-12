@@ -219,7 +219,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CLandCombatant` | `CCombatant` | 0xE4 | 3 | 2/2 | 15 |  | 324 | placed |  |
 | `CLandTargetCombatant` | `CBombTargetCombatant` |  |  | 4/6 | 1 |  | 13 | RTTI |  |
 | `CLargefileHandlerInterface` | `CReferenceObject` |  |  |  |  |  |  | RTTI |  |
-| `CLeader` | `CReferenceObject` | 0xD0 | 17 | 10/16 | 10 | CLeader.hpp | 24,137 | read |  |
+| `CLeader` | `CReferenceObject` | 0xD0 | 17 | 10/16 | 11 | CLeader.hpp | 24,137 | read |  |
 | `CLeaderHistory` | `CHistoryContainer` | 0x24 | 4 |  | 2 |  | 24,138 | keys |  |
 | `CLeaderHistoryEntry` | `CHistoryEntry` |  |  |  |  |  |  | RTTI |  |
 | `CLicenceTechnologyAction` | `CDiplomaticAction` |  | 4 lua | 1/4 | 3 |  | 1 | placed |  |
@@ -402,7 +402,7 @@ Definitions out of `common/` and the rest of the mod. Their `LoadKey` is the gra
 | `CTechnology` | `CTechStatistics` |  | 23 + 7 lua | 13/21 | 2 | CTechnology.hpp | 1,175 | read | the technology files: a dozen keys of its own, and every other key read as a unit type's name, which is how an effect is written |
 | `CTerrain` | `CPersistent` |  | 16 | 9/12 | 3 | CTerrain.hpp | 45 | read | mostly done; `movement_cost`, `temperature` and `precipitation` went in last |
 | `CTerrainGraphical` | `CPersistent` |  |  | 2/10 | 1 |  | 256 | placed | **read**: how a terrain type is drawn. `CTerrain` is what it does |
-| `CTrait` | `CModifier` |  | 8 | 2/33 | 3 | CTrait.hpp | 343 | read | `traits.txt`: 31 effects and a count that stops at sixteen. `gainable_traits.txt` is a different class, `CGainableTrait`, still unread |
+| `CTrait` | `CModifier` |  | 9 | 2/33 | 6 | CTrait.hpp | 343 | read | `traits.txt`: 31 effects and a count that stops at sixteen. `gainable_traits.txt` is a different class, `CGainableTrait`, still unread |
 | `CTree` | `CPersistent` |  |  |  | 1 |  | 7 | keys |  |
 | `CTutorialChapter` | `CPersistent` |  |  | 9/11 | 1 |  |  | placed | the tutorial script; plumbing |
 | `CUnitAdjuster` | `CPersistent` | 0x18 | 5 | 4/4 | 3 | CUnitAdjuster.hpp | 3,012,281 | read |  |
@@ -685,7 +685,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CTradeCancelConfirm` | `CEU3Dialog` |  |  |  |  |  |  | RTTI |  |
 | `CTradeItem` | `CStandardlistboxItem` |  |  |  |  |  | 58 | RTTI |  |
 | `CTraitEntry` | `CStandardlistboxItem` |  |  |  | 1 |  | 6 | RTTI |  |
-| `CTraitFilterEntry` | `CStandardlistboxItem` |  |  |  | 4 |  |  | RTTI |  |
+| `CTraitFilterEntry` | `CStandardlistboxItem` |  |  |  | 5 |  |  | RTTI |  |
 | `CTutorial` | `CReloadableInterface` |  |  |  |  |  |  | RTTI |  |
 | `CTutorialScreen` | `CFrontEndView` |  |  |  | 2 |  |  | RTTI |  |
 | `CUnitAirStanceEntry` | `CUnitViewBaseEntry` |  |  |  |  |  |  | RTTI |  |

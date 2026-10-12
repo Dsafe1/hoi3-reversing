@@ -225,7 +225,7 @@ reading reached:
 - the orders windows: `CNavalOrdersView::GetTooltip` (`0x73F660`), `CAirOrdersView::GetTooltip`
   (`0x7456C0`);
 - the leader window: `0x7681C0`, `CLeaderAssignmentEntry::ElementTooltip` (`0x766060`),
-  `CLeader::BuildTooltip` (`0x580220`).
+  `CLeader::BuildTooltip` (`0x580220`) - read in `FINDINGS-leadertooltips.md`.
 
 ## Not established
 

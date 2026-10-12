@@ -45,8 +45,8 @@ Anywhere on it: `SELECT_PARENT_UNIT`. `confirmed`
 
 ## 3. The header (`CUnitView`)
 
-Its unit at `+0x28`. **First**, where the object at `+0x34` (the leader window's, `0x7681C0`, not
-read here) is shown, it is asked, and if it gives a `text` or a `delayed` that is the tooltip.
+Its unit at `+0x28`. **First**, where the object at `+0x34` (the leader window's, `0x7681C0`,
+`FINDINGS-leadertooltips.md`) is shown, it is asked, and if it gives a `text` or a `delayed` that is the tooltip.
 Otherwise, by the element's name: `confirmed` throughout
 
 | element | what it says |
@@ -328,10 +328,12 @@ the unit's own; `\n` + `CA_BONUS_DETAILS_TECH` the technology's where above 0; `
 
     the rank's name (0x5817B0: LAND_RANKn, SEA_RANKn or AIR_RANKn by his kind +0x68 and rank
           +0x6C, INACTIVE for none) + " §Y" + his name + "§W\n"
-    for a leader of a fleet or an air unit: LEADER_COMMAND_SIZE + " §G" where his rank fits the
-          unit (CUnit::LeaderHasRankForCommand), else " §R"; + " " + the size (0x5800A0: the
-          NAVAL_RANK_n or AIR_RANK_n define for his rank, over 1000) + " " + SHIPS_LABEL or
-          PLANES_LABEL + "§W\n"
+    where the unit he commands (+0x40) is a fleet or an air unit: LEADER_COMMAND_SIZE + " §G"
+          where his rank fits that unit (CUnit::LeaderHasRankForCommand), else " §R"; + " " + the
+          size (0x5800A0: the NAVAL_RANK_n or AIR_RANK_n define for his rank, over 1000) + " " +
+          SHIPS_LABEL or PLANES_LABEL by that unit + "§W\n" - nothing where he commands nothing
+          (corrected 2026-10-12, FINDINGS-leadertooltips.md section 7: this said "a leader of a
+          fleet or an air unit")
     an admiral (kind 1): LEADER_POSITIONING + " §Y" + skill x 100 thousandths, times 100,
           0 places + "%§W\n"
     LEADER_SKILL + " §Y" + skill, and " (" + LEADER_SKILL_AT_MAX + ")" where at his most, + "§W\n"
@@ -389,7 +391,7 @@ whose technology levels equal the brigade's; the summary marks a model with `+*`
 ## Not established
 
 - The three windows at `+0x1360`, `+0x1D48` and `+0x1D4C`.
-- The leader window's part of the header (`0x7681C0`).
+- ~~The leader window's part of the header (`0x7681C0`).~~ Read: `FINDINGS-leadertooltips.md`.
 - The battle row (`CCombatEntry::BuildTooltip`), left to a battle's tooltips.
 - The base's arithmetic in the attrition breakdown, term by term.
 - Which class `BuildUnitStatsTooltip` constructs: its vftables `0x15D626C` and `0x15D6280` belong to

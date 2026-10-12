@@ -238,9 +238,7 @@ frame is the leader's type plus 1 - the null leader's 0 gives frame 1.
   bytes**: the maintainer confirmed the right clicks of this window from the running game, which
   says what these three handlers answer to, not how the glue dispatches in general.
 - What an icon draws for frame 0.
-- `0x7681C0`, the panel's tooltip routine, and `0x766060`, a row's tooltip of an element - the
-  gainable-trait progress for `gaintrait_info` (through `0x765D40`), the trait's two texts for a
-  `trait_icon`, the leader's tooltip for `photo`. Read for its shape only; the tooltips are their
-  own piece.
+- ~~`0x7681C0`, the panel's tooltip routine, and `0x766060`, a row's tooltip of an element.~~
+  Read whole on 2026-10-12: `FINDINGS-leadertooltips.md`.
 - Whether `CCurrentGameState +0xD6C` is saved with a game.
 - Nothing here was watched in a running game.
