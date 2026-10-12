@@ -1,0 +1,460 @@
+{
+ "agent": "event wave C - the event window and the decision screen",
+ "question": "Which .gui window CEventWindow builds, every element it finds by name and what goes in it (picture, title, subtitle, description, option buttons), how its text is localised with the event's scope, the option buttons' tooltips, what pressing one does, where the window stands, several at once; then the decision screen: which window lists decisions, CDecisionEntry's elements, a decision that may not be taken, the entry's tooltips and the button that takes it.",
+ "source": "reversing/findings/FINDINGS-eventfire.md",
+ "addresses": [
+  {
+   "rva": "0x5C2010",
+   "kind": "function",
+   "name": "CEventWindow::CEventWindow",
+   "signature": "CEventWindow* __stdcall CEventWindow::CEventWindow(CEventWindow* this, CEvent* event, CEventScope scope)",
+   "no_signature": null,
+   "comment": "**Builds the event window.** 0x9C2010 to the single `ret 0x50` at 0x9C3499 (this, the event, and the 0x48-byte scope by value). Takes `host` from `countries[scope.country]+0xF1C` and builds through it: gui = host slot 14, the window = gui slot 11 (a by-name window factory) with host slot 16's result as parent. **`scope.province (+0x28) >= 1` chooses the province window**: `Event_Province_Window`, `EventPOptionButton`, `event_province_option_offset`, fallback sprite `GFX_prov_event_no_image`; otherwise `EventWindow`, `EventOptionButton`, `event_option_offset`, `GFX_event_no_image` - the event's kind does not enter into it. The scope copy is repointed (this_scope = its own copy). In order: `Title` (window slot 14, a text box) = LocaliseEventText(title); `Subtitle` likewise **only when the subtitle key is non-empty**; `Description` (slot 15, an instant text box, text at +0xD0 then 0xB32880 lays it out) = LocaliseEventText(desc), and **when the `immediate` block's effect text is longer than one character, `\\n\\n\\u00a7W` + that text is appended** (GetEventOptionEffectsText with option -1). Then one button per option, in file order, no cap: gui slot 3 makes a fresh `EventOptionButton`, slot 51 sets its text to LocaliseEventText(option name) keeping the button's own font (slot 52), slot 50 places it at x = offset.x, y = window height (CWindowType +0xAC) - (options+1-i)*offset.y (positionType +0x64/+0x68), window slot 22 attaches it as `event_option<i>`, button slot 30 sets its instance name (+8) to `<event id>_<i>_<scope seed>_<scope province>_<FROM tag letters>` - which is what the tooltip parses - and the window's observer glue (+0x5C) is registered on it. Then expiry = now + 4 months (AddMonths), the picture: icon `event_images` (slot 17) gets a new 0x1AC-byte drawable for `gfx/pictures/events/` + picture + `.tga`, handed the fallback sprite type, and is shown. **If the custom-game settings' first byte is clear the window is shown and the sound `message` played; if set it is hidden.** Last, CInGameIdler slot 62 (AddPendingEvent) notes the event. `major`, `is_triggered_only` and `fire_only_once` (+0x170..+0x172) are not read. Two callers: FireEvent (0x9C133E, after CInGameIdler slot 61 (IsEventPending) says the event is not already on its list, then CEU3Idler::AddDialog) and the console (0x43C68C).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-eventfire.md",
+   "evidence": "Listing 0x9C2010-0x9C3499 read whole: the branch on `cmp [ebp+0x38],ebx; jle` at 0x9C219F (ebp+0x10 is the scope, so +0x38 is scope+0x28), the string pushes 0x15F5A50/0x15F5A88/0x15D2330/0x15D231C/0x15F5A68/0x15F5A94, Title 0x9C2456, Subtitle guarded by `cmp [ebp-0x218],ebx; je` at 0x9C2532, Description 0x9C27AC with the `\\n\\n\\u00a7W` literal 0x15F5AB4 under `cmp [eax+0x10],1; setg` at 0x9C269F, the option loop 0x9C2841-0x9C3094, the y arithmetic at 0x9C2442-0x9C2452 and 0x9C307A, the concatenation order through std::string::operatorPlus (ECX left) at 0x9C2C75-0x9C2D1A, AddMonths(this+0x98, 4) at 0x9C30E6, the path at 0x9C3141-0x9C317F, the CGM test at 0x9C3311-0x9C3330. Wrong if the button's slot 30 were not the instance-name setter: its body 0xA80040 is `add ecx,8; call assignString; ret 4`."
+  },
+  {
+   "rva": "0x5C35E0",
+   "kind": "function",
+   "name": "LocaliseEventText",
+   "signature": "Hoi3CString* __cdecl LocaliseEventText(Hoi3CString* out, Hoi3CString key, CEventScope scope, CCountryTag owner)",
+   "no_signature": null,
+   "comment": "**An event or decision text: a localisation key with the `$NAME$` variables filled from a scope.** 0x9C35E0 to the bare `ret` at 0x9C45E2; the caller pops 0x70 (out, the key and the scope by value, an 8-byte tag). GetText(key), then: the country C is scope.country, or **when that is null the controller of scope.province** (CMapProvince +0x334/+0x338). Variables, each only where its guard holds: `THISCOUNTRY` = name of this_scope's country (when this_scope+0x14 != 0); `FROMCOUNTRY` = name of the FROM country and `FROMCOUNTRY_ADJ` its adjective (when scope+0x1C != 0); when C exists - `COUNTRY` and `COUNTRYNAME` both = C's name (CCountry +0xCA4 tag), `MONARCHTITLE` = C's government slot 15, localised, `COUNTRY_ADJ` = C's adjective (**not passed through GetText**, unlike FROMCOUNTRY_ADJ), `CAPITAL` = the name of C's capital province; always - `LAND_LOSER_LOSSES`, `LAND_WINNER_LOSSES`, `AIR_LOSER_LOSSES`, `AIR_WINNER_LOSSES`, `NAVAL_LOSER_LOSSES`, `NAVAL_WINNER_LOSSES` from the game state's last-battle counters, `PRIDE_SUNK` and `PRIDE_SINKER` from the names of the objects at state +0x48/+0x4C (empty when null), `YEAR` = (tick - 43800000)/24/365.0 truncated; when scope.province != 0 - `PROVINCENAME`, `REGIONNAME` (the first of the province's regions, +0x358/+0x360, localised; empty when it has none), `CONTINENTNAME` (+0x368, **the raw name, not localised**; empty when none) and `OWNERNAME` = name of `owner` when owner.id != 0, else of the province's owner (+0x32C). Rendered with the game settings' colours (+0x6C). Every window caller passes owner = {`---`, 0}. 16 callers: the event window, the decision texts, missions (0x9C75B6..0x9C78BF), 0x9AE651/0x9AE9CC and the two commands.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-eventfire.md",
+   "evidence": "Listing 0x9C35E0-0x9C45E2: argument offsets from the frame (key at ebp+0xC, scope at ebp+0x28, owner at ebp+0x70); each literal pushed beside its source read - 0x9C36A0 (controller when scope.country_id==0), 0x9C36C5 (this_scope+0x14), 0x9C37F3 (scope+0x1C), 0x9C3A3C, 0x9C3D34 (COUNTRY_ADJ: 0x518760 straight into Replace 0x682F40, no GetText), 0x9C422E (`sub 0x29C55C0`, /24, `divsd [0x160A550]` = 365.0), 0x9C42BF (scope+0x28), 0x9C4436 (CONTINENTNAME into Replace with no GetText), 0x9C4490 (owner id). The `$...$` delimiters are CInternationalizedText::Replace's; the install's localisation uses `$COUNTRY$` 829 times and BlackICE's `$FROMCOUNTRY$` 53 times. Wrong if an argument offset were misread: the event window's three calls each pop 0x70 (`add esp,0x70` at 0x9C24BA)."
+  },
+  {
+   "rva": "0x5C34D0",
+   "kind": "function",
+   "name": "CEventWindow::~CEventWindow",
+   "signature": "void __stdcall CEventWindow::~CEventWindow(CEventWindow* this)",
+   "no_signature": null,
+   "comment": "The destructor, called from the scalar deleting destructor (slot 0, 0x9C34A0). 0x9C34D0 to `ret 4` at 0x9C35D5: CInGameIdler slot 63 (RemovePendingEvent) takes the event off the idler's list (it may get a window again), the gui window's slot 20 closes it, and the option-button list nodes (+0x88) are freed.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-eventfire.md",
+   "evidence": "Listing 0x9C34D0-0x9C35A6: vftable rewrite 0x15F5BF8, `call [vt+0xFC]` with `push [edi+0xC]` (the event) on the in-game idler, `call [vt+0x50]` on [edi+4], the node walk from [edi+0x88]."
+  },
+  {
+   "rva": "0x5C45F0",
+   "kind": "function",
+   "name": "CEventWindow::Update",
+   "signature": "bool __thiscall CEventWindow::Update(CEventWindow* this)",
+   "no_signature": null,
+   "comment": "**Slot 1, run every frame from CEU3Idler::Update's dialog list; false means delete me.** If the custom-game flag is clear and the window is not open (window +0x18+0x43): show it and play `message` again. **While the window is not open it answers true and does nothing else - so the 4-month timeout below never runs for a hidden window.** While open: if the idler's clock (seconds, CInGameIdler +0x192C) has moved less than 1.0 since +0x9C, every option button is disabled (slot 47), otherwise enabled (slot 46) - **the options cannot be pressed for the first second**. Then **when the game tick passes +0x98 (opened + 4 months) it posts CSelectEventOptionCommand(event, scope, option 0) itself - the first option - and answers false**. Otherwise answers +0x58, which the click handler clears.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-eventfire.md",
+   "evidence": "Listing 0x9C45F0-0x9C4884: the CGM byte test 0x9C4618, `cmp [ecx+0x5B],bl` at 0x9C4623 and again at 0x9C4691 (the `mov al,1` exit at 0x9C4696), `fsub [edi+0x9C]; fld1; fcompi; jbe` at 0x9C4736-0x9C4748 choosing [vt+0xBC] or [vt+0xB8], `cmp ecx,[edi+0x98]; jle` at 0x9C4800, `push ebx` (0) as the option at 0x9C4825 before 0xA0AB40, `xor al,al` at 0x9C485E. Slot 46/47 bodies 0xACFF90/0xACFFA0 set and clear the button state 3. Wrong if slot 1 were not what the dialog list calls: CEU3Idler::Update calls `[vt+4]` on every entry at 0x64479E."
+  },
+  {
+   "rva": "0x5C4890",
+   "kind": "function",
+   "name": "CEventWindow::OnOptionClicked",
+   "signature": "void __thiscall CEventWindow::OnOptionClicked(CEventWindow* this)",
+   "no_signature": null,
+   "comment": "The handler the window's observer glue (+0x64) holds for every option button. If the window is still alive (+0x58), walks the option buttons in order and takes **the first whose +0x2C byte is set** as the pressed one, its position i being the option index; posts `CSelectEventOptionCommand(event, scope, i)` on the session's channel (host slot 18 -> +0x38 slot 6) and clears +0x58, so the next Update answers false and the window is deleted. No check of anything else; nothing is run here - the command does that.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-eventfire.md",
+   "evidence": "Listing 0x9C4890-0x9C4955: `cmp byte [esi+0x58],0`, the walk `cmp byte [ecx+0x2C],0; inc edi` at 0x9C48C6-0x9C48D4, `push edi` (the index), the 0x48 scope copy and `push [esi+0xC]` before 0xA0AB40, `[vt+0x48]` then `[[eax+0x38]+0x18]`, `mov byte [esi+0x58],0`. That +0x2C is the pressed flag is inferred from its use here."
+  },
+  {
+   "rva": "0x5C1500",
+   "kind": "function",
+   "name": "CEventOption::GetEffectsText",
+   "signature": "Hoi3CString* __stdcall CEventOption::GetEffectsText(CEventOption* this@stack:4, CEventScope* scope@stack:8, int index@stack:0xC, Hoi3CString* out@EDI) @EAX",
+   "no_signature": null,
+   "comment": "An option's (or the `immediate` block's) effects as tooltip text: CEffect::GetBlockText of the option's effect block (+0x28) with the scope, depth 0, an empty group string and `index` as the last argument, trimmed (TrimWhitespace) into `out`. `ret 0xC`. Three callers: GetEventOptionEffectsText twice and the event window's test of the immediate block.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-eventfire.md",
+   "evidence": "Listing 0x9C1500-0x9C1596: `mov edx,[ecx+0x28]; mov edx,[edx+0x20]` (slot 8 of the CEffect at +0x28), the empty string from 0x15B4945, `mov eax,edi; call 0xA5B4B0`, `ret 0xC`."
+  },
+  {
+   "rva": "0x5BF390",
+   "kind": "function",
+   "name": "GetEventOptionEffectsText",
+   "signature": "Hoi3CString* __stdcall GetEventOptionEffectsText(CEventScope* scope@ECX, int option@EAX, CEvent* event@stack:4, Hoi3CString* out@stack:8) @EAX",
+   "no_signature": null,
+   "comment": "An event's option effects text by index: option < 0 is the `immediate` block (+0x70, index 0 passed on), otherwise options[option] (+0xD4). 0x9BF390 to `ret 8` at 0x9BF3CD; rva 0x5BF3D0 is the next function (TRAPS.md trap 2). Two callers: the event window's description (option -1) and CInGameIdler::GetElementTooltip's event-option branch (0x6C93C8).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-eventfire.md",
+   "evidence": "Listing 0x9BF390-0x9BF3CD: `test eax,eax; jns`, `add edx,0x70` or `mov ecx,[edx+0xD4]; mov edx,[ecx+eax*4]`, both `ret 8`."
+  },
+  {
+   "rva": "0x20F210",
+   "kind": "function",
+   "name": "CDecisionEntry::CDecisionEntry",
+   "signature": "CDecisionEntry* __stdcall CDecisionEntry::CDecisionEntry(CDecisionEntry* this@stack:4, CDecision* decision@stack:8, Hoi3CString window_name@stack:0xC, CEventScope scope@stack:0x28, CInGameIdler* idler@ECX) @EAX",
+   "no_signature": null,
+   "comment": "**One row of the decisions list.** Makes the window named by `window_name` (always `diplomatic_decision_entry`) through the idler (gui slot 11, parent idler slot 16) into +0x20; registers the observer glue at +0x28 on `select_button` (handler 0x67A310, which only calls slot 4); keeps the decision (+0x78), the idler (+0x7C) and the scope (+0x80, this_scope repointed to the copy). Sets `name` (an instant text box) to DecisionTitleText - `<key>_title` localised with the scope - and **disables `select_button` when the decision's `allow` is false**; nothing else differs for such a row. `info_icon` is left as the .gui declares it. One caller, CDiplomacyView::RebuildDecisionList.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-eventfire.md",
+   "evidence": "Decompilation and listing of 0x60F210-0x60F464 (`ret 0x6C` = 4+4+0x1C+0x48): `[vt+0x40]`/`[vt+0x38]` on ECX then `[vt+0x2C]` (the window), `[select_button+0x48]` slot 1 with this+0x28, `[decision+0x64]` slot 6 with this+0x80 then `[vt+0xBC]` on `select_button`. The caller at 0x78C88F sets ECX = view+0xB0 (CCountryView::idler)."
+  },
+  {
+   "rva": "0x20F470",
+   "kind": "function",
+   "name": "CDecisionEntry::OwnsElement",
+   "signature": "bool __stdcall CDecisionEntry::OwnsElement(CDecisionEntry* this@EDI, CGuiObject* element@ECX) @AL",
+   "no_signature": null,
+   "comment": "Whether `element` is this row's `name`, `select_button` or `info_icon` - looked up afresh through the row's window. CDiplomacyView slot 10 asks it of each row (0x780855) before CDecisionEntry::BuildTooltip.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-eventfire.md",
+   "evidence": "Decompilation of 0x60F470-0x60F5C9 (bare `ret`): three lookups through [EDI+0x20] slots 15, 13 and 17 compared with ECX."
+  },
+  {
+   "rva": "0x20F5D0",
+   "kind": "function",
+   "name": "CDecisionEntry::BuildTooltip",
+   "signature": "GuiTooltipText* __stdcall CDecisionEntry::BuildTooltip(CDecisionEntry* this, GuiTooltipText* out, CGuiObject* element) @EAX",
+   "no_signature": null,
+   "comment": "**A decision row's tooltip, by the element's name**, into `text` with `below` = 1. First the scope's random state (+0x88/+0x8C) is reset to its seed (+0xAC). `name`: DecisionDescText (`<key>_desc`, localised with the scope). `select_button`: DecisionEffectsText (the effect block). `info_icon`: the `allow` block's CAndTrigger::GetBlockText(scope, redWhen 0, depth 0), trimmed - the technology-requirements rendering. Any other element: an empty tooltip. `ret 0xC`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-eventfire.md",
+   "evidence": "Decompilation of 0x60F5D0-0x60F7A8: the compares against `name` (0x15CA888), `select_button` and `info_icon`, calls 0x998800 / 0x9988A0 / `[[decision+0x64]+0x24]` with (out, scope, 0, 0), `param_2[0x58]=1`. Caller CDiplomacyView slot 10 at 0x780B03."
+  },
+  {
+   "rva": "0x20F7B0",
+   "kind": "function",
+   "name": "CDecisionEntry::OnClicked",
+   "signature": "void __thiscall CDecisionEntry::OnClicked(CDecisionEntry* this)",
+   "no_signature": null,
+   "comment": "Slot 4, the row's `select_button` was pressed: PostExecuteDecisionCommand(decision +0x78, scope +0x80). **`allow` is not asked again here**; the button is disabled when it fails.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-eventfire.md",
+   "evidence": "Decompilation of 0x60F7B0-0x60F821: the decision-database getter inlined, then `0x998A00(this+0x80, [this+0x78])`. One holder, CDecisionEntry slot 4 (table VA 0x15CAE64)."
+  },
+  {
+   "rva": "0x20F830",
+   "kind": "function",
+   "name": "CDecisionEntry::Update",
+   "signature": "void __thiscall CDecisionEntry::Update(CDecisionEntry* this)",
+   "no_signature": null,
+   "comment": "Slot 8, called on every row by CDiplomacyView slot 6 while `decisions_listbox` is open: **if `allow` or `potential` is now false, `select_button` is disabled; otherwise the button is looked up and nothing is done with it - a disabled button is never enabled again here**, so a decision that becomes takeable while the screen is open stays greyed until the list is rebuilt (the screen shown again). A row whose `potential` fails stays listed, disabled. `allow` is asked before `potential`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-eventfire.md",
+   "evidence": "Listing 0x60F830-0x60F917: `[[esi+0x78]+0x64]` slot 6 then `[[esi+0x78]+0x24]` slot 6, both `je 0x60F8BA` to the branch that calls `[vt+0xBC]`; the other branch at 0x60F87C does only the `[vt+0x34]` lookup and frees its string. CDiplomacyView slot 6's walk calls `[vt+0x20]` on each item."
+  },
+  {
+   "rva": "0x38C560",
+   "kind": "function",
+   "name": "CDiplomacyView::RebuildDecisionList",
+   "signature": "void __stdcall CDiplomacyView::RebuildDecisionList(CDiplomacyView* this)",
+   "no_signature": null,
+   "comment": "**The decision screen's list, rebuilt each time the diplomacy view is shown** (one caller, CDiplomacyView slot 2 (Show), at 0x77E200). The scope: country = the player (CCurrentGameState +0xC30), everything else null, seed 0. Finds `decisions_listbox` in the view's window (+0xA8), empties it, then walks **the diplomatic decisions only** (db +0x0C): a decision whose `potential` holds goes on a list - **pushed to the front when its `allow` holds, to the back when not** - so the list shows the takeable decisions first in reverse file order, then the untakeable ones in file order; one whose `potential` fails is not listed. Each becomes a 0xC8-byte CDecisionEntry on window `diplomatic_decision_entry`, added to the list box (slot 4). Ends with the list box's slot 20, or 21 when the custom-game flag is set.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-eventfire.md",
+   "evidence": "Listing 0x78C740-0x78C8E4: `[esi+0x24]` slot 6 then `[esi+0x64]` slot 6, the allow branch building {d, prev 0, next head} and setting the old head's +4 (push front), the other {d, prev tail, next 0} setting the old tail's +8 (push back), the walk from the head by +8 at 0x78C82B, `push 0xC8`, `0x15DAB54`, `call 0x60F210` with ECX = [view+0xB0]. Decompilation for the scope (player at state+0xC30) and `decisions_listbox`. Single caller 0x77E200 inside slot 2 (0x77DF40)."
+  },
+  {
+   "rva": "0x5988A0",
+   "kind": "function",
+   "name": "DecisionEffectsText",
+   "signature": "Hoi3CString* __stdcall DecisionEffectsText(CDecision* decision@stack:4, CEventScope* scope@stack:8, Hoi3CString* out@EDI) @EAX",
+   "no_signature": null,
+   "comment": "A decision's `effect` block (+0xA4) as text: CEffect::GetBlockText(scope, depth 0, empty group, 0), trimmed. `ret 8`. One caller, the row's tooltip on `select_button`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-eventfire.md",
+   "evidence": "Decompilation of 0x9988A0-0x99893A: `[[this+0xA4]+0x20]` with (out, scope, 0) and the empty string, TrimWhitespace, `ret 8`."
+  },
+  {
+   "rva": "0x5C5260",
+   "kind": "function",
+   "name": "DecisionTitleKey",
+   "signature": "Hoi3CString* __fastcall DecisionTitleKey(Hoi3CString* out@ECX, CDecision* decision@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "`out` = the string at `decision`+8 (CDecision's key) + `_title`. The same body serves any object whose name is at +8: four callers - DecisionTitleText, the mission code (0x9C75A6), 0x9F19C5 and 0xA08DA3. The `_desc` twin is DecisionDescKey (rva 0x5986E0).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-eventfire.md",
+   "evidence": "Listing 0x9C5260-0x9C52D5: `push 0x15C0B9C` ('_title'), `add ecx,8` on [ebp+8], operatorPlus into ESI = the incoming ECX, `ret 4`."
+  },
+  {
+   "rva": "0x118660",
+   "kind": "function",
+   "name": "CountryAdjectiveById",
+   "signature": "Hoi3CString* __cdecl CountryAdjectiveById(char* tag@stack:4, int id@stack:8, Hoi3CString* out@ESI) @EAX",
+   "no_signature": null,
+   "comment": "The twin of CountryNameById over the table at [0x1A87524] instead of [0x1A87514], 0x1C bytes an id. Adjective is inferred from its uses (`FROMCOUNTRY_ADJ`, `COUNTRY_ADJ`) and from the table being filled at 0x517B0F with a rendered localisation text.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-eventfire.md",
+   "evidence": "Listing 0x518660-0x518699 is CountryNameById's 0x518620 byte for byte but the table address. Likely, not confirmed: the key the filler at 0x517AC9 builds was not read."
+  },
+  {
+   "rva": "0x118760",
+   "kind": "function",
+   "name": "CountryAdjectiveOfTag",
+   "signature": "Hoi3CString* __fastcall CountryAdjectiveOfTag(Hoi3CString* out@ECX, CCountryTag* tag@EAX) @EAX",
+   "no_signature": null,
+   "comment": "CountryAdjectiveById on a tag's letters and id - the twin of CountryNameOfTag. 16 callers.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-eventfire.md",
+   "evidence": "Listing 0x518760-0x518787: CountryNameOfTag's body (0x518730) with `call 0x518660`. The meaning is CountryAdjectiveById's, inferred."
+  },
+  {
+   "rva": "0xCB430",
+   "kind": "function",
+   "name": "CountryNameOfCountry",
+   "signature": "Hoi3CString* __fastcall CountryNameOfCountry(CCountry* country@EAX, Hoi3CString* out@ESI) @EAX",
+   "no_signature": null,
+   "comment": "CountryNameOfTag on the country's own tag (+0xCA4). About 150 callers; `COUNTRY` and `COUNTRYNAME` in LocaliseEventText.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-eventfire.md",
+   "evidence": "Listing 0x4CB430-0x4CB44E: `add eax,0xCA4; mov ecx,esi; call 0x518730; mov eax,esi; ret`."
+  },
+  {
+   "rva": "0x244670",
+   "kind": "function",
+   "name": "CEU3Idler::AddDialog",
+   "signature": "void __stdcall CEU3Idler::AddDialog(CEU3Idler* this@ESI, CUpdateable* dialog@stack:4)",
+   "no_signature": null,
+   "comment": "Appends an updateable (a dialog window object) to the idler's list at +0xA0 (head), +0xA4 (tail), +0xA8 (count); CEU3Idler::Update then runs its slot 1 every frame and deletes it when that answers false. About 50 callers, among them FireEvent for the event window (0x9C13D1).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-eventfire.md",
+   "evidence": "Listing 0x644670-0x6446BC: `mov edi,[esi+0xA4]`, a 0x10-byte node {arg, old tail, 0, 0}, `inc` of [esi+0xA8], `ret 4`."
+  },
+  {
+   "rva": "0x244750",
+   "kind": "function",
+   "name": "CEU3Idler::Update",
+   "signature": "void __thiscall CEU3Idler::Update(CEU3Idler* this, int unused)",
+   "no_signature": null,
+   "comment": "Slot 1 of CEU3Idler. Read only as far as the dialog list: it calls slot 1 of every updateable at +0xA0 and collects those answering false; each collected one is unlinked from the list (or, while +0xAC is set, only marked at node +0xC) and deleted through its slot 0. The rest of the body (to `ret 4` at 0x644B33) was not read; the stack argument is unread per CInGameIdler::Update's record.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-eventfire.md",
+   "evidence": "Listing 0x644750-0x644881: `mov edi,[ecx+0xA0]`, `call [vt+4]; test al,al; jne`, the collected list, the unlink against [esi+0xA0]/[esi+0xA4] and `add [esi+0xA8],-1`, `cmp byte [edx+0xAC],0`. One holder, CEU3Idler slot 1 (table VA 0x15CE974). Inferred because the deletion call past 0x644879 was seen only as far as `mov edx,[ecx]`."
+  },
+  {
+   "rva": "0x5C1FE0",
+   "kind": "function",
+   "name": "CEvent::GetPicture",
+   "signature": "Hoi3CString* __stdcall CEvent::GetPicture(CEvent* this@stack:4, Hoi3CString* out@ESI) @EAX",
+   "no_signature": null,
+   "comment": "Copies the event's `picture` (+0x154) into the string at ESI and returns it; `ret 4` at 0x9C200D, with the CEventWindow constructor starting at 0x9C2010. One caller, that constructor at 0x9C3136, which builds the path `gfx/pictures/events/` + this name + `.tga` (left to right; the operands of std::string::operatorPlus are ECX left, pushed right) and loads it into a new drawable on the window's `event_images` icon, handing it `GFX_event_no_image` (or `GFX_prov_event_no_image` for the province window) as its sprite type. What is drawn when the file is missing was not read.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-eventfiles.md",
+   "revises": "The comment said the concatenation order was inferred because the string operators' operands were not traced. They are now (0x9C3141-0x9C317F: ECX = 'gfx/pictures/events/', pushed the picture; then that + '.tga'), so the order is confirmed and the comment says what the fallback sprite is handed to.",
+   "evidence": "Listing 0x9C3128-0x9C317F; std::string::operatorPlus (0x65B0D0) is recorded as ECX-left, right pushed."
+  }
+ ],
+ "structs": [
+  {
+   "name": "CEventWindow",
+   "size": "0xA0",
+   "vftable_rva": "0x11F5BF8",
+   "comment": "The event popup: an updateable (RTTI base CUpdateable) that owns a gui window built from `EventWindow` or `Event_Province_Window`. Made by FireEvent (`new 0xA0`, 0x9C130D) for an event with no window open, registered with CEU3Idler::AddDialog, deleted when Update answers false. Four slots: 0 scalar deleting destructor (0x9C34A0), 1 Update, 2 and 3 CUpdateable's.",
+   "evidence": "`push 0xA0; call operator_new` at 0x9C130D before `call 0x9C2010`; the constructor writes no offset past +0x9C; RTTI vftable VA 0x15F5BF8, 4 slots."
+  },
+  {
+   "name": "CDecisionEntry",
+   "size": "0xC8",
+   "vftable_rva": "0x11CAE64",
+   "comment": "A row of the decisions list box (RTTI base CStandardlistboxItem at 0; a second table at +0x1C, VA 0x15CAE9C). Slot 4 OnClicked, slot 8 Update; it has no tooltip slot - CDiplomacyView slot 10 calls CDecisionEntry::BuildTooltip directly.",
+   "evidence": "`push 0xC8; call operator_new` at 0x78C830 before `call 0x60F210`; the constructor's last field is the scope copy at +0x80..+0xC7; RTTI vftable VA 0x15CAE64, 12 slots."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CEventWindow",
+   "offset": "0x4",
+   "name": "window",
+   "type": "void*",
+   "comment": "The gui window (a complete CFixedWindow; its CGuiObject is at +0x18, whose +0x43 is open). Elements are found through its slots 14 (text box), 15 (instant text box), 17 (icon) and attached through 22.",
+   "evidence": "CEventWindow::CEventWindow 0x9C220C/0x9C2336 store gui slot 11's result; every element lookup goes through [this+4]."
+  },
+  {
+   "struct": "CEventWindow",
+   "offset": "0x8",
+   "name": "host",
+   "type": "CInGameIdler*",
+   "comment": "`countries[scope.country]+0xF1C`, through which the window is built (slot 14 the gui, slot 16 the parent) and the command posted (slot 18 the session). That it is the in-game idler is inferred from those three slots matching CInGameIdler's use elsewhere.",
+   "evidence": "0x9C2039-0x9C204D: CCountryTag::GetCountry on the scope's country, `mov eax,[eax+0xF1C]; mov [esi+8],eax`."
+  },
+  {
+   "struct": "CEventWindow",
+   "offset": "0xC",
+   "name": "event",
+   "type": "CEvent*",
+   "comment": "The event shown.",
+   "evidence": "0x9C2050: `mov eax,[ebp+0xC]; mov [esi+0xC],eax`; read back for the options, the command and slot 63."
+  },
+  {
+   "struct": "CEventWindow",
+   "offset": "0x10",
+   "name": "scope",
+   "type": "CEventScope",
+   "comment": "The scope the event fired with, copied; its this_scope (+0x48) is repointed to this copy. Every text is localised with it and both commands carry it.",
+   "evidence": "0x9C2056-0x9C205E CopyConstruct into esi+0x10, 0x9C2155 `mov [esi+0x48],edi`."
+  },
+  {
+   "struct": "CEventWindow",
+   "offset": "0x58",
+   "name": "alive",
+   "type": "bool",
+   "comment": "1 from construction; cleared by OnOptionClicked once a command is posted. Update answers it.",
+   "evidence": "0x9C215D `mov byte [esi+0x58],1`; 0x9C4941 clears it; 0x9C4871 returns it."
+  },
+  {
+   "struct": "CEventWindow",
+   "offset": "0x5C",
+   "name": "option_observer",
+   "type": "void*",
+   "comment": "An embedded CButtonObserverGlue<CEventWindow> (vftable VA 0x15F5C0C), owner at +0x60, handler at +0x64; registered on every option button.",
+   "evidence": "0x9C2063-0x9C206D; 0x9C3018 passes esi+0x5C to the button's +0x48 slot 1."
+  },
+  {
+   "struct": "CEventWindow",
+   "offset": "0x64",
+   "name": "option_handler",
+   "type": "void*",
+   "comment": "CEventWindow::OnOptionClicked (VA 0x9C4890), the glue's handler.",
+   "evidence": "0x9C206D `mov dword [esi+0x64],0x9C4890`."
+  },
+  {
+   "struct": "CEventWindow",
+   "offset": "0x88",
+   "name": "option_buttons_head",
+   "type": "void*",
+   "comment": "Head of the list of option buttons, in option order: 0x10-byte nodes {button, prev, next, flag}. Tail +0x8C, count +0x90.",
+   "evidence": "0x9C302C-0x9C3071 append; walked by Update and OnOptionClicked."
+  },
+  {
+   "struct": "CEventWindow",
+   "offset": "0x8C",
+   "name": "option_buttons_tail",
+   "type": "void*",
+   "comment": "Tail of the list at +0x88.",
+   "evidence": "0x9C3021 / 0x9C3053."
+  },
+  {
+   "struct": "CEventWindow",
+   "offset": "0x90",
+   "name": "option_buttons_count",
+   "type": "int",
+   "comment": "Count of the list at +0x88.",
+   "evidence": "0x9C304A-0x9C3059."
+  },
+  {
+   "struct": "CEventWindow",
+   "offset": "0x98",
+   "name": "expiry_tick",
+   "type": "int",
+   "comment": "The tick the window was made, plus 4 months (AddMonths). When the game tick passes it, Update posts option 0 by itself.",
+   "evidence": "0x9C30D7-0x9C30E6; compared at 0x9C4800."
+  },
+  {
+   "struct": "CEventWindow",
+   "offset": "0x9C",
+   "name": "opened_at",
+   "type": "float",
+   "comment": "The idler's clock (seconds) when the window was made; the option buttons are disabled until it has moved 1.0.",
+   "evidence": "0x9C214F `fstp [esi+0x9C]` from idler slot 21 -> slot 5; 0x9C4736 `fsub [edi+0x9C]`."
+  },
+  {
+   "struct": "CDecisionEntry",
+   "offset": "0x20",
+   "name": "window",
+   "type": "void*",
+   "comment": "The row's window, `diplomatic_decision_entry`; elements `name`, `info_icon`, `select_button` are found through it.",
+   "evidence": "CDecisionEntry::CDecisionEntry stores gui slot 11's result at param+0x20 (decompilation); every lookup goes through [this+0x20]."
+  },
+  {
+   "struct": "CDecisionEntry",
+   "offset": "0x28",
+   "name": "select_observer",
+   "type": "void*",
+   "comment": "An embedded button observer glue registered on `select_button`, handler 0x67A310, which calls slot 4.",
+   "evidence": "The constructor passes this+0x28 to [select_button+0x48] slot 1."
+  },
+  {
+   "struct": "CDecisionEntry",
+   "offset": "0x78",
+   "name": "decision",
+   "type": "CDecision*",
+   "comment": "The decision the row shows.",
+   "evidence": "Constructor `param_1[0x1e] = decision`; read by OnClicked, Update and BuildTooltip."
+  },
+  {
+   "struct": "CDecisionEntry",
+   "offset": "0x7C",
+   "name": "idler",
+   "type": "CInGameIdler*",
+   "comment": "The constructor's ECX, CCountryView +0xB0.",
+   "evidence": "Constructor `param_1[0x1f] = this` (ECX); the call site at 0x78C888 loads ECX from [view+0xB0]."
+  },
+  {
+   "struct": "CDecisionEntry",
+   "offset": "0x80",
+   "name": "scope",
+   "type": "CEventScope",
+   "comment": "The list's scope (country = the player, seed 0), copied; this_scope (+0xB8) repointed to the copy. Asked of `potential`/`allow`, used for every text, carried by the command.",
+   "evidence": "Constructor CopyConstruct into param+0x80 and `param_1[0x2e] = param_1+0x20` (+0xB8 = +0x80)."
+  },
+  {
+   "struct": "CInGameIdler",
+   "offset": "0xA0",
+   "name": "dialogs_head",
+   "type": "void*",
+   "comment": "Head of CEU3Idler's list of updateables (dialog objects - the event window among them): 0x10-byte nodes {object, prev, next, flag}; tail +0xA4, count +0xA8. CEU3Idler::AddDialog appends, CEU3Idler::Update runs and deletes.",
+   "evidence": "0x644674/0x6446AC (AddDialog), 0x64478D (Update)."
+  },
+  {
+   "struct": "CInGameIdler",
+   "offset": "0xA4",
+   "name": "dialogs_tail",
+   "type": "void*",
+   "comment": "Tail of the list at +0xA0.",
+   "evidence": "0x644674, 0x6446AC."
+  },
+  {
+   "struct": "CInGameIdler",
+   "offset": "0xA8",
+   "name": "dialogs_count",
+   "type": "int",
+   "comment": "Count of the list at +0xA0.",
+   "evidence": "0x64469C-0x6446A6, 0x64486D."
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0xF1C",
+   "name": "interface_host",
+   "type": "void*",
+   "comment": "The object a country's interface goes through: slot 14 the gui, slot 16 a window's parent, slot 18 the session whose +0x38 channel commands are posted on - the shape of CInGameIdler, which is what it is inferred to be. The event window builds through it; FINDINGS-diploaction.md and FINDINGS-ai.md post commands through it.",
+   "evidence": "CEventWindow::CEventWindow 0x9C2047; CEventWindow::OnOptionClicked 0x9C492C-0x9C493F (slot 18 -> +0x38 slot 6)."
+  }
+ ],
+ "vftable_slots": {
+  "CEventWindow": {
+   "1": {
+    "name": "Update",
+    "signature": "bool __thiscall Update(CEventWindow* this)"
+   }
+  },
+  "CDecisionEntry": {
+   "4": {
+    "name": "OnClicked",
+    "signature": "void __thiscall OnClicked(CDecisionEntry* this)"
+   },
+   "8": {
+    "name": "Update",
+    "signature": "void __thiscall Update(CDecisionEntry* this)"
+   }
+  },
+  "CEU3Idler": {
+   "1": {
+    "name": "Update",
+    "signature": "void __thiscall Update(CEU3Idler* this, int unused)"
+   }
+  }
+ },
+ "slots_noted": "CEventWindow slot 0 (VA 0x9C34A0) is the scalar deleting destructor RTTI already names; it is not recorded. CDiplomacyView slots 2 (Show, named through CCountryView's record), 6 and 10 were read only for their decision parts and are not recorded here. Every other address this fragment names that a table holds is covered under vftable_slots.",
+ "frontier": [
+  "0x67CCB0",
+  "0x67CEA0",
+  "0x6C4FE0",
+  "0x6BA9A0",
+  "0x37E530",
+  "0x37F490",
+  "0x60C430",
+  "0x1D49D0"
+ ]
+}

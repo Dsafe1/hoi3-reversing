@@ -17,60 +17,58 @@ truth.
 
 ---
 
-## The effects wave - what every effect does when it runs
+## The event wave - an event firing, a decision taken, and the two windows
 
 > **LANDED 2026-10-12.** All three briefs ran and merged; the write-up is
-> `findings/FINDINGS-effectrun.md` and its index row is in `CANDIDATES.md`. Kept as history until the
-> next plan replaces it. One hand edit is left: `CMultipleTargetEffect`'s size, 0x60, which the merge
-> cannot set on a struct already declared (section 3.1).
+> `findings/FINDINGS-eventfire.md` and its index row is in `CANDIDATES.md`. Kept as history until the
+> next plan replaces it.
 
-Planned and launched 2026-10-12, for OpenHOI3's stage 4 step 3 ("what an effect does"). The
-trigger leaves wave before it landed the same day (`findings/FINDINGS-triggerleaves.md`) and was
-never written here; its result is in `CANDIDATES.md`'s index.
+Planned and launched 2026-10-12, for OpenHOI3's stage 4 step 4 ("an event firing and a decision
+taken, with the event's window and the decision screen"). The effects wave before it landed the
+same day (`findings/FINDINGS-effectrun.md`).
 
-**The gap**, measured with a scratch script over `FINDINGS-script.md`'s effects table and the
-default branch's classes (each class's own first vftable, slot 11): **31 of 99 effect classes have
-a recorded `Execute`, 68 do not**. `add_wargoal`'s class in that table is `CWarGoal`, which is not
-in the `CEffect` family - its slot 11 is something else, and finding the real effect class is part
-of brief B.
+**What is known and is not to be redone**: `findings/FINDINGS-events.md` - the candidate lists,
+the monthly rebuild (rva `0x5C0050`), the daily pass (`0x5C0A40`), `CMeanTimeToHappen::GetChance`
+(`0x5C4AB0`) and the scope the two build; `FINDINGS-eventfiles.md` - the files and the containers;
+`FINDINGS-effects.md` and `FINDINGS-effectrun.md` - `country_event` and `province_event`, which call
+`FireEvent` after asking the event's trigger. The record holds `FireEvent` (`0x5C0C80`) by name
+and extent only - **its body was never read** - and the two commands
+(`CSelectEventOptionCommand`, `CExecuteDecisionCommand`) by their loaders only.
 
-What is already known and is not to be redone: `FINDINGS-effects.md` (the slot map - slot 11 is
-`Execute(scope, unused)`; `CContextEffect`; the scalar handlers' scales; the flags, `national_unity`,
-`neutrality`, `dissent`, `add_country_modifier`, `country_event`, `random`, `remove_brigade`) and
-`FINDINGS-effectgrammar.md` (every keyword's value form and the default branch).
+### A. `FireEvent`, and choosing an option
 
-### A. A country's own figures, its government, its goods, a province's things
+`FireEvent` read whole: what it does for a country a person plays and for one the AI runs; the
+`immediate` block, when it runs and in which scope; how the AI picks an option (`ai_chance`, a
+`CAIMTTHChance` - its `GetChance` and how the options' chances are weighed against each other);
+what a player is shown and how the event waits for an answer (a pending list? a timeout? what
+happens if nobody answers); `major` (who else hears of it); `fire_only_once` and the already-fired
+registry (`CCurrentGameState +0xC38`); messages. Then `CSelectEventOptionCommand::Execute` - what
+it checks and runs. And **province events**: the daily pass walks countries only - where is a
+province event (14 in the base game, not triggered only) ever asked, with what scope, and how often?
+Fragment `event-firing.json`.
 
-`change_manpower`, `manpower`, `leadership`, `officer_pool`, `organisation`, `popularity`,
-`revolt_risk`, `war_exhaustion`, `split_troops`, `crude_oil`, `energy`, `fuel`, `metal`, `money`,
-`rare_materials`, `supplies`, `capital`, `change_province_name`, `strategic_resource`,
-`remove_minister`, the government position (`CReplaceMinisterEffect`), `coup_by`, `do_election`,
-`kill_leader`, the building (`CBuildingEffect`), the ideology block
-(`CAllOrganisationPopularityEffect`), the technology (`CTechnologyInvestmentEffect`),
-`local_intel_boost`, `remove_fow`, `set_variable`, `change_variable`, `add_province_modifier`,
-`remove_country_modifier`, `remove_province_modifier`, `province_event`. Fragment
-`effects-country.json`.
+### B. Decisions
 
-### B. Countries among each other and land changing hands
+Which decisions a country is shown (`potential`) and may take (`allow`), when that is asked, and
+where the list lives; `CExecuteDecisionCommand::Execute` - what it checks again, the effects, the
+scope, `CCountryDecisionChange`/`CCountryRemoveDecisionChange` (is a decision taken once? can it be
+taken again?); the AI - when and how it takes a decision (`ai_will_do`, a mean time to happen whose
+factor is whole days per `FINDINGS-effectgrammar.md`; `Lua_ForeignMinister_EvaluateDecision` hints
+the Lua AI decides - settle where); `major`; and the two groups (diplomatic and political), of which
+`FINDINGS-eventfiles.md` says only one is ever listed. Fragment `decisions.json`.
 
-`casus_belli`, `change_controller`, `create_alliance`, `create_vassal`, `end_guarantee`,
-`end_military_access`, `end_non_aggression_pact`, `end_war`, `guarantee`, `inherit`,
-`leave_alliance`, `leave_faction`, `military_access`, `non_aggression_pact`, `relation`, `release`,
-`secede_province`, `surrender_inherit`, `threat`, `form_government_in_exile`, `war`,
-`undeclared_war`, `add_wargoal`. Fragment `effects-diplomacy.json`.
+### C. The event window and the decision screen
 
-### C. The iterating scopes, `limit`, and the 31 already recorded
+`CEventWindow` (its constructor at rva `0x5C2010`): which `.gui` window it builds, every element it
+finds by name and what it puts there - the picture, the title, the subtitle and the description with
+their localisation and scope substitution, the option buttons and what each says, its tooltip,
+where the window stands, what closing it does, and several events at once. Then the decision
+screen: which window lists decisions, `CDecisionEntry` and every element it fills, what an entry
+shows for a decision that may not be taken, the entry's tooltip (the `allow` block's text, the
+effects' text?), and the button that takes it. Fragment `event-window.json`.
 
-`any_controlled`, `any_country`, `any_neighbor_country`, `any_neighbor_province`, `any_owned`,
-`random_country`, `random_owned`, `random_neighbor_province`, `random_empty_neighbor_province`, a
-region (`CRegionScopeEffect`), and how `limit` is joined and asked (`CMultipleTargetEffect`); then
-the 31 recorded `Execute`s, checked for whether their records say **what the effect does** in terms
-a reimplementation can follow, and completed where they do not. Fragment `effects-scopes.json`.
-
-**Every brief asks, for each effect**: what it changes and where; the scale of its value; what
-`this`/`from` do; what a missing scope part does (country 0, province 0); what happens on an
-unknown name; side effects (messages, events, recalculation); and anything that looks wrong but is
-what the bytes do.
+**Every brief asks**: the order things happen in, what is checked and what is not, what the player
+sees against what the AI does, and anything that looks wrong but is what the bytes do.
 
 ## The standing rules for every brief
 

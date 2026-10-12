@@ -922,7 +922,7 @@ of it.
 
 ## What has already been read
 
-140 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
+141 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
 header lives. This replaces the `Done` archive: the archive restated each file's headline and named
 only 40 of the 67 there were then, so it was both longer and less useful than a complete list.
 
@@ -1110,6 +1110,7 @@ the six it was missing were wave 15's.
 | `findings/FINDINGS-eventfiles.md` | **the containers**: how the event and decision folders are layered, an event's, an option's and a decision's keys, the MTTH and its modifiers, duplicate ids, and the two decision groups of which only one is ever listed |
 | `findings/FINDINGS-triggerleaves.md` | **what every trigger leaf answers**, the 78 with no recorded `Evaluate` before 2026-10-12: which part of the scope each reads, what a missing part gives, the comparison, THIS and FROM, an unknown name. `month` is zero-based, `<unit type> = N` never holds, `faction_progress` is unscaled, the six `last_*_losses` are world-wide and never saved, `is_blockaded` is refreshed only with a controller, `has_building` crashes on an unknown name; `active_leaders` is a list |
 | `findings/FINDINGS-effectrun.md` | **what every effect does when it runs**, the 68 with no recorded `Execute` before 2026-10-12 and the 31 that had one checked: what each changes, its scale, `this`/`from`, a missing scope part, side effects; the iterating scopes and `limit`; **the draw** `ally`, `local_enemy` and `random_*` make. `CCasusBelli::Activate`'s gate was backwards; `war`, `undeclared_war`, `add_wargoal` and `practical` never run their children; `change_manpower` and `leadership` change a province; `duration = -1` is for ever on a country; an election has no chance in it |
+| `findings/FINDINGS-eventfire.md` | **an event firing, a decision taken, and the two windows**: `FireEvent` read whole - who answers, `immediate` first, the AI's option drawn on a wall-clock-seeded MT19937, a person's window answering itself with option 0 after four months - the option and decision commands, the already-fired registry, the on_actions (unweighted; the only way a province event fires), decisions (no taken-marker, `ai_will_do` never read, the AI's chance in Lua, only the diplomatic group offered), the event window by element and its `$VARIABLES$`, and the decision list |
 
 ## A method worth reusing
 

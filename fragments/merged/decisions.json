@@ -1,0 +1,396 @@
+{
+ "agent": "event wave, brief B (decisions)",
+ "question": "Which decisions a country is shown and may take, when that is asked and where the list lives; what CExecuteDecisionCommand::Execute checks and does; whether a decision is taken once; how and when the AI takes one; major; the two groups.",
+ "source": "reversing/findings/FINDINGS-eventfire.md",
+ "addresses": [
+  {
+   "rva": "0x49DD50",
+   "kind": "function",
+   "name": "CAIForeignMinister::ExecuteDiploDecisions",
+   "signature": "void __thiscall CAIForeignMinister::ExecuteDiploDecisions(CAIForeignMinister* this)",
+   "no_signature": null,
+   "comment": "**The AI's decision pass - the walk that takes decisions for a country.** Registered to Lua as `CAIForeignMinister:ExecuteDiploDecisions` and called by nothing in C++: the shipped `ForeignMinister_Tick` (script/ai_foreign_minister.lua - base game, TFH and BlackICE alike) calls it first thing, so it runs **once a game day per country that has a foreign minister**, at the hour CAIForeignMinister::DoWork gates on. Rva 0x49DD50 to the bare `ret` at 0x49E00A, five int3 after.\n\nIt builds one CEventScope on the stack: country = the minister's tag (+0x34/+0x38), FROM `---`, province 0, no combatant, and **random_state, its copy at +0xC and seed all set from one MT19937Next draw on the game's own generator (gamestate +0x124)** - one draw per pass, not per decision. Then it walks **the diplomatic vector (g_decision_database +0x0C) in file order**: `potential` (+0x24, slot 6) and, only when that holds, `allow` (+0x64, slot 6), both with that scope; for a decision that passes both it calls the Lua global `ForeignMinister_EvaluateDecision(minister, decision, scope)` (Lua_ForeignMinister_EvaluateDecision, LuaEvaluateDecision_CallInt, LuaEvaluateDecision_Release) and, for **any integer result above 0** (`cmp edi, ebx; jle` at 0x49DF6C, ebx = 0), posts it with PostExecuteDecisionCommand (0x598A00). The walk goes on after a post, so one pass can post several decisions, each judged on the state as it was before any of them ran.\n\n**`ai_will_do` (CDecision +0xC4) is not read** - the body touches a decision only at +0x24 and +0x64, and the Lua API gives the script only GetKey, IsPotential and IsAllowed. The chance is the script's: base game `GetAIRand() % 100`, TFH and BlackICE `math.random(100)`, each zeroed below 25, then whatever a country file's override returns.",
+   "confidence": "confirmed",
+   "evidence": "Read whole off the listing (rva 0x49DD50-0x49E00A) and Ghidra's decompilation with the record applied (the decompiler's `return` after DestroyDecisionDatabase misreads the singleton boilerplate; the bytes store the new database at 0x49DFD2 and carry on). Wrong if the score were compared with anything but 0 - it is `jle` against ebx, zeroed at 0x49DD8A and never written again - or if any instruction addressed +0xC4..+0xDC of a decision: a sweep of the 14 code chunks that reach the database global or its getter finds none, while it does find the one read of +0xE0 (`major`) in Execute, the positive control."
+  },
+  {
+   "rva": "0x598A00",
+   "kind": "function",
+   "name": "PostExecuteDecisionCommand",
+   "signature": "void __fastcall PostExecuteDecisionCommand(CEventScope* scope@ECX, CDecision* decision@stack:4)",
+   "no_signature": null,
+   "comment": "**How a decision is taken, by anybody: it is posted as a command, never run in place.** Rva 0x598A00 to the `ret 4` at 0x598BCC. Does nothing for a null decision. Otherwise `new(0xA0)` and CExecuteDecisionCommand::CExecuteDecisionCommand with a copy of the scope (CEventScope::CopyConstruct) and **the decision's name** (CDecision +0x08) - the command carries the name, not the pointer - and posts it on the session's channel: gamestate->in_game_screen (+0xBE8) slot 18, that session's +0x38, slot 6. **Nothing is checked here**; the channel's post calls the command's IsValid (slot 14) and deletes it if false. The opening test of scope +0x14 only guards the inlined CCurrentGameState singleton boilerplate.\n\nThree callers, which are the three ways a decision is taken: CAIForeignMinister::ExecuteDiploDecisions (0x49DFEC), CAIForeignMinister::DoWork for a prepared war that carries a decision (0x49D95D), and CDecisionEntry::OnClicked (slot 4, at 0x20F80E) - the decision screen's entry, with the entry's own scope (+0x80) and decision (+0x78).",
+   "confidence": "confirmed",
+   "evidence": "Listing rva 0x598A00-0x598BCC; findRefs --callers gives exactly the three sites. Wrong if the loopback post did not ask slot 14 - it does, at rva 0x73C0D9: `mov edx,[eax+0x38]; mov ecx,esi; call edx; test al,al; jne` past the delete."
+  },
+  {
+   "rva": "0x608540",
+   "kind": "function",
+   "name": "CExecuteDecisionCommand::CExecuteDecisionCommand",
+   "signature": "CExecuteDecisionCommand* __stdcall CExecuteDecisionCommand::CExecuteDecisionCommand(CExecuteDecisionCommand* this, Hoi3CString decisionName, CEventScope scope)",
+   "no_signature": null,
+   "comment": "The constructor PostExecuteDecisionCommand uses (its one caller, at rva 0x598B14). Rva 0x608540 to the `ret 0x68` at 0x608604 - `this`, a Hoi3CString (0x1C) and a CEventScope (0x48), all on the stack, the last two by value. The CCommand part is inline: class_id (+4) 0x18D, an empty name (+8), type_id and type_id_2 (+0x2C/+0x30) both 0x638 (`execute_decision_command`), issued_turn (+0x34) 0xFFFF, the rest 0; then the vftable (rva 0x11F9D5C), the name into +0x3C and the scope copied into +0x58 by CEventScope::CopyConstruct.",
+   "confidence": "confirmed",
+   "evidence": "Listing rva 0x608540-0x608604 and its one call site, where the caller reserves 0x48 then 0x1C bytes and pushes `this` last: 4 + 0x1C + 0x48 = 0x68. Wrong if the frame held a third value argument - the ret says it does not."
+  },
+  {
+   "rva": "0x608610",
+   "kind": "function",
+   "name": "CExecuteDecisionCommand::Execute",
+   "signature": "void __thiscall CExecuteDecisionCommand::Execute(CExecuteDecisionCommand* this)",
+   "no_signature": null,
+   "comment": "**What taking a decision does.** Slot 6, rva 0x608610 to the bare `ret` at 0x6098C3 - the only `ret` in the span; slot 7 starts at 0x6098D0. In order:\n\n1. Find the decision by its name (+0x3C): the **diplomatic** table first (StringHashFind on g_decision_database +0x00), then the **political** (+0x1C). Neither: return, silently.\n2. **Nothing else is checked here** - not `potential`, not `allow`, not that the country still exists. That is IsValid's (slot 14), which the session drain calls just before this (rva 0x68984B) and the channel's post before that.\n3. this_scope (+0x90) = the scope (+0x58).\n4. The message. Its variables start from the **played** country's (gamestate->player) through rva 0xD7AE0, then COUNTRY (the scope country's name; with no country, the province owner's name, or the province's own name where it has no owner), EVENT (`<name>_title` rendered in the scope - MakeTitleKey and LocaliseEventText, the same route as CDecision::GetTitleText), DESC (CDecision::GetDescText, `<name>_desc`) and, with a province, PROVINCENAME. Its type: scope country == the played country -> `DECISIONUS` (with a province `PROVDECISIONUS`); otherwise with a province `PROVDECISIONOTHER`, else **`MAJORDECISIONOTHER` when `major` (+0xE0) is set and `DECISIONOTHER` when not**. Raised through rva 0x609B50, a copy of PostMessage that ends `ret 0x84`. **That is the whole of `major`**: which message another country's decision raises. The shipped interface/messagetypes.txt gives DECISIONOTHER no log and no popup and MAJORDECISIONOTHER both.\n5. **The scope's random state is reset to its seed**: +0x60/+0x64 (scope +8/+0xC) = +0x84 (scope +0x2C), so every peer's effects draw the same numbers.\n6. **The effect** (CDecision +0xA4) runs: CEffect::Execute (slot 11) with **(scope, 0)**.\n7. CCountry::RebuildNeighbours and rva 0xE39C0 on the scope country; RebuildProvinceModifierValues on the scope province when there is one; CCountry::RebuildStaticModifiers on the scope country.\n8. **A history entry**: `new(0x2C)` CCountryDecisionChange for the scope country, its name set from `_snprintf(buf, 0xFF, \"%s\", name)` through HistoryChange_SetNameFromBuffer, date (+8) = today's tick (+0xBDC), then CHistoryContainer::AddEntry (slot 6 of country +0xCCC). AddEntry files it without applying it, so **the country's taken list (+0x128) is not touched in play**.\n\nThe message is raised before the effect runs, so its text describes the state before the decision.",
+   "confidence": "confirmed",
+   "evidence": "Read whole off the listing (rva 0x608610-0x6098C3; the tail 0x60968D-0x6098AF instruction by instruction) and Ghidra's decompilation. Wrong if the span called slot 6 of +0x24 or +0x64 - the only virtual call through the decision is `[ecx+0xA4]` slot 11 at 0x6096B1, and the one byte read of it is +0xE0 at 0x6094DC. retsBefore over the span returns the one ret."
+  },
+  {
+   "rva": "0x6098D0",
+   "kind": "function",
+   "name": "CExecuteDecisionCommand::GetTypeId",
+   "signature": "int __thiscall CExecuteDecisionCommand::GetTypeId(CExecuteDecisionCommand* this)",
+   "no_signature": null,
+   "comment": "Slot 7: `mov eax, 0x638; ret` - the save token `execute_decision_command`, the id the channel serialises the command under and the factory rebuilds it by.",
+   "confidence": "confirmed",
+   "evidence": "Two instructions at rva 0x6098D0; one holder (vtable.py --holding). The token name is ghidra/saveTokens.json's for 1592."
+  },
+  {
+   "rva": "0x609980",
+   "kind": "function",
+   "name": "CExecuteDecisionCommand::Clone",
+   "signature": "CCommand* __thiscall CExecuteDecisionCommand::Clone(CExecuteDecisionCommand* this, Hoi3CString arg)",
+   "no_signature": null,
+   "comment": "Slot 13, rva 0x609980 to the `ret 0x1C` at 0x609A21: `new(0xA0)`, CCommand::CCommand, the vftable, the decision name (+0x3C) and the scope (+0x58, CEventScope::CopyConstruct) copied across. The string by value is the one every command's slot 13 takes (FINDINGS-commands.md). Ghidra's RTTI pass calls it a second constructor because it writes the vftable.",
+   "confidence": "confirmed",
+   "evidence": "Listing rva 0x609980-0x609A21 and Ghidra's decompilation; one holder at slot 13. Wrong if it copied anything from +0x8..+0x38 - it does not, which matches CHourlyTickCommand::Clone leaving the serial to the pump."
+  },
+  {
+   "rva": "0x609A30",
+   "kind": "function",
+   "name": "CExecuteDecisionCommand::IsValid",
+   "signature": "bool __thiscall CExecuteDecisionCommand::IsValid(CExecuteDecisionCommand* this) @AL",
+   "no_signature": null,
+   "comment": "**The re-check, and the only one.** Slot 14, rva 0x609A30 to the bare `ret`s at 0x609B33 and 0x609B47. Finds the decision by name, diplomatic table first and then political, and answers false when neither has it. Otherwise this_scope (+0x90) = the scope (+0x58), **the scope's random state is reset to its seed** (+0x60/+0x64 = +0x84), and it answers `potential` (+0x24) && `allow` (+0x64), each through slot 6 with the command's own scope. The loopback post calls it (rva 0x73C0DE) and deletes the command on false; the session drain calls it again (rva 0x68984B) immediately before Execute and skips the command on false. So a decision is asked again at the moment it runs, with the scope it was posted with - and nothing else is asked: no taken list, no cooldown.",
+   "confidence": "confirmed",
+   "evidence": "Read whole (0x118 bytes) and decompiled. The two call sites decode from their own entries: `mov eax,[edx+0x38]; call eax; test al,al; je` at rva 0x689848 and `mov edx,[eax+0x38]; mov ecx,esi; call edx; test al,al; jne` at rva 0x73C0D9."
+  },
+  {
+   "rva": "0x1EF820",
+   "kind": "function",
+   "name": "CCountryDecisionChange::CCountryDecisionChange",
+   "signature": "CCountryDecisionChange* __thiscall CCountryDecisionChange::CCountryDecisionChange(CCountryDecisionChange* this, CCountry* country)",
+   "no_signature": null,
+   "comment": "CCountryHistoryEntry::CCountryHistoryEntry(country), the vftable (rva 0x11C9910), an empty Hoi3CString at +0x10. `ret 4` at rva 0x1EF84D. Two callers: CCountryHistory::LoadEntry for a dated `decision = <name>` (rva 0x1ECF74) and CExecuteDecisionCommand::Execute (rva 0x6097A2).",
+   "confidence": "confirmed",
+   "evidence": "Listing rva 0x1EF820-0x1EF84D; findRefs --callers gives the two."
+  },
+  {
+   "rva": "0x1EF8E0",
+   "kind": "function",
+   "name": "CCountryDecisionChange::Apply",
+   "signature": "void __thiscall CCountryDecisionChange::Apply(CCountryDecisionChange* this, bool forward)",
+   "no_signature": null,
+   "comment": "Slot 7, `ret 4` at rva 0x1EF948. Forward: CCountry_AddTakenDecision(country (+0xC), name (+0x10)); backward: CCountry::RemoveTakenDecision. Slot 6 (rva 0x1EC810) answers 0x639, `decision`, the history key it is read from and saved under. Applied only by the history machinery (CHistoryContainer::ApplyAll / ApplyRange), never by taking a decision in play.",
+   "confidence": "confirmed",
+   "evidence": "Listing rva 0x1EF8E0-0x1EF948; one holder at slot 7. Wrong if the two arms were the other way round - the `je` on the bool at rva 0x1EF8F1 goes to the RemoveTakenDecision arm when it is 0."
+  },
+  {
+   "rva": "0x1EF980",
+   "kind": "function",
+   "name": "CCountryRemoveDecisionChange::CCountryRemoveDecisionChange",
+   "signature": "CCountryRemoveDecisionChange* __thiscall CCountryRemoveDecisionChange::CCountryRemoveDecisionChange(CCountryRemoveDecisionChange* this, CCountry* country)",
+   "no_signature": null,
+   "comment": "The same body as CCountryDecisionChange's with the vftable at rva 0x11C9934. `ret 4` at rva 0x1EF9AD. One caller, CCountryHistory::LoadEntry (rva 0x1ED01D), for a dated `remove_decision = <name>`; nothing in play makes one.",
+   "confidence": "confirmed",
+   "evidence": "Listing rva 0x1EF980-0x1EF9AD; findRefs --callers gives the one."
+  },
+  {
+   "rva": "0x1EFA10",
+   "kind": "function",
+   "name": "CCountryRemoveDecisionChange::Apply",
+   "signature": "void __thiscall CCountryRemoveDecisionChange::Apply(CCountryRemoveDecisionChange* this, bool forward)",
+   "no_signature": null,
+   "comment": "Slot 7, `ret 4` at rva 0x1EFA78: CCountryDecisionChange::Apply with the arms swapped - forward removes the name from the country's taken list, backward adds it. Slot 6 (rva 0x1EC820) answers 0x51F, `remove_decision`.",
+   "confidence": "confirmed",
+   "evidence": "Listing rva 0x1EFA10-0x1EFA78; one holder at slot 7."
+  },
+  {
+   "rva": "0x1EF8B0",
+   "kind": "function",
+   "name": "HistoryChange_SetNameFromBuffer",
+   "signature": null,
+   "no_signature": "`this` (a history change) in ECX and a 260-byte char buffer by value on the stack; `ret 0x104`. A buffer by value has no ordinary parameter type.",
+   "comment": "Assigns the C string in the buffer to the change's Hoi3CString at +0x10. Eight callers: seven in CCountryHistory::LoadEntry (rva 0x1ECFBC..0x1ED46A) and CExecuteDecisionCommand::Execute (rva 0x609800), which fills the buffer with `_snprintf(buf, 0xFF, \"%s\", decision name)` first - so a decision name longer than 255 characters would be cut in its history entry. In no virtual table.",
+   "confidence": "confirmed",
+   "evidence": "Eleven instructions at rva 0x1EF8B0-0x1EF8D2; findRefs --callers gives the eight. The 0x41-dword `rep movsd` before the call at rva 0x6097F7 is the 0x104 bytes."
+  },
+  {
+   "rva": "0xF03C0",
+   "kind": "function",
+   "name": "CCountry_AddTakenDecision",
+   "signature": "void __stdcall CCountry_AddTakenDecision(CCountry* country@EDI, Hoi3CString name@stack:4)",
+   "no_signature": null,
+   "comment": "Appends a decision's name to the country's **taken list** - taken_decisions_first (+0x128), taken_decisions_last (+0x12C), taken_decisions_count (+0x130) - **unless it is there already** (the string-list find at rva 0x10F8E0). A node is 0x28 bytes: the name (0x1C) at +0, previous at +0x1C, next at +0x20, a byte at +0x24. Country in EDI, the name by value, `ret 0x1C`. Its only callers are the two decision history changes' Apply.",
+   "confidence": "confirmed",
+   "evidence": "Listing rva 0xF03C0-0xF0491; findRefs --callers gives rva 0x1EF915 and 0x1EFA6E only. Wrong if the find were over a different list - it is handed `[edi+0x128]`."
+  },
+  {
+   "rva": "0xF04A0",
+   "kind": "function",
+   "name": "CCountry::RemoveTakenDecision",
+   "signature": "void __thiscall CCountry::RemoveTakenDecision(CCountry* this, Hoi3CString name)",
+   "no_signature": null,
+   "comment": "Finds the name in the taken list (+0x128) with rva 0x10F8E0 and erases it with rva 0x10F880. `ret 0x1C` at rva 0xF04FF. Its only callers are the two decision history changes' Apply.",
+   "confidence": "confirmed",
+   "evidence": "Listing rva 0xF04A0-0xF04FF; findRefs --callers gives rva 0x1EF93E and 0x1EFA45."
+  },
+  {
+   "rva": "0x49E630",
+   "kind": "function",
+   "name": "LuaEvaluateDecision_CallInt",
+   "signature": "int __stdcall LuaEvaluateDecision_CallInt(void* proxy)",
+   "no_signature": null,
+   "comment": "Runs the call Lua_ForeignMinister_EvaluateDecision prepared: marks the proxy called (+0x18), pushes its three arguments (rva 0x49E920) and calls through proxy +8 with **3 arguments and 1 result**; a Lua error throws luabind::error. **The result must be a number** (lua_type 3) or luabind::cast_failed is thrown; it answers lua_tointeger of it - a fractional score is truncated - and pops. `ret 4` at rva 0x49E720. One caller, ExecuteDiploDecisions.",
+   "confidence": "confirmed",
+   "evidence": "Ghidra's decompilation and the listing's exit; findRefs --callers gives the one."
+  },
+  {
+   "rva": "0x49E5B0",
+   "kind": "function",
+   "name": "LuaEvaluateDecision_Release",
+   "signature": "void __cdecl LuaEvaluateDecision_Release(void* proxy@ESI)",
+   "no_signature": null,
+   "comment": "The proxy's destructor: when the call was never made (+0x18 clear) it makes it now with no result, then restores the Lua stack. Proxy in ESI, bare `ret` at rva 0x49E62A. One caller, ExecuteDiploDecisions.",
+   "confidence": "confirmed",
+   "evidence": "Listing rva 0x49E5B0-0x49E62A and the decompilation."
+  },
+  {
+   "rva": "0x201DE0",
+   "kind": "function",
+   "name": "CAlertManager_Update",
+   "signature": "void __stdcall CAlertManager_Update(void* manager)",
+   "no_signature": null,
+   "comment": "**The alert pass**, rva 0x201DE0 to the one `ret 4` at 0x206ED0 (retsBefore returns only it). One caller, rva 0x251D67, skipped when the byte the function at rva 0x1C4E0 answers is set. Only its head and its decisions part were read. Head: `noDecisions = (gamestate->scenario (+0xD0C) != 0)`; a float clock from manager +0xA0C slot 5; nothing at all while that clock is below manager +0x8A0 or byte manager +0 is set; otherwise +0x8A0 = clock + 3.0 - so the pass runs at most once every 3.0 of that clock (seconds, likely, not read).\n\n**Decisions** (rva 0x206CDE-0x206E95): a CEventScope with seed 0 whose country is **the played country** (gamestate->player), and the diplomatic vector walked asking `potential` and then `allow`; each decision passing both appends its CDecision::GetTitleText to the alert's text at manager +0x9F0. **Alert 12 (`alert_national_decisions`)** is then shown (CAlertManager_Show) when any passed, hidden (rva 0x208730) when none did, refreshed (rva 0x208580) when its text changed - and **never shown in a scenario** (scenario set forces the flag off). Likely, because the rest of the body was not read.",
+   "confidence": "inferred",
+   "evidence": "Read rva 0x201DE0-0x201F30, 0x201FD7-0x202023 and 0x206C40-0x206ED0 off the listing; the 0xC pushed to CAlertManager_Show and the hide at rva 0x206E4D match the alert registered as number 12 in CAlertManager::CAlertManager. Wrong if [esp+0x18] were rewritten between rva 0x20201F and 0x206CED - not checked over the whole body, which is why it is not confirmed."
+  },
+  {
+   "rva": "0xD6230",
+   "kind": "function",
+   "name": "SetUpCountryForNewGame",
+   "signature": "void __stdcall SetUpCountryForNewGame(CCountry* country)",
+   "no_signature": null,
+   "comment": "**What a country starts a new game with**: the effects of the decisions its history says it has taken, its war exhaustion, its stockpile, its diplomatic influence and its manpower. One stack argument, `ret 4` at 0x4D757A. One caller, 0x65B4F2 in CInGameIdler::Enter, inside the block that gamestate->loaded_from_save (+0xD9C) == 0 guards, so it never runs on a load. **The function before it ends `ret 4` at 0x4D622D with no padding** - a walk back from inside this one answers 0x4D59D0, which is what fieldchain.py prints (trap 2). (Addresses in this comment are VAs.)\n\n**The decisions** (VA 0x4D6342-0x4D668A, read 2026-10-12): after UpdateIC(country, 0) at 0x4D633D it builds a CEventScope whose country is this one (CCountry +0xCA4), FROM `---`, province 0, and **random_state, its copy and seed all 0**, and walks the country's **taken list** (+0x128, next at node +0x20) - the names its history's `decision = <name>` entries put there, less any `remove_decision`, through CCountryDecisionChange::Apply. Each name is looked up **in the political table first and then the diplomatic** (the reverse of CExecuteDecisionCommand's order); not found, it logs `<TAG> has unknown decision '<name>'` under country.cpp; found, **its effect runs** - CEffect::Execute (slot 11) with (scope, 0) at 0x4D6658. Neither `potential` nor `allow` is asked, no message is raised and no history entry is filed. The scope's random state is never reset between decisions, so each draws on where the one before left it.\n\nRead from 0x4D69DF to 0x4D7108 and from 0x4D7346 to the end. Months are calendar months, year * 12 + month off the tick. At war (at_war, +0xACC): began = the earliest 0xA51D20(war) over the active wars (gamestate +0xC00) the country is an attacker or defender in, and war_exhaustion (+0xAD0) = min(months since * 0.05, 10). Otherwise war_exhaustion = max(3 - months since the latest 0xA51F40(war) over previous_war (+0xC20) * 0.05, 0). Then **days = 30 + 5 * max(12 - months at war, 2)** - 90 at peace, five fewer a month of war, never under 40 - and amount = MaxIC (+0x60C) * days, **held to 1000 for a subject (isSubject, +0xF34)**. Into the acting capital's pool, each an `add`: crude oil and metal `amount`, energy twice it, rare materials half; money, **only when the pool has none**, amount * IC_TO_MONEY * 0.05; supplies and fuel, `days` times the sum of CUnit::SupplyConsumption and CUnit::FuelConsumption over the country's units (+0xBAC). Then **diplo_influence (+0xA88) = MaxIC / 5 in whole points**. The 0.05 is g_OneTwentieth.\n\n**The tail is the manpower.** ReapplyAllTechnologies (0x4D7346), RebuildStaticModifiers (0x4D7380), UpdateMaxManpower (0x4D7386), and then **manpower (+0xBCC) = max_manpower (+0xBD0)**, a `mov` - so whatever `manpower` a country's history file gave is overwritten. If it owns a province (the count at +0xCF8 above 0) and is at war, it then loses year * (1000 + months at war * g_StartingManpowerLostPerMonthAtWar / 1000) / 1000, where year = max_manpower * 1000 / MAX_MANPOWER and the months are the same thousandths the war exhaustion used; floored at 0. After that it sets the date at +0xAB0 to today's when it holds one before year 3, and calls 0x4F06D0 and 0x4F72F0.\n\nNot read: VA 0x4D6230-0x4D6342 (a month count from the last election at +0xAB0, then UpdateIC(country, 0) at 0x4D633D), the loop from 0x4D668A that stamps CDiplomacyStatus +0x54 with the date, and the block 0x4D713A..0x4D733F for a country that holds something.",
+   "confidence": "confirmed",
+   "evidence": "The decision part read off the listing (VA 0x4D6342-0x4D668A) and Ghidra's decompilation: `mov eax,[edi+0x128]` at VA 0x4D6382, the next at `[eax+0x20]` at 0x4D63F3, `add eax,0x1c` before the first StringHashFind at 0x4D6478, and the effect call `[ecx+0xA4]` -> `[+0x2C]` with `push ebx` (0) at 0x4D6645-0x4D6658. Revises only the comment: the decision replay added, the opening and the 'Not read' sentence narrowed, a note that its addresses are VAs. Every other key is carried unchanged.",
+   "source": "reversing/findings/FINDINGS-manpowergain.md",
+   "revises": true
+  },
+  {
+   "rva": "0x49E800",
+   "kind": "function",
+   "name": "Lua_ForeignMinister_EvaluateDecision",
+   "signature": "void* __cdecl Lua_ForeignMinister_EvaluateDecision(CEventScope* scope@stack:4, void* minister@EAX, void* decision@ECX, void* proxy@ESI, lua_State* L@EDI) @EAX",
+   "no_signature": null,
+   "comment": "Pushes the name `ForeignMinister_EvaluateDecision` (the string at VA 0x15EB93C), fetches it from the Lua globals table and fills the call proxy at ESI: {L, 1, the caller at rva 0x77E9D0, EAX, ECX, the stack argument, not-yet-called}. **One caller, CAIForeignMinister::ExecuteDiploDecisions (rva 0x49DF41)**, which passes EAX = the address of its copy of the minister, ECX = the address of the decision and the scope on the stack - so the Lua function is called `(minister, decision, scope)`, the order the shipped scripts declare. LuaEvaluateDecision_CallInt makes the call. See reversing/findings/FINDINGS-ai.md and reversing/findings/FINDINGS-eventfire.md.",
+   "confidence": "confirmed",
+   "evidence": "Ghidra's decompilation (`*(ulonglong*)(ESI+0xC) = CONCAT44(ECX, EAX); ESI[5] = stack arg`) and the call site rva 0x49DF29-0x49DF41: `lea edx,[esp+0x30]` (the scope) pushed, `lea ecx,[esp+0x1c]` (the decision local), `lea eax,[esp+0x14]` (the minister local), `lea esi,[esp+0x80]`. Revises the signature, which placed only the stack argument and L, and the comment's 'where it is called from was not traced'.",
+   "source": "reversing/findings/FINDINGS-ai.md",
+   "revises": true
+  },
+  {
+   "rva": "0x49D600",
+   "kind": "function",
+   "name": "CAIForeignMinister::DoWork",
+   "signature": "void __thiscall CAIForeignMinister::DoWork(CAIForeignMinister* this)",
+   "no_signature": null,
+   "comment": "**Virtual slot 10 - the foreign minister's daily tick.** Sets `+0x30 = 1`, honours a skip-once byte at `+0x70`, then acts only when `(this->countryId (+0x38) + 0x0D) % 24 == (gamestate->tick - 0x29C55C0) % 24` - the **hour of the day**, not the day. It calls 0x89E010 and then the mod's Lua `ForeignMinister_Tick`; executes the pending action cached at `+0x58` when its score `+0x5C` exceeds 50.0 (0x160A4C8) by handing it to 0x89A750 with the OwnerAI; and then filters the list at `country+0x5D4` by `country->neighbours (+0xF58)`. See reversing/findings/FINDINGS-ai.md.\n\n**Prepared wars that carry a decision** (read 2026-10-12, rva 0x49D830-0x49DCCF): `country+0x5D4` is the country's CAIStrategy (+0x48C) WarTargets (+0x148), the CCountryWarTargetValues CAIStrategy::PrepareWarDecision makes. When the first walk finds no neighbouring target unready, a second walk asks rva 0x4ADEF0 of each; for one it accepts **that has a decision (+0x18)** it builds a CEventScope (CEventScope::CEventScope with an MT19937Next draw on gamestate +0x124 as the seed, country = the minister's tag), asks the decision's `potential` and then `allow`, and posts it with PostExecuteDecisionCommand (rva 0x49D95D) - **no Lua score**. A target without a decision goes to rva 0x49D967 instead, not read. This is how the shipped country scripts (GER, ITA, JAP) tie a decision to a war plan.",
+   "confidence": "confirmed",
+   "evidence": "The added paragraph read off the listing rva 0x49D830-0x49DCCF: the node's data `[eax]`, next `[eax+8]`, `cmp dword ptr [ebx+0x18], 0` at rva 0x49D85E, the two slot 6 calls at rva 0x49D927/0x49D944 and the call at 0x49D95D. The +0x5D4 = +0x48C + 0x148 identity is arithmetic over two recorded fields. Revises only the comment; the existing first paragraph, whose callees are cited as VAs, is carried unchanged.",
+   "source": "reversing/findings/FINDINGS-ai.md",
+   "revises": true
+  },
+  {
+   "rva": "0x17154C0",
+   "kind": "global",
+   "name": "g_decision_database",
+   "signature": null,
+   "no_signature": null,
+   "comment": "**The decision database**, a 0x38-byte CDecisionDatabase: diplomatic decisions by name at +0x00 and in file order at +0x0C, political decisions by name at +0x1C and in file order at +0x28. Created by GetDecisionDatabase (0x598BD0), replaced by SetDecisionDatabase (0x599B50), filled once by LoadDecisions (0x598E30). Addresses here are rvas.\n\n**Who uses which half** (every code chunk that addresses this global or calls the getter, 14 of them, read 2026-10-12): the three walks over a vector - CDiplomacyView::RebuildDecisionList (0x38C560, the decisions list box), CAIForeignMinister::ExecuteDiploDecisions (0x49DD50, the AI) and CAlertManager_Update (the walk at 0x206D41, the national decisions alert) - all walk **the diplomatic vector at +0x0C**, and each asks `potential` and then `allow`. The name lookups: CExecuteDecisionCommand::Execute and ::IsValid (0x608610, 0x609A30) try the diplomatic table and then the political; SetUpCountryForNewGame (0xD6230) the political and then the diplomatic; CCountryWarTargetValue::LoadKey (0x76701) the diplomatic alone. **So a `political_decisions` decision loads, can be executed and replayed by name, and is never offered to anybody.** The rest are its life: LoadDecisions' stage (the chunk at 0x2348F0), SetDecisionDatabase, the teardown at 0x22F832, CDecisionEntry::OnClicked, PostExecuteDecisionCommand, CAIForeignMinister::DoWork and a static destructor. See reversing/findings/FINDINGS-eventfiles.md and reversing/findings/FINDINGS-eventfire.md.",
+   "confidence": "confirmed",
+   "evidence": "A chunked sweep of .text (split on runs of two int3, each chunk decoded from its start, resumed past every stop) for the global as an operand or immediate and for `call` GetDecisionDatabase: 14 chunks, each named above and read at the reference. Corrects the old comment, which put the walk at 0x606D41 (VA) under 'the AI' - it is the alert pass - and the name lookups at 0x4D59D0 (VA), which is the function before SetUpCountryForNewGame (trap 2: it ends `ret 4` at VA 0x4D622D with no padding and the lookups are past it). The comment's other addresses were VAs and are rvas now.",
+   "source": "reversing/findings/FINDINGS-eventfiles.md",
+   "revises": true
+  },
+  {
+   "rva": "0x598BD0",
+   "kind": "function",
+   "name": "GetDecisionDatabase",
+   "signature": "CDecisionDatabase* __cdecl GetDecisionDatabase(void) @EAX",
+   "no_signature": null,
+   "comment": "Returns the decision database at g_decision_database (VA 0x1B154C0, rva 0x17154C0), creating it on first use: `new(0x38)`, ConstructDecisionDatabase (0x598C30), SetDecisionDatabase (0x599B50). Bare `ret`. Four callers (rvas): LoadDecisions' call site (0x238F56), CCountryWarTargetValue::LoadKey (0x76701, a lookup by name in the diplomatic table only), CAlertManager_Update (0x206D41, a walk of the diplomatic vector asking `potential` and `allow`) and CAIForeignMinister::DoWork (0x49D94E, before taking a prepared war's decision).",
+   "confidence": "confirmed",
+   "evidence": "findRefs --callers gives the four; each caller identified by the function that holds it. Revises only the comment: the callers named, and the addresses, which were VAs, given as rvas.",
+   "source": "reversing/findings/FINDINGS-eventfiles.md",
+   "revises": true
+  }
+ ],
+ "structs": [
+  {
+   "name": "CExecuteDecisionCommand",
+   "size": "0xA0",
+   "inherits": "CCommand",
+   "vftable_rva": "0x11F9D5C",
+   "comment": "The command a decision is taken by - the AI's, a prepared war's and the decision screen's alike. Made by PostExecuteDecisionCommand; it carries the decision's name and the scope, not the decision. Saved and loaded under `decision` and `scope` (its LoadKey). See reversing/findings/FINDINGS-eventfire.md.",
+   "evidence": "`new(0xA0)` in PostExecuteDecisionCommand and in Clone; the RTTI export puts it under CCommand at offset 0; findRefs --vftable finds the table written at rva 0x6084AC, 0x6085BA and 0x6099CD."
+  },
+  {
+   "name": "CCountryDecisionChange",
+   "size": "0x2C",
+   "inherits": "CCountryHistoryEntry",
+   "vftable_rva": "0x11C9910",
+   "comment": "A country history entry `decision = <name>`: applied forward it puts the name on the country's taken list (+0x128). Made by the history loader and by CExecuteDecisionCommand::Execute, which files it without applying it.",
+   "evidence": "`new(0x2C)` at rva 0x609778; constructor rva 0x1EF820 writes the table; RTTI: CHistoryEntry > CCountryHistoryEntry > CCountryDecisionChange, all at offset 0."
+  },
+  {
+   "name": "CCountryRemoveDecisionChange",
+   "size": "0x2C",
+   "inherits": "CCountryHistoryEntry",
+   "vftable_rva": "0x11C9934",
+   "comment": "A country history entry `remove_decision = <name>`: applied forward it takes the name off the country's taken list. Only the history loader makes one.",
+   "evidence": "Constructor rva 0x1EF980 writes the table and is the same body as CCountryDecisionChange's, whose size is 0x2C; RTTI places it beside CCountryDecisionChange under CCountryHistoryEntry."
+  },
+  {
+   "name": "CCountryWarTargetValue",
+   "size": "0x20",
+   "inherits": "CPersistent",
+   "vftable_rva": "0x11EBED0",
+   "comment": "One of a CAIStrategy's WarTargets (+0x148): a prepared war, made by CAIStrategy::PrepareWarDecision(tag, value, decision, limited). Saved under `id`, `value`, `limited`, `decision` and `date`. When CAIForeignMinister::DoWork accepts the target and it carries a decision, the decision is taken instead of a war being declared.",
+   "evidence": "PrepareWarDecision allocates 0x20 bytes and calls the constructor at rva 0x4A31B0, which writes the table (findRefs --vftable: one site, rva 0x4A31DA); RTTI puts the class directly under CPersistent."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CExecuteDecisionCommand",
+   "offset": "0x3C",
+   "name": "decision_name",
+   "type": "Hoi3CString",
+   "comment": "**The decision's name**, written by the constructor and Clone; IsValid and Execute look it up in the diplomatic table first and then the political. Saved under `decision`.",
+   "evidence": "The constructor's assign into +0x3C (rva 0x6085B7) and the StringHashFind on `lea esi,[edi+0x3c]` in Execute at rva 0x60867D."
+  },
+  {
+   "struct": "CExecuteDecisionCommand",
+   "offset": "0x58",
+   "name": "scope",
+   "type": "CEventScope",
+   "comment": "**The scope the decision was posted with**, by value (0x48 bytes, to +0xA0): its country at +0x68/+0x6C, its province at +0x80, its seed at +0x84. IsValid and Execute both point its this_scope (+0x90) at it and reset its random state (+0x60/+0x64) to its seed before asking or running anything. Saved under `scope`.",
+   "evidence": "CEventScope::CopyConstruct into +0x58 in the constructor and Clone; Execute's `lea eax,[edi+0x58]; mov [edi+0x90],eax` and the reset at rva 0x60968D-0x609699."
+  },
+  {
+   "struct": "CCountryDecisionChange",
+   "offset": "0x10",
+   "name": "decision_name",
+   "type": "Hoi3CString",
+   "comment": "The decision's name. Set by HistoryChange_SetNameFromBuffer; Apply hands it to CCountry_AddTakenDecision or CCountry::RemoveTakenDecision.",
+   "evidence": "The constructor's empty string at +0x10 (rva 0x1EF83F) and Apply's copy of +0x10 (rva 0x1EF8F6)."
+  },
+  {
+   "struct": "CCountryRemoveDecisionChange",
+   "offset": "0x10",
+   "name": "decision_name",
+   "type": "Hoi3CString",
+   "comment": "The decision's name, as on CCountryDecisionChange.",
+   "evidence": "The constructor's empty string at +0x10 (rva 0x1EF99F) and Apply's copy of +0x10 (rva 0x1EFA26)."
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0x128",
+   "name": "taken_decisions_first",
+   "type": "void*",
+   "comment": "**Head of the country's taken-decisions list**: 0x28-byte nodes, the name (Hoi3CString) at +0, previous at +0x1C, next at +0x20. Filled only by the history - CCountryDecisionChange / CCountryRemoveDecisionChange Apply, through CCountry_AddTakenDecision (which refuses a name already there) and CCountry::RemoveTakenDecision. **Read by SetUpCountryForNewGame**, which runs each listed decision's effect on a new game. Taking a decision in play does not add to it, and nothing that offers a decision reads it.",
+   "evidence": "`[edi+0x128]` in CCountry_AddTakenDecision (rva 0xF03E7) and SetUpCountryForNewGame (rva 0xD6382); `lea edi,[ecx+0x128]` in RemoveTakenDecision (rva 0xF04BA)."
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0x12C",
+   "name": "taken_decisions_last",
+   "type": "void*",
+   "comment": "Tail of the taken-decisions list at +0x128.",
+   "evidence": "CCountry_AddTakenDecision reads it as the new node's previous (rva 0xF03FF) and writes the new node to it (rva 0xF0452)."
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0x130",
+   "name": "taken_decisions_count",
+   "type": "int",
+   "comment": "Count of the taken-decisions list at +0x128.",
+   "evidence": "CCountry_AddTakenDecision increments it (rva 0xF0449-0xF0458) and sets the head instead of the old tail's next when it was 0."
+  },
+  {
+   "struct": "CCountryWarTargetValue",
+   "offset": "0x8",
+   "name": "target",
+   "type": "CCountryTag",
+   "comment": "The country the war is prepared against, letters at +8 and id at +0xC. Saved under `id`.",
+   "evidence": "PrepareWarDecision writes its tag argument to +8/+0xC (rva 0x4AD5A5, 0x4AD5AE); SaveContents writes +8 under token 0xB `id` (rva 0x76765-0x767B4)."
+  },
+  {
+   "struct": "CCountryWarTargetValue",
+   "offset": "0x10",
+   "name": "value",
+   "type": "float",
+   "comment": "PrepareWarDecision's float argument (100 in every shipped call). Saved under `value`.",
+   "evidence": "`movss [eax+0x10]` from the stack argument at rva 0x4AD63C; SaveContents reads it with movss and writes it under token 0x2A6 `value` (rva 0x767D8-0x76827)."
+  },
+  {
+   "struct": "CCountryWarTargetValue",
+   "offset": "0x14",
+   "name": "limited",
+   "type": "bool",
+   "comment": "PrepareWarDecision's last argument (false in every shipped call). Saved under `limited`, only when set.",
+   "evidence": "`mov byte ptr [esi+0x14], dl` at rva 0x4AD5B4; SaveContents `movzx eax, byte ptr [edi+0x14]` then token 0x6C3 `limited` (rva 0x7685A-0x76868); LoadKey reads token 0x6C3 into +0x14 (rva 0x766B0-0x766BE)."
+  },
+  {
+   "struct": "CCountryWarTargetValue",
+   "offset": "0x18",
+   "name": "decision",
+   "type": "CDecision*",
+   "comment": "**The decision taken instead of declaring the war**, or null. Saved as the decision's name under `decision`; **loaded by looking the name up in the diplomatic table only** (rva 0x76701), so a political decision here does not survive a save and load.",
+   "evidence": "PrepareWarDecision `mov [esi+0x18], ecx` at rva 0x4AD5B1; SaveContents writes `[edi+0x18]+8` under token 0x639 (rva 0x76837-0x76855); LoadKey's StringHashFind on GetDecisionDatabase()'s +0x00 into `[esi+0x18]` (rva 0x76701-0x76715); DoWork's `cmp dword ptr [ebx+0x18], 0` (rva 0x49D85E)."
+  },
+  {
+   "struct": "CCountryWarTargetValue",
+   "offset": "0x1C",
+   "name": "date",
+   "type": "int",
+   "comment": "When the war was prepared: gamestate->tick at PrepareWarDecision. Saved under `date`.",
+   "evidence": "`mov ecx,[eax+0xbdc]; mov [esi+0x1c],ecx` at rva 0x4AD5BC-0x4AD5C2; SaveContents hands +0x1C to the date writer at rva 0x4C710 and writes it under token 0x1F8 `date`."
+  }
+ ],
+ "vftable_slots": {
+  "CExecuteDecisionCommand": {
+   "6": "Execute",
+   "7": "GetTypeId",
+   "13": "Clone",
+   "14": "IsValid"
+  },
+  "CCountryDecisionChange": {
+   "7": "Apply"
+  },
+  "CCountryRemoveDecisionChange": {
+   "7": "Apply"
+  }
+ },
+ "slots_noted": "CCountryDecisionChange and CCountryRemoveDecisionChange slot 6 (rva 0x1EC810 / 0x1EC820, `mov eax, token; ret`) answer the history key and are not recorded here; their slot 2 SaveContents is already in the Lua half. CExecuteDecisionCommand slots 2 and 4 are already recorded (SaveContents in the Lua half, LoadKey in project.json).",
+ "frontier": [
+  "0xE39C0",
+  "0xD7AE0",
+  "0x4ADEF0",
+  "0x49D967",
+  "0x609B50",
+  "0x10F8E0",
+  "0x10F880",
+  "0x37E200",
+  "0x208730",
+  "0x208580"
+ ]
+}

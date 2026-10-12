@@ -202,6 +202,11 @@ is still thousandths. What the engine or the AI does with it was not read; the A
 be reached by name, but nothing found lists it, shows it or offers it to the AI** (`inferred`; a
 walker reached through a stored pointer would escape this census).
 
+*2026-10-12, `FINDINGS-eventfire.md` section 2: the addresses above are VAs. `0x606D41` is the
+decisions' alert (`CAlertManager_Update`), not a second AI walk; the lookups at `0x4D59D0` are in
+`SetUpCountryForNewGame` (VA `0x4D6230`), the function at `0x4D59D0` ending just before it; and the
+conclusion stands, now `confirmed` by a sweep of every piece of code that reaches the database.*
+
 ## 7. A decision
 
 `CDecision::LoadKey` `0x998960`; `CDecision` is 0xE4 bytes, base `CPersistent`, vftable
