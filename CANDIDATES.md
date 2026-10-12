@@ -922,7 +922,7 @@ of it.
 
 ## What has already been read
 
-138 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
+140 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
 header lives. This replaces the `Done` archive: the archive restated each file's headline and named
 only 40 of the 67 there were then, so it was both longer and less useful than a complete list.
 
@@ -1108,6 +1108,8 @@ the six it was missing were wave 15's.
 | `findings/FINDINGS-triggergrammar.md` | **how a key in a condition block becomes a condition**: the default branch's six databases, an ideology, a region and a scope; **an unknown key is reported only directly inside a block the engine made** and queued and dropped inside one the script wrote, which only a technology's `allow` replays; the 15 slot-7 bodies, the block triggers' own keys, every keyword's value form, case rules and the tag's three-character match |
 | `findings/FINDINGS-effectgrammar.md` | **how a key in an effect block becomes an effect**: the lexer, the scalar and block tails and how a wrong value form leaks structure, the default branch's seven databases and then a scope, `limit` doing nothing inside a scope, every effect keyword's value form; **`CFaction +0xC` is a string** |
 | `findings/FINDINGS-eventfiles.md` | **the containers**: how the event and decision folders are layered, an event's, an option's and a decision's keys, the MTTH and its modifiers, duplicate ids, and the two decision groups of which only one is ever listed |
+| `findings/FINDINGS-triggerleaves.md` | **what every trigger leaf answers**, the 78 with no recorded `Evaluate` before 2026-10-12: which part of the scope each reads, what a missing part gives, the comparison, THIS and FROM, an unknown name. `month` is zero-based, `<unit type> = N` never holds, `faction_progress` is unscaled, the six `last_*_losses` are world-wide and never saved, `is_blockaded` is refreshed only with a controller, `has_building` crashes on an unknown name; `active_leaders` is a list |
+| `findings/FINDINGS-effectrun.md` | **what every effect does when it runs**, the 68 with no recorded `Execute` before 2026-10-12 and the 31 that had one checked: what each changes, its scale, `this`/`from`, a missing scope part, side effects; the iterating scopes and `limit`; **the draw** `ally`, `local_enemy` and `random_*` make. `CCasusBelli::Activate`'s gate was backwards; `war`, `undeclared_war`, `add_wargoal` and `practical` never run their children; `change_manpower` and `leadership` change a province; `duration = -1` is for ever on a country; an election has no chance in it |
 
 ## A method worth reusing
 

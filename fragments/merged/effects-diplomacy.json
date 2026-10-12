@@ -1,0 +1,390 @@
+{
+ "agent": "effects wave B - countries among each other and land changing hands",
+ "question": "What the 23 diplomacy and land effects do when they run: casus_belli, change_controller, create_alliance, create_vassal, end_guarantee, end_military_access, end_non_aggression_pact, end_war, guarantee, inherit, leave_alliance, leave_faction, military_access, non_aggression_pact, relation, release, secede_province, surrender_inherit, threat, form_government_in_exile, war, undeclared_war, add_wargoal.",
+ "source": "reversing/findings/FINDINGS-effectrun.md",
+ "addresses": [
+  {
+   "rva": "0x5A6770", "kind": "function", "name": "CCasusBelliEffect::Execute",
+   "signature": "void __thiscall CCasusBelliEffect::Execute(CCasusBelliEffect* this, CEventScope* scope, int unused)",
+   "no_signature": null,
+   "comment": "`casus_belli = TAG`: **the scope country gains a casus belli against TAG.** Slot 11, one holder (vftable 0x15F4B18), 0x9A6770 to the single `ret 8` at 0x9A67DC. Resolves the tag inline (use_this: EventScope_GetCountryTag; use_from: `scope->from_country` +0x18/+0x1C read directly, not through this_scope; else `this->target` +0x20/+0x24) and calls AddCasusBelli (rva 0xE6640) with the named tag in ECX and `countries[scope->country_id]` on the stack. AddCasusBelli builds a CCasusBelli with `first` = the scope country and `second` = TAG, type 0, no end date, and CCasusBelli::Activate files it on `countries[scope]->diplomacy[TAG]->casus_belli (+0x3C)` - the list `casus_belli = TAG` the trigger reads. Nothing is checked first: a second call adds a second casus belli; only TAG == the scope country is refused (inside AddCasusBelli). An unknown tag (`---`, id 0) gives a casus belli against country 0. No message, no relation or threat change. add_casus_belli (CReversedCasusBelliEffect, 0x5A6B10) is the same call with the two parties swapped.",
+   "confidence": "confirmed", "source": "reversing/findings/FINDINGS-effectrun.md",
+   "evidence": "Listing 0x9A6770-0x9A67DC: `push ecx` (countries[scope+0x14]) then `lea ecx,[esp+0xc]` (resolved tag), `call 0x4E6640`. AddCasusBelli's listing writes C->tag/id into +8/+0xC and ECX's tag into +0x10/+0x14. Wrong if 0x4E6640's ECX/stack roles were the other way round - its `cmp [edi+4], [stack+0xCA8]` and the two stores settle it."
+  },
+  {
+   "rva": "0x5A7DC0", "kind": "function", "name": "CChangeControllerEffect::Execute",
+   "signature": "void __thiscall CChangeControllerEffect::Execute(CChangeControllerEffect* this, CEventScope* scope, int unused)",
+   "no_signature": null,
+   "comment": "`change_controller = TAG`: **TAG becomes the controller of the scope's province.** Slot 11, one holder (vftable 0x15F47C4), 0x9A7DC0 to the single `ret 8` at 0x9A7E9A. `Province_SetController(provinces[scope->province (+0x28)], &target, &gameState->tick, 1, 1, 0)` (rva 0xA2400), the target from Effect_ResolveCountryTarget (rva 0x5A7C30). Unguarded: on a country-scoped effect it sets the controller of **province 0**; an unknown tag makes `---` (id 0) the controller. The setter itself refuses only two things: the controller already being TAG, and, in a running game, giving control of an **unowned** province to anyone. Its other consequences (pushback damage, capital loot, rebasing air and naval units, the occupation policy, the CControllerChange history entry, area and supply regrouping because the second flag is 1) are on that entry.",
+   "confidence": "confirmed", "source": "reversing/findings/FINDINGS-effectrun.md",
+   "evidence": "Listing: pushes 0 (ebx), 1, 1, `gameState+0xBDC`, then the resolver's two arguments, then `push eax` (resolved tag) and `push esi` (province from `[gameState+0xB8C][scope+0x28]`), `call 0x4A2400`. The setter's `ret 0x18` matches six stack dwords."
+  },
+  {
+   "rva": "0x5AD7D0", "kind": "function", "name": "CCreateAllianceEffect::Execute",
+   "signature": "void __thiscall CCreateAllianceEffect::Execute(CCreateAllianceEffect* this, CEventScope* scope, int unused)",
+   "no_signature": null,
+   "comment": "`create_alliance = TAG`: **an accepted alliance offer from the scope country to TAG, run through the ordinary diplomatic action.** Slot 11, one holder (vftable 0x15F4EF4), 0x9AD7D0 to the single `ret 8` at 0x9AD919. `operator new(0x28)` builds a CAllianceAction in place (vftable 0x15FB514): token 0x18D, `actor (+8)` = the scope country, `recipient (+0x10)` = TAG (Effect_ResolveCountryTarget), `type (+0x18)` = 0 then **2 = ACCEPT**, both dates the current tick, `value (+0x24)` = 1. It then calls the action's slot 7 (CAllianceAction::Apply, rva 0x618D70) and deletes it through slot 0. So create_alliance does what accepting an alliance does - the CAlliance, ALLIANCE_RELATION_CHANGE, the rebuilds and the acceptance messages - whatever that arm does; **the arm itself is not read here.** No guard in the effect for an existing alliance, the same country or country 0.",
+   "confidence": "confirmed", "source": "reversing/findings/FINDINGS-effectrun.md",
+   "evidence": "Listing 0x9AD8B8-0x9AD8FC: the eight stores into the new object, `mov dword ptr [esi], 0x15fb514`, `mov dword ptr [esi+0x18], 2`, `call [vft+0x1C]`, then `call [vft]` with 1. 0x15FB514 is CAllianceAction's table per its Apply entry; ACCEPT = 2 per CDiplomaticAction +0x18."
+  },
+  {
+   "rva": "0x5B8520", "kind": "function", "name": "CCreateVassalEffect::Execute",
+   "signature": "void __thiscall CCreateVassalEffect::Execute(CCreateVassalEffect* this, CEventScope* scope, int unused)",
+   "no_signature": null,
+   "comment": "`create_vassal = TAG`: **TAG becomes the scope country's vassal.** Slot 11, one holder (vftable 0x15F5688), 0x9B8520 to the single `ret 8` at 0x9B8593. Two gates: nothing happens if TAG is already in the scope country's `Vassals (+0xF78)` list, and nothing happens if TAG **owns no province** (`OwnedProvinces.count +0xCF8 <= 0`). Otherwise `MakeVassal(scope country, TAG)` (rva 0xD94A0, __cdecl), which is the whole of the work - see that entry. Not refused: TAG == the scope country (MakeVassal would then run on one country), or TAG already being someone else's vassal (MakeVassal deletes the old dependency).",
+   "confidence": "confirmed", "source": "reversing/findings/FINDINGS-effectrun.md",
+   "evidence": "Listing: the walk `[edx+0xF78]` comparing `[node+4]` with the resolved id, then `cmp dword ptr [eax+0xcf8], 0; jle`, then four pushes (scope tag, scope id, target tag, target id in that order of arguments) and `call 0x4D94A0; add esp, 0x10`."
+  },
+  {
+   "rva": "0x5B6590", "kind": "function", "name": "CEndGuaranteeEffect::Execute",
+   "signature": "void __thiscall CEndGuaranteeEffect::Execute(CEndGuaranteeEffect* this, CEventScope* scope, int unused)",
+   "no_signature": null,
+   "comment": "`end_guarantee = TAG`: **ends the scope country's guarantee of TAG, and only that direction.** Slot 11, one holder (vftable 0x15F54E4), 0x9B6590 to the single `ret 8` at 0x9B6733. With `g = countries[scope]->diplomacy[TAG]->guarantee (+0x1C)`: acts only when `g` is non-null **and** `g->first.id (+0xC) != TAG` - i.e. CDiplomacyStatus::IsGuaranting, the scope is the guarantor. Then `g`'s slot 11 (CGuarantee::Deactivate, rva 0x646E20: null +0x1C both ways, `changed` both ways), unlink from `CCurrentGameState +0xB2C relations`, delete through slot 0, and `CCountry::RebuildNeighbours` + 0xE39C0 on TAG then on the scope. A guarantee TAG gives the scope is left alone. No relation change, no influence cost, no message - unlike the revoke arm of CGuaranteeAction.",
+   "confidence": "confirmed", "source": "reversing/findings/FINDINGS-effectrun.md",
+   "evidence": "Listing 0x9B65E5-0x9B6604: `mov edx,[ecx+0x1c]; test; je exit; ... cmp [edx+0xc], ecx(status+0xC); je exit`, then `call [vft+0x2C]`, the relation-list walk at +0xB2C, CList_RemoveNode, `call [vft]` with 1."
+  },
+  {
+   "rva": "0x5B6D30", "kind": "function", "name": "CRevokeMilitaryAccessEffect::Execute",
+   "signature": "void __thiscall CRevokeMilitaryAccessEffect::Execute(CRevokeMilitaryAccessEffect* this, CEventScope* scope, int unused)",
+   "no_signature": null,
+   "comment": "`end_military_access = TAG`: `countries[scope]->diplomacy[TAG]->hasMilitaryAccess (+0x4C)` is cleared through SetMilitaryAccess (rva 0x64A400) when it is set, then RebuildNeighbours + 0xE39C0 on TAG and on the scope. **One direction only**: the scope's access through TAG, by the reading that CMilitaryAccessAction (a demand) sets `countries[actor]->diplomacy[recipient]` - the demander's. A set it never was is a no-op. Slot 11, one holder (vftable 0x15F554C), 0x9B6D30 to the single `ret 8` at 0x9B6DD6.",
+   "confidence": "confirmed", "source": "reversing/findings/FINDINGS-effectrun.md",
+   "evidence": "Listing: `cmp byte ptr [ecx+0x4c], 0; je exit`, `xor cl, cl; call 0xA4A400` with the same status pushed. The direction's meaning rests on CMilitaryAccessAction::Apply at 0xA23998 passing `countries[this+0xC]->diplomacy[this+0x14]`, actor first."
+  },
+  {
+   "rva": "0x5B7510", "kind": "function", "name": "CEndNonAggressionEffect::Execute",
+   "signature": "void __thiscall CEndNonAggressionEffect::Execute(CEndNonAggressionEffect* this, CEventScope* scope, int unused)",
+   "no_signature": null,
+   "comment": "`end_non_aggression_pact = TAG`: when `countries[scope]->diplomacy[TAG]->nap (+0x28)` is non-null, CNap::Deactivate (slot 11, rva 0x647300 - nulls +0x28 both ways), unlink from the relation list, delete, RebuildNeighbours + 0xE39C0 on TAG and the scope. No direction test - a pact is shared. No relation, influence or threat change and no message (CNapAction's cancel arm charges LEAVE_NAP_*; this does not). Slot 11, one holder (vftable 0x15F55B4), 0x9B7510 to the single `ret 8` at 0x9B7698.",
+   "confidence": "confirmed", "source": "reversing/findings/FINDINGS-effectrun.md",
+   "evidence": "Listing: `cmp dword ptr [ecx+0x28], 0; je exit`, `call [vft+0x2C]`, the +0xB2C walk, CList_RemoveNode, `call [vft]`. Same body shape as CLeaveAllianceEffect::Execute with +0x28 for +0x14."
+  },
+  {
+   "rva": "0x5B80C0", "kind": "function", "name": "CEndWarEffect::Execute",
+   "signature": "void __thiscall CEndWarEffect::Execute(CEndWarEffect* this, CEventScope* scope, int unused)",
+   "no_signature": null,
+   "comment": "`end_war = TAG`: **takes TAG - not the scope country - and TAG's vassals out of the war the two are fighting.** Slot 11, one holder (vftable 0x15F5654), 0x9B80C0 to the single `ret 8` at 0x9B827E. `war = countries[scope]->diplomacy[TAG]->war (+0x20)`; null returns. TAG is looked up in `war->attackers (+0x2C..+0x30)`: found, CWar::RemoveAttacker(war, 0, TAG); otherwise CWar::RemoveDefender(war, 0, TAG) unconditionally. Then for every node of `countries[TAG]->Vassals (+0xF78)`: RemoveAttacker if the vassal is an attacker, else RemoveDefender if it is a defender, and RebuildNeighbours + 0xE39C0 + OnDiplomacyChanged on the vassal **whether or not it was in the war**. Last, RebuildNeighbours + 0xE39C0 on TAG and on the scope, OnDiplomacyChanged on the scope and on TAG. The scope country stays in the war; no peace, no war goals settled, no message.",
+   "confidence": "confirmed", "source": "reversing/findings/FINDINGS-effectrun.md",
+   "evidence": "Listing 0x9B810B-0x9B813E: the attackers scan compares `[eax+4]` with edi = the resolved id and both removals push edi; the vassal loop reads `[countries[edi]+0xF78]`. Wrong if the resolved id in edi were the scope's - it is `[esp+0x1c]`, the resolver's out id."
+  },
+  {
+   "rva": "0x5B60B0", "kind": "function", "name": "CGuaranteeEffect::Execute",
+   "signature": "void __thiscall CGuaranteeEffect::Execute(CGuaranteeEffect* this, CEventScope* scope, int unused)",
+   "no_signature": null,
+   "comment": "`guarantee = TAG`: **the scope country guarantees TAG.** Slot 11, one holder (vftable 0x15F54B0), 0x9B60B0 to the single `ret 8` at 0x9B62D2. Returns when the scope already guarantees TAG (`g = diplomacy[TAG]->guarantee` non-null and `g->first.id != TAG`, IsGuaranting). Otherwise `operator new(0x28)`, CGuarantee's constructor (rva 0x646E90), `first (+8)` = the scope, `second (+0x10)` = TAG, `start_date (+0x18)` = tick, slot 10 (CGuarantee::Activate - both directions' +0x1C = this), append to the relation list (rva 0x93E10 with ESI = gameState+0xB24), RebuildNeighbours + 0xE39C0 on TAG and the scope. **If TAG already guarantees the scope it is not refused**: the new object overwrites the single +0x1C pointer both ways and the old CGuarantee stays in the relation list, unhooked. No relation, influence or threat change; no message.",
+   "confidence": "confirmed", "source": "reversing/findings/FINDINGS-effectrun.md",
+   "evidence": "Listing 0x9B6105-0x9B6122 (the IsGuaranting test, `jne exit`), 0x9B61C4-0x9B61E8 (the four stores and `call [vft+0x28]`), 0x9B6278 (the append). CGuarantee::Activate's record: writes +0x1C both directions."
+  },
+  {
+   "rva": "0x5AA110", "kind": "function", "name": "CInheritEffect::Execute",
+   "signature": "void __thiscall CInheritEffect::Execute(CInheritEffect* this, CEventScope* scope, int unused)",
+   "no_signature": null,
+   "comment": "`inherit = TAG`: **the scope country annexes TAG** - `AnnexCountry(countries[scope], false, TAG)` (rva 0xE7B00). Slot 11, one holder (vftable 0x15F4BE8), 0x9AA110 to the single `ret 8` at 0x9AA173. Tag resolved inline (use_from = `scope->from_country` directly). No check at all: TAG == the scope country runs the whole annexation on itself, and `---` annexes country 0. What the annexation does is on AnnexCountry.",
+   "confidence": "confirmed", "source": "reversing/findings/FINDINGS-effectrun.md",
+   "evidence": "Listing: `push ecx (tag id); push eax (tag); ... push 0; push edx (countries[scope+0x14]); call 0x4E7B00`. Identical to CSurrenderInheritEffect::Execute but for `push 0` against `push 1`."
+  },
+  {
+   "rva": "0x5B7930", "kind": "function", "name": "CLeaveAllianceEffect::Execute",
+   "signature": "void __thiscall CLeaveAllianceEffect::Execute(CLeaveAllianceEffect* this, CEventScope* scope, int unused)",
+   "no_signature": null,
+   "comment": "`leave_alliance = TAG`: ends the **bilateral** CAlliance between the scope country and TAG (`diplomacy[TAG]->alliance (+0x14)`): CAlliance::Deactivate (slot 11, rva 0x646BF0), unlink, delete, RebuildNeighbours + 0xE39C0 on both. Factions are not touched - a faction membership is not a CAlliance. No relation or influence change, no message. Slot 11, one holder (vftable 0x15F55E8), 0x9B7930 to the single `ret 8` at 0x9B7AB8.",
+   "confidence": "confirmed", "source": "reversing/findings/FINDINGS-effectrun.md",
+   "evidence": "Listing: `cmp dword ptr [ecx+0x14], 0; je exit`, then the same Deactivate/unlink/delete/rebuild sequence as CEndNonAggressionEffect::Execute."
+  },
+  {
+   "rva": "0x5A21C0", "kind": "function", "name": "CLeaveFactionEffect::Execute",
+   "signature": "void __thiscall CLeaveFactionEffect::Execute(CLeaveFactionEffect* this, CEventScope* scope, int unused)",
+   "no_signature": null,
+   "comment": "`leave_faction = <faction>`: Slot 11, one holder (vftable 0x15F4758), 0x9A21C0 to the `ret 8` at 0x9A2384 (an early `ret 8` at 0x9A2214). Nothing happens unless the scope country is in `this->faction (+0x20)`'s `Members (+0x28)`. Then, with `leader` = that list's first id (`---` when empty), it walks **every war in `CCurrentGameState +0xC00 active_war`** and removes the scope country from each war where it stands on the side whose **first-listed member is the faction leader**: in `attackers` with `attackers[0] == leader` -> CWar::RemoveAttacker(war, 0, scope); else in `defenders` with `defenders[0] == leader` -> CWar::RemoveDefender. Wars it fights on its own, or beside another leader, are kept. Then OnDiplomacyChanged(scope) and **CCountry::LeaveFaction(scope, false)** - no faction-history entry. No this/from; a misspelt faction is the null faction, whose member list the scope is not in, so nothing happens.",
+   "confidence": "confirmed", "source": "reversing/findings/FINDINGS-effectrun.md",
+   "evidence": "Listing 0x9A22C0-0x9A2328: per war, `cmp [eax+4], ebx` (scope id) over +0x2C..+0x30 then `cmp [esi+4], [esp+0x14]` (attackers[0] against the leader id from Members.first or 0x170CF48); the same over +0x3C..+0x40; then `push 0; call 0x4F6B20`."
+  },
+  {
+   "rva": "0x5B69F0", "kind": "function", "name": "CGrantMilitaryAccessEffect::Execute",
+   "signature": "void __thiscall CGrantMilitaryAccessEffect::Execute(CGrantMilitaryAccessEffect* this, CEventScope* scope, int unused)",
+   "no_signature": null,
+   "comment": "`military_access = TAG`: sets `countries[scope]->diplomacy[TAG]->hasMilitaryAccess (+0x4C)` through SetMilitaryAccess(1) when it is not already 1, then RebuildNeighbours + 0xE39C0 on TAG and the scope. One direction: by CMilitaryAccessAction's reading, **the scope country may now pass through TAG**, not the other way round. No influence cost, no message. Slot 11, one holder (vftable 0x15F5518), 0x9B69F0 to the single `ret 8` at 0x9B6A96. **Trap 2, a new single-int3 pair**: the function above ends `ret 0x28` at 0x9B69EC and there is one `int3` before this entry.",
+   "confidence": "confirmed", "source": "reversing/findings/FINDINGS-effectrun.md",
+   "evidence": "Listing: `cmp byte ptr [ecx+0x4c], 1; je exit`, `mov cl, 1; call 0xA4A400`. Bytes 0x9B69ED-0x9B69EF are `28 00 cc`. The record's SetMilitaryAccess entry already names this site (0x9B6A4E)."
+  },
+  {
+   "rva": "0x5B7070", "kind": "function", "name": "CStartNonAggressionEffect::Execute",
+   "signature": "void __thiscall CStartNonAggressionEffect::Execute(CStartNonAggressionEffect* this, CEventScope* scope, int unused)",
+   "no_signature": null,
+   "comment": "`non_aggression_pact = TAG`: when the pair has no pact (`diplomacy[TAG]->nap (+0x28)` null), `operator new(0x30)`, CNap's constructor (rva 0x646F00), `first` = the scope, `second` = TAG, `start_date` = tick, CNap::Activate (slot 10: +0x28 both ways), append to the relation list, RebuildNeighbours + 0xE39C0 on TAG and the scope. **Unlike CNapAction's accept arm there is no NAP_RELATION_CHANGE, no influence and no threat** - and the pact's `balance`/`their_power`/`our_power` are left as the constructor made them. Slot 11, one holder (vftable 0x15F5580), 0x9B7070 to the single `ret 8` at 0x9B7275.",
+   "confidence": "confirmed", "source": "reversing/findings/FINDINGS-effectrun.md",
+   "evidence": "Listing: `cmp dword ptr [eax+0x28], edi; jne exit`, `push 0x30; call operator_new; call 0xA46F00`, the four stores at +8/+0xC/+0x10/+0x14 and +0x18, `call [vft+0x28]`, `call 0x493E10` with ESI = gameState+0xB24."
+  },
+  {
+   "rva": "0x5A71A0", "kind": "function", "name": "CRelationEffect::Execute",
+   "signature": "void __thiscall CRelationEffect::Execute(CRelationEffect* this, CEventScope* scope, int unused)",
+   "no_signature": null,
+   "comment": "`relation = { who = TAG value = N }`: `CCountry::ChangeRelation(countries[TAG] @EDI, &scope->country_tag @ECX, this->value (+0x28))` (rva 0xE65C0), TAG from Effect_ResolveCountryTarget. So the delta is added to **TAG's** view of the scope country and the clamped result written to both directions - relation is symmetric, thousandths, held in -200.000..+200.000; `value` takes three decimals. No this-equals-who guard: `who = THIS` changes a country's relation with itself. Slot 11, one holder (vftable 0x15F4B80), 0x9A71A0 to the single `ret 8` at 0x9A71E6.",
+   "confidence": "confirmed", "source": "reversing/findings/FINDINGS-effectrun.md",
+   "evidence": "Listing: `mov edx,[ecx+0x28]` stored as the one stack argument left after the resolver's `ret 8`, `mov edi,[countries+eax*4]` with eax the resolved id, `lea ecx,[esi+0x10]`, `call 0x4E65C0`."
+  },
+  {
+   "rva": "0x5AA850", "kind": "function", "name": "CReleaseEffect::Execute",
+   "signature": "void __thiscall CReleaseEffect::Execute(CReleaseEffect* this, CEventScope* scope, int unused)",
+   "no_signature": null,
+   "comment": "`release = TAG`: **gives TAG every one of its core provinces the scope country owns.** Slot 11, one holder (vftable 0x15F4C50), 0x9AA850 to the single `ret 8` at 0x9AAA73. Walks `countries[TAG]->CoreProvinces (+0xD10)` and collects each province whose `owner.id (+0x330)` is the scope country; with none collected it does nothing. Otherwise it resolves TAG a second time (same three ways), makes sure a lazy singleton at [0x1A87280] exists, and calls `ReleaseProvinces(&list, TAG)` (rva 0xC1430). TAG need not exist - this is how a dead country comes back - and TAG == the scope country is not refused (its own cores are 'released' to it). No vassal relation is created. The tag resolution is inline (use_from = `scope->from_country` directly).",
+   "confidence": "confirmed", "source": "reversing/findings/FINDINGS-effectrun.md",
+   "evidence": "Listing 0x9AA8C1-0x9AA9BC: `[countries[tag.id]+0xD10]` walked, `cmp [province+0x330], scope id` before each 0x10-byte node append; `cmp dword ptr [esp+0x28], ebx; je` on the count; `push id; push tag; lea ecx,[list]; push ecx; call 0x4C1430`."
+  },
+  {
+   "rva": "0x5A96D0", "kind": "function", "name": "CSecedeProvinceEffect::Execute",
+   "signature": "void __thiscall CSecedeProvinceEffect::Execute(CSecedeProvinceEffect* this, CEventScope* scope, int unused)",
+   "no_signature": null,
+   "comment": "`secede_province = TAG`: **the scope's province goes to TAG if the scope country owns it.** Slot 11, one holder (vftable 0x15F4BB4), 0x9A96D0 to the `ret 8` at 0x9A9A4D - and **slot 9 starts at 0x9A9A50 with no padding at all**, a new trap 2 pair. TAG resolved inline; **`REB` is special**: the scope's rebel faction (`scope +0x20/+0x24`, FindPersistentById in the low or high table by `type < 0x1269`) answers the tag through rva 0xBC800, and a missing faction or an id-0 answer returns. `S` = the scope country, or EventScope_GetCountryTag when the scope has none. Then on `p = provinces[scope->province]`, two independent tests in this order: `p->controller == S && p->owner == TAG` -> CMapProvince::ChangeOwner(p, TAG, now, 1, 1, 0) (so occupied land of TAG's is handed back to TAG); then `p->owner == S` -> the same call (TAG takes owner and controller). Anything else does nothing. Unguarded on province 0.",
+   "confidence": "confirmed", "source": "reversing/findings/FINDINGS-effectrun.md",
+   "evidence": "Listing 0x9A972D-0x9A981C (the `R`,`E`,`B` byte tests and the rebel-faction lookup), 0x9A98E7-0x9A9990 (`cmp [edi+0x338], S.id; cmp [edi+0x330], TAG.id; call 0x4A36C0`) and 0x9A999E-0x9A9A37 (`cmp [edi+0x330], S.id; call 0x4A36C0`). vtable.py: 0x9A9A50 is CSecedeProvinceEffect slot 9."
+  },
+  {
+   "rva": "0x5AA4B0", "kind": "function", "name": "CSurrenderInheritEffect::Execute",
+   "signature": "void __thiscall CSurrenderInheritEffect::Execute(CSurrenderInheritEffect* this, CEventScope* scope, int unused)",
+   "no_signature": null,
+   "comment": "`surrender_inherit = TAG`: `AnnexCountry(countries[scope], true, TAG)` (rva 0xE7B00) - CInheritEffect::Execute with the surrender flag set. The flag changes two things inside AnnexCountry: unoccupied provinces next to land held by TAG's friends at war with the annexer are given to the annexer **but controlled by those friends**, and TAG's units in such land have an even chance of going over to them instead of being disbanded. Slot 11, one holder (vftable 0x15F4C1C), 0x9AA4B0 to the single `ret 8` at 0x9AA513.",
+   "confidence": "confirmed", "source": "reversing/findings/FINDINGS-effectrun.md",
+   "evidence": "Byte-for-byte the CInheritEffect body but `push 1` at 0x9AA506 where that has `push 0`."
+  },
+  {
+   "rva": "0x5B4DD0", "kind": "function", "name": "CThreatEffect::Execute",
+   "signature": "void __thiscall CThreatEffect::Execute(CThreatEffect* this, CEventScope* scope, int unused)",
+   "no_signature": null,
+   "comment": "`threat = { who = TAG value = N }`: Slot 11, one holder (vftable 0x15F5448), 0x9B4DD0 to three `ret 8` (0x9B4E3D, 0x9B4E82, 0x9B4EC4). **With a tag**: `countries[who]->diplomacy[scope]->threat (+0x5C) += value`, floored at 0, no cap, `changed` not set - TAG feels N more threat **from the scope country**. An unknown tag is country 0. **With `who = all`**: SpreadThreatToAll(&value, &1000) (rva 0xF4E80) when `value >= 0`, SpreadThreatToAll(&-value, &-1000) when negative, the scope country in EDI as the one feared - every other country's threat from the scope changes by an amount scaled by distance, size, neighbourhood and ideology (see that entry). The effect calls CCountry::GetActingCapitalLocation on the scope just before and **throws the answer away**. `value` is whole numbers only (atoi x1000).",
+   "confidence": "confirmed", "source": "reversing/findings/FINDINGS-effectrun.md",
+   "evidence": "Listing 0x9B4E85-0x9B4EB8: `mov ecx,[ecx+0x28]` (who id), `[countries[who]+0xE28][scope id]`, `add [eax+0x5c], edx; cmp 0; jge; mov 0`. The two `all` arms push `&1000`/`&-1000` (0x3E8/0xFFFFFC18) and the amount and call 0x4F4E80 with EDI = countries[scope]; 0x4F4E80 never reads EAX before overwriting it."
+  },
+  {
+   "rva": "0x5BAEA0", "kind": "function", "name": "CFormGovernmentInExileAction::Execute",
+   "signature": "void __thiscall CFormGovernmentInExileAction::Execute(CFormGovernmentInExileAction* this, CEventScope* scope, int unused)",
+   "no_signature": null,
+   "comment": "`form_government_in_exile = yes`: Slot 11, one holder (vftable 0x15F5174), 0x9BAEA0 to the single `ret 8` at 0x9BB1C1; **the function above ends `ret 0x28` on the byte before the entry - no padding, a new trap 2 pair**. The host is the scope's **FROM** country. When FROM has an id: every province the scope country *controls* that lies on the continent (`CMapProvince +0x368`) of FROM's capital, or whose area borders an area FROM controls (OwnerArea_TouchesController, rva 0x7EB90), is collected, and each is handed on by Province_SetController(p, X, now, 1, 0, 0) with X = **FROM** where FROM is at war with the province's owner (or either is REB) and the province's **owner** otherwise; then the area and supply groups are rebuilt. Always, last: `SetGovernmentInExile(scope country, this->value (+0x20))` (rva 0x102BC0) - so `= no` ends an exile. With no FROM the handover is skipped and only the flag is set.",
+   "confidence": "confirmed", "source": "reversing/findings/FINDINGS-effectrun.md",
+   "evidence": "Listing 0x9BAECA (`cmp [esi+0x1c], 0; je` to the tail), 0x9BAFC5/0x9BAFD9 (continent compare, `call 0x47EB90` with EAX = area +0x2B4 and ECX = scope+0x18), 0x9BB0EC-0x9BB154 (the war/REB choice and `call 0x4A2400`), 0x9BB190-0x9BB1AB (`movzx edx, byte [this+0x20]; push; push country; call 0x502BC0`). Bytes before the entry are `c2 28 00`."
+  },
+  {
+   "rva": "0x5BC6D0", "kind": "function", "name": "CWarEffect::Execute",
+   "signature": "void __thiscall CWarEffect::Execute(CWarEffect* this, CEventScope* scope, int unused)",
+   "no_signature": null,
+   "comment": "`war = { target = TAG limited = ... attacker_goal = {} defender_goal = {} }`: **a declaration of war run through CDeclareWarAction::Apply.** Slot 11, one holder (vftable 0x15F5844), 0x9BC6D0 to the single `ret 8` at 0x9BC993. (1) TAG from slot 12 (Effect_GetTargetCountryTag) - with no or an unknown tag, **the controller of the scope's province**. (2) If CCountry::IsEnemyTag(scope, TAG) - already at war, or either is REB - nothing happens at all, goals included. (3) Every attacker goal (vector +0x28..+0x2C, 0x2C each) gets actor = scope, recipient = TAG; every defender goal (+0x38..+0x3C) actor = TAG, recipient = scope. (4) A CDeclareWarAction is built on the stack (rva 0x611F90, `this` in EAX): actor scope, recipient TAG, type 0, both dates now, and `value (+0x24)` = **`limited == no`**; the first attacker goal, if any, is copied into the action's own CWarGoal. (5) CDeclareWarAction::Apply. (6) If the pair now has a war: CWarGoal::AddToWar for the remaining attacker goals (actor scope) and all defender goals (actor TAG). **`call_ally` (+0x48) is never read** - not here and not by any other slot of CWarEffect's table; only LoadKey writes it. TAG == the scope is not refused (IsEnemyTag answers false for one country). **Child effects are not run**: no read of the child list at +8.",
+   "confidence": "confirmed", "source": "reversing/findings/FINDINGS-effectrun.md",
+   "evidence": "Listing: `call [vft+0x30]`, `call 0x42F1B0; test al; jne exit`; the two goal loops; `cmp byte ptr [edi+0x49], 0; sete cl; mov [esp+0x4c], cl` with the action at esp+0x28; `call 0xA12030`; AddToWar at 0x9BC92F and 0x9BC95B. Positive control for +0x48 and +8: +0x49 is read at 0x9BC869, and CContextEffect::Execute reads its child list at 0x99E2D4; a grep of slots 4, 9 and 11 finds +0x48 only as LoadKey's two writes (0x9BC5F3, 0x9BC62B)."
+  },
+  {
+   "rva": "0x5BCF00", "kind": "function", "name": "CUndeclaredWarRegionEffect::Execute",
+   "signature": "void __thiscall CUndeclaredWarRegionEffect::Execute(CUndeclaredWarRegionEffect* this, CEventScope* scope, int unused)",
+   "no_signature": null,
+   "comment": "`undeclared_war = { target = TAG region = R }`: Slot 11, one holder (vftable 0x15F58B4), 0x9BCF00 to the single `ret 8` at 0x9BD10A. TAG from slot 12 (no tag: the controller of the scope's province). `uw = countries[scope]->diplomacy[TAG]->undeclared_war (+0x24)`; when null a new CUndeclaredWar (0x48 bytes, vftable 0x15BD6E4, all four vectors empty) gets the scope as attacker and TAG as defender (CUndeclaredWar::AddAttacker/AddDefender, which hook it on both statuses). Then UndeclaredWar_AddRegion(uw, this->region (+0x28)) - appended **every time**, so repeating the effect repeats the region - and `uw` is appended to `CCurrentGameState +0xC10` unless already there. OnDiplomacyChanged on the scope and TAG. No IsEnemy test, no same-country test, no message. **A region the loader could not find is null** and AddRegion pushes the null and, on a war that already has provinces, reads through it. **Child effects are not run.**",
+   "confidence": "confirmed", "source": "reversing/findings/FINDINGS-effectrun.md",
+   "evidence": "Listing: `mov esi,[eax+0x24]; cmp; jne` past the constructor; `call 0x476040`/`0x4761C0`; `mov eax,[edi+0x28]; push eax; mov eax, esi; call 0x476340`; the +0xC10 walk and append. No `[edi+8]` read anywhere in the body."
+  },
+  {
+   "rva": "0x5BD5D0", "kind": "function", "name": "CWarGoalEffect::Execute",
+   "signature": "void __thiscall CWarGoalEffect::Execute(CWarGoalEffect* this, CEventScope* scope, int unused)",
+   "no_signature": null,
+   "comment": "`add_wargoal = { target = TAG war_goal = { ... } }`. **add_wargoal's class is CWarGoalEffect, not CWarGoal**: CEffect::LoadKey's case for token 1977 (0x99B141) is `operator new(0x54)` and the constructor at rva 0x5BD3F0, which writes CWarGoalEffect's table and then the embedded CWarGoal's at +0x28 - which is why switchmap.py, taking the **last** vftable a case writes, reports CWarGoal. Slot 11, one holder (vftable 0x15F587C), 0x9BD5D0 to the single `ret 8` at 0x9BD64A. TAG from slot 12 (no tag: the scope province's controller). Acts only when `countries[scope]->diplomacy[TAG]->war (+0x20)` is non-null: the embedded goal's `Actor (+0x40)` = the scope, `Recipient (+0x48)` = TAG, and CWarGoal::AddToWar(&goal, war, scope) - whose own gate is CWarGoal::IsValid. The **same object** is handed over each time, so the effect's goal is shared by every war it was added to. No goal is added outside a war. **Child effects are not run.**",
+   "confidence": "confirmed", "source": "reversing/findings/FINDINGS-effectrun.md",
+   "evidence": "Listing: `call [vft+0x30]`, `mov eax,[edx+0x20]; test; je exit`, the four stores at +0x40/+0x44/+0x48/+0x4C, `lea edi,[esi+0x28]; push eax; call 0xA51FB0`. The LoadKey case at 0x99B141 (`push 0x54; call operator_new; call 0x9BD3F0`) and findRefs (the constructor's one caller is 0x99B153)."
+  },
+  {
+   "rva": "0x5BD3F0", "kind": "function", "name": "CWarGoalEffect::CWarGoalEffect",
+   "signature": "CWarGoalEffect* __stdcall CWarGoalEffect::CWarGoalEffect(CWarGoalEffect* this@EAX) @EAX",
+   "no_signature": null,
+   "comment": "The constructor `add_wargoal` is built with; one caller, CEffect::LoadKey at 0x99B153. 0x9BD3F0 to the bare `ret` at 0x9BD475. `this` in EAX: the CEffect child list zeroed, CWarGoalEffect's vftable (0x15F587C), `target (+0x20)` = `---`/0, token 0x18D, and an embedded CWarGoal at +0x28 (vftable 0x15BDB34, token 0x18D, its casus belli at +0x34 = [0x1A85BC4], and its three tags `---`), use_this/use_from cleared.",
+   "confidence": "confirmed", "source": "reversing/findings/FINDINGS-effectrun.md",
+   "evidence": "Listing 0x9BD3F0-0x9BD475: `mov dword ptr [eax], 0x15f587c` then `mov dword ptr [eax+0x28], 0x15bdb34`; findRefs --callers 0x9BD3F0 = one site."
+  },
+  {
+   "rva": "0x5A7C30", "kind": "function", "name": "Effect_ResolveCountryTarget",
+   "signature": "CCountryTag* __stdcall Effect_ResolveCountryTarget(CEffect* effect@stack:4, CEventScope* scope@stack:8, CCountryTag* out@EDI) @EAX",
+   "no_signature": null,
+   "comment": "**The country a CCountryTargetEffect (and CRelationEffect) acts on.** 0x9A7C30 to the single `ret 8` at 0x9A7DB7; in no virtual table; 27 call sites, all in the effect module - both halves (Execute and GetText) of the twelve CCountryTargetEffect leaves and CRelationEffect. `use_this (+0x1C)`: `s = scope->this_scope (+0x38)`; `s->country` when its id is non-zero, otherwise the **owner of `provinces[s->province]`** with no test for province 0. `use_from (+0x1D)`: `s->from_country (+0x18/+0x1C)` when its id is non-zero, otherwise the owner of `provinces[s->from_province (+0x30)]`. Neither: the tag at `+0x20/+0x24`, `---`/0 when the loader did not know it. **No fall-back to the scope province's controller**, which is where it differs from Effect_GetTargetCountryTag (slot 12 of the war family). The CDiplomaticEffect leaves (casus_belli, inherit, surrender_inherit, release, secede_province) inline a third variant: THIS through EventScope_GetCountryTag and FROM as the *current* scope's `+0x18/+0x1C` with no province fall-back. Class-free because two unrelated middles call it (trap 4 does not bite - no table holds it - but a class name would be one of two).",
+   "confidence": "confirmed", "source": "reversing/findings/FINDINGS-effectrun.md",
+   "evidence": "Listing 0x9A7C50-0x9A7DB7: `cmp byte ptr [eax+0x1c]`, `[[ebp+0xc]+0x38]` then `+0x14`/`+0x10`, the `+0xB8C`/`+0x32C`/`+0x330` fall-back, the `+0x1d` arm reading `+0x1C`/`+0x18` and `+0x30`, the default `+0x20`/`+0x24`, stores to `[edi]`/`[edi+4]`, `mov eax, edi; ret 8`. findRefs: 27 direct calls."
+  },
+  {
+   "rva": "0xE6640", "kind": "function", "name": "AddCasusBelli",
+   "signature": "void __stdcall AddCasusBelli(CCountry* holder@stack:4, CCountryTag* target@ECX)",
+   "no_signature": null,
+   "comment": "Gives `holder` a casus belli against `target`. 0x4E6640 to the single `ret 4` at 0x4E67C9. Returns at once when `target->id == holder->id (+0xCA8)`. Otherwise `operator new(0x28)`, CCasusBelli::CCasusBelli (rva 0x6478A0: type 0, start and end the null date), `first (+8)` = holder, `second (+0x10)` = target, `start_date (+0x18)` = tick, slot 10 (CCasusBelli::Activate - which, with no end date, files it on `countries[holder]->diplomacy[target]->casus_belli` unconditionally), and appends it to the relation list. **No search for an existing one**, so repeated calls stack. Five call sites: CCasusBelliEffect::Execute and CReversedCasusBelliEffect::Execute (the parties swapped), CCallAllyAction::Apply twice, and VA 0x4C0C30.",
+   "confidence": "confirmed", "source": "reversing/findings/FINDINGS-effectrun.md",
+   "evidence": "Listing: `mov edi, ecx; cmp [edi+4], [stack+0xCA8]; je exit`; `call 0xA478A0`; `[esi+8] = [stack+0xCA4]`, `[esi+0xC] = [stack+0xCA8]`, `[esi+0x10]/[esi+0x14]` from ECX's tag; `call [vft+0x28]`; `call 0x493E10`. findRefs: five callers."
+  },
+  {
+   "rva": "0x6478A0", "kind": "function", "name": "CCasusBelli::CCasusBelli",
+   "signature": "CCasusBelli* __stdcall CCasusBelli::CCasusBelli(CCasusBelli* this@EAX) @EAX",
+   "no_signature": null,
+   "comment": "The CCasusBelli constructor. 0xA478A0 to the bare `ret` at 0xA47905; `this` in EAX. CRelation's vftable then CCasusBelli's (0x15FBB9C), token 0x18D, both tags `---`/0, `start_date (+0x18)` and `end_date (+0x1C)` = g_NullDate (43800000), `cancel (+0x20)` = 0, `type (+0x24)` = 0. Three call sites: AddCasusBelli, and VAs 0x5F237C and 0xA0D71C. A casus belli made here and not given an end date is permanent - see CCasusBelli::Activate.",
+   "confidence": "confirmed", "source": "reversing/findings/FINDINGS-effectrun.md",
+   "evidence": "Listing 0xA478A0-0xA47905, the eleven stores; findRefs --callers 0xA478A0."
+  },
+  {
+   "rva": "0x647BB0", "kind": "function", "name": "CCasusBelli::Activate",
+   "signature": "void __thiscall CCasusBelli::Activate(CCasusBelli* this)",
+   "no_signature": null,
+   "revises": "comment: the end-date gate was recorded the wrong way round - a casus belli with no end date is attached, not refused",
+   "comment": "**CCasusBelli slot 10**, read end to end, 0xA47BB0 to the `ret` at 0xA47D00 with a second exit at 0xA47D15 (reached from 0xA47C8C). `this` in ECX, no stack arguments.\n\nOne gate, on `CRelation +0x1C` (the end date): `years = (end_date - 43800000) / 24 / [0x160A550]` (365.0, truncated). **`years < 2` - no end date, the null date being the epoch itself - jumps straight to the attach** (`jl 0xA47C8E`); only a real end date is then tested, and `end_date < gameState->tick (+0xBDC)` - an expired casus belli - returns without attaching (`jl 0xA47D04`). Then it appends a 0x10-byte `{this, prev, next, byte}` node to **one** direction's `CDiplomacyStatus` list at `+0x3C` (head) / `+0x40` (tail) / `+0x44` (count), the direction being `countries[this->first_id]->diplomacy[this->second_id]`, and sets `+0x59 = 1`. **This is the list `CWarGoalBaseAction::Apply` searches and consumes from.** The name `Activate` is ours.\n\n*Corrected 2026-10-12 (FINDINGS-effectrun.md)*: this entry said `< 2` returned without doing anything, which would have made every casus belli CCasusBelli::CCasusBelli leaves undated - all of AddCasusBelli's - invisible. The first reading was reversing/findings/FINDINGS-diploaction.md.",
+   "confidence": "confirmed", "source": "reversing/findings/FINDINGS-effectrun.md",
+   "evidence": "Listing 0xA47BD3-0xA47C03: `sub ecx, 0x29C55C0; imul 0x2AAAAAAB; sar edx, 2` (/24), `divsd [0x160A550]` (365.0), `cvttsd2si; cmp eax, 2; jl 0xa47c8e`; 0xA47C8E is the attach (`mov byte ptr [esi+0x59], 1; push 0x10; call operator_new`); 0xA47C83-0xA47C8C is `cmp [edi+0x1c], [esi+0xbdc]; jl 0xa47d04`, and 0xA47D04 is the epilogue."
+  },
+  {
+   "rva": "0xF4E80", "kind": "function", "name": "SpreadThreatToAll",
+   "signature": "void __stdcall SpreadThreatToAll(int* amount@stack:4, int* scale@stack:8, CCountry* feared@EDI)",
+   "no_signature": null,
+   "comment": "**Threat toward `feared` felt by every other country**, the country-wide sibling of the province-graph SpreadThreat (0xF50A0). 0x4F4E80 to the single `ret 8` at 0x4F5094. `base = *amount * (1000 + feared's MODIFIER_THREAT_IMPACT (global modifier values +0x1C0)) / 1000`, **halved** when `feared->faction` is not valid (slot 7); a floor `min = base * floor(50.5f) / 1000` = a twentieth of it is kept apart. Then for every country `c` in `CCurrentGameState +0xBBC` (count from the state's slot 6) other than `feared`: `v = ThreatFactorTowards(feared, c, base)`, `v = v * (1000 - c's MODIFIER_THREAT_RESISTANCE (+0x1C8)) / 1000`, `v = max(v, min)`, and `c->diplomacy[feared]->threat (+0x5C) += *scale * v / 1000`, floored at 0. So every country gets at least a twentieth of the base, the dead ones included. Seven call sites (VAs): CThreatEffect::Execute twice (scale +1000 and -1000), CConvoy::LoseShips at 0x4C5AA1, the spy threat mission at 0x53027C, 0x4304DA, 0x430937 and 0x57DE3B.",
+   "confidence": "confirmed", "source": "reversing/findings/FINDINGS-effectrun.md",
+   "evidence": "Listing 0x4F4E98-0x4F5094: `[edi+0xDA8]+0x1C0`, `lea ecx,[ecx+0x3e8]; imul; /1000`; `[edi+0xD8]` slot 7 then `*1000/2000`; `floorf([0x160A7B4] = 50.5)`, `imul ebx; /1000` into [ebp-0x18]; the loop with `cmp [esi+0xca8], [edi+0xca8]; je skip`, `call 0x4FBCB0`, `[esi+0xDA8]+0x1C8`, `cmp ecx, [ebp-0x18]; jge`, `[ebp+0xc]` imul, `add [ecx+0x5c], eax; jge; mov 0`. Modifier ids 0x38/0x39 by scripts/modifierIds.py."
+  },
+  {
+   "rva": "0xFBCB0", "kind": "function", "name": "ThreatFactorTowards",
+   "signature": "int* __stdcall ThreatFactorTowards(CCountry* feared, int* out, CCountryTag* other, int base) @EAX",
+   "no_signature": null,
+   "comment": "How much of `base` threat `other` feels from `feared`. 0x4FBCB0 to `ret 0x10` at 0x4FBCD1 and 0x4FBE26 (the block 0x4FBE29-0x4FBE7A is the no-faction search, jumped to and jumping back). `other->id == 0` answers 0. Otherwise: `reach = min(28 * other's OwnedProvinces count, 4000)` (map units, CMap::DistanceBetweenProvinces' scale), `d` = that distance from other's acting capital (`+0xE24`) to feared's acting capital (CCountry::GetActingCapitalLocation); `f = max(1000 - d * 1000 / reach, 0)`, and **1001** when `reach` is 0 (a country with no provinces); `f = 1000` outright when `other` is on feared's `Neighbours (+0xFD8)` list. `t = base * f / 1000`, then `t = t * CAlignment::GetFactionThreatDistanceFactor(&feared->alignment (+0xDC), other's faction's ideology group) / 1000` - or, when `other` is in no valid faction, the ideology group nearest **other's** own alignment (CAlignment::DistanceSquaredTo over GetIdeologies' groups whose slot 6 answers true). One caller, SpreadThreatToAll.",
+   "confidence": "inferred", "source": "reversing/findings/FINDINGS-effectrun.md",
+   "evidence": "Listing 0x4FBCB0-0x4FBE7A read through: `imul 28` built as `eax*8-eax, *4`, `cmp esi, 0xfa0`, `call 0x492030`, the `or ecx, -1` arm, the `[feared+0xFD8]` walk setting 0x3E8, `call 0x4C4D70`, the GetIdeologies loop. Inferred rather than confirmed only in what the factor means: GetFactionThreatDistanceFactor grows with ideological distance, so countries far apart in ideology feel more."
+  },
+  {
+   "rva": "0x76340", "kind": "function", "name": "UndeclaredWar_AddRegion",
+   "signature": "void __stdcall UndeclaredWar_AddRegion(CRegion* region@stack:4, CUndeclaredWar* war@EAX)",
+   "no_signature": null,
+   "comment": "Adds a region to an undeclared war. 0x476340 to `ret 4` at 0x47637B and 0x476394. Pushes `region` onto the war's region vector (+0x28, through rva 0x221F0 with EDI = war+0x28), then copies the region's province ids (`CRegion +8..+0xC`) into the war's province vector at **+0x38/+0x3C**: assigned whole when that vector is empty (std::vector_assign, rva 0x4DD860), appended at its end (rva 0x82190) when not - duplicates kept. A null region still goes onto the region vector; the province copy then reads through null (`mov esi,[ecx+4]` with ECX = 0) on a war that already has provinces. One caller seen, CUndeclaredWarRegionEffect::Execute.",
+   "confidence": "inferred", "source": "reversing/findings/FINDINGS-effectrun.md",
+   "evidence": "Listing 0x476340-0x476394 (VAs). Inferred because rvas 0x221F0 and 0x82190 are read as push_back and range-insert from their arguments, not from their bodies."
+  },
+  {
+   "rva": "0x7EB90", "kind": "function", "name": "OwnerArea_TouchesController",
+   "signature": "bool __stdcall OwnerArea_TouchesController(CCountryTag* tag@ECX, COwnerArea* area@EAX) @AL",
+   "no_signature": null,
+   "comment": "True when any area linked from `area`'s neighbour list (+0x34, nodes `{link, ?, next}`) is controlled by `tag`: each link's area answers the controller of its **first** province (`+0x24` first node, `+0x338`), or 0 when it has none (`+0x2C` count 0). 0x47EB90 to bare `ret`s at 0x47EBE8 and 0x47EBF0. Caller read: CFormGovernmentInExileAction::Execute, with a province's `+0x2B4` area.",
+   "confidence": "confirmed", "source": "reversing/findings/FINDINGS-effectrun.md",
+   "evidence": "Listing 0x47EB90-0x47EBF0: `mov eax,[eax+0x34]`, `mov esi,[ecx+4]`, `cmp [ecx+0x2c], 0`, `[[ecx+0x24]]+0x338`, `cmp ecx, esi; je` -> `mov al, 1`."
+  },
+  {
+   "rva": "0xA36C0", "kind": "function", "name": "CMapProvince::ChangeOwner",
+   "signature": "void __thiscall CMapProvince::ChangeOwner(CMapProvince* this, CCountryTag* owner, int* date, bool applyConsequences, bool rebuildAreas, bool peaceful)",
+   "no_signature": null,
+   "comment": "**A province changes hands.** 0x4A36C0 to the single `ret 0x14` at 0x4A38F7. In order: Province_SetController(this, owner, date, the three flags) (rva 0xA2400) - the new owner also takes control; rva 0xA2180(this, owner, date, applyConsequences, 0), the owner setter itself (**not read**); if the old owner was a real country, rva 0x4A2FB0(old owner) and `nationalism (+0x24)` = the `country` define block's YEARS_OF_NATIONALISM (defines +0xCC, +8); rva 0x1D6230 on the province's units (+0x2B8); the old owner **leaves its faction** (CCountry::LeaveFaction(false)) when it now owns no province; and in a running game the province's **active modifiers (+0x13C list) are all removed** and RebuildProvinceModifierValues (rva 0x9F3E0) runs. Twelve callers, among them ReleaseProvinces, MakeVassal, AnnexCountry (twice) and CSecedeProvinceEffect::Execute (twice).",
+   "confidence": "inferred", "source": "reversing/findings/FINDINGS-effectrun.md",
+   "evidence": "Listing 0x4A36C0-0x4A38F7 read through; the modifier loop 0x4A3874-0x4A38DF frees every node of +0x13C and decrements +0x144 to zero. Inferred because the owner setter 0x4A2180 and 0x8A2FB0 are not read, so 'changes hands' rests partly on the call shape."
+  },
+  {
+   "rva": "0xA2400", "kind": "function", "name": "Province_SetController",
+   "signature": "void __stdcall Province_SetController(CMapProvince* province, CCountryTag* controller, int* date, bool applyConsequences, bool rebuildAreas, bool peaceful)",
+   "no_signature": null,
+   "comment": "**The controller setter**, 24 callers. 0x4A2400 to the single `ret 0x18` at 0x4A36AE. Read from the decompilation with the listing checked at the gates; the main lines: (1) no-op when the controller is already `controller`; (2) in a running game, refuses to give control of an **unowned** province to anyone. (3) With `applyConsequences`: unless `peaceful`, when the new controller is an enemy of the old one each building (+0x310) with a level takes COMBAT_PUSHBACK_DAMAGE on a COMBAT_PUSHBACK_CHANCE_FOR_DAMAGE roll, and when the province is the old controller's acting capital a share of the old controller's stockpile ([0x1A86CEC]) goes to the new one; air units based there whose owner is an enemy of the new controller are rebased to the nearest friendly air base or removed, naval units likewise to a port; a CControllerChange history entry dated `date`. (4) The province leaves the old controller's ControlledProvinces; REB bookkeeping; the new controller's **occupation policy** toward the old is set to `civil_war` when allowed, else the first policy. (5) `controller (+0x334/+0x338)` written; an unowned province given to a non-REB gets that country as owner too (rva 0xA2180). (6) UpdateProvinceBlockaded; for a land province UpdateOwnerAreaOfProvince and, with `rebuildAreas`, the area and supply groups; neighbouring owners' AI strategy flagged. (7) CProvince::UpdateSupplyDepot when the controller changed, and with `applyConsequences` rva 0xE0B80 on the old controller.",
+   "confidence": "inferred", "source": "reversing/findings/FINDINGS-effectrun.md",
+   "evidence": "Decompiled whole (scratchpad helpers.c), `ret 0x18` and the single exit by retsBefore. Inferred: the order and gates are from the decompiler and only the entry gates, the arguments and the exit were checked on the listing."
+  },
+  {
+   "rva": "0xE7B00", "kind": "function", "name": "AnnexCountry",
+   "signature": "void __stdcall AnnexCountry(CCountry* annexer, bool surrender, char annexedTag[4], int annexedId)",
+   "no_signature": null,
+   "comment": "**inherit and surrender_inherit.** 0x4E7B00 to the single `ret 0x10` at 0x4E8E76, 0x1376 bytes. (1) An `ANNEX` message (ACTOR the annexer, RECIPIENT the annexed, at the annexed country's capital). (2) In surrender mode, a list of candidates: the annexed country's `non_hostile_countries (+0xF98)` less the annexer and the annexed, kept only where the annexer is at war with them (or REB is involved). (3) The annexed country leaves its faction (RemoveMember, CFaction::null, RebuildStaticModifiers, RebuildRules). (4) **For each province it owns: occupied by someone other than REB -> CMapProvince::ChangeOwner(p, its occupier, now, 1, 0, 0) - the occupier keeps it**; otherwise -> ChangeOwner(p, annexer), and in surrender mode, when a neighbouring area is controlled by a candidate (the nearest by rva 0x7E590 when several), Province_SetController(p, that candidate) after. (5) Its constructions are deleted; expeditionary units go back (rva 0x1020E0, CCountry::ShatterUnit, not read); **every remaining unit is removed**, except that in surrender mode a unit on candidate ground (air: at a candidate base; naval at sea: the first candidate) goes over with its children on an even `Random() & 1`. (6) Every province it controls goes back to its owner (or, for an exiled owner in a faction, to the faction leader). (7) Area and supply groups rebuilt. (8) Every other country: out of any war with it (RemoveAttacker/RemoveDefender, flag 1), spies on it cleared, alliance, dependency and guarantee with it deleted, threat both ways reduced by 9999.000 (so to 0), trade routes deleted, rva 0x647F20. (9) The annexer's supply groups pick depots again. NAPs, casus belli and embargoes are not cleared.",
+   "confidence": "inferred", "source": "reversing/findings/FINDINGS-effectrun.md",
+   "evidence": "Province rule on the listing at 0x4E82F9-0x4E8335 (`cmp [esi+0x338], [esi+0x330]; je`; REB test; `push ebx; push ebx; push 1; push &now; push &controller; call 0x4A36C0`); candidate list at 0x4E80A9-0x4E8123 (`[T]+0xF98`, `cmp [ebx+0xca8]`, `[ebx+0xe28][x]+0x20`). The rest from the decompilation - inferred."
+  },
+  {
+   "rva": "0xD94A0", "kind": "function", "name": "MakeVassal",
+   "signature": "void __cdecl MakeVassal(char overlordTag[4], int overlordId, char vassalTag[4], int vassalId)",
+   "no_signature": null,
+   "comment": "**create_vassal.** 0x4D94A0 to the bare `ret` at 0x4DA447, 0xFA7 bytes; three call sites (VAs): CCreateVassalEffect::Execute, 0x47B244 and 0x50C21E. In order: (1) every province the vassal owns that carries an **overlord core** and is controlled by either party goes to the overlord (CMapProvince::ChangeOwner, peaceful); (2) the vassal's own cores that it owns but the overlord or the overlord's faction occupies are handed back to it (Province_SetController, peaceful); (3) the vassal leaves its faction; (4) **the vassal leaves every war** in `active_war`; (5) for every country X, the vassal's `alliance (+0x14)`, `dependency (+0x18)`, `nap (+0x28)`, `influence (+0x2C)`, `align (+0x30)` and `embargo (+0x34)` with X are deactivated and deleted, military access is cleared both ways, `guarantee (+0x1C)` is **nulled both ways without deleting the CGuarantee** (it stays in the relation list) and `allowDebts (+0x78)` cleared both ways; (6) a new CAlliance overlord/vassal and the vassal's alignment set to the overlord's; if the overlord's faction is valid, CFaction::AddCountry(faction, vassal, 0, **1**) - the vassal joins the faction's ongoing wars; (7) a CVassal (first overlord, second vassal) on `countries[overlord]->diplomacy[vassal]->dependency`, appended and activated; (8) relation +500.000 both ways, i.e. to the +200 cap; (9) the vassal takes the overlord's government (rva 0xE0460(vassal, overlord +0xDFC, 1) and rva 0xF06D0(vassal, 1, 0) - the pair CGovernmentEffect uses); (10) neighbours, OnDiplomacyChanged and the area and supply groups. With no overlord faction the vassal ends at peace with everyone.",
+   "confidence": "inferred", "source": "reversing/findings/FINDINGS-effectrun.md",
+   "evidence": "Listing for the relation offsets (0x4D9881 +0x14, 0x4D998C +0x18, 0x4D9A90 +0x28, 0x4D9B94 +0x34, 0x4D9C9C +0x30, 0x4D9DA0 +0x2C, each followed by `call [vft+0x2C]`), the two SetMilitaryAccess calls and `+0x1C`/`+0x78` stores at 0x4D9EA7-0x4D9F05, `add esi, 0x7a120` at 0x4DA365, 0x4E0460/0x4F06D0 at 0x4DA3D2/0x4DA3E4. Steps 1-4 and 6-7 from the decompilation."
+  },
+  {
+   "rva": "0xC1430", "kind": "function", "name": "ReleaseProvinces",
+   "signature": "void __stdcall ReleaseProvinces(void* provinces, char tag[4], int countryId)",
+   "no_signature": null,
+   "comment": "**release, and release_vassal's sibling.** 0x4C1430 to the single `ret 0xC` at 0x4C21F9. `provinces` is a CList of CMapProvince*; empty does nothing. The oppressor is the first province's owner. Per province: both directions' `war_seen_tick (+0x54)` between the released country and that province's owner set to now - 24 (once per owner); **CMapProvince::ChangeOwner(p, tag, now, 1, 0, 1)**; a core for `tag` added when it has none (rva 0xA3B80); and when the province is the released country's original capital (its history's `capital` entry, else +0xE20) and its capital is elsewhere, the capital moves there (rva 0xDD730). Then area and supply groups; then **every technology the oppressor has at a higher level is raised to the oppressor's level, capped at the technology's +0x2C4**; then, when the infantry brigade type is usable (slot 9), **each released province with MODIFIER_IC > 0 spawns a CArmy of three infantry brigades** for the released country, named, at the province, with combat checked; then an `INDEPENDANCE` message (ACTOR the released, OPRESSOR the oppressor); then rva 0xF06D0(released, 1, 0). Four call sites (VAs): CReleaseEffect::Execute, 0x9AEE7D (in release_vassal's Execute), 0x4BE689 and 0x54BF32.",
+   "confidence": "inferred", "source": "reversing/findings/FINDINGS-effectrun.md",
+   "evidence": "Listing for the IC test (`mov eax,[esi+0x114]; cmp dword ptr [eax+0x78], ebx` at 0x4C1892 - modifier id 15, MODIFIER_IC, trap 5) and the exit; the rest from the decompilation."
+  },
+  {
+   "rva": "0x102BC0", "kind": "function", "name": "SetGovernmentInExile",
+   "signature": "void __stdcall SetGovernmentInExile(CCountry* country, bool inExile)",
+   "no_signature": null,
+   "comment": "Bounded by wave 15 (0x502BC0 to the `ret 8` at 0x5033AD; four `ret 8` arms) and named now. `inExile` = 1: a country already in exile only has the flag re-set; otherwise `+0xA08` = 0, `government_in_exile (+0x95)` = 1, **Manpower (+0xBCC) and officers (+0xC4) multiplied by floor(100.5f)/1000 - cut to a tenth**, the +0xF40 list destroyed, every unit standing on ground whose controller is not a friend (CCountry::IsFriend) removed - or, for an expeditionary unit, handed back (rva 0x1020E0, ShatterUnit) - the faction-leader promotion already recorded as FactionLeaderPromotion (rva 0x102F34), the acting capital moved toward the faction leader's (rva 0xDD670) when it is not the leader, and, when the acting capital is no longer its own, **every trade route of the country deleted**. `inExile` = 0: when in exile, land regiments with supply consumption below 1 are converted by a defines-named type (rva 0x1ABDD0), units rebuilt, acting capital = declared capital, flag cleared. Any other value is stored as the flag. Seven callers including CFormGovernmentInExileAction::Execute.",
+   "confidence": "inferred", "source": "reversing/findings/FINDINGS-effectrun.md",
+   "evidence": "Decompiled whole; [0x160A684] = 100.5f read from the image; the `cmp [ebp+0xC], 1` at 0x502BE6 is wave 15's. Inferred: read from the decompilation, not instruction by instruction."
+  },
+  {
+   "rva": "0x646E20", "kind": "function", "name": "CGuarantee::Deactivate",
+   "signature": "void __thiscall CGuarantee::Deactivate(CGuarantee* this)",
+   "no_signature": null,
+   "comment": "**CGuarantee slot 11**, the undo of slot 10 (Activate): `countries[first]->diplomacy[second]` and the mirror get `guarantee (+0x1C)` = 0 and `changed (+0x59)` = 1, nothing else. 0xA46E20 to the bare `ret` at 0xA46E82, one holder. Called before the object is unlinked and deleted - CEndGuaranteeEffect::Execute, AnnexCountry. The name is ours, after Activate.",
+   "confidence": "confirmed", "source": "reversing/findings/FINDINGS-effectrun.md",
+   "evidence": "Listing 0xA46E20-0xA46E82 read end to end; vtable.py --holding: CGuarantee slot 11 only."
+  },
+  {
+   "rva": "0x647300", "kind": "function", "name": "CNap::Deactivate",
+   "signature": "void __thiscall CNap::Deactivate(CNap* this)",
+   "no_signature": null,
+   "comment": "**CNap slot 11**: `nap (+0x28)` = 0 and `changed` = 1 in both directions, nothing else. 0xA47300 to the bare `ret` at 0xA47362, one holder. Instruction for instruction CGuarantee::Deactivate with +0x28 for +0x1C.",
+   "confidence": "confirmed", "source": "reversing/findings/FINDINGS-effectrun.md",
+   "evidence": "Listing 0xA47300-0xA47362; vtable.py --holding: CNap slot 11 only."
+  },
+  {
+   "rva": "0x646BF0", "kind": "function", "name": "CAlliance::Deactivate",
+   "signature": "void __thiscall CAlliance::Deactivate(CAlliance* this)",
+   "no_signature": null,
+   "comment": "**CAlliance slot 11**: `alliance (+0x14)` = 0 and `changed` = 1 in both directions; then, in a running game, -1 pushed on `CCurrentGameState +0xCF8` (the intel refresh request list, through rva 0x5F5E0) and bit 0x100 set in `[gameState+0xBE8]+0x84`. 0xA46BF0 to the bare `ret` at 0xA46D93, one holder.",
+   "confidence": "confirmed", "source": "reversing/findings/FINDINGS-effectrun.md",
+   "evidence": "Listing 0xA46BF0-0xA46D93; vtable.py --holding: CAlliance slot 11 only."
+  }
+ ],
+ "structs": [
+  {"name": "CCasusBelliEffect", "size": "0x28", "inherits": "CDiplomaticEffect", "vftable_rva": "0x11F4B18", "comment": "`casus_belli`. No data of its own past CDiplomaticEffect's target.", "evidence": "CEffect::LoadKey case at 0x99A1FD: `push 0x28; call operator_new`; RTTI base CDiplomaticEffect at 0; table VA 0x15F4B18.", "source": "reversing/findings/FINDINGS-effectrun.md"},
+  {"name": "CChangeControllerEffect", "size": "0x28", "inherits": "CCountryTargetEffect", "vftable_rva": "0x11F47C4", "comment": "`change_controller`.", "evidence": "LoadKey case 0x99A7A4 `push 0x28`; RTTI base CCountryTargetEffect at 0.", "source": "reversing/findings/FINDINGS-effectrun.md"},
+  {"name": "CCreateAllianceEffect", "size": "0x28", "inherits": "CCountryTargetEffect", "vftable_rva": "0x11F4EF4", "comment": "`create_alliance`.", "evidence": "LoadKey case 0x99A95F `push 0x28`; RTTI.", "source": "reversing/findings/FINDINGS-effectrun.md"},
+  {"name": "CCreateVassalEffect", "size": "0x28", "inherits": "CCountryTargetEffect", "vftable_rva": "0x11F5688", "comment": "`create_vassal`.", "evidence": "LoadKey case 0x99AAAA `push 0x28`; RTTI.", "source": "reversing/findings/FINDINGS-effectrun.md"},
+  {"name": "CEndGuaranteeEffect", "size": "0x28", "inherits": "CCountryTargetEffect", "vftable_rva": "0x11F54E4", "comment": "`end_guarantee`.", "evidence": "LoadKey case 0x99A9DE `push 0x28`; RTTI.", "source": "reversing/findings/FINDINGS-effectrun.md"},
+  {"name": "CRevokeMilitaryAccessEffect", "size": "0x28", "inherits": "CCountryTargetEffect", "vftable_rva": "0x11F554C", "comment": "`end_military_access`.", "evidence": "LoadKey case 0x99AA00 `push 0x28`; RTTI.", "source": "reversing/findings/FINDINGS-effectrun.md"},
+  {"name": "CEndNonAggressionEffect", "size": "0x28", "inherits": "CCountryTargetEffect", "vftable_rva": "0x11F55B4", "comment": "`end_non_aggression_pact`.", "evidence": "LoadKey case 0x99AA44 `push 0x28`; RTTI.", "source": "reversing/findings/FINDINGS-effectrun.md"},
+  {"name": "CEndWarEffect", "size": "0x28", "inherits": "CCountryTargetEffect", "vftable_rva": "0x11F5654", "comment": "`end_war`.", "evidence": "LoadKey case 0x99AA88 `push 0x28`; RTTI.", "source": "reversing/findings/FINDINGS-effectrun.md"},
+  {"name": "CGuaranteeEffect", "size": "0x28", "inherits": "CCountryTargetEffect", "vftable_rva": "0x11F54B0", "comment": "`guarantee`.", "evidence": "LoadKey case 0x999F6E `push 0x28`; RTTI.", "source": "reversing/findings/FINDINGS-effectrun.md"},
+  {"name": "CInheritEffect", "size": "0x28", "inherits": "CDiplomaticEffect", "vftable_rva": "0x11F4BE8", "comment": "`inherit`.", "evidence": "LoadKey case 0x99A5C9 `push 0x28`; RTTI base CDiplomaticEffect.", "source": "reversing/findings/FINDINGS-effectrun.md"},
+  {"name": "CLeaveAllianceEffect", "size": "0x28", "inherits": "CCountryTargetEffect", "vftable_rva": "0x11F55E8", "comment": "`leave_alliance`.", "evidence": "LoadKey case 0x99AA66 `push 0x28`; RTTI.", "source": "reversing/findings/FINDINGS-effectrun.md"},
+  {"name": "CGrantMilitaryAccessEffect", "size": "0x28", "inherits": "CCountryTargetEffect", "vftable_rva": "0x11F5518", "comment": "`military_access`.", "evidence": "LoadKey case 0x99A39F `push 0x28`; RTTI.", "source": "reversing/findings/FINDINGS-effectrun.md"},
+  {"name": "CStartNonAggressionEffect", "size": "0x28", "inherits": "CCountryTargetEffect", "vftable_rva": "0x11F5580", "comment": "`non_aggression_pact`.", "evidence": "LoadKey case 0x99AA22 `push 0x28`; RTTI.", "source": "reversing/findings/FINDINGS-effectrun.md"},
+  {"name": "CReleaseEffect", "size": "0x28", "inherits": "CDiplomaticEffect", "vftable_rva": "0x11F4C50", "comment": "`release`.", "evidence": "LoadKey case 0x99A618 `push 0x28`; RTTI base CDiplomaticEffect.", "source": "reversing/findings/FINDINGS-effectrun.md"},
+  {"name": "CSecedeProvinceEffect", "size": "0x2C", "inherits": "CDiplomaticEffect", "vftable_rva": "0x11F4BB4", "comment": "`secede_province`. Four bytes more than its siblings; +0x28 is neither initialised by the LoadKey case nor read by Execute.", "evidence": "LoadKey case 0x99A57A `push 0x2c` and its inline construction (stores to +4..+0x24 only); RTTI.", "source": "reversing/findings/FINDINGS-effectrun.md"},
+  {"name": "CSurrenderInheritEffect", "size": "0x28", "inherits": "CDiplomaticEffect", "vftable_rva": "0x11F4C1C", "comment": "`surrender_inherit`.", "evidence": "LoadKey case 0x99B030 `push 0x28`; RTTI.", "source": "reversing/findings/FINDINGS-effectrun.md"},
+  {"name": "CFormGovernmentInExileAction", "size": "0x24", "inherits": "CBoolEffect", "vftable_rva": "0x11F5174", "comment": "`form_government_in_exile`; the bool at +0x20 is CBoolEffect's value.", "evidence": "LoadKey case 0x99AACC `push 0x24`; RTTI base CBoolEffect; 13 slots (CBoolEffect's slot 12).", "source": "reversing/findings/FINDINGS-effectrun.md"}
+ ],
+ "struct_fields": [
+  {"struct": "CUndeclaredWar", "offset": "0x38", "name": "provinces_begin", "type": "int*", "comment": "The fourth vector: the province ids of every region added, region after region, duplicates kept. UndeclaredWar_AddRegion (rva 0x76340) assigns a region's `provinces_begin..end` (CRegion +8/+0xC) here when it is empty and appends them at +0x3C when not.", "evidence": "0x476360-0x47638C: `mov edx,[esi+0x3c]; lea eax,[esi+0x38]; sub esi,[eax]` then vector_assign or 0x482190 with the region's `[ecx]`/`[ecx+4]`; the effect's constructor zeroes +0x38/+0x3C/+0x40 beside the other three vectors.", "source": "reversing/findings/FINDINGS-effectrun.md"},
+  {"struct": "CUndeclaredWar", "offset": "0x3C", "name": "provinces_end", "type": "int*", "comment": "One past the last province id of the vector at +0x38; where UndeclaredWar_AddRegion inserts.", "evidence": "As +0x38.", "source": "reversing/findings/FINDINGS-effectrun.md"},
+  {"struct": "CUndeclaredWar", "offset": "0x40", "name": "provinces_capacity", "type": "int*", "comment": "End of the allocation of the vector at +0x38, by the MSVC vector shape the three other vectors share. Inferred from the shape - nothing read here reads it.", "evidence": "Zeroed by the constructor at 0x9BCFA4 with +0x38/+0x3C.", "source": "reversing/findings/FINDINGS-effectrun.md"}
+ ],
+ "vftable_slots": {
+  "CCasusBelliEffect": {"11": {"name": "Execute", "signature": "void __thiscall Execute(CCasusBelliEffect* this, CEventScope* scope, int unused)"}},
+  "CChangeControllerEffect": {"11": {"name": "Execute", "signature": "void __thiscall Execute(CChangeControllerEffect* this, CEventScope* scope, int unused)"}},
+  "CCreateAllianceEffect": {"11": {"name": "Execute", "signature": "void __thiscall Execute(CCreateAllianceEffect* this, CEventScope* scope, int unused)"}},
+  "CCreateVassalEffect": {"11": {"name": "Execute", "signature": "void __thiscall Execute(CCreateVassalEffect* this, CEventScope* scope, int unused)"}},
+  "CEndGuaranteeEffect": {"11": {"name": "Execute", "signature": "void __thiscall Execute(CEndGuaranteeEffect* this, CEventScope* scope, int unused)"}},
+  "CRevokeMilitaryAccessEffect": {"11": {"name": "Execute", "signature": "void __thiscall Execute(CRevokeMilitaryAccessEffect* this, CEventScope* scope, int unused)"}},
+  "CEndNonAggressionEffect": {"11": {"name": "Execute", "signature": "void __thiscall Execute(CEndNonAggressionEffect* this, CEventScope* scope, int unused)"}},
+  "CEndWarEffect": {"11": {"name": "Execute", "signature": "void __thiscall Execute(CEndWarEffect* this, CEventScope* scope, int unused)"}},
+  "CGuaranteeEffect": {"11": {"name": "Execute", "signature": "void __thiscall Execute(CGuaranteeEffect* this, CEventScope* scope, int unused)"}},
+  "CInheritEffect": {"11": {"name": "Execute", "signature": "void __thiscall Execute(CInheritEffect* this, CEventScope* scope, int unused)"}},
+  "CLeaveAllianceEffect": {"11": {"name": "Execute", "signature": "void __thiscall Execute(CLeaveAllianceEffect* this, CEventScope* scope, int unused)"}},
+  "CLeaveFactionEffect": {"11": {"name": "Execute", "signature": "void __thiscall Execute(CLeaveFactionEffect* this, CEventScope* scope, int unused)"}},
+  "CGrantMilitaryAccessEffect": {"11": {"name": "Execute", "signature": "void __thiscall Execute(CGrantMilitaryAccessEffect* this, CEventScope* scope, int unused)"}},
+  "CStartNonAggressionEffect": {"11": {"name": "Execute", "signature": "void __thiscall Execute(CStartNonAggressionEffect* this, CEventScope* scope, int unused)"}},
+  "CRelationEffect": {"11": {"name": "Execute", "signature": "void __thiscall Execute(CRelationEffect* this, CEventScope* scope, int unused)"}},
+  "CReleaseEffect": {"11": {"name": "Execute", "signature": "void __thiscall Execute(CReleaseEffect* this, CEventScope* scope, int unused)"}},
+  "CSecedeProvinceEffect": {"11": {"name": "Execute", "signature": "void __thiscall Execute(CSecedeProvinceEffect* this, CEventScope* scope, int unused)"}},
+  "CSurrenderInheritEffect": {"11": {"name": "Execute", "signature": "void __thiscall Execute(CSurrenderInheritEffect* this, CEventScope* scope, int unused)"}},
+  "CThreatEffect": {"11": {"name": "Execute", "signature": "void __thiscall Execute(CThreatEffect* this, CEventScope* scope, int unused)"}},
+  "CFormGovernmentInExileAction": {"11": {"name": "Execute", "signature": "void __thiscall Execute(CFormGovernmentInExileAction* this, CEventScope* scope, int unused)"}},
+  "CWarEffect": {"11": {"name": "Execute", "signature": "void __thiscall Execute(CWarEffect* this, CEventScope* scope, int unused)"}},
+  "CUndeclaredWarRegionEffect": {"11": {"name": "Execute", "signature": "void __thiscall Execute(CUndeclaredWarRegionEffect* this, CEventScope* scope, int unused)"}},
+  "CWarGoalEffect": {"11": {"name": "Execute", "signature": "void __thiscall Execute(CWarGoalEffect* this, CEventScope* scope, int unused)"}},
+  "CGuarantee": {"11": "Deactivate"},
+  "CNap": {"11": "Deactivate"},
+  "CAlliance": {"11": "Deactivate"}
+ },
+ "slots_noted": "CCasusBelli::Activate (rva 0x647BB0) is CCasusBelli slot 10 and project.json already records that slot as Activate; the revision changes only the entry's comment, so the slot is not restated here (restating it would insert a duplicate \"10\" key into CCasusBelli's existing vftable_slots block). Every other address this fragment names that a table holds is covered under vftable_slots.",
+ "frontier": ["0xA2180", "0x4A2FB0", "0x1D6230", "0xE39C0", "0xE0460", "0xF06D0", "0xE0B80", "0xA3B80", "0xDD730", "0xDD670", "0x1020E0", "0x1ABDD0", "0x10F820", "0x7E590", "0x647F20", "0x647370", "0x221F0", "0x82190", "0xBC800", "0x618D70", "0x612030", "0x611F90"]
+}

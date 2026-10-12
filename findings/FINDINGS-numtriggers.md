@@ -4,6 +4,9 @@
 the four composites walk a child list. This is the content: the 78 leaves whose slot 6 is one
 numeric comparison, and the three different scales their operands are on.
 
+*2026-10-12: `FINDINGS-triggerleaves.md` section 1.4 corrects this file - `faction_progress` has no
+division by a thousand, `nationalism` is guarded and strict - and fills in the rows left "not read".*
+
 Addresses are **rvas** against an image base of `0x400000`, as everywhere in this folder.
 
 ## 1. The answer in one paragraph

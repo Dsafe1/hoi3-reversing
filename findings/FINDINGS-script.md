@@ -816,7 +816,7 @@ for.
 | `add_country_modifier` | 865 | `CAddCountryModifierEffect` |
 | `add_division` | 1920 | `CAddDivisionEffect` |
 | `add_province_modifier` | 864 | `CAddProvinceModifierEffect` |
-| `add_wargoal` | 1977 | `CWarGoal` |
+| `add_wargoal` | 1977 | `CWarGoalEffect` (was `CWarGoal`, the embedded member's vftable the constructor writes last; corrected 2026-10-12, `FINDINGS-effectrun.md` 2.5) |
 | `any_controlled` | 2122 | `CAnyControlledEffect` |
 | `any_country` | 968 | `CAnyCountryEffect` |
 | `any_nearby_province` | 2039 | `CAnyNearbyProvinceEffect` |

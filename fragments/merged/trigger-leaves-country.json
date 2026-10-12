@@ -1,0 +1,859 @@
+{
+ "agent": "wave 2 agent A (trigger leaves: country and diplomacy)",
+ "question": "What each country and diplomacy trigger leaf's Evaluate (slot 6) answers, with scope part, missing-scope, comparison, THIS/FROM and null-name behaviour.",
+ "source": "reversing/findings/FINDINGS-triggerleaves.md",
+ "addresses": [
+  {
+   "rva": "0x5ED3B0",
+   "kind": "function",
+   "name": "CIsAiTrigger::Evaluate",
+   "signature": "bool __thiscall CIsAiTrigger::Evaluate(CIsAiTrigger* this, CEventScope* scope)",
+   "no_signature": null,
+   "comment": "**`ai = yes`: nobody is playing the scope's country.** 0x5ED3B0 to the single `ret 4` at 0x5ED477, 6 int3 after. The game state is fetched get-or-create (the inlined `new(0xDA8)` block), then\n\n    return (state->played_countries_array (+0xBCC) [scope->country_id (+0x14)] == 0) == this->value (+0x40)\n\n+0xBCC is used as a **pointer** to one dword per country id. `ai = no` is a real test (a played country). Country 0 is not tested for; it reads entry 0.",
+   "confidence": "confirmed",
+   "evidence": "Slot 6 of CIsAiTrigger's table (rva 0x11F8B88), single holder by `vtable.py --holding`; listing read end to end. `cmp [ecx+eax*4], ebx(0); sete al; cmp al, [edi+0x40]; sete al` at 0x5ED456-0x5ED469. Wrong if +0xBCC were a by-value array - it is loaded first (`mov ecx,[ecx+0xbcc]`) and then indexed.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md"
+  },
+  {
+   "rva": "0x5EE030",
+   "kind": "function",
+   "name": "CCanCreateVassalsTrigger::Evaluate",
+   "signature": "bool __thiscall CCanCreateVassalsTrigger::Evaluate(CCanCreateVassalsTrigger* this, CEventScope* scope)",
+   "no_signature": null,
+   "comment": "**`can_create_vassals`: the scope's country has at least one releasable nation - and the value is never read.** 0x5EE030 to the single `ret 4` at 0x5EE063.\n\n    return CCountry::GetPossibleVassals(countries[scope->country_id])->count (+8) > 0\n\n`this` (ECX) is overwritten at 0x5EE03C before any read, so **`can_create_vassals = no` answers exactly as `= yes`**. GetPossibleVassals (0xEE320) rebuilds CCountry +0x11E0 on every call, so this allocates.",
+   "confidence": "confirmed",
+   "evidence": "Slot 6 of CCanCreateVassalsTrigger's table (rva 0x11F8C24), single holder by `vtable.py --holding`; the whole body is 13 instructions; no `[ecx+0x40]` or `[edi+0x40]` read exists in it. Wrong if a caller passed the value some other way - slot 6 has one stack argument (`ret 4`) and that is the scope.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md"
+  },
+  {
+   "rva": "0x5E7C60",
+   "kind": "function",
+   "name": "CCasusBelliTrigger::Evaluate",
+   "signature": "bool __thiscall CCasusBelliTrigger::Evaluate(CCasusBelliTrigger* this, CEventScope* scope)",
+   "no_signature": null,
+   "comment": "**`casus_belli = TAG`: the scope's country could go to war on TAG with some casus belli now.** 0x5E7C60 to the single `ret 4` at 0x5E7CE1.\n\n    other = this->target (+0x40/+0x44)\n    if (arg_is_this (+0x18)) other = scope->this_scope (+0x38) ->country (+0x10/+0x14)\n    elif (arg_is_from (+0x19)) other = scope->this_scope ->from_country (+0x18/+0x1C)\n    return DiplomacyStatus_HasUsableCasusBelli(us->diplomacy (+0xE28) [other.id], &scope->country_tag, &other)   // 0x649CA0\n\nTHIS is read straight off this_scope, **without** EventScope_GetCountryTag's fall-back to the province owner - unlike guarantee, military_access, non_aggression_pact, truce_with, undeclared_war_with, vassal_of and war_with. For what counts as usable see 0x649CA0/0x649D80.",
+   "confidence": "confirmed",
+   "evidence": "Slot 6 of CCasusBelliTrigger's table (rva 0x11F887C), single holder by `vtable.py --holding`; listing read end to end; the three pushes before the call at 0x5E7CD3 are &other (lea [esp+8]), scope+0x10, and the status. Wrong if 0x649CA0 took its arguments in another order - its body uses [ebp+8] as the status (passes it on to 0x649D80, which walks its +0x3C), [ebp+0xC] as the holder and [ebp+0x10] as the target.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md"
+  },
+  {
+   "rva": "0x5D3100",
+   "kind": "function",
+   "name": "CDateTrigger::Evaluate",
+   "signature": "bool __thiscall CDateTrigger::Evaluate(CDateTrigger* this, CEventScope* scope)",
+   "no_signature": null,
+   "comment": "**`date = Y.M.D`: `now + scope->days_in_month (+0x34) * 24 >= this->date (+0x40)`**, in hours. 0x5D3100 to the single `ret 4` at 0x5D31B8; game state get-or-create inlined.\n\n    return state->tick (+0xBDC) + scope->+0x34 * 24 >= this->date\n\n**This is the reader of CEventScope +0x34 the record lacked.** RunDailyEventPass leaves +0x34 at 0, so there `date` is an exact 'on or after'; RebuildCountryEventCandidates sets it to the current month's length, so in the candidate pass `date` is already true up to 28-31 days early - an event dated within the coming month is admitted as a candidate and the daily pass then tests it exactly. That purpose is inference; the arithmetic is read. `year` (0x5D2510) and `month` (0x5D2B30) do not read +0x34.",
+   "confidence": "confirmed",
+   "evidence": "Slot 6 of CDateTrigger's table (rva 0x11F7D50), single holder by `vtable.py --holding`; `mov eax,[eax+0x34]; mov ecx,[ecx+0xbdc]; lea edx,[eax+eax*2]; lea ecx,[ecx+edx*8]; cmp ecx,[edi+0x40]; setge al` at 0x5D3192-0x5D31AA - edx*8 with edx = 3*eax is 24*eax. Control: the year/month bodies decoded end to end show `+0xBDC` and no `+0x34`.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md"
+  },
+  {
+   "rva": "0x5FC8E0",
+   "kind": "function",
+   "name": "CFactionTrigger::Evaluate",
+   "signature": "bool __thiscall CFactionTrigger::Evaluate(CFactionTrigger* this, CEventScope* scope)",
+   "no_signature": null,
+   "comment": "**`faction = <name>`: the scope's country is in that (real) faction.** 0x5FC8E0 to two `ret 4` at 0x5FC960 and 0x5FC96B, one frame.\n\n    if (scope->country_id == 0) return false          // the only leaf of this set that tests it\n    f = this->faction (+0x40)\n    if (arg_is_this (+0x18)) f = countries[EventScope_GetCountryTag(scope).id]->faction (+0xD8)\n    if (f == 0 || !f->slot7()) return false            // slot 7: ReturnTrue on CFaction, ReturnFalse on CNullFaction\n    return countries[scope->country_id]->faction == f\n\nSo `faction = THIS` is 'the scope and THIS share a real faction'; an unknown name and `faction = FROM` (looked up as a name) give CNullFaction and are false. arg_is_from is never read.",
+   "confidence": "confirmed",
+   "evidence": "Slot 6 of CFactionTrigger's table (rva 0x11F8334), single holder by `vtable.py --holding`; listing read end to end; `vtable.py CFaction CNullFaction` shows slot 7 = 0x692590 (ReturnTrue) against 0x192360 (ReturnFalse). Wrong if a country's faction could be CNullFaction-but-real - it cannot, slot 7 is the only difference tested.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md"
+  },
+  {
+   "rva": "0x5D9B90",
+   "kind": "function",
+   "name": "CGovernmentTrigger::Evaluate",
+   "signature": "bool __thiscall CGovernmentTrigger::Evaluate(CGovernmentTrigger* this, CEventScope* scope)",
+   "no_signature": null,
+   "comment": "**`government = <name>`: `countries[scope->country_id]->Government (+0xDFC) == this->government (+0x40)`**, a pointer compare. 0x5D9B90 to the single `ret 4` at 0x5D9BC3. An unknown name leaves +0x40 null and is false for every country whose government pointer is set. No THIS/FROM, no test for country 0.",
+   "confidence": "confirmed",
+   "evidence": "Slot 6 of CGovernmentTrigger's table (rva 0x11F8300), single holder by `vtable.py --holding`; `mov edx,[eax+0xdfc]; cmp edx,[ecx+0x40]; sete al` at 0x5D9BB4. Wrong if a country can hold a null government, in which case an unknown name would be true for it - not looked for.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md"
+  },
+  {
+   "rva": "0x5E0F90",
+   "kind": "function",
+   "name": "CIsGovernmentInExileTrigger::Evaluate",
+   "signature": "bool __thiscall CIsGovernmentInExileTrigger::Evaluate(CIsGovernmentInExileTrigger* this, CEventScope* scope)",
+   "no_signature": null,
+   "comment": "**`government_in_exile = yes|no`: `countries[scope->country_id]->government_in_exile (+0x95) == this->value (+0x40)`**, byte compare, so `= no` is a real test. 0x5E0F90 to the single `ret 4` at 0x5E0FC5.",
+   "confidence": "confirmed",
+   "evidence": "Slot 6 of CIsGovernmentInExileTrigger's table (rva 0x11F7DEC), single holder by `vtable.py --holding`; `mov dl,[eax+0x95]; cmp dl,[ecx+0x40]; sete al`. The field is the Lua's `IsGovernmentInExile`.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md"
+  },
+  {
+   "rva": "0x5F8BB0",
+   "kind": "function",
+   "name": "CGuaranteeTrigger::Evaluate",
+   "signature": "bool __thiscall CGuaranteeTrigger::Evaluate(CGuaranteeTrigger* this, CEventScope* scope)",
+   "no_signature": null,
+   "comment": "**`guarantee = TAG` is an inlined copy of CDiplomacyStatus::IsGuaranting (0x648730)** on the scope's status toward TAG. 0x5F8BB0 to two `ret 4` at 0x5F8C39 and 0x5F8C43.\n\n    THIS is EventScope_GetCountryTag (0x5C1A40) - this_scope's country, or the owner of this_scope's province when it has none; FROM is `scope->this_scope (+0x38) ->from_country (+0x18/+0x1C)`; otherwise the tag at +0x40/+0x44 (CTagTrigger's). \n    s = us->diplomacy (+0xE28) [other.id]; g = s->guarantee (+0x1C)\n    return g != 0 && g->first.id (+0xC) != s->Target.id (+0xC)\n\nTrue when a guarantee exists between the pair and TAG is **not** its first party - i.e. the scope's country is. The game's own Lua name for the same test, IsGuaranting, says the scope country is the guarantor; that direction is the name's, not read off a writer.",
+   "confidence": "confirmed",
+   "evidence": "Slot 6 of CGuaranteeTrigger's table (rva 0x11F9270), single holder by `vtable.py --holding`; listing read end to end; byte-for-byte the IsGuaranting test (`cmp [g+0xc], status+0xc; je false`), the `setne` form. Wrong about the direction only if CGuaranteeAction makes the guaranteed country `first`.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md"
+  },
+  {
+   "rva": "0x5E8410",
+   "kind": "function",
+   "name": "CHasCasusBelliTrigger::Evaluate",
+   "signature": "bool __thiscall CHasCasusBelliTrigger::Evaluate(CHasCasusBelliTrigger* this, CEventScope* scope)",
+   "no_signature": null,
+   "comment": "**`has_cb = { type = T actor = A }` asks about war goals, not casus belli: does a country at war with the scope's country hold a war goal of type T against it.** 0x5E8410 to two `ret 4` at 0x5E853A and 0x5E8696 (one frame, SEH slot shared).\n\n    db = the casus-belli-type database g_casus_belli_types (0x1685BD8), made on first use\n    t  = CMessageHandler::LookupType(db@EAX, &this->type (+0x48))   // 0x299AC0, by name, every evaluation\n    if (t == 0) t = db->+0xC[0]                                      // index 0, the CNullCasusBelliType\n    if (t == 0 || !t->slot7()) { log 'Error in has_cb trigger - invalid CB type!' (trigger.cpp 0xA29, channel 0x10004); return false }\n    actor = HasCbTrigger_ResolveActor(this, scope)                    // 0x5E83C0: THIS/FROM off this_scope, else +0x40/+0x44\n    if (actor.id && us->diplomacy[actor.id]->war (+0x20))\n        for g in War_GetGoalsOf(war, actor)                           // 0x652410, CWar +0x9C\n            if (g->receiver.id (+0x24) == scope->country_id && g->casus_belli (+0xC)->index (+8) == t->index (+8)) return true\n    for e in us->enemies (+0x1008)                                    // every country at war with us\n        if (e.id && countries[e.id]->owned_province_count (+0xCF8) > 0 && us->diplomacy[e.id]->war)\n            same test on War_GetGoalsOf(that war, e)\n    return false\n\n**`actor` restricts nothing**: when the actor's goals do not match, every enemy is tried anyway, the actor among them. The only case it changes is an actor at war with the scope that owns no province, which the fall-back skips. An unknown `type` is logged on every evaluation and is false.",
+   "confidence": "confirmed",
+   "evidence": "Slot 6 of CHasCasusBelliTrigger's table (rva 0x11F88B0), single holder by `vtable.py --holding`; listing read end to end (0x290 bytes to slot 8 at 0x5E86A0). ESI at both 0x652410 calls is the status's +0x20 (0x5E84E9, 0x5E858C). CWarGoal +0x20/+0x24 is `receiver` and +0xC `casus_belli` in the record; CWarGoal::AddToWar files a goal under its actor's id in CWar +0x9C. Wrong if the enemies list held countries not at war - it is rebuilt from `+0x20 != 0` by UpdateAtWarAndEnemies, and the war test is repeated here anyway.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md"
+  },
+  {
+   "rva": "0x5E3320",
+   "kind": "function",
+   "name": "CHasCountryModifierTrigger::Evaluate",
+   "signature": "bool __thiscall CHasCountryModifierTrigger::Evaluate(CHasCountryModifierTrigger* this, CEventScope* scope)",
+   "no_signature": null,
+   "comment": "**`has_country_modifier = <name>`: some entry of the scope's country's active_modifiers (+0x648) has this modifier.** 0x5E3320 to two `ret 4` at 0x5E3364 and 0x5E336C.\n\n    for node in countries[scope->country_id]->active_modifiers (+0x648)   // {data, ?, next@+8}\n        if (node->data->+8 == this->modifier (+0x40)) return true\n    return false\n\n**No date test**: an entry whose date has passed still answers true until CCountry::RebuildStaticModifiers removes it. An unknown name (null, logged at load) is false unless an entry carries a null modifier.",
+   "confidence": "confirmed",
+   "evidence": "Slot 6 of CHasCountryModifierTrigger's table (rva 0x11F85D8), single holder by `vtable.py --holding`; listing read end to end; the record's +0x648 comment already gives 'the modifier at +8 and a date at +0xC' per entry, which this agrees with. Wrong if +0x648 nodes were 0x10 with next elsewhere - the walk uses [node+8] as next and [node] as payload.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md"
+  },
+  {
+   "rva": "0x5E26D0",
+   "kind": "function",
+   "name": "CHasGlobalFlagTrigger::Evaluate",
+   "signature": "bool __thiscall CHasGlobalFlagTrigger::Evaluate(CHasGlobalFlagTrigger* this, CEventScope* scope)",
+   "no_signature": null,
+   "comment": "**`has_global_flag = <name>`: the global flag exists and is set** - the global twin of CHasCountryFlagTrigger::Evaluate (0x5E20B0). 0x5E26D0 to two `ret 4` at 0x5E2798 and 0x5E27AC.\n\n    name  = c_str(this->flag (+0x40))                       // the maxLength (+0x54) >= 0x10 small-string test\n    found = state->flags (+0xC4) ->vftable[2](name)         // GuiTypeTree_Find\n    return found != 0 && found->is_set (+0x1C) != 0\n\nA cleared flag stays in the tree with its byte at 0 and answers false. The scope is not read.",
+   "confidence": "confirmed",
+   "evidence": "Slot 6 of CHasGlobalFlagTrigger's table (rva 0x11F85A4), single holder by `vtable.py --holding`; listing read end to end; `lea ecx,[eax+0xc4]; mov eax,[ecx]; call [eax+8]; cmp byte [eax+0x1c],0`. Same shape as the recorded country-flag body.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md"
+  },
+  {
+   "rva": "0x5FBFE0",
+   "kind": "function",
+   "name": "CHasRemovableMinisterTrigger::Evaluate",
+   "signature": "bool __thiscall CHasRemovableMinisterTrigger::Evaluate(CHasRemovableMinisterTrigger* this, CEventScope* scope)",
+   "no_signature": null,
+   "comment": "**`has_removable_minister = yes|no`: the scope's country has a minister it may dismiss.** 0x5FBFE0 to the single `ret 4` at 0x5FC256.\n\n    n = 0\n    for i, p in g_government_positions (+0xC..+0x10):        // made on first use\n        if (!p->slot14() || !p->isChangeable (+0x50)) continue  // slot 14: ReturnTrue on CGovernmentPosition, ReturnFalse on the null one\n        m = us->ministers (+0x618) [p->index (+0x4C)]\n        if (m == 0 || !m->slot8()) continue                   // slot 8: ReturnTrue on CMinister, ReturnFalse on CNullMinister\n        for j, q in the same vector:\n            if (ministers[q->index] == m && j != i && !q->isChangeable) goto next_i   // he also holds a fixed post\n        n++\n    return (n > 0) == this->value (+0x40)\n\nA minister counts when he holds a changeable post and no unchangeable one. The inner loop re-fetches the database through the get-or-create each step.",
+   "confidence": "confirmed",
+   "evidence": "Slot 6 of CHasRemovableMinisterTrigger's table (rva 0x11F7E54), single holder by `vtable.py --holding`; listing read end to end; `vtable.py CGovernmentPosition CNullGovernmentPosition` slot 14 and `CMinister CNullMinister` slot 8 are ReturnTrue/ReturnFalse. +0x50 is the Lua's `IsChangeable`. Wrong if 0x9FC218 were not the increment - it is reached only from the inner loop's `jge` exit.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md"
+  },
+  {
+   "rva": "0x604F90",
+   "kind": "function",
+   "name": "CHasStrategicResourceTrigger::Evaluate",
+   "signature": "bool __thiscall CHasStrategicResourceTrigger::Evaluate(CHasStrategicResourceTrigger* this, CEventScope* scope)",
+   "no_signature": null,
+   "comment": "**`has_strategic_resource`: the scope's province has a real strategic resource - and the value is never read.** 0x604F90 to the single `ret 4` at 0x605048.\n\n    return state->provinces_begin (+0xB8C) [scope->province (+0x28)] ->strategic_resource (+0x18) ->slot14()\n\nSlot 14 is ReturnTrue on CStrategicResource and ReturnFalse on CNullStrategicResource. `this` is not read, so **`has_strategic_resource = no` answers exactly as `= yes`**. No test for province 0 or a null resource pointer; RebuildStrategicResourceProvinces (0x28BB90) dispatches the same slot unguarded over every province from index 0, so the pointer is never null in practice.",
+   "confidence": "confirmed",
+   "evidence": "Slot 6 of CHasStrategicResourceTrigger's table (rva 0x11F7D84), single holder by `vtable.py --holding`; `mov ecx,[eax+0x28]; mov edx,[esi+0xb8c]; mov eax,[edx+ecx*4]; mov ecx,[eax+0x18]; call [[ecx]+0x38]` and the result left in AL. The only `edi`/`ecx`-relative read of the trigger is absent. Control for 'never null': 0x28BC40 in the rebuild loop starting at index 0.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md"
+  },
+  {
+   "rva": "0x5EDAB0",
+   "kind": "function",
+   "name": "CHasWarGoalTrigger::Evaluate",
+   "signature": "bool __thiscall CHasWarGoalTrigger::Evaluate(CHasWarGoalTrigger* this, CEventScope* scope)",
+   "no_signature": null,
+   "comment": "**`has_wargoal = TAG`: the scope's country is at war with TAG and holds a war goal against it in that war.** 0x5EDAB0 to two `ret 4` at 0x5EDB58 and 0x5EDB63.\n\n    other.id = this->target.id (+0x44); THIS -> this_scope->country_id (+0x14); FROM -> this_scope->from_country_id (+0x1C)\n    war = us->diplomacy[other.id]->war (+0x20); if (!war) return false\n    for g in War_GetGoalsOf(war, scope->country)     // 0x652410: the goals filed under the scope's country\n        if (g->receiver.id (+0x24) == other.id) return true\n    return false\n\nTHIS is straight off this_scope, no owner fall-back. The goal's type is not looked at.",
+   "confidence": "confirmed",
+   "evidence": "Slot 6 of CHasWarGoalTrigger's table (rva 0x11F8BF0), single holder by `vtable.py --holding`; listing read end to end; the vector is walked with stride 0x2C (the `0x2E8BA2E9` divide by 44 at 0x5EDB2A) from begin +0x24. CWarGoal +0x20 is `receiver` (Lua GetRecipient). Wrong if CWar +0x9C were keyed by receiver - CWarGoal::AddToWar's record says it is keyed by the actor's id.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md"
+  },
+  {
+   "rva": "0x5F4E80",
+   "kind": "function",
+   "name": "CIsIdeologyEqualTrigger::Evaluate",
+   "signature": "bool __thiscall CIsIdeologyEqualTrigger::Evaluate(CIsIdeologyEqualTrigger* this, CEventScope* scope)",
+   "no_signature": null,
+   "comment": "**`ideology = <name>`: `this->ideology (+0x5C) != 0 && countries[scope->country_id]->ruling_ideology (+0x1140) == this->ideology`.** 0x5F4E80 to two `ret 4` at 0x5F4EB8 and 0x5F4EC0. An unknown name is false; a null ruling party is false (the pointer compare cannot match a non-null +0x5C).",
+   "confidence": "confirmed",
+   "evidence": "Slot 6 of CIsIdeologyEqualTrigger's table (rva 0x11F8F64), single holder by `vtable.py --holding`; listing read end to end; `mov eax,[ecx+0x5c]; test eax,eax; je false; ... cmp [ecx+0x1140],eax`. The +0x1140 comment already names this body as a reader.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md"
+  },
+  {
+   "rva": "0x5F4780",
+   "kind": "function",
+   "name": "CIdeologyGroupTrigger::Evaluate",
+   "signature": "bool __thiscall CIdeologyGroupTrigger::Evaluate(CIdeologyGroupTrigger* this, CEventScope* scope)",
+   "no_signature": null,
+   "comment": "**`ideology_group = <name>`: `this->group (+0x40) != 0 && countries[scope->country_id]->ruling_ideology (+0x1140) ->Group (+0x50) == this->group`.** 0x5F4780 to two `ret 4` at 0x5F47BB and 0x5F47C3.\n\n**There is no null test on the ruling party**, unlike the `organisation`/`popularity` and `ideology` bodies: a country whose +0x1140 is null faults reading address 0x50. Whether a live country can reach this with a null ruling party was not established. An unknown group name is false before the dereference.",
+   "confidence": "confirmed",
+   "evidence": "Slot 6 of CIdeologyGroupTrigger's table (rva 0x11F8F98), single holder by `vtable.py --holding`; `mov edx,[ecx+0x1140]; cmp [edx+0x50],eax` at 0x5F47AB-0x5F47B1 with no `test edx,edx` between. The record's +0x1140 entry says the field can be null and that CRulingOrganisationTrigger/CRulingPopularityTrigger test it.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md"
+  },
+  {
+   "rva": "0x5FC400",
+   "kind": "function",
+   "name": "CIsInAnyFactionTrigger::Evaluate",
+   "signature": "bool __thiscall CIsInAnyFactionTrigger::Evaluate(CIsInAnyFactionTrigger* this, CEventScope* scope)",
+   "no_signature": null,
+   "comment": "**`is_in_any_faction = yes|no`: `countries[scope->country_id]->faction (+0xD8) ->slot7() == this->value (+0x40)`** - slot 7 is ReturnTrue on CFaction and ReturnFalse on CNullFaction, so this is 'is in a real faction'. 0x5FC400 to the single `ret 4` at 0x5FC43F. +0xD8 is never null.",
+   "confidence": "confirmed",
+   "evidence": "Slot 6 of CIsInAnyFactionTrigger's table (rva 0x11F7E20), single holder by `vtable.py --holding`; listing read end to end; `vtable.py CFaction CNullFaction` for slot 7.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md"
+  },
+  {
+   "rva": "0x5EE320",
+   "kind": "function",
+   "name": "CIsPossibleVassalTrigger::Evaluate",
+   "signature": "bool __thiscall CIsPossibleVassalTrigger::Evaluate(CIsPossibleVassalTrigger* this, CEventScope* scope)",
+   "no_signature": null,
+   "comment": "**`is_possible_vassal = TAG`: TAG is among the nations the scope's country could release.** 0x5EE320 to two `ret 4` at 0x5EE3B9 and 0x5EE3D9.\n\n    list = CCountry::GetPossibleVassals(countries[scope->country_id])   // 0xEE320, rebuilt each call\n    copy = a fresh CList<CCountryTag>, appended node by node through CList_CCountryTag_PushBack (0xBEDF0)\n    found = any node of copy with id (+4) == this->target.id (+0x44)\n    free copy; return found\n\n**THIS and FROM are ignored**: the shared loader sets the flags and leaves +0x40/+0x44 at the constructor's `---`/0, and this body never reads +0x18/+0x19, so `is_possible_vassal = THIS` asks about country 0. The copy is pure overhead - three heap operations per node.",
+   "confidence": "confirmed",
+   "evidence": "Slot 6 of CIsPossibleVassalTrigger's table (rva 0x11F8C58), single holder by `vtable.py --holding`; listing read end to end; the constructor (0x5CEAB0, the one writer of the vftable) stores `---` and 0 into +0x40/+0x44. Wrong if 0xBEDF0 did more than append - it is 0x56 bytes, `new(0x14)`, copies 8 bytes from its argument, links at the tail and bumps +8.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md"
+  },
+  {
+   "rva": "0x5ED730",
+   "kind": "function",
+   "name": "CIsSubjectTrigger::Evaluate",
+   "signature": "bool __thiscall CIsSubjectTrigger::Evaluate(CIsSubjectTrigger* this, CEventScope* scope)",
+   "no_signature": null,
+   "comment": "**`is_subject = yes|no`: `countries[scope->country_id]->isSubject (+0xF34) == this->value (+0x40)`.** 0x5ED730 to the single `ret 4` at 0x5ED763. isSubject is set only for a `vassal` relation (CCountry::UpdateSubjectStatus), so this is 'is a puppet', not 'is in a faction'.",
+   "confidence": "confirmed",
+   "evidence": "Slot 6 of CIsSubjectTrigger's table (rva 0x11F8BBC), single holder by `vtable.py --holding`; `mov dl,[eax+0xf34]; cmp dl,[ecx+0x40]; sete al`.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md"
+  },
+  {
+   "rva": "0x5F7820",
+   "kind": "function",
+   "name": "CGrantsMilitaryAccessTrigger::Evaluate",
+   "signature": "bool __thiscall CGrantsMilitaryAccessTrigger::Evaluate(CGrantsMilitaryAccessTrigger* this, CEventScope* scope)",
+   "no_signature": null,
+   "comment": "**`military_access = TAG`: `us->diplomacy (+0xE28) [other.id] ->hasMilitaryAccess (+0x4C) != 0`.** 0x5F7820 to the single `ret 4` at 0x5F7891.\n\n    THIS is EventScope_GetCountryTag (0x5C1A40) - this_scope's country, or the owner of this_scope's province when it has none; FROM is `scope->this_scope (+0x38) ->from_country (+0x18/+0x1C)`; otherwise the tag at +0x40/+0x44 (CTagTrigger's). \n\nDirection: the event effect of the same keyword, CGrantMilitaryAccessEffect::Execute (0x5B69F0), sets the byte on the same status - the scope's toward the named country - so this reads 'the scope's country grants TAG military access', which is what the class name says. Likely, not proven from the diplomatic action.",
+   "confidence": "confirmed",
+   "evidence": "Slot 6 of CGrantsMilitaryAccessTrigger's table (rva 0x11F91A0), single holder by `vtable.py --holding`; listing read end to end; `cmp byte [ecx+0x4c],0; setne al`. The effect at 0x5B6A26-0x5B6A4E indexes `countries[scope->country_id]->+0xE28[other]` and calls SetMilitaryAccess (0x64A400) with cl=1.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md"
+  },
+  {
+   "rva": "0x5F7310",
+   "kind": "function",
+   "name": "CNonAgggressionPactTrigger::Evaluate",
+   "signature": "bool __thiscall CNonAgggressionPactTrigger::Evaluate(CNonAgggressionPactTrigger* this, CEventScope* scope)",
+   "no_signature": null,
+   "comment": "**`non_aggression_pact = TAG`: `us->diplomacy (+0xE28) [other.id] ->nap (+0x28) != 0`** - a pact in either direction, the object being shared. 0x5F7310 to the single `ret 4` at 0x5F7381.\n\n    THIS is EventScope_GetCountryTag (0x5C1A40) - this_scope's country, or the owner of this_scope's province when it has none; FROM is `scope->this_scope (+0x38) ->from_country (+0x18/+0x1C)`; otherwise the tag at +0x40/+0x44 (CTagTrigger's). ",
+   "confidence": "confirmed",
+   "evidence": "Slot 6 of CNonAgggressionPactTrigger's table (rva 0x11F916C), single holder by `vtable.py --holding`; `cmp dword [ecx+0x28],0; setne al` at 0x5F7375.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md"
+  },
+  {
+   "rva": "0x5DDC00",
+   "kind": "function",
+   "name": "CRelationTrigger::Evaluate",
+   "signature": "bool __thiscall CRelationTrigger::Evaluate(CRelationTrigger* this, CEventScope* scope)",
+   "no_signature": null,
+   "comment": "**`relation = { who = TAG value = N }`: `us->diplomacy (+0xE28) [who.id] ->relation (+0x38) >= N * 1000`.** 0x5DDC00 to three `ret 4` at 0x5DDC80, 0x5DDD4E and 0x5DDE43, one frame.\n\n    threshold = this->value (+0x48) * 1000\n    if (arg_is_this)  id = this_scope->country_id (+0x14); if (id == 0) id = provinces[this_scope->province (+0x28)]->controller_id (+0x338)\n    elif (arg_is_from) id = this_scope->from_country_id (+0x1C); if (id == 0) id = provinces[this_scope->from_province (+0x30)]->controller_id\n    else id = this->who.id (+0x44)\n    return us->diplomacy[id]->relation >= threshold\n\n**THIS and FROM fall back to a province's *controller*** when the scope names no country - where EventScope_GetCountryTag falls back to the *owner*. The relation is thousandths on -200..200, so N is whole points and `>=`.",
+   "confidence": "confirmed",
+   "evidence": "Slot 6 of CRelationTrigger's table (rva 0x11F8508), single holder by `vtable.py --holding`; listing read end to end; `imul ecx,ecx,0x3e8` then `cmp [eax+0x38],ecx; jl false` on all three paths; the fall-backs read +0x28 and +0x30 off this_scope and +0x338 off the province. CDiplomacyStatus +0x38 is the record's `relation`.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md"
+  },
+  {
+   "rva": "0x605B70",
+   "kind": "function",
+   "name": "CSpyMissionCountTrigger::Evaluate",
+   "signature": "bool __thiscall CSpyMissionCountTrigger::Evaluate(CSpyMissionCountTrigger* this, CEventScope* scope)",
+   "no_signature": null,
+   "comment": "**`spy_mission_count = { type = X value = N }`: the scope's country's spies on mission X in THIS's country, `>= N`.** 0x605B70 to the single `ret 4` at 0x605BE8.\n\n    target = (scope->this_scope && scope->this_scope->country_id) ? this_scope->country_id : scope->country_id\n    e = countries[scope->country_id]->espionage (+0x1160) + target * 0xF8\n    return (int64)e->+0 * e->+(0x2C + 4 * this->mission_type (+0x40)) / 1000 >= this->value (+0x44)\n\nEntry +0 is the spy allocation (thousandths of spies); +0x2C.. is nine dwords, one per mission type, and the product over 1000 reads as 'spies on that mission'. **The target is THIS, implicitly**: in an unnested evaluation THIS is the scope itself and the entry read is the country's own domestic one. The null test on this_scope is dead - the constructor never leaves it null.",
+   "confidence": "confirmed",
+   "evidence": "Slot 6 of CSpyMissionCountTrigger's table (rva 0x11F9958), single holder by `vtable.py --holding`; listing read end to end; the 64-bit divide is 0xB99980 with 1000. The meaning of the nine dwords at +0x2C (`spy_mission` in the save, 'nine values an entry' in the record) as shares is inferred from the product, not from their writer.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md"
+  },
+  {
+   "rva": "0x605400",
+   "kind": "function",
+   "name": "CStrategicResourceTrigger::Evaluate",
+   "signature": "bool __thiscall CStrategicResourceTrigger::Evaluate(CStrategicResourceTrigger* this, CEventScope* scope)",
+   "no_signature": null,
+   "comment": "**`strategic_resource = <name>|none`: `provinces[scope->province (+0x28)] ->strategic_resource (+0x18) == this->resource (+0x40)`**, a pointer compare. 0x605400 to the single `ret 4` at 0x6054B6; game state get-or-create inlined.\n\nAn unknown name leaves +0x40 null, and since a province's pointer is never null (see CHasStrategicResourceTrigger::Evaluate) that is **always false**. `none` stores the CNullStrategicResource singleton (0x1685568), so it is true exactly for a province holding that same object - inferred, the province side's null object was not shown to be the same singleton. No test for province 0.",
+   "confidence": "confirmed",
+   "evidence": "Slot 6 of CStrategicResourceTrigger's table (rva 0x11F7DB8), single holder by `vtable.py --holding`; `mov ecx,[eax+0x18]; cmp ecx,[edi+0x40]; sete al` at 0x60549B.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md"
+  },
+  {
+   "rva": "0x5EB0A0",
+   "kind": "function",
+   "name": "CTruceWithTrigger::Evaluate",
+   "signature": "bool __thiscall CTruceWithTrigger::Evaluate(CTruceWithTrigger* this, CEventScope* scope)",
+   "no_signature": null,
+   "comment": "**`truce_with = TAG`: CDiplomacyStatus::HasTruce (0x6489A0) on the scope's status toward TAG** - not at war, and the pair were last seen at war less than 100 days ago. 0x5EB0A0 to the single `ret 4` at 0x5EB114.\n\n    THIS is EventScope_GetCountryTag (0x5C1A40) - this_scope's country, or the owner of this_scope's province when it has none; FROM is `scope->this_scope (+0x38) ->from_country (+0x18/+0x1C)`; otherwise the tag at +0x40/+0x44 (CTagTrigger's). ",
+   "confidence": "confirmed",
+   "evidence": "Slot 6 of CTruceWithTrigger's table (rva 0x11F89E8), single holder by `vtable.py --holding`; listing read end to end; the call at 0x5EB105 with ECX = the status.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md"
+  },
+  {
+   "rva": "0x5EA480",
+   "kind": "function",
+   "name": "CUndeclaredWarWithTrigger::Evaluate",
+   "signature": "bool __thiscall CUndeclaredWarWithTrigger::Evaluate(CUndeclaredWarWithTrigger* this, CEventScope* scope)",
+   "no_signature": null,
+   "comment": "**`undeclared_war_with = TAG`: `us->diplomacy (+0xE28) [other.id] ->undeclared_war (+0x24) != 0`.** 0x5EA480 to the single `ret 4` at 0x5EA4F1. The region list CCountry::IsEnemy hands the object to is not consulted.\n\n    THIS is EventScope_GetCountryTag (0x5C1A40) - this_scope's country, or the owner of this_scope's province when it has none; FROM is `scope->this_scope (+0x38) ->from_country (+0x18/+0x1C)`; otherwise the tag at +0x40/+0x44 (CTagTrigger's). ",
+   "confidence": "confirmed",
+   "evidence": "Slot 6 of CUndeclaredWarWithTrigger's table (rva 0x11F89B4), single holder by `vtable.py --holding`; `cmp dword [ecx+0x24],0; setne al` at 0x5EA4E5.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md"
+  },
+  {
+   "rva": "0x5EEF10",
+   "kind": "function",
+   "name": "CVassalOfTrigger::Evaluate",
+   "signature": "bool __thiscall CVassalOfTrigger::Evaluate(CVassalOfTrigger* this, CEventScope* scope)",
+   "no_signature": null,
+   "comment": "**`vassal_of = TAG`: the scope's country is a subject and its overlord is TAG.** 0x5EEF10 to two `ret 4` at 0x5EEF47 and 0x5EEFB0.\n\n    if (!us->isSubject (+0xF34)) return false\n    THIS is EventScope_GetCountryTag (0x5C1A40) - this_scope's country, or the owner of this_scope's province when it has none; FROM is `scope->this_scope (+0x38) ->from_country (+0x18/+0x1C)`; otherwise the tag at +0x40/+0x44 (CTagTrigger's). \n    return us->overlord_id (+0xF3C) == other.id",
+   "confidence": "confirmed",
+   "evidence": "Slot 6 of CVassalOfTrigger's table (rva 0x11F8CC0), single holder by `vtable.py --holding`; listing read end to end; `cmp [eax+0xf3c],ecx; sete al` at 0x5EEF9E.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md"
+  },
+  {
+   "rva": "0x5D3630",
+   "kind": "function",
+   "name": "CAtWarTrigger::Evaluate",
+   "signature": "bool __thiscall CAtWarTrigger::Evaluate(CAtWarTrigger* this, CEventScope* scope)",
+   "no_signature": null,
+   "comment": "**`war = yes|no`: `countries[scope->country_id]->at_war (+0xACC) == this->value (+0x40)`.** 0x5D3630 to the single `ret 4` at 0x5D3663. at_war is rebuilt by CCountry::UpdateAtWarAndEnemies, hourly and on diplomatic actions.",
+   "confidence": "confirmed",
+   "evidence": "Slot 6 of CAtWarTrigger's table (rva 0x11F7F58), single holder by `vtable.py --holding`; `mov dl,[eax+0xacc]; cmp dl,[ecx+0x40]; sete al`.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md"
+  },
+  {
+   "rva": "0x5EAA40",
+   "kind": "function",
+   "name": "CWarWithTrigger::Evaluate",
+   "signature": "bool __thiscall CWarWithTrigger::Evaluate(CWarWithTrigger* this, CEventScope* scope)",
+   "no_signature": null,
+   "comment": "**`war_with = TAG` is CCountry::IsEnemyTag (0x2F1B0) on the scope's country.** 0x5EAA40 to the single `ret 4` at 0x5EAAB4.\n\n    THIS is EventScope_GetCountryTag (0x5C1A40) - this_scope's country, or the owner of this_scope's province when it has none; FROM is `scope->this_scope (+0x38) ->from_country (+0x18/+0x1C)`; otherwise the tag at +0x40/+0x44 (CTagTrigger's). \n    return IsEnemyTag(us, &other)   // false if other is us; true if diplomacy[other]->war; true if either tag is REB\n\nSo **`war_with = REB` is true for every country but REB**, at war or not - the REB arm of IsEnemyTag.",
+   "confidence": "confirmed",
+   "evidence": "Slot 6 of CWarWithTrigger's table (rva 0x11F8980), single holder by `vtable.py --holding`; listing read end to end; `lea eax,[esp+8]; push eax; call 0x42F1B0` with ECX = the scope's country. IsEnemyTag's own record describes the three arms.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md"
+  },
+  {
+   "rva": "0x5E83C0",
+   "kind": "function",
+   "name": "HasCbTrigger_ResolveActor",
+   "signature": "CCountryTag* __stdcall HasCbTrigger_ResolveActor(CHasCasusBelliTrigger* trigger@stack:4, CEventScope* scope@EDX, CCountryTag* out@EAX) @EAX",
+   "no_signature": null,
+   "comment": "**`has_cb`'s `actor`, resolved.** 0x5E83C0 to three `ret 4` at 0x5E83DB, 0x5E83F2 and 0x5E8402, 11 int3 after, then CHasCasusBelliTrigger::Evaluate.\n\n    *out = trigger->arg_is_this (+0x18) ? scope->this_scope (+0x38) ->country (+0x10/+0x14)\n         : trigger->arg_is_from (+0x19) ? scope->this_scope ->from_country (+0x18/+0x1C)\n         : trigger->actor (+0x40/+0x44)\n\nTwo callers, both CHasCasusBelliTrigger: slot 6 at 0x5E84D3 and slot 8 at 0x5E8743. Class-free because the receiver is a stack argument and the scope arrives in EDX (trap 11).",
+   "confidence": "confirmed",
+   "evidence": "Decoded end to end. EAX is never written, so it returns `out`. Callers set EDX = scope and EAX = a stack slot and push the trigger (0x5E84C8-0x5E84D3).",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md"
+  },
+  {
+   "rva": "0x649CA0",
+   "kind": "function",
+   "name": "DiplomacyStatus_HasUsableCasusBelli",
+   "signature": "bool __stdcall DiplomacyStatus_HasUsableCasusBelli(CDiplomacyStatus* status, CCountryTag* holder, CCountryTag* target)",
+   "no_signature": null,
+   "comment": "**Could `holder` go to war on `target` with some casus belli now.** 0x649CA0 to two `ret 0xC` at 0x649D67 and 0x649D7D, SEH frame. Makes the casus-belli-type database g_casus_belli_types (0x1685BD8) if missing, then\n\n    for t in db->+0xC .. +0x10:                 // CCasusBelliType*, index order\n        if (t->slot7() && DiplomacyStatus_CanUseCasusBelliType(t->index (+8) @EDI, status, holder, target)) return true\n    return false\n\nSlot 7 is ReturnTrue on CCasusBelliType and ReturnFalse on CNullCasusBelliType. `status` is the holder's status toward the target. Ten callers: CCasusBelliTrigger::Evaluate (0x5E7CD3), eight in the AI between 0x4A6EA8 and 0x4A8DDA, and 0x64A6E2.",
+   "confidence": "confirmed",
+   "evidence": "Decoded end to end. `mov edi,[esi+8]` immediately before the call passes the type's +8 as the index 0x649D80 indexes the same vector with. Wrong if +8 were not the type's position - CCasusBelli +0x24 (an index) is compared against the same EDI.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md"
+  },
+  {
+   "rva": "0x649D80",
+   "kind": "function",
+   "name": "DiplomacyStatus_CanUseCasusBelliType",
+   "signature": "bool __stdcall DiplomacyStatus_CanUseCasusBelliType(int typeIndex@EDI, CDiplomacyStatus* status@stack:4, CCountryTag* holder@stack:8, CCountryTag* target@stack:0xC) @AL",
+   "no_signature": null,
+   "comment": "**One casus belli type: held or `always`, and then its `is_valid`.** 0x649D80 to two `ret 0xC` at 0x649E8B and 0x649E9F.\n\n    t = db[typeIndex] (db[0] when out of range)\n    held = any CCasusBelli in status->casus_belli (+0x3C) with type (+0x24) == typeIndex\n    if (!held && !t->always (+0x1F2)) return false\n    B = CEventScope(); B.country = *holder\n    A = CEventScope(); A.country = *target; A.this_scope = &B\n    return t->slot6(&A)                          // CCasusBelliType::IsValid, the `is_valid` block\n\nSo `is_valid` is evaluated **in the target's scope with THIS = the holder**, FROM empty - the shape CWarGoal::IsValid also builds. The held CB's dates are not looked at here. Three callers: 0x649D33 (above), 0x105E50 and 0x1061DE.",
+   "confidence": "confirmed",
+   "evidence": "Decoded end to end. A at [ebp-0x5C], B at [ebp-0xA4], both through CEventScope::CEventScope (0x5C1610); `mov [ebp-0x24], &B` is A+0x38; [ebp+0xC] lands at B+0x10 and [ebp+0x10] at A+0x10. Wrong if slot 6 of CCasusBelliType were not IsValid - the record has it as the tail-jump into +0x30's Evaluate.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md"
+  },
+  {
+   "rva": "0x652410",
+   "kind": "function",
+   "name": "War_GetGoalsOf",
+   "signature": "void* __stdcall War_GetGoalsOf(CWar* war@ESI, int tagChars@stack:4, int countryId@stack:8) @EAX",
+   "no_signature": null,
+   "comment": "**A war's goals filed under one country**: `&war->war_goals_by_actor (+0x9C) [countryId]`, a `std::vector<CWarGoal>` (0x2C-byte elements by value), or a static empty vector (g_EmptyWarGoalVector, 0x17EB65C, zeroed once under the guard bit at 0x17EB66C) when the country has none. 0x652410 to two `ret 8` at 0x652470 and 0x65247B.\n\nThe tag arrives by value and **only its id is used** - the characters at stack:4 are never read, which is why CHasCasusBelliTrigger can pass the scope's letters with the actor's id. The lookup is WarGoalMap_Find (0x652840); the vector is the map node's value at +0x10. Seven callers, among them CHasCasusBelliTrigger and CHasWarGoalTrigger.",
+   "confidence": "confirmed",
+   "evidence": "Decoded end to end; ESI is the CDiplomacyStatus +0x20 war at both trigger call sites. Wrong if the map were not keyed by the goal's actor - CWarGoal::AddToWar's record says it looks up `war + 0x9C` with &actorId.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md"
+  },
+  {
+   "rva": "0x652840",
+   "kind": "function",
+   "name": "WarGoalMap_Find",
+   "signature": "void** __stdcall WarGoalMap_Find(void* map@ECX, void** out@EAX, int* key@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "**`std::map<int, ...>::find`**, MSVC's red-black tree: head at map+4, a node's left at +0, parent +4, right +8, key +0xC, value from +0x10, `_Isnil` byte at +0x21. Walks to the lower bound and writes it to `*out`, or the head (end) when the key is absent. 0x652840 to two `ret 4` at 0x652892 and 0x6528A4. Five callers: War_GetGoalsOf (0x65245A) and four at 0x73F3F, 0x73F56, 0x741EC, 0x7BDF3 in the CWarGoal region - that those four search the same CWar +0x9C map is inferred from where they sit.",
+   "confidence": "confirmed",
+   "evidence": "Decoded end to end; `cmp byte [ecx+0x21],0` is the nil test and `cmp [ecx+0xc],edi` the key compare. Wrong for the name only if the four other callers use a different map of the same template - the mechanics hold either way.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md"
+  },
+  {
+   "rva": "0xEE320",
+   "kind": "function",
+   "name": "CCountry::GetPossibleVassals",
+   "signature": "CList<CCountryTag>* __thiscall CCountry::GetPossibleVassals(CCountry* this)",
+   "no_signature": null,
+   "comment": "**The nations this country could release, rebuilt from nothing on every call** into `possible_vassals (+0x11E0)`, which it returns. 0xEE320 to the bare `ret` at 0xEE541. The name is the game's Lua registration (Lua `GetPossiblePuppets`).\n\n    free every node of +0x11E0; zero first, last, count\n    for p in this->OwnedProvinces (+0xCF0):\n        prov = provinces[p]\n        if (prov->controller_id (+0x338) != this->id (+0xCA8)) continue      // must also control it\n        if (prov == GetCapitalLocation(this)) continue                       // 0x17AF0\n        for core in prov->cores (+0x344):                                    // {chars, id, ?, next@+0xC}\n            c = countries[core.id]\n            if (c->owned_province_count (+0xCF8) > 0 || core.id == this->id || core.id already listed) continue\n            if (c->capital_province_id (+0xE20) is in this->OwnedProvinces) append core to +0x11E0\n\nSo a possible vassal is a country that **owns nothing**, has a core on a province this country owns and controls (not its capital), and whose **capital** this country owns (controlled or not).",
+   "confidence": "confirmed",
+   "evidence": "Decoded end to end (trap 3 checked: the one `ret` is past every branch). Eight callers. Wrong if +0x11E0 were read elsewhere as a persistent list - every call clears it first.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md"
+  },
+  {
+   "rva": "0x6489A0",
+   "kind": "function",
+   "name": "CDiplomacyStatus::HasTruce",
+   "signature": "bool __thiscall CDiplomacyStatus::HasTruce(CDiplomacyStatus* this)",
+   "no_signature": null,
+   "comment": "**A truce is the 100 days after a war.** 0x6489A0 to two bare `ret` at 0x6489D7 and 0x648A70. The name is the game's Lua registration.\n\n    if (this->war (+0x20)) return false\n    last = this->war_seen_tick (+0x54)\n    return last <= now && last + 0x960 > now          // 2400 hours, hard-coded\n\nwar_seen_tick is refreshed every hour the pair are at war, so the truce runs 100 days from the war's end. A pair never at war has 0 there and no truce. Six callers.",
+   "confidence": "confirmed",
+   "evidence": "Decoded end to end; `cmp edi,eax; jg false; add edi,0x960; cmp edi,eax; setg al`. 0x960 is an immediate, not a define read.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md"
+  },
+  {
+   "rva": "0xBEDF0",
+   "kind": "function",
+   "name": "CList_CCountryTag_PushBack",
+   "signature": "void __stdcall CList_CCountryTag_PushBack(void* list@ECX, const CCountryTag* tag@stack:4)",
+   "no_signature": null,
+   "comment": "Appends a copy of an 8-byte CCountryTag to a CList: `new(0x14)` node `{chars, id, prev = list->last, next = 0, byte = 0}`, links it after the old tail (or as head when count was 0), bumps count (+8). 0xBEDF0 to two `ret 4` at 0xBEE3C and 0xBEE45. Fourteen callers, among them CIsPossibleVassalTrigger::Evaluate (0x5EE36E). In no vftable and no luabind registration.",
+   "confidence": "confirmed",
+   "evidence": "Decoded end to end, 0x56 bytes. Wrong if a caller's list held another 8-byte payload - the body copies two dwords and does not care, so the name is the use, not a type check.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md"
+  },
+  {
+   "rva": "0x1685BD8",
+   "kind": "global",
+   "name": "g_casus_belli_types",
+   "signature": null,
+   "no_signature": null,
+   "comment": "The casus-belli-type database (`common/cb_types.txt`), null until made: 0x1C bytes, the shared name-database shape, its CCasusBelliType* vector at +0xC..+0x10 in index order with the CNullCasusBelliType at index 0. GetCasusBelliTypes (0x16A40) answers it; CHasCasusBelliTrigger::Evaluate, DiplomacyStatus_HasUsableCasusBelli, DiplomacyStatus_CanUseCasusBelliType and CasusBelliTypeIsAlways each make it inline on first use (`new(0x1C)`, the shared init at 0x5BD30, the registrar at 0x17350).",
+   "confidence": "confirmed",
+   "evidence": "Four bodies read here load it, test it for null, build it with the same three calls and then index +0xC/+0x10 as a pointer vector; the record's CCasusBelli +0x24 and CasusBelliTypeIsAlways comments already describe the same global by its VA (0x1A85BD8).",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md"
+  },
+  {
+   "rva": "0x17EB65C",
+   "kind": "global",
+   "name": "g_EmptyWarGoalVector",
+   "signature": null,
+   "no_signature": null,
+   "comment": "The empty `std::vector<CWarGoal>` (three dwords) War_GetGoalsOf (0x652410) hands back for a country with no goals in a war; zeroed once under bit 0 of the guard dword at 0x17EB66C, with an atexit destructor registered.",
+   "confidence": "confirmed",
+   "evidence": "0x652413-0x65243F (absolutes below are the listing's VAs, rvas 0x17EB66C and 0x17EB65C..64): `test byte [0x1beb66c],1; jne; or [..],1; mov [0x1beb65c/60/64],0; push dtor; call atexit-wrapper`; returned at 0x652473 when the find gives end.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md"
+  }
+ ],
+ "structs": [
+  {
+   "name": "CIsAiTrigger",
+   "vftable_rva": "0x11F8B88",
+   "size": "0x44",
+   "inherits": "CBoolTrigger",
+   "comment": "A CBoolTrigger leaf with no field of its own: the `yes` byte at +0x40 is its whole argument.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "Size from CTrigger::LoadKey: `push 0x44; call operator_new` at 0x5CA249, then the constructor at 0x5CE9B0, which writes this vftable. Control: the same scan gives CTagTrigger 0x48, as recorded. RTTI places it under CBoolTrigger."
+  },
+  {
+   "name": "CCanCreateVassalsTrigger",
+   "vftable_rva": "0x11F8C24",
+   "size": "0x44",
+   "inherits": "CBoolTrigger",
+   "comment": "A CBoolTrigger leaf with no field of its own: the `yes` byte at +0x40 is its whole argument.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "Size from CTrigger::LoadKey: `push 0x44; call operator_new` at 0x5CA27B, then the constructor at 0x5CEA30, which writes this vftable. Control: the same scan gives CTagTrigger 0x48, as recorded. RTTI places it under CBoolTrigger."
+  },
+  {
+   "name": "CIsGovernmentInExileTrigger",
+   "vftable_rva": "0x11F7DEC",
+   "size": "0x44",
+   "inherits": "CBoolTrigger",
+   "comment": "A CBoolTrigger leaf with no field of its own: the `yes` byte at +0x40 is its whole argument.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "Size from CTrigger::LoadKey: `push 0x44; call operator_new` at 0x5C9D35, then the constructor at 0x5CC440, which writes this vftable. Control: the same scan gives CTagTrigger 0x48, as recorded. RTTI places it under CBoolTrigger."
+  },
+  {
+   "name": "CHasRemovableMinisterTrigger",
+   "vftable_rva": "0x11F7E54",
+   "size": "0x44",
+   "inherits": "CBoolTrigger",
+   "comment": "A CBoolTrigger leaf with no field of its own: the `yes` byte at +0x40 is its whole argument.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "Size from CTrigger::LoadKey: `push 0x44; call operator_new` at 0x5CA80D, then the constructor at 0x5CDF30, which writes this vftable. Control: the same scan gives CTagTrigger 0x48, as recorded. RTTI places it under CBoolTrigger."
+  },
+  {
+   "name": "CHasStrategicResourceTrigger",
+   "vftable_rva": "0x11F7D84",
+   "size": "0x44",
+   "inherits": "CBoolTrigger",
+   "comment": "A CBoolTrigger leaf with no field of its own: the `yes` byte at +0x40 is its whole argument.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "Size from CTrigger::LoadKey: `push 0x44; call operator_new` at 0x5C9D99, then the constructor at 0x5CD0F0, which writes this vftable. Control: the same scan gives CTagTrigger 0x48, as recorded. RTTI places it under CBoolTrigger."
+  },
+  {
+   "name": "CIsInAnyFactionTrigger",
+   "vftable_rva": "0x11F7E20",
+   "size": "0x44",
+   "inherits": "CBoolTrigger",
+   "comment": "A CBoolTrigger leaf with no field of its own: the `yes` byte at +0x40 is its whole argument.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "Size from CTrigger::LoadKey: `push 0x44; call operator_new` at 0x5C9EC5, then the constructor at 0x5CDEB0, which writes this vftable. Control: the same scan gives CTagTrigger 0x48, as recorded. RTTI places it under CBoolTrigger."
+  },
+  {
+   "name": "CIsSubjectTrigger",
+   "vftable_rva": "0x11F8BBC",
+   "size": "0x44",
+   "inherits": "CBoolTrigger",
+   "comment": "A CBoolTrigger leaf with no field of its own: the `yes` byte at +0x40 is its whole argument.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "Size from CTrigger::LoadKey: `push 0x44; call operator_new` at 0x5C9C0C, then the constructor at 0x5CECE0, which writes this vftable. Control: the same scan gives CTagTrigger 0x48, as recorded. RTTI places it under CBoolTrigger."
+  },
+  {
+   "name": "CAtWarTrigger",
+   "vftable_rva": "0x11F7F58",
+   "size": "0x44",
+   "inherits": "CBoolTrigger",
+   "comment": "A CBoolTrigger leaf with no field of its own: the `yes` byte at +0x40 is its whole argument.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "Size from CTrigger::LoadKey: `push 0x44; call operator_new` at 0x5C925B, then the constructor at 0x5CB9C0, which writes this vftable. Control: the same scan gives CTagTrigger 0x48, as recorded. RTTI places it under CBoolTrigger."
+  },
+  {
+   "name": "CGuaranteeTrigger",
+   "vftable_rva": "0x11F9270",
+   "size": "0x48",
+   "inherits": "CTagTrigger",
+   "comment": "A CTagTrigger leaf with no field of its own: the tag at +0x40/+0x44 and CTrigger's THIS/FROM flags are its argument.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "Size from CTrigger::LoadKey: `push 0x48; call operator_new` at 0x5C9026, then the constructor at 0x5CD990, which writes this vftable. Control: the same scan gives CTagTrigger 0x48, as recorded. RTTI places it under CTagTrigger."
+  },
+  {
+   "name": "CIsPossibleVassalTrigger",
+   "vftable_rva": "0x11F8C58",
+   "size": "0x48",
+   "inherits": "CTagTrigger",
+   "comment": "A CTagTrigger leaf with no field of its own: the tag at +0x40/+0x44 and CTrigger's THIS/FROM flags are its argument.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "Size from CTrigger::LoadKey: `push 0x48; call operator_new` at 0x5CA2AD, then the constructor at 0x5CEAB0, which writes this vftable. Control: the same scan gives CTagTrigger 0x48, as recorded. RTTI places it under CTagTrigger."
+  },
+  {
+   "name": "CGrantsMilitaryAccessTrigger",
+   "vftable_rva": "0x11F91A0",
+   "size": "0x48",
+   "inherits": "CTagTrigger",
+   "comment": "A CTagTrigger leaf with no field of its own: the tag at +0x40/+0x44 and CTrigger's THIS/FROM flags are its argument.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "Size from CTrigger::LoadKey: `push 0x48; call operator_new` at 0x5C90EE, then the constructor at 0x5CD6F0, which writes this vftable. Control: the same scan gives CTagTrigger 0x48, as recorded. RTTI places it under CTagTrigger."
+  },
+  {
+   "name": "CNonAgggressionPactTrigger",
+   "vftable_rva": "0x11F916C",
+   "size": "0x48",
+   "inherits": "CTagTrigger",
+   "comment": "A CTagTrigger leaf with no field of its own: the tag at +0x40/+0x44 and CTrigger's THIS/FROM flags are its argument.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "Size from CTrigger::LoadKey: `push 0x48; call operator_new` at 0x5C9DFD, then the constructor at 0x5CD780, which writes this vftable. Control: the same scan gives CTagTrigger 0x48, as recorded. RTTI places it under CTagTrigger."
+  },
+  {
+   "name": "CTruceWithTrigger",
+   "vftable_rva": "0x11F89E8",
+   "size": "0x48",
+   "inherits": "CTagTrigger",
+   "comment": "A CTagTrigger leaf with no field of its own: the tag at +0x40/+0x44 and CTrigger's THIS/FROM flags are its argument.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "Size from CTrigger::LoadKey: `push 0x48; call operator_new` at 0x5CA52E, then the constructor at 0x5CCEE0, which writes this vftable. Control: the same scan gives CTagTrigger 0x48, as recorded. RTTI places it under CTagTrigger."
+  },
+  {
+   "name": "CUndeclaredWarWithTrigger",
+   "vftable_rva": "0x11F89B4",
+   "size": "0x48",
+   "inherits": "CTagTrigger",
+   "comment": "A CTagTrigger leaf with no field of its own: the tag at +0x40/+0x44 and CTrigger's THIS/FROM flags are its argument.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "Size from CTrigger::LoadKey: `push 0x48; call operator_new` at 0x5CA745, then the constructor at 0x5CCE50, which writes this vftable. Control: the same scan gives CTagTrigger 0x48, as recorded. RTTI places it under CTagTrigger."
+  },
+  {
+   "name": "CVassalOfTrigger",
+   "vftable_rva": "0x11F8CC0",
+   "size": "0x48",
+   "inherits": "CTagTrigger",
+   "comment": "A CTagTrigger leaf with no field of its own: the tag at +0x40/+0x44 and CTrigger's THIS/FROM flags are its argument.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "Size from CTrigger::LoadKey: `push 0x48; call operator_new` at 0x5CA311, then the constructor at 0x5CEBC0, which writes this vftable. Control: the same scan gives CTagTrigger 0x48, as recorded. RTTI places it under CTagTrigger."
+  },
+  {
+   "name": "CWarWithTrigger",
+   "vftable_rva": "0x11F8980",
+   "size": "0x48",
+   "inherits": "CTagTrigger",
+   "comment": "A CTagTrigger leaf with no field of its own: the tag at +0x40/+0x44 and CTrigger's THIS/FROM flags are its argument.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "Size from CTrigger::LoadKey: `push 0x48; call operator_new` at 0x5C978F, then the constructor at 0x5CCDC0, which writes this vftable. Control: the same scan gives CTagTrigger 0x48, as recorded. RTTI places it under CTagTrigger."
+  },
+  {
+   "name": "CCasusBelliTrigger",
+   "vftable_rva": "0x11F887C",
+   "size": "0x48",
+   "inherits": "CTrigger",
+   "comment": "`casus_belli = TAG`. Derives from CTrigger directly, not CTagTrigger, but has the same layout: the tag at +0x40/+0x44, loaded by the shared country-tag loader.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "Size from CTrigger::LoadKey: `push 0x48; call operator_new` at 0x5C8FC2, then the constructor at 0x5E7BD0, which writes this vftable. Control: the same scan gives CTagTrigger 0x48, as recorded. RTTI places it directly under CTrigger."
+  },
+  {
+   "name": "CHasWarGoalTrigger",
+   "vftable_rva": "0x11F8BF0",
+   "size": "0x48",
+   "inherits": "CTrigger",
+   "comment": "`has_wargoal = TAG`. Derives from CTrigger directly; the tag at +0x40/+0x44, loaded by the shared country-tag loader.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "Size from CTrigger::LoadKey: `push 0x48; call operator_new` at 0x5CAA65, then the constructor at 0x5EDA20, which writes this vftable. Control: the same scan gives CTagTrigger 0x48, as recorded. RTTI places it directly under CTrigger."
+  },
+  {
+   "name": "CHasGlobalFlagTrigger",
+   "vftable_rva": "0x11F85A4",
+   "size": "0x5C",
+   "inherits": "CTrigger",
+   "comment": "`has_global_flag = <name>`. Derives from CTrigger directly; its argument is the flag's name as an Hoi3CString at +0x40, the layout of CHasCountryFlagTrigger.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "Size from CTrigger::LoadKey: `push 0x5C; call operator_new` at 0x5CA4CA, then the constructor at 0x5CC8C0, which writes this vftable. Control: the same scan gives CTagTrigger 0x48, as recorded. 0x40 + 0x1C (Hoi3CString) = 0x5C."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CCasusBelliTrigger",
+   "offset": "0x40",
+   "name": "target",
+   "type": "CCountryTag",
+   "comment": "The country named, letters then id at +0x44. THIS/FROM leave it at the constructor's `---`/0 and set CTrigger's flags instead.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "CCasusBelliTrigger::Evaluate copies +0x40/+0x44 as the default `other`; the loader is TriggerLoadCountryTagArgument (0x5E8F40)."
+  },
+  {
+   "struct": "CHasWarGoalTrigger",
+   "offset": "0x40",
+   "name": "target",
+   "type": "CCountryTag",
+   "comment": "The country named, letters then id at +0x44; only the id is compared.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "CHasWarGoalTrigger::Evaluate reads +0x44 as the default id; the loader is TriggerLoadCountryTagArgument (0x5E8F40)."
+  },
+  {
+   "struct": "CHasGlobalFlagTrigger",
+   "offset": "0x40",
+   "name": "flag",
+   "type": "Hoi3CString",
+   "comment": "The flag's name, as written. The small-string test reads its maxLength at +0x54.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "CHasGlobalFlagTrigger::Evaluate: `cmp dword [ecx+0x54],0x10; jb` then `[ecx+0x40]` or `ecx+0x40`; slot 7 is CStringTrigger::LoadArgument's folded body, which assigns there."
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0x11E0",
+   "name": "possible_vassals",
+   "type": "CList<CCountryTag>",
+   "comment": "**The nations this country could release**, as CCountry::GetPossibleVassals (0xEE320) last built them: head here, last +0x11E4, count +0x11E8, 0x14-byte nodes `{chars, id, prev, next, byte}`. Not a persistent list: GetPossibleVassals frees and rebuilds it on every call and returns its address, which is what the Lua's `CList<CCountryTag>&` return is.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "0xEE343 `lea eax,[edi+0x11e0]`, the free loop over [eax] with next at +0xC, the zeroing of +0/+4/+8 at 0xEE376-0xEE37B, the inline append at 0xEE4C4-0xEE509 and `mov eax,[esp+0xc]` (this+0x11E0) returned. No such field in project.json or bicelib_findings (searched 4576/4580 decimal)."
+  },
+  {
+   "struct": "CWar",
+   "offset": "0x9C",
+   "name": "war_goals_by_actor",
+   "type": "void*",
+   "comment": "**The war's goals, filed by the country that holds them**: a `std::map<int, std::vector<CWarGoal>>` held by value from here, keyed by the actor's country id, its head (end) node at +0xA0. War_GetGoalsOf (0x652410) answers one country's vector; CWarGoal::AddToWar files a goal here under its actor. Typed void* because the map's own layout is not declared.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "War_GetGoalsOf: `lea ecx,[esi+0x9c]` into WarGoalMap_Find, then `cmp eax,[esi+0xa0]` against end; CWarGoal::AddToWar's record already says `war + 0x9C` is looked up with &actorId."
+  },
+  {
+   "struct": "CCasusBelliType",
+   "offset": "0x8",
+   "name": "index",
+   "type": "int",
+   "comment": "**The type's own position in the casus-belli-type database** g_casus_belli_types (0x1685BD8) - the number CCasusBelli +0x24 and a war goal's type are compared by. Inferred from use: it is passed as the index the database's vector is then indexed with, and compared against stored indices; no writer was read.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "DiplomacyStatus_HasUsableCasusBelli passes `[type+8]` in EDI to DiplomacyStatus_CanUseCasusBelliType, which does `db->+0xC[edi]` and compares CCasusBelli +0x24 with EDI; CHasCasusBelliTrigger::Evaluate compares goal->casus_belli->+8 with the looked-up type's +8."
+  },
+  {
+   "struct": "CEventScope",
+   "offset": "0x34",
+   "name": "days_in_month",
+   "type": "int",
+   "comment": "The one field the two CEventScope builders disagree about. RebuildCountryEventCandidates sets it to the current month's length, recomputed at 0x5C0273-0x5C02E4 from state+0xBDC with the same 0x29C55C0 epoch and 365.0 constant (0x120A550) RunHourlyTick uses and then indexed into MonthLengthTable (0x1313294); RunDailyEventPass leaves it zero (0x5C0AAD). CMeanTimeToHappen::GetChance never reads the scope, only forwards it, so this can only matter to a trigger. **The name is inference from how the value is derived, not from a use.** CEventScope is 0x48 bytes, vftable 0x11B8AEC, base CPersistent; +0x10 and +0x18 are two CCountryTags, both 0x2D2D2D (\"---\") at construction and only +0x10 ever filled in with the country being scoped.\n\n**Its reader is CDateTrigger::Evaluate (0x5D3100)**, which tests `tick + this * 24 >= date`: so in RebuildCountryEventCandidates' scope `date` is already true up to a month early, and in RunDailyEventPass' scope it is exact. That makes the field a look-ahead in days rather than a calendar fact; the name is kept because it says what the value is. `year` (0x5D2510) and `month` (0x5D2B30) do not read it.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "0x5D3192-0x5D31A3 in CDateTrigger::Evaluate: `mov eax,[scope+0x34]; ... lea ecx,[tick+eax*24]; cmp ecx,[this+0x40]`.",
+   "revises": "Comment only: adds the first reader found (CDateTrigger::Evaluate) and what it does with the value, and turns the six VAs the old text carried (0x9C0273, 0x9C02E4, 0x160A550, 0x1713294, 0x9C0AAD, 0x15B8AEC) into rvas (trap 1 in prose; MonthLengthTable is recorded at rva 0x1313294, RebuildCountryEventCandidates at 0x5C0050, RunDailyEventPass at 0x5C0A40). Name and type unchanged."
+  }
+ ],
+ "vftable_slots": {
+  "CIsAiTrigger": {
+   "6": {
+    "name": "Evaluate",
+    "signature": "bool __thiscall Evaluate(CIsAiTrigger* this, CEventScope* scope)"
+   }
+  },
+  "CCanCreateVassalsTrigger": {
+   "6": {
+    "name": "Evaluate",
+    "signature": "bool __thiscall Evaluate(CCanCreateVassalsTrigger* this, CEventScope* scope)"
+   }
+  },
+  "CCasusBelliTrigger": {
+   "6": {
+    "name": "Evaluate",
+    "signature": "bool __thiscall Evaluate(CCasusBelliTrigger* this, CEventScope* scope)"
+   }
+  },
+  "CDateTrigger": {
+   "6": {
+    "name": "Evaluate",
+    "signature": "bool __thiscall Evaluate(CDateTrigger* this, CEventScope* scope)"
+   }
+  },
+  "CFactionTrigger": {
+   "6": {
+    "name": "Evaluate",
+    "signature": "bool __thiscall Evaluate(CFactionTrigger* this, CEventScope* scope)"
+   }
+  },
+  "CGovernmentTrigger": {
+   "6": {
+    "name": "Evaluate",
+    "signature": "bool __thiscall Evaluate(CGovernmentTrigger* this, CEventScope* scope)"
+   }
+  },
+  "CIsGovernmentInExileTrigger": {
+   "6": {
+    "name": "Evaluate",
+    "signature": "bool __thiscall Evaluate(CIsGovernmentInExileTrigger* this, CEventScope* scope)"
+   }
+  },
+  "CGuaranteeTrigger": {
+   "6": {
+    "name": "Evaluate",
+    "signature": "bool __thiscall Evaluate(CGuaranteeTrigger* this, CEventScope* scope)"
+   }
+  },
+  "CHasCasusBelliTrigger": {
+   "6": {
+    "name": "Evaluate",
+    "signature": "bool __thiscall Evaluate(CHasCasusBelliTrigger* this, CEventScope* scope)"
+   }
+  },
+  "CHasCountryModifierTrigger": {
+   "6": {
+    "name": "Evaluate",
+    "signature": "bool __thiscall Evaluate(CHasCountryModifierTrigger* this, CEventScope* scope)"
+   }
+  },
+  "CHasGlobalFlagTrigger": {
+   "6": {
+    "name": "Evaluate",
+    "signature": "bool __thiscall Evaluate(CHasGlobalFlagTrigger* this, CEventScope* scope)"
+   }
+  },
+  "CHasRemovableMinisterTrigger": {
+   "6": {
+    "name": "Evaluate",
+    "signature": "bool __thiscall Evaluate(CHasRemovableMinisterTrigger* this, CEventScope* scope)"
+   }
+  },
+  "CHasStrategicResourceTrigger": {
+   "6": {
+    "name": "Evaluate",
+    "signature": "bool __thiscall Evaluate(CHasStrategicResourceTrigger* this, CEventScope* scope)"
+   }
+  },
+  "CHasWarGoalTrigger": {
+   "6": {
+    "name": "Evaluate",
+    "signature": "bool __thiscall Evaluate(CHasWarGoalTrigger* this, CEventScope* scope)"
+   }
+  },
+  "CIsIdeologyEqualTrigger": {
+   "6": {
+    "name": "Evaluate",
+    "signature": "bool __thiscall Evaluate(CIsIdeologyEqualTrigger* this, CEventScope* scope)"
+   }
+  },
+  "CIdeologyGroupTrigger": {
+   "6": {
+    "name": "Evaluate",
+    "signature": "bool __thiscall Evaluate(CIdeologyGroupTrigger* this, CEventScope* scope)"
+   }
+  },
+  "CIsInAnyFactionTrigger": {
+   "6": {
+    "name": "Evaluate",
+    "signature": "bool __thiscall Evaluate(CIsInAnyFactionTrigger* this, CEventScope* scope)"
+   }
+  },
+  "CIsPossibleVassalTrigger": {
+   "6": {
+    "name": "Evaluate",
+    "signature": "bool __thiscall Evaluate(CIsPossibleVassalTrigger* this, CEventScope* scope)"
+   }
+  },
+  "CIsSubjectTrigger": {
+   "6": {
+    "name": "Evaluate",
+    "signature": "bool __thiscall Evaluate(CIsSubjectTrigger* this, CEventScope* scope)"
+   }
+  },
+  "CGrantsMilitaryAccessTrigger": {
+   "6": {
+    "name": "Evaluate",
+    "signature": "bool __thiscall Evaluate(CGrantsMilitaryAccessTrigger* this, CEventScope* scope)"
+   }
+  },
+  "CNonAgggressionPactTrigger": {
+   "6": {
+    "name": "Evaluate",
+    "signature": "bool __thiscall Evaluate(CNonAgggressionPactTrigger* this, CEventScope* scope)"
+   }
+  },
+  "CRelationTrigger": {
+   "6": {
+    "name": "Evaluate",
+    "signature": "bool __thiscall Evaluate(CRelationTrigger* this, CEventScope* scope)"
+   }
+  },
+  "CSpyMissionCountTrigger": {
+   "6": {
+    "name": "Evaluate",
+    "signature": "bool __thiscall Evaluate(CSpyMissionCountTrigger* this, CEventScope* scope)"
+   }
+  },
+  "CStrategicResourceTrigger": {
+   "6": {
+    "name": "Evaluate",
+    "signature": "bool __thiscall Evaluate(CStrategicResourceTrigger* this, CEventScope* scope)"
+   }
+  },
+  "CTruceWithTrigger": {
+   "6": {
+    "name": "Evaluate",
+    "signature": "bool __thiscall Evaluate(CTruceWithTrigger* this, CEventScope* scope)"
+   }
+  },
+  "CUndeclaredWarWithTrigger": {
+   "6": {
+    "name": "Evaluate",
+    "signature": "bool __thiscall Evaluate(CUndeclaredWarWithTrigger* this, CEventScope* scope)"
+   }
+  },
+  "CVassalOfTrigger": {
+   "6": {
+    "name": "Evaluate",
+    "signature": "bool __thiscall Evaluate(CVassalOfTrigger* this, CEventScope* scope)"
+   }
+  },
+  "CAtWarTrigger": {
+   "6": {
+    "name": "Evaluate",
+    "signature": "bool __thiscall Evaluate(CAtWarTrigger* this, CEventScope* scope)"
+   }
+  },
+  "CWarWithTrigger": {
+   "6": {
+    "name": "Evaluate",
+    "signature": "bool __thiscall Evaluate(CWarWithTrigger* this, CEventScope* scope)"
+   }
+  }
+ },
+ "frontier": [
+  "0x652750",
+  "0x5BE8F0",
+  "0x5BD30",
+  "0x17350",
+  "0x12CD00",
+  "0x5C55F0"
+ ]
+}

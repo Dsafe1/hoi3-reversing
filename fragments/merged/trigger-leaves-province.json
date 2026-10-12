@@ -1,0 +1,447 @@
+{
+ "agent": "wave 2 agent B - trigger leaves: province, unit and combat",
+ "question": "What each of 25 province, unit and combat trigger leaves answers (slot 6, Evaluate): what it reads, which part of the scope, the empty case, the comparison, THIS/FROM, and the null an unknown name leaves.",
+ "source": "reversing/findings/FINDINGS-triggerleaves.md",
+ "addresses": [
+  {
+   "rva": "0x5E08E0",
+   "kind": "function",
+   "name": "CPortTrigger::Evaluate",
+   "signature": "bool __thiscall CPortTrigger::Evaluate(CPortTrigger* this, CEventScope* scope)",
+   "no_signature": null,
+   "comment": "**`port = yes|no`: whether the scope's province has a map port.** 0x5E08E0 to two `ret 4` at 0x5E09A7/0x5E09BB, slot 8 at 0x5E09C0. `return scope->province (+0x28) != 0 && ((provinces[province]->port (+0x354) != null) == this->value (+0x40))`. The port is the CPort map link a coastal province gets at map load, **not** the naval base building (+0x300), so a coastal province with no naval base answers yes. Province 0 (a country-only scope) is false for `yes` and for `no` alike. Operand from CBoolTrigger::LoadArgument (`= yes` is 1, anything else 0); no THIS/FROM. See reversing/findings/FINDINGS-triggerleaves.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "Read end to end off the listing; single holder (vtable.py --holding on VA 0x9E08E0: CPortTrigger slot 6 only). The province vector is CGameState +0xB8C, reached through the inlined lazy g_CCurrentGameState getter. What would show it wrong: a second reader path in the body, or +0x354 not being the port pointer (the record has it as `port`, two independent comments)."
+  },
+  {
+   "rva": "0x5E1530",
+   "kind": "function",
+   "name": "CEmptyTrigger::Evaluate",
+   "signature": "bool __thiscall CEmptyTrigger::Evaluate(CEmptyTrigger* this, CEventScope* scope)",
+   "no_signature": null,
+   "comment": "**`empty = yes|no`: whether the scope's province has no owner.** 0x5E1530 to two `ret 4` at 0x5E155E/0x5E1564, slot 8 at 0x5E1570, no frame. `return scope->province (+0x28) != 0 && ((g_CMap->provinces (+0x2200)[province]->owner_id (+0x330) == 0) == this->value (+0x40))`. The only leaf of its family that indexes g_CMap's array rather than the game state's (the same pointers). Sea zones are unowned, so `empty = yes` holds in every sea province. Province 0 is false for both yes and no. See reversing/findings/FINDINGS-triggerleaves.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "Read end to end, 14 instructions; single holder. What would show it wrong: g_CMap +0x2200 not being the province array (recorded, and used the same way by EventScope code)."
+  },
+  {
+   "rva": "0x5E01B0",
+   "kind": "function",
+   "name": "CIsBlockadedTrigger::Evaluate",
+   "signature": "bool __thiscall CIsBlockadedTrigger::Evaluate(CIsBlockadedTrigger* this, CEventScope* scope)",
+   "no_signature": null,
+   "comment": "**`is_blockaded = yes|no`: the province's `blockaded` byte (+0x36C) compared with the operand.** 0x5E01B0 to two `ret 4` at 0x5E0274/0x5E0288, slot 8 at 0x5E0290. `return scope->province != 0 && provinces[province]->blockaded (+0x36C) == this->value (+0x40)`, a byte compare. Province 0 false for both. **The byte is not worked out here**: it is written only by UpdateProvinceBlockaded (rva 0xA65E0) - an enemy, unretreating, not-fighting fleet in the port's sea province - whose only caller is the controller setter (0xA2400), so the trigger sees the answer as of the last time the province's controller was set. See reversing/findings/FINDINGS-triggerleaves.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "Read end to end; single holder. The writers of +0x36C come from a resumed .text sweep for byte accesses at displacement 0x36C (14 hits, the positive control being this body's own read at 0x5E0257). What would show it wrong: a writer of +0x36C through a computed address the sweep cannot see."
+  },
+  {
+   "rva": "0x5F2540",
+   "kind": "function",
+   "name": "CIsCapitalTrigger::Evaluate",
+   "signature": "bool __thiscall CIsCapitalTrigger::Evaluate(CIsCapitalTrigger* this, CEventScope* scope)",
+   "no_signature": null,
+   "comment": "**`is_capital = yes|no`: whether the scope's province is its owner's capital.** 0x5F2540 to the `ret 4` at 0x5F2638, slot 8 at 0x5F2640. `cap = province->owner_id (+0x330) != 0 && countries[owner_id]->capital_province_id (+0xE20) == province->id (+0xD0); return cap == this->value (+0x40)`. Three things a script cannot see: it asks the **owner's** capital, not the scope country's; it uses the real capital (+0xE20), not the acting one (+0xE24); and **there is no province-0 test**, so on a country-only scope it reads province 0, which is unowned - `is_capital = no` is then **true**. See reversing/findings/FINDINGS-triggerleaves.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "Read end to end; single holder. What would show it wrong: province 0 being null rather than an unowned placeholder (then a country-only scope would fault instead) - the province arrays start at id 0 (FINDINGS-mapbuild.md) and every other leaf here treats it as readable."
+  },
+  {
+   "rva": "0x5F0AD0",
+   "kind": "function",
+   "name": "CIsMissionCountryTrigger::Evaluate",
+   "signature": "bool __thiscall CIsMissionCountryTrigger::Evaluate(CIsMissionCountryTrigger* this, CEventScope* scope)",
+   "no_signature": null,
+   "comment": "**`is_mission_country = yes|no`: whether the scope's country is the target of THIS's current mission.** 0x5F0AD0 to the `ret 4` at 0x5F0B0F, slot 8 at 0x5F0B20. `t = countries[scope->this_scope (+0x38)->country_id (+0x14)]->mission_scope (+0xE44).country_id (absolute +0xE58); return (t == scope->country_id (+0x14)) == this->value (+0x40)`. The mission is always **THIS's** - the country the event was raised for - whatever context the condition is nested in; the compared country is the current scope's. No test for a country or mission being absent: a province-only scope has country_id 0, and so does a mission scope that names no country. See reversing/findings/FINDINGS-triggerleaves.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "Read end to end, 19 instructions; single holder. +0xE58 is CCountry::mission_scope (+0xE44, a CEventScope by value) + 0x14 = its country_id. What would show it wrong: mission_scope not being a CEventScope at +0xE44 (recorded from ApplyCountryAIStrategies)."
+  },
+  {
+   "rva": "0x5F1060",
+   "kind": "function",
+   "name": "CIsMissionProvinceTrigger::Evaluate",
+   "signature": "bool __thiscall CIsMissionProvinceTrigger::Evaluate(CIsMissionProvinceTrigger* this, CEventScope* scope)",
+   "no_signature": null,
+   "comment": "**`is_mission_province = yes|no`: whether the scope's province is the province of THIS's current mission.** 0x5F1060 to the `ret 4` at 0x5F109F, slot 8 at 0x5F10B0. `p = countries[scope->this_scope (+0x38)->country_id]->mission_scope (+0xE44).province (absolute +0xE6C); return (p == scope->province (+0x28)) == this->value`. CIsMissionCountryTrigger's body with the province fields. See reversing/findings/FINDINGS-triggerleaves.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "Read end to end; single holder; byte-for-byte the mission-country body with +0xE6C/+0x28 for +0xE58/+0x14. What would show it wrong: as for CIsMissionCountryTrigger::Evaluate."
+  },
+  {
+   "rva": "0x5E4080",
+   "kind": "function",
+   "name": "CHasBuildingTrigger::Evaluate",
+   "signature": "bool __thiscall CHasBuildingTrigger::Evaluate(CHasBuildingTrigger* this, CEventScope* scope)",
+   "no_signature": null,
+   "comment": "**`has_building = <building>`: whether the scope province's building of that type has a built level above g_FixedZero (rva 0x16870F4, zero).** 0x5E4080 to the `ret 4` at 0x5E4146, slot 8 at 0x5E4150. `return provinces[scope->province]->buildings (+0x310)[this->building (+0x40)->index (+0x54)]->level_max (+0x20) > g_FixedZero` - the **built** level, so a building bombed to nothing still counts. **Neither the province nor the building is tested**: a country-only scope reads province 0, and an unknown building name - which LoadArgument (0x5E3FC0) leaves as null without a message - is dereferenced at +0x54, an access violation when the condition is evaluated. See reversing/findings/FINDINGS-triggerleaves.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "Read end to end; single holder. The global has 11 absolute references in .text, every one a read (`cmp`/`mov reg,`), no store - classified by raw opcode bytes; the same comparison against it is already described for map billboards (FINDINGS-seaair.md) and the air orders window (FINDINGS-airorders.md). What would show it wrong: a store to 0x1A870F4 through a computed address, which would make the threshold non-zero."
+  },
+  {
+   "rva": "0x5E2C10",
+   "kind": "function",
+   "name": "CHasProvinceFlagTrigger::Evaluate",
+   "signature": "bool __thiscall CHasProvinceFlagTrigger::Evaluate(CHasProvinceFlagTrigger* this, CEventScope* scope)",
+   "no_signature": null,
+   "comment": "**`has_province_flag = <name>`: whether the scope province's flag of that name exists and is set.** 0x5E2C10 to two `ret 4` at 0x5E2CEB/0x5E2CFF, slot 8 at 0x5E2D10. `found = provinces[scope->province]->flags (+0xA0)->vftable[2](c_str(this->text (+0x40)))` - GuiTypeTree_Find, which tail-jumps to TernarySearchTreeFind, so **the name is matched case-insensitively** - `return found && found->is_set (+0x1C)`. The province twin of CHasCountryFlagTrigger::Evaluate: a cleared flag stays in the tree and answers false. No province-0 test (province 0's tree is empty). See reversing/findings/FINDINGS-triggerleaves.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "Read end to end; single holder; the same shape as the recorded CHasCountryFlagTrigger::Evaluate (rva 0x5E20B0) with CMapProvince +0xA0 for CCountry +0x180. CFlags slot 2 read off the vftable: 0x67DEE0, GuiTypeTree_Find. What would show it wrong: a province CFlags whose slot 2 is a different body."
+  },
+  {
+   "rva": "0x5E3A00",
+   "kind": "function",
+   "name": "CHasProvinceModifierTrigger::Evaluate",
+   "signature": "bool __thiscall CHasProvinceModifierTrigger::Evaluate(CHasProvinceModifierTrigger* this, CEventScope* scope)",
+   "no_signature": null,
+   "comment": "**`has_province_modifier = <modifier>`: whether the scope province's list of active modifiers holds that one.** 0x5E3A00 to two `ret 4` at 0x5E3ACF/0x5E3AE3, slot 8 at 0x5E3AF0. Walks `provinces[scope->province]->modifiers (+0x13C)`, nodes `{payload +0, next +8}`, and answers true at the first `payload->+8 == this->modifier (+0x40)`; an empty list is false. No province test, no expiry test (an expired modifier is assumed to have been taken off the list). An unknown name leaves the operand null (LoadArgument 0x5E3840 logs it), and the walk then compares against null - false unless some entry holds a null modifier. See reversing/findings/FINDINGS-triggerleaves.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "Read end to end; single holder. The list is the recorded `modifiers` (+0x13C, the one SaveContents writes one `modifier` key per node from). What would show it wrong: the payload's +8 not being the static modifier pointer - inferred from the comparison against the CStaticModifier* the loader stores, not from reading the entry's constructor."
+  },
+  {
+   "rva": "0x5E4B80",
+   "kind": "function",
+   "name": "CContinentTrigger::Evaluate",
+   "signature": "bool __thiscall CContinentTrigger::Evaluate(CContinentTrigger* this, CEventScope* scope)",
+   "no_signature": null,
+   "comment": "**`continent = <name>|this|from`: whether the scope province lies on that continent.** 0x5E4B80 to the `ret 4` at 0x5E4C9A, slot 8 at 0x5E4CA0. `c = this->continent (+0x40); if (arg_is_this (+0x18)) c = GetCapitalLocation(countries[scope->this_scope (+0x38)->country_id])->Continent (+0x368); else if (arg_is_from (+0x19)) c = GetCapitalLocation(countries[scope->from_country_id (+0x1C)])->Continent; return provinces[scope->province]->Continent == c`. So `this`/`from` mean **the continent of that country's capital** (CCountry +0xE20, not the acting capital). THIS is taken off this_scope's country with no province fallback; FROM off the current scope's from_country, which MakeScope copies unchanged. No province test. **An unknown name leaves null** (LoadArgument 0x5E4AB0), and null equals the continent of every province continent.txt does not list - so a misspelt continent is true in those provinces rather than false everywhere. See reversing/findings/FINDINGS-triggerleaves.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "Read end to end; single holder; GetCapitalLocation (rva 0x17AF0) already recorded. What would show it wrong: CMap::AssignContinents giving every province a continent, which would make the null case false everywhere - the record says it sets the field only for listed provinces."
+  },
+  {
+   "rva": "0x5FB490",
+   "kind": "function",
+   "name": "CCountryUnitsInProvinceTrigger::Evaluate",
+   "signature": "bool __thiscall CCountryUnitsInProvinceTrigger::Evaluate(CCountryUnitsInProvinceTrigger* this, CEventScope* scope)",
+   "no_signature": null,
+   "comment": "**`country_units_in_province = TAG|this|from`: whether any unit of that country stands in the scope province.** 0x5FB490 to two `ret 4` at 0x5FB5AB/0x5FB5C1, slot 8 at 0x5FB5D0. Walks `provinces[scope->province]->units (+0x2B8)`; for each unit resolves the tag again - `this`: EventScope_GetCountryTag(scope) (THIS's country, or the owner of THIS's province); `from`: this_scope->from_country (+0x18/+0x1C); otherwise the literal tag (+0x40/+0x44) - and answers true at the first `unit->owner_id (+0x128) == tag.id`. Every kind of unit in the province's list counts. An empty list, province 0 and an unknown tag (`---`, id 0, which no unit has) are false. See reversing/findings/FINDINGS-triggerleaves.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "Read end to end; single holder; slot 7 is TriggerLoadCountryTagArgument (0x5E8F40). What would show it wrong: a unit's owner_id being 0 for some live unit, which would make an unknown tag true."
+  },
+  {
+   "rva": "0x5EBDB0",
+   "kind": "function",
+   "name": "CHasEmptyAdjacentProvinceTrigger::Evaluate",
+   "signature": "bool __thiscall CHasEmptyAdjacentProvinceTrigger::Evaluate(CHasEmptyAdjacentProvinceTrigger* this, CEventScope* scope)",
+   "no_signature": null,
+   "comment": "**`has_empty_adjacent_province`: whether any neighbour of the scope province is unowned - and the operand is never read.** 0x5EBDB0 to two `ret 4` at 0x5EBED0/0x5EBEE5, slot 8 at 0x5EBEF0. `if (scope->province <= 0) return false; for each 0x14-byte edge of provinces[province]->path_node_ptr (+0xD4)->edges (+0x90..+0x94): if (provinces[edge->to_province (+4)]->owner_id (+0x330) == 0) return true; return false`. `this` (ECX) is not touched, so **`= no` behaves exactly as `= yes`**. Sea zones are unowned, so every province with a sea edge answers true. See reversing/findings/FINDINGS-triggerleaves.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "Read end to end; single holder. The bool operand at +0x40 is unread: ECX is never used in the body (every register is reloaded from [ebp+8] or the singleton). The edge record and its far province at +4 match CAnyNeighborProvinceTrigger::Evaluate. What would show it wrong: a read of [ecx+0x40] - there is none."
+  },
+  {
+   "rva": "0x5EC1A0",
+   "kind": "function",
+   "name": "CHasLeaderTrigger::Evaluate",
+   "signature": "bool __thiscall CHasLeaderTrigger::Evaluate(CHasLeaderTrigger* this, CEventScope* scope)",
+   "no_signature": null,
+   "comment": "**`has_leader = \"<name>\"`: whether a leader in service of the scope's country has exactly that name.** 0x5EC1A0 to two `ret 4` at 0x5EC23C/0x5EC247, slot 8 at 0x5EC250. Walks `countries[scope->country_id (+0x14)]->active_leaders (+0xE00)` - a CList, node `{leader +0, next +8}` - and answers true at the first leader whose `name (+0x4C)` equals `this->text (+0x40)` by MemCompareRegs plus a length test: **case-sensitive, whole name**, not a leader id. No test for country 0 (the `---` country, whose list is empty). See reversing/findings/FINDINGS-triggerleaves.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "Read end to end; single holder. The walk takes node+8 as next with no end-pointer comparison, which is a list and not a vector - a fifth witness for FINDINGS-leaderassign.md's CList reading of +0xE00. What would show it wrong: CLeader +0x4C not being the name (recorded, Windows-1252)."
+  },
+  {
+   "rva": "0x5ECD80",
+   "kind": "function",
+   "name": "CBrigadeExistsTrigger::Evaluate",
+   "signature": "bool __thiscall CBrigadeExistsTrigger::Evaluate(CBrigadeExistsTrigger* this, CEventScope* scope)",
+   "no_signature": null,
+   "comment": "**`brigade_exist = \"<name>\"`: whether any regiment of the scope's country carries that historical name.** 0x5ECD80 to two `ret 4` at 0x5ECDE4/0x5ECEB8, slot 8 at 0x5ECEC0. False when `scope->country_id (+0x14) == 0`; otherwise walks `countries[id]->units (+0xBAC)` and each unit's `regiments (+0x38)`, asking each regiment for slot 8 (rva 0x6C6C50, a copy of CSubUnit +0x68, the name) and comparing it with `this->text (+0x40)` - exact and **case-sensitive**. The same walk as CRemoveBrigadeEffect, so the condition and the effect agree on what a name is. See reversing/findings/FINDINGS-triggerleaves.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "Read end to end; single holder. The regiment slot read off the vftable (CRegiment slot 8 = VA 0xAC6C50, rva 0x6C6C50, five holders, recorded class-free in the remove_brigade entry). What would show it wrong: CCountry +0xBAC not holding every unit with regiments (it is recorded as `the country's units at every level`)."
+  },
+  {
+   "rva": "0x5EC740",
+   "kind": "function",
+   "name": "CBrigadeInCombatTrigger::Evaluate",
+   "signature": "bool __thiscall CBrigadeInCombatTrigger::Evaluate(CBrigadeInCombatTrigger* this, CEventScope* scope)",
+   "no_signature": null,
+   "comment": "**`brigade_in_combat = \"<name>\"`: whether the unit holding the first regiment of that name is in a battle.** 0x5EC740 to two `ret 4` at 0x5EC7A4/0x5EC889, slot 8 at 0x5EC890. CBrigadeExistsTrigger's walk; at the **first** regiment whose name matches it returns `unit->combats_count (+0x11C) > 0` and stops - a second regiment of the same name in a fighting unit is never looked at. No match, or country id 0, is false. See reversing/findings/FINDINGS-triggerleaves.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "Read end to end; single holder; identical to the brigade_exist body up to the match, then `cmp [unit+0x11C],0; setg`. What would show it wrong: the match continuing the walk - the `jne` at 0x5EC84F leaves the loop."
+  },
+  {
+   "rva": "0x5E1BD0",
+   "kind": "function",
+   "name": "CLastMissionTrigger::Evaluate",
+   "signature": "bool __thiscall CLastMissionTrigger::Evaluate(CLastMissionTrigger* this, CEventScope* scope)",
+   "no_signature": null,
+   "comment": "**`last_mission = <name>`: whether the scope country's last ended mission had that name.** 0x5E1BD0 to the `ret 4` at 0x5E1C57, slot 8 at 0x5E1C60. `s = Trigger_CopyLastMission(countries[scope->country_id (+0x14)]); return String_Equals(&this->text (+0x40), s)` - exact, case-sensitive. CCountry +0xF00 (`last_mission`) is written by CCountry_CancelMission (rva 0xEE700) from the outgoing mission's name, at the moment the mission ends; it is empty until one has. No country-0 test. See reversing/findings/FINDINGS-triggerleaves.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "Read end to end; single holder. The field is saved under token 0x6A8 `last_mission` by CCountry::SaveContents (0xD1930) unless empty or `no_mission`. What would show it wrong: another writer of +0xF00 - the resumed sweep found two constructor clears and three reads/assigns, the assign being 0xEE747."
+  },
+  {
+   "rva": "0x5F2170",
+   "kind": "function",
+   "name": "CFoWRemovedTrigger::Evaluate",
+   "signature": "bool __thiscall CFoWRemovedTrigger::Evaluate(CFoWRemovedTrigger* this, CEventScope* scope)",
+   "no_signature": null,
+   "comment": "**`remove_fow = yes|no`: whether the scope's country - or, on a province scope, the province's owner - has an unexpired remove_fow entry naming THIS's country.** 0x5F2170 to the `ret 4` at 0x5F2284, slot 8 at 0x5F2290. `holder = scope->province ? provinces[province]->owner (+0x32C/+0x330) : scope->country (+0x10/+0x14); t = EventScope_GetCountryTag(scope); return CCountry_HasActiveRemoveFoW(countries[holder.id], t) == this->value (+0x40)`. **The province's owner wins over the scope's country** whenever there is a province. An unowned province uses the `---` country, whose list is empty: `= no` true. See reversing/findings/FINDINGS-triggerleaves.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "Read end to end; single holder; EventScope_GetCountryTag (0x5C1A40) recorded. What would show it wrong: the order of the two loads - the province owner overwrites the stack copy of the scope country at 0x5F223D."
+  },
+  {
+   "rva": "0xA65E0",
+   "kind": "function",
+   "name": "UpdateProvinceBlockaded",
+   "signature": "void __stdcall UpdateProvinceBlockaded(CMapProvince* province)",
+   "no_signature": null,
+   "comment": "**Works out CMapProvince +0x36C, whether a port is blockaded, and then the owner's blockade share.** 0xA65E0 to two `ret 4` at 0xA675B/0xA6776. Where the province is owned (+0x330), has a map port (+0x354), a naval base (+0x300) whose built level (+0x20) is above 0, and its template's `simulated` byte (+0x13D): it sums `regiments_count (+0x40)` over the units of the port's sea province (`port->+0x18`) that UnitBlockadesProvince accepts; a sum of at least 1 sets the byte, otherwise it is cleared; then UpdateBlockadeLevel(owner). Any of the four missing clears the byte and returns without the share. **One caller in the image**, 0xA3290 in the controller setter 0xA2400 - no other call, jump or absolute reference - so the flag is refreshed when a province's controller is set, not when a fleet arrives. See reversing/findings/FINDINGS-triggerleaves.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "Read end to end. Callers by raw rel32 scan of .text (E8/E9/0F8x): exactly 0xA3290; the same scan reproduces UpdateBlockadeLevel's three recorded callers (0xA6745, 0xDCBAA, 0x25B2CB), which is the positive control. No absolute reference to 0xA65E0. What would show it wrong: an indirect call through a register loaded from a table that does not store the address literally."
+  },
+  {
+   "rva": "0x1C8110",
+   "kind": "function",
+   "name": "UnitBlockadesProvince",
+   "signature": "bool __stdcall UnitBlockadesProvince(CMapProvince* province@EAX, CUnit* unit@stack:4) @AL",
+   "no_signature": null,
+   "comment": "**Whether a unit in a port's sea province blockades it.** 0x1C8110 to two `ret 4`. False when the unit is fighting (`combats_count (+0x11C) > 0`) or retreating (`retreat (+0x158)`); otherwise true when CCountry::IsEnemy(owner's country, &province->controller (+0x334), province) and the unit holds at least one regiment (`regiments_count (+0x40) >= 1`). Only caller UpdateProvinceBlockaded. See reversing/findings/FINDINGS-triggerleaves.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "Read end to end; province in EAX (moved to EDI and passed as IsEnemy's province, whose recorded convention is country@ESI tag@EDX province@EDI), unit at [ebp+8], `ret 4`. One call site by raw rel32 scan. What would show it wrong: a second caller passing a non-province in EAX."
+  },
+  {
+   "rva": "0x5C8C30",
+   "kind": "function",
+   "name": "Trigger_CopyLastMission",
+   "signature": "Hoi3CString* __stdcall Trigger_CopyLastMission(CCountry* country@stack:4, Hoi3CString* out@ESI) @EAX",
+   "no_signature": null,
+   "comment": "Copies `country->last_mission (+0xF00)` into the string at ESI and returns it; `ret 4`. Its one caller is CLastMissionTrigger::Evaluate (0x5E1C14), and it sits among the trigger code, so it is the trigger's own helper rather than a CCountry method. See reversing/findings/FINDINGS-triggerleaves.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "Read end to end (12 instructions: empty-construct out, assignString from country+0xF00). One caller by raw rel32 scan. What would show it wrong: a Lua registration of it as a CCountry getter - luabind.json has none at this address."
+  },
+  {
+   "rva": "0xEFF90",
+   "kind": "function",
+   "name": "CCountry_HasActiveRemoveFoW",
+   "signature": "bool __stdcall CCountry_HasActiveRemoveFoW(CCountry* country@stack:4, int tagChars@stack:8, int tagId@stack:0xC) @AL",
+   "no_signature": null,
+   "comment": "**Whether a country's `remove_fow` list (+0xAB8) has a live entry for a tag.** 0xEFF90 to two `ret 0xC`. Takes the **first** node whose payload's `+0xC` equals the tag's id and answers `payload->+0x10 > g_CCurrentGameState->tick (+0xBDC)`, i.e. its end hour is still to come; no node is false. Only the id half of the tag is compared. Two callers: CFoWRemovedTrigger::Evaluate and 0x272EA4 (inside 0x272BE0, unread), which also passes a province owner's country. See reversing/findings/FINDINGS-triggerleaves.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "Read end to end. Callers by raw rel32 scan: 0x272EA4 and 0x5F2262. The payload's +0x10 being an expiry tick is read off the comparison against CGameState::tick; the loader that fills the list was not read. What would show it wrong: a payload whose +0xC is not a country id."
+  },
+  {
+   "rva": "0xEE700",
+   "kind": "function",
+   "name": "CCountry_CancelMission",
+   "signature": "void __fastcall CCountry_CancelMission(CCountry* country@EDI)",
+   "no_signature": null,
+   "comment": "**A country's current mission ends.** 0xEE700 to two bare `ret`, country in EDI. Copies the mission's name (`mission (+0xE40)->+8`) into +0xEE4 and into `last_mission (+0xF00)`, overwrites the mission state (+0xE3C, +0xE40, mission_scope +0xE44, +0xE8C, +0xED4..+0xEDC) from a blank one built by 0x5C7150, and stamps `last_mission_cancel (+0xEE0)` with the current tick. Two callers, 0xDB7EE and 0x2D9264, neither read. The name is ours, from the save key of the stamp. See reversing/findings/FINDINGS-triggerleaves.md.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "Likely: read end to end except the two callees (0x5C7150, 0xD4BE0 - assumed to build and copy the blank mission state). +0xEE0 is saved as `last_mission_cancel` (FINDINGS-fieldmap.md, token 0x68D) and every country of the maintainer's 1936.4.20 save carries `last_mission_cancel=\"1.1.1.0\"`. What would show it wrong: a caller that runs it when a mission starts rather than ends."
+  },
+  {
+   "rva": "0x174879",
+   "kind": "instruction",
+   "name": "CCombat_Conclude_RecordLastBattleLosses",
+   "signature": null,
+   "no_signature": null,
+   "comment": "**Where the six `last_*_battle_*_losses` figures are written** - the only writes of CGameState +0x30..+0x44 in the image, all inside CCombat::Conclude (0x174580), before its relation change, counters, on-actions and messages. Each side's figure is `losses (CCombatant +0x84) / 1000` plus, only where the side's byte +0xA8 is set (the one HasLost treats as an immediate loss): for a land battle `GetTotalStrength(side units) * floorf(100000.5f) / 1000 / 1000` - the strength still standing times 100, i.e. men at MenPerStrength 100 (inferred); for a naval one `GetTotalNumOfShips(units)`; for an air one `SumSubUnitCounts(units)`. Then `attackerLost` picks the sides: loser = attacker's figure when the attacker lost, else the defender's. Land (GetKind 1) writes +0x34 loser at 0x174879 and +0x30 winner at 0x17491C; naval (2) +0x44/+0x40; air (3) +0x3C/+0x38; other kinds write nothing. Skipped entirely when Conclude returns early (already concluded, convoy battle) or when either side's `countries` count (+0x5C) is 0. See reversing/findings/FINDINGS-triggerleaves.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "Resumed .text sweep for [reg+0x30..0x44] with reg holding g_CCurrentGameState (loaded from, or stored to, g_CCurrentGameState (rva 0x1689790), or returned by GetCurrentGameState (rva 0xC370)): 12 hits, the six trigger reads (positive control) and six writes, all at 0x174879..0x174C6C. GetTotalStrength (0x1D6420) and GetTotalNumOfShips (0x1D5CC0) are luabind-named. The `men` reading of the land term is inferred from max_strength 30 for an infantry brigade. What would show it wrong: a writer through `this` - the game-state methods in the record were scanned and none writes these offsets; the constructor writes +0x2C and +0x48 and skips them."
+  },
+  {
+   "rva": "0x16870F4",
+   "kind": "global",
+   "name": "g_FixedZero",
+   "signature": null,
+   "no_signature": null,
+   "comment": "A fixed-point value in .bss that nothing in .text stores to: 11 absolute references, every one a read, all comparing a level or amount against it - CHasBuildingTrigger::Evaluate (built level above it), the map's building billboards and the air orders window's building tests. So it is 0 for the whole session. Likely a static `CFixedPoint` zero. See reversing/findings/FINDINGS-triggerleaves.md.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "Likely: every 4-byte occurrence of the VA 0x1A870F4 in .text classified by its opcode bytes (3B/8B: cmp/mov reg, mem), none a store (A3, 89 /r, C7 05). What would show it wrong: a store through a computed address, e.g. a static initialiser writing a block that contains it."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CGameState",
+   "offset": "0x30",
+   "name": "last_battle_winner_losses",
+   "type": "int",
+   "comment": "**The winner's losses in the last land battle concluded anywhere** - what `last_battle_winner_losses` compares against (strictly greater). Written only by CCombat::Conclude (CCombat_Conclude_RecordLastBattleLosses, rva 0x174879). Not saved, not loaded, and not set by the constructor or ResetSession, so it is whatever the heap gave until the first such battle ends and it survives a load and a return to the menu. See reversing/findings/FINDINGS-triggerleaves.md.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "Six writes and six reads found by a sweep tracking the g_CCurrentGameState register; the reads are the six trigger bodies. Not saved: the save tokens 0x745..0x74A are referenced only by the trigger keyword table, and none appears in the maintainer's saves. What would show it wrong: a writer through `this` in a game-state method the record does not hold."
+  },
+  {
+   "struct": "CGameState",
+   "offset": "0x34",
+   "name": "last_battle_loser_losses",
+   "type": "int",
+   "comment": "**The loser's losses in the last land battle concluded anywhere** - what `last_battle_loser_losses` compares against (strictly greater). Written only by CCombat::Conclude (CCombat_Conclude_RecordLastBattleLosses, rva 0x174879). Not saved, not loaded, and not set by the constructor or ResetSession, so it is whatever the heap gave until the first such battle ends and it survives a load and a return to the menu. See reversing/findings/FINDINGS-triggerleaves.md.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "Six writes and six reads found by a sweep tracking the g_CCurrentGameState register; the reads are the six trigger bodies. Not saved: the save tokens 0x745..0x74A are referenced only by the trigger keyword table, and none appears in the maintainer's saves. What would show it wrong: a writer through `this` in a game-state method the record does not hold."
+  },
+  {
+   "struct": "CGameState",
+   "offset": "0x38",
+   "name": "last_air_battle_winner_losses",
+   "type": "int",
+   "comment": "**The winner's losses in the last air battle concluded anywhere** - what `last_air_battle_winner_losses` compares against (strictly greater). Written only by CCombat::Conclude (CCombat_Conclude_RecordLastBattleLosses, rva 0x174879). Not saved, not loaded, and not set by the constructor or ResetSession, so it is whatever the heap gave until the first such battle ends and it survives a load and a return to the menu. See reversing/findings/FINDINGS-triggerleaves.md.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "Six writes and six reads found by a sweep tracking the g_CCurrentGameState register; the reads are the six trigger bodies. Not saved: the save tokens 0x745..0x74A are referenced only by the trigger keyword table, and none appears in the maintainer's saves. What would show it wrong: a writer through `this` in a game-state method the record does not hold."
+  },
+  {
+   "struct": "CGameState",
+   "offset": "0x3C",
+   "name": "last_air_battle_loser_losses",
+   "type": "int",
+   "comment": "**The loser's losses in the last air battle concluded anywhere** - what `last_air_battle_loser_losses` compares against (strictly greater). Written only by CCombat::Conclude (CCombat_Conclude_RecordLastBattleLosses, rva 0x174879). Not saved, not loaded, and not set by the constructor or ResetSession, so it is whatever the heap gave until the first such battle ends and it survives a load and a return to the menu. See reversing/findings/FINDINGS-triggerleaves.md.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "Six writes and six reads found by a sweep tracking the g_CCurrentGameState register; the reads are the six trigger bodies. Not saved: the save tokens 0x745..0x74A are referenced only by the trigger keyword table, and none appears in the maintainer's saves. What would show it wrong: a writer through `this` in a game-state method the record does not hold."
+  },
+  {
+   "struct": "CGameState",
+   "offset": "0x40",
+   "name": "last_naval_battle_winner_losses",
+   "type": "int",
+   "comment": "**The winner's losses in the last naval battle concluded anywhere** - what `last_naval_battle_winner_losses` compares against (strictly greater). Written only by CCombat::Conclude (CCombat_Conclude_RecordLastBattleLosses, rva 0x174879). Not saved, not loaded, and not set by the constructor or ResetSession, so it is whatever the heap gave until the first such battle ends and it survives a load and a return to the menu. See reversing/findings/FINDINGS-triggerleaves.md.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "Six writes and six reads found by a sweep tracking the g_CCurrentGameState register; the reads are the six trigger bodies. Not saved: the save tokens 0x745..0x74A are referenced only by the trigger keyword table, and none appears in the maintainer's saves. What would show it wrong: a writer through `this` in a game-state method the record does not hold."
+  },
+  {
+   "struct": "CGameState",
+   "offset": "0x44",
+   "name": "last_naval_battle_loser_losses",
+   "type": "int",
+   "comment": "**The loser's losses in the last naval battle concluded anywhere** - what `last_naval_battle_loser_losses` compares against (strictly greater). Written only by CCombat::Conclude (CCombat_Conclude_RecordLastBattleLosses, rva 0x174879). Not saved, not loaded, and not set by the constructor or ResetSession, so it is whatever the heap gave until the first such battle ends and it survives a load and a return to the menu. See reversing/findings/FINDINGS-triggerleaves.md.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "Six writes and six reads found by a sweep tracking the g_CCurrentGameState register; the reads are the six trigger bodies. Not saved: the save tokens 0x745..0x74A are referenced only by the trigger keyword table, and none appears in the maintainer's saves. What would show it wrong: a writer through `this` in a game-state method the record does not hold."
+  },
+  {
+   "struct": "CMapProvince",
+   "offset": "0x36C",
+   "name": "blockaded",
+   "type": "bool",
+   "comment": "**Whether the port is blockaded**: set by UpdateProvinceBlockaded (rva 0xA65E0) when enemy, unretreating, not-fighting units with at least one ship stand in the port's sea province, cleared otherwise and on a province with no owner, port or working naval base. Its only caller is the controller setter, so it is as of the last change of controller. Read by `is_blockaded`, UpdateBlockadeLevel (the country's share at CCountry +0xBD4), RebuildProvinceModifierValues (rva 0x9FD51), COwnerArea::FindOpenPort (0x7E552) and a read at 0xDEB60. See reversing/findings/FINDINGS-triggerleaves.md.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "Writers from a resumed byte sweep at displacement 0x36C: 0xA670C/0xA671E/0xA6763 in UpdateProvinceBlockaded and 0x96D26 in province set-up; the rest are stack slots. UpdateBlockadeLevel's comment already called this byte a blockaded flag by inference; the writer settles it. What would show it wrong: a write of +0x36C through a computed address."
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0xF00",
+   "name": "last_mission",
+   "type": "Hoi3CString",
+   "comment": "**The name of the country's last ended mission**, saved as `last_mission` (token 0x6A8) unless empty or `no_mission`. Set from the outgoing mission's name by CCountry_CancelMission (rva 0xEE700); compared by `last_mission` (CLastMissionTrigger::Evaluate, through Trigger_CopyLastMission). See reversing/findings/FINDINGS-triggerleaves.md.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "Save writer at 0xD1857..0xD1936 emits token 0x6A8 from +0xF00; the sweep at displacement 0xF00 finds the two constructor clears, the save reads, an AfterLoad use and the one assign at 0xEE747. What would show it wrong: the assign at 0xEE747 copying something other than the current mission's name (it copies [+0xE40]+8, the same source it copies into +0xEE4)."
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0xEE0",
+   "name": "last_mission_cancel",
+   "type": "int",
+   "comment": "The hour the country's last mission ended, saved as `last_mission_cancel` (token 0x68D). Stamped with CGameState::tick by CCountry_CancelMission (rva 0xEE700). See reversing/findings/FINDINGS-triggerleaves.md.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "FINDINGS-fieldmap.md maps token 0x68D to +0xEE0; 0xEE822/0xEE842 store the tick there; every country in the maintainer's 1936.4.20 save carries `last_mission_cancel=\"1.1.1.0\"`, the epoch, i.e. never. What would show it wrong: a second writer storing something other than a tick."
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0xE00",
+   "name": "active_leaders",
+   "type": "CList<CLeader*>",
+   "comment": "**The country's leaders in service, a CList** (first +0xE00, last +0xE04, count +0xE08), node `{leader +0, next +8}` - not a vector. Named from the key CCountry::SaveContents writes it under. Filled at a new game's start and by leader activation (FINDINGS-leaderassign.md); walked by `has_leader`, the leader choice and the leader window. See reversing/findings/FINDINGS-triggerleaves.md.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "revises": true,
+   "evidence": "Revised from `void*` 'the first of a vector'. CHasLeaderTrigger::Evaluate walks it as `node = [+0xE00]; ...; node = [node+8]` until null, with no end-pointer comparison - which a vector walk would need; FINDINGS-leaderassign.md and four function entries (the start-of-game filler, the append, the removal through CList_RemoveNode, the window's copy) already say CList. What would show it wrong: a reader indexing it as a contiguous array."
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0xE04",
+   "name": "active_leaders_last",
+   "type": "void*",
+   "comment": "The last node of the active_leaders CList at +0xE00. See reversing/findings/FINDINGS-triggerleaves.md and FINDINGS-leaderassign.md.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "revises": true,
+   "evidence": "Revised from `active_leaders_end`, 'one past the last' - the vector reading. FINDINGS-leaderassign.md section 2: first +0xE00, last +0xE04, count +0xE08. What would show it wrong: as for +0xE00."
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0xE08",
+   "name": "active_leaders_count",
+   "type": "int",
+   "comment": "How many leaders the active_leaders CList at +0xE00 holds. See reversing/findings/FINDINGS-triggerleaves.md and FINDINGS-leaderassign.md.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "revises": true,
+   "evidence": "Revised from `active_leaders_capacity` (void*), the vector reading. CList is head/tail/count throughout the image. What would show it wrong: as for +0xE00."
+  }
+ ],
+ "vftable_slots": {
+  "CPortTrigger": {
+   "6": "Evaluate"
+  },
+  "CEmptyTrigger": {
+   "6": "Evaluate"
+  },
+  "CIsBlockadedTrigger": {
+   "6": "Evaluate"
+  },
+  "CIsCapitalTrigger": {
+   "6": "Evaluate"
+  },
+  "CIsMissionCountryTrigger": {
+   "6": "Evaluate"
+  },
+  "CIsMissionProvinceTrigger": {
+   "6": "Evaluate"
+  },
+  "CHasBuildingTrigger": {
+   "6": "Evaluate"
+  },
+  "CHasProvinceFlagTrigger": {
+   "6": "Evaluate"
+  },
+  "CHasProvinceModifierTrigger": {
+   "6": "Evaluate"
+  },
+  "CContinentTrigger": {
+   "6": "Evaluate"
+  },
+  "CCountryUnitsInProvinceTrigger": {
+   "6": "Evaluate"
+  },
+  "CHasEmptyAdjacentProvinceTrigger": {
+   "6": "Evaluate"
+  },
+  "CHasLeaderTrigger": {
+   "6": "Evaluate"
+  },
+  "CBrigadeExistsTrigger": {
+   "6": "Evaluate"
+  },
+  "CBrigadeInCombatTrigger": {
+   "6": "Evaluate"
+  },
+  "CLastMissionTrigger": {
+   "6": "Evaluate"
+  },
+  "CFoWRemovedTrigger": {
+   "6": "Evaluate"
+  }
+ },
+ "frontier": [
+  "0xA2400",
+  "0x272BE0",
+  "0x5C7150",
+  "0xDB7EE",
+  "0x2D9264",
+  "0x17F700",
+  "0x3049E0"
+ ],
+ "slots_noted": "Every Evaluate here is the single holder of its slot 6 (vtable.py --holding on each). The helpers are in no virtual table."
+}
