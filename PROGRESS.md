@@ -186,7 +186,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CEmbargoAction` | `CDiplomaticAction` |  |  | 5/6 | 2 |  | 1,762 | RTTI |  |
 | `CEvent` | `CReferenceObject` | 0x174 | 16 | 9/12 | 6 |  | 5,693 | read |  |
 | `CEventScope` | `CPersistent` | 0x48 | 15 + 2 lua | 5/6 | 5 |  | 3,026 | read |  |
-| `CFaction` | `CPersistent` |  | 12 + 5 lua | 7/8 | 8 | CFaction.hpp | 3 | read |  |
+| `CFaction` | `CPersistent` |  | 12 + 5 lua | 7/8 | 9 | CFaction.hpp | 3 | read |  |
 | `CFactionAction` | `CDiplomaticAction` |  |  | 5/6 | 3 |  | 46 | RTTI |  |
 | `CFactionJoin` | `CCountryHistoryEntry` | 0x18 | 2 |  | 2 |  |  | part |  |
 | `CFactionLeave` | `CCountryHistoryEntry` | 0x18 | 2 |  | 2 |  |  | part |  |
@@ -389,7 +389,7 @@ Definitions out of `common/` and the rest of the mod. Their `LoadKey` is the gra
 | `CProvinceType` | `C3dObjectType` |  |  |  | 1 |  | 1 | keys |  |
 | `CProvinceWaterType` | `C3dObjectType` |  |  |  |  |  | 1 | RTTI |  |
 | `CRebelType` | `CPersistent` |  | 18 | 16/17 | 1 | CRebelFaction.hpp | 7 | read | **read**: `rebel_types.txt`, 17 keys. `unit_transfer` is not one, though the file uses it - see the mod's bugs.md |
-| `CRule` | `CPersistent` |  |  | 1/2 | 1 |  | 112 | placed | plumbing |
+| `CRule` | `CPersistent` |  |  | 1/2 | 3 |  | 112 | placed | plumbing |
 | `CScenario` | `CPersistent` |  |  | 12/21 | 1 |  |  | placed | **read**: a scenario - selectable countries, camera, victory conditions |
 | `CSelectionGroupReader` | `CPersistent` |  |  |  | 1 |  |  | keys | plumbing |
 | `CSessionConfiguration` | `CPersistent` |  |  | 5/7 | 1 |  | 3 | placed |  |
@@ -627,7 +627,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CRightClickCloseItem` | `CRightClickItemInterface` `CStandardlistboxItem` |  |  |  |  |  | 1 | RTTI |  |
 | `CRightClickItemInterface` |  |  |  |  |  |  |  | RTTI |  |
 | `CRightClickReloadItem` | `CRightClickItemInterface` `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
-| `CRuleDefinition` |  |  |  |  |  |  | 4 | RTTI |  |
+| `CRuleDefinition` |  |  |  |  | 1 |  | 4 | RTTI |  |
 | `CSafeAreaCostCallback` | `CAreaCostCallback` |  |  |  |  |  | 1 | RTTI |  |
 | `CSafeNavalPathFind` | `CPathFind` |  |  |  | 1 |  |  | RTTI |  |
 | `CSafePathFind` | `CPathFind` |  |  |  | 1 |  |  | RTTI |  |

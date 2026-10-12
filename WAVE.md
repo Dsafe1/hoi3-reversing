@@ -27,8 +27,11 @@ truth.
 > **Two more briefs followed the same day**, when the reading showed a new game's relations come from
 > the mod's Lua and threat is weighed on the alignment triangle: **F**, how the exe hosts Lua
 > (`findings/FINDINGS-luahost.md`, `lua-host.json`), and **G**, the triangle's start and drift
-> (`findings/FINDINGS-alignment.md`, `alignment.json`). Both merged; apply 161/162. Kept as history
-> until the next plan replaces it.
+> (`findings/FINDINGS-alignment.md`, `alignment.json`). Both merged; apply 161/162. **And a third
+> reading**, by the collecting session itself when the screen was built: the triangle's markers, the
+> faction boxes and the tooltips D and E left (`findings/FINDINGS-diplomacyview.md`, section F;
+> `diplomacy-triangle.json` and its signatures' revision; 14 addresses, apply 163/164). Kept as
+> history until the next plan replaces it.
 
 Planned and launched 2026-10-12, for OpenHOI3's diplomacy, which the maintainer has cut in order:
 what two countries hold of each other (relation, threat, neutrality, how each moves); the diplomacy

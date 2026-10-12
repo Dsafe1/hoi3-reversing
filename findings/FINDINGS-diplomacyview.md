@@ -3,7 +3,9 @@
 Read out of the executable on 2026-10-12 for OpenHOI3's diplomacy screen, in two briefs of one wave
 (`WAVE.md`, the diplomatic state wave): **D**, the list half - the country list, its tabs and sorting,
 choosing a country and what switches between the views; **E**, the panel half - what is shown of the
-chosen country. What the figures are is `FINDINGS-diplostate.md`; the screen's decision list is
+chosen country - and later the same day, by the collecting session itself, **F**: the triangle's
+markers, the faction boxes and the tooltips D and E left unread. What the figures are is
+`FINDINGS-diplostate.md`; the screen's decision list is
 `FINDINGS-eventfire.md`, 3.7, and is not redone. The file is `tfh/interface/country_diplomacy.gui`.
 Addresses are **virtual**, based `0x400000`, unless a line says rva.
 
@@ -354,3 +356,183 @@ and empty, and the overlapping box's slot 48 as empty - from use, not from the b
 `CCasusBelliType +0xC` as `sprite_index` (the loader's case not traced); `+0x6B8`'s entry layout.
 `0x78C130` fills `diploaction_list` with `CDiplomaticActionItem`s from `0x4E3FE0(player, ...)` - the
 actions, later work.
+
+## The triangle, the faction boxes and the tooltips left over
+
+Read 2026-10-12 by the session that collected D and E, for OpenHOI3's building of the screen: the
+functions D.8 named and the tooltip branches E.9 left. "A custom game" is as in the list half; every
+`Cgm_*` helper (`0x78F790`, `0x78F900`) answers null or false outside one - both test the custom-game
+byte first and leave with `xor eax, eax` (`0x78F8EF`, `0x78F972`) - so only the normal branch is given.
+
+### F.1 The markers (`AddAlignmentMarker`, `0x783840`; `RebuildAlignmentMarkers`, `0x783C50`)
+
+- **Who**: one marker for every country of the country list (view `+0xD0`) but the selected one, in
+  the list's order, and then **one for the selected country - or for the player where the selected
+  id is 0 or the player's** - so the chosen country's marker is made last. `ClearAlignmentMarkers`
+  (`0x783E10`) empties the window `alignment` first.
+- **What**: an `alignment_button` (`GFX_minishield_small`) given the country's flag (slot 53) and the
+  click handler at view `+0x2C0`, added to the window `alignment` under the name `TAG_aligner`.
+- **Where**: `alignment_origo` (805, 465) + `(x / 1000, y / 1000)`, x and y the country's alignment
+  position (`CCountry +0xE4`, `+0xE8`), each divided by the signed magic `0x10624DD3`, `sar 6` and the
+  sign bit added - **cut toward nought** (`0x783924`-`0x783965`) - and **y added as it is**
+  (`0x7839D3`): the position is an offset down the screen, so democracy's corner (0, -146) is 146 above
+  the origin and the two at y 200 below it. The position goes to the button's slot 50 as two shorts.
+- **When it is made again**: by every tab, faction and continent button (D.2), by Show, by Rebuild,
+  when Update finds a row whose country owns no province, **by Update when the clock (`+0xBDC`) is past
+  the view's `+0xBC`**, which is then set to the clock + `ALIGNMENT_INTERVAL / 1000` whole x 24 hours
+  (the test at `0x77E5E4`, `jle`), and by `CInGameIdler` slot 101 on a diplomatic change. Not by a sort
+  (D.3). What `+0xBC` starts at was not read.
+- **A click** (`OnAlignmentMarkerClicked`, `0x78DC60`): the marker's country is selected - the body of
+  `SelectCountry` written out again: the marker of that id brought to the front (the window
+  `alignment`'s slot 43), the drift list emptied and filled, `FillCountryInfoHeader`,
+  `RefreshCountryInfo`, the action list, and the panel back to Info.
+
+### F.2 The faction boxes (`BuildWidgets`, `0x781310`; `UpdateFactionBoxes`, `0x7831E0`)
+
+- **Made once**, in `BuildWidgets`: a `faction_box_window` for each faction of the game state's list
+  (`+0xCE4`), **with no test of slot 7** (the sort windows have one), at `faction_start` (700, 79) + n x
+  `faction_offset` (0, 60); its `faction_symbol_button` given the frame `CFaction +0x3C`, the faction's
+  `icon` (slot 18, `0x7818C4`-`0x7818CF`), and its `name` the faction's slot 6 text. That the list is the
+  three factions of `common/ideologies.txt` in the file's order is inferred.
+- **Slot 6 of `CFaction`** (`0x522590`) is `GetText` of the faction's tag (`+0xC`) rendered - the
+  localised `axis`, `allies`, `comintern`: "Axis", "Allies", "Comintern".
+- **Each frame** from Update (and from `BuildWidgets` and Show): every box's `victory_progress` is given
+  `GetVictoryPointShare / 1000` - the share of the world's victory points in whole percent - **looked up
+  and set twice** (`0x7832FA`, `0x78335F`). Then, where the faction's `members_changed` (`+0x38`, cleared
+  here) is set, the view is rebuilding (`+0xB8`), the call is forced, or the box's count differs from
+  the faction's members, the box is moved to its place again, its `faction_box` emptied, and **one
+  `faction_member_entry` a member, in the faction's member list's order** (`+0x28`; its first is the
+  leader): its `faction_button` given the member's flag and the click at view `+0x2EC`, its
+  `cgm_faction_leave_icon` hidden. A member's click selects it unless its id is 0 or it is REB
+  (`OnFactionMemberClicked`, `0x78DF90`).
+
+### F.3 The tooltips E.7 did not reach (`CDiplomacyView::BuildTooltip`, `0x77F490`)
+
+The dispatch is by the element's name, in this order after the custom-game branches: `faction_button`,
+then `highest_threat_flag` / `label_highest_threat_value` / `label_highest_threat` (E.7),
+`alignment_button`, `faction_symbol_button`, `faction_button` again, `faction_symbol_big_button`,
+`victory_progress`, `surrender_progress`, the two neutralities, then the lists (D.4, E.4, E.5).
+
+| element | text | delayed |
+| --- | --- | --- |
+| `faction_button` (a member) | `FACTION_MEMBER_OF` "$NAME$ is a $FACTION$ member." - NAME the member's name, FACTION its faction's slot 6 | none |
+| `alignment_button` (a marker) | the marker country's **drift tooltip**, F.4 (`BuildFactionIntentionTooltip`, `0x785250`, which outside a custom game always calls `CAlignment::BuildDriftTooltip`) | F.4 |
+| `faction_symbol_button` (a box) | the faction's slot 6 text, for the faction whose glue the element belongs to | **F.5**, then, where the game state has victory conditions, `sprintf("\n%d/%d")` of two counts over them (F.8) |
+| `faction_symbol_big_button` (a sort button) | the same name | F.5 alone |
+| `victory_progress` | `FACTION_PROGRESS_DESC` "$WHO$ controls §Y$PERCENT$%§W of the victory points. (Currently $OUR$ out of $TOTAL$)." - F.6 | none |
+
+### F.4 The drift tooltip (`CAlignment::BuildDriftTooltip`, `0x4FA0B0`)
+
+**The text starts with the drift**: `ComputeDrift`'s vector, **before the clamp**, as `"(" + ("+" where
+x > 0) + FFP(x, 2) + " / " + ("+" where y > 0) + FFP(y, 2) + ")\n"` - "(+1.34 / -0.52)".
+
+**The resources line**, kept aside for the end: the distinct strategic resources of the provinces the
+country **controls**, in the order the controlled-province list meets them, as "A, B and C" (`AND`),
+each by its slot 6 name; where there is at least one and the country is in no real faction,
+`RESOURCE_BONUS_ALIGNMENT_TT` "If close to a faction they could provide §Y$RESOURCES$§W to a faction
+leader." with that list.
+
+**A country in a real faction**: the text is **replaced** - the drift line with it - by
+`DIP_ALIGNED_DRIFT` "$NAME$ is a $FACTION$ member and will not drift.".
+
+**A country in none**: for each faction of the game state's list that is real (slot 7) and has members
+(`+0x30` above 0), the seven terms are worked out again for its group (`FINDINGS-politics.md`), and
+**threat, revanchism and repulsion are set to 0 where `IntegerSqrt((dx^2 / 1000 + dy^2 / 1000) / 1000)`
+is 200 or more** (dx, dy to the group; `cmp eax, 0xC8; jl` at `0x4FA9D1`) - the whole distance, where `ComputeDrift` tests the
+square against 40000. Its total, `t = relation + ideology + proximity - revanchism - threat - repulsion
++ influence`, gives an entry:
+
+- **text**: `FACTION_DRIFT_INSTANT` "$NAME$ is drifting §Y$VAL$§W towards $FACTION$" with VAL = FFP(t, 2)
+  + "\n"; and where the country is within `FACTION_STRAT_BONUS_DIST` of the group (100; the squared
+  distance below the define squared, `IsWithinFactionStratBonusDistance`) the kept resources line is
+  **replaced** - with no resources, `CAN_GIVE_STRAT_BONUS_BUT_NONE` "Closely enough aligned to provide
+  strategic resources to §Y$WHO$§W, but they have none..", else `CAN_GIVE_STRAT_BONUS` "Closely enough
+  aligned to provide §Y$RESOURCES$§W to §Y$WHO$§W.", WHO the faction leader's name (its first member,
+  `---` with none);
+- **delayed**: "(" + the faction's name + ")\n", then for each term that is not 0, in this order, its
+  line + "\n": `FACTION_DRIFT_RELATIONS` (VAL), `_PROXIMITY` (VAL), `_IDEOLOGY` (VAL),
+  `_REVANCH_NEW` (VAL, FACTION, COUNTRY), `_THREAT` (VAL), `_REPULSION` (VAL), `_INFLUENCE` (VAL) -
+  every VAL FFP(term, 2), the subtracted three as their positive figure behind the texts' own "§R-".
+
+The entries go into a list **sorted by t, highest first** (`0x5108E0`: walked from the tail to the first
+entry whose total is at least the new one's and put after it, or at the head; so of equals the earlier
+faction stays first). **The first entry's text is replaced** by `FACTION_DRIFT_TOP_INSTANT` "$NAME$ is
+mostly drifting towards §G$FACTION$§W with a value of §Y$VAL$§W" + "\n", **VAL = t / 1000 in single
+precision through `"%.2f"` - rounded, where every other figure here is cut** (`0x4FB72A`). Then every
+entry's text is added to the text and its delayed to the delayed, in the list's order.
+
+**Then** where the text is still empty, `NO_DRIFT` "$NAME$ is not drifting towards any faction."; and
+last, the resources line. **The text is never empty there**: a country in a faction has
+`DIP_ALIGNED_DRIFT` and one in none the drift line, written before anything else - so `NO_DRIFT` cannot
+show (by the order of the writes; no run was made).
+
+### F.5 A faction's rules and modifier (`0x522AF0`, the faction in EDI)
+
+The faction's `rule` (`+0x40`, a `CRule`) by its slot 7, `"\n"`, and its `modifier` (`+0x7C`) by its
+slot 7 - `CModifier::DescribeAllValues`, each kind with a value on a line of its own. **`CRule` slot 7**
+(`0x45DE60`): for each of the four rule definitions (`0x45D4A0` makes them, in this order: `NONE`,
+`RULE_LIMITED_WAR`, `RULE_ALLIANCE_GUARANTEE`, `RULE_FREE_RESOURCE_GIFTS`, read from the file's
+`limited_war`, `allience_wide_guarantee` and `free_resource_gifts` - so spelled) that is **set**, a
+newline before all but the first written, the localised name + ": " + a colour + `YES` + "§W"; the colour
+is §G, the definition's flag (`+0x28`) being 1 for all four (the `push 1` before each, `0x45D4EF`).
+A rule that is not set is not written. Slot 8 (`0x45DB60`) is the same for one rule, set or not, with
+`NO` in §R. In Their Finest Hour: "Limited war: §GYes§W" for the Axis, "Alliance-wide guarantees: ...",
+"Free resources gifts: ...".
+
+### F.6 `victory_progress`'s tooltip (`0x522E00`)
+
+`TOTAL` = the world's victory points, the sum over every province, thousandths; `share` = the faction's
+`Progress` (`+0xAC`) x 1000 / TOTAL where TOTAL is not 0, else `Progress`; PERCENT = FFP(share x 100, 2),
+OUR = FFP(`Progress`, 0), TOTAL = FFP(TOTAL, 0), WHO = the faction's slot 6.
+
+### F.7 The relation's breakdown (`0x4E74D0`, a relation row's delayed half)
+
+For the selected country S and a row's country c, T being S's status towards c:
+
+- **where T's relation is above 100 and `MonthlyRelationDrift(S, c)` is not negative**:
+  `RELATION_CAPPED` "Can not go over this relation with gradual improvements." alone;
+- otherwise, a line each, in this order, each `colour + figure + "§W: " + text + "\n"` (`0x4E72A0`):
+  `DIPRELCH_DEPENDENCY` "Puppet-Master Relationship" where T has a dependency, `DIPRELCH_WAR` "War"
+  where T has a war, `DIPRELCH_NBOR_PEACE` "Neighbours at Peace" where c is on S's neighbour flags and
+  neither is at war, `DIPRELCH_GUARANTEE` "Guarantees" where T has a guarantee, `DIPRELCH_HASACCESS`
+  "Transit Rights" where T has access. **The figure** is a constant - floor of 250.5, -99.5, 50.5,
+  80.5, 25.5 (`0x160A688`, `0x160A750`, `0x160A7B4`, `0x160A6D8`, `0x160A828`): 250, -100, 50, 80, 25,
+  the month's drift of each - through single precision / 1000 x 12, `"%.2f"`: +3.00, -1.20, +0.60,
+  +0.96, +0.30; **the colour** "§G+" above 0, "§Y" at 0, "§R" below.
+
+### F.8 The war ceiling's tooltip (`0x505F20`, `label_our_neutrality_value`'s text)
+
+For the player P and the selected country S, each line appended as it is:
+
+1. `WARNE_THREAT` "Mutual Threat is §Y$VAL$§W.\n" - VAL = FFP(the larger of P's threat from S and S's
+   from P, 0), not floored;
+2. `WARNE_CLAIMS` "Territorial Claims: §G+$VAL$§W.\n" - VAL = FFP(`NEUT_REDUCTION_AT_CLAIMS`, 0) - where
+   the ceiling's claims test holds (C.3 of `FINDINGS-diplostate.md`; not read);
+3. `WARNE_CONTINENT` "Different Continent: §R-$VAL$§W.\n" - VAL = FFP(`NEUT_INCREASE_DIFF_CONTINENT`, 0) -
+   where the two capitals' continents differ and S is not on P's neighbour flags;
+4. `WARNE_FACTION` "Member of $NAME$ : $VAL$§W.\n" where P's faction's neutrality is not 0 - NAME the
+   faction's slot 6, VAL "§G+" (or "§R" where negative) + FFP(neutrality, 0).
+
+### F.9 What looks wrong and is what the bytes do
+
+1. A marker's drift line is the drift before the clamp, so a country against the triangle's edge
+   shows a move it will not make.
+2. The tooltip's distance gate is the whole distance by the integer root, 200 or more; the drift's own
+   is the square below 40000. Newton's root from above stops at the floor of the root, so the two give
+   the same answer - a second way of saying one thing, not a difference.
+3. Of the drift tooltip's figures, the top line's is rounded and every other cut.
+4. A faction member's drift tooltip says only that it will not drift - the drift line is overwritten.
+5. `victory_progress` is looked up and set twice with the same value.
+6. The relation breakdown names five causes; the overlord pair's +2000 a month shows nowhere, and the
+   figures are the constants, not what the pair's drift is.
+7. `RELATION_CAPPED` stands where relation is above 100 and nothing moves it at all.
+8. Rules are read from `allience_wide_guarantee`, so spelled.
+9. `NO_DRIFT` cannot show (F.4).
+
+### F.10 Not read
+
+What the game state's victory conditions are and which of the two counts behind "\n%d/%d" comes first
+(`0x543D70` counts the faction's conditions, `0x543DB0` those whose `+0x68` is set); which object a
+strategic resource's slot 6 text is (its localised name, inferred); the order of the game state's
+faction list (the file's, inferred); the name `BuildWidgets` gives a faction box (the faction's tag,
+inferred from `UpdateFactionBoxes` finding it by that); how `Progress` is worked out.
