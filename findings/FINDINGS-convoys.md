@@ -294,9 +294,17 @@ startup initialiser fills it, and it is `InitMissionEfficiencyModifiers`, rva `0
     }
 
 **So the 32 mission-efficiency modifiers are created by the engine, not read out of a file**,
-their keys are `<order save token>_eff`, and their ids are consecutive from whatever the
-modifier count was when startup reached that function - which is why they are invisible to a
-static scan of `modifierIds.json`.
+and their ids are consecutive from whatever the modifier count was when startup reached that
+function - which is why they are invisible to a static scan of `modifierIds.json`.
+~~their keys are `<order save token>_eff`~~ - **corrected 2026-10-12**: `<token>_eff` is
+the definition's **name**, the same kind of string as the 107 base kinds' names
+(`MODIFIER_GLOBAL_IC`, `MANPOWER` - `ghidra/modifierIds.json`). A script never writes those.
+The order's token goes to `+0x20`, and **a modifier block sets the efficiency by the token
+itself**: `convoy_raid = 0.1`. That spelling is *inferred*, because `CModifier::LoadKey`'s
+fall-through, which matches a key to a definition, is unread. But the base game's own
+`common/event_modifiers.txt` writes `air_intercept`, `convoy_raid` and `naval_strike` that
+way (lines 2453, 2470, 2536), and no file of the base game or of BlackICE writes a `*_eff`
+key.
 
 `MissionIndexToOrderToken` is a jump table at `0x58471C`, 33 two-instruction cases, and it
 gives the whole index→mission mapping both tables share:
@@ -313,10 +321,20 @@ gives the whole index→mission mapping both tables share:
 32 join_air
 ```
 
-**Mod consequence: `convoy_escort_eff` and `convoy_raid_eff` are real country modifier keys**
-and the only mod-facing lever on that term. BlackICE defines neither - a grep of `common/`
-for `*_eff` finds one unrelated event modifier - so the spotting difference between an escort
-and a raider currently rests on the technology array at `CTechnologyStatus +0xE0` alone.
+**Mod consequence: `convoy_escort` and `convoy_raid` are real country modifier keys** and the
+only mod-facing lever on that term beside the technologies.
+
+~~BlackICE defines neither - a grep of `common/` for `*_eff` finds one unrelated event modifier -
+so the spotting difference between an escort and a raider currently rests on the technology
+array at `CTechnologyStatus +0xE0` alone.~~ **Corrected 2026-10-12**: the grep looked for the
+wrong spelling.
+- **BlackICE gives mission efficiencies 78 times in `common/`:**
+  - `air_intercept` 39, `convoy_raid` 12, `ground_attack` 7, `naval_strike` 6;
+  - `strategic_bomb` 5, `port_strike` 4, `interdiction` 4, `carrier_protection` 1;
+  - in `event_modifiers.txt`, `minister_types.txt` and `triggered_modifiers.txt`.
+- **It never gives `convoy_escort`.** So for a country holding one of the `convoy_raid`
+  modifiers, the raider's side of the spotting difference is not the technology's alone. The
+  escort's side still is.
 
 ## Trade routes
 

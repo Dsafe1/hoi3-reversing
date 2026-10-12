@@ -480,7 +480,11 @@ A technology file gives a mission its figures in a block named after it:
     sortie = { reduction_modifier = -0.05 }        convoy_raid = { reduction_modifier = -0.50 }
 
 `COrder::GetMissionEfficiency` (already recorded) is the first kind for the order's mission plus
-the country modifier `<mission>_eff`, which no file of the base game sets. It is read by the
+the country modifier made for that mission. Its name is `<mission>_eff`, but a file sets it by
+the mission's own name - `convoy_raid = 0.25` (corrected 2026-10-12, `FINDINGS-convoys.md`). It
+is not "set by no file of the base game": the base game's `event_modifiers.txt` sets
+`air_intercept`, `convoy_raid` and `naval_strike`, and BlackICE sets eight missions' 78 times.
+It is read by the
 sighting (`FINDINGS-navaldetection.md`: an escort's or a patrol's less a raider's, against a
 raider) and by `BM_MISSION_EFFICIENCY`, which puts it on the attack and the defence of every
 ship of a fleet whose order is not a plain move (`FINDINGS-combatmods.md`).

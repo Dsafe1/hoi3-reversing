@@ -1347,7 +1347,9 @@ What 83 up turned out to be: `NEUTRALITY`, the resource pair, **`REINFORCEMENT_B
 five build speeds, `FUEL_CONVERSION`, `TRICKLEBACK`, the attack pair, `NUKE_RESEARCH`, the
 weather effects, `LEADER_DEFENCE`, the intel boosts, `STRATEGIC_RESOURCE_EFFICIENCY`,
 `LOCAL_UNIT_SPEED` - and from 108 to 139 one `*_eff` per order type, in the same order as the
-order classes, then three `suseptibility_*`.
+order classes, then three `suseptibility_*`. (`*_eff` is the definition's name. A file sets
+one by the order's own name, `convoy_raid = 0.1`, as it sets `local_ic` and not
+`MODIFIER_LOCAL_IC` - `findings/FINDINGS-convoys.md`, corrected 2026-10-12.)
 
 **The findings type the array as a structure**, `CModifierValues`, 143 named
 `CModifierEntry`s, so a read decompiles as a field rather than an index:
