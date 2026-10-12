@@ -17,58 +17,56 @@ truth.
 
 ---
 
-## The event wave - an event firing, a decision taken, and the two windows
+## The text wave - every effect and every condition as words
 
-> **LANDED 2026-10-12.** All three briefs ran and merged; the write-up is
-> `findings/FINDINGS-eventfire.md` and its index row is in `CANDIDATES.md`. Kept as history until the
-> next plan replaces it.
+> **LANDED 2026-10-12.** All seven briefs ran and merged; the write-ups are
+> `findings/FINDINGS-scripttext.md`, `FINDINGS-onactions.md` and `FINDINGS-messageshow.md`, indexed
+> in `CANDIDATES.md`. Kept as history until the next plan replaces it.
 
-Planned and launched 2026-10-12, for OpenHOI3's stage 4 step 4 ("an event firing and a decision
-taken, with the event's window and the decision screen"). The effects wave before it landed the
-same day (`findings/FINDINGS-effectrun.md`).
+Planned and launched 2026-10-12, for OpenHOI3's last pieces of events and decisions: an option's
+tooltip, the description of an event's `immediate` block, and a decision's two tooltips (its effects
+and its `allow` block). The event wave before it landed the same day (`findings/FINDINGS-eventfire.md`).
 
-**What is known and is not to be redone**: `findings/FINDINGS-events.md` - the candidate lists,
-the monthly rebuild (rva `0x5C0050`), the daily pass (`0x5C0A40`), `CMeanTimeToHappen::GetChance`
-(`0x5C4AB0`) and the scope the two build; `FINDINGS-eventfiles.md` - the files and the containers;
-`FINDINGS-effects.md` and `FINDINGS-effectrun.md` - `country_event` and `province_event`, which call
-`FireEvent` after asking the event's trigger. The record holds `FireEvent` (`0x5C0C80`) by name
-and extent only - **its body was never read** - and the two commands
-(`CSelectEventOptionCommand`, `CExecuteDecisionCommand`) by their loaders only.
+**What is known and is not to be redone**:
+- `findings/FINDINGS-effects.md`, section on slots 8, 9 and 10: an effect's `GetBlockText` (slot 8,
+  the base `0x59C710` read), `GetText` (slot 9, the base says nothing) and `GetTargetText` (slot 10,
+  three overrides) and how a run of one keyword is folded onto one line;
+- `findings/FINDINGS-techtext.md`: the trigger renderers - the base `GetBlockText` (`0x5D03F0`), `and`,
+  `or`, `not`, `any_owned_province` - the asterisks, the indent and BiceLib's corrections, and four
+  trigger leaves (a technology, `num_of_ports`, `has_building`, `has_country_flag`);
+- `findings/FINDINGS-effecttext.md`: `kill_leader`'s line and the localisation machinery
+  (`GetText`/`Replace`/`Render`);
+- `findings/FINDINGS-eventfire.md`, 3.4 and 3.7: where the option tooltip and the decision tooltips
+  come from and in which scope;
+- `findings/FINDINGS-script.md`, `FINDINGS-triggergrammar.md`, `FINDINGS-effectgrammar.md`: which
+  keyword makes which class.
 
-### A. `FireEvent`, and choosing an option
+**What is not read**: the leaves - 78 distinct effect `GetText` bodies and 146 distinct trigger
+`GetText` bodies (slot 8 on the trigger side) - and the scope effects' and scope triggers' own block
+texts but for `any_owned_province`. Listed by class with each body's rva, from the vftables, and cut
+in five alphabetically:
 
-`FireEvent` read whole: what it does for a country a person plays and for one the AI runs; the
-`immediate` block, when it runs and in which scope; how the AI picks an option (`ai_chance`, a
-`CAIMTTHChance` - its `GetChance` and how the options' chances are weighed against each other);
-what a player is shown and how the event waits for an answer (a pending list? a timeout? what
-happens if nobody answers); `major` (who else hears of it); `fire_only_once` and the already-fired
-registry (`CCurrentGameState +0xC38`); messages. Then `CSelectEventOptionCommand::Execute` - what
-it checks and runs. And **province events**: the daily pass walks countries only - where is a
-province event (14 in the base game, not triggered only) ever asked, with what scope, and how often?
-Fragment `event-firing.json`.
+| brief | what | fragment |
+| --- | --- | --- |
+| A | effect leaves, `CAddCoreEffect` .. `CMetalPoolEffect` (39) | `effect-text-add-to-metal.json` |
+| B | effect leaves, `CModifySpiesEffect` .. `CWarexhaustionEffect` (39), and the 13 effects with a block text of their own, `random_list` among them | `effect-text-modify-to-war.json` |
+| C | trigger leaves, `CActiveMissionTrigger` .. `CHasWarGoalTrigger` (49) | `trigger-text-active-to-war-goal.json` |
+| D | trigger leaves, `CIdeologyGroupTrigger` .. `COutOfSupplyDaysTrigger` (49) | `trigger-text-ideology-to-supply.json` |
+| E | trigger leaves, `COwnedByTrigger` .. `CYearTrigger` (47), and the 11 triggers with a block text of their own | `trigger-text-owned-to-year.json` |
 
-### B. Decisions
+Two more briefs run beside them, for the other two pieces:
 
-Which decisions a country is shown (`potential`) and may take (`allow`), when that is asked, and
-where the list lives; `CExecuteDecisionCommand::Execute` - what it checks again, the effects, the
-scope, `CCountryDecisionChange`/`CCountryRemoveDecisionChange` (is a decision taken once? can it be
-taken again?); the AI - when and how it takes a decision (`ai_will_do`, a mean time to happen whose
-factor is whole days per `FINDINGS-effectgrammar.md`; `Lua_ForeignMinister_EvaluateDecision` hints
-the Lua AI decides - settle where); `major`; and the two groups (diplomatic and political), of which
-`FINDINGS-eventfiles.md` says only one is ever listed. Fragment `decisions.json`.
+| brief | what | fragment |
+| --- | --- | --- |
+| F | the on_actions: at each of the 13 sites, exactly when it fires, the scope it builds and who answers; `on_encirclement`'s area byte | `on-actions.json`, write-up `findings/FINDINGS-onactions.md` |
+| G | messages: a type's settings, what decides between a popup, the log, the map and nothing, the popup and the log windows - the messages events and decisions raise are read already | `message-display.json`, write-up `findings/FINDINGS-messageshow.md` |
 
-### C. The event window and the decision screen
-
-`CEventWindow` (its constructor at rva `0x5C2010`): which `.gui` window it builds, every element it
-finds by name and what it puts there - the picture, the title, the subtitle and the description with
-their localisation and scope substitution, the option buttons and what each says, its tooltip,
-where the window stands, what closing it does, and several events at once. Then the decision
-screen: which window lists decisions, `CDecisionEntry` and every element it fills, what an entry
-shows for a decision that may not be taken, the entry's tooltip (the `allow` block's text, the
-effects' text?), and the button that takes it. Fragment `event-window.json`.
-
-**Every brief asks**: the order things happen in, what is checked and what is not, what the player
-sees against what the AI does, and anything that looks wrong but is what the bytes do.
+For each body: the keyword(s) that make the class; the line, word for word - the localisation key,
+what is put in each `$VARIABLE$`, the colour codes, how a number is written (whole, thousandths, a
+percent, a sign), what is named and from which scope; on the trigger side **both wordings**, for
+`redWhen` 0 and 1; what is said where the target is missing; and whether the key exists in the base
+game's localisation, with its English text. **Every brief asks** what looks wrong but is what the
+bytes do. One write-up, `findings/FINDINGS-scripttext.md`, transcribed from the five reports.
 
 ## The standing rules for every brief
 
@@ -151,7 +149,7 @@ All learned the hard way; all go in every brief.
 
 ## Launching this
 
-Three briefs, built from the sections above. Then the pipeline, which is idempotent:
+Five briefs, built from the section above. Then the pipeline, which is idempotent:
 
     python ghidra/mergeFindings.py --check      # refuses until each write-up exists
     python ghidra/mergeFindings.py

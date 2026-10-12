@@ -1,0 +1,136 @@
+{
+ "agent": "on-actions",
+ "question": "For each of the 13 on_actions of common/on_actions.txt: exactly when it fires, the CEventScope each site builds, who answers, what gates on_encirclement, what happens when nothing is picked.",
+ "source": "reversing/findings/FINDINGS-onactions.md",
+ "addresses": [
+  {
+   "rva": "0xE8E80",
+   "kind": "function",
+   "name": "CCountry_Surrender",
+   "signature": "void __stdcall CCountry_Surrender(CCountry* country)",
+   "no_signature": null,
+   "comment": "**A country surrenders, and to whom.** 0x4E8E80 to the single `ret 4` at 0x4E9215. One caller, RunCountryDailyPass at 0x4DBE1D, which calls it when the country owns a province (+0xCF8 > 0), CCountry::GetSurrenderProgress answers 1000 or more, `at_war` (+0xACC) is set and at least 30 days have passed since `last_surrender` (+0xAC8).\n\n**The victor** is the country of `enemies` (+0x1008) with the highest score, itself skipped; a strictly higher score replaces, so of equals the first in the list wins:\n\n    score = 1000, or 2000 where the enemy leads a real faction (faction slot 7, first member)\n          + 5000 where the enemy controls our capital (CCountry::GetCapitalLocation)\n          + for each of our OwnedProvinces (+0xCF0) the enemy controls:\n                1000 + victory_points x 3000 + province modifier 15 (industry) x 1000 / 3000\n\nWith no enemy found nothing at all happens. Otherwise a CEventScope with seed Random(), country = the surrendering country, FROM = the victor, province 0 and no combatant is handed to FindOnAction(`on_surrender`) / OnAction_PickEvent / FireEvent (the call at 0x4E915F); then 0x4E9220(country, &victor) - the capitulation proper: the war with the victor (CWar::RemoveAttacker/RemoveDefender), the vassals (`puppet`), provinces handed back (Province_SetController) and the areas and supply groups rebuilt, not read in order - and `last_surrender` = now. So a country that stays at 100% surrender progress and at war surrenders again every 30 days, each time to the best-scoring enemy left. The name is ours. See reversing/findings/FINDINGS-onactions.md.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled in a copy applied with the current record and checked on the listing: the only caller is 0x4DBE1D (findRefs --callers), behind `cmp [ebx+0xcf8],0 / call 0x4FCB80 / cmp [eax],0x3e8; jl / cmp byte [ebx+0xacc],0; je` at 0x4DBCCC-0x4DBCF6 and the 30-day test `cmp ecx,0x1e; jl` at 0x4DBE17. `on_surrender` (string 0x15C10D0) has exactly one reference in .text, 0x4E90CA, inside this body; `retsBefore(0x4E8E80, 0x4E9216)` is empty. Wrong if 0x4E9220 were not the capitulation - that part rests on its calls, not on a reading.",
+   "source": "reversing/findings/FINDINGS-onactions.md"
+  },
+  {
+   "rva": "0xF7C80",
+   "kind": "function",
+   "name": "PerformCoup",
+   "signature": "void __fastcall PerformCoup(CCountryTag* target@ECX, CCountry* instigator@EDX)",
+   "no_signature": null,
+   "comment": "**A coup is attempted, and on_coup_success or on_coup_fail fired.** 0x4F7C80 to the bare `ret` at 0x4F7ED0; one caller, CPerformCoupCommand::Execute. In order: the instigator's espionage entry about the target (`espionage +0x1160`, 0xF8 bytes an entry, indexed by the target's id) has its +0 (the record's `spy_allocation`) set to 0 (held under g_MaxSpyLevel) and its `covert_ops_points` (+0xF4) reduced by COUP_COVERT_OPS_COST, floored at 0; the chance is 0x4F7AD0(instigator, &out) - not read; it is 0 where the target leads a real faction - and **RandomThousandths() < chance** succeeds. The scope is built inline: country = the target, FROM = the instigator's tag (+0xCA4/+0xCA8), province 0, no combatant, and **seed and random state 0**. Success fires `on_coup_success` (FireEvent at 0x4F7DFC), failure `on_coup_fail` (0x4F7EA3); the coup itself is whatever the event does (the base game's 5057 does `coup_by = FROM`). The name is ours. See reversing/findings/FINDINGS-onactions.md.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x4F7C80-0x4F7D39: ECX goes to ESI and is read as a tag pair (+0 tag, +4 id), EDX to EDI and is read as a CCountry (+0xCA4, +0xCA8, +0x1160); the scope stores at [ebp-0x60..-0x1C] put 0 in +8/+0xC/+0x2C. The one caller, 0x554349, loads ECX = &command+0x3C and EDX = countries[command+0x48]. `on_coup_success` and `on_coup_fail` (0x15C1440, 0x15C1450) each have exactly one reference, both in this body. Wrong if the chance helper's arguments were other than read - only its first block and its faction-leader exit were looked at.",
+   "source": "reversing/findings/FINDINGS-onactions.md"
+  },
+  {
+   "rva": "0x154320",
+   "kind": "function",
+   "name": "CPerformCoupCommand::Execute",
+   "signature": "void __thiscall CPerformCoupCommand::Execute(CPerformCoupCommand* this)",
+   "no_signature": null,
+   "comment": "Slot 6 of CPerformCoupCommand - the command's own Execute (see CCommand::Execute). PerformCoup(&this->+0x3C, countries[this->+0x48]) - the key `from` (+0x3C/+0x40) is **the target** and `to` (+0x44/+0x48) **the instigator**, the reverse of what the names suggest - then 0x4E21E0 and 0x4E39C0 on the target's country and again on the instigator's. Bare `ret`. The command is made with its two tags by 0x554280, whose only callers are this class's slot 13 (the copy) and 0x629A30, an interface callback stored at +0x1BC of a window by 0x61EAE0, which passes the window's country (+0x1F4/+0x1F8) as `from` and the player (CCurrentGameState +0xC30) as `to`: **a coup is a person's order from the interface**; nothing else in the image constructs one but the prototype registration. See reversing/findings/FINDINGS-onactions.md.",
+   "confidence": "confirmed",
+   "evidence": "`vtable.py --holding 0x554320` answers one table, CPerformCoupCommand slot 6, the slot CSetFlagCommand::Execute holds in its own table. The key-to-offset mapping is FINDINGS-fieldmap.md's for this class's LoadKey (from -> +0x3C/+0x40, to -> +0x44/+0x48). `findRefs --vftable CPerformCoupCommand` finds two writers, 0x5541D0 (called only by RegisterCommandTypes) and 0x554280 (called by 0x5543F9 and 0x629B04). Wrong if 0x629A30 were reachable from the AI - it has no direct caller and one reference, the store at 0x61ED2D.",
+   "source": "reversing/findings/FINDINGS-onactions.md"
+  },
+  {
+   "rva": "0x1DB530",
+   "kind": "function",
+   "name": "CMakePrideCommand::Execute",
+   "signature": "void __thiscall CMakePrideCommand::Execute(CMakePrideCommand* this)",
+   "no_signature": null,
+   "comment": "Slot 6 of CMakePrideCommand: **makes a ship the pride of the fleet.** Resolves `sub_unit` (the id pair at +0x40/+0x44, into +0x3C); with none, nothing. With one: its owner's country (CSubUnit +0x94/+0x98); 0xE64B0 finds that country's present pride and, where there is one, 0xE6500 works out a figure that is added to the country's `dissent` (+0x10B4), floored at 0, and the old pride's `pride` (+0xA5) is cleared; then the new one's is set. Bare `ret`. Besides this, `pride` comes only from the order of battle or the save (CSubUnit::LoadKey, key `pride`). See reversing/findings/FINDINGS-onactions.md.",
+   "confidence": "confirmed",
+   "evidence": "`vtable.py CPerformCoupCommand CMakePrideCommand` shows 0x5DB530 at slot 6 of CMakePrideCommand's table, the Execute slot. Listing 0x5DB530-0x5DB5E0, one bare `ret`: `mov byte [edi+0xa5],0` at 0x5DB5CC on the object 0xE64B0 returned, `mov byte [esi+0xa5],1` at 0x5DB5D3 on the resolved sub-unit, and the add/`jns`/zero on [ebx+0x10B4] between. Wrong if 0xE6500's figure were not a cost - neither helper was read.",
+   "source": "reversing/findings/FINDINGS-onactions.md"
+  },
+  {
+   "rva": "0x193C30",
+   "kind": "function",
+   "name": "CNukeMission::IsActive",
+   "signature": "bool __thiscall CNukeMission::IsActive(CNukeMission* this)",
+   "no_signature": null,
+   "comment": "Slot 14 of CNukeMission, the hourly 'is this order still going' (COrder/CAirOrder slot 14) - **where a nuclear bomb is dropped**. Only where the unit (+0x8) has a base (CUnit +0x98) and the order's +0x80 is non-zero, the target province's controller is an enemy of the unit's owner, the unit is in no combat (`combats_count` +0x11C < 1, `current_combat` +0x110 null), has no move left (+0x140 < 1) and stands in the target province (+0x130 == order +0xC): the controller loses national unity (NUKE_UNITY_IMPACT, times more where the province holds something and doubled at its acting capital), every building is hit, the units there (but the bomber, and an air unit only at its own base) take strength and organisation damage, messages NUKE_ON_US / WE_NUKE / NUKE_ON_OTHER, and then **on_nuke_dropped** through FireOnAction (VA 0x594A91) in a scope of seed 0: country = the bomber's owner (CUnit +0x124/+0x128), FROM = the province's controller (+0x334/+0x338), province = the target (+0xD0), no combatant. Then +0x80 = 0. Two bare `ret`s, 0x594AC7 and 0x594AE5. The damage block was read for its shape only. See reversing/findings/FINDINGS-onactions.md.",
+   "confidence": "confirmed",
+   "evidence": "`vtable.py COrder CNukeMission` puts 0x593C30 at CNukeMission slot 14; the record names slot 14 IsActive on COrder and on CAirOrder. `on_nuke_dropped` (0x15C5DA0) has one reference, 0x594A66, in this body; the scope stores before FireOnAction read the unit's +0x124/+0x128, the province's +0x334/+0x338 and +0xD0 and CEventScope::CEventScope is called with EDX 0 and a 0 pushed. Wrong if order +0x80 were not consumed by the drop - it is cleared after it, which is all that was read.",
+   "source": "reversing/findings/FINDINGS-onactions.md"
+  },
+  {
+   "rva": "0x174580",
+   "kind": "function",
+   "name": "CCombat::Conclude",
+   "signature": "void __stdcall CCombat::Conclude(CCombat* combat, bool attackerLost)",
+   "no_signature": null,
+   "comment": "**A combat is decided.** Once only: it sets the byte +0x28 and does nothing where that or +0x2B is already set. For a land battle in a province whose owner is an enemy of the losers, each winning country that is a friend of the owner and is not the owner gains 5 relation with it. Every country on both sides has its count of battles raised and the on-action on_battle_won or on_battle_lost fired (the naval ones for a naval battle). The rest of its 0x69D0 bytes is the message. The name is ours. See reversing/findings/FINDINGS-landbattle.md, section 4.\n\n**The six on_actions, read 2026-10-12.** Only for GetKind 1 (land: on_battle_*), 3 (air: on_air_battle_*) and 2 (naval: on_naval_battle_*); a bombing (4, 5, 6) fires none. After the losses figures, the relation change (land) and the messages: for **each country of the winning side's `countries` (+0x54), in list order**, a CEventScope with seed Random() and **no combatant**, country = that country, province = the battle's (combat +0x18 -> +0xD0), FROM = the **first** country of the losing side's list; its `*_battles_fought` (+0x1080/+0x1084/+0x1088) is raised and then the `*_won` on_action fired. Then the same for **each country of the losing side**, FROM = the first winner, `*_lost`. So all the wins come before all the losses, every country gets its own pick, and a `fire_only_once` event goes to the first country of a side only. Land and air sit inside the test that both sides' `countries` counts are non-zero; the naval part (0x578793 onwards) does not, so a naval battle with an empty side still fires for the other side, FROM `---`. Sites: 0x576A6C/0x576B7F, 0x57864F/0x578767, 0x57A975/0x57AA9B. See reversing/findings/FINDINGS-onactions.md.",
+   "confidence": "inferred",
+   "evidence": "Revised to add the on_action paragraph; the first paragraph is unchanged. Listing 0x576990-0x576BA0 (land): `push 0; call Random; mov edx,eax; call CEventScope::CEventScope`, country from the walked node, province from [[ebp+8]+0x18]+0xD0, FROM from [ebx+0x54] of the side whose count [ebx+0x5c] is tested, `inc [eax+0x1080]` before FindOnAction; the air and naval loops decompile identically with +0x1084/+0x1088. 0x5745D2/0x5745DE jump to 0x578793 on an empty side, and 0x57879F returns unless GetKind is 2. GetKind bodies: CLandCombat 1, CNavalCombat 2, CAirCombat 3, CGroundBombing 4, CLandBombing 5, CNavalBombing 6. Each of the six strings has exactly one reference in .text.",
+   "source": "reversing/findings/FINDINGS-landbattle.md",
+   "revises": true
+  },
+  {
+   "rva": "0xFCB80",
+   "kind": "function",
+   "name": "CCountry::GetSurrenderProgress",
+   "signature": "int* __thiscall CCountry::GetSurrenderProgress(CCountry* this@ECX, int* out@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "0xFCB80 to three `ret 4` at 0xFCB9F, 0xFCBB9 and 0xFCC53 - one function, every exit sharing the same frame and reached by a jump from inside. 82 instructions, read end to end; twelve int3 before, ten after. `this` in ECX, the out pointer the single stack argument, and `out` comes back in EAX so the caller can do `call; mov eax,[eax]`.\n\n    if (this->government_in_exile (+0x95))  *out = 0\n    elif (this->province_count (+0xD08) == 0) *out = 1000\n    else { unity = national_unity (+0x10B8) * 1000 / 100000        ; i.e. /100, so 10..1000\n           if (unity == 0) *out = 1000\n           else *out = clamp(0xFCC60(this) * 1000 / unity, 0, 1000) }\n\n**1000 means on the brink of surrender and 0 means untouched.** `0xFCC60` is the share of the country's own claimed, owned victory points that it does **not** control, in thousandths, so the numerator rises as territory is occupied; and because `national_unity` is the **divisor**, the answer also rises as unity falls. Three independent corroborations: the `province_count == 0` arm - no provinces left at all - answers the maximum; `CAIUnit::EstimateTheatreNeed` reads the same pair of fields at 0x4B99FF as `owned - controlled >= 2 VP`, i.e. as a loss; and BlackICE's own `open_peace_negotiation` decision offers the Soviet Union peace on an ascending ladder of `surrender_progress = 72, 74, 76, 78, 80, 82, 84, 90, 95` paired with rising desperation, while `sacrifice_the_homeland` (scorched earth) unlocks at 0.25/0.15/0.05.\n\n**Nine callers, not one** (corrected 2026-10-12; this said `CSurrenderProgressTrigger::Evaluate` was the only engine caller): that trigger (VA 0x9F823D), which divides by ten, so the script scale is 0..100; **RunCountryDailyPass at VA 0x4DBCDE, the surrender itself** - at 1000 or more, with the country at war and owning a province, CCountry_Surrender runs every 30 days (reversing/findings/FINDINGS-onactions.md); and seven not read, VA 0x5003C5, 0x77E99B, 0x7851A1, 0x893F67, 0x896540, 0x8B45AA, 0x8B8AD9. The game's own Lua registration calls this function **`CCountry::GetSurrenderLevel`** (ghidra/bicelib_findings.json, recovered from the luabind registration object), which is the engine's name for it and the reason the reading is now `confirmed` rather than named off a keyword.\n\n**One consequence for a mod:** when the claims list at +0xD10 holds no province the country owns, 0xFCC60's `+0xBE0 <= 0` arm answers 0, so `surrender_progress` is 0 however much has been lost. It is a measure of occupied **claimed** territory, not of territory in general.",
+   "confidence": "confirmed",
+   "evidence": "Only the caller sentence and the signature's storage are changed: the signature placed `out` and not `this`, which checkSignatures.py listed as incomplete storage; `this@ECX` and the `@EAX` return are what the comment's first paragraph already says. `findRefs.py --callers 0x4FCB80` returns nine direct calls: 0x4DBCDE, 0x5003C5, 0x77E99B, 0x7851A1, 0x893F67, 0x896540, 0x8B45AA, 0x8B8AD9, 0x9F823D; 0x4DBCDE is `mov ecx,ebx; call 0x4fcb80; cmp dword [eax],0x3e8; jl` inside RunCountryDailyPass, the call FINDINGS-politics.md phase 5 already shows. Wrong only if findRefs reported calls that are not calls - each was printed as a `call 0x4fcb80` site.",
+   "source": "reversing/findings/FINDINGS-negatives.md",
+   "revises": true
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CGameState",
+   "offset": "0x48",
+   "name": "last_pride_sunk",
+   "type": "CSubUnit*",
+   "comment": "The last pride of the fleet to be sunk, anywhere: written by CNavalCombatant::Attack (VA 0x568687) just before on_enemy_pride_sunk and on_our_pride_sunk are fired, and read by LocaliseEventText for `$PRIDE_SUNK$` (its slot 8 name). Not saved; a later sinking overwrites it, and the text is made when it is shown, not when the event fires. See reversing/findings/FINDINGS-onactions.md.",
+   "source": "reversing/findings/FINDINGS-onactions.md",
+   "evidence": "0x568687 `mov [esi+0x48], ebx` with ESI the current game state just made or read from [0x1A89790] and EBX the target sub-unit whose `pride` (+0xA5) was tested; LocaliseEventText's comment already has PRIDE_SUNK and PRIDE_SINKER from state +0x48/+0x4C, and the localisation's EVTDESC400 reads `the fearsome $PRIDE_SUNK$, has been sunk by the glorious $PRIDE_SINKER$`. No whole-image scan for other writers was run."
+  },
+  {
+   "struct": "CGameState",
+   "offset": "0x4C",
+   "name": "last_pride_sinker",
+   "type": "CSubUnit*",
+   "comment": "The ship that sank the last pride of the fleet: written by CNavalCombatant::Attack (VA 0x56871E) beside +0x48, read by LocaliseEventText for `$PRIDE_SINKER$`. See reversing/findings/FINDINGS-onactions.md.",
+   "source": "reversing/findings/FINDINGS-onactions.md",
+   "evidence": "0x56871E `mov [eax+0x4c], edi` with EDI the shooting sub-unit (this_00, whose experience gains 5000 a few instructions before); LocaliseEventText 0x9C416B reads [state+0x4C] and calls its slot 8 for the name pushed under 'PRIDE_SINKER'. No whole-image scan for other writers was run."
+  },
+  {
+   "struct": "CCurrentGameState",
+   "offset": "0x48",
+   "name": "last_pride_sunk",
+   "type": "CSubUnit*",
+   "comment": "The last pride of the fleet to be sunk; CGameState's field, carried here as the other base fields are. Written by CNavalCombatant::Attack, read for `$PRIDE_SUNK$`. See reversing/findings/FINDINGS-onactions.md.",
+   "source": "reversing/findings/FINDINGS-onactions.md",
+   "evidence": "As CGameState +0x48; the writer goes through g_CCurrentGameState (0x1A89790)."
+  },
+  {
+   "struct": "CCurrentGameState",
+   "offset": "0x4C",
+   "name": "last_pride_sinker",
+   "type": "CSubUnit*",
+   "comment": "The ship that sank the last pride of the fleet; CGameState's field, carried here as the other base fields are. Read for `$PRIDE_SINKER$`. See reversing/findings/FINDINGS-onactions.md.",
+   "source": "reversing/findings/FINDINGS-onactions.md",
+   "evidence": "As CGameState +0x4C; the writer goes through g_CCurrentGameState (0x1A89790)."
+  }
+ ],
+ "vftable_slots": {
+  "CPerformCoupCommand": {"6": "Execute"},
+  "CMakePrideCommand": {"6": "Execute"},
+  "CNukeMission": {"14": "IsActive"}
+ },
+ "frontier": [
+  "0xE9220 - the capitulation after on_surrender: (country, CCountryTag* victor), leaves the war, vassals, provinces back, areas rebuilt; not read in order",
+  "0xF7AD0 - the coup's chance, ret 8, the target tag pair in EAX and the instigator on the stack; 0 where the target leads a real faction",
+  "0xE64B0 - a country's present pride of the fleet (CSubUnit* in EAX, the country in EAX)",
+  "0xE6500 - the dissent figure changing the pride costs",
+  "0x229A30 - the interface callback that posts CPerformCoupCommand, stored by 0x21EAE0 at +0x1BC of its window"
+ ]
+}
