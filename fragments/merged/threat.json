@@ -1,0 +1,184 @@
+{
+ "agent": "diplomatic state wave, brief B (threat)",
+ "question": "Every writer of CDiplomacyStatus +0x5C (threat), what each caller of SpreadThreat and SpreadThreatToAll spreads, whether threat decays, how CCountry +0x11D8/+0x11DC (highest_threat) is chosen, and the three unread calls at the head of the country's daily pass.",
+ "source": "reversing/findings/FINDINGS-diplostate.md",
+ "addresses": [
+  {
+   "rva": "0xF50A0",
+   "kind": "function",
+   "name": "SpreadThreat",
+   "signature": "void __stdcall SpreadThreat(CCountry* feared, int* amount, int* scale, CMapProvince* origin)",
+   "no_signature": null,
+   "comment": "**Threat toward `feared`, spread over the province graph from `origin` and felt once by each controller it reaches.** 0x4F50A0 to the single `ret 0x10` at 0x4F55F8, 5 int3 after; `retsBefore` over the body is empty. Four stack dwords, plain `__stdcall`. `amount` and `scale` are read through the pointer (trap 8's fourth case).\n\nIn order, every division a 64-bit truncation toward zero:\n\n    base = *amount * (1000 + feared.mod[THREAT_IMPACT] (global modifier +0x1C0)) / 1000\n    if !feared->faction (+0xD8) slot 7:  base = base * 1000 / 2000          ; halved outside a real faction\n    floorAmt = base * floor(50.5f) [0x160A7B4] / 1000                      ; = base / 20\n    every g_CMap province: +0x10 = 99999 ; every country of CCurrentGameState +0xBBC: +0x18 = 0\n    feared->+0x18 = 1 ; origin->+0x10 = 0 ; FIFO queue = [origin]\n    while queue: cur = pop front\n      for each edge of cur->path_node_ptr (+0xD4) edges (+0x90..+0x94, 0x14 bytes, neighbour id at +4):\n        nb = g_CMap provinces[id] ; d = cur->+0x10 + nb->path_node_ptr->size_class (+0x24)\n        if nb->+0x10 <= d: next edge\n        a = max(base - d * floor(130.5f) [0x160A824], floorAmt)        ; 130 thousandths per size unit\n        c = nb->controller (+0x334, GetCountry)\n        if c->+0x18 == 0 and a > 0 and nb->controller_id (+0x338) != 0:\n           a = a * (1000 - c.mod[THREAT_RESISTANCE] (+0x1C8)) / 1000\n           g = c's faction's ideology group (CFaction +8) if c's faction answers slot 7, else the group nearest c's alignment (+0xDC) by CAlignment::DistanceSquaredTo among the ideologies database's groups (0x1A878BC, +0x1C..+0x20) whose slot 6 answers true, first of equals\n           k = CAlignment::GetFactionThreatDistanceFactor(&feared->alignment (+0xDC), g)   ; (distance/FACTION_THREAT_DIST)^2 x1000, no cap\n           c->diplomacy[feared->id]->threat (+0x5C) += (a * *scale / 1000) * k / 1000, floored at 0 (0x4F551B)\n           c->+0x18 = 1\n        nb->+0x10 = d ; if a > 0: push nb at the back\n\n**What looks wrong and is what the bytes do**: a controller feels it once, at the **first** of its provinces the walk relaxes, which in a FIFO label-correcting walk is the fewest steps and not necessarily the shortest distance; the floor keeps every amount at least base/20, so the walk covers the whole connected map, sea included (a province with controller 0 is walked through, never charged); `origin` itself is never charged, only reached ones; a controller with THREAT_RESISTANCE of 1000 or more stops the walk at its first province; and the floor is taken **before** resistance, where SpreadThreatToAll takes it after.\n\n**Seven call sites in six functions**: CWarGoal::Enforce (rva 0x7A950) at 0x47B280 - the casus belli type's `threat` (+0x1C0), feared the goal's actor, origin the actor's acting capital, only where it is above 0; CToggleMobilizationCommand::Execute at 0x551565 - MOBILIZE_THREAT_IMPACT (country +0x50), feared the country, origin its own acting capital, scale +1000 mobilising and -1000 demobilising; CInGameIdler::Enter at 0x65B64C - the country's history threat (CCountry +0x20) when not zero, feared the country, origin its own acting capital; CDeclareWarAction::Apply at 0xA128FC - WARDEC_BELIGERENCY (diplomacy +0), feared the actor, origin the recipient's acting capital; CNapAction::Apply at 0xA2BFFB, breaking a pact - LEAVE_NAP_THREAT_COST (+0x60), feared the **recipient**, origin the recipient's capital (GetCapitalLocation, not the acting one); CEmbargoAction::Apply at 0xA2F099 (imposing, scale +1000) and 0xA2F57B (lifting, scale -1000) - EMBARGO_THREAT_COST (+0x88), feared the **recipient**, origin its acting capital.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-diplostate.md",
+   "evidence": "Disassembled whole, 0x4F50A0..0x4F55F8, instruction by instruction: base at 0x4F50BE-0x4F511F, the floor at 0x4F5121-0x4F5146 (0x160A7B4 reads 50.5f), the clears at 0x4F5159-0x4F521C, the queue pop at 0x4F5270-0x4F528A, the step and relax test at 0x4F52CD-0x4F52F8, the 130 at 0x4F52FE (0x160A824 reads 130.49998f) and the max at 0x4F5343 (cmovl), the charge at 0x4F534B-0x4F5536, the push at 0x4F5543-0x4F5581. Callers from findRefs --callers 0x4F50A0 (seven), each argument list read at the call. Would be wrong if 0x401FD0/0xC08870 were not floor/_ftol (they are, per FINDINGS-politics.md) or if the queue were a stack - the push writes the old tail's +8 and the head only when the count was 0, which is a FIFO append.",
+   "revises": "The old comment called 0x160A7B4 a scale on the base (it is the floor, base/20), said the amount decays by a 'per-edge cost 0x4C4D70 returns' (0x4C4D70 is the ideological factor between feared and the controller's group; the distance decay is linear, 130 per size_class unit, from CProvinceTemplate +0x24), and gave three callers by address only. Now: the full order of operations, the floor, the once-per-controller rule, the resistance gate on the walk, and every caller with its amount, feared country, origin and scale."
+  },
+  {
+   "rva": "0xF4E80",
+   "kind": "function",
+   "name": "SpreadThreatToAll",
+   "signature": "void __stdcall SpreadThreatToAll(int* amount@stack:4, int* scale@stack:8, CCountry* feared@EDI)",
+   "no_signature": null,
+   "comment": "**Threat toward `feared` felt by every other country**, the country-wide sibling of SpreadThreat (0xF50A0). 0x4F4E80 to the single `ret 8` at 0x4F5094. Every division a 64-bit truncation toward zero:\n\n    base = *amount * (1000 + feared.mod[THREAT_IMPACT] (+0x1C0)) / 1000\n    if !feared->faction slot 7:  base = base * 1000 / 2000\n    floorAmt = floor(50.5f) [0x160A7B4] * base / 1000                 ; base / 20\n    for c in CCurrentGameState +0xBBC (count from the state's slot 6), c->id != feared->id:\n        v = ThreatFactorTowards(feared, c, base)                     ; base x reach x ideology\n        v = v * (1000 - c.mod[THREAT_RESISTANCE] (+0x1C8)) / 1000\n        v = max(v, floorAmt)\n        c->diplomacy[feared->id]->threat (+0x5C) += *scale * v / 1000, floored at 0\n\nSo **every** country gets at least a twentieth of the base after resistance - the dead ones included, and they get the most (ThreatFactorTowards answers 1001 for a country with no provinces); country 0 gets the floor too.\n\n**Seven call sites**: CThreatEffect::Execute twice (who = all: &value with +1000, &-value with -1000); CCombatManager::StartCombat at 0x430937 - LAND/NAVAL/AIR_COMBAT_THREAT_IMPACT (military +0xF0/+0xF4/+0xF8) by kind, feared the owner of the unit that starts it, only when it creates a new combat of that kind (not on joining one) and only where the province's controller is 0 or its owner is an enemy (CCountry::IsEnemy) of the attacker; CCombatManager::StartBombing at 0x4304DA - BOMBING_THREAT_IMPACT (military +0xFC), feared the bomber's owner, strategic bombing (order 0x6F9) only; CConvoy::LoseShips at 0x4C5AA1 - (transports + escorts lost) x THREAT_FROM_CONVOYS_MODIFIER (economy +0x30), feared the raider; CSpyPresence::RunDailyMissions at 0x53027C - daily, SPY_THREAT_INCREASE_ACTION (country +0x54) x level / 1000 x mission share / 1000 / 10, feared the **target** country the spies are in; CUnitDeployment::DeployAt at 0x57DE3B - REGULAR_CONSTRUCTION_THREAT_IMPACT (diplomacy +0xD4) for every unit put on the map, a fifth of it scaled by the owner's RESERVES_PENALTY_SIZE modifier where the unit's first regiment is a reserve, feared the owner.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-diplostate.md",
+   "evidence": "Disassembled whole, 0x4F4E80..0x4F5094: base 0x4F4E98-0x4F4EF6, floor 0x4F4EF8-0x4F4F1E, loop 0x4F4FD3-0x4F507F with the self skip at 0x4F4FE5, ThreatFactorTowards at 0x4F4FFE, resistance 0x4F5003-0x4F5022, the max at 0x4F502F, the add and clamp 0x4F5038-0x4F5065. Callers from findRefs --callers 0x4F4E80 (seven), the define offsets named by scripts/definesMap.py. The April 1936 save bears the shape out: each of ENG, SOV, USA, JAP, ITA and AST is feared by all 100 other country blocks, the dead (VIC, ISR, PAK ...) highest, the far ones at the floor.",
+   "revises": "Comment only: the formula stood and is now confirmed off the listing; added that the floor is taken after resistance, that country 0 gets it, and every caller with its define, feared country and condition (four were unnamed addresses)."
+  },
+  {
+   "rva": "0xFBCB0",
+   "kind": "function",
+   "name": "ThreatFactorTowards",
+   "signature": "int* __stdcall ThreatFactorTowards(CCountry* feared, int* out, CCountryTag* other, int base) @EAX",
+   "no_signature": null,
+   "comment": "How much of `base` threat `other` feels from `feared`. 0x4FBCB0 to `ret 0x10` at 0x4FBCD1 and 0x4FBE26 (the block 0x4FBE29-0x4FBE7A is the no-faction search, jumped to and jumping back). In order, truncating:\n\n    if other->id == 0:  *out = 0\n    reach = min(28 * other's OwnedProvinces count (+0xCF8), 4000)          ; map units\n    d = CMap::DistanceBetweenProvinces(other's acting capital (+0xE24), feared's acting capital's id (GetActingCapitalLocation, +0xD0))\n    f = reach ? max(1000 - d * 1000 / reach, 0) : 1001                    ; 1001 for a country with no provinces\n    if other is on feared's Neighbours (+0xFD8):  f = 1000\n    t = base * f / 1000\n    g = other's faction's ideology group (CFaction +8) when other's faction answers slot 7, else the group nearest other's alignment (+0xDC) by CAlignment::DistanceSquaredTo over GetIdeologies' groups (+0x1C..+0x20) whose slot 6 answers true, first of equals\n    *out = t * CAlignment::GetFactionThreatDistanceFactor(&feared->alignment, g) / 1000\n\nThe ideology factor is (distance from feared's alignment to g / FACTION_THREAT_DIST)^2 x1000 with no cap, so a country of feared's own group feels almost none and a far one can feel more than base. One caller, SpreadThreatToAll.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-diplostate.md",
+   "evidence": "Disassembled whole, 0x4FBCB0..0x4FBE7A: the id test 0x4FBCB9, reach 0x4FBCD4-0x4FBCF6, distance 0x4FBCFB-0x4FBD18, the -1 for a zero reach at 0x4FBD2F (so 1000 - (-1) = 1001), the clamp 0x4FBD71-0x4FBD85, the neighbour walk 0x4FBD88-0x4FBDAE, the faction arm 0x4FBDC9-0x4FBDEB and the nearest-group search 0x4FBE29-0x4FBE7A, the factor and product 0x4FBDEE-0x4FBE14. GetFactionThreatDistanceFactor (0x4C4D70) read whole: no clamp past the -1 for a zero define. The April save's dead countries feeling the most is the 1001 arm showing.",
+   "revises": "Confidence inferred -> confirmed, read off the listing; the comment now gives the order of operations and what the ideology factor amounts to. No change to the formula."
+  },
+  {
+   "rva": "0x7A950",
+   "kind": "function",
+   "name": "CWarGoal::Enforce",
+   "signature": "bool __stdcall CWarGoal::Enforce(CWarGoal* goal)",
+   "no_signature": null,
+   "comment": "**A war goal carried out at a capitulation.** 0x47A950 to the `ret 4` at 0x47BBD5, 8 int3, then CWarGoal::RunCasusBelliOnAdd at 0x47BBE0. One stack argument, the goal; ECX is not read. Its four callers are all in the capitulation 0x4E9220 that CCountry_Surrender calls, so **a war goal is enforced only when a country surrenders**. It walks the casus belli type's (goal +0xC) peace-option list (+0x1E0) and acts on the options it finds: token 0x79C annexes the recipient (+0x20) into the actor (+0x18) through AnnexCountry - or, where a fellow faction member could host it and a Random() % 100 < 80 roll (or an overlord, or two database-held tags) allows, makes it a government in exile and gives the actor control of what it controls on the actor's capital continent (conditions summarised from the decompiler, not checked on the listing); 0x798 transfers the goal's region (+0x28) provinces the recipient owns; 0x7AB transfers every recipient province an option trigger accepts; 0x7AF makes the recipient a vassal (MakeVassal). **Then, where the type's `threat` (+0x1C0) is above 0, SpreadThreat(actor, &threat, &1000, the actor's acting capital as it was on entry)** at 0x47B280 - TFH's cb_types give conquer and puppet 5, vichy_war_goal 10, barbarossa_war_goal 20. Then, where the type's +0x280 is set, a block run through an event scope with the actor and recipient (not read; the loader table in FINDINGS-diploaction.md has no key at +0x280). Returns true where the type's +0x1F3 byte is clear, false once the exile arm has run; the callers test it. Only the threat part and the option dispatch were read; the option arms are summarised, not read line by line. The name is ours.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-diplostate.md",
+   "evidence": "Bounds: near.py shows 7 int3 before 0x47A950 and 8 after 0x47BBD5, retsBefore(0x47A950, 0x47B280) empty, cfg finds no edge past the ret. functionStart(0x47B280) answers 0x47AC98, which is mid-function (a store sequence, the 0xCC it stopped on is a displacement byte) - trap 2's third cause. findRefs --callers: 0x4E9378, 0x4E94CC, 0x4E9727, 0x4E9C75, all in 0x4E9220, whose one caller is CCountry_Surrender. The origin: [ebp-0x24] is CCountry::GetActingCapitalLocation(GetCountry(goal+0x18)) at 0x47AA0F; the call at 0x47B24C-0x47B280 tests [cb+0x1C0] > 0 and passes &[cb+0x1C0] copied to a local, &1000 and that origin. The return: `mov al,[ebp-0x11]` at 0x47BBC5, set by `sete` on cb+0x1F3 at 0x47A985 and cleared at 0x47ADB4. Wrong if goal+0x18 were the loser: MakeVassal and AnnexCountry both take it as the overlord/annexer."
+  },
+  {
+   "rva": "0x151490",
+   "kind": "function",
+   "name": "CToggleMobilizationCommand::Execute",
+   "signature": "void __thiscall CToggleMobilizationCommand::Execute(CToggleMobilizationCommand* this)",
+   "no_signature": null,
+   "comment": "Slot 6 of CToggleMobilizationCommand (see CCommand::Execute). 0x551490 to the bare `ret` at 0x55221C; slot 7 begins at 0x552220. The command carries the country at +0x3C/+0x40 and the mobilise flag at +0x44. It calls 0x507A20(flag, country) - the mobilisation itself, not read - then CCountry::RebuildNeighbours and 0x4E39C0 on the country, then **SpreadThreat(country, &MOBILIZE_THREAT_IMPACT (country defines +0x50), &scale, the country's acting capital)** at 0x551565 with scale = (flag ? 2 : 0) - 1 thousand, i.e. +1000 to mobilise and **-1000 to demobilise**, so demobilising takes the threat back off (floored at 0 per pair). The rest is a COUNTRY message for the player.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-diplostate.md",
+   "evidence": "vtable.py --holding 0x551490: CToggleMobilizationCommand slot 6 only, table 0x15C3DA4. Extent: retsBefore empty, first ret 0x55221C, slot 7 is 0x552220. The decompiled C of 0x551490 and the call's argument list at 0x551565. Wrong if slot 6 were not Execute for this family - the record has slot 6 Execute on CCommand and on four other commands."
+  },
+  {
+   "rva": "0xDD8D0",
+   "kind": "function",
+   "name": "CCountry::EnsureCapital",
+   "signature": "void __stdcall CCountry::EnsureCapital(CCountry* country)",
+   "no_signature": null,
+   "comment": "**The first of the three unread calls at the head of the country's daily pass (0x4DA5D7), and not threat.** 0x4DD8D0 to the single `ret 4` at 0x4DDB1E, 15 int3 before, CCountry::GetOriginalCapital at 0x4DDB30 after. Where the capital (+0xE20) is 0, a country that is not id 0, not REB and owns a province logs \"<TAG> has NO capital defined.\" (country.cpp line 0x1311). Where there is a capital and its province's owner is the country, it returns. Otherwise it scores every owned province (+0xCF0) `manpower / 1000 + 1`, times 100 where the province carries the country's core, keeps the first strictly highest, and calls CCountry_SetCapital(country, that province, true). So a country whose capital is lost moves it, each day, to its most populous owned core. Three callers: the daily pass, 0x6490BF and CInGameIdler::Enter at 0x65B27C. The name is ours.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-diplostate.md",
+   "evidence": "Decompiled C of 0x4DD8D0 and the prologue: `mov esi,[ebp+8]`, ECX unused, `ret 4` at 0x4DDB1E (rets.py from the entry finds no earlier ret). findRefs --callers: 0x4DA5D7, 0x6490BF, 0x65B27C. 'manpower' is the decompiler's name for the province field it divides by 1000, not checked here; wrong if that field were something else."
+  },
+  {
+   "rva": "0x1EC8B0",
+   "kind": "function",
+   "name": "CThreatChange::GetSaveToken",
+   "signature": "SaveToken __thiscall CThreatChange::GetSaveToken(CThreatChange* this)",
+   "no_signature": null,
+   "comment": "Slot 6: answers 0x674, `threat` - the history entry a country file's dated `threat = N` makes. 0x5EC8B0 to the bare `ret` at 0x5EC8BF; COfficerRatioChange's (0x543) sits just above it.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-diplostate.md",
+   "evidence": "vtable.py --holding 0x5EC8B0: CThreatChange slot 6 only. The body is push ebp / mov ebp,esp / push ecx / mov [ebp-4],ecx / mov eax,0x674 / mov esp,ebp / pop ebp / ret. Token 0x674 is `threat` per CDiplomacyStatus::LoadKey's table in FINDINGS-diploaction.md section 24."
+  },
+  {
+   "rva": "0x17D480",
+   "kind": "function",
+   "name": "CUnitDeployment::DeployAt",
+   "signature": "void __thiscall CUnitDeployment::DeployAt(CUnitDeployment* this, CMapProvince* province)",
+   "no_signature": null,
+   "comment": "Slot 9: puts the deployment's unit (+0x38) on the map. 0x57D480 to three `ret 4` at 0x57DF86, 0x57DFDB and 0x57E005; 8 int3 then the next function at 0x57E010. `this` in ECX (kept in EBX), one stack argument, the province, handed to CUnit::EnterProvince. It adds the unit to its country's list (0x4E06F0, the country from +0x30/+0x34) and enters the province; where the country's auto_assign_leaders (+0x74B) is set, CUnit::AssignBestLeader on the unit (0x57DD73). **Then, on every path, SpreadThreatToAll(&t, &1000, owner) at 0x57DE3B** with t = REGULAR_CONSTRUCTION_THREAT_IMPACT (diplomacy +0xD4), or, where the unit's first regiment is a reserve (CSubUnit +0xA4), t x (1000 + owner.mod[RESERVES_PENALTY_SIZE] (+0x268)) / 1000 x 1000 / 5000 - a fifth. It also calls CCountry::GetActingCapitalLocation on the owner just before and throws the answer away. What follows builds a message ('UNIT') for the player and was not read. Called by CDeployUnitCommand::Execute and by JoinUnit. The name is ours. See reversing/findings/FINDINGS-leaderassign.md, section 8.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-diplostate.md",
+   "evidence": "Prologue: `mov ebx, ecx` at 0x57D4A2, `mov eax,[ebp+8]` pushed to 0x5BEFD0 (CUnit::EnterProvince, whose parameter is a CMapProvince*). Rets from cfg.py; near.py shows 8 int3 before 0x57E010. The threat block 0x57DD78-0x57DE3B is reached from 0x57DD6E both ways and cfg.py finds no edge from before 0x57DE3B to after it. Defines named by definesMap.py; modifier 77 by ghidra/modifierIds.json; CSubUnit +0xA4 `is_reserve` and CUnit +0x38 `regiments` already recorded.",
+   "revises": "Had no signature ('its ret was not reached'): now `void __thiscall` with one CMapProvince*, ending at 0x57E005. Added the threat spread every deployment makes, which the comment did not mention. Source moves to the threat write-up; the leader-assignment citation is kept in the comment."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CDiplomacyStatus",
+   "offset": "0x5C",
+   "name": "threat",
+   "type": "int",
+   "comment": "How much threat the array's owner feels from the other country, thousandths, never below 0 and never capped. **Every writer**: SpreadThreat (0xF50A0) and SpreadThreatToAll (0xF4E80), the two spreaders every game event goes through; CThreatEffect::Execute with a tag (a direct add, no modifiers); AnnexCountry (0xE7B00), which takes 9999.000 off both directions between the annexed country and every other and then resets the other's status (to 0); CDiplomacyStatus::Reset (0x647F20) and the constructor (0x647DF0), 0; CDiplomacyStatus::LoadKey, the save's `threat`. **Nothing decays it**: no daily or monthly pass writes it, and nothing but a negative effect, demobilisation, an embargo lifted or an annexation lowers it. Readers: the alignment threat term (max over a faction's members), CCountry::RebuildNeighbours electing highest_threat (+0x11D8), EffectiveNeutrality through that, CIsThreatendTrigger::Evaluate over the neighbours, and CDiplomacyStatus::GetThreat for Lua.",
+   "source": "reversing/findings/FINDINGS-diplostate.md",
+   "evidence": "A sweep of .text in chunks split on runs of two or more int3, resuming past capstone stops (2,755,112 instructions), listing every write to [reg+0x5C] in a chunk that also mentions 0xE28: 36 non-stack hits, of which only SpreadThreatToAll 0x4F505C/0x4F5065, SpreadThreat 0x4F551B/0x4F5524, CThreatEffect 0x9B4EAF/0x9B4EB8 and AnnexCountry 0x4E8D0E-0x4E8D30 are on a CDiplomacyStatus - the three known writers are all found, which is the positive control. Writers holding the status as `this` (no 0xE28 in reach) from the class's own code: its vftable's six slots (only LoadKey writes +0x5C, 0xA482FA), the constructor and Reset, and every +0x5C write in 0xA40000-0xA56000 (the rest belong to other classes). RunCountryDailyPass 0x4DA530-0x4DC23C and CCountry::UpdateMonthly 0x4DC840-0x4DCD69 write no +0x5C and call neither spreader. Saves of one game: 145 non-zero pairs unchanged 1 Feb -> 1 Mar 1936 and 521 unchanged, none lower, 1 Apr -> 20 Apr. Not covered: a helper elsewhere in the image handed a status pointer from another function.",
+   "revises": "Comment only: it named two readers; it now lists every writer, the absence of decay with the search that showed it, and the readers."
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0x11D8",
+   "name": "HighestThreat",
+   "type": "CCountryTag",
+   "comment": "The tag of the country this one feels the most threat from - letters here, id at +0x11DC. **Elected by CCountry::RebuildNeighbours** (0xE21E0): set to '---'/0 at 0x4E240F, then over the country database in order, for each other country that is not id 0, not REB, owns a province, and whose pair status has no alliance (+0x14) and no dependency (+0x18) and is not in our faction (when ours answers slot 7): `if best < 0 or threat (+0x5C) > best: take it` with best starting at -1000.000 (0x4E34E5-0x4E3500). So **the first eligible country in database order is taken even at threat 0, and of equals the first stays** - which is why on 1 January 1936, with no threat anywhere, 99 countries hold GER and Germany holds ENG. A guarantee does not exclude. Rebuilt each day by ProcessCountriesPreDailyUpdate (for the countries whose byte +0x44 is set) and after every diplomatic action and most diplomatic effects - 65 call sites. `CCountry::GetHighestThreat` (rva 0x1074F0) hands it to Lua as `CCountryTag const&`; EffectiveNeutrality is Neutrality less the threat from +0x11DC.",
+   "source": "reversing/findings/FINDINGS-diplostate.md",
+   "evidence": "Listing 0x4E349F-0x4E3553 and the decompiled C of RebuildNeighbours (the loop guard 0x4E318E..., the faction test 0x4E34AF-0x4E34DB, the election 0x4E34DD-0x4E3500, initial 0xFFF0BDC0). Checked against saves with a script that applies the max-and-first rule without the exclusions: 100 of 100 in the 1 January and 20 April saves (REB holds '---' and is not modelled); in the 1 March autosave 95 of 100, and all five misses (IRQ, OMN, YEM, BHU, NEP) have a vassal or alliance block with ENG, the one the rule would otherwise pick - the exclusion seen working.",
+   "revises": "Comment only: it said the field is written by 0x4E21E0 'not one of the daily pass's'; it now gives the election rule, eligibility, tie-break and starting value, and when it is rebuilt."
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0x20",
+   "name": "history_threat",
+   "type": "int",
+   "comment": "The threat a country's history file gives it, thousandths: set by CThreatChange::Apply (0x1F1B20) from a dated `threat = N` in history/countries, and spread once as a new game starts by CInGameIdler::Enter (SpreadThreat at 0x65B64C, origin the country's own acting capital) where it is not zero. No other reader was looked for.",
+   "source": "reversing/findings/FINDINGS-diplostate.md",
+   "evidence": "Writer: CThreatChange::Apply stores to [[this+0xC]+0x20] with this+0xC the history entry's country. Reader: CInGameIdler::Enter at 0x65B622 `lea edi,[esi+0x20]; cmp [edi],0; je` then pushes edi as SpreadThreat's amount with esi the country. The neighbouring history field +0x1C officers_ratio is read in the same new-game block, which is the corroboration. Wrong if +0x20 had other writers - not surveyed."
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0x18",
+   "name": "walk_mark",
+   "type": "int",
+   "comment": "Scratch: SpreadThreat's per-country visited mark. Cleared on every country, set to 1 on the feared country, tested and set on each controller as the walk charges it, so a country feels one spread once. Whether anything else in the image uses this dword was not surveyed, so the name is deliberately general.",
+   "source": "reversing/findings/FINDINGS-diplostate.md",
+   "evidence": "SpreadThreat 0x4F5209 (`mov [eax+0x18],0` over CCurrentGameState +0xBBC's countries), 0x4F5237 (feared, =1), 0x4F534D (`cmp [esi+0x18],0` on the controller from CCountryTag::GetCountry) and 0x4F5536 (=1). The holder is tied to a CCountry each time, which is trap 12's check; FINDINGS-diploaction.md declined to record it from one function and that caution stands for the name, not the placement."
+  },
+  {
+   "struct": "CThreatChange",
+   "offset": "0x10",
+   "name": "threat",
+   "type": "int",
+   "comment": "The history entry's value, thousandths, written into CCountry +0x20 by Apply.",
+   "source": "reversing/findings/FINDINGS-diplostate.md",
+   "evidence": "CThreatChange::Apply 0x5F1B66-0x5F1B74: [this+0x10] stored to [[this+0xC]+0x20]."
+  },
+  {
+   "struct": "CThreatChange",
+   "offset": "0x14",
+   "name": "previous_threat",
+   "type": "int",
+   "comment": "CCountry +0x20 as it was before Apply ran forward; put back when it runs backward.",
+   "source": "reversing/findings/FINDINGS-diplostate.md",
+   "evidence": "CThreatChange::Apply 0x5F1B46-0x5F1B51 (saved) and 0x5F1B8E-0x5F1B99 (restored)."
+  }
+ ],
+ "structs": [
+  {
+   "name": "CThreatChange",
+   "inherits": "CCountryHistoryEntry",
+   "vftable_rva": "0x11C9A9C",
+   "comment": "The history entry for a country file's dated `threat = N` (token 0x674). Slot 6 GetSaveToken, slot 7 Apply.",
+   "evidence": "RTTI export: CThreatChange, one base CCountryHistoryEntry at offset 0, one table at 0x015C9A9C with 8 slots. Size not known, so omitted."
+  }
+ ],
+ "vftable_slots": {
+  "CToggleMobilizationCommand": {
+   "6": "Execute"
+  },
+  "CThreatChange": {
+   "6": "GetSaveToken"
+  },
+  "CUnitDeployment": {
+   "9": "DeployAt"
+  }
+ },
+ "frontier": [
+  "0x4E9220 - the capitulation proper (CCountry_Surrender's second half), the only caller of CWarGoal::Enforce, ret 8 at 0x4EA052 and a second at 0x4EA082 (trap 3 check needed)",
+  "0x507A20 - the mobilisation toggle CToggleMobilizationCommand::Execute calls first",
+  "0x4E39C0 - called beside RebuildNeighbours by mobilisation and embargo",
+  "0x4D2B60 - the country clear that resets every pair status (CCountry::CCountry and a session reset)",
+  "0x5F1BB0 - CThreatChange slot 2, which references token 0x674 (SaveContents, presumably)"
+ ]
+}

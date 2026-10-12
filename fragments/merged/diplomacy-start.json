@@ -1,0 +1,278 @@
+{
+  "wave": "the diplomatic state wave, brief A",
+  "date": "2026-10-12",
+  "summary": "What a new game does to the pair statuses (CCountry +0xE28), threat and neutrality from the history to the first hour, checked pair for pair against the start-date save: 7878 of 7878. The 75/85/10/0/-125 are the Lua global AI_GenerateNonHistoricalRelation, written by SetUpCountryForNewGame only where a pair's relation is still exactly 0; relation.txt is one-directional and the month pass before the first hour makes the matrix symmetric from the side of whichever country comes first.",
+  "source": "reversing/findings/FINDINGS-diplostate.md",
+  "addresses": [
+    {
+      "rva": "0x647DF0",
+      "kind": "function",
+      "name": "CDiplomacyStatus::CDiplomacyStatus",
+      "signature": "CDiplomacyStatus* __stdcall CDiplomacyStatus::CDiplomacyStatus(CDiplomacyStatus* this, int tagChars, int tagId)",
+      "no_signature": null,
+      "comment": "**The pair status constructor.** 0xA47DF0 to the one `ret 0xC` at 0xA47E93, SEH frame, everything on the stack: the object, then the other country's tag by value (letters, id). Writes the CPersistent meta 0x18D at +4, the vftable 0x15FBC38, the tag at +8/+0xC, zeroes +0x38 (relation), the casus-belli list +0x3C/+0x40/+0x44, the byte +0x48, +0x59, +0x5C (threat), the trade-route list +0x60..+0x68, the byte +0x6C, +0x70 (debt), +0x74 (daily_repay), and sets the three dates +0x50, +0x54 and +0x7C to g_NullDate; then CDiplomacyStatus::Reset (0xA47F20) on itself, which clears the rest. Its one caller is the array builder InitCountryPerCountryArrays (0x4D4C50), after `operator new(0x80)` - **so CDiplomacyStatus is 0x80 bytes**, which matches the last field the record has, next_wargoal_date at +0x7C.",
+      "confidence": "confirmed",
+      "evidence": "Disassembled end to end (image.decode 0xA47DF0). findRefs --vftable CDiplomacyStatus finds this as the only code reference to the table; findRefs --callers 0xA47DF0 gives one call, 0x4D4D39, preceded by push 0x80; call operator_new. Would be wrong if the table were also written elsewhere (it is not: one reference).",
+      "source": "reversing/findings/FINDINGS-diplostate.md"
+    },
+    {
+      "rva": "0x647EA0",
+      "kind": "function",
+      "name": "CDiplomacyStatus::Release",
+      "signature": "CDiplomacyStatus* __thiscall CDiplomacyStatus::Release(CDiplomacyStatus* this, bool deleteIt)",
+      "no_signature": null,
+      "comment": "**Slot 0 of CDiplomacyStatus**, the scalar deleting destructor: CDiplomacyStatus::FreeListNodes (0xA47ED0) with the status in EDI, then `free(this)` when the low bit of the flag is set; returns `this`. 0xA47EA0 to the `ret 4` at 0xA47EBE, 17 int3 after. One holder.",
+      "confidence": "confirmed",
+      "evidence": "Disassembled whole; vtable.py --holding 0xA47EA0 gives one table, CDiplomacyStatus slot 0. The shape is the record's other Release entries'.",
+      "source": "reversing/findings/FINDINGS-diplostate.md"
+    },
+    {
+      "rva": "0x647ED0",
+      "kind": "function",
+      "name": "CDiplomacyStatus::FreeListNodes",
+      "signature": "void __fastcall CDiplomacyStatus::FreeListNodes(CDiplomacyStatus* this@EDI)",
+      "no_signature": null,
+      "comment": "Frees the **nodes** of the trade-route list (+0x60, next at node +8) and of the casus-belli list (+0x3C), and zeroes head, tail and count of each - not the CTradeRoute or CCasusBelli objects, which the game state's relation list owns. The status is in EDI, nothing on the stack, bare `ret` at 0xA47F1F. Called by CDiplomacyStatus::Release.",
+      "confidence": "confirmed",
+      "evidence": "Disassembled whole (0xA47ED0..0xA47F1F, the next byte is the prologue of 0xA47F20). Would be wrong if the payloads were freed too: the only call is free(node).",
+      "source": "reversing/findings/FINDINGS-diplostate.md"
+    },
+    {
+      "rva": "0x647F20",
+      "kind": "function",
+      "name": "CDiplomacyStatus::Reset",
+      "signature": "void __fastcall CDiplomacyStatus::Reset(CDiplomacyStatus* this@EDI)",
+      "no_signature": null,
+      "comment": "**Puts a pair status back to nothing.** The status in EDI, bare `ret` at 0xA48123. Zeroes the relation pointers +0x14 alliance, +0x18 dependency, +0x1C guarantee, +0x20 war, +0x24 undeclared_war, +0x28 nap, +0x2C influence, +0x30 align, +0x34 embargo, **+0x38 relation** and **+0x5C threat**; for every **trade route** in the list at +0x60 (loaded at 0xA47F38) it takes the object out of the game state's relation list (CCurrentGameState +0xB2C, or marks it when that list is being walked), calls its slot 11 (Deactivate) and its slot 0 with 1 (delete), then frees that list's nodes (0xA48068); the casus-belli list (+0x3C) only has its nodes freed (0xA480C2), its objects are not deleted; sets **occupation_policy (+0x10) to a shared default COccupationPolicy** (the singleton at 0x1A855CC, a 0x90-byte object built by 0x52CF10 on first use); hasMilitaryAccess (+0x4C), co_belligerent (+0x58), debt (+0x70), daily_repay (+0x74), allowDebts (+0x78), and sets +0x50, +0x54 and +0x7C to g_NullDate. Callers: the constructor, the country reset at 0x4D2B60 (0x4D4870, once per status - which CCountry::CCountry and ResetSession_ClearLoadedFromSave call) and AnnexCountry (0x4E8E20).",
+      "confidence": "confirmed",
+      "evidence": "Disassembled whole, 0xA47F20..0xA48123. findRefs --callers 0xA47F20 gives 0x4D4870, 0x4E8E20, 0xA47E7E. The owner of 0x4D4870 is 0x4D2B60 by functionStart with no ret between (retsBefore empty), not CCountry::AfterLoad as owner.py's nearest-entry answer says. Would be wrong if a write to +0x38 were missed: the store at 0xA47F51 is the only one.",
+      "source": "reversing/findings/FINDINGS-diplostate.md"
+    },
+    {
+      "rva": "0x648160",
+      "kind": "function",
+      "name": "CDiplomacyStatus::SetValue",
+      "signature": "void __thiscall CDiplomacyStatus::SetValue(CDiplomacyStatus* this, int value)",
+      "no_signature": null,
+      "comment": "**The plain relation setter, one direction**: `changed (+0x59) = 1; relation (+0x38) = clamp(value, [0x1710C38] = -200000, [0x1710C34] = 200000)`. 0xA48160 to two `ret 4` at 0xA48183 and 0xA4818A, the two arms of the clamp. Its one caller is CDiplomacyStatus::LoadKey's `value` case (0xA48226), so a loaded save sets each side from its own block. The name pairs it with the Lua half's CDiplomacyStatus::GetValue (0xA48130) and GetFloatValue (0xA48140, relation / 1000.0), the two functions above it; the setter itself is not registered with Lua.",
+      "confidence": "confirmed",
+      "evidence": "Disassembled whole; findRefs --callers 0xA48160 gives exactly 0xA48226. The two constants read as -200000 and 200000 with image.read. luabind.json has GetValue at 10780976 (0xA48130) and GetFloatValue at 10780992 (0xA48140), and nothing at 10781024 (0xA48160).",
+      "source": "reversing/findings/FINDINGS-diplostate.md"
+    },
+    {
+      "rva": "0x648190",
+      "kind": "function",
+      "name": "CDiplomacyStatus::LoadKey",
+      "signature": "void __thiscall CDiplomacyStatus::LoadKey(CDiplomacyStatus* this, CParseContext* parse, SaveToken key)",
+      "no_signature": null,
+      "comment": "What two countries have between them - access, debt, threat, the occupation policy. **The keys its switch names**, 10 of them, one case each: `dailyrepay`, `debt`, `debtaction_action`, `last_send_diplomat`, `last_war`, `military_access`, `next_wargoal_date`, `occupation_policy`, `threat`, `value`. Read from the switch by reversing/scripts/definitions.py. A loader may resolve further keys as names out of a database - CGovernment and CMinister both do - but anything that is neither is dropped in silence.\n\n**Where each goes** (read 2026-10-12, 0xA48190..0xA4838E, `ret 8`): `value` (0x2A6) through ParseFixedPoint (0xA7B540) - so `value=75` is 75000 - and then CDiplomacyStatus::SetValue (0xA48160), clamped to +-200.000; `threat` (0x674) through TokenToFixedPoint into +0x5C; `military_access` (0x2F0) = (value is `yes`) into +0x4C; `last_war` (0x305) into +0x54, `last_send_diplomat` (0x306) into +0x50 and `next_wargoal_date` (0x7A7) into +0x7C, each through Date_SetFromString (0x44CDA0); `occupation_policy` (0x57C) looked up by name in the occupation-policy table and stored at +0x10 only when found; `debtaction_action` (0x726) through ParseBool into allowDebts (+0x78); `debt` (0x727) and `dailyrepay` (0x728) through ParseFixedPoint into +0x70 and +0x74. The four keys above 0x674 go through a byte-indexed jump table at 0xA483A8/0xA48394. Each side of a pair is loaded from its own block, so a save can hold an asymmetric relation and nothing on load evens it.",
+      "confidence": "confirmed",
+      "evidence": "Disassembled the whole switch with image.decode; token names from ghidra/saveTokens.json (0x2A6 value, 0x2F0 military_access, 0x305 last_war, 0x306 last_send_diplomat, 0x674 threat, 0x57C occupation_policy, 0x726 debtaction_action, 0x727 debt, 0x728 dailyrepay, 0x7A7 next_wargoal_date). The jump table's four targets are 0xA4834F, 0xA4836E, 0xA48373, 0xA4832A, default 0xA4837E.",
+      "source": "reversing/findings/FINDINGS-definitions.md",
+      "revises": "Adds where each key is stored and that `value` passes through the clamp in CDiplomacyStatus::SetValue. The opening paragraph, the signature and the source are unchanged."
+    },
+    {
+      "rva": "0x648430",
+      "kind": "function",
+      "name": "CDiplomacyStatus::SaveContents",
+      "signature": "void __thiscall CDiplomacyStatus::SaveContents(CDiplomacyStatus* this, CSaveWriter* writer)",
+      "no_signature": null,
+      "comment": "**A pair block's keys as the save writes them**, slot 2 of CDiplomacyStatus, 0xA48430 to the `ret 4` at 0xA48721. In order: `value` = **relation / 1000 truncated toward zero** (`imul 0x10624DD3; sar 6` plus the sign bit) written with `%d` - so the save shows whole points and a relation of -125.100 is saved as -125; `threat` = +0x5C as a fixed-point token with three decimals in a text save (MakeFixedToken, 0xA694C0), the raw thousandths in a binary one; `military_access=yes` only when +0x4C is set; `last_send_diplomat` (+0x50), `next_wargoal_date` (+0x7C) and `last_war` (+0x54) each only when its year, (date - 43800000) / 24 / 365, is above 1 - i.e. not the null date; `occupation_policy` with the policy's name (+0x30) only when the policy's slot 14 says so (the default policy Reset installs evidently does not); `debtaction_action` only when allowDebts (+0x78) is set; `debt` and `dailyrepay` only when non-zero. A loaded `value` therefore comes back as whole points: a save-and-load round trip drops a relation's fraction. Which statuses are written is CCountry::SaveContents' choice (0x4D15B4..0x4D16D2): every entry of +0xE28 whose other country owns a province (+0xCF8 > 0), under that country's tag - which is why the start save has 78 pair blocks in each of its 101 country blocks, self included, none for REB and none for a country that does not exist.",
+      "confidence": "confirmed",
+      "evidence": "Disassembled 0xA48430..0xA484F9 and the CCountry::SaveContents loop at 0x4D15B4..0x4D16D2 (cmp [country+0xCF8], 0; jle skip). Checked against Germany1936_01_01_00.hoi3: 101 owners x 78 pair blocks, the 78 exactly the countries with provinces; 7876 blocks carry only value and threat, the two ITA-ETH blocks also last_war (and ITA's next_wargoal_date). Would be wrong if a pair with a non-null date lacked the key: none does.",
+      "source": "reversing/findings/FINDINGS-diplostate.md"
+    },
+    {
+      "rva": "0xD4C50",
+      "kind": "function",
+      "name": "InitCountryPerCountryArrays",
+      "signature": "void __stdcall InitCountryPerCountryArrays(CCountry* country)",
+      "no_signature": null,
+      "comment": "**Gives a country its arrays indexed by the other country's id**, once, as the country database is built (one caller, 0x517FEA, in a loop over every country of the database). Sized by the database's count (+0x168): for each country of the database in order it allocates a 0x80-byte CDiplomacyStatus constructed with that country's tag and appends it to the diplomacy array (+0xE28/+0xE2C/+0xE30) - **REB and the country itself included**, so diplomacy[id] is the status towards the country with that id - and grows the neighbours byte vector (+0xF58) and a second byte vector at +0xF68 by one zero each; +0x1048 is reserved to the same count first. 0x4D4C50 to the `ret 4` at 0x4D515D; the block at 0x4D5160 after it is the std::length_error throw the vector growth jumps to. Only the diplomacy half and the two byte vectors were read; what follows in the loop was not.",
+      "confidence": "inferred",
+      "evidence": "Decompiled and the head disassembled (0x4D4C50..0x4D4DB7); findRefs --callers 0x4D4C50 gives 0x517FEA, inside a loop `for i < db->+0x168: call 0x4D4C50(db->+0x16C[i])`. The diplomacy half is confirmed by the bytes; the name is inference from the arrays it sizes, and is likely: every vector it touches is sized by the country count.",
+      "source": "reversing/findings/FINDINGS-diplostate.md"
+    },
+    {
+      "rva": "0xD6230",
+      "kind": "function",
+      "name": "SetUpCountryForNewGame",
+      "signature": "void __stdcall SetUpCountryForNewGame(CCountry* country)",
+      "no_signature": null,
+      "comment": "**What a country starts a new game with**: the effects of the decisions its history says it has taken, its war exhaustion, its stockpile, its diplomatic influence, **its relation with every other country and its first spy allocation**, and its manpower. One stack argument, `ret 4` at 0x4D757A. One caller, 0x65B4F2 in CInGameIdler::Enter, inside the block that gamestate->loaded_from_save (+0xD9C) == 0 guards, so it never runs on a load. **The function before it ends `ret 4` at 0x4D622D with no padding** - a walk back from inside this one answers 0x4D59D0, which is what fieldchain.py prints (trap 2). (Addresses in this comment are VAs.)\n\n**The decisions** (VA 0x4D6342-0x4D668A, read 2026-10-12): after UpdateIC(country, 0) at 0x4D633D it builds a CEventScope whose country is this one (CCountry +0xCA4), FROM `---`, province 0, and **random_state, its copy and seed all 0**, and walks the country's **taken list** (+0x128, next at node +0x20) - the names its history's `decision = <name>` entries put there, less any `remove_decision`, through CCountryDecisionChange::Apply. Each name is looked up **in the political table first and then the diplomatic** (the reverse of CExecuteDecisionCommand's order); not found, it logs `<TAG> has unknown decision '<name>'` under country.cpp; found, **its effect runs** - CEffect::Execute (slot 11) with (scope, 0) at 0x4D6658. Neither `potential` nor `allow` is asked, no message is raised and no history entry is filed. The scope's random state is never reset between decisions, so each draws on where the one before left it.\n\nRead from 0x4D69DF to 0x4D7108 and from 0x4D7346 to the end. Months are calendar months, year * 12 + month off the tick. At war (at_war, +0xACC): began = the earliest 0xA51D20(war) over the active wars (gamestate +0xC00) the country is an attacker or defender in, and war_exhaustion (+0xAD0) = min(months since * 0.05, 10). Otherwise war_exhaustion = max(3 - months since the latest 0xA51F40(war) over previous_war (+0xC20) * 0.05, 0). Then **days = 30 + 5 * max(12 - months at war, 2)** - 90 at peace, five fewer a month of war, never under 40 - and amount = MaxIC (+0x60C) * days, **held to 1000 for a subject (isSubject, +0xF34)**. Into the acting capital's pool, each an `add`: crude oil and metal `amount`, energy twice it, rare materials half; money, **only when the pool has none**, amount * IC_TO_MONEY * 0.05; supplies and fuel, `days` times the sum of CUnit::SupplyConsumption and CUnit::FuelConsumption over the country's units (+0xBAC). Then **diplo_influence (+0xA88) = MaxIC / 5 in whole points**. The 0.05 is g_OneTwentieth.\n\n**The dates** (0x4D668A loop, read 2026-10-12): for every country of the database, a pair whose war_seen_tick (`last_war`, +0x54) is later than now is put back to g_NullDate.\n\n**The relations** (0x4D710E..0x4D733F, read 2026-10-12, FINDINGS-diplostate.md): skipped whole for REB and for a country that owns no province (+0xCF8). Otherwise for every country B of the database in order, REB and itself included: value = 25; when B is not REB and owns a province, value = the Lua global **`AI_GenerateNonHistoricalRelation(country, B)`** (script/ai_country.lua; the call is built by PrepareLuaCall_AI_GenerateNonHistoricalRelation, 0x5100D0, and run by 0x50D2F0 for an integer), whole points. Then, **only when `diplomacy[B]->relation (+0x38)` is exactly 0**, it becomes clamp(value * 1000, -200000, 200000) with `changed (+0x59) = 1` - **this country's side only**. So a relation the history set is kept, a computed 0 is written as 0, and an existing country is left with 25 towards REB and towards every country that does not exist. In the same loop, for a B that exists and is not REB, the first spy allocation - entry +0 of the 0xF8-byte record B in the array at espionage (+0x1160) - is 1000 * score clamped to [0, g_MaxSpyLevel], score = [value < -100] + [value < 0] + neighbours[B] (+0xF58) + [same continent (+0x368 of each acting capital)] + 2 * [both factions valid and different] + [ruling_ideology (+0x1140) differs] + 2 * [diplomacy[B]->war] - 2 * [diplomacy[B]->alliance] + 3 * [B is this country], **halved toward zero when CCountry::IsMajor (0x4F8AB0) says no**. Against the start save the non-self entries of Germany's row agree; the self entries are 1 higher for the seven majors than this gives, which was not explained.\n\n**The tail is the manpower.** ReapplyAllTechnologies (0x4D7346), RebuildStaticModifiers (0x4D7380), UpdateMaxManpower (0x4D7386), and then **manpower (+0xBCC) = max_manpower (+0xBD0)**, a `mov` - so whatever `manpower` a country's history file gave is overwritten. If it owns a province (the count at +0xCF8 above 0) and is at war, it then loses year * (1000 + months at war * g_StartingManpowerLostPerMonthAtWar / 1000) / 1000, where year = max_manpower * 1000 / MAX_MANPOWER and the months are the same thousandths the war exhaustion used; floored at 0. After that it sets the date at +0xAB0 to today's when it holds one before year 3, and calls 0x4F06D0 and 0x4F72F0.\n\nNot read: VA 0x4D6230-0x4D6342 (a month count from the last election at +0xAB0, then UpdateIC(country, 0) at 0x4D633D).",
+      "confidence": "confirmed",
+      "evidence": "The relation block disassembled 0x4D70F0..0x4D7324 and decompiled; the Lua name is the string at 0x15C0F10 that 0x5100D0 pushes. The rule reproduces all 7878 pair values of Germany1936_01_01_00.hoi3 together with the month pass (scratchpad dipl/A/verify.py); without the 'only when 0' test GER->ITA and SOV->CHI would be overwritten with the Lua's 0 (GER and SOV are in factions, ITA and CHI are not), where the save has 200 and 100. The spy formula checked by eye against Germany's spy_allocation row (about 50 entries, all agree but the self entry).",
+      "source": "reversing/findings/FINDINGS-manpowergain.md",
+      "revises": "Reads the two blocks the entry listed as not read: the loop at 0x4D668A clears a future last_war rather than stamping it, and 0x4D713A..0x4D733F is the starting relation (AI_GenerateNonHistoricalRelation, written only where the relation is 0, one direction) and the first spy allocation. The opening sentence now names both. Everything else is unchanged."
+    },
+    {
+      "rva": "0xE78D0",
+      "kind": "function",
+      "name": "MonthlyRelationDrift",
+      "signature": "int* __stdcall MonthlyRelationDrift(int* out@EDI, CCountry* country@stack:4, int otherTagChars@stack:8, int otherId@stack:0xC) @EAX",
+      "no_signature": null,
+      "comment": "**How far a month moves the relation between two countries**, in thousandths, into `*out` (EDI), which it also returns. 0x4E78D0 to two `ret 0xC` at 0x4E7ADC and 0x4E7AF0. With s = country->diplomacy[otherId]: out = 0; + floor(250.5f) = **250 with a dependency** (s+0x18); + floor(-99.5f) = **-100 at war** (s+0x20); + **50 when the other is a neighbour** (country->+0xF58[otherId]) **and neither country is at war** (+0xACC); + **80 with a guarantee** (s+0x1C, either direction); + **25 with military access** (s+0x4C); then **out = 0 when the relation is above 100.000 and out is positive**; then, when **neither country is played** (CGameState +0xBCC by id) and one is the other's overlord (country +0xF3C == otherId, or the other's +0xF3C == country's id), out += 2000 and out = max(out, 2000). The five figures are float constants in .rdata (0x160A688, 0x160A750, 0x160A7B4, 0x160A6D8, 0x160A828) passed through floorf and _ftol2, so they are fixed. Callers: CCountry::UpdateMonthly (0x4DCC75), which adds out * 1000 / 2000 - **half of it** - to the country's side and writes the clamped sum to **both** sides, and two display callers at 0x4E7518 and 0x6C3CD5 (not read). Because UpdateMonthly runs for both countries of a pair, a pair moves by about the whole of out each month: +0.050 between neighbours at peace, +0.080 with a guarantee, -0.100 at war, +0.250 for a dependency under 100, +2 at least for an unplayed puppet and its overlord.",
+      "confidence": "confirmed",
+      "evidence": "Disassembled 0x4E78D0..0x4E7AF0 and the caller 0x4DCC63..0x4DCD37; the five floats read with struct.unpack as 250.5, -99.5, 50.5, 80.5, 25.5. findRefs --callers 0x4E78D0: 0x4DCC75, 0x4E7518, 0x6C3CD5. Not checkable against a save at the start: the saver truncates relation to whole points, and every figure here moves only the thousandths of the start's relations.",
+      "source": "reversing/findings/FINDINGS-diplostate.md"
+    },
+    {
+      "rva": "0xFC0E0",
+      "kind": "function",
+      "name": "CCountry::SetNeutrality",
+      "signature": "void __thiscall CCountry::SetNeutrality(CCountry* this, int value)",
+      "no_signature": null,
+      "comment": "**The plain neutrality setter**: neutrality (+0xA8C) = value, then 0 if it went negative. **No cap at 100 and EffectiveNeutrality (+0xA90) is not recomputed** - the next daily pass or CInGameIdler::Enter does that. 0x4FC0E0 to the `ret 4` at 0x4FC0FB. CCountry::ChangeNeutrality's entry calls it 'the plain setter beside it'. Its two callers are CNeutralityChange::Apply (0x5F12AD, 0x5F12CF), i.e. a history file's `neutrality = N`.",
+      "confidence": "confirmed",
+      "evidence": "Disassembled whole; findRefs --callers 0x4FC0E0 gives 0x5F12AD and 0x5F12CF, both inside 0x5F1250 (CNeutralityChange slot 7). Checked against the start save: neutrality equals the history's value for 100 of 100 countries with a history.",
+      "source": "reversing/findings/FINDINGS-diplostate.md"
+    },
+    {
+      "rva": "0x1F1250",
+      "kind": "function",
+      "name": "CNeutralityChange::Apply",
+      "signature": "void __thiscall CNeutralityChange::Apply(CNeutralityChange* this, bool forward)",
+      "no_signature": null,
+      "comment": "`neutrality = N` in a country's history. Slot 7, one holder. Forward: keeps the country's current neutrality at +0x14, then CCountry::SetNeutrality(this->+0xC, this->+0x10); backward: SetNeutrality(country, the kept +0x14). +0xC is the country, +0x10 the value in thousandths (CNeutralityChange::SaveContents writes it as a fixed point under `neutrality`). 0x5F1250 to the `ret 4` at 0x5F12D7.",
+      "confidence": "confirmed",
+      "evidence": "Decompiled and the calls checked with findRefs (both SetNeutrality calls are in it). vtable.py --holding 0x5F1250: CNeutralityChange slot 7 only.",
+      "source": "reversing/findings/FINDINGS-diplostate.md"
+    },
+    {
+      "rva": "0x1F1B20",
+      "kind": "function",
+      "name": "CThreatChange::Apply",
+      "signature": "void __thiscall CThreatChange::Apply(CThreatChange* this, bool forward)",
+      "no_signature": null,
+      "comment": "`threat = N` in a country's history. Slot 7, one holder. Forward: keeps the country's **+0x20** at +0x14 and writes this->+0x10 there; backward puts the kept value back. So a history `threat` is a country-level figure at CCountry +0x20 (thousandths - the saver writes it as a fixed point under `threat`) and **does not touch any CDiplomacyStatus +0x5C**. What reads CCountry +0x20 was not looked for. No country's history has a `threat` in force on 1 January 1936 - every one sits in a later dated block - so it is 0 at the start. 0x5F1B20 to the `ret 4` at 0x5F1B9F.",
+      "confidence": "confirmed",
+      "evidence": "Decompiled; the only memory writes are to [this+0x14] and [[this+0xC]+0x20]. vtable.py --holding 0x5F1B20: CThreatChange slot 7 only. The history scan is scratchpad dipl/A/hist.py over history/countries with tfh/ overriding by file name.",
+      "source": "reversing/findings/FINDINGS-diplostate.md"
+    },
+    {
+      "rva": "0x1F1F40",
+      "kind": "function",
+      "name": "ReadDiplomaticHistoryFile",
+      "signature": "void __stdcall ReadDiplomaticHistoryFile(CDiplomaticHistory* history, CParseContext* parse)",
+      "no_signature": null,
+      "comment": "**Reads one `history/diplomacy` file into the diplomatic history.** 0x5F1F40 to the `ret 8` at 0x5F280A; one caller, 0x5F953F. Loops over the file's top-level keys: `relation` (0x375) makes a CRelationChange (0x30 bytes) and loads it; `nap` (0x6CD) a CNap and a CNAPChange; `casus_belli` (0x2A5) a CCasusBelli and a CCasusBelliChange; `alliance` (0x294) a CAlliance and a CAllianceChange; `guarantee` (0x295) a CGuarantee and a CGuaranteeChange; `vassal` (0x298) a CVassal and a CVassalChange. Each entry is filed with CHistoryContainer::AddEntry at its `start_date`, and **when `end_date` is set a second entry of the same kind with the inverse flag (+0xC = 1)** is filed at the end date. Any other key is skipped. The entries do nothing until ExecuteHistory replays them through slot 7 (CRelationChange::Apply, CDiplomaticHistoryEntry::Apply).",
+      "confidence": "confirmed",
+      "evidence": "Decompiled whole; the token numbers from ghidra/saveTokens.json (0x375 relation is CRelationChange slot 6's own answer, 0x5F1F10 `mov eax, 0x375`). findRefs --vftable for CRelationChange, CAllianceChange, CVassalChange, CGuaranteeChange and CNAPChange finds every construction in this function (one more at 0x5F2C12 in CDiplomaticHistory slot 9). Its one caller's own function was not identified (owner.py's nearest entry, ExecuteHistoryToDate, ends at 0x5F57B0).",
+      "source": "reversing/findings/FINDINGS-diplostate.md"
+    },
+    {
+      "rva": "0x1F2CA0",
+      "kind": "function",
+      "name": "CRelationChange::Apply",
+      "signature": "void __thiscall CRelationChange::Apply(CRelationChange* this, bool forward)",
+      "no_signature": null,
+      "comment": "**A `relation = { first second value }` history entry, and it sets one direction only**: s = countries[first id (+0x14)]->diplomacy[second id (+0x1C)]. The direction flag is inverted when the entry's +0xC is set (the copy filed at the end date). Forward: keep s->relation at +0x2C, then s->relation = clamp(value (+0x28), -200000, 200000); backward: s->relation = clamp(the kept +0x2C). `changed` (+0x59) = 1 either way. **The second country's side is not touched**, and the end-date copy was made with +0x2C = 0 and never applied forwards, so reaching the end date sets the first country's side to 0 rather than back to what it was. 0x5F2CA0 to the `ret 4` at 0x5F2D11. Slot 7, one holder.",
+      "confidence": "confirmed",
+      "evidence": "Decompiled whole; vtable.py --holding 0x5F2CA0: CRelationChange slot 7 only. On the start save GER->ITA 200 and SOV->CHI 100 come from here and their reverse sides are 0 until the month pass copies them across: a run of scratchpad dipl/A/verify2.py with the month pass left out gets exactly ITA->GER and CHI->SOV wrong (0 for 200 and 100) and the other 7876 right.",
+      "source": "reversing/findings/FINDINGS-diplostate.md"
+    },
+    {
+      "rva": "0x1F3110",
+      "kind": "function",
+      "name": "CDiplomaticHistoryEntry::Apply",
+      "signature": "void __thiscall CDiplomaticHistoryEntry::Apply(CDiplomaticHistoryEntry* this, bool forward)",
+      "no_signature": null,
+      "comment": "**Slot 7 of CAllianceChange, CNAPChange, CGuaranteeChange, CVassalChange and CCasusBelliChange** - one body for the five history entries that carry a relation object (at +0x10); only CRelationChange overrides it. The direction flag is inverted when +0xC is set (the end-date copy). Forward: hand the object to the game state's CDiplomacy (CCurrentGameState +0xB24, through 0x493E10 at VA 0x5F31C6) and call its **slot 10, Activate** - which hangs it on both countries' statuses (CAlliance +0x14, CGuarantee +0x1C, CNap +0x28, CDependency/CVassal +0x18 plus UpdateSubjectStatus on both, CCasusBelli one direction's list). Backward: take it out of the relation list at CCurrentGameState +0xB2C (0x5D49D0 at VA 0x5F326E) and call **slot 11, Deactivate**. **No relation, threat or neutrality is written**, and CAlliance::Activate and CNap::Activate do their in-game extra only when `in_game` is set, which it is not while history runs. 0x5F3110 to the `ret 4` at 0x5F328D.",
+      "confidence": "confirmed",
+      "evidence": "Decompiled whole; vtable.py --holding 0x5F3110 gives the five tables, all slot 7, all CDiplomaticHistoryEntry subclasses (one family, so inheritance and not a linker fold). The Activate bodies of CAlliance, CNap and CDependency were decompiled: their only CDiplomacyStatus writes are the pointer and +0x59. The +0x38 store scan below found no store in any of them.",
+      "source": "reversing/findings/FINDINGS-diplostate.md"
+    },
+    {
+      "rva": "0x1100D0",
+      "kind": "function",
+      "name": "PrepareLuaCall_AI_GenerateNonHistoricalRelation",
+      "signature": "void* __cdecl PrepareLuaCall_AI_GenerateNonHistoricalRelation(void* call@ESI, void* luaState@EDI, CCountry** country@stack:4, CCountryTag* target@stack:8) @EAX",
+      "no_signature": null,
+      "comment": "Sets up the luabind call of the global `AI_GenerateNonHistoricalRelation`: pushes the name (0x15C0F10) and fetches the global on the state in EDI (the two imported calls at 0xD2B4E8 and 0xD2B45C), then fills the call object in ESI: +0 the state, +4 = 1, +8 = 0xB7E9D0 (the argument pusher), +0xC the country argument, +0x10 the tag argument, +0x14 = 0; returns ESI. The caller runs it with 0x50D2F0, which converts the result to an int, and cleans the two stack arguments (`add esp, 8`). 0x5100D0 to the bare `ret` at 0x510111. One caller, SetUpCountryForNewGame at 0x4D71C5.",
+      "confidence": "inferred",
+      "evidence": "Disassembled whole; image.asString(0x15C0F10) = 'AI_GenerateNonHistoricalRelation'. The register roles are read off the body (ESI written as the object, EDI pushed as the state). What 0xB7E9D0 and the imports are is inference from the luabind pattern, not read.",
+      "source": "reversing/findings/FINDINGS-diplostate.md"
+    }
+  ],
+  "struct_fields": [
+    {
+      "struct": "CDiplomacyStatus",
+      "offset": "0x38",
+      "name": "relation",
+      "type": "int",
+      "comment": "The pair's relation, **thousandths on a -200.000..+200.000 scale**. CCountry::ChangeRelation (rva 0xE65C0) adds a delta to the forward side, clamps against [0x1710C38] = -200000 and [0x1710C34] = 200000, and writes the single clamped result to **both** directions. 24 call sites: diplomatic actions' slot 7, effects, faction joins' war sweep and a combat conclude. **But it is not the only writer, and the two sides are not equal by construction** (corrected 2026-10-12, FINDINGS-diplostate.md). One direction only: CDiplomacyStatus::SetValue (rva 0x648160, a loaded save's `value`), CRelationChange::Apply (rva 0x1F2CA0, history/diplomacy/relation.txt) and SetUpCountryForNewGame (rva 0xD6230, the store at VA 0x4D7316: the starting relation from the Lua global AI_GenerateNonHistoricalRelation, written only where this is still 0). Both directions from one side's value: CCountry::UpdateMonthly (rva 0xDC840, stores at VA 0x4DCCF0 and 0x4DCD27: the month's drift from MonthlyRelationDrift, rva 0xE78D0), MakeVassal (rva 0xD94A0) and CCreateVassalCommand::Execute (rva 0x14BD00). Zeroed by the constructor (rva 0x647DF0) and CDiplomacyStatus::Reset (rva 0x647F20). So at a new game's start the matrix is asymmetric wherever history set one side, and is made symmetric by the month pass that runs before the first hour - from the side of whichever country comes first in the country order. The savegame writes it as whole points truncated toward zero (`value=75`, `value=-125` for -125.100) while writing `threat` beside it with three decimals, so the save is not the evidence for the scale; BlackICE's common/defines.lua:299 EMBARGO_RELATION_CHANGE = -200.0, i.e. -200000 stored, exactly the clamp floor, is. The alignment relation term averages this field over a faction's members and scales it by RELATION_WEIGHT.",
+      "evidence": "The +0x38 store scan: every [reg+0xE28] site in .text (669, fieldchain --field 0xE28) decoded 0x100 bytes forward for stores with displacement 0x38 - positive control, it finds both of ChangeRelation's stores (0x4E65F4, 0x4E6624) - gives the writers above (VAs: 0x4D7316, 0x4DCCF0, 0x4DCD27, MakeVassal 0x4DA37D/0x4DA3B7, CCreateVassalCommand 0x54C219/0x54C266, 0x5F2D0B in CRelationChange::Apply); the constructor (0xA47E28), Reset (0xA47F51) and SetValue (0xA4817F/0xA48186) do not load +0xE28 and were found from the vftable reference and the reset's callers. The other hits of the scan are stack stores ([esp+0x38]) and one +0x38 of a CUndeclaredWar (VA 0x9BCF9E), not a status's. The scan sees only stores within 0x100 bytes of an +0xE28 load, so a writer reached through a status pointer passed in from far away would be missed; the three found that way (constructor, Reset, SetValue) are the reason to say so.",
+      "source": "reversing/findings/FINDINGS-politics.md",
+      "revises": "Said ChangeRelation is the only writer and that the two sides can never diverge. It is not and they can: four one-direction writers and the month pass's both-sides copy. The name, type and source are unchanged."
+    }
+  ],
+  "vftable_slots": {
+    "CDiplomacyStatus": {
+      "0": {
+        "name": "Release",
+        "signature": "CDiplomacyStatus* __thiscall Release(CDiplomacyStatus* this, bool deleteIt)"
+      },
+      "2": {
+        "name": "SaveContents",
+        "signature": "void __thiscall SaveContents(CDiplomacyStatus* this, CSaveWriter* writer)"
+      }
+    },
+    "CRelationChange": {
+      "7": {
+        "name": "Apply",
+        "signature": "void __thiscall Apply(CRelationChange* this, bool forward)"
+      }
+    },
+    "CAllianceChange": {
+      "7": {
+        "name": "Apply",
+        "signature": "void __thiscall Apply(CDiplomaticHistoryEntry* this, bool forward)"
+      }
+    },
+    "CNAPChange": {
+      "7": {
+        "name": "Apply",
+        "signature": "void __thiscall Apply(CDiplomaticHistoryEntry* this, bool forward)"
+      }
+    },
+    "CGuaranteeChange": {
+      "7": {
+        "name": "Apply",
+        "signature": "void __thiscall Apply(CDiplomaticHistoryEntry* this, bool forward)"
+      }
+    },
+    "CVassalChange": {
+      "7": {
+        "name": "Apply",
+        "signature": "void __thiscall Apply(CDiplomaticHistoryEntry* this, bool forward)"
+      }
+    },
+    "CCasusBelliChange": {
+      "7": {
+        "name": "Apply",
+        "signature": "void __thiscall Apply(CDiplomaticHistoryEntry* this, bool forward)"
+      }
+    },
+    "CNeutralityChange": {
+      "7": {
+        "name": "Apply",
+        "signature": "void __thiscall Apply(CNeutralityChange* this, bool forward)"
+      }
+    },
+    "CThreatChange": {
+      "7": {
+        "name": "Apply",
+        "signature": "void __thiscall Apply(CThreatChange* this, bool forward)"
+      }
+    }
+  },
+  "frontier": [
+    "0x10D2F0",
+    "0x10D260",
+    "0xF8AB0",
+    "0xD2B60",
+    "0x52CF10",
+    "0x1F953F"
+  ],
+  "notes": "CDiplomacyStatus is 0x80 bytes (operator new(0x80) before its one constructor call at 0x4D4D39); the struct record has no size, and a structs declaration cannot add one to an existing struct, so that is a hand edit. The +0x38 field comment is revised; the +0xA8C and +0xA90 comments are also wrong ('written only by ChangeNeutrality', 'exactly two places') - CCountry::SetNeutrality, CCountry::CCountry (50.000 from [0x170CDE8]), the reset at 0x4D2B60 and CInGameIdler::Enter (0x65B3E3..0x65B420, EffectiveNeutrality) also write them - left for brief C, which reads every neutrality writer, to avoid two revisions of one field."
+}

@@ -17,56 +17,60 @@ truth.
 
 ---
 
-## The text wave - every effect and every condition as words
+## The diplomatic state wave - relation, threat and neutrality, and the screen that shows them
 
-> **LANDED 2026-10-12.** All seven briefs ran and merged; the write-ups are
-> `findings/FINDINGS-scripttext.md`, `FINDINGS-onactions.md` and `FINDINGS-messageshow.md`, indexed
-> in `CANDIDATES.md`. Kept as history until the next plan replaces it.
+> **LANDED 2026-10-12.** All five briefs ran and merged (132 addresses, 7 structs, 76 struct fields;
+> apply 159/160 `failed: 0`, `struct fields: 0`); the write-ups are `findings/FINDINGS-diplostate.md`
+> and `findings/FINDINGS-diplomacyview.md`, indexed in `CANDIDATES.md`, and trap 19 came out of it.
+> Left over: `CDiplomacyStatus`'s size, `0x80` (one `new(0x80)` before its only constructor call), is
+> not in its struct record, because a declaration cannot add a size to a struct already recorded.
+> **Two more briefs followed the same day**, when the reading showed a new game's relations come from
+> the mod's Lua and threat is weighed on the alignment triangle: **F**, how the exe hosts Lua
+> (`findings/FINDINGS-luahost.md`, `lua-host.json`), and **G**, the triangle's start and drift
+> (`findings/FINDINGS-alignment.md`, `alignment.json`). Both merged; apply 161/162. Kept as history
+> until the next plan replaces it.
 
-Planned and launched 2026-10-12, for OpenHOI3's last pieces of events and decisions: an option's
-tooltip, the description of an event's `immediate` block, and a decision's two tooltips (its effects
-and its `allow` block). The event wave before it landed the same day (`findings/FINDINGS-eventfire.md`).
+Planned and launched 2026-10-12, for OpenHOI3's diplomacy, which the maintainer has cut in order:
+what two countries hold of each other (relation, threat, neutrality, how each moves); the diplomacy
+screen showing it; then the Lua the AI answers offers with; then the agreements, war and peace, and
+factions. This wave is the reading for the first two. The agreements' `Apply` bodies are **not** in
+it except where they move relation, threat or neutrality, and no Lua is.
 
 **What is known and is not to be redone**:
-- `findings/FINDINGS-effects.md`, section on slots 8, 9 and 10: an effect's `GetBlockText` (slot 8,
-  the base `0x59C710` read), `GetText` (slot 9, the base says nothing) and `GetTargetText` (slot 10,
-  three overrides) and how a run of one keyword is folded onto one line;
-- `findings/FINDINGS-techtext.md`: the trigger renderers - the base `GetBlockText` (`0x5D03F0`), `and`,
-  `or`, `not`, `any_owned_province` - the asterisks, the indent and BiceLib's corrections, and four
-  trigger leaves (a technology, `num_of_ports`, `has_building`, `has_country_flag`);
-- `findings/FINDINGS-effecttext.md`: `kill_leader`'s line and the localisation machinery
-  (`GetText`/`Replace`/`Render`);
-- `findings/FINDINGS-eventfire.md`, 3.4 and 3.7: where the option tooltip and the decision tooltips
-  come from and in which scope;
-- `findings/FINDINGS-script.md`, `FINDINGS-triggergrammar.md`, `FINDINGS-effectgrammar.md`: which
-  keyword makes which class.
+- `findings/FINDINGS-diploaction.md`: the offer as an object, its lifecycle, the seven-day
+  `next_offer_allowed`, the pending list;
+- `findings/FINDINGS-diplomacy.md`, `FINDINGS-survivors.md`: `GetDiploScoreFromLua` and `yesmen`;
+- `findings/FINDINGS-politics.md`, section 4: the country's daily pass `0x4DA530` call by call, the
+  neutrality clamp and `EffectiveNeutrality`, the drift by `NEUTRALITY_CHANGE`, the influence upkeep;
+  section 3's alignment terms (relation, threat) and `FACTION_THREAT_DIST`;
+- `findings/FINDINGS-effectrun.md` 2.11 and the table: the `relation`, `threat` and `neutrality`
+  effects, `SpreadThreatToAll`'s formula; `FINDINGS-triggerleaves.md`, `FINDINGS-numtriggers.md`: the
+  conditions;
+- the record: `CDiplomacyStatus` field by field (`+0x38` relation, `+0x5C` threat, `+0x2C` influence,
+  `+0x30` align, the relation pointers), `CCountry::ChangeRelation` (rva `0xE65C0`),
+  `CCountry::ChangeNeutrality` (`0xFBF80`), `SpreadThreat` (`0xF50A0`), `SpreadThreatToAll`
+  (`0xF4E80`), `ThreatFactorTowards` (`0xFBCB0`), `CDiplomacyView::RebuildDecisionList` (`0x38C560`).
 
-**What is not read**: the leaves - 78 distinct effect `GetText` bodies and 146 distinct trigger
-`GetText` bodies (slot 8 on the trigger side) - and the scope effects' and scope triggers' own block
-texts but for `any_owned_province`. Listed by class with each body's rva, from the vftables, and cut
-in five alphabetically:
-
-| brief | what | fragment |
-| --- | --- | --- |
-| A | effect leaves, `CAddCoreEffect` .. `CMetalPoolEffect` (39) | `effect-text-add-to-metal.json` |
-| B | effect leaves, `CModifySpiesEffect` .. `CWarexhaustionEffect` (39), and the 13 effects with a block text of their own, `random_list` among them | `effect-text-modify-to-war.json` |
-| C | trigger leaves, `CActiveMissionTrigger` .. `CHasWarGoalTrigger` (49) | `trigger-text-active-to-war-goal.json` |
-| D | trigger leaves, `CIdeologyGroupTrigger` .. `COutOfSupplyDaysTrigger` (49) | `trigger-text-ideology-to-supply.json` |
-| E | trigger leaves, `COwnedByTrigger` .. `CYearTrigger` (47), and the 11 triggers with a block text of their own | `trigger-text-owned-to-year.json` |
-
-Two more briefs run beside them, for the other two pieces:
+**What the start-date save says, which is the oracle for brief A**: each of the 101 country blocks
+holds 78 pair blocks `TAG = { value threat }` - one for each country that exists - and the matrix is
+symmetric. On 1 January 1936 threat is 0 everywhere and relation is 75 for 3,988 pairs, 0 for 3,226,
+85 for 540 (every self-pair among them), 10 for 100, 200 for 20, 100 for 2 and -125 for 2.
+`history/diplomacy/relation.txt` gives GER-ITA 200 and SOV-CHI 100; ITA-ETH -125 are at war; the
+eight countries in a faction look to hold 0 with everybody. By 20 April threat has grown to 632
+non-zero pairs, most of them 0.001 to 0.3, and relation has moved in steps of 15 beside
+`last_send_diplomat` dates.
 
 | brief | what | fragment |
 | --- | --- | --- |
-| F | the on_actions: at each of the 13 sites, exactly when it fires, the scope it builds and who answers; `on_encirclement`'s area byte | `on-actions.json`, write-up `findings/FINDINGS-onactions.md` |
-| G | messages: a type's settings, what decides between a popup, the log, the map and nothing, the popup and the log windows - the messages events and decisions raise are read already | `message-display.json`, write-up `findings/FINDINGS-messageshow.md` |
+| A | **the start**: everything a new game does to the pair statuses, neutrality and threat - the five `history/diplomacy` files and `history/wars`, and whatever sets 75, 85 and 10, checked pair for pair against the start save; and a pair block's save keys | `diplomacy-start.json` |
+| B | **threat**: every writer of `CDiplomacyStatus +0x5C`, the 14 callers of `SpreadThreat` and `SpreadThreatToAll` with what each spreads, whether threat decays, the most-threatening-country cache (`0x4E21E0`), and the three unread calls at the head of the daily pass | `threat.json` |
+| C | **relation and neutrality over time**: the 24 callers of `ChangeRelation` with the amount and the condition at each, whether relation drifts on its own or by `DAYS_OF_INFLUENCE_RELATION_CHANGE` / `DAYS_OF_ALIGN_RELATION_CHANGE`; every writer of neutrality, what feeds `NEUTRALITY_CHANGE`, `NEUT_INCREASE_DIFF_CONTINENT`, `NEUT_REDUCTION_AT_CLAIMS`, war exhaustion's reset | `relation-neutrality.json` |
+| D | **the diplomacy screen, its list half**: `CDiplomacyView` - showing, refreshing, the five tabs, the nine sort buttons, a row (`CCountrylistItem`) with every figure on it, choosing a country, the three toggled views and the mode arrows | `diplomacy-view.json` |
+| E | **the diplomacy screen, its panel half**: `country_info` label by label, the status list, the relation list (`CRelationEntry`), the war-goal lists, the drift label, surrender progress, the most-threatening flag, and every tooltip on them | `diplomacy-panel.json` |
 
-For each body: the keyword(s) that make the class; the line, word for word - the localisation key,
-what is put in each `$VARIABLE$`, the colour codes, how a number is written (whole, thousandths, a
-percent, a sign), what is named and from which scope; on the trigger side **both wordings**, for
-`redWhen` 0 and 1; what is said where the target is missing; and whether the key exists in the base
-game's localisation, with its English text. **Every brief asks** what looks wrong but is what the
-bytes do. One write-up, `findings/FINDINGS-scripttext.md`, transcribed from the five reports.
+A, B and C are written up as one, `findings/FINDINGS-diplostate.md`; D and E as one,
+`findings/FINDINGS-diplomacyview.md`. **Every brief asks** what looks wrong but is what the bytes do,
+and which figure is shown or stored in what unit.
 
 ## The standing rules for every brief
 

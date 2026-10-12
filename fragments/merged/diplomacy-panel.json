@@ -1,0 +1,487 @@
+{
+ "agent": "diplomatic state wave, brief E",
+ "question": "The diplomacy screen's panel half: what CDiplomacyView puts in each element of country_info, diplostatus_list, relation_list_window, goal_list_window and drift_list, from which field, in what format, and every tooltip on them.",
+ "source": "reversing/findings/FINDINGS-diplomacyview.md",
+ "addresses": [
+  {
+   "rva": "0x384E30",
+   "kind": "function",
+   "name": "CDiplomacyView::FillCountryInfoHeader",
+   "replaces": "PopulateCountryInfoPanel",
+   "revises": true,
+   "signature": "bool __thiscall CDiplomacyView::FillCountryInfoHeader(CDiplomacyView* this)",
+   "no_signature": null,
+   "comment": "**The first half of the panel's refresh: the flag, the name, the relation and the surrender bar.** Extent 0x784E30..0x78524F, bare `ret`; the `ret` at 0x784EE1 is an early exit (al=0) when the main window (+0xA8) has no `country_info` child (window slot 27), and 0x784EC9 jumps past it (trap 3). The next function, BuildFactionIntentionTooltip (0x785250), abuts it with no padding (trap 2). In order: `country_flag` (icon, window slot 17) gets the selected country's id (+0x1E0) through its slot 53; `label_nation` (text box, slot 14) gets CountryNameOfTag(+0x1DC); `label_relation_value` gets `itoa(countries[selected]->+0xE28[player id (CCurrentGameState +0xC34)]->+0x38 / 1000, 10)` - a whole number, the division truncating toward zero (0x10624DD3 / sar 6 / sign fix), no sign for positives, no colour; `surrender_progress` (a progressbartype, icon slot 18 = how full, 0..100) gets `(100000 - GetSurrenderProgress(selected) * 100000 / 1000) / 1000`, i.e. 100 - ceil(progress/10) with progress 0..1000 - **the green first texture is what is left before surrender**, the red the progress. Answers true. Callers 0x78314B (Rebuild, slot 0), 0x784B4F (the select-country function 0x784A30) and 0x78DDAB. Renamed from PopulateCountryInfoPanel, BiceLib's guess from two string literals, which named half of it: the rest of the panel is CDiplomacyView::RefreshCountryInfo (0x388F70). See reversing/findings/FINDINGS-diplomacyview.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-diplomacyview.md",
+   "evidence": "Read whole from the disassembly 0x784E30..0x78524F (295 lines). Element names are the pushed literals 0x15CBA90, 0x15BC960, 0x15CBF70, 0x15DAA14, 0x15DA588; the relation read is 0x78508A..0x7850B5 (`[0x1A855A4]+0x16C`[selected id]->+0xE28[[gs]+0xC34]->+0x38), then imul 0x10624DD3 / sar 6 / shr 31 add, then itoa(…,10) at 0x7850E5 (0xB9A0C4). Surrender: call 0x4FCB80 then __allmul 100000 / __alldiv 1000, 100000 - that, /1000 again, pushed to icon slot 0x48 at 0x785220. ret immediates: two bare rets, al set before each. Would be wrong if the window slot meanings (17 icon, 14 text box, 27 child window, icon slot 18 frame/fill, slot 53 flag) recorded in FINDINGS-unitpanel.md / FINDINGS-topbar.md were wrong; the rename is the only revision and the old entry's extent, callers and trap notes are kept."
+  },
+  {
+   "rva": "0x388F70",
+   "kind": "function",
+   "name": "CDiplomacyView::RefreshCountryInfo",
+   "signature": "void __stdcall CDiplomacyView::RefreshCountryInfo(CDiplomacyView* this)",
+   "no_signature": null,
+   "comment": "**The rest of country_info, and the status list, for the selected country (+0x1DC/+0x1E0).** 0x788F70..0x78ABE2, `ret 4`, the view on the stack. Notes first whether `relation_list_window` and `goal_list_window` are visible (window +0x5B). Then: `faction_symbol_icon` hidden (slots 65 and 14) when the selected country's faction (+0xD8) is null, its slot 7 is false (the no-faction singleton), or Cgm_IsLeavingFaction says so; otherwise shown (slot 66) with frame = CFaction +0x3C. `ruler_value` = the ruling ideology (+0x1140, **no null test**) slot 14 GetNameForCountry(selected tag, id). `label_threat_us_value` = FormatFixedPoint(countries[selected]->+0xE28[player]->+0x5C, 2) - the threat the selected country feels from the player; `label_threat_them_value` = FormatFixedPoint(player->+0xE28[selected]->+0x5C, 2). `label_neutrality_value` = FormatFixedPoint(selected +0xA90 effective_neutrality, 0) + '%'. Stores selected->+0xE28[selected +0x11DC]->+0x5C in this +0x504 and shows it as `label_highest_threat_value` = FormatFixedPoint(…, 1); `highest_threat_flag` gets the id +0x11DC (icon slot 53). `label_our_neutrality_value`: for the player's own country FormatFixedPoint(player +0xA90, 0) + '%'; otherwise colour + FormatFixedPoint(player +0xA90, 0) + '%§W/' + FormatFixedPoint(max, 0) + '%', max = player->GetMaxNeutralityForWarWith(selected) (0x505D00) and colour §R when player +0xA90 > max, else §G. Then `diplostatus_list`: its scroll position saved, then its slots 21, 23 and 20 (hide, empty, show - the reading the tab handlers support, not a read of the slots); the text = CCountry::BuildDiplomaticStatusText(selected), prefixed (custom game only) by LEAVE_FACTION_INTENTION or JOIN_FACTION_INTENTION and a newline; laid out with the row's `text` box font at the box width and split at newlines (0xA5B520), one `diplo_status_entry` row (a plain 0x28-byte list item from the gui factory 0xA8BBD0) per line, each row resized to width 0xB4 and the line's height; a line with no § in it is prefixed with the colour carried from the last line that had one - §Y if that line contained §Y, else §W. The scroll position is restored (ListBox_RestoreScroll) only when the selected id equals the one in the static 0x1BEBDD0 from the last call. Last, if the view is shown (slot 7): `country_info` shown and the visible sub-view kept - relations (relation window shown, goals hidden, status list slot 21), else goals, else neither (both hidden, status list slot 20). Six callers: CDiplomacyView slot 2 (0x77E1DE), slot 6 (0x77EAF9, **every frame on which this +0x504 differs from the player's own highest-threat value** - which for any other selected country is most frames), the select-country function (0x784B55), 0x6783CA, 0x78DDB1, 0x78F677. See reversing/findings/FINDINGS-diplomacyview.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-diplomacyview.md",
+   "evidence": "Read whole from the disassembly 0x788F70..0x78ABE2 (one `ret 4`, int3 after; the previous function 0x788F60 ends `ret` at 0x788F68 with int3 padding). Stack bookkeeping traced by hand for the two threats ([esp+0x78] = player country set at 0x7893C7; esi = selected->E28[player]->5C at 0x7894D9, edx = player->E28[selected]->5C at 0x7894EB) and for GetMaxNeutralityForWarWith's out slot (S+0x78, compared at 0x789A20 after one push). Strings: 0x15BC248 '%', 0x15DAAFC '%§W/', 0x15B5C50 §G, 0x15B5C58 §R, 0x15B5A64 §, 0x15B5C54 §Y, 0x15B6700 §W, 0x15B57D0 newline, read with image.read. FormatFixedPoint (0x65ACA0) decimals pushed: 2, 2, 0, 1, 0, 0. The every-frame refresh is slot 6 at 0x77EABF..0x77EAF9: player's +0x11DC, its +0xE28[..]->+0x5C, cmp with [edi+0x504]. Would be wrong if window +0x5B is not the visible flag (it is used only as a which-tab-is-up test here)."
+  },
+  {
+   "rva": "0x384610",
+   "kind": "function",
+   "name": "CDiplomacyView::RefreshDriftList",
+   "signature": "void __stdcall CDiplomacyView::RefreshDriftList(CDiplomacyView* this@ESI)",
+   "no_signature": null,
+   "comment": "**`drift_list`, rebuilt only when a count changes.** 0x784610..0x784A27, bare `ret`, the view in ESI. Counts, over every country c in the database, the four pointers c->+0xE28[selected]->+0x2C (influence), selected->+0xE28[c]->+0x2C, c->+0xE28[selected]->+0x30 (align) and selected->+0xE28[c]->+0x30; when the total equals the list's item count nothing is done. Otherwise the list is emptied and, per country, at most one row for influence and one for align: a CDriftItem with outgoing=1 when c's status toward the selected country holds it, else with outgoing=0 when the selected country's status toward c does - so two rows can be identical (influence and align) and a pair influencing both ways gets one row while counting two, which keeps the count unequal and rebuilds the list every frame. The rows do not say which of influence or align made them. Called every frame by CDiplomacyView slot 6 (0x77E55E), by the select-country function (0x784B76) and by 0x78DDD4. See reversing/findings/FINDINGS-diplomacyview.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-diplomacyview.md",
+   "evidence": "Disassembly 0x784610..0x784A27 and the Ghidra decompilation agree: `drift_list` pushed at 0x784630 and found with window slot 31 (+0x7C); the count compare is list slot 11 (+0x2C) -> +8 against the counter; four operator new(0x88) + CDriftItem::CDriftItem (0x77C600) sites at 0x784894, 0x7848F4, 0x784972, 0x7849D2 with the flag pushed 0/1. ESI is used at entry without being set (`mov ecx,[esi+0xa8]` path), so the receiver is in ESI. The field directions are the record's (CInfluence::Activate writes only the influenced country's status toward the influencer)."
+  },
+  {
+   "rva": "0x388A30",
+   "kind": "function",
+   "name": "CDiplomacyView::FillGoalLists",
+   "signature": "void __stdcall CDiplomacyView::FillGoalLists(CDiplomacyView* this, void* goalWindow)",
+   "no_signature": null,
+   "comment": "**`goals_by_us` and `goals_at_us`, the war goals of the selected country's wars.** 0x788A30..0x788F4D, `ret 8`; **abuts CDiplomacyView::OnSortByNation at 0x788F50 with no padding** (trap 2). Both overlapping-elements boxes are found in `goal_list_window` (window slot 39) and each has its slot 48 called with no argument (read as emptying it - inferred, the slot was not read). Nothing more when the selected country's at_war (+0xACC) is clear. Otherwise every distinct CWar* among selected->+0xE28[c]->+0x20 for the countries c of its `enemies` list (+0x1008) is collected, and for each war: the goals filed under the selected country's id in war_goals_by_actor (CWar +0x9C, a map of vector<CWarGoal>, 0x2C each) go into `goals_by_us`, each one showing its Recipient's flag; then every goal in the whole map whose Recipient id (+0x24) is the selected country goes into `goals_at_us`, showing its Actor's flag. A goal is listed only when its casus belli (+0xC) is non-null and that object's slot 7 says yes. Each is a 0x5C-byte CGoalOverviewEntry (CGoalOverviewEntry_Construct) added with the box's slot 45 (+0xB4, argument 1). Ends by showing the window (+0x18 slot 13). Its one caller is the goals tab handler 0x788870 (toggle_diploview_button_goals). See reversing/findings/FINDINGS-diplomacyview.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-diplomacyview.md",
+   "evidence": "Disassembly 0x788A30..0x788F4D read whole: strings 0x15DA840/0x15DA84C, the at_war test at 0x788B75, the enemies walk from +0x1008 with next at +0xC (0x788BAD..0x788C7A), the uniqueness test on the war pointer, the map lookup on +0xA0 by key at node+0xC with the static empty vector 0x1BEB65C as fallback, the 0x2E8BA2E9 / sar 3 divide (stride 0x2C), the two push 0x5C + call 0x77C220 sites passing &goal+0x20 (by us) and &goal+0x18 (at us). `ret 8` at 0x788F4D followed directly by `57 8b f9` (push edi; mov edi,ecx) at 0x788F50, an address the CDiplomacyView constructor (0x77D3BC) stores as a button handler - which settles the boundary. The one caller is 0x788A07."
+  },
+  {
+   "rva": "0x388F50",
+   "kind": "function",
+   "name": "CDiplomacyView::OnSortByNation",
+   "signature": "void __thiscall CDiplomacyView::OnSortByNation(CDiplomacyView* this)",
+   "no_signature": null,
+   "comment": "`sortby_nation_button`'s handler (stored at this +0x1F0 by the constructor 0x77D090; the glue at +0x1E4 is attached to the button in slot 0). `push edi; mov edi, ecx; call CDiplomacyView::FillRelationListByName; pop edi; ret`. Abuts CDiplomacyView::FillGoalLists above it with no padding. See reversing/findings/FINDINGS-diplomacyview.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-diplomacyview.md",
+   "evidence": "The whole body is five instructions, 0x788F50..0x788F59, int3 after. Referenced at 0x77D3BC (constructor, `mov [esi+0x1f0]`); slot 0 attaches the glue at +0x1E4 right after pushing 'sortby_nation_button' (0x7829FD..0x782AA0)."
+  },
+  {
+   "rva": "0x388F60",
+   "kind": "function",
+   "name": "CDiplomacyView::OnSortByRelation",
+   "signature": "void __thiscall CDiplomacyView::OnSortByRelation(CDiplomacyView* this)",
+   "no_signature": null,
+   "comment": "`sortby_relation_button`'s handler (this +0x21C, glue at +0x210): `push 1; push ecx; call CDiplomacyView::FillRelationListByRelation; ret` - flips the relation sort's direction, then refills. See reversing/findings/FINDINGS-diplomacyview.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-diplomacyview.md",
+   "evidence": "Body 0x788F60..0x788F68, int3 after. Referenced at 0x77D402 (`mov [esi+0x21c]`); slot 0 attaches glue +0x210 after pushing 'sortby_relation_button' (0x782B0A..0x782BAD)."
+  },
+  {
+   "rva": "0x38ABF0",
+   "kind": "function",
+   "name": "CDiplomacyView::FillRelationListByName",
+   "signature": "void __stdcall CDiplomacyView::FillRelationListByName(CDiplomacyView* this@EDI)",
+   "no_signature": null,
+   "comment": "**`domestictext_relationlist` sorted by name.** 0x78ABF0..0x78AFC5, bare `ret`, the view in EDI. Clears this +0x31A, **flips this +0x319 first and then sorts with it** (so the first press after the constructor's 0 sorts Z to A), hides (slot 21) and empties (slot 23) the list, then for every country index i below GetCountryCount: the country at countries[i]'s own id, skipped when it owns no provinces (+0xCF8) or is the selected country; its entry (tag, id, float = selected->+0xE28[id]->+0x38 / 1000.0) goes into a list through CountrySortList_Insert with flags {+0x319, by-name 1}; then one CRelationEntry per entry, in list order, added to the list box (slot 4); list slot 20. See reversing/findings/FINDINGS-diplomacyview.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-diplomacyview.md",
+   "evidence": "Disassembly 0x78ABF0..0x78AFC5 read whole: `mov byte [edi+0x31a], bl` at 0x78AC88, `cmp byte [edi+0x319],bl; sete al; mov [edi+0x319],al` at 0x78AD77..0x78AD85, [esp+8] = al and [esp+9] = 1 passed as the flags, the owned_province_count (+0xCF8) and selected-id tests at 0x78AE90..0x78AE9E, cvtdq2ps/divsd [0x160A300] (= 1000.0) at 0x78AEC8..0x78AEE6, call 0x62E7F0 at 0x78AEF8, push 0x38 + call 0x6C3600 at 0x78AF63. EDI is read at entry without being set, and the one caller 0x788F53 does `mov edi, ecx` first."
+  },
+  {
+   "rva": "0x38AFE0",
+   "kind": "function",
+   "name": "CDiplomacyView::FillRelationListByRelation",
+   "signature": "void __stdcall CDiplomacyView::FillRelationListByRelation(CDiplomacyView* this, bool flipDirection)",
+   "no_signature": null,
+   "comment": "**`domestictext_relationlist` sorted by relation.** 0x78AFE0..0x78B3CD, `ret 8`. Sets this +0x31A; when `flipDirection`, flips this +0x318 (the constructor sets it 1, descending); then the same country walk, filter and row construction as FillRelationListByName with flags {+0x318, by-name 0}. Called with 0 by the relations tab handler 0x788610 (so the tab shows the last direction, best relation first until the button is pressed) and with 1 by CDiplomacyView::OnSortByRelation. See reversing/findings/FINDINGS-diplomacyview.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-diplomacyview.md",
+   "evidence": "Disassembly 0x78AFE0..0x78B3CD: `mov byte [ecx+0x31a],1` at 0x78B069, `cmp byte [ebp+0xc],bl; je` then `cmp byte [eax+0x318],bl; sete cl; mov [eax+0x318],cl` at 0x78B179..0x78B187, [esp+0x10] = +0x318 and [esp+0x11] = 0, call 0x62E7F0 at 0x78B306, call 0x6C3600 at 0x78B376. Callers 0x78880D (push ebx = 0) and 0x788F63 (push 1). Initial +0x318 = 1 from `mov word [esi+0x318], 1` at 0x77D594 in the constructor."
+  },
+  {
+   "rva": "0x22E7F0",
+   "kind": "function",
+   "name": "CountrySortList_Insert",
+   "signature": null,
+   "no_signature": "the entry (CCountryTag + float, 12 bytes) arrives in EAX; the list and the two-byte flags are the two stack arguments (`ret 8`)",
+   "comment": "Inserts a (tag, id, float value) entry into a linked list of 0x18-byte nodes {tag, id, value, prev +0xC, next +0x10} kept in order: it walks **backwards from the tail** while CountrySortList_Before(flags, node, new) holds and inserts after the node where it stops (at the head when it walks off, at the tail when it stops at once), so equal entries keep their insertion order. Nine callers: the relation list (0x78AEF8, 0x78B306), the diplomacy screen's country list (0x78CB2A, 0x78CD80, 0x78CF2B, 0x78DB6C) and three in the espionage screen's code (0x629D40, 0x62A675, 0x62A8ED). See reversing/findings/FINDINGS-diplomacyview.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-diplomacyview.md",
+   "evidence": "Ghidra decompilation of 0x62E7F0 (four `ret 8`, the last at 0x62E8F1) read against the callers: they `push &flags; push &list; lea eax, entry` - the entry is never pushed. Node layout from the copy (8 bytes + 4) and the link writes at +0xC/+0x10; the caller walks the finished list from its head with next at +0x10 (0x78AF29). Would be wrong if +0xC is next and +0x10 prev, which the caller's head-to-tail walk via +0x10 rules out."
+  },
+  {
+   "rva": "0x21C990",
+   "kind": "function",
+   "name": "CountrySortList_Before",
+   "signature": "bool __stdcall CountrySortList_Before(char* flags, int nodeTag, int nodeId, float nodeValue, int newTag, int newId, float newValue) @AL",
+   "no_signature": null,
+   "comment": "The comparison CountrySortList_Insert walks with: true means the new entry belongs before `node`. flags[1] = 0 sorts by value: true when newValue < nodeValue (flags[0] = 0) or nodeValue < newValue (flags[0] != 0) - **flags[0] = 1 is descending, 0 ascending**. flags[1] != 0 sorts by CountryNameOfCountry, compared byte by byte as unsigned characters, case-sensitive: with node <= new it answers flags[0], with node > new it answers !flags[0] - again flags[0] = 1 descending (Z first). One caller. See reversing/findings/FINDINGS-diplomacyview.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-diplomacyview.md",
+   "evidence": "Ghidra decompilation of 0x61C990, five `ret 0x1C` (seven dwords: flags, two tags of two dwords, two floats). The direction claims follow from inserting after the last node (from the tail) for which this is false; checked against the relation list's initial state (+0x318 = 1) giving best relation first, which is what the game's default reads as."
+  },
+  {
+   "rva": "0x22D8E0",
+   "kind": "function",
+   "name": "ListBox_RestoreScroll",
+   "signature": null,
+   "no_signature": "the list box arrives in EAX and the saved scroll position as a float in XMM0; no stack arguments, bare `ret`",
+   "comment": "Puts a list box's scrollbar back where it was: when the list has a scrollbar (+0xF8) and the position is above -1.0, calls the scrollbar's slot 7 with floor((position + [0x160A460]) * 1000) and two 1s. The position is what the scrollbar's slot 4 answered before the list was emptied (-1.0 when there is no scrollbar). Seven callers; CDiplomacyView::RefreshCountryInfo uses it for diplostatus_list and the diplomatic action list (0x78C130) inlines the same code. See reversing/findings/FINDINGS-diplomacyview.md.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-diplomacyview.md",
+   "evidence": "Ghidra decompilation of 0x62D8E0 (bare `ret` at 0x62D93E), the caller at 0x78A90D..0x78A91A (`mov eax,[esp+0x78]` = the list box, `movss xmm0,[esp+0xbc]`). The constant at 0x160A460 and the meaning of the scrollbar's slot 7 arguments were not read, hence inferred."
+  },
+  {
+   "rva": "0x0EACD0",
+   "kind": "function",
+   "name": "CCountry::BuildDiplomaticStatusText",
+   "signature": "Hoi3CString* __thiscall CCountry::BuildDiplomaticStatusText(CCountry* this, Hoi3CString* out) @EAX",
+   "no_signature": null,
+   "comment": "**What diplostatus_list shows, as one string.** CCountry::GetDiplomaticStatusLines, then each line prefixed by a colour that alternates starting with §W (§W, §Y, §W, ...) and followed by a newline. 0x4EACD0..0x4EADBE, `ret 4`. One caller, CDiplomacyView::RefreshCountryInfo (0x789F5B). See reversing/findings/FINDINGS-diplomacyview.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-diplomacyview.md",
+   "evidence": "Ghidra decompilation: the toggle starts at -1, `-1 -> §W (0x15B6700)`, `1 -> §Y (0x15B5C54)`, negated each line; appendChars 2, appendString, appendChars '\\n'. `ret 4`, ECX the country at the call site 0x789F50 (`mov ecx, countries[selected]`)."
+  },
+  {
+   "rva": "0x0EADD0",
+   "kind": "function",
+   "name": "CCountry::GetDiplomaticStatusLines",
+   "signature": "void* __stdcall CCountry::GetDiplomaticStatusLines(CCountry* this, void* lines)",
+   "no_signature": null,
+   "comment": "**The diplomatic status lines of a country, in display order.** 0x4EADD0..0x4EDD70, `ret 8`, `lines` a vector<Hoi3CString> it fills and answers. Walks every country c below GetCountryCount that owns provinces (+0xCF8 > 0), with T = this->+0xE28[c] and S = c->+0xE28[this], into lists, then one localised line per non-empty list, $LIST$ from FormatCountryNameList: (1) **one ATWARWITH per distinct war** (T+0x20), LIST = that war's side this country is not on (CWar +0x2C attackers or +0x3C defenders), with '*' after every country that stands first on the enemy side of any of this country's wars; (2) TRUCEWITH - HasTruce(T); (3) FACTION_MEMBER_OF, $NAME$ = this country, $FACTION$ = its faction's name, when its faction's slot 7 says yes; (4) INFLUENCEFROM - T+0x2C; (5) ALIGNINGTOWARDS - T+0x30, $LIST$ from FormatCountryFactionList (each country's **faction** name); (6) NAPWITH - T+0x28; (7) ALLIEDWITH - T+0x14; (8) LEADVASSAL - T+0x18 a CVassal (slot 7 = 0x298) whose second id (+0x14) is c; (9) AMVASSAL - the same with first id (+0xC) = c; (10) GUARANTEED - T+0x1C with first id = c; (11) GUARANTING - T+0x1C with first id != c; (12) CD_ISEMBARGOED - T+0x34 whose first id is not this; (13) CD_ISEMBARGOING - first id is this; (14) CD_GIVESACCESS - S+0x4C; (15) CD_HASACCESS - T+0x4C; (16) CD_DEBT - S+0x78 allowDebts; (17) LEND_LEASE_TO_LIST, $COUNTRIES$ = the tags of this +0x6B8's 16-byte entries; (18) LEND_LEASE_FROM_LIST from +0x6C8's 12-byte entries; (19) when the mission (+0xE40) is non-null and its slot 6 says yes, the text of ON_MISSION (a key no localisation file has, so it renders as itself) + \"'\" + ActiveMission_GetTitle(+0xE38) + \"'\". The lend-lease lines and the mission line do not depend on the province filter. In a custom game some entries are dropped by 0x420780 (not read). See reversing/findings/FINDINGS-diplomacyview.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-diplomacyview.md",
+   "evidence": "Ghidra decompilation (1600 lines) read through, the war branch and the lend-lease and mission tails checked in the disassembly (0x4EBC77..0x4EBD33: the by-value 16-byte copy of the war-leader list pushed as FormatCountryNameList's marked list; 0x4ED7B8..0x4ED887: +0x6B8 stride 0x10 via sar 4, +0x6C8 stride 0xC via 0x2AAAAAAB; 0x4EDA15..0x4EDB00: ON_MISSION, \"'\" (0x15C0B38), 0x9C7550 on +0xE38). Key strings pushed in exactly this order. CVassal's slot 7 is `mov eax,0x298; ret` (0x5F1F30); CDependency's own slot 7 is _purecall. One `ret 8` at 0x4EDD70, int3 after; its one caller 0x4EACD0. The direction of S+0x4C and S+0x78 is read off which status the code indexes, and the line texts are consistent with the record's IsGuaranteed/IsGuaranting reading of +0x1C."
+  },
+  {
+   "rva": "0x0EA2E0",
+   "kind": "function",
+   "name": "FormatCountryNameList",
+   "signature": "Hoi3CString* __cdecl FormatCountryNameList(Hoi3CString* out, void* list, void* markedFirst, void* markedLast, int markedCount, int markedFlag)",
+   "no_signature": null,
+   "comment": "A CCountryList as text: each country's CountryNameOfTag, a '*' after any whose id is in the marked list (a CCountryList passed by value; only looked at when its count is non-zero), separated by \", \" while two or more remain, by \" \" + the text of AND (\"and \") before the last. So 'A, B and C'. Fourteen callers, all in CCountry::GetDiplomaticStatusLines. See reversing/findings/FINDINGS-diplomacyview.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-diplomacyview.md",
+   "evidence": "Ghidra decompilation of 0x4EA2E0 (bare `ret` at 0x4EA526); callers clean 0x18 (out, list, 16-byte list by value), e.g. 0x4EBD38. The separator logic reads the remaining count decremented per country: < 2 and > 0 -> ' ' + AND, >= 2 -> ', '."
+  },
+  {
+   "rva": "0x0EA7A0",
+   "kind": "function",
+   "name": "FormatCountryFactionList",
+   "signature": "Hoi3CString* __cdecl FormatCountryFactionList(Hoi3CString* out, void* list, void* markedFirst, void* markedLast, int markedCount, int markedFlag)",
+   "no_signature": null,
+   "comment": "FormatCountryNameList's twin that writes each country's **faction** name (CCountry +0xD8, slot 6) instead of its own. One caller: ALIGNINGTOWARDS in CCountry::GetDiplomaticStatusLines (0x4EC608), so that line reads 'Aligning towards Axis'. See reversing/findings/FINDINGS-diplomacyview.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-diplomacyview.md",
+   "evidence": "Ghidra decompilation of 0x4EA7A0 (bare `ret` at 0x4EA9EE): identical to 0x4EA2E0 except the name comes from GetCountry(tag)->+0xD8's slot 6."
+  },
+  {
+   "rva": "0x0EA530",
+   "kind": "function",
+   "name": "FormatCountryTagVector",
+   "signature": "Hoi3CString* __cdecl FormatCountryTagVector(Hoi3CString* out, void* tags, void* markedBegin, void* markedEnd, void* markedCapacity, int unused)",
+   "no_signature": null,
+   "comment": "The same list text for a vector of 8-byte CCountryTags, with a marked vector passed by value. Three callers: the two lend-lease lines of CCountry::GetDiplomaticStatusLines and 0x614D41. See reversing/findings/FINDINGS-diplomacyview.md.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-diplomacyview.md",
+   "evidence": "Ghidra decompilation of 0x4EA530 (bare `ret` at 0x4EA79D); the call site 0x4ED844..0x4ED867 builds 16 bytes by value (`sub esp,0x10`, three zero dwords) and cleans 0x18. Which of the by-value dwords is begin and which is end is read off the decompiler only, hence inferred."
+  },
+  {
+   "rva": "0x1103F0",
+   "kind": "function",
+   "name": "LocaliseCountriesLine",
+   "signature": "Hoi3CString* __cdecl LocaliseCountriesLine(void* listText@ECX, const char* key@EDX, Hoi3CString* out@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "Localises `key` with $COUNTRIES$ replaced by the text entry in ECX and renders it into `out`. Two callers: LEND_LEASE_TO_LIST and LEND_LEASE_FROM_LIST in CCountry::GetDiplomaticStatusLines. See reversing/findings/FINDINGS-diplomacyview.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-diplomacyview.md",
+   "evidence": "Ghidra decompilation of 0x5103F0 (bare `ret` at 0x51058B, caller cleans 4 at 0x4ED88C); call site `mov ecx, eax; mov edx, 'LEND_LEASE_TO_LIST'; push out` at 0x4ED87C..0x4ED887."
+  },
+  {
+   "rva": "0x5C7550",
+   "kind": "function",
+   "name": "ActiveMission_GetTitle",
+   "signature": "void __cdecl ActiveMission_GetTitle(void* activeMission@ECX, Hoi3CString* out@EDI)",
+   "no_signature": null,
+   "comment": "The title of a country's running mission: DecisionTitleKey on the object's +8 (the mission, which is CCountry +0xE40 when the object is CCountry +0xE38), localised by LocaliseEventText with the event scope held at +0xC and the owner tag at +0xA0/+0xA4, trimmed into `out`. Note that it reads +0xE38 as an object held in place, not as the pointer the record types it as. Five callers. See reversing/findings/FINDINGS-diplomacyview.md.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-diplomacyview.md",
+   "evidence": "Ghidra decompilation of 0x9C7550 (bare `ret` at 0x9C75F0); the call site 0x4EDA70 passes ecx = country + 0xE38 and edi = a local string. Only the decompiler was read, and +0xE38 as an in-place object rests on +8 being the same pointer the caller tested at +0xE40."
+  },
+  {
+   "rva": "0x100330",
+   "kind": "function",
+   "name": "CCountry::BuildSurrenderTitle",
+   "signature": "Hoi3CString* __stdcall CCountry::BuildSurrenderTitle(CCountry* this, Hoi3CString* out) @EAX",
+   "no_signature": null,
+   "comment": "`surrender_progress`'s tooltip: SURRENDER_TITLE with $VAL$ = sprintf(\"%.2f\", GetSurrenderProgress / 1000.0 * 100.0) - 0.00 to 100.00, the progress and not the bar's remainder. 0x500330..0x5004E0, `ret 8`. One caller, CDiplomacyView slot 10. See reversing/findings/FINDINGS-diplomacyview.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-diplomacyview.md",
+   "evidence": "Disassembly 0x5003BA..0x5003F7: call 0x4FCB80, cvtdq2ps, divsd [0x160A300] (1000.0), mulsd [0x160A358] (100.0), push 2, call 0xA5AEC0 (whose format table index 2 is 0x15DC2AC = '%.2f'). The constants read with image.read."
+  },
+  {
+   "rva": "0x0FCCF0",
+   "kind": "function",
+   "name": "CCountry::BuildSurrenderDetails",
+   "signature": "Hoi3CString* __stdcall CCountry::BuildSurrenderDetails(CCountry* this, Hoi3CString* out) @EAX",
+   "no_signature": null,
+   "comment": "`surrender_progress`'s delayed tooltip. Not in exile (+0x95 clear): SURRENDER_DETAILS when this is the player's country, else SURRENDER_DETAILS_THEY, with $OCCUPATION$ = FormatFixedPoint(GetOccupiedVictoryPointShare * 100000 / 1000, 1) and $UNITY$ = FormatFixedPoint(national_unity +0x10B8, 1). In exile: WE_ARE_GOV_EXILE for the player, else the country's name + ' ' + the text of IS_IN_EXILE. 0x4FCCF0..0x4FD2CE, `ret 8`. One caller, CDiplomacyView slot 10. See reversing/findings/FINDINGS-diplomacyview.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-diplomacyview.md",
+   "evidence": "Ghidra decompilation read whole; +0x95 is government_in_exile, puVar2[0x32A] = +0xCA8 (id) against the player id, puVar2[0x42E] = +0x10B8. The two FormatFixedPoint calls pass 1."
+  },
+  {
+   "rva": "0x2C3600",
+   "kind": "function",
+   "name": "CRelationEntry::CRelationEntry",
+   "signature": "CRelationEntry* __stdcall CRelationEntry::CRelationEntry(CRelationEntry* this@stack:4, CCountryTag* country@stack:8, CCountryTag* selected@stack:0xC, CInGameIdler* idler@ECX) @EAX",
+   "no_signature": null,
+   "comment": "**One row of the relation list** (0x38 bytes, window `domesticpanel_relation_entry` made through the idler). +0x28 = the listed country, +0x30 = the selected one. v = (int)(float)(selected->+0xE28[country id]->+0x38) / 1000.0, truncated. `name` = '@' + the country's tag + CountryNameOfCountry (the '@TAG' draws the flag), shown. `value` = itoa(v, 10), coloured through 0xA7FDB0 (which copies a CColor into the text box) with the three floats after CColor's header, taken as r, g, b, = 1 - f, f, |0.5 - f| and alpha 1, f = (v + 200) / 400 - (1, 0, 0.5) at -200, (0.5, 0.5, 0) at 0, (0, 1, 0.5) at +200; shown. 0x6C3600..0x6C3B52, `ret 0xC`. Two callers, the two relation-list fillers. See reversing/findings/FINDINGS-diplomacyview.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-diplomacyview.md",
+   "evidence": "Disassembly 0x6C36B9..0x6C3B52 read: vftables 0x15D1F28/0x15D1F5C written at 0x6C36BC (CRelationEntry's own, RTTI), cvttss2si at 0x6C3720, +0xC8 / [0x160A710] (400.0), 1.0 - f from [0x160A248], fabs (0x40C390) of [0x160A308] (0.5) - f, alpha [0x171DBAC] = 1.0f, '@' = 0x15C49F4, itoa(…,10) 0xB9A0C4 at 0x6C3A4B. Called with ECX = the view's +0xB0 (0x78AF5C, 0x78B369)."
+  },
+  {
+   "rva": "0x2C3B60",
+   "kind": "function",
+   "name": "CRelationEntry::OwnsElement",
+   "signature": "bool __stdcall CRelationEntry::OwnsElement(CRelationEntry* this@EDI, CGuiObject* element@ECX) @AL",
+   "no_signature": null,
+   "comment": "Whether `element` is the row's `name` or `value` text box (window +0x20, slot 15). CDiplomacyView slot 10 asks each relation row before CRelationEntry::BuildTooltip. See reversing/findings/FINDINGS-diplomacyview.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-diplomacyview.md",
+   "evidence": "Ghidra decompilation of 0x6C3B60 (bare `ret` at 0x6C3C55): EDI read unset as the row, ECX the element; the same shape as CDecisionEntry::OwnsElement."
+  },
+  {
+   "rva": "0x2C3C60",
+   "kind": "function",
+   "name": "CRelationEntry::BuildTooltip",
+   "signature": "GuiTooltipText* __stdcall CRelationEntry::BuildTooltip(CRelationEntry* this, GuiTooltipText* out) @EAX",
+   "no_signature": null,
+   "comment": "A relation row's tooltip: the text of RELATION_CHANGE_VALUE + ' ' + (§R when the change is negative, else §G) + sprintf(\"%.2f\", 0x4E78D0(selected country, row country) / 1000.0 * 12.0) + §W - 'Estimated yearly change', twelve times the monthly relation drift 0x4E78D0 gives in thousandths for the selected country toward the row's (read in this wave by the start and relation briefs); its delayed text is 0x4E74D0(selected, out, row country), not read. 0x6C3C60..0x6C4096, `ret 8`. See reversing/findings/FINDINGS-diplomacyview.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-diplomacyview.md",
+   "evidence": "Disassembly 0x6C3CCC..0x6C3DCC: GetCountry(+0x30), call 0x4E78D0 with +0x28/+0x2C, divsd [0x160A300] (1000.0), comiss with 0 for the colour (§G 0x15B5C50 / §R 0x15B5C58), mulsd [0x160AA48] (12.0), call 0xA5AEC0 with 2 ('%.2f'), 'RELATION_CHANGE_VALUE' 0x15D1F0C, ' ' 0x15B4E94; delayed: 0x4E74D0 into out+0x1C."
+  },
+  {
+   "rva": "0x37C220",
+   "kind": "function",
+   "name": "CGoalOverviewEntry_Construct",
+   "signature": "void* __stdcall CGoalOverviewEntry_Construct(void* entry@stack:4, CInGameIdler* idler@stack:8, CCountryTag* flag@stack:0xC, CWarGoal* goal@ECX) @EAX",
+   "no_signature": null,
+   "comment": "**One war-goal row** - RTTI class `_A0x55a8222a::CGoalOverviewEntry`, anonymous namespace, vftable 0x15DAED8, 0x5C bytes; not CGoalEntry, which is the war-goal dialog's row. Window `goal_overview_entry` through the idler; a copy of the CWarGoal at +0x28 (vftable, 0x18D, then the goal's +8..+0x28), the flag's tag at +0x54. `wargoal_icon` frame = the goal's casus belli type's +0xC (sprite_index, counted from 1); `wargoal_flag` gets the flag tag's id (slot 53). 0x77C220..0x77C430, `ret 0xC`. See reversing/findings/FINDINGS-diplomacyview.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-diplomacyview.md",
+   "evidence": "Disassembly writes 0x15DAED8 at 0x77C2D8 (the anonymous class's own table per the RTTI export). Ghidra decompilation for the rest; called with ECX = &goal at 0x788D94 and 0x788E50. The frame is the int at casus_belli +0xC; that this is `sprite_index` (the only integer key in cb_types.txt that fits seven frames) is inferred and recorded on the field."
+  },
+  {
+   "rva": "0x37C440",
+   "kind": "function",
+   "name": "CGoalOverviewEntry_BuildTooltip",
+   "signature": "GuiTooltipText* __stdcall CGoalOverviewEntry_BuildTooltip(void* entry, GuiTooltipText* out) @EAX",
+   "no_signature": null,
+   "comment": "A war-goal row's tooltip: text = CCasusBelliType::GetLocalisedName(the copied goal's casus belli type, row +0x34); delayed = CWarGoal::BuildSetupText(the copy at row +0x28). Called by CDiplomacyView slot 10 for a row whose window contains the element under the mouse. 0x77C440..0x77C5FC, `ret 8`. See reversing/findings/FINDINGS-diplomacyview.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-diplomacyview.md",
+   "evidence": "Ghidra decompilation; callers 0x780B1A and 0x780B35 in CDiplomacyView slot 10, both after the row window's +0x18 slot 37 test against the element."
+  },
+  {
+   "rva": "0x37C600",
+   "kind": "function",
+   "name": "CDriftItem::CDriftItem",
+   "signature": "CDriftItem* __stdcall CDriftItem::CDriftItem(CDriftItem* this@stack:4, bool outgoing@stack:8, CDiplomacyView* view@stack:0xC, CCountryTag selected@stack:0x10, CCountryTag country@stack:0x18, CInGameIdler* idler@ECX) @EAX",
+   "no_signature": null,
+   "comment": "**One row of drift_list** (0x88 bytes, window `drift_entry`). +0x78 = the listed country, +0x80 the idler, +0x84 the view. `name` = '@' + tag + ' ' + CountryNameOfTag - flag, space, name. `influence`: X = the listed country and Y = the selected one, swapped when `outgoing`; M = FindStaticModifierByName(X's faction) (its +0xBC influence key, e.g. align_towards_axis); when M is null or not among Y's active modifiers (+0x648) the text is '--'; else, outgoing: '§G+' + FormatFixedPoint(M's ALIGN_TOWARDS value, 2); not outgoing: X's faction name. The bg_button's observer is CDriftItem::OnClicked. 0x77C600..0x77CC83: the `ret 0x1C` at 0x77CADE is not the end - 0x77CAE1..0x77CC83 is the found-modifier branch, reached by a jump at 0x77C9CC (trap 3). See reversing/findings/FINDINGS-diplomacyview.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-diplomacyview.md",
+   "evidence": "Disassembly 0x77C6D5..0x77CC83: own vftables 0x15DAF6C/0x15DAFA4 written at 0x77C6D5; [ebp+0xC] the flag swapping [ebp+0x14..0x18] with [ebp+0x1C..0x20] at 0x77C97B; call 0x523560 on +0xD8; the +0x648 walk comparing node->+8; '--' 0x15DA4B4; '§G+' 0x15B6B84 with FormatFixedPoint(…, 2) of M->+0x18->+0x178; `ret 0x1C` (7 dwords) at 0x77CADE; int3 from 0x77CC84, CDriftItem's destructor at 0x77CC90. Which of influence and align puts M on Y was not read; the meaning of `outgoing` is the caller's (RefreshDriftList)."
+  },
+  {
+   "rva": "0x37CD90",
+   "kind": "function",
+   "name": "CDriftItem::OnClicked",
+   "signature": "void __thiscall CDriftItem::OnClicked(CDriftItem* this)",
+   "no_signature": null,
+   "comment": "A drift row's bg_button: selects the row's country in the diplomacy view - `call 0x784A30` with ECX = this +0x84 (the view) and the tag at this +0x78. See reversing/findings/FINDINGS-diplomacyview.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-diplomacyview.md",
+   "evidence": "The whole body, 0x77CD90..0x77CD9F: `lea eax,[ecx+0x78]; mov ecx,[ecx+0x84]; push eax; call 0x784a30; ret`. Registered with the row's button glue in the constructor (0x77C6CB)."
+  },
+  {
+   "rva": "0x016960",
+   "kind": "function",
+   "name": "CCasusBelliType::GetLocalisedName",
+   "signature": "Hoi3CString* __stdcall CCasusBelliType::GetLocalisedName(CCasusBelliType* this, Hoi3CString* out) @EAX",
+   "no_signature": null,
+   "comment": "The casus belli type's key (+0x14) through GetText and Render - 'Retake our cores' for aquire_all_cores. Nine callers, among them the war-goal row's tooltip. `ret 8`. See reversing/findings/FINDINGS-diplomacyview.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-diplomacyview.md",
+   "evidence": "Ghidra decompilation of 0x416960 (`ret 8` at 0x416A06): GetText(out, this + 0x14), Render with the game settings' colours. +0x14 is the record's CCasusBelliType `key`."
+  },
+  {
+   "rva": "0x079D40",
+   "kind": "function",
+   "name": "CWarGoal::BuildSetupText",
+   "signature": "Hoi3CString* __stdcall CWarGoal::BuildSetupText(CWarGoal* this, Hoi3CString* out) @EAX",
+   "no_signature": null,
+   "comment": "A war goal's description: the text of <casus belli key>_setup with $ACTOR$ and $RECIPIENT$ = '§Y' + the country's name + '§W', $THIRD$ = the same for +0x10 when set, else (when the text uses $THIRD$) the whole result is WARDIALOG_SELECT_COUNTRY; $STATE$ = the region's (+0x28) name in the same colours, else WARDIALOG_SELECT_STATE; the result '§W' + the text. Empty when the casus belli is null or its slot 7 says no. Three callers: the war-goal row's delayed tooltip and two in the war-goal dialog. 0x479D40, three `ret 8`, the last at 0x47A79B. See reversing/findings/FINDINGS-diplomacyview.md.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-diplomacyview.md",
+   "evidence": "Ghidra decompilation of 0x479D40 only; the test of which replacements the text holds goes through 0xA82F20, not read, so 'when the text uses $THIRD$' is the likely reading of the 'THIRD'/'STATE' string compares on the replacement list, not a checked one."
+  },
+  {
+   "rva": "0x38F900",
+   "kind": "function",
+   "name": "Cgm_IsLeavingFaction",
+   "signature": "bool __cdecl Cgm_IsLeavingFaction(CCountryTag* tag@EDI) @AL",
+   "no_signature": null,
+   "comment": "**False outside a custom game** (the custom-game settings' first byte, 0x41C4E0). In one, whether the country - or, when the settings do not hold it, its overlord - is listed by 0x41D470 and the record 0x41F300 answers has its +0x54 set. Used by the faction icon, the status list's first line and BuildFactionIntentionTooltip (LEAVE_FACTION_INTENTION). Three bare `ret`s, the last at 0x78F978. See reversing/findings/FINDINGS-diplomacyview.md.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-diplomacyview.md",
+   "evidence": "Disassembly head (call 0x41C4E0; cmp byte [esi],0; je -> al = 0) and the Ghidra decompilation. The custom-game helpers 0x41D470 / 0x41F300 were not read, so what +0x54 means is not established - only that a normal game never reaches it."
+  },
+  {
+   "rva": "0x38F790",
+   "kind": "function",
+   "name": "Cgm_GetFactionJoining",
+   "signature": "CFaction* __cdecl Cgm_GetFactionJoining(CCountryTag* tag)",
+   "no_signature": null,
+   "comment": "**Null outside a custom game.** In one, walks the ideology groups' factions (g_ideologies +0x1C) and answers the first real faction (slot 7) whose custom-game list (0x421660, not read) holds this country's id - the JOIN_FACTION_INTENTION of the status list and of BuildFactionIntentionTooltip. Bare `ret`, caller cleans one argument. See reversing/findings/FINDINGS-diplomacyview.md.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-diplomacyview.md",
+   "evidence": "Ghidra decompilation; callers 0x77FDDD, 0x785331, 0x78A0E7 each `push tag; call; add esp,4`."
+  }
+ ],
+ "structs": [
+  {
+   "name": "CDiplomacyView",
+   "inherits": "CCountryView",
+   "vftable_rva": "0x11DABE4",
+   "comment": "The diplomacy screen (RTTI: 16 slots, 8 introduced, base CCountryView at 0). The panel half is in reversing/findings/FINDINGS-diplomacyview.md.",
+   "evidence": "RTTI export: CDiplomacyView, base CCountryView at offset 0, one vftable 0x015DABE4 (rva 0x11DABE4) of 16 slots. Size 0x560: `push 0x560; call operator new` at 0x65985A, just before the only constructor call (0x659878), read by brief D.",
+   "size": "0x560"
+  },
+  {
+   "name": "CRelationEntry",
+   "size": "0x38",
+   "vftable_rva": "0x11D1F28",
+   "comment": "A row of the diplomacy screen's relation list; a CStandardlistboxItem with no virtual of its own (its tables are the base's bodies). Built by CRelationEntry::CRelationEntry.",
+   "evidence": "RTTI export: CRelationEntry, base CStandardlistboxItem at 0, tables 0x015D1F28 and 0x015D1F5C, 0 introduced. Size from `push 0x38; call operator new` at 0x78AF2C and 0x78B33C before the constructor."
+  },
+  {
+   "name": "CDriftItem",
+   "size": "0x88",
+   "vftable_rva": "0x11DAF6C",
+   "comment": "A row of the diplomacy screen's drift_list. Built by CDriftItem::CDriftItem, clicked through CDriftItem::OnClicked.",
+   "evidence": "RTTI export: CDriftItem, base CStandardlistboxItem at 0, tables 0x015DAF6C and 0x015DAFA4. Size from the four `operator_new(0x88)` before CDriftItem::CDriftItem in CDiplomacyView::RefreshDriftList (0x784894 and siblings)."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CDiplomacyView",
+   "offset": "0x1DC",
+   "name": "selected_country",
+   "type": "CCountryTag",
+   "comment": "The country the panel shows: tag letters here, id at +0x1E0. Written by the select-country function 0x784A30 (0x784A5E/0x784A69) and the constructor; read by every panel filler.",
+   "evidence": "Writes at 0x784A5E and 0x784A69 from the tag argument; reads throughout 0x784E30, 0x788F70, 0x784610, 0x788A30 as a tag pair (CountryNameOfTag on +0x1DC, countries[+0x1E0])."
+  },
+  {
+   "struct": "CDiplomacyView",
+   "offset": "0x318",
+   "name": "relation_sort_descending",
+   "type": "uint8_t",
+   "comment": "The relation list's by-relation direction, 1 = best relation first. Set 1 by the constructor (as the low byte of `mov word [esi+0x318], 1`), flipped by sortby_relation_button before each sort.",
+   "evidence": "0x77D594 `mov word [esi+0x318], 1`; read and flipped at 0x78B17E..0x78B187 and passed as CountrySortList_Before's flags[0]."
+  },
+  {
+   "struct": "CDiplomacyView",
+   "offset": "0x319",
+   "name": "nation_sort_descending",
+   "type": "uint8_t",
+   "comment": "The relation list's by-name direction, 1 = Z first. 0 from the constructor (the high byte of the same word store), **flipped before every by-name sort, so the first press sorts Z to A**.",
+   "evidence": "0x77D594 (high byte 0); 0x78AD77..0x78AD85 sete/store, then passed as flags[0] with flags[1] = 1."
+  },
+  {
+   "struct": "CDiplomacyView",
+   "offset": "0x31A",
+   "name": "relation_list_by_relation",
+   "type": "uint8_t",
+   "comment": "1 after a by-relation fill of the relation list, 0 after a by-name one or from the constructor. Read by nothing in 0x77A000..0x790000.",
+   "evidence": "Writes at 0x77D59D, 0x78AC88 (0) and 0x78B069 (1); a displacement scan of 0x77A000..0x790000 found no read, while the same scan found the reads of +0x319 (0x78AD77) and +0x318 (0x78B17E) - the positive control. Outside that range was not scanned."
+  },
+  {
+   "struct": "CDiplomacyView",
+   "offset": "0x504",
+   "name": "shown_highest_threat",
+   "type": "int",
+   "comment": "The highest-threat figure label_highest_threat_value shows (thousandths): the selected country's +0xE28[its +0x11DC]->+0x5C, stored by RefreshCountryInfo. Slot 6 compares it every frame with **the player's** own highest-threat value and refills the panel when they differ; slot 10 shows it as $VAL$ of DIP_HIGHEST_THREAT_TOOLTIP. 0 from the constructor.",
+   "evidence": "Store at 0x7897F7, reads at 0x789825, 0x77EAF0 (slot 6), 0x780E9E (slot 10); zeroed at 0x77D8D7."
+  },
+  {
+   "struct": "CRelationEntry",
+   "offset": "0x28",
+   "name": "country",
+   "type": "CCountryTag",
+   "comment": "The country this row lists (id at +0x2C).",
+   "evidence": "Copied from the constructor's second argument at 0x6C36C9..0x6C36D4; read by CRelationEntry::BuildTooltip as the other party."
+  },
+  {
+   "struct": "CRelationEntry",
+   "offset": "0x30",
+   "name": "selected",
+   "type": "CCountryTag",
+   "comment": "The diplomacy view's selected country when the row was made (id at +0x34): whose relation the row shows.",
+   "evidence": "Copied from the third argument (the view's +0x1DC) at 0x6C36D7..0x6C36EC; GetCountry on it at 0x6C36EF before the +0xE28 read."
+  },
+  {
+   "struct": "CDriftItem",
+   "offset": "0x78",
+   "name": "country",
+   "type": "CCountryTag",
+   "comment": "The country this drift row lists (id at +0x7C); what clicking the row selects.",
+   "evidence": "0x77C703/0x77C706 from [ebp+0x1C]/[ebp+0x20]; CDriftItem::OnClicked passes &this->+0x78 to the select function."
+  },
+  {
+   "struct": "CDriftItem",
+   "offset": "0x80",
+   "name": "idler",
+   "type": "CInGameIdler*",
+   "comment": "The in-game screen the row's window was made through (the view's +0xB0).",
+   "evidence": "0x77C6FD `mov [edi+0x80], esi`, esi = ECX at entry, which every caller loads from the view's +0xB0."
+  },
+  {
+   "struct": "CDriftItem",
+   "offset": "0x84",
+   "name": "view",
+   "type": "CDiplomacyView*",
+   "comment": "The diplomacy view, for the click.",
+   "evidence": "0x77C6F4 from [ebp+0x10]; CDriftItem::OnClicked uses it as ECX for 0x784A30."
+  },
+  {
+   "struct": "CFaction",
+   "offset": "0x3C",
+   "name": "icon",
+   "type": "int",
+   "revises": true,
+   "comment": "saved as `icon`: **a sprite frame, counted from 1** - `icon = 2/3/1` for axis/allies/comintern in common/ideologies.txt against GFX_icon_factions_small's three frames. CDiplomacyView::RefreshCountryInfo hands it to faction_symbol_icon's frame setter (icon slot 18). Its byte neighbour +0x38 is members_changed.",
+   "evidence": "0x7892D6..0x7892E7: `mov edi,[edi+0xd8]; mov edi,[edi+0x3c]; push edi; call [edx+0x48]` on the icon found as 'faction_symbol_icon'. Revises the type from void* (the earlier live read found 'nothing readable as a string', which an int 1..3 explains); the name is kept."
+  },
+  {
+   "struct": "CCasusBelliType",
+   "offset": "0xC",
+   "name": "sprite_index",
+   "type": "int",
+   "comment": "The casus belli type's icon frame: the war-goal row shows it on wargoal_icon (GFX_diplo_wargoal_icons, seven frames). The name is inferred from cb_types.txt's `sprite_index` key, the loader's case was not traced.",
+   "evidence": "CGoalOverviewEntry_Construct: `(*(icon->vftable + 0x48))(*(casus_belli + 0xC))` on the icon found as 'wargoal_icon'. The +0xC store in CCasusBelliType::LoadKey's sprite_index case was not located."
+  }
+ ],
+ "frontier": [
+  "0x4E78D0",
+  "0x4E74D0",
+  "0x784A30",
+  "0x78C130",
+  "0x7831E0",
+  "0x783C50",
+  "0x41D470",
+  "0x41F300",
+  "0x421660",
+  "0x420780",
+  "0x4782B0",
+  "0xA82F20"
+ ]
+}

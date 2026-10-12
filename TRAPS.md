@@ -634,6 +634,25 @@ A second bug in the same script, for the same reason it is worth writing down: t
 drop were compared with `str(offset).upper()`, and `"0x2C".upper()` is `"0X2C"`, which matches
 nothing. It silently dropped zero fields and reported success.
 
+## 19. The install's executable carries BiceLib's patches on disk
+
+Found 2026-10-12, reading war exhaustion for `findings/FINDINGS-diplostate.md`. The
+`hoi3_tfh.exe` that `roots.py` finds as `GAME` - and so every `image.read` and `image.decode` -
+is **not the shipped build**: against `Downloads\hoi3_tfh_imperium.exe` (the same size, dated
+2013) it differs in 17 bytes, in two runs - VA `0x4DCBD4`-`0x4DCC1E`, the three
+`Patch_WarExhaustionNeutralityReset_*` sites, and `0x4DE3EE`, `Patch_MinisterTechDecay`. Those are
+BiceLib's patches, written into the file. **A static reading of a patched site from the install
+describes the mod, not the original.** Every other byte agrees, so readings elsewhere stand. The
+maintainer's word on it, 2026-10-12: "the exe should not have those patches" - so it is a stray
+state to be undone on his side, and until it is the unpatched copy is the one to read at those sites.
+The same day showed the install's `lua51.dll` is BlackICE's 11 KB forwarder, beside
+`lua5.1.dll.preBlackICE`, the original's Lua 5.1.4: the install is not only the shipped game.
+
+*The rule:* before reading near anything the record names `Patch_*`, compare the bytes with the
+unpatched copy (`cmp -l` over the two files, file offset + `0x400C00` = VA in `.text`), and say
+which copy a reading of such a site came from. The Ghidra project was imported from one of the two;
+which one was not checked.
+
 ## The habit all of these point at
 
 Every entry above except 5, 6 and 7 is a case of a search that could not see something and was

@@ -1,0 +1,490 @@
+{
+ "agent": "diplomatic state wave, brief C (relation and neutrality over time)",
+ "question": "Every way relation between two countries and a country's neutrality change during a game",
+ "source": "reversing/findings/FINDINGS-diplostate.md",
+ "addresses": [
+  {
+   "rva": "0x103F90",
+   "kind": "function",
+   "name": "CCountry_StopInfluence",
+   "signature": "void __stdcall CCountry_StopInfluence(CCountry* influencer, CCountry* influenced)",
+   "no_signature": null,
+   "comment": "**Ends a running influence.** 0x503F90 to the `ret 8` at 0x504C78, 4 int3 above. Takes `influenced->diplomacy[influencer.id]->influence_running (+0x2C)` - the CInfluence, which only that side carries - and if set calls its slot 11 (Deactivate), unlinks it from CCurrentGameState relations (+0xB24) and deletes it through slot 0. Then, only when the influencer's faction answers its slot 7 (IsValid), posts WEINFLUENCESTOP / THEYINFLUENCESTOP / OTHERINFLUENCESTOP with ACTOR, RECIPIENT, MESSENGER, VAL (the ALIGN_TOWARDS value of the static modifier the faction influences with, named by 0x523530), TIME (DAYS_OF_INFLUENCE_RELATION_CHANGE, diplomacy +0x74, divided by 1000, or `UNLIMITED` when negative) and FACTION. **It does not touch relation.** Two callers: CCountry::PayDailyInfluenceUpkeep (0x503F6E) when the payer's diplomatic influence goes below zero, and CInfluenceNation::Apply (0xA1E495) on its `value == 0` (cancel) arm.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-diplostate.md",
+   "evidence": "Decompiled whole against the applied project and checked against the listing for the +0x2C read and the define; `ret 8` at 0x504C78 with int3 after; findRefs --callers gives the two callers, both pushing two CCountry*. Wrong if a ChangeRelation call or a +0x38 store were in 0x503F90-0x504C78: the 24-caller list and the +0x38 store scan both say none."
+  },
+  {
+   "rva": "0x104C80",
+   "kind": "function",
+   "name": "CCountry_StopAlign",
+   "signature": "void __stdcall CCountry_StopAlign(CCountry* aligner, CCountry* leader)",
+   "no_signature": null,
+   "comment": "The alignment twin of CCountry_StopInfluence (0x503F90). 0x504C80 to the `ret 8` at 0x505CEC, 5 int3 above. Reads `aligner->diplomacy[leader.id]->align (+0x30)` and, when set, calls its slot 11; then the messages WEALIGNSTOP / THEYALIGNSTOP / OTHERALIGNSTOP with ACTOR, RECIPIENT, MESSENGER, VAL, MONARCHTITLE, FACTION and TIME - which reads **DAYS_OF_INFLUENCE_RELATION_CHANGE (+0x74), not the ALIGN define**, at 0x505576. Only the head, the strings and the define read were looked at. No ChangeRelation call and no store to CDiplomacyStatus +0x38 lies in its extent. One caller, CInfluenceAllianceLeader::Apply at 0xA2102E.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-diplostate.md",
+   "evidence": "Head read off the sweep (0x504C80-0x504CD0: [ebp+8]->+0xE28[[ebp+0xC]->+0xCA8]->+0x30, slot 11 call); the string pushes listed by a scan of the extent; `ret 8` at 0x505CEC. The parameter roles are inferred from the CAlign direction (CAlign::Activate writes first->diplomacy[second]->+0x30)."
+  },
+  {
+   "rva": "0x105D00",
+   "kind": "function",
+   "name": "CCountry::GetMaxNeutralityForWarWith",
+   "signature": "CFixedPoint* __thiscall CCountry::GetMaxNeutralityForWarWith(CCountry* this, CFixedPoint* result, CCountryTag other)",
+   "no_signature": null,
+   "comment": "**The neutrality ceiling for declaring war on `other`.** A country may declare only while its effective_neutrality (+0xA90) is at most this. 0x505D00 to the `ret 0xC` at 0x505F0E, 9 int3 above; luabind registers it under this name.\n\n    m = max(0, this->diplomacy[other]->threat (+0x5C), other->diplomacy[this]->threat)\n    if casus belli type `aquire_all_cores` (so spelled) is valid (slot 7) and DiplomacyStatus_CanUseCasusBelliType\n       allows it for the pair, and 0x47BC60 answers true after 0x4797C0 prepares it:\n        m += NEUT_REDUCTION_AT_CLAIMS        (diplomacy +0xDC; 20.0)\n    if the two capitals' continents differ and other is not in this->neighbours (+0xF58):\n        m -= NEUT_INCREASE_DIFF_CONTINENT    (diplomacy +0xD8; 10.0)\n    m += this->faction (+0xD8)->neutrality (CFaction +0xB0)\n    return max(m, 0)\n\n**These are the only readers of the two NEUT_ defines, and neither changes neutrality**: claims raise the ceiling, another continent lowers it. The threat term is the larger of the two directions, not only the threat the declarer feels. Callers: CDeclareWarAction code at 0xA1596E (`cmp +0xA90, max; jle` - equal is allowed - else DIP_WAR_NEUTR) and 0xA16109 (`jg` refuse), 0xA15A6C formatting it into the tooltip, and 0x789A0C. Its text twin is CCountry::BuildMaxNeutralityForWarTooltip (rva 0x105F20).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-diplostate.md",
+   "evidence": "Decompiled whole; the two define offsets agree with definesMap.py (+0xD8, +0xDC) and with the listing; `ret 0xC` at 0x505F0E matches this plus an out pointer plus an 8-byte tag; the luabind registration names it. The two compares read at 0xA15958-0xA1597B and 0xA160F0-0xA16114. 0x47BC60 and 0x4797C0 were not read, so what exactly makes the claims term apply is named from the CB type only."
+  },
+  {
+   "rva": "0x64AC30",
+   "kind": "function",
+   "name": "CInfluence::IsOver",
+   "signature": "bool __thiscall CInfluence::IsOver(CInfluence* this)",
+   "no_signature": null,
+   "comment": "**CInfluence slot 6: whether the influence should end.** 0xA4AC30 to the bare `ret` at 0xA4ADEE (two earlier bare `ret`s are arms of the same frame), 10 int3 above. True when the influencer's faction (`countries[first.id]->+0xD8`) is the influenced country's, or the influenced country's faction answers slot 7 (it is in any faction), or the influenced country isSubject (+0xF34), or either country's owned_province_count (+0xCF8) is not positive. Otherwise: false while DAYS_OF_INFLUENCE_RELATION_CHANGE (diplomacy +0x74) is negative - it is -1 in Their Finest Hour, so an influence never times out - else `tick > start_date (+0x18) + days * 24`. **Nothing here touches relation**: the define named for a relation change is a duration.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-diplostate.md",
+   "evidence": "Read instruction by instruction off the sweep, 0xA4AC30-0xA4ADEE; vtable.py puts it at CInfluence slot 6 only."
+  },
+  {
+   "rva": "0x64B2F0",
+   "kind": "function",
+   "name": "CAlign::IsOver",
+   "signature": "bool __thiscall CAlign::IsOver(CAlign* this)",
+   "no_signature": null,
+   "comment": "**CAlign slot 6**, the alignment's version of CInfluence::IsOver. 0xA4B2F0 to the bare `ret` at 0xA4B46B, 10 int3 above. True when the two countries share a faction or either owns no province; otherwise false while DAYS_OF_ALIGN_RELATION_CHANGE (diplomacy +0x78) is negative (-1 in Their Finest Hour), else `tick > start_date (+0x18) + days * 24`. No relation change.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-diplostate.md",
+   "evidence": "Decompiled whole and the +0x78 read checked in the listing at 0xA4B43B; vtable.py: CAlign slot 6 only."
+  },
+  {
+   "rva": "0x64AEF0",
+   "kind": "function",
+   "name": "RelationEndTickByAlignDays",
+   "signature": null,
+   "no_signature": "Register convention: the relation in EAX and the out int in ESI, no stack arguments, bare ret. No ordinary convention places both.",
+   "comment": "`*out (ESI) = relation (EAX)->start_date (+0x18) + DAYS_OF_ALIGN_RELATION_CHANGE (diplomacy +0x78) / 1000 * 24` - an end tick. 0xA4AEF0 to the bare `ret` at 0xA4AF1F, 13 int3 above, and CAlign slot 11 begins on the next byte (0xA4AF20, no padding - trap 2). In no vftable. Two callers, both building messages: CInfluenceNation::Apply at 0xA202DB and CInfluenceAllianceLeader::Apply at 0xA22624 - so an influence's message is dated with the ALIGN define. Both are -1 in Their Finest Hour.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-diplostate.md",
+   "evidence": "The whole body is nine instructions, read off the sweep; findRefs --callers gives the two callers."
+  },
+  {
+   "rva": "0x1F11F0",
+   "kind": "function",
+   "name": "CNeutralityChange::CNeutralityChange",
+   "signature": "CNeutralityChange* __thiscall CNeutralityChange::CNeutralityChange(CNeutralityChange* this, CCountry* country)",
+   "no_signature": null,
+   "comment": "The 0x18-byte entry CCountry::ChangeNeutrality allocates at 0x4FBFC0 when `logHistory` is set: the base constructor CCountryHistoryEntry::CCountryHistoryEntry (0x5EEA40) with the country, its own vftable 0x15C9AE4, +0x10 and +0x14 zeroed (`0 * 1000`, unoptimised). `ret 4`. The CFactionJoin::CFactionJoin shape.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-diplostate.md",
+   "evidence": "Read whole off the sweep, 0x5F11F0-0x5F1240; the vftable immediate is CNeutralityChange's in the RTTI export."
+  },
+  {
+   "rva": "0x3D200",
+   "kind": "function",
+   "name": "ConsoleCmd_NoNeutrality",
+   "signature": "void* __cdecl ConsoleCmd_NoNeutrality(void* result, void* arguments)",
+   "no_signature": null,
+   "comment": "**The `noneutrality` console command** (\"Lower down your country neutrality\"), registered in the static command table at 0x170B498 - name, description and this handler at 0x170B4B0 - so it has no call site. With no arguments it calls CCountry::ChangeNeutrality(player country, floor(-999999.5f) = -1000000, logHistory false) - neutrality to zero - and answers 'No longer neutral'; with any, 'Invalid arguments count.'. 0x43D200 to the bare `ret` at 0x43D339; it abuts the function before it, whose `ret` is at 0x43D1FF, with no padding (trap 2) - the table makes it an entry.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-diplostate.md",
+   "evidence": "Decompiled whole; the command-table words read at 0x170B494-0x170B4B4; the float at 0x160A830 read as -999999.5."
+  },
+  {
+   "rva": "0x29630",
+   "kind": "function",
+   "name": "CCgmNeutralityChangeCommand::Execute",
+   "signature": "void __thiscall CCgmNeutralityChangeCommand::Execute(CCgmNeutralityChangeCommand* this)",
+   "no_signature": null,
+   "comment": "Slot 6, one holder (vftable 0x15B60F4). Sets `countries[this->+0x40]->neutrality (+0xA8C) = this->+0x44`, floored at zero, and recomputes effective_neutrality (+0xA90) by the canonical clamp. A custom-game-mode (`tfh/cgm/`) command, outside the one canonical start. 0x429630 to the bare `ret` at 0x42976C; the rest after the clamp is the CCurrentGameState singleton boilerplate and was not read further.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-diplostate.md",
+   "evidence": "Head read off the sweep, 0x429630-0x429720; vtable.py: CCgmNeutralityChangeCommand slot 6; no direct calls. The +0x3C/+0x40 tag pair and +0x44 value are read off the stores, not off CCgmNeutralityChangeCommand::LoadKey."
+  },
+  {
+   "rva": "0x18990",
+   "kind": "function",
+   "name": "CustomGame_ApplyCountryNeutrality",
+   "signature": null,
+   "no_signature": "The setting record arrives in ESI with nothing on the stack and a bare ret; no ordinary convention places it.",
+   "comment": "Called once, from ApplyCustomGameSettings at 0x41F861, with a per-country setting record in ESI: `countries[rec+4]->neutrality = rec+8`, floored at zero, effective_neutrality recomputed by the canonical clamp, and the alignment position (+0xE4/+0xE8) copied from rec+0xC/+0x10; then, when rec+0x54 is set, 0x4F6A60 and two stores back into the record. 0x418990 to the bare `ret` at 0x418A34 (the `ret` at 0x418A2C is an arm), 5 int3 above. Custom game only - the one canonical start never reaches it.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-diplostate.md",
+   "evidence": "Read off the sweep, 0x418990-0x418A34; findRefs --callers gives the one caller."
+  },
+  {
+   "rva": "0xDFB90",
+   "kind": "function",
+   "name": "CCountry_AddTimedModifier",
+   "signature": "void __stdcall CCountry_AddTimedModifier(CCountry* country, Hoi3CString name, int days)",
+   "no_signature": null,
+   "comment": "The country twin of CProvince_AddTimedModifier (0xA0720), as that entry already says: expiry `tick + days * 24`, or for a negative `days` a date in year 1 that CCountry::RebuildStaticModifiers never expires - i.e. permanent; a 0x10 CTimedModifier {vftable, token 0x18D, the static modifier looked up by name, expiry} appended to `active_modifiers` (+0x648..+0x650), then CCountry::RebuildStaticModifiers and UpdateMaxManpower - effective at once. 0x4DFB90 to the `ret 0x24` at 0x4DFD90 (country, a 0x1C-byte string by value, days). **Only one int3 above the entry**; the call sites make it one. Callers include CAddCountryModifierEffect::Execute, CInfluence::Activate and CAlign::Activate.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-diplostate.md",
+   "evidence": "Decompiled whole; `ret 0x24` matches 4 + 0x1C + 4; the epoch arithmetic agrees with the province twin's record."
+  },
+  {
+   "rva": "0xD2B60",
+   "kind": "function",
+   "name": "CCountry_Reset",
+   "signature": "void __stdcall CCountry_Reset(CCountry* country)",
+   "no_signature": null,
+   "comment": "A long reset of a country's state - frees and empties several lists (+0xBAC, +0xBBC, +0x119C ...), zeroes the `tech_decay_modifier` vector (+0x1174) for every technology category, and sets **neutrality (+0xA8C) to g_CountryDefaultNeutrality, 50.000** (0x4D307F). Called from the tail of CCountry::CCountry (0x4CA64E) and from ResetSession_ClearLoadedFromSave (0x67BDFC) over the country vector. 0x4D2B60 to the `ret 4` at 0x4D4B88, 10 int3 above. Only the stretch 0x4D2F80-0x4D30D0 was read; the name is from its shape and its two callers.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-diplostate.md",
+   "evidence": "The neutrality store read at 0x4D307F/0x4D3085; extent by retsBefore (first ret is the `ret 4` at 0x4D4B88, int3 after); both callers push one argument. Previously misattributed by nearest-record lookup to CCountry::AfterLoad, whose extent ends at 0x4D273D."
+  },
+  {
+   "rva": "0x130CDE8",
+   "kind": "global",
+   "name": "g_CountryDefaultNeutrality",
+   "signature": null,
+   "no_signature": "A global, not a function.",
+   "comment": "**50000 - the neutrality a country starts from before history sets it**, thousandths. Read in exactly two places, CCountry::CCountry (0x4C93AA, with effective_neutrality set to 0 beside it) and CCountry_Reset (0x4D307F); no instruction in .text writes it.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-diplostate.md",
+   "evidence": "Four bytes at 0x170CDE8 read as 50000; findRefs --address finds the two references, both loads."
+  },
+  {
+   "rva": "0xE65C0",
+   "kind": "function",
+   "name": "CCountry::ChangeRelation",
+   "signature": "void __fastcall CCountry::ChangeRelation(CCountry* this@EDI, CCountryTag* other@ECX, int delta@stack:4)",
+   "no_signature": null,
+   "comment": "**The writer of `CDiplomacyStatus +0x38 relation`, which the record had as inferred with no writer identified.** 0x4E65C0 to the two `ret 4`s at 0x4E662B and 0x4E6635 - one body, two arms of the same clamp - 8 int3 before 0x4E6640. The receiver is in **EDI** and the other country's tag in **ECX**, with the delta the one stack argument, so it carries no ordinary calling convention and the annotations are explicit (trap 11).\n\n    fwd = this->diplomacy[other->id];          // CCountry +0xE28\n    fwd->changed (+0x59) = 1;\n    v = clamp(delta + fwd->relation (+0x38), [0x1710C38], [0x1710C34]);\n    fwd->relation = v;\n    rev = other->GetCountry()->diplomacy[this->id];   // CCountryTag::GetCountry, 0x402610\n    rev->changed = 1;\n    rev->relation = v;\n\nSo **relation is symmetric by construction** - the same clamped value is written to both directions, and the delta is applied to the forward side's current value only. The two clamp globals are `[0x1710C34] = 200000` and `[0x1710C38] = -200000`, i.e. **relation is thousandths on a -200.000..+200.000 scale** (trap 7), which is the range the game's own diplomacy screen shows. **Twenty-four call sites, not eighteen, and six are outside the diplomatic-action family** (corrected 2026-10-12): eighteen in the nine actions' slot 7, two in CFaction::AddCountry, one each in CLiberateCountryCommand::Execute, CCombat::Conclude, CRelationEffect::Execute and CReleaseVassalEffect::Execute. Most pass a diplomacy define (stored x1000); three pass one negated, and five pass a constant (+5, -30, +10, -20, +500). **It is also inlined, so it is not the only writer of +0x38**: the same add, clamp and both-ways store is in MakeVassal (0x4DA37D/0x4DA3B7, +500), CCreateVassalCommand::Execute (0x54C219/0x54C266, +500) and the monthly drift in CCountry::UpdateMonthly (0x4DCCF0/0x4DCD27). CRelationChange::Apply (rva 0x1F2CA0), CDiplomacyStatus::SetValue (rva 0x648160, a loaded save) and the new-game set at 0x4D7316 write one side only. The table of every change is section C of reversing/findings/FINDINGS-diplostate.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-diploaction.md",
+   "revises": true,
+   "evidence": "findRefs --callers 0x4E65C0 lists 24 sites, each placed in its real containing function (three were misplaced by nearest-record lookup and checked by extent). The inlined copies were found by a sweep for stores to [reg+0x38] whose base came out of a +0xE28 array, positive-controlled by the same scan finding ChangeRelation's own three stores."
+  },
+  {
+   "rva": "0xDC840",
+   "kind": "function",
+   "name": "CCountry::UpdateMonthly",
+   "signature": "void __thiscall CCountry::UpdateMonthly(CCountry* this)",
+   "no_signature": null,
+   "comment": "**The country's monthly pass, and where practical and theory decay is really applied.** Extent 0x4DC840..0x4DCD69, `ret` with no immediate, SEH handler 0xC5D647, `this` in ECX, clean int3 padding and a fresh prologue at 0x4DCD70. One caller, 0x683BE9 inside RunMonthlyPass (rva 0x283B50), over the country vector state+0xBBC starting at index 1; no data reference and no vftable slot.\n\nIn order: resets spiescaught (+0x11D4) at 0x4DC8D3; computes the decay slack from ProductionDistribution elements 5 and 4 (Upgrade and Reinforcement, [[this+0x5F4]+0x14] and +0x10) as int64 [+8] x [+0x10] >> 15 each, summed and scaled by 0x1F40000 >> 30 into thousandths (0x4DC8D9..0x4DC943); then, **only when CCurrentGameState +0xDA4 in_game is set** (0x4DC9C0), for every technology category index i in 0..(([0x1A87B78]+0x20 - +0x1C)>>2)-1:\n\n    step = BASE_TECH_DECAY x (1000 + tech_decay_modifier[i]) / 1000\n                            x (1000 - slack) / 1000        clamped to <= 0 only\n    category_levels[i] = category_levels[i] x (1000 + step) / 1000\n\nand writes category_levels (+0x698) **directly** at 0x4DCB20, not through CCountry::SetTechAbility, so there is no floor at 0 and no MAX_TECH_ABILITY cap. Unlike ApplyTechCategoryDecay (rva 0x204A0) it covers theories and practicals alike, never reads the custom game settings singleton, so theory_decay_months, practice_decay_months and extra_practice_decay do not affect ongoing decay, and it decays the country's own level rather than max(own, the sharer's).\n\nThe rest of the function is the country's other monthly work: 0x4F0270, +0x90 += [+0xDF8]->[+0xBC], 0x4DDD80, 0x4FBC10, 0x4E1C00, 0x4E1FC0, the war_exhaustion clamp at +0xAD0 against [+0xDA8]->[+0x48], a relations loop calling 0x4E78D0 per country, then 0x4F6D00 and 0x528770 twice. See reversing/findings/FINDINGS-techdecay.md. The name is BiceLib's.\n\n**Its tail, read 2026-10-12: war exhaustion into neutrality, then the relation drift.** After 0x4DDD80, 0x4FBC10, 0x4E1C00 and 0x4E1FC0 (each with the country), and only for a country that is not `REB`:\n\n    war_exhaustion (+0xAD0) += mod[WAR_EXHAUSTION]    (values +0x40); floored at 0\n    war_exhaustion = min(war_exhaustion, mod[MAX_WAR_EXHAUSTION])   (values +0x48)\n    if not at_war (+0xACC) and war_exhaustion > 0:\n        CCountry::ChangeNeutrality(this, war_exhaustion, logHistory false)\n        war_exhaustion = 0\n\n`REB` jumps straight to the reset. Their Finest Hour's `war` static modifier gives WAR_EXHAUSTION 0.041 a month and MAX_WAR_EXHAUSTION 100, `peace` only the maximum - so a war banks about 0.041 neutrality a month and the first month of peace pays it all back at once.\n\n**The executable in the install is patched at exactly these instructions**, which is what the three Patch_WarExhaustionNeutralityReset_* labels are: on disk 0x4DCBD3 reads `mov [esi+0xAD0], 0` and four nops where the original has `add [esi+0xAD0], eax; jns; mov [esi+0xAD0], ebx`, 0x4DCC11 passes `ebx` (0) where the original passes `eax`, and the reset at 0x4DCC18 is six nops. Read the original from an unpatched copy.\n\nThen the relation loop: for every country i of the database from index 0 whose owned_province_count (+0xCF8) is positive, `d = MonthlyRelationDrift(this, i)` (rva 0xE78D0) and `relation += trunc(d * 1000 / 2000)` on `this->diplomacy[i]` and `i->diplomacy[this]`, clamped to [-200000, 200000], `changed` set on both - ChangeRelation inlined (0x4DCCC3-0x4DCD27), with a 64-bit path for a d outside +-1.9 million. Every country runs it, so a pair moves twice a month, once by each side's d.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-techdecay.md",
+   "revises": true,
+   "evidence": "The block 0x4DCB2A-0x4DCD69 read instruction by instruction off the sweep; the original bytes at the four patched spots compared against C:\\Users\\David\\Downloads\\hoi3_tfh_imperium.exe (same size, five differing runs, all at these spots and 0x4DE3ED)."
+  },
+  {
+   "rva": "0x62B090",
+   "kind": "function",
+   "name": "CNapAction::Apply",
+   "signature": "void __thiscall CNapAction::Apply(CNapAction* this)",
+   "no_signature": null,
+   "comment": "**CNapAction slot 7** - one holder (vftable 0x15FB754). 0xA2B090 to the bare `ret` at 0xA2C8EA, 5 int3, then CNapAction slot 11 at 0xA2C8F0. `this` in ECX, no stack arguments. All four arms read:\n\n- `type == PROPOSE && value`: NAP_JOIN_INFLUENCE_COST (diplomacy +0x54) off `countries[actor_id]->diplo_influence` (+0xA88) at 0xA2B9D3, clamped at 0. Note it is **NAP_JOIN_INFLUENCE_COST and not NAP_INFLUENCE_COST** (+0x20), which this body never reads.\n- `type == ACCEPT`: `operator new(0x30)`, `CNap::CNap` (0xA46F00, vftable 0x15FBB68), `nap->first = actor`, `nap->second = recipient`, `nap->start_date (+0x18) = this->date (+0x1C)`, `CNap::Activate()` (slot 10, 0xA471E0) which writes the nap into **both** directions' `CDiplomacyStatus +0x28`, then the nap appended to the `CDiplomacy` relation list at `CCurrentGameState +0xB24` (0xA2BAC8) and `CCountry::ChangeRelation(actor, &recipient, NAP_RELATION_CHANGE)` (+0x4C, 50.0 in BlackICE) at 0xA2BB00.\n- `type == DECLINE`: NAP_REJECT_RELATION_CHANGE (+0x58) at 0xA2C40B.\n- `value == 0` (breaking a pact): the existing CNap is found in the relation list, `CList_RemoveNode`d (0xA2BF83) and deleted through its slot 0; then **LEAVE_NAP_THREAT_COST (+0x60) passed to 0x4F50A0 by address** (`add edi, 0x60` at 0xA2BFE3, which is why a scan for `mov reg,[block+N]` does not see it - a fourth way a define hides, beside trap 8's three); then LEAVE_NAP_RELATION_CHANGE (+0x50 - said +0x4C until 2026-10-12, which is NAP_RELATION_CHANGE) at 0xA2C031 and LEAVE_NAP_INFLUENCE_COST (+0x5C).\n\nThe message keys are `WENAP` / `THEYNAP` / `OTHERNAP`, `WECANCELNAP` / `THEYCANCELNAP` / `OTHERCANCELNAP` and `WEREJECTNAP` / `THEYREJECTNAP` / `OTHERREJECTNAP` under `diplomaticsuccess` / `diplomaticfailure`. The name `Apply` is ours; the body is read.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-diploaction.md",
+   "revises": true,
+   "evidence": "The cancel arm's define read at 0xA2C00B is `[eax+0x50]`; definesMap.py puts LEAVE_NAP_RELATION_CHANGE at +0x50 and NAP_RELATION_CHANGE at +0x4C."
+  },
+  {
+   "rva": "0x618D70",
+   "kind": "function",
+   "name": "CAllianceAction::Apply",
+   "signature": "void __thiscall CAllianceAction::Apply(CAllianceAction* this)",
+   "no_signature": null,
+   "comment": "CAllianceAction slot 7, one holder (vftable 0x15FB514). 0xA18D70 to the bare `ret` at 0xA1A434, 11 int3, then CAllianceAction slot 11 at 0xA1A440. `this` in ECX, no stack arguments.\n\nIts four defines are JOIN_ALLIANCE_INFLUENCE_COST (diplomacy +0xC), ALLIANCE_RELATION_CHANGE (+0x40), ALLIANCE_REJECT_RELATION_CHANGE (+0x44) and LEAVE_ALLIANCE_INFLUENCE_COST (+0x10) - the whole ALLIANCE_ group and nothing else. It appends to the `CDiplomacy` relation list at 0xA195DF, which is where the `CAlliance` goes, and calls CCountry::ChangeRelation, CCountry::RebuildNeighbours and 0x4E39C0 on both sides. Keys MILALLACCEPT / MILALLWEACCEPT / MILLALLINVACCEPTOTHER, MILALLBAN*, MILALLREJECT*.\n\nNot read instruction by instruction; the name is inference from the family.\n\n**Its relation changes, read 2026-10-12** (`type` 0 PROPOSE, 1 DECLINE, 2 ACCEPT; `value` the bool at +0x24; ChangeRelation always from the first country to the second, both directions):\n\n- ACCEPT with value: the CAlliance is made and ChangeRelation(actor, recipient, ALLIANCE_RELATION_CHANGE +0x40, +15) at 0xA19617.\n- DECLINE: a `diplomaticfailure` message and **no relation change** - ALLIANCE_REJECT_RELATION_CHANGE is not spent here.\n- `value == 0` (leaving): the alliance deleted, ChangeRelation(actor, recipient, ALLIANCE_REJECT_RELATION_CHANGE +0x44, -50) at 0xA19B73, LEAVE_ALLIANCE_INFLUENCE_COST charged, the messages, and then **a second ChangeRelation(actor, recipient, -30000)** at 0xA19F12 - a constant, so leaving costs -80 in all.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-diploaction.md",
+   "revises": true,
+   "evidence": "Arms read off the decompilation and each ChangeRelation site's operands checked in the listing."
+  },
+  {
+   "rva": "0x61BCC0",
+   "kind": "function",
+   "name": "CGuaranteeAction::Apply",
+   "signature": "void __thiscall CGuaranteeAction::Apply(CGuaranteeAction* this)",
+   "no_signature": null,
+   "comment": "CGuaranteeAction slot 7, one holder (vftable 0x15FB574). 0xA1BCC0 to the bare `ret` at 0xA1D379, 6 int3, then CGuaranteeAction slot 11 at 0xA1D380. `this` in ECX, no stack arguments.\n\nIt is the one class whose agreement is **one-sided**: its first test is `this->value`, and on the yes arm it allocates 0x28 bytes, builds a CGuarantee through 0xA46E90 and appends it to the relation list at 0xA1BDCA - all before any `type` test, i.e. a guarantee takes effect on the offer and is not answered. Defines: GUARANTEE_INFLUENCE_COST (diplomacy +0x14), REVOKE_GUARANTEE_RELATION_CHANGE (+0x70), REVOKE_GUARANTEE_INFLUENCE_COST (+0x18). Keys WEGUARAT / GUARATOUS / GUARATOOTHER and GUARACANCELTOTHEM / GUARACANCELTOUS - three perspectives on the grant and two on the revocation, with no accept/decline pair, which is the same conclusion from the other side.\n\nNot read instruction by instruction; the name is inference from the family.\n\n**Its relation changes, read 2026-10-12** (`type` 0 PROPOSE, 1 DECLINE, 2 ACCEPT; `value` the bool at +0x24; ChangeRelation always from the first country to the second, both directions):\n\n- Granting changes no relation.\n- `value == 0` (revoking): the CGuarantee deleted and ChangeRelation(actor, recipient, REVOKE_GUARANTEE_RELATION_CHANGE +0x70, -20) at 0xA1CBEA; then `diplo_influence += REVOKE_GUARANTEE_INFLUENCE_COST` (+0x18) - **an add**, so revoking refunds rather than costs.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-diploaction.md",
+   "revises": true,
+   "evidence": "Arms read off the decompilation; site checked in the listing."
+  },
+  {
+   "rva": "0x6231F0",
+   "kind": "function",
+   "name": "CMilitaryAccessAction::Apply",
+   "signature": "void __thiscall CMilitaryAccessAction::Apply(CMilitaryAccessAction* this)",
+   "no_signature": null,
+   "comment": "CMilitaryAccessAction slot 7, one holder (vftable 0x15FB634). **Exactly trap 2: 0xA231F0 to the bare `ret` at 0xA247BF, and CMilitaryAccessAction slot 11 begins at 0xA247C0 with no padding at all** - so an int3 scan runs straight past the boundary and gives the body 0x1C90 bytes instead of its real 0x5D0. Taking the longer extent attributes slot 11's tooltip strings (MILACCDESC, CANCELMILACCDESC, DIP_NO_INFL, ISATWAR, ENROUTE) and two further MILACCESS_INFLUENCE_COST reads to slot 7, which is what the first pass here did.\n\nWithin the real extent it reads MILACCESS_INFLUENCE_COST (diplomacy +0x2C) twice, MILACC_ACCEPT_RELATION_CHANGE (+0x64) and MILACC_DECLINE_RELATION_CHANGE (+0x68) twice. Keys ACCMILUS / WEACCMIL / ACCMILOTHER, DECMILUS / WEDECMIL / DECMILOTHER, WECANMIL / CANCMILUS / CANMILOTHE. `this` in ECX, no stack arguments. Not read instruction by instruction; the name is inference from the family.\n\n**Its relation changes, read 2026-10-12** (`type` 0 PROPOSE, 1 DECLINE, 2 ACCEPT; `value` the bool at +0x24; ChangeRelation always from the first country to the second, both directions):\n\n- ACCEPT with value: military access set on `actor->diplomacy[recipient]` and ChangeRelation(actor, recipient, MILACC_ACCEPT_RELATION_CHANGE +0x64, +10) at 0xA239D0.\n- DECLINE with value: ChangeRelation(actor, recipient, MILACC_DECLINE_RELATION_CHANGE +0x68, -10) at 0xA23E8F **only when either country is played** (CCurrentGameState +0xBCC), then MILACCESS_INFLUENCE_COST refunded.\n- `value == 0` (cancelling): ChangeRelation(actor, recipient, **MILACC_DECLINE_RELATION_CHANGE** +0x68, -10) at 0xA24295, and access cleared. **MILACC_CANCEL_RELATION_CHANGE (+0x6C, -20) has no reader in the image.**",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-diploaction.md",
+   "revises": true,
+   "evidence": "Arms read off the decompilation; the three sites' operands checked in the listing."
+  },
+  {
+   "rva": "0x625830",
+   "kind": "function",
+   "name": "COfferMilitaryAccessAction::Apply",
+   "signature": "void __thiscall COfferMilitaryAccessAction::Apply(COfferMilitaryAccessAction* this)",
+   "no_signature": null,
+   "comment": "COfferMilitaryAccessAction slot 7, one holder (vftable 0x15FB694). 0xA25830 to the bare `ret` at 0xA26D05, 10 int3, then COfferMilitaryAccessAction slot 11 at 0xA26D10. `this` in ECX, no stack arguments. **It reads no defines at all through `call GetDefines`** - the mirror class of CMilitaryAccessAction, whose own slot 7 carries the MILACC_* costs, so the offer side appears to charge nothing; that is a negative from a scan that cannot see an inlined GetDefines, and this body makes no `call 0x4452E0` either, which is the only extra check run. Keys OFFACCMILUS / WEOFFACCMIL / OFFACCMILOTHER, OFFDECMILUS / WEDECOFFMIL / DECOFFMILOTHER, WECANMIL / CANCMILUS / CANMILOTHE. Not read instruction by instruction; the name is inference from the family.\n\n**Its relation changes, read 2026-10-12** (`type` 0 PROPOSE, 1 DECLINE, 2 ACCEPT; `value` the bool at +0x24; ChangeRelation always from the first country to the second, both directions):\n\n- ACCEPT with value: access set on `recipient->diplomacy[actor]` and ChangeRelation(actor, recipient, **+10000**) at 0xA25FBF - a constant equal to MILACC_ACCEPT_RELATION_CHANGE, not the define.\n- DECLINE: messages only.\n- `value == 0` (withdrawing the offer): ChangeRelation(actor, recipient, **-20000**) at 0xA26879, only when either country is played, then access cleared both ways. This is why the record found no defines here.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-diploaction.md",
+   "revises": true,
+   "evidence": "Arms read off the decompilation; the two constants read as immediates at 0xA25F9F and 0xA26859."
+  },
+  {
+   "rva": "0x627BA0",
+   "kind": "function",
+   "name": "CCallAllyAction::Apply",
+   "signature": "void __thiscall CCallAllyAction::Apply(CCallAllyAction* this)",
+   "no_signature": null,
+   "comment": "CCallAllyAction slot 7, one holder (vftable 0x15FB6F4). 0xA27BA0 to the bare `ret` at 0xA29D33, 12 int3, then CCallAllyAction slot 11 at 0xA29D40; the `ret` at 0xA284CE is an arm of the same frame. `this` in ECX, no stack arguments. Reads CALLALLY_INFLUENCE_COST (diplomacy +0x1C), WARDEC_WAR_DIPLOMACY_HIT (+0x4) and ALLIANCE_REJECT_RELATION_CHANGE (+0x44) - the only class that borrows two other groups' defines, which fits an ally being dragged into someone else's war.\n\n**Its CDiplomacyStatus and CCountry writes, which were not read before:**\n\n| where | write |\n| --- | --- |\n| 0xA284A2, 0xA284B4 | `countries[actor]->diplo_influence (+0xA88) -= CALLALLY_INFLUENCE_COST`, clamped at 0 |\n| 0xA2871B | `status->undeclared_war (+0x24) = 0`, having deleted the CUndeclaredWar through its slot 0 - the same shape as CDeclareWarAction's |\n| 0xA28891, 0xA288C4 | `hasMilitaryAccess (+0x4C) = 0`, two statuses, through SetMilitaryAccess (rva 0x64A400) |\n| 0xA28958 | **CDiplomacyStatus::ClearCasusBelli** (rva 0x64A3B0) on `countries[...]->diplomacy[this->+0x2C]` - the status against the *third* country the action names. Joining a war empties the whole casus-belli list between those two, rather than spending one |\n\nIt also calls CWar::AddAttacker and CWar::AddDefender once each, CCountry::ChangeRelation twice, 0x4E70A0 three times, 0x4E6640 twice, CountryTagVector_Contains twice, 0xA43FC0 (a remove-by-payload over a list) once, 0xA0DBB0 four times, and **builds one further CCallAllyAction** through 0xA27AD0 - so honouring a call to arms issues the next one along the chain. Keys MILALLHONOUR / WEMILALLHONOUR / OTHERMILALLHONOUR and MILALLDISHONOUR / WEMILALLDISHONOUR / OTHERMILALLDISHONOUR, with VERSUS, VICTIM, FACTION, FACTIONWAROFF and FACTIONWARDEF variables. Note that CDiplomaticActionCommand::Execute exempts this class alone from the seven-day cooldown write.\n\n**Still not read instruction by instruction**: the message construction and which direction each of the two military-access clears applies to. The name `Apply` remains ours.\n\n**Its relation changes, read 2026-10-12** (`type` 0 PROPOSE, 1 DECLINE, 2 ACCEPT; `value` the bool at +0x24; ChangeRelation always from the first country to the second, both directions):\n\nParties: actor (+0x8) is the caller, recipient (+0x10) the ally called, Versus (+0x28) the enemy.\n- PROPOSE: CALLALLY_INFLUENCE_COST only.\n- DECLINE: ChangeRelation(**ally, caller**, ALLIANCE_REJECT_RELATION_CHANGE +0x44, -50) at 0xA296B5; then AddCasusBelli(caller, ally) - the refuser hands the caller a casus belli on it.\n- ACCEPT: the ally joins the war (AddAttacker or AddDefender) and ChangeRelation(**Versus, ally**, -WARDEC_WAR_DIPLOMACY_HIT - `neg` of +0x4, -100) at 0xA289C6. The caller's own relation with the ally does not move.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-diploaction.md",
+   "revises": true,
+   "evidence": "Arms read off the decompilation; both sites' operands checked in the listing."
+  },
+  {
+   "rva": "0x62E5F0",
+   "kind": "function",
+   "name": "CEmbargoAction::Apply",
+   "signature": "void __thiscall CEmbargoAction::Apply(CEmbargoAction* this)",
+   "no_signature": null,
+   "comment": "CEmbargoAction slot 7, one holder (vftable 0x15FB814). 0xA2E5F0 to the bare `ret` at 0xA2F9F0, 15 int3, then CEmbargoAction slot 11 at 0xA2FA00. `this` in ECX, no stack arguments. Reads EMBARGO_RELATION_CHANGE (diplomacy +0x80) and EMBARGO_INFLUENCE_COST (+0x28), appends the `CEmbargo` to the relation list at 0xA2EFB9, and calls 0x4F50A0 twice - the threat adder, which is where EMBARGO_THREAT_COST (+0x88) goes. Keys WEEMBARGO / THEYEMBARGO / OTHEREMBARGO and WECANCELEMBARGO / THEYCANCELEMBARGO / OTHERCANCELEMBARGO, with no accept/decline pair: an embargo, like a guarantee, is imposed rather than agreed.\n\n**BlackICE sets EMBARGO_RELATION_CHANGE = -200.0, which times 1000 is exactly the relation floor `[0x1710C38]`** - so one embargo puts the pair at the bottom of the scale in a single step. Not read instruction by instruction; the name is inference from the family.\n\n**Its relation changes, read 2026-10-12** (`type` 0 PROPOSE, 1 DECLINE, 2 ACCEPT; `value` the bool at +0x24; ChangeRelation always from the first country to the second, both directions):\n\n- `value` set (imposing): the CEmbargo made and ChangeRelation(actor, recipient, EMBARGO_RELATION_CHANGE +0x80, -30) at 0xA2EFF8, with EMBARGO_INFLUENCE_COST and the threat.\n- `value == 0` (lifting): **no relation change**.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-diploaction.md",
+   "revises": true,
+   "evidence": "Arms read off the decompilation; site checked in the listing."
+  },
+  {
+   "rva": "0x612030",
+   "kind": "function",
+   "name": "CDeclareWarAction::Apply",
+   "signature": "void __thiscall CDeclareWarAction::Apply(CDeclareWarAction* this)",
+   "no_signature": null,
+   "comment": "CDeclareWarAction slot 7, one holder (vftable 0x15FB3F4). 0xA12030 to the single bare `ret` at 0xA147B2, 13 int3, then the separate helper 0xA147C0 which this body itself calls twice; CDeclareWarAction slot 11 is further on at 0xA14BB0. 0x2783 bytes, the largest in the family. `this` in ECX, no stack arguments.\n\nReads its own two defines: WARDEC_WAR_DIPLOMACY_HIT (diplomacy +0x4) at 0xA1281B and WARDEC_INFLUENCE_COST (+0x8) at 0xA1290C, the latter subtracted from `countries[actor]->diplo_influence (+0xA88)` and clamped at 0 (0xA1292A/0xA12938).\n\n**And a third define, by the worst hiding place yet: the block pointer itself.** At 0xA128B9 it calls GetDefines, takes `[eax+0xBC]` - the diplomacy block - and passes that **bare address** to SpreadThreat (rva 0xF50A0) at 0xA128FC, which reads `*amount` from it. Offset 0 of the block is **WARDEC_BELIGERENCY** (25.0 in BlackICE's defines.lua), so declaring war spreads that much threat, with a `*scale` of a stack int set to 1000 at 0xA128B1 and the **victim's** acting capital province (CCountry::GetActingCapitalLocation, rva 0x2F100, on `countries[recipient.id]`) as the origin. This is trap 8's fourth case with no `add reg, N` to scan for at all, which is why a by-address scan would miss it too.\n\n**Its CDiplomacyStatus and CCountry writes, which were not read before:**\n\n| where | write |\n| --- | --- |\n| 0xA1239F | `status->undeclared_war (+0x24) = 0`, having deleted the CUndeclaredWar through its slot 0 - a formal war replaces the undeclared one |\n| 0xA12DB6, 0xA12DE6 | `hasMilitaryAccess (+0x4C) = 0` in **both** directions, through SetMilitaryAccess (rva 0x64A400) |\n| 0xA12E10/0xA12E14 and 0xA12E3E/0xA12E42 | `changed (+0x59) = 1` and `guarantee (+0x1C) = 0`, both directions - war cancels the pair's guarantee |\n| 0xA12E69, 0xA12E96 | `allowDebts (+0x78) = 0`, both directions - war cancels the debt agreement |\n| 0xA1292A, 0xA12938 | `countries[actor]->diplo_influence (+0xA88) -= WARDEC_INFLUENCE_COST`, clamped at 0 |\n\nIt also runs the full war-goal chain - CWarGoal::AddToWar (0xA12675), CWarGoal::RunCasusBelliOnAdd (0xA1267C) and CCasusBelli::RemoveFromStatus (0xA126AF, notify false) - and **builds CCallAllyAction proposals** at two sites through 0xA27AD0, gated on `status->war (+0x20)` being null and on the target's guarantees, which is how the victim's allies are asked to join. CWar::AddAttacker and CWar::AddDefender four times each, CCountry::RebuildNeighbours and 0x4E39C0 and 0x4E70A0 twice each, CCountry::ChangeRelation once, CList_RemoveNode four times, LoadMapSprites once. Keys DECLWAR / WEDECLWAR / DECLWAROTHER, DECLWAR_LIMITED and the four MESS_BADWORDS strings.\n\n**Still not read instruction by instruction**: the message construction and the two-site call-ally gate. The name `Apply` remains ours.\n\n**The preamble, read instruction by instruction 2026-10-06 (wave 15), and it is a *join*, not a leave.** 0xA12030-0xA121D3 is one guarded loop and the `CFaction::AddCountry` call at 0xA121CE is reached on exactly one path (cfg: 0xA121A5 <- 0xA121A3 fall only). `actor->faction->IsValid()` (slot 7 through [vft+0x1C], at 0xA12089) gates the whole block, so **nothing here happens unless the declaring country is itself in a faction**. It then walks `countries[actor.id]->enemies (+0x1008)` as the 0x14-byte node chain CCountry::UpdateAtWarAndEnemies builds (tag at +0, id at +4, `next` at +0xC) and, for each enemy E:\n\n- skip unless `countries[E.id]->faction->IsValid()` (0xA120EF) and that faction's `Members.count (+0x30)` is positive;\n- skip unless `faction->Members.first->id == countries[E.id]->id` (0xA12129) - **E must lead its own faction.** GetFactionLeader is inlined here, count test and `'---'` arm included, and the `'---'` arm at 0xA12119 is unreachable because the `jle` above has already taken the zero case;\n- let `rf = countries[recipient.id]->faction` (0xA12140); continue the loop unless `rf` is invalid (0xA12151) **or** `rf == E->faction` (0xA12157);\n- store `war = countries[actor.id]->diplomacy[E.id]->war (+0x20)` in the frame slot at `[esp+0x2C]` (0xA12199) - *before* the next test, so both outcomes keep it;\n- if `rf->IsValid()` (0xA1219F) the loop leaves with the war kept and no faction change: the recipient was already in E's faction;\n- otherwise `CFaction::AddCountry(countries[E.id]->faction, countries[recipient.id], 0, 0)` (0xA121CE) and the loop leaves.\n\nSo the slot-7 `IsValid` answering false is on the **recipient's own** faction and **nothing is cleared**: AddCountry's `this` is `countries[E.id]->faction`, which the loop has already proved *valid*, so AddCountry takes its step 5 (`country->faction = this`; `CFaction::AddMember`) and never its step 3. Wave 14 read this call as a leave; it is the opposite. The `[esp+0x24]` tag pair that reading could not place is the **enemy's** id out of the `enemies` node, against the action's own `+0x10`/`+0x14` recipient.\n\n**What the saved war is for, and why this is one rule and not two.** The frame slot is zeroed at 0xA12081 and tested at 0xA124C7. Zero means a **fresh war**: `operator new(0xAC)`, constructed by 0xA4D6D0, linked into `CCurrentGameState +0xC00`, then `CWar::AddAttacker(war, 1, 0, actor)` (0xA125ED) and `CWar::AddDefender(war, 1, 0, recipient)` (0xA12601), and the frame byte at `[esp+0x1F]` set to 1. Non-zero takes 0xA12611 instead, which searches the existing war's `attackers (+0x2C..+0x30)` in 8-byte steps for the **actor's** id and adds the recipient as a **defender** if it is found (0xA12654) or as an **attacker** if it is not (0xA12641) - either way on the side opposite the declarer. **So a declaration against a factionless country by a country already at war with a faction leader starts no war at all: it enlarges the existing one and puts the victim into the enemy faction.** Corroborated in the savegames: across all 45, 183 two-sided `active_war` blocks, **not one has a faction on both sides**, and `Ireland1941_11_02_07` is the negative control - Japan's enemies were the Chinese warlords and CSX (an `allies` member but not its leader), so no faction-leading enemy existed, and the Pearl Harbor declaration produced a **separate** `2nd War of Japanese Aggression` with USA and PHI left in no faction.\n\n**Its relation change, read 2026-10-12**: one, at 0xA12849, on every path that reaches the war - a fresh war or an enlarged one: ChangeRelation(actor, recipient, -WARDEC_WAR_DIPLOMACY_HIT) - `neg` of diplomacy +0x4, -100. Just before it, a fresh war whose action has `value == 0` is made limited (CWar +0x70 = 1).",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-faction.md",
+   "revises": true,
+   "evidence": "The call's operands checked in the listing at 0xA12810-0xA12849."
+  },
+  {
+   "rva": "0x14C980",
+   "kind": "function",
+   "name": "CLiberateCountryCommand::Execute",
+   "signature": "void __thiscall CLiberateCountryCommand::Execute(CLiberateCountryCommand* this)",
+   "no_signature": null,
+   "comment": "`CLiberateCountryCommand` slot 6, one holder (vftable 0x15C3BA4). Note there is only **one** `int3` above the entry and the function before it ends `ret 0x14` - the vftable is what makes it an entry (trap 2's cheap resolution). **Read whole 2026-10-12.** The liberated country is `+0x3C/+0x40`, the liberator `+0x44/+0x48`. (1) Every province the liberated country owns whose controller is in the liberator's faction is handed to it (Province_SetController, peaceful); area and supply groups rebuilt. (2) **Only if the two are in different factions**: a CVassal (first liberator, second liberated, start today) on `liberator->diplomacy[liberated]->dependency`, appended and activated; the liberated country's alignment position set to the liberator's; **ChangeRelation(liberator, liberated, +500000)** at 0x54CE38 - to the +200 cap; the liberator's government copied if it is `valid_for_new_country`; CCountry_FillMinisterPosts; and, gated on the liberator's faction's IsValid at 0x54CEFC, `CFaction::AddCountry(liberator->faction, liberated, 0, 1)` at 0x54CF30 - **it joins the faction and its wars**. (3) Messages: WE_RETURN_EXILE to the liberator's player, RETURN_EXILE otherwise, with FREE, FROM and FCAPITAL. (4) SetGovernmentInExile(liberated, false), and RebuildNeighbours and 0x4E39C0 on both. No neutrality change.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-faction.md",
+   "revises": true,
+   "evidence": "Decompiled whole; the +500000 immediate read at 0x54CE1C in the listing."
+  },
+  {
+   "rva": "0x14BD00",
+   "kind": "function",
+   "name": "CCreateVassalCommand::Execute",
+   "signature": "void __thiscall CCreateVassalCommand::Execute(CCreateVassalCommand* this)",
+   "no_signature": null,
+   "comment": "`CCreateVassalCommand` slot 6, one holder (vftable 0x15C3B24), 16 `int3` above the entry. `CCommand`'s slot 6 is `Execute` throughout the record. **Only the faction block was read** (wave 15 agent C): the command carries two country tags, at `+0x3C`/`+0x40` and `+0x44`/`+0x48`, and at 0x54C300-0x54C34E - gated on `countries[this->+0x48]->faction->IsValid()` - it calls `CFaction::AddCountry(countries[this->+0x48]->faction, countries[this->+0x40], 0, 1)`. So creating a vassal pulls the vassal into the other party's faction and its ongoing wars, which is the same rule `CFactionAction::Apply`'s second call site applies to a subject following its overlord. It goes on at 0x54C378 to test that pair's `CDiplomacyStatus +0x14 alliance`.\n\n**Its relation change, read 2026-10-12**: CCountry::ChangeRelation inlined at 0x54C1D1-0x54C266 - `countries[+0x48]->diplomacy[+0x40]->relation + 500000`, clamped, stored both ways with `changed` set - the same +500 that MakeVassal applies.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-faction.md",
+   "revises": true,
+   "evidence": "The block 0x54C1D1-0x54C266 read off the sweep."
+  },
+  {
+   "rva": "0xFBF80",
+   "kind": "function",
+   "name": "CCountry::ChangeNeutrality",
+   "signature": "void __fastcall CCountry::ChangeNeutrality(CCountry* this@ESI, int delta@stack:4, bool logHistory@stack:8)",
+   "no_signature": null,
+   "comment": "`ret 8` with the country in **esi**. +0xA8C += delta floored at zero, then EffectiveNeutrality (+0xA90) recomputed as clamp(Neutrality - this->+0xE28[this->+0x11DC]->+0x5C, 0, 100000). With logHistory it allocates a 0x18-byte entry (constructor 0x5F11F0), stamps it with the current tick and appends it to the country's `history` (+0xCCC). The country's daily pass calls it at 0x4DAE9B with delta = the NEUTRALITY_CHANGE modifier (values entry 78) and logHistory false, which is the whole of the daily neutrality drift. 0x4FC0E0 beside it is the plain setter.\n\n**Its four callers, 2026-10-12**: the daily drift (0x4DAE9B, NEUTRALITY_CHANGE, no history); CCountry::UpdateMonthly (0x4DCC13, the banked war exhaustion once at peace, no history); CNeutralityEffect::Execute (0x9B9774, the script value, with history); and the `noneutrality` console command (0x43D30E, -1000000, no history). It floors +0xA8C at zero but **sets no ceiling** - only the daily pass clamps neutrality to 100000. The history entry is a CNeutralityChange holding the neutrality after the change (0x5FE270 at 0x4FBFEC).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-politics.md",
+   "revises": true,
+   "evidence": "findRefs --callers 0x4FBF80 gives the four sites; each read in place."
+  },
+  {
+   "rva": "0x64AAD0",
+   "kind": "function",
+   "name": "CInfluence::Activate",
+   "signature": "void __thiscall CInfluence::Activate(CInfluence* this)",
+   "no_signature": null,
+   "comment": "**CInfluence slot 10.** Unlike the alliance, nap, guarantee and dependency cases it writes **one** direction only - `countries[second_id]->diplomacy[first_id]->+0x2C = this`, i.e. the influenced country's view of the influencer - with `+0x59 = 1`, and it also sets `CCountry +0x1144 = 1` on the influenced country (unnamed). 0xA4AAD0 to the `ret` at 0xA4AC12, then CInfluence slot 7 at 0xA4AC20. `this` in ECX, no stack arguments.\n\nThis **refines** `CDiplomacyStatus +0x2C influence_running`, which project.json records as 'non-zero while a diplomatic influence is running between the pair': it is not a flag but the `CInfluence*` itself, and only one side of the pair carries it. Only the status write was read. The name `Activate` is ours.\n\n**Its tail, read 2026-10-12**: CCountry_AddTimedModifier(influenced, the influencer's faction's influence modifier name (0x523530 on `countries[first]->faction`, e.g. `align_towards_axis`), DAYS_OF_INFLUENCE_RELATION_CHANGE / 1000 days) - with the define at -1, a permanent modifier. **The define named for a relation change is this duration; nothing about an influence changes relation.**",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-diploaction.md",
+   "revises": true,
+   "evidence": "The tail 0xA4AB56-0xA4AB8B read off the sweep."
+  },
+  {
+   "rva": "0x64B110",
+   "kind": "function",
+   "name": "CAlign::Activate",
+   "signature": "void __thiscall CAlign::Activate(CAlign* this)",
+   "no_signature": null,
+   "comment": "**CAlign slot 10.** Also one-directional, and the opposite way round from CInfluence: `countries[first_id]->diplomacy[second_id]->+0x30 = this`. It does **not** set `+0x59`. It then reads a define and goes on. 0xA4B110 to the `ret` at 0xA4B2DF, with CAlign slot 7 beginning at 0xA4B2E0 **immediately, no padding** - trap 2, and the boundary comes from the table. `this` in ECX, no stack arguments. Only the status write was read. The name `Activate` is ours.\n\n**Its tail, read 2026-10-12**: it looks up the leader's faction's influence modifier (0x523530) and, unless the aligning country already has that static modifier active, adds it through CCountry_AddTimedModifier with **DAYS_OF_INFLUENCE_RELATION_CHANGE** (+0x74) as the duration - the influence define, not the ALIGN one. Both are -1, so it is permanent either way. No relation change.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-diploaction.md",
+   "revises": true,
+   "evidence": "Read off the decompilation and the listing at 0xA4B185-0xA4B1A1."
+  }
+ ],
+ "structs": [
+  {
+   "name": "CRelationChange",
+   "vftable_rva": "0x11C9C44",
+   "inherits": "CHistoryEntry",
+   "comment": "A diplomatic history entry that sets one country's relation with another (CDiplomaticHistoryEntry, itself a CHistoryEntry at offset 0). Keys first, second, value, start_date, end_date. The byte at +0xC inverts the direction Apply is told; not named.",
+   "source": "reversing/findings/FINDINGS-diplostate.md",
+   "evidence": "RTTI: CRelationChange -> CDiplomaticHistoryEntry -> CHistoryEntry, all at offset 0; vftable 0x15C9C44 in the export."
+  },
+  {
+   "name": "CNeutralityChange",
+   "vftable_rva": "0x11C9AE4",
+   "size": "0x18",
+   "inherits": "CCountryHistoryEntry",
+   "comment": "The country history entry CCountry::ChangeNeutrality writes when told to log: the country at +0xC (from CCountryHistoryEntry), the new neutrality at +0x10, the previous one at +0x14.",
+   "source": "reversing/findings/FINDINGS-diplostate.md",
+   "evidence": "operator new(0x18) at 0x4FBFC0; RTTI: CNeutralityChange -> CCountryHistoryEntry at offset 0; vftable 0x15C9AE4 written by the constructor at 0x5F1208."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CCountry",
+   "offset": "0xa8c",
+   "name": "neutrality",
+   "type": "int",
+   "comment": "**Neutrality before the highest-threat subtraction**, in thousandths - the field `base_neutrality = N` reads. `effective_neutrality` at +0xA90 is the derived one, already recorded, and it is what the plain `neutrality = N` keyword reads instead.\n\nWritten by CCountry::ChangeNeutrality (rva 0xFBF80, floored at zero, no ceiling) - **not only** (corrected 2026-10-12): also the daily pass, which clamps it to [0, 100000] before anything else (0x4DA5E8-0x4DA603); CCountry::SetNeutrality (rva 0xFC0E0, history replay only); CCountry::CCountry and CCountry_Reset, both with g_CountryDefaultNeutrality = 50.000; and, outside the canonical start, CustomGame_ApplyCountryNeutrality and CCgmNeutralityChangeCommand::Execute. No war, peace, puppet or annexation writes it. Named from the key CCountry::SaveContents writes it under.\n\n**Merged 2026-10-06** from two records that agreed on name and type and each carried half the account.",
+   "source": "reversing/findings/FINDINGS-numtriggers.md and reversing/findings/FINDINGS-effects.md",
+   "revises": true,
+   "evidence": "Store sweep over .text for [reg+0xA8C]; each hit read in place. Positive control: the sweep finds ChangeNeutrality's own two stores and the daily clamp's two."
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0xA90",
+   "name": "effective_neutrality",
+   "type": "int",
+   "comment": "Neutrality minus the threat the country feels from one single country, floored at zero and capped at 100000. Written with identical code by the daily pass at 0x4DA623 and CCountry::ChangeNeutrality at 0x4FC0A8 - and, corrected 2026-10-12, by the in-game screen's entry for every country (0x65B3E3, CInGameIdler_Enter_StrategicResourcesOnlyOnLoad's stretch), CCgmNeutralityChangeCommand::Execute (0x4296AD) and CustomGame_ApplyCountryNeutrality (0x4189E1); CCountry::CCountry zeroes it - all as clamp(+0xA8C - this->+0xE28[this->+0x11DC]->+0x5C, 0, 100000). Read by the alignment AlignTowards term for both the country and its prospective faction leader.",
+   "source": "reversing/findings/FINDINGS-politics.md",
+   "revises": true,
+   "evidence": "Store sweep over .text for [reg+0xA90]; each hit read in place."
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0xAD0",
+   "name": "war_exhaustion",
+   "type": "int",
+   "comment": "named from the key CCountry::SaveContents writes it under, `war_exhaustion`\n\n**What it does, 2026-10-12.** Each month (CCountry::UpdateMonthly) it gains the WAR_EXHAUSTION modifier (values +0x40; 0.041 from the `war` static modifier in Their Finest Hour), floored at 0 and capped at MAX_WAR_EXHAUSTION (+0x48; 100); at peace a positive balance is added to neutrality whole through CCountry::ChangeNeutrality and the field zeroed. REB is zeroed every month. Thousandths.",
+   "source": "BiceLib/GameClasses/CCountry.hpp:298",
+   "revises": true,
+   "evidence": "Read off CCountry::UpdateMonthly 0x4DCBCA-0x4DCC1D, and the original bytes from an unpatched copy."
+  },
+  {
+   "struct": "CRelationChange",
+   "offset": "0x10",
+   "name": "first",
+   "type": "CCountryTag",
+   "comment": "The country whose view is written - CRelationChange::Apply reads its id at +0x14. Loaded from `first`.",
+   "source": "reversing/findings/FINDINGS-diplostate.md",
+   "evidence": "The +0x14 load at 0x5F2CBF indexes the country vector; LoadKey has a `first` key."
+  },
+  {
+   "struct": "CRelationChange",
+   "offset": "0x18",
+   "name": "second",
+   "type": "CCountryTag",
+   "comment": "The other country - its id at +0x1C indexes first's diplomacy array.",
+   "source": "reversing/findings/FINDINGS-diplostate.md",
+   "evidence": "The +0x1C load at 0x5F2CC5 indexes the +0xE28 array."
+  },
+  {
+   "struct": "CRelationChange",
+   "offset": "0x28",
+   "name": "value",
+   "type": "int",
+   "comment": "The relation the entry sets, thousandths; clamped to [-200000, 200000] when applied.",
+   "source": "reversing/findings/FINDINGS-diplostate.md",
+   "evidence": "Loaded into the status at 0x5F2CE9 on the forward arm."
+  },
+  {
+   "struct": "CRelationChange",
+   "offset": "0x2C",
+   "name": "previous_value",
+   "type": "int",
+   "comment": "The relation before the entry was applied forward, written then and put back on the backward arm.",
+   "source": "reversing/findings/FINDINGS-diplostate.md",
+   "evidence": "Stored at 0x5F2CE6 from the status, reloaded at 0x5F2CEE."
+  },
+  {
+   "struct": "CNeutralityChange",
+   "offset": "0x10",
+   "name": "value",
+   "type": "int",
+   "comment": "The neutrality after the change, thousandths - not the delta. Written by CCountry::ChangeNeutrality through 0x5FE270 (at 0x4FBFEC) and set by CNeutralityChange::Apply going forward.",
+   "source": "reversing/findings/FINDINGS-diplostate.md",
+   "evidence": "0x5FE270 stores its argument at +0x10; ChangeNeutrality passes the updated +0xA8C."
+  },
+  {
+   "struct": "CNeutralityChange",
+   "offset": "0x14",
+   "name": "previous_value",
+   "type": "int",
+   "comment": "The neutrality before the entry was applied forward (CCountry::GetNeutrality at 0x5F1271), put back going backward.",
+   "source": "reversing/findings/FINDINGS-diplostate.md",
+   "evidence": "Stored at 0x5F128F, read at 0x5F12C0."
+  }
+ ],
+ "vftable_slots": {
+  "CInfluence": {
+   "6": "IsOver"
+  },
+  "CAlign": {
+   "6": "IsOver"
+  },
+  "CCgmNeutralityChangeCommand": {
+   "6": "Execute"
+  },
+  "CNapAction": {
+   "7": "Apply"
+  },
+  "CAllianceAction": {
+   "7": "Apply"
+  },
+  "CGuaranteeAction": {
+   "7": "Apply"
+  },
+  "CMilitaryAccessAction": {
+   "7": "Apply"
+  },
+  "COfferMilitaryAccessAction": {
+   "7": "Apply"
+  },
+  "CCallAllyAction": {
+   "7": "Apply"
+  },
+  "CEmbargoAction": {
+   "7": "Apply"
+  },
+  "CDeclareWarAction": {
+   "7": "Apply"
+  },
+  "CLiberateCountryCommand": {
+   "6": {
+    "name": "Execute",
+    "signature": "void __thiscall Execute(CLiberateCountryCommand* this)"
+   }
+  },
+  "CCreateVassalCommand": {
+   "6": {
+    "name": "Execute",
+    "signature": "void __thiscall Execute(CCreateVassalCommand* this)"
+   }
+  }
+ },
+ "frontier": [
+  "0x7BC60",
+  "0x797C0",
+  "0x123530",
+  "0x1FE270",
+  "0xF6A60",
+  "0xE39C0"
+ ]
+}
