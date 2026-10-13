@@ -221,6 +221,11 @@ for each action:
 
 So an offer an AI does not act on in the hour it arrives is **discarded**, not carried over.
 
+> **Corrected 2026-10-13** (`FINDINGS-agreements.md`, A1): this loop is reached only while
+> `tutorial_active` (`+0xD9D`) is set. In an ordinary game an AI answers through
+> `CAIForeignMinister::AnswerPendingOffers` (rva `0x49E010`), every hour, on `GetAIAcceptance` and a
+> roll: 30 or less declines, otherwise a roll below the score accepts.
+
 **Slot 18 is the predicate that decides, and its split is striking.** Eight classes answer
 `ReturnFalse` (`0x00592360`): `CAddWarGoalAction`, `CDeclareWarAction`, `CEmbargoAction`,
 `CGuaranteeAction`, `CInfluenceAllianceLeader`, `CInfluenceNation`, `CShareTechnologyAction`,
@@ -757,6 +762,12 @@ accessor the record already accounts for), `CCountry::BuildMessageVariables` (`0
 `GetMessageHandler` (`0x698E80`). The category is `diplomaticsuccess` or `diplomaticfailure`, and the
 key is chosen on whether `state->played_country_id (+0xC34)` equals the actor's id, the recipient's, or
 neither — the `WE…` / `THEY…` / `OTHER…` triple:
+
+> **Correction, 2026-10-13.** The table below is **not** in actor / recipient / other order in every
+> row: a declined NAP tells the actor `THEYREJECTNAP`, a cancelled access (either class) tells the
+> actor `WECANMIL`, and a revoked guarantee tells everybody else `GUARACANCELTOTHEM` - its third
+> column is not empty. `FINDINGS-agreements.md`, section E, has every pact arm in that order, read
+> off its two player tests.
 
 | class | accept | decline | cancel / revoke |
 | --- | --- | --- | --- |

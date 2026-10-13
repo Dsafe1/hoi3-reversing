@@ -178,7 +178,7 @@ root scope's country, or the owner of its province where it has none - and FROM 
 | `is_in_any_faction` | the country is in a real faction | country | the placeholder | `== value` | - | - | confirmed |
 | `is_possible_vassal` | X is a nation the country could release | country | the placeholder | X on the list | **ignored**: `THIS`/`FROM` compare `---` | id 0 | confirmed |
 | `is_subject` | the country is somebody's subject | country | the placeholder | `== value` | - | - | confirmed |
-| `military_access` | the country gives X military access | the status | the placeholder | non-zero | GCT | id 0 | confirmed; the direction `likely`, from the effect writing the same byte |
+| `military_access` | **the country may pass through X's land** (this said "gives X military access" until 2026-10-13) | the status | the placeholder | non-zero | GCT | id 0 | confirmed; the direction `confirmed` by the access action setting the same byte for the asker (`FINDINGS-agreements.md`, C.4) |
 | `minister_alive` | section 1 | | | | | | |
 | `non_aggression_pact` | a pact between the country and X | the status | the placeholder | non-zero | GCT | id 0 | confirmed |
 | `num_in_faction` | section 1; `THIS`/`FROM` store 0, so always true | | | | | | |
@@ -280,7 +280,8 @@ candidates, `inferred`. `year` and `month` do not read it.
 
 - What the `---` placeholder country holds - its diplomacy, ruling party, faction.
 - Whether a live country can reach `ideology_group` with no ruling party.
-- The direction of a guarantee beyond the Lua name, of military access beyond the effect.
+- The direction of a guarantee beyond the Lua name. (Military access's is settled: the asker's own
+  status carries it, `FINDINGS-agreements.md`, C.4.)
 - The espionage entry's nine dwords at `+0x2C`.
 - Whether a province with no resource holds the same null resource `strategic_resource = none` stores.
 - The purpose of `date`'s look-ahead.

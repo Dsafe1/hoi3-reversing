@@ -1,0 +1,572 @@
+{
+ "agent": "agreements wave, brief C",
+ "question": "What each pact's slot 7 writes, arm by arm; how each relation ends; the passes that run influence and align; each relation's save block; military access in the month's drift.",
+ "source": "reversing/findings/FINDINGS-agreements.md",
+ "addresses": [
+  {
+   "rva": "0x618D70",
+   "kind": "function",
+   "name": "CAllianceAction::Apply",
+   "signature": "void __thiscall CAllianceAction::Apply(CAllianceAction* this)",
+   "no_signature": null,
+   "comment": "**CAllianceAction slot 7**, one holder (vftable 0x15FB514). 0xA18D70 to the bare `ret` at 0xA1A434, 11 int3, then slot 11 at 0xA1A440. `this` in ECX, no stack arguments. Arms read 2026-10-13, tested in this order (`type` +0x18: 0 PROPOSE, 1 DECLINE, 2 ACCEPT; `value` +0x24 a bool):\n\n- `type == PROPOSE && value` (0xA1948C): `countries[actor]->diplo_influence (+0xA88) -= JOIN_ALLIANCE_INFLUENCE_COST` (diplomacy +0xC), clamped at 0. Nothing else - the offer itself is queued by CDiplomaticActionCommand::Execute.\n- `value && type == ACCEPT` (0xA194DE): `new(0x24)` CAlliance, `first` = actor, `second` = recipient, `start_date (+0x18)` = the action's `date (+0x1C)`; **slot 10 Activate first** (0xA1953C - `alliance (+0x14)` and `changed` on both directions), then appended to the relation list (0x493E10 at 0xA195DF); `ChangeRelation(actor, recipient, ALLIANCE_RELATION_CHANGE +0x40)` at 0xA19617; `diplomaticsuccess` with MILALLACCEPT (actor played) / MILALLWEACCEPT (recipient played) / MILLALLINVACCEPTOTHER; CCountry::RebuildNeighbours and 0x4E39C0 on both.\n- `value && type == DECLINE`: `diplomaticfailure` with MILALLREJECT / MILALLWEREJECT / MILLALLJOINREJECTOTHER and **nothing written** - no relation, no refund.\n- `value == 0`, any `type` (0xA19A64) - leaving: `actor->diplomacy[recipient]->alliance` taken **with no null test**, its slot 11 (CAlliance::Deactivate, both directions nulled), unlinked from +0xB2C, deleted; `ChangeRelation(actor, recipient, ALLIANCE_REJECT_RELATION_CHANGE +0x44)`; `diplo_influence -= LEAVE_ALLIANCE_INFLUENCE_COST (+0x10)`, clamped; MILALLWEBAN / MILALLBAN / MILALLBANOTHER; **a second ChangeRelation of a constant -30000** at 0xA19F12; RebuildNeighbours and 0x4E39C0 on both.\n- Every arm ends (0xA1A31C), when `in_game`, with -1 pushed onto the game state's refresh list (0x45F5E0) and bit 0x100 set in `in_game_screen +0x84`.\n\n**An alliance touches no faction, no war and no other pact here.** Allies reach each other's wars only through the call-to-arms offers CDeclareWarAction::Apply manufactures; a declaration of war between the two ends the alliance there (0xA121FC). The alliance also ends by itself when both join one real faction (CAlliance::IsOver). The name `Apply` is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agreements.md",
+   "evidence": "Decompiled whole and every arm's test and call checked in the disassembly: the type/value tests at 0xA1948C-0xA194E2, the Activate call at 0xA1953C before the append at 0xA195DF, ChangeRelation at 0xA19617, the leave arm loading +0x14 at 0xA19A88 and calling [vft+0x2C] at 0xA19A96 with no test between. Wrong if a branch the decompiler folded were reachable another way - cfg from the entry reaches only the one bare ret.",
+   "revises": "Read arm by arm: the PROPOSE charge, the order Activate-then-append, the unchecked alliance pointer on leaving, the absence of any write on DECLINE, and the refresh tail. The relation changes recorded 2026-10-12 are unchanged; confidence raised from inferred."
+  },
+  {
+   "rva": "0x61BCC0",
+   "kind": "function",
+   "name": "CGuaranteeAction::Apply",
+   "signature": "void __thiscall CGuaranteeAction::Apply(CGuaranteeAction* this)",
+   "no_signature": null,
+   "comment": "**CGuaranteeAction slot 7**, one holder (vftable 0x15FB574). 0xA1BCC0 to the bare `ret` at 0xA1D379, 6 int3, then slot 11 at 0xA1D380. `this` in ECX, no stack arguments. **No arm tests `type`** - only `value` (+0x24) - so a guarantee takes effect the moment the offer is executed, and the AI never answers it (slot 18 is ReturnFalse). Arms read 2026-10-13:\n\n- `value` set: `new(0x28)`, CGuarantee::CGuarantee(0) (0xA46E90: CRelation fields, `+0x24` byte = the argument), `first` = actor (guarantor), `second` = recipient, `start_date` = the action's date; **appended to the relation list first (0xA1BDCA), then slot 10** (CGuarantee::Activate, `guarantee (+0x1C)` and `changed` both directions). Then, **only when the guarantor's `CCountry +0xDE4` byte is set** (0xA1BDF4), every other member of the guarantor's faction gets a guarantee of its own over the same recipient - CGuarantee(1), appended inline and activated. `+0xDE4` has no writer of 1 anywhere in .text (a disp32 scan finds only CCountry_Reset's clear at 0x4D3E22 and three readers, this one included), so that branch is dead in the shipped game. Then `diplo_influence -= GUARANTEE_INFLUENCE_COST` (diplomacy +0x14), clamped at 0, and `diplomaticsuccess` with WEGUARAT (actor played) / GUARATOUS (recipient played) / GUARATOOTHER. **No relation change.**\n- `value == 0` (revoking): `actor->diplomacy[recipient]->guarantee` taken **with no null test and no check that the actor is its `first`**, slot 11 (CGuarantee::Deactivate), unlinked (0xA1CB9D), deleted; `ChangeRelation(actor, recipient, REVOKE_GUARANTEE_RELATION_CHANGE +0x70)` at 0xA1CBEA; `diplo_influence += REVOKE_GUARANTEE_INFLUENCE_COST (+0x18)` at 0xA1CC19 - **an add**; GUARACANCELTOTHEM / GUARACANCELTOUS.\n- Both arms end with CCountry::RebuildNeighbours and 0x4E39C0 on both countries (0xA1D332-0xA1D360).\n\nWhat a guarantee does later is elsewhere: CDeclareWarAction::Apply calls the guarantors of a country it attacks to arms (0xA12B40-0xA12BE4) and voids the guarantee between the two belligerents (0xA12E14/0xA12E42); MonthlyRelationDrift adds 0.080 a month; CDiplomacyStatus_ExpireRelations ends it twenty years after its start. The name `Apply` is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agreements.md",
+   "evidence": "Decompiled whole; checked in the disassembly: the append at 0xA1BDCA then [vft+0x28] at 0xA1BDD6, the +0xDE4 test at 0xA1BDF4, the revoke arm's [esi+0x1C] at 0xA1CB02 and [vft+0x2C] at 0xA1CB0C with no test between, the `add [eax+0xA88]` at 0xA1CC19. The +0xDE4 negative is a disp32 scan of .text (positive control: it finds the reset's store); a write through a register already pointing inside the country would be missed. Wrong if a type test hid in an inlined helper - none is called before 0xA1BCF5.",
+   "revises": "Read arm by arm: the faction-member branch behind CCountry +0xDE4, the order append-then-Activate, the influence charge and revoke refund, the unchecked pointer, and the guarantee's later readers. Confidence raised from inferred."
+  },
+  {
+   "rva": "0x6231F0",
+   "kind": "function",
+   "name": "CMilitaryAccessAction::Apply",
+   "signature": "void __thiscall CMilitaryAccessAction::Apply(CMilitaryAccessAction* this)",
+   "no_signature": null,
+   "comment": "**CMilitaryAccessAction slot 7**, one holder (vftable 0x15FB634). **Trap 2: 0xA231F0 to the bare `ret` at 0xA247BF, and slot 11 begins at 0xA247C0 with no padding at all** - an int3 scan gives the body 0x1C90 bytes instead of 0x5D0 and hands it slot 11's MILACCDESC / CANCELMILACCDESC / CANCELMILACCDESC_NOPES_TROOPS / DIP_NO_INFL / ISATWAR / ENROUTE strings. `this` in ECX, no stack arguments. Asking for access; arms read 2026-10-13:\n\n- `type == PROPOSE && value`: `diplo_influence -= MILACCESS_INFLUENCE_COST` (diplomacy +0x2C), clamped.\n- `type == ACCEPT && value == 1`: `SetMilitaryAccess(1, actor->diplomacy[recipient])` at 0xA23998 - **one direction: the asker gets access into the granter's land** - and `ChangeRelation(actor, recipient, MILACC_ACCEPT_RELATION_CHANGE +0x64)` at 0xA239D0; ACCMILUS / WEACCMIL / ACCMILOTHER.\n- `type == DECLINE && value == 1`: `ChangeRelation(..., MILACC_DECLINE_RELATION_CHANGE +0x68)` at 0xA23E8F **only when either country is played** (`played_countries_array +0xBCC`), then `diplo_influence += MILACCESS_INFLUENCE_COST` - the asker's cost refunded; DECMILUS / WEDECMIL / DECMILOTHER.\n- `value == 0`, any `type` (the asker giving up its own access): `ChangeRelation(..., MILACC_DECLINE_RELATION_CHANGE +0x68)` at 0xA24295 (MILACC_CANCEL_RELATION_CHANGE +0x6C has no reader) and `SetMilitaryAccess(0, actor->diplomacy[recipient])` at 0xA242BF - the same one direction; WECANMIL / CANCMILUS / CANMILOTHE. **No unit is moved**: units standing in the other's land are slot 11's concern (CANCELMILACCDESC_NOPES_TROOPS, 'We cannot cancel transit rights while we still have forces inside their borders').\n- Every arm ends (0xA246A5), when `in_game`, with the refresh push (0x45F5E0) and `in_game_screen +0x84 |= 0x100`. No RebuildNeighbours. The name `Apply` is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agreements.md",
+   "evidence": "Decompiled whole; the two SetMilitaryAccess sites decoded in place: 0xA2397F-0xA23996 index `countries[actor tag at this+8]->+0xE28[this->+0x14]` with cl = 1, 0xA242A0-0xA242BD the same status with cl = 0. The played test reads +0xBCC for both ids. Wrong if `this+8` were not the actor - section 1 of FINDINGS-diploaction.md and CDiplomaticAction::LoadKey both put actor at +8/+0xC.",
+   "revises": "Read arm by arm: which direction access is written, the refund on DECLINE, that cancelling ignores `type`, and that no unit is touched. Confidence raised from inferred."
+  },
+  {
+   "rva": "0x625830",
+   "kind": "function",
+   "name": "COfferMilitaryAccessAction::Apply",
+   "signature": "void __thiscall COfferMilitaryAccessAction::Apply(COfferMilitaryAccessAction* this)",
+   "no_signature": null,
+   "comment": "**COfferMilitaryAccessAction slot 7**, one holder (vftable 0x15FB694). 0xA25830 to the bare `ret` at 0xA26D05, 10 int3, then slot 11 at 0xA26D10. `this` in ECX, no stack arguments. Offering access; **no influence is charged in any arm and no define is read** - the relation figures are constants. Arms read 2026-10-13:\n\n- `type == ACCEPT && value == 1`: `SetMilitaryAccess(1, recipient->diplomacy[actor])` at 0xA25F91 - **the recipient gets access into the offerer's land** - and `ChangeRelation(actor, recipient, +10000)` at 0xA25FBF; OFFACCMILUS / WEOFFACCMIL / OFFACCMILOTHER.\n- `type == DECLINE && value == 1`: messages only (OFFDECMILUS / WEDECOFFMIL / DECOFFMILOTHER).\n- `value == 0`, any `type` (withdrawing): `ChangeRelation(actor, recipient, -20000)` at 0xA26879 **only when either country is played**, then `SetMilitaryAccess(0, recipient->diplomacy[actor])` at 0xA268A9 **and `SetMilitaryAccess(0, actor->diplomacy[recipient])` at 0xA268D9** - both directions, so withdrawing an offer also ends any access the offerer had asked for and been given; WECANMIL / CANCMILUS / CANMILOTHE (the asking class's keys).\n- Every arm ends (0xA26BED), when `in_game`, with the refresh push and `in_game_screen +0x84 |= 0x100`. The name `Apply` is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agreements.md",
+   "evidence": "Decompiled whole; the three SetMilitaryAccess sites decoded in place - 0xA25F62-0xA25F8F indexes the country at the recipient tag by `this->+0xC` (actor) with cl = 1; 0xA26884-0xA268A7 the same with cl = 0; 0xA268AE-0xA268D7 the actor by `this->+0x14` with cl = 0. Wrong if the tag held in edi/ebx were not the one the decompiler names; both come from `this+0x10` / `this+8` in the prologue.",
+   "revises": "Read arm by arm: the directions SetMilitaryAccess writes, including that withdrawing clears both, and that no influence is charged. Confidence raised from inferred."
+  },
+  {
+   "rva": "0x62B090",
+   "kind": "function",
+   "name": "CNapAction::Apply",
+   "signature": "void __thiscall CNapAction::Apply(CNapAction* this)",
+   "no_signature": null,
+   "comment": "**CNapAction slot 7** - one holder (vftable 0x15FB754). 0xA2B090 to the bare `ret` at 0xA2C8EA, 5 int3, then CNapAction slot 11 at 0xA2C8F0. `this` in ECX, no stack arguments. All four arms read:\n\n- `type == PROPOSE && value`: NAP_JOIN_INFLUENCE_COST (diplomacy +0x54) off `countries[actor_id]->diplo_influence` (+0xA88) at 0xA2B9D3, clamped at 0. Note it is **NAP_JOIN_INFLUENCE_COST and not NAP_INFLUENCE_COST** (+0x20), which this body never reads.\n- `type == ACCEPT`: `operator new(0x30)`, `CNap::CNap` (0xA46F00, vftable 0x15FBB68; balance -1000, powers 0), `nap->first = actor`, `nap->second = recipient`, `nap->start_date (+0x18) = this->date (+0x1C)`, `CNap::Activate()` (slot 10, 0xA471E0) which writes the nap into **both** directions' `CDiplomacyStatus +0x28` and, in a running game, measures the border at once (CNap_UpdateForceBalance), then the nap appended to the `CDiplomacy` relation list at `CCurrentGameState +0xB24` (0xA2BAC8) and `CCountry::ChangeRelation(actor, &recipient, NAP_RELATION_CHANGE)` (+0x4C, 50.0 in Their Finest Hour and BlackICE) at 0xA2BB00.\n- `type == DECLINE`: NAP_REJECT_RELATION_CHANGE (+0x58) at 0xA2C433; THEYREJECTNAP when the actor is played, WEREJECTNAP when the recipient is.\n- `value == 0` (breaking a pact), any `type`: `actor->diplomacy[recipient]->nap` taken **with no null test**, **its slot 11 (CNap::Deactivate, both directions nulled) at 0xA2BEEA**, then `CList_RemoveNode`d from the relation list (0xA2BF83) and deleted through its slot 0 (0xA2BF92); then **LEAVE_NAP_THREAT_COST (+0x60) passed to SpreadThreat by address** (`add edi, 0x60` at 0xA2BFE3) with the recipient feared and its capital the origin; then LEAVE_NAP_RELATION_CHANGE (+0x50) at 0xA2C031 and LEAVE_NAP_INFLUENCE_COST (+0x5C).\n\nThe message keys are `WENAP` / `THEYNAP` / `OTHERNAP`, `WECANCELNAP` / `THEYCANCELNAP` / `OTHERCANCELNAP` and `WEREJECTNAP` / `THEYREJECTNAP` / `OTHERREJECTNAP` under `diplomaticsuccess` / `diplomaticfailure`. A NAP also ends by itself NAP_EXPIRY_MONTHS after its start (CNap::IsOver, in CDiplomacyStatus_ExpireRelations) and when the two go to war (CDeclareWarAction::Apply, 0xA122C8). The name `Apply` is ours; the body is read.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agreements.md",
+   "evidence": "The break arm decoded in place: `mov esi,[ecx+0x28]` at 0xA2BEDC, `mov eax,[edx+0x2C]; call eax` at 0xA2BEE1/0xA2BEEA, CList_RemoveNode at 0xA2BF83, slot 0 at 0xA2BF92. The decline ChangeRelation is at 0xA2C433 in the call list (0xA2C40B is where the define is loaded). Wrong if [vft+0x2C] were not slot 11 of CNap - vtable.py gives CNap slot 11 = 0xA47300.",
+   "revises": "The break arm calls CNap::Deactivate (slot 11) before unlinking - section 15 of FINDINGS-diploaction.md and this entry left that write out; the NAP ends both statuses' +0x28 there, not by the delete. Also the decline's call site (0xA2C433) and the new pact's first measurement."
+  },
+  {
+   "rva": "0x62E5F0",
+   "kind": "function",
+   "name": "CEmbargoAction::Apply",
+   "signature": "void __thiscall CEmbargoAction::Apply(CEmbargoAction* this)",
+   "no_signature": null,
+   "comment": "**CEmbargoAction slot 7**, one holder (vftable 0x15FB814). 0xA2E5F0 to the bare `ret` at 0xA2F9F0, 15 int3, then slot 11 at 0xA2FA00. `this` in ECX, no stack arguments. **No arm tests `type`** - an embargo is imposed and lifted on `value` alone, and the AI never answers it. Arms read 2026-10-13:\n\n- `value` set (imposing): `new(0x24)` CEmbargo, `first` = actor, `second` = recipient, `start_date` = the action's date, slot 10 (CEmbargo::Activate, `embargo (+0x34)` both directions, `changed` set on neither), appended (0xA2EFB9); `ChangeRelation(actor, recipient, EMBARGO_RELATION_CHANGE +0x80)` at 0xA2EFF8 (-30 in Their Finest Hour, -200 - the floor - in BlackICE); `diplo_influence -= EMBARGO_INFLUENCE_COST (+0x28)`; `SpreadThreat(recipient, &EMBARGO_THREAT_COST (+0x88), +1000, recipient's acting capital)` at 0xA2F099; WEEMBARGO / THEYEMBARGO / OTHEREMBARGO; then **every trade route of the pair is cancelled** - `actor->diplomacy[recipient]->trade_routes (+0x60)` walked, each route's slot 11, unlink (0xA2F4B5), delete; RebuildNeighbours and 0x4E39C0.\n- `value == 0` (lifting): `SpreadThreat(recipient, &EMBARGO_THREAT_COST, -1000, ...)` at 0xA2F57B - the threat taken back; then **only if** `actor->diplomacy[recipient]->embargo` is set, its slot 11 (CEmbargo::Deactivate), CDiplomacy_RemoveRelation (0xA2F640), delete; WECANCELEMBARGO / THEYCANCELEMBARGO / OTHERCANCELEMBARGO. **No relation change, no refund.**\n- Both arms end with RebuildNeighbours and 0x4E39C0 on both countries.\n\nWhile it stands, an embargo makes a trade offer between the two unselectable (CTradeAction slot 14 tests `+0x34` at 0xA38A77) and is shown by slot 12 (`CDIP_EMBARGO`, 'Embargoed by $LIST$'). It never ends by itself (CEmbargo slot 6 is ReturnFalse). The name `Apply` is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agreements.md",
+   "evidence": "Decompiled whole; the call list (grepins over the extent) puts the append, ChangeRelation and the first SpreadThreat in the impose arm and the second SpreadThreat with scale -1000 (apCStack_d8 = 0xFFFFFC18) and CDiplomacy_RemoveRelation in the lift arm. The +0x34 readers come from a register-taint sweep of every .text chunk mentioning 0xE28 (positive control: it finds CEmbargo::Activate's four stores). Wrong if the impose arm's route loop walked another pair - it indexes the same actor/recipient the ChangeRelation uses.",
+   "revises": "Read arm by arm: no type test, the trade routes cancelled on imposing, the threat taken back on lifting, the guarded delete, and what an embargo stops. Confidence raised from inferred."
+  },
+  {
+   "rva": "0x61E420",
+   "kind": "function",
+   "name": "CInfluenceNation::Apply",
+   "signature": "void __thiscall CInfluenceNation::Apply(CInfluenceNation* this)",
+   "no_signature": null,
+   "comment": "**CInfluenceNation slot 7**, one holder (vftable 0x15FB5D4). 0xA1E420 to the bare `ret` at 0xA1FB4A, 5 int3, then slot 11 at 0xA1FB50. `this` in ECX, no stack arguments. **No arm tests `type`.** Arms read 2026-10-13:\n\n- `value == 0` (0xA1E48E): CCountry_StopInfluence(actor, recipient) at 0xA1E495 and nothing else.\n- `value` set: **if any member of the actor's faction already influences the recipient** (`recipient->diplomacy[member]->influence_running (+0x2C)` non-null, walking `actor->faction (+0xD8)->Members`), return - nothing at all, no charge. Otherwise `new(0x40)` CInfluence, `first` = actor (influencer), `second` = recipient, `start_date` = the action's date, slot 10 (CInfluence::Activate: `recipient->diplomacy[actor]->influence_running = this`, `recipient +0x1144 = 1`, and the static modifier `align_towards_<actor's faction>` put on the recipient for DAYS_OF_INFLUENCE_RELATION_CHANGE / 1000 days), appended inline; then **`diplo_influence -= INFLUENCE_INFLUENCE_COST` (diplomacy +0x30)** at 0xA1E687-0xA1E6A7, clamped at 0, through the **inlined** GetDefines (singleton [0x1A86040], trap 8 case 1); WEINFLUENCE / THEYINFLUENCE / OTHERINFLUENCE with VAL (the modifier's ALIGN_TOWARDS) and TIME (DAYS_OF_ALIGN_RELATION_CHANGE / 1000, or UNLIMITED when negative - RelationEndTickByAlignDays).\n- Both arms end with RebuildNeighbours and 0x4E39C0 on both (0xA1FB03-0xA1FB31).\n\n**No relation is changed.** Afterwards the influencer pays INFLUENCE_UPKEEP a day (CCountry::PayDailyInfluenceUpkeep) and the influence ends when CInfluence::IsOver says so, when the upkeep cannot be paid, or when the two go to war (SetPairWar). The name `Apply` is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agreements.md",
+   "evidence": "Decoded in place: `cmp byte [ecx+0x24], bl` at 0xA1E48E then `call 0x503F90` at 0xA1E495; the faction walk from `[edi+0xD8]` at 0xA1E49F and the `[ecx+0x2C]` test at 0xA1E4B8; `mov eax,[eax+0xBC]; mov eax,[eax+0x30]; neg eax; add [ecx+0xA88], eax` at 0xA1E687-0xA1E699 after the inlined singleton store `[0x1A86040]` at 0xA1E677. Wrong if [0x1A86040] were not the defines singleton - trap 8's own check names it.",
+   "revises": "**Corrects the entry**: it said INFLUENCE_INFLUENCE_COST (+0x30) is not read here. It is, at 0xA1E68D, through the inlined GetDefines the entry itself noticed. Adds the faction-member gate, that no arm tests `type`, and what Activate writes."
+  },
+  {
+   "rva": "0x620F70",
+   "kind": "function",
+   "name": "CInfluenceAllianceLeader::Apply",
+   "signature": "void __thiscall CInfluenceAllianceLeader::Apply(CInfluenceAllianceLeader* this)",
+   "no_signature": null,
+   "comment": "**CInfluenceAllianceLeader slot 7** - the align action - one holder (vftable 0x15FB7B4). 0xA20F70 to the bare `ret` at 0xA21EE1, 14 int3, then slot 11 at 0xA21EF0; the `ret` at 0xA21027 is an early exit of the same frame. `this` in ECX, no stack arguments. **No arm tests `type`.** First it finds the static modifier `align_towards_<recipient's faction>` (FindStaticModifierByName on the recipient's `faction (+0xD8)`). Arms read 2026-10-13:\n\n- `value == 0` (0xA20FEE): if the actor does not have that modifier active, return (0xA21027) - nothing; otherwise CCountry_StopAlign(actor, recipient) at 0xA2102E and RebuildNeighbours/0x4E39C0 on both.\n- `value` set: if the actor **already has the modifier active**, nothing at all. Otherwise `new(0x40)` CAlign, `first` = actor (the aligner), `second` = recipient (the faction's leader), `start_date` = the action's date, slot 10 (CAlign::Activate: `actor->diplomacy[recipient]->align (+0x30) = this`, and the modifier added to the actor for DAYS_OF_INFLUENCE_RELATION_CHANGE / 1000 days unless already active), appended (0xA21155); `diplo_influence -= ALIGN_INFLUENCE_COST` (diplomacy +0x7C) at 0xA21165, clamped; WEALIGN / THEYALIGN / OTHERALIGN with VAL and TIME (DAYS_OF_ALIGN_RELATION_CHANGE +0x78 / 1000, or UNLIMITED); RebuildNeighbours and 0x4E39C0 on both.\n\n**No relation changes and there is no upkeep**: an alignment is a one-off charge for the `align_towards_<faction>` modifier on oneself, which is what the alignment step's Influence term (GetAlignTowardsTerm) reads. It ends by CAlign::IsOver in CDiplomacyStatus_ExpireRelations, with a DIPLOEXPIRE message to a playing aligner. The name `Apply` is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agreements.md",
+   "evidence": "Decompiled whole; decoded: `cmp byte [esi+0x24], bl` at 0xA20FEE, the early `ret` at 0xA21027, StopAlign at 0xA2102E, append at 0xA21155, `mov eax,[eax+0x7C]` and the `+0xA88` subtraction at 0xA21165-0xA2117C. The save agrees: in Germany1936_04_20_03 every `align` block's `first` (SWE, SCH to GER; TUR to SOV) carries `align_towards_axis` / `_comintern`, and the one `influence` block's `second` (CAN, from ENG) carries `align_towards_allies` - 4 of 4.",
+   "revises": "Read arm by arm: the already-active test on both arms, no type test, where the modifier goes (the aligner itself), and the end. Confidence raised from inferred."
+  },
+  {
+   "rva": "0x6471E0",
+   "kind": "function",
+   "name": "CNap::Activate",
+   "signature": "void __thiscall CNap::Activate(CNap* this)",
+   "no_signature": null,
+   "comment": "**CNap slot 10.** Writes **both** directions' `CDiplomacyStatus +0x28` (`nap`) with `this` and sets `+0x59` on both; then, **only when `in_game` (+0xDA4) is set**, CNap_UpdateForceBalance(this) at 0xA472E5 - the border measured at once. 0xA471E0 to the `ret` at 0xA472FA, 5 int3, then CNap slot 11 at 0xA47300. `this` in ECX, no stack arguments. So a NAP made by history (in_game clear) or loaded from a save (CDiplomacy::LoadKey, before in_game) keeps the constructor's balance of -1000 or the saved one until the next measurement. The name `Activate` is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agreements.md",
+   "evidence": "Decoded the tail: `cmp byte [eax+0xDA4], 0; je 0xA472EA; push esi; call 0xA47370` at 0xA472DB-0xA472E5. Wrong if 0xA47370 did something other than write +0x24/+0x28/+0x2C of its argument - its only stores to the argument are at 0xA475ED-0xA47600.",
+   "revises": "Its tail is read: the force-balance measurement in a running game. Confidence raised from inferred."
+  },
+  {
+   "rva": "0x647370",
+   "kind": "function",
+   "name": "CNap_UpdateForceBalance",
+   "signature": "void __stdcall CNap_UpdateForceBalance(CNap* nap)",
+   "no_signature": null,
+   "comment": "**Measures a NAP's border, the figure CCountry::CanBreakNap compares.** 0xA47370 to four `ret 4` (0xA47613, 0xA47642, 0xA47677, 0xA47691), one stack argument. Walks the **first** party's COwnerAreas (`+0xD30`), each area's fronts (`COwnerArea +0x74`, CAreaBorder) and each front's provinces (`+0x8`..`+0xC`). For a front province P, for every edge of P not of kind 3 (impassable) whose neighbour is controlled by the **second** party: add `1000 x` the regiment count of every land unit (slot 15 IsLand) the second owns in that neighbour to *theirs*; and if P has at least one such edge, add `1000 x` the regiment count of every land unit the first owns in P to *ours*. Then `our_power (+0x2C) = ours / 1000`, `their_power (+0x28) = theirs / 1000`, and `balance (+0x24) = ours x 1000 / theirs` (64-bit when large), **1,000,000 when theirs is 0**. Brigades, not strength or organisation; a neighbour is counted once per edge into it, and a province once per front list it is on. Callers: CNap::Activate (in a running game) and 0x4E39C0 at 0x4E3C8E - daily from RunDailyPass for every NAP whose `first` is the country, but only on days where Date_DayOfYear % 7 == 0, or the balance is negative (a new pact's -1000), or the game is not yet in play.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agreements.md",
+   "evidence": "Decoded the accumulators: [ebp-0x18] gains `regiments x 0x3E8` for units owned by `nap->+0x14` (second) at 0xA4751E-0xA47539, [ebp-0x14] for units owned by `nap->+0xC` (first) at 0xA47581-0xA4759C; the stores `[ebx+0x2C] = [ebp-0x14]/1000`, `[ebx+0x28] = [ebp-0x18]/1000` at 0xA475ED/0xA475F0; the edge kind test `cmp [ecx+edx], 3` at 0xA4746F. The 0x4E39C0 gate decoded at 0x4E3BEA-0x4E3C8E (`Date_DayOfYear; idiv 7; test edx`, then `cmp [eax+0x24], ebx; jl`, then `in_game`). Wrong if the regiment count read were not CUnit's regiment list count - it is the field the decompiler names `regiments.count` on CUnit."
+  },
+  {
+   "rva": "0x6469A0",
+   "kind": "function",
+   "name": "CAlliance::IsOver",
+   "signature": "bool __thiscall CAlliance::IsOver(CAlliance* this)",
+   "no_signature": null,
+   "comment": "**CAlliance slot 6: whether the alliance should end.** 0xA469A0 to the bare `ret`s at 0xA46A2E/0xA46A35, one holder. True when the pair has **no dependency** (`countries[first]->diplomacy[second]->+0x18` null), the first's faction answers slot 7 (a real faction), and **both countries are in that same faction** (`+0xD8` equal). So an alliance dissolves once both partners sit in one real faction - unless one is the other's subject. Asked daily by CDiplomacyStatus_ExpireRelations, which then ends it with the MILALLWEBAN / MILALLBAN / MILALLBANOTHER messages. The name is ours, after CInfluence::IsOver and CAlign::IsOver.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agreements.md",
+   "evidence": "Read end to end in the disassembly (0xA469A0-0xA46A35, 38 instructions). Wrong if CFaction slot 7 were not the 'is a real faction' test - it is the same slot CAlign::IsOver and CInfluence::IsOver use, recorded from those."
+  },
+  {
+   "rva": "0x6470F0",
+   "kind": "function",
+   "name": "CNap::IsOver",
+   "signature": "bool __thiscall CNap::IsOver(CNap* this)",
+   "no_signature": null,
+   "comment": "**CNap slot 6: a NAP expires.** 0xA470F0 to the bare `ret` at 0xA471D0. True when `tick > AddMonths(start_date (+0x18), NAP_EXPIRY_MONTHS (diplomacy +0xE0) / 1000)` - strictly after; 45 months in Their Finest Hour. `end_date` is not read. Asked daily by CDiplomacyStatus_ExpireRelations, which then deactivates, unlinks and deletes the NAP **silently** - no message, no relation change, no threat.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agreements.md",
+   "evidence": "Read end to end: `mov ecx,[ecx+0xE0]` at 0xA4719A on the diplomacy block, `imul 0x10624DD3; sar 6` (/1000), AddMonths (0x4B8C90) on a copy of +0x18, `cmp esi(tick), [ebp-0x10]; setg al`. definesMap.py names +0xE0 NAP_EXPIRY_MONTHS."
+  },
+  {
+   "rva": "0x647AB0",
+   "kind": "function",
+   "name": "CCasusBelli::IsOver",
+   "signature": "bool __thiscall CCasusBelli::IsOver(CCasusBelli* this)",
+   "no_signature": null,
+   "comment": "**CCasusBelli slot 6: a dated casus belli has run out.** 0xA47AB0 to the bare `ret`s at 0xA47B8A/0xA47B9D. True when `end_date (+0x1C)` is a real date - `(end_date - 43,800,000) / 24 / 365.0 > 1`, the same test CCasusBelli::Activate and CRelation::SaveContents make - and `tick > end_date`. A casus belli with no end date never expires. Asked daily by CDiplomacyStatus_ExpireRelations, which removes it from the status's list and the relation list and deletes it without calling slot 11, so no WELOSECB is shown on this path.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agreements.md",
+   "evidence": "Read end to end: `lea edx,[ecx-0x29C55C0]`, `imul 0x2AAAAAAB; sar 2` (/24), `divsd [0x160A550]`, `cmp edx,1; jle false`, `cmp esi(tick),ecx; jle false` at 0xA47B42-0xA47B76."
+  },
+  {
+   "rva": "0x6476A0",
+   "kind": "function",
+   "name": "CRelation::IsOverAfterTwentyYears",
+   "signature": "bool __thiscall CRelation::IsOverAfterTwentyYears(CRelation* this)",
+   "no_signature": null,
+   "comment": "**Slot 6 of CGuarantee and of CWarning** - one body, two siblings under CRelation, whose own slot 6 is `_purecall`; named on the base for that reason, as CWarGoalBaseAction::Apply is. 0xA476A0 to the bare `ret` at 0xA4774F. True when `tick > start_date (+0x18) + 0x2AC60` - 175,200 hours, **twenty years** of 365 days. `end_date` is not read. So a guarantee ends twenty years after it began, through CDiplomacyStatus_ExpireRelations, with no message and no relation change; the history files' `end_date`s are applied only while history is replayed before play. A CWarning is on no status, so that pass never asks it.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agreements.md",
+   "evidence": "Read end to end: `mov eax,[edi+0x18]; mov esi,[esi+0xBDC]; add eax,0x2AC60; cmp esi,eax; setg al` at 0xA4772C-0xA47741. vtable.py --holding gives exactly CGuarantee slot 6 and CWarning slot 6."
+  },
+  {
+   "rva": "0x64B620",
+   "kind": "function",
+   "name": "CEmbargo::Deactivate",
+   "signature": "void __thiscall CEmbargo::Deactivate(CEmbargo* this)",
+   "no_signature": null,
+   "comment": "**CEmbargo slot 11**, the undo of Activate: `embargo (+0x34)` = 0 in both directions, `changed` set on neither, nothing else. 0xA4B620 to the bare `ret` at 0xA4B709, one holder. Called by CEmbargoAction::Apply's lift arm and MakeVassal.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agreements.md",
+   "evidence": "Decoded: the two stores of ebx (0) to `[reg+0x34]` at 0xA4B666 and 0xA4B688 on `countries[second]->+0xE28[first]` and `countries[first]->+0xE28[second]`, and no call but the inlined game-state accessor."
+  },
+  {
+   "rva": "0x64AF20",
+   "kind": "function",
+   "name": "CAlign::Deactivate",
+   "signature": "void __thiscall CAlign::Deactivate(CAlign* this)",
+   "no_signature": null,
+   "comment": "**CAlign slot 11**: `countries[first]->diplomacy[second]->align (+0x30)` = 0 (one direction, `changed` not set); then the faction named by the object's own string (+0x24) is looked up (CGameState_FindFactionByName), `align_towards_<faction>` built (AlignTowardsModifierName) and that static modifier removed from the **first** country (CCountry_RemoveStaticModifier). 0xA4AF20 to the bare `ret` at 0xA4B109, one holder. **Trap 2**: RelationEndTickByAlignDays ends on the byte before. Called by CCountry_StopAlign and CDiplomacyStatus_ExpireRelations.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agreements.md",
+   "evidence": "Decompiled and the call list checked: 0x686F50, 0x523530, 0x5B4E00 (the static-modifier find), 0x4DFB00 (CCountry_RemoveStaticModifier) in that order; the store of 0 to +0x30 at 0xA4AF6A."
+  },
+  {
+   "rva": "0x64A8C0",
+   "kind": "function",
+   "name": "CInfluence::Deactivate",
+   "signature": "void __thiscall CInfluence::Deactivate(CInfluence* this)",
+   "no_signature": null,
+   "comment": "**CInfluence slot 11**: on `countries[second]->diplomacy[first]` (the influenced country's side) `changed (+0x59)` = 1 and `influence_running (+0x2C)` = 0; `countries[second]->+0x1144` = 0; then the faction named by the object's string (+0x24) is looked up and, the lookup never failing, `align_towards_<faction>` removed from the **second** (influenced) country. 0xA4A8C0 to the bare `ret` at 0xA4AACE, one holder. Called by CCountry_StopInfluence, CDiplomacyStatus_ExpireRelations and SetPairWar.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agreements.md",
+   "evidence": "Decoded 0xA4A8E3-0xA4A920: the status `countries[+0x14]->+0xE28[+0xC]`, `mov byte [eax+0x59],1`, `mov [eax+0x2C],ebx(0)`, `mov byte [eax+0x1144],bl` on `countries[+0x14]`."
+  },
+  {
+   "rva": "0x647800",
+   "kind": "function",
+   "name": "CDependency::Deactivate",
+   "signature": "void __thiscall CDependency::Deactivate(CDependency* this)",
+   "no_signature": null,
+   "comment": "**CDependency slot 11, inherited by CVassal**: `dependency (+0x18)` = 0 and `changed` = 1 in both directions, then CCountry::UpdateSubjectStatus (0x4EDD80) on both countries. 0xA47800 to the bare `ret` at 0xA4789B. The undo of CDependency::Activate.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agreements.md",
+   "evidence": "Decompiled; the two UpdateSubjectStatus calls at 0xA47873 and 0xA47891 are the body's only calls. vtable.py --holding: CDependency slot 11 and CVassal slot 11, one family."
+  },
+  {
+   "rva": "0x64B520",
+   "kind": "function",
+   "name": "CEmbargo::GetToken",
+   "signature": "int __thiscall CEmbargo::GetToken(CEmbargo* this)",
+   "no_signature": null,
+   "comment": "**CEmbargo slot 7**: `mov eax, 0x6D2; ret` - the save key `embargo`, which CDiplomacy::SaveContents writes before the block and CDiplomacy::LoadKey compares. One holder.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agreements.md",
+   "evidence": "Two instructions; ghidra/saveTokens.json gives 0x6D2 = embargo; CDiplomacy::SaveContents calls slot 7 ([vft+0x1C]) for the key it writes."
+  },
+  {
+   "rva": "0x64B2E0",
+   "kind": "function",
+   "name": "CAlign::GetToken",
+   "signature": "int __thiscall CAlign::GetToken(CAlign* this)",
+   "no_signature": null,
+   "comment": "**CAlign slot 7**: `mov eax, 0x6D1; ret` - the save key `align`. One holder.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agreements.md",
+   "evidence": "Two instructions; saveTokens.json gives 0x6D1 = align. The savegame's diplomacy block writes `align=` blocks."
+  },
+  {
+   "rva": "0x647750",
+   "kind": "function",
+   "name": "CWarning::GetToken",
+   "signature": "int __thiscall CWarning::GetToken(CWarning* this)",
+   "no_signature": null,
+   "comment": "**CWarning slot 7**: `mov eax, 0x3B5; ret` - the save key `warning`. One holder.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agreements.md",
+   "evidence": "Two instructions; saveTokens.json gives 0x3B5 = warning, which is one of CDiplomacy::LoadKey's keys."
+  },
+  {
+   "rva": "0x648B20",
+   "kind": "function",
+   "name": "CDiplomacyStatus_ExpireRelations",
+   "signature": "void __stdcall CDiplomacyStatus_ExpireRelations(CDiplomacyStatus* status)",
+   "no_signature": null,
+   "comment": "**The daily end of agreements.** 0xA48B20 to the single `ret 4` at 0xA49C84, the status on the stack. Its one caller is RunCountryDailyPass at 0x4DAF35, which runs it on `country->diplomacy[o]` for every database country o that owns a province (+0xCF8 > 0) - and RunDailyPass runs that only for countries whose byte +0x44 is set. In order, each test being the relation's slot 6 (IsOver):\n\n1. **Casus belli** (`+0x3C` list): each one over is unlinked from the status's list (honouring the list's iterating byte `+0x48`) and from the relation list +0xB2C, and deleted through slot 0 - no slot 11, no message.\n2. **Influence** (`+0x2C`, held on the influenced side): unlinked, slot 11 (CInfluence::Deactivate), deleted. No message.\n3. **Align** (`+0x30`, held on the aligner's side): unlinked; when the align's `first` is the player, a DIPLOEXPIRE message ('our efforts to Align towards the $FACTION$ has expired', the ACTION text from DIPLOEXPIRE_ALIGN), posted to the in-game screen; slot 11 (CAlign::Deactivate), delete.\n4. **Guarantee** (`+0x1C`), **only when the guarantee's `first` is the status's target** (+0xC) - so it is asked once, from the guaranteed country's pass: unlinked, slot 11, delete. No message.\n5. **NAP** (`+0x28`): unlinked, slot 11, delete. No message.\n6. **Alliance** (`+0x14`): CDiplomacy_RemoveRelation, slot 11 (CAlliance::Deactivate), delete; then messages naming the status's owner as ACTOR and the target as RECIPIENT - MILALLWEBAN when the owner is the player, MILALLBAN when the target is, else MILALLBANOTHER: the keys of leaving an alliance.\n\nDependency (+0x18) and embargo (+0x34) are not asked; trade routes are not walked here. **Nothing writes relation, threat or influence.** The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agreements.md",
+   "evidence": "Decompiled whole and each branch's field and slot checked in the disassembly: [edi+0x3C] and the slot-6 call at 0xA48B44-0xA48B63, the +0x48 byte at 0xA48B88, the +0xB38 byte and +0xB2C/+0xB30/+0xB34 at 0xA48C36-0xA48C9B, slot 0 at 0xA48CAA; [edi+0x2C] at 0xA48CB7; [edi+0x30] at 0xA48D88 and the strings DIPLOEXPIRE_ALIGN (0xA49124) and DIPLOEXPIRE (0xA49331); [edi+0x1C] with `cmp [ecx+0xC], [edi+0xC]` at 0xA494AD-0xA494CA; [edi+0x28] at 0xA49598; [edi+0x14] and CDiplomacy_RemoveRelation at 0xA49668-0xA4970D. The caller loop decoded at 0x4DAF00-0x4DAF40."
+  },
+  {
+   "rva": "0x648790",
+   "kind": "function",
+   "name": "SetPairWar",
+   "signature": "void __stdcall SetPairWar(CDiplomacyStatus* status, CWar* war)",
+   "no_signature": null,
+   "comment": "**The writer of `CDiplomacyStatus::war (+0x20)`.** 0xA48790 to the single `ret 8` at 0xA4899D. `changed (+0x59)` = 1 and `war (+0x20)` = the argument; then, **whatever the argument**, a running influence on this side (`+0x2C`) is unlinked from the relation list, deactivated (slot 11) and deleted, and every trade route in `trade_routes (+0x60)` is deactivated, unlinked and deleted. Four callers, two each in CWar::AddDefender (0xA5167F, 0xA516A1 - the war pointer, both directions of an attacker-defender pair) and CWar::RemoveDefender (0xA51BAF, 0xA51BCF - null). So **joining a war ends the influence and the trade between the two belligerents**. Not in a vftable, no caller in CWar::AddAttacker (whether that writes +0x20 another way was not looked at). The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agreements.md",
+   "evidence": "Decoded end to end: `mov edi,[ebx+0x2C]; mov byte [ebx+0x59],1; mov [ebx+0x20],eax(arg 2)` at 0xA487B1-0xA487B8 with no test of the argument before the influence branch; CList_RemoveNode at 0xA48865, slot 11 at 0xA48871, slot 0 at 0xA4887B; the route loop from `[ebx+0x68]`/`[ebx+0x60]` at 0xA4887D-0xA48987. findRefs --callers gives the four sites; the pushes decoded at 0xA5165C-0xA516A1 (`push [ebp+8]`) and 0xA51B94-0xA51BCF (`push 0`)."
+  },
+  {
+   "rva": "0x60DBB0",
+   "kind": "function",
+   "name": "CDiplomacy_RemoveRelation",
+   "signature": null,
+   "no_signature": "Register convention: the CDiplomacy in EAX and the relation in EDX, bare ret, nothing on the stack - `void __fastcall CDiplomacy_RemoveRelation(CDiplomacy* diplomacy@EAX, CRelation* relation@EDX)`.",
+   "comment": "Unlinks a relation from `CDiplomacy +0x8` (the relation list, `CCurrentGameState +0xB2C` when the CDiplomacy is the game state's): finds the node whose payload is the relation and hands it to CList_RemoveNode (0x5D49D0). Does **not** delete. 0xA0DBB0 to the bare `ret` at 0xA0DBD3; the CDiplomacy arrives in **EAX** and the relation in **EDX**. Callers: CDiplomacyStatus_ExpireRelations (alliances), CEmbargoAction::Apply (lifting), CTradeAction::Apply, CCallAllyAction::Apply (4) and GuaranteeTextCommand.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agreements.md",
+   "evidence": "Eleven instructions read: `lea esi,[eax+8]`, the walk comparing `[node]` with edx, `call 0x5D49D0`. Wrong if 0x5D49D0 freed the payload - it is the recorded CList_RemoveNode, which frees only the node."
+  },
+  {
+   "rva": "0x60DB60",
+   "kind": "function",
+   "name": "CDiplomacy::SaveContents",
+   "signature": "void __thiscall CDiplomacy::SaveContents(CDiplomacy* this, CSaveWriter* writer)",
+   "no_signature": null,
+   "comment": "**CDiplomacy slot 2**: the save's `diplomacy=` block. For every relation in the list at `+0x8`, **skipping any whose `cancel` (+0x20) byte is set**, writes the relation's slot 7 (GetToken) as the key and calls its slot 1 (Save) for the block. 0xA0DB60 to the `ret 4` at 0xA0DB9E. Keys by class: `alliance`, `guarantee`, `nap`, `vassal`, `influence`, `align`, `embargo`, `warning`, `casus_belli`, `trade`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agreements.md",
+   "evidence": "Decompiled (19 lines) and the `cmp byte [esi+0x20]` / [vft+0x1C] / [vft+4] calls checked. Matches the save: Germany1936_04_20_03's block holds guarantee, alliance, vassal, trade, align and influence, each with the keys CRelation::SaveContents writes."
+  },
+  {
+   "rva": "0x646790",
+   "kind": "function",
+   "name": "CRelation::SaveContents",
+   "signature": "void __thiscall CRelation::SaveContents(CRelation* this, CSaveWriter* writer)",
+   "no_signature": null,
+   "comment": "**CRelation slot 2, inherited by CAlliance, CGuarantee, CEmbargo, CAlign, CInfluence, CDependency, CVassal and CWarning.** Writes `first`, `second`; `end_date` only when it is a real date (`(end_date - 43,800,000) / 24 / 365.0 > 1`); then **either `cancel = yes` and return, or `start_date`** - a cancelled relation is saved without its start date (and CDiplomacy::SaveContents never asks a cancelled one, so that arm is unreachable from it). 0xA46790 to the `ret 4` at 0xA46921 (a second `ret 4` at 0xA4696E). The subclass data at +0x24 - a guarantee's faction byte, an influence's or align's faction name - is **not saved**.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agreements.md",
+   "evidence": "Decoded: tokens 0x299/0x29A pushed for first/second, the end-date test `sub ecx,0x29C55C0 ... divsd [0x160A550]; cmp eax,1; jle` at 0xA46877-0xA468A7, `cmp byte [ebx+0x20],0` at 0xA468EA and the `ret 4` at 0xA46921 inside that arm, start_date (0x29B) at 0xA46933. The save corpus shows the history relations with end_date and the action-made ones (align, influence, trade) without."
+  },
+  {
+   "rva": "0x646FF0",
+   "kind": "function",
+   "name": "CNap::SaveContents",
+   "signature": "void __thiscall CNap::SaveContents(CNap* this, CSaveWriter* writer)",
+   "no_signature": null,
+   "comment": "**CNap slot 2**: `balance` (+0x24, written as a fixed-point number, thousandths), `our_power` (+0x2C) and `their_power` (+0x28) as plain `%d` integers, then CRelation::SaveContents. 0xA46FF0 to the `ret 4` at 0xA470E5. The mirror of CNap::LoadKey.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agreements.md",
+   "evidence": "Decompiled whole (one MakeFixedToken for balance, two `%d` sprintf for the powers, a tail call into 0xA46790)."
+  },
+  {
+   "rva": "0x286F50",
+   "kind": "function",
+   "name": "CGameState_FindFactionByName",
+   "signature": "CFaction* __stdcall CGameState_FindFactionByName(CCurrentGameState* state, Hoi3CString* name)",
+   "no_signature": null,
+   "comment": "Walks the game state's faction list at `+0xCE4` (nodes: payload at +0, next at +8) and returns the first CFaction whose name string (+0xC) equals `name` exactly; **otherwise the CNullFaction singleton**, made on first use - never null. 0x686F50 to the `ret 8`s at 0x68704A/0x687066. Four callers, among them CAlign::Deactivate and CInfluence::Deactivate, which look up the faction named in the relation's own string.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agreements.md",
+   "evidence": "Decompiled whole; `mov eax,[ebp+8]; mov eax,[eax+0xCE4]` at 0x686F6B, the string compare against `+0xC`/`+0x1C`, the CNullFaction fallback. findRefs --callers: 4."
+  },
+  {
+   "rva": "0x123530",
+   "kind": "function",
+   "name": "AlignTowardsModifierName",
+   "signature": null,
+   "no_signature": "Register convention: the faction in EAX and the output Hoi3CString in ESI, returned in EAX, bare ret - `Hoi3CString* __fastcall AlignTowardsModifierName(CFaction* faction@EAX, Hoi3CString* out@ESI)`.",
+   "comment": "`*out = \"align_towards_\" + faction->name (+0xC)`, returning `out` - the name of the static modifier an influence or an alignment puts on a country (`align_towards_axis`, `_allies`, `_comintern`). 0x523530 to the bare `ret` at 0x523553; the CFaction in **EAX**, the output string in **ESI**. Eight callers.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agreements.md",
+   "evidence": "Read whole (12 instructions): `add eax,0xC; push eax; mov edx,0x15C2410 ('align_towards_'); mov ecx,esi; call 0xA5B150; mov eax,esi`."
+  },
+  {
+   "rva": "0x42CD0",
+   "kind": "function",
+   "name": "GuaranteeTextCommand",
+   "signature": "void* __cdecl GuaranteeTextCommand(void* result, void* args)",
+   "no_signature": null,
+   "comment": "**A console command that toggles a guarantee**: with two country tags it makes `first` guarantee `second` (a CGuarantee(0) dated now, activated, appended, RebuildNeighbours and 0x4E39C0 on both; \" is now guaranteeing \") unless `first->diplomacy[second]` already holds a guarantee whose `first` is not the target - then that one is deactivated, removed (CDiplomacy_RemoveRelation) and deleted (\" is no longer guaranteeing \"). 'Please specify 2 country tags.' / 'Unknown country tag' otherwise. 0x442CD0 to the bare `ret` at 0x44326B; no caller and no reference in code, the shape of a handler registered at run time. The name is from that shape.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-agreements.md",
+   "evidence": "Decompiled whole; the strings at 0x15B8938 and beside it are referenced from inside it. Wrong if it is not a console handler - nothing in the image registers it by address, which is the same evidence SpawnRebelsTextCommand rests on."
+  },
+  {
+   "rva": "0x64A400",
+   "kind": "function",
+   "name": "SetMilitaryAccess",
+   "signature": "void __fastcall SetMilitaryAccess(bool granted@CL, CDiplomacyStatus* status@stack:4)",
+   "no_signature": null,
+   "comment": "The one writer of `CDiplomacyStatus::hasMilitaryAccess (+0x4C)`. Opens 0xA4A400, `ret 4`. The bool arrives in **CL** and the status on the stack - no ordinary convention, hence the spelled-out storage (trap 11). Sets `status->changed (+0x59) = 1` and `status->+0x4C = cl`, then, when `gameState->in_game (+0xDA4)` is set, pushes -1 onto the game state's list at `+0xCF8` through 0x45F5E0 - a refresh request, since who may march where has just changed.\n\n**Fifteen callers, and they are what names the field.** `cl = 1` at CMilitaryAccessAction::Apply 0xA23998 (on `asker->diplomacy[granter]`), COfferMilitaryAccessAction::Apply 0xA25F91 (on `recipient->diplomacy[offerer]`) and **CGrantMilitaryAccessEffect::Execute (rva 0x5B69F0, slot 11) at 0x9B6A4E** - the event-script effect whose own name says what the byte is. `cl = 0` at the cancel arms of the same two actions (0xA242BF; 0xA268A9 and 0xA268D9, both directions), at CDeclareWarAction::Apply (0xA12DB6 and 0xA12DE6, both directions) and CCallAllyAction::Apply (0xA28891, 0xA288C4), in MakeVassal (0x4D9EA7, 0x4D9EC3) and in the capitulation at rva 0xE9220 (0x4E9BCF, 0x4E9BE6).\n\n**The field names here are wave 13 agent A's**, out of the Lua API (`CDiplomacyStatus::HasMilitaryAccess` rva 0x64A3F0 reads +0x4C, `CDiplomacyStatus::AllowDebts` rva 0x64A7E0 reads +0x78), which agree offset for offset with the save keys `military_access` (token 0x2F0) and `debtaction_action` (token 0x726) that CDiplomacyStatus::LoadKey (rva 0x648190) writes to the same two bytes at 0x4817F1 and 0xA4834F. Two independent halves of the fact base converging on one offset is trap 14's good case; the registration names win and the keys are recorded here.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agreements.md",
+   "evidence": "The four call sites attributed by extent rather than by nearest name: 0x4D9EA7/0x4D9EC3 lie inside MakeVassal (0x4D94A0 to its bare `ret` at 0x4DA447, retsBefore empty); 0x4E9BCF/0x4E9BE6 lie past CCountry_Surrender's only `ret 4` at 0x4E9215, in the capitulation 0x4E9220 (retsBefore(0x4E9220, 0x4E9BCF) empty). Neither is RunCountryHourlyPass (0x4D8xxx) or CCountry::UpdateUndeclaredWars (0x4E6EE0).",
+   "revises": "**Corrects two caller attributions**: 0x4D9EA7/0x4D9EC3 are in MakeVassal, not RunCountryHourlyPass, and 0x4E9BCF/0x4E9BE6 in the capitulation 0x4E9220, not CCountry::UpdateUndeclaredWars. Also says which status each action writes."
+  },
+  {
+   "rva": "0x60D5C0",
+   "kind": "function",
+   "name": "CDiplomacy::LoadKey",
+   "signature": "void __thiscall CDiplomacy::LoadKey(CDiplomacy* this, CParseContext* parse, SaveToken key)",
+   "no_signature": null,
+   "comment": "The save's diplomacy block - one key per kind of standing agreement. **Eleven keys**: the switch names nine - `alliance`, `casus_belli`, `guarantee`, `history`, `influence`, `nap`, `trade`, `vassal`, `warning` - and two more are compared after it, `align` (0x6D1, 0xA0D7B7) and `embargo` (0x6D2, 0xA0D7C2), which a switch reader does not see. Each makes its object (CAlliance 0x24, CGuarantee(0) 0x28, CNap 0x30, CVassal 0x24, CInfluence 0x40, CAlign 0x40, CEmbargo 0x24, CWarning 0x24, CCasusBelli 0x28, CTradeRoute 0x88), calls its slot 3 (Load), appends it to the list at `+0x8` and **calls its slot 10, Activate** - which is what re-hangs every loaded agreement on both countries' statuses, re-derives an influence's or align's faction name and re-adds its modifier. `history` hands the block to the CHistoryContainer at `+0x18`. **An unknown key is not silent**: it is logged, 'Unknown tag in diplomacy field in savegame <key>' (Diplomacy.cpp).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agreements.md",
+   "evidence": "Decoded the compares: `cmp eax,0x2A5` / `cmp eax,0x6CD` / `cmp eax,0x3B5` / `cmp eax,0x4A1` and `sub eax,0x6D1; je; dec eax; je` at 0xA0D7B7-0xA0D7C3 before the log at 0xA0D7C9. The decompiled tail calls `(*vftable->Activate)` (slot 10) after the append for every key.",
+   "revises": "Two keys more than the entry listed (align, embargo), the Activate after every load, and an unknown key is logged rather than dropped in silence."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CDiplomacyStatus",
+   "offset": "0x20",
+   "name": "war",
+   "type": "CWar*",
+   "comment": "The war the pair are fighting, or null. **Its writer is SetPairWar (rva 0x648790)**, called by CWar::AddDefender with the war for both directions of each attacker-defender pair and by CWar::RemoveDefender with null - and which, whatever it writes, also ends the pair's running influence and trade routes. Readers: CCountry::IsEnemy (rva 0x2F1B0) answers true on nothing but this being non-null plus the two unconditional REB cases, and the daily province pass inlines the same three tests at 0x49EE35. `CDeclareWarAction::Apply` loads it at 0xA12191 and hands it to `CWar::AddAttacker` (0xA12641) and `CWar::AddDefender` (0xA12654); the `attackers` vector at +0x2C/+0x30 is walked through it at 0xA12611 in 8-byte CCountryTag steps. Whether CWar::AddAttacker writes it another way was not looked at.",
+   "source": "reversing/findings/FINDINGS-agreements.md",
+   "evidence": "SetPairWar decoded: `mov [ebx+0x20], eax` with eax its second stack argument, at 0xA487B8; the four pushes decoded at its call sites.",
+   "revises": "The comment said no writer was found; SetPairWar is one, from CWar::AddDefender and RemoveDefender."
+  },
+  {
+   "struct": "CDiplomacyStatus",
+   "offset": "0x28",
+   "name": "nap",
+   "type": "CNap*",
+   "comment": "The pair's non-aggression pact, or null - one CNap for both directions. Written by CNap::Activate (both directions) and cleared by CNap::Deactivate (both). CCountry::CanBreakNap reads its `second` (+0x10/+0x14), `start_date` (+0x18) and `balance` (+0x24); CNap_UpdateForceBalance measures it weekly from the first party's daily pass; CDiplomacyStatus_ExpireRelations ends it NAP_EXPIRY_MONTHS after its start; CDeclareWarAction::Apply ends it between belligerents (0xA122C8).",
+   "source": "reversing/findings/FINDINGS-agreements.md",
+   "evidence": "CNap::Activate's stores at 0xA4722A/0xA47250 and CNap::Deactivate's at 0xA47335/0xA47357, both through `countries[...]->+0xE28[...]` (the register-taint sweep's hits).",
+   "revises": "Typed CNap* (was void*); the struct exists in the record. Comment gains the writers and the passes."
+  },
+  {
+   "struct": "CDiplomacyStatus",
+   "offset": "0x2C",
+   "name": "influence_running",
+   "type": "CInfluence*",
+   "comment": "**The `CInfluence*` itself**, not a flag - non-null exactly while a diplomatic influence is running between the pair, and carried **only on the influenced country's side**, `influenced->diplomacy[influencer]`. Writer CInfluence::Activate (rva 0x64AAD0); cleared by CInfluence::Deactivate. Readers: CCountry::PayDailyInfluenceUpkeep charges INFLUENCE_UPKEEP once a day for each country whose status toward the payer has it set, CCountry::GetInfluencedCountryCount counts the same, CInfluenceNation::Apply refuses a second influence from the same faction on it, and CDiplomacyStatus_ExpireRelations and SetPairWar end it.",
+   "source": "reversing/findings/FINDINGS-agreements.md",
+   "evidence": "CInfluence::Activate's `mov [eax+0x2C], esi` at 0xA4AB4C and CInfluence::Deactivate's `mov [eax+0x2C], ebx` at 0xA4A90E, both on `countries[second]->+0xE28[first]`.",
+   "revises": "Typed CInfluence* (was int), which the comment already said it is; the struct exists in the record."
+  },
+  {
+   "struct": "CDiplomacyStatus",
+   "offset": "0x4C",
+   "name": "hasMilitaryAccess",
+   "type": "bool",
+   "comment": "The game's own name for it, out of the Lua API. `CDiplomacyStatus::HasMilitaryAccess` (rva 0x64A3F0) is `mov al, byte ptr [ecx + 0x4c]; ret` - the whole function, so the function *is* the offset. That body is shared - 1 luabind registration and 16 virtual table slots - so it cannot carry a class name, but the field can: the registration is what names the class. **One direction: `A->diplomacy[B]` set means A may move through B's land** - CMilitaryAccessAction sets it on the asker's side, COfferMilitaryAccessAction on the recipient's, CCountry::IsFriendly(includeRequested) accepts it on its own side and CPathFind::MayStep reads it. MonthlyRelationDrift adds 25 thousandths when the visiting side holds it, so one-way access moves a pair 0.012 a month and two-way 0.024.",
+   "source": "reversing/findings/FINDINGS-agreements.md",
+   "evidence": "SetMilitaryAccess's call sites decoded with the status each passes (see that entry); CCountry::IsFriendly at 0x4EF918-0x4EF921 reads `countries[this]->+0xE28[other]->+0x4C`; MonthlyRelationDrift at 0x4E79B1 reads `country->diplomacy[other]->+0x4C`.",
+   "revises": "Adds the direction, which the comment did not state, and the drift's one-sided term."
+  },
+  {
+   "struct": "CRelation",
+   "offset": "0x1C",
+   "name": "end_date",
+   "type": "int",
+   "comment": "**When the agreement ends**, as a tick (save key `end_date`); **the null date 43,800,000 (`[0x170C2B8]`) where it has none** - every constructor sets it so, not zero. A real date is told by `(end_date - 43,800,000) / 24 / 365.0 > 1`. Read only by CCasusBelli (Activate, which will not attach an expired one, and IsOver) and by CRelation::SaveContents (written only when real). **No other relation's IsOver reads it**: a guarantee ends twenty years after `start_date`, a NAP NAP_EXPIRY_MONTHS after it, and the history files' end dates take effect only while history is replayed before play.",
+   "source": "reversing/findings/FINDINGS-agreements.md",
+   "evidence": "The constructors CGuarantee::CGuarantee (0xA46E90) and CNap::CNap (0xA46F00) store `[0x170C2B8]` to +0x1C; all ten subclasses' slot 6 bodies were read (CAlliance, CNap, CCasusBelli, the CGuarantee/CWarning body, CAlign, CInfluence; ReturnFalse for CEmbargo, CDependency, CVassal, CTradeRoute) and only CCasusBelli's touches +0x1C.",
+   "revises": "It said zero where there is no end date; it is the null date. Adds who reads it."
+  },
+  {
+   "struct": "CRelation",
+   "offset": "0x20",
+   "name": "cancel",
+   "type": "uint8_t",
+   "comment": "**Whether the agreement is cancelled** (save key `cancel`), the last of CRelation's own bytes - a subclass's data starts at +0x24. Loaded as a plain comparison against the token `yes`, so any other value, including `no`, leaves it 0. **CDiplomacy::SaveContents skips every relation with it set**, and CRelation::SaveContents, given one, writes `cancel = yes` instead of `start_date`. No writer in play was looked for.",
+   "source": "reversing/findings/FINDINGS-agreements.md",
+   "evidence": "CDiplomacy::SaveContents tests `byte [esi+0x20]` before writing (0xA0DB60); CRelation::SaveContents `cmp byte [ebx+0x20],0` at 0xA468EA with its own `ret 4` at 0xA46921 inside that arm.",
+   "revises": "Adds what the byte does to saving."
+  },
+  {
+   "struct": "CNap",
+   "offset": "0x24",
+   "name": "balance",
+   "type": "int",
+   "comment": "**The border force balance, `our_power x 1000 / their_power`, thousandths** (save key `balance`, fixed point) - the first party's land brigades on the border over the second's, and **1,000,000 when the second has none there**. Written by CNap_UpdateForceBalance; the constructor's -1000 marks a pact never measured. CCountry::CanBreakNap compares it with NAP_BREAK_FORCE_BALANCE_1..3, inverting it (1,000,000 / balance) for the second party.",
+   "source": "reversing/findings/FINDINGS-agreements.md",
+   "evidence": "CNap_UpdateForceBalance's store at 0xA47600 and its division at 0xA47626-0xA4762D; CNap::CNap's `mov [eax+0x24], 0xFFFFFC18`.",
+   "revises": "Says what the balance is a ratio of and who writes it."
+  },
+  {
+   "struct": "CNap",
+   "offset": "0x28",
+   "name": "their_power",
+   "type": "int",
+   "comment": "**The second party's brigades on the border** (save key `their_power`, a plain integer): the regiment count of the second's land units in every province the second controls next to one of the first's front provinces, counted once per edge into it. Written by CNap_UpdateForceBalance.",
+   "source": "reversing/findings/FINDINGS-agreements.md",
+   "evidence": "CNap_UpdateForceBalance: units owned by `nap->+0x14` summed into [ebp-0x18] at 0xA47539, stored /1000 at 0xA475F0.",
+   "revises": "Says whose power it is and how it is counted."
+  },
+  {
+   "struct": "CNap",
+   "offset": "0x2C",
+   "name": "our_power",
+   "type": "int",
+   "comment": "**The first party's brigades on the border** (save key `our_power`, a plain integer): the regiment count of the first's land units in each of its front provinces that touch the second's land. Written by CNap_UpdateForceBalance. The last dword of the 0x30-byte object.",
+   "source": "reversing/findings/FINDINGS-agreements.md",
+   "evidence": "CNap_UpdateForceBalance: units owned by `nap->+0xC` summed into [ebp-0x14] at 0xA4759C, stored /1000 at 0xA475ED.",
+   "revises": "Says whose power it is and how it is counted."
+  },
+  {
+   "struct": "CInfluence",
+   "offset": "0x24",
+   "name": "faction_name",
+   "type": "Hoi3CString",
+   "comment": "The influencer's faction's name (`CFaction +0xC`), copied by CInfluence::Activate and used by CInfluence::Deactivate to find the faction and remove `align_towards_<name>` from the influenced country. **Not saved** (CRelation::SaveContents); CDiplomacy::LoadKey's Activate re-derives it from the influencer's faction at load. The object is 0x40 bytes (CDiplomacy::LoadKey and CInfluenceNation::Apply allocate 0x40), so the string fills +0x24..+0x3F.",
+   "source": "reversing/findings/FINDINGS-agreements.md",
+   "evidence": "CInfluence::Activate: `lea ecx,[esi+0x24]; call 0x401BD0` with `faction+0xC` pushed, at 0xA4AB28-0xA4AB37; the shared CAlign/CInfluence destructor 0xA4AEA0 resets a string at +0x24 (length +0x34, capacity +0x38)."
+  },
+  {
+   "struct": "CAlign",
+   "offset": "0x24",
+   "name": "faction_name",
+   "type": "Hoi3CString",
+   "comment": "The faction's name the alignment is towards (the leader's `CFaction +0xC`), copied by CAlign::Activate and used by CAlign::Deactivate to remove `align_towards_<name>` from the aligner. **Not saved**; re-derived by Activate at load. The object is 0x40 bytes.",
+   "source": "reversing/findings/FINDINGS-agreements.md",
+   "evidence": "CAlign::Activate assigns `countries[second]->faction->+0xC` into the object's string; the shared destructor 0xA4AEA0 resets the string at +0x24; CDiplomacy::LoadKey and CInfluenceAllianceLeader::Apply allocate 0x40."
+  },
+  {
+   "struct": "CGuarantee",
+   "offset": "0x24",
+   "name": "via_faction",
+   "type": "uint8_t",
+   "comment": "The constructor's argument (CGuarantee::CGuarantee, 0xA46E90): 0 for a guarantee given directly, 1 for the copies CGuaranteeAction::Apply makes for the guarantor's faction members when `CCountry +0xDE4` is set - a branch with no writer of that byte, so always 0 in practice. **Not saved.** No reader was looked for. The object is 0x28 bytes.",
+   "source": "reversing/findings/FINDINGS-agreements.md",
+   "evidence": "CGuarantee::CGuarantee writes the argument byte to +0x24; CGuaranteeAction::Apply passes 0 at the direct guarantee and 1 inside the faction loop; CDiplomacy::LoadKey and GuaranteeTextCommand pass 0."
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0x1144",
+   "name": "being_influenced",
+   "type": "uint8_t",
+   "comment": "Set to 1 by CInfluence::Activate on the influenced country and to 0 by CInfluence::Deactivate and the constructor. **No reader in .text** at a disp32 encoding (a scan of all four displacement bytes finds those three stores and a stack `lea`); a byte this deep cannot be reached by a disp8, so only a read through a pointer already inside the object would be missed. Its use, if any, was not found.",
+   "source": "reversing/findings/FINDINGS-agreements.md",
+   "evidence": "disp32 scan of .text for 0x1144: 0x4C9A93 (CCountry::CCountry, 0), 0xA4A920 (CInfluence::Deactivate, 0), 0xA4AB4F (CInfluence::Activate, 1), 0x49AE61 (`lea ecx,[esp+0x1144]`, a stack slot). Positive control: the same scan for 0xDE4 finds the known reset store at 0x4D3E22."
+  }
+ ],
+ "vftable_slots": {
+  "CAlliance": {
+   "6": "IsOver"
+  },
+  "CNap": {
+   "6": "IsOver",
+   "2": "SaveContents"
+  },
+  "CCasusBelli": {
+   "6": "IsOver"
+  },
+  "CGuarantee": {
+   "6": "IsOver"
+  },
+  "CWarning": {
+   "6": "IsOver",
+   "7": "GetToken"
+  },
+  "CEmbargo": {
+   "11": "Deactivate",
+   "7": "GetToken"
+  },
+  "CAlign": {
+   "11": "Deactivate",
+   "7": "GetToken"
+  },
+  "CInfluence": {
+   "11": "Deactivate"
+  },
+  "CDependency": {
+   "11": "Deactivate"
+  },
+  "CVassal": {
+   "11": "Deactivate"
+  },
+  "CDiplomacy": {
+   "2": "SaveContents"
+  },
+  "CRelation": {
+   "2": "SaveContents"
+  },
+  "CAllianceAction": {
+   "7": "Apply"
+  },
+  "CGuaranteeAction": {
+   "7": "Apply"
+  },
+  "CMilitaryAccessAction": {
+   "7": "Apply"
+  },
+  "COfferMilitaryAccessAction": {
+   "7": "Apply"
+  },
+  "CNapAction": {
+   "7": "Apply"
+  },
+  "CEmbargoAction": {
+   "7": "Apply"
+  },
+  "CInfluenceNation": {
+   "7": "Apply"
+  },
+  "CInfluenceAllianceLeader": {
+   "7": "Apply"
+  }
+ },
+ "frontier": [
+  "0xE39C0",
+  "0xE9220",
+  "0xF5F30",
+  "0x647A00",
+  "0x647D20"
+ ],
+ "slots_noted": null
+}

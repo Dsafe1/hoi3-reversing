@@ -1,0 +1,780 @@
+{
+ "agent": "agreements wave, brief A (an offer's way through the game)",
+ "question": "Who answers a diplomatic offer, when, and how the player takes part: 0x89E010 read whole, the pending list's other readers, the offer shown to the player and his answer, and the reader of next_offer_allowed.",
+ "source": "reversing/findings/FINDINGS-agreements.md",
+ "addresses": [
+  {
+   "rva": "0x49E010",
+   "kind": "function",
+   "name": "CAIForeignMinister::AnswerPendingOffers",
+   "signature": "void __stdcall CAIForeignMinister::AnswerPendingOffers(CAIForeignMinister* minister)",
+   "no_signature": null,
+   "comment": "**How an AI country answers the offers made to it.** 0x89E010 to the `ret 4` at 0x89E273, the minister on the stack, ECX unused. Two callers: ProcessAI at 0x8896F7, **every hour, for every CEU3AI whose foreign minister (+0x60) exists, with no test of the agent's enable byte or of the hour**, and CAIForeignMinister::DoWork at 0x89D67D, once a day at the minister's hour, just before ForeignMinister_Tick. So in practice an offer is answered in the first AI pass after it arrives.\n\nWalks the minister's country's pending list (CCountry +0xF24) front to back - arrival order - and for each action:\n\n    if (!action->slot18() || action->type != PROPOSE) continue;      // left unanswered, and dropped below\n    score = action->GetAIAcceptance();                                 // slot 17, the mod's Lua\n    if (score <= 30) -> DECLINE                                        // 0x89E0A5, `jle 0x1E` - no roll is drawn\n    roll = MT19937Next(&gamestate->+0x124) % 100                       // the game state's generator, 0x89E132\n    if (roll >= score) -> DECLINE                                      // 0x89E13F, accept only when roll < score\n    if (action->GetToken() != trade_action 0x6DA) -> ACCEPT\n    else if (no trade accepted yet this call) -> ACCEPT, and remember one was\n    else keep it, still PROPOSE, on a local list\n\nAn answer writes `type` (2 ACCEPT at 0x89E1E7/0x89E16B, 1 DECLINE at 0x89E1F0) **on the pending action itself**, then MakeCommand (slot 6) clones it and the command is posted through country->+0xF1C slot 18 -> +0x38 slot 6. At the end CCountry::RetainPendingDiplomaticActions (0xE6410) deletes every action on the list but the kept trades, which stay PROPOSE and are rolled again on the next call. The draw comes from the shared game-state generator on a TBB worker thread (ProcessAI's thread), so which country draws first is not fixed. See reversing/findings/FINDINGS-agreements.md.",
+   "confidence": "confirmed",
+   "evidence": "Read whole off the disassembly (disasm.py 0x89E010 0x270) and cross-read with Ghidra's decompilation; the two callers from findRefs --callers (exactly two, 0x8896F7 and 0x89D67D); ProcessAI 0x8896EC-0x8896F7 read: `mov eax,[ecx+0x60]; test; je; push eax; call` with nothing testing +0x3C on that path; MT19937Next's result is non-negative per its record, so the remainder is 0..99. Shown wrong by a path into the PROPOSE branch that does not test slot 18, or a second caller."
+  },
+  {
+   "rva": "0xE6410",
+   "kind": "function",
+   "name": "CCountry::RetainPendingDiplomaticActions",
+   "signature": "void __stdcall CCountry::RetainPendingDiplomaticActions(CCountry* country@EAX, CList* keep@stack:4)",
+   "no_signature": null,
+   "comment": "Replaces a country's pending list (+0xF24) by the actions on `keep`. 0x4E6410 to the `ret 4` at 0x4E64A1, the country in EAX, the list on the stack. With `keep` empty it is CCountry::ClearPendingDiplomaticActions (rva 0xE63A0, with EDI = the country). Otherwise it deletes (slot 0, 1) every pending action whose pointer is not on `keep`, frees every node, zeroes head, tail and count, and appends `keep`'s actions back through CList::AppendAllNodes (rva 0x49C070, source EAX, destination ESI = &country->+0xF24). The kept actions are the same objects, not copies. Three callers: CAIForeignMinister::AnswerPendingOffers (0x89E242), CEU3Idler::Update (0x644ADC) and CCountry::RunHourlyAITrade (0x4DC652) - in each the caller builds `keep` as the trade offers it wants to carry over.",
+   "confidence": "confirmed",
+   "evidence": "Read whole (disasm.py 0x4E6410 0xA0): the count test at 0x4E641A, the membership walk 0x4E6437-0x4E6460, the node frees 0x4E6470, the three zeroing stores and the call to 0x89C070 at 0x4E6499 with ESI = country+0xF24. Shown wrong by a caller that passes the country anywhere but EAX."
+  },
+  {
+   "rva": "0x244750",
+   "kind": "function",
+   "name": "CEU3Idler::Update",
+   "signature": "void __thiscall CEU3Idler::Update(CEU3Idler* this, int unused)",
+   "no_signature": null,
+   "revises": "comment only: the tail this entry said was not read (0x644937-0x644B02) is read - it is where the player is shown the offers made to him. Name, signature and the dialog-list reading are kept.",
+   "comment": "Slot 1 of CEU3Idler. Read only as far as the dialog list: it calls slot 1 of every updateable at +0xA0 and collects those answering false; each collected one is unlinked from the list (or, while +0xAC is set, only marked at node +0xC) and deleted through its slot 0. The stack argument is unread per CInGameIdler::Update's record.\n\n**The tail (0x644937-0x644B02) shows the player the offers made to him, every frame.** It finds the local player record (the inlined CGameState::GetLocalPlayer) and does nothing when that record's first delegation flag is 1 (`mov ecx,[rec+0x38]; cmp dword [ecx],1` at 0x644937 - foreign policy left to the AI, whose minister then answers through CAIForeignMinister::AnswerPendingOffers). Otherwise it takes the player's country from this->slot 23 (GetPlayer) and walks its pending list (+0xF24): a `trade_action` (token 0x6DA) is kept on a local list **when the record's byte +0x34 is set** - that byte is `automate_trade`, written by CGameState::LoadKey's automate_trade arm (0x68066F-0x680698, ParseBool into GetLocalPlayer()+0x34) - and every other action gets its slot 19 (AskPlayer) with `this`, which for a PROPOSE of a kind the player answers makes a CAsk* dialog and hands it to CInGameIdler::AddDiplomaticOffer. Then CCountry::RetainPendingDiplomaticActions (0xE6410) empties the list but the kept trades, which CCountry::RunHourlyAITrade answers. So each offer is shown once: by the next frame it is off the list. The tail is read in full; the entry stays `inferred` because the dialog-list half before it is still the earlier partial reading. See reversing/findings/FINDINGS-agreements.md and reversing/findings/FINDINGS-eventfire.md.",
+   "confidence": "inferred",
+   "evidence": "Disassembled 0x644750-0x644B33 and the decompilation; GetLocalPlayer()+0x34 = automate_trade from the CGameState::LoadKey token comparison `cmp eax, 0x737` at 0x680211 (`je 0x68066F`) and the store at 0x680698. Shown wrong by the 0x737 case not being automate_trade (saveTokens) or by a second writer of +0x34 that disagrees."
+  },
+  {
+   "rva": "0x274EF0",
+   "kind": "function",
+   "name": "CInGameIdler::AddDiplomaticOffer",
+   "signature": "void __thiscall CInGameIdler::AddDiplomaticOffer(CInGameIdler* this, CDiplomacyDialog* dialog, int kind, CCountryTag* from)",
+   "no_signature": null,
+   "comment": "**Virtual slot 24 of CInGameIdler, the one place an offer to the player is put on screen.** `ret 0xC`. When the local player record's byte +0x28 (the popup gate FireEvent also reads) is clear the dialog is deleted through its slot 0 and the offer is gone - no reply is ever sent. Otherwise DiploIconBar_Add(this->+0x1D38, dialog, kind, from): an icon with the proposer's flag in the in-game screen's diplomatic message bar, which opens the dialog when clicked. The callers are the action classes' slot 19 (AskPlayer), each passing its own `kind`: 1 peace, 2 alliance, 3 trade, 4 military access asked, 5 military access offered, 6 call to arms, 7 non-aggression pact, 8 faction, 9 expeditionary force, 10 licence, 11 debt, 12 lend-lease asked, 13 lend-lease offered.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x674EF0-0x674FD6: GetLocalPlayer at 0x674F85, `cmp byte [eax+0x28], bl` at 0x674F8A, the delete arm at 0x674FB8, `mov edi,[edi+0x1D38]` and the call to 0x61A1D0 at 0x674FA1. vtable.py --holding: one table, CInGameIdler slot 24. The kinds are the immediates pushed before `call [edx+0x60]` in the thirteen slot-19 bodies. Shown wrong by another holder of the body."
+  },
+  {
+   "rva": "0x21A1D0",
+   "kind": "function",
+   "name": "DiploIconBar_Add",
+   "signature": "void __stdcall DiploIconBar_Add(void* bar@EDI, CDiplomacyDialog* dialog@stack:4, int kind@stack:8, CCountryTag* from@stack:0xC)",
+   "no_signature": null,
+   "comment": "Adds an offer's icon to the in-game screen's diplomatic message bar (CInGameIdler +0x1D38). `ret 0xC`, the bar in EDI. News 0x80 bytes and builds a CDiploIcon (CDiploIcon::CDiploIcon, rva 0x219720) over the dialog, appends it to the bar's list (+0x4 head, +0x8 tail, +0xC count), lays the bar out (DiploIconBar_Layout) and calls the dialog's slot 17 - CDiplomacyDialog::PlayOfferSound, the `diplomaticoffer` sound. The bar's class is not in RTTI, hence the class-free name.",
+   "confidence": "confirmed",
+   "evidence": "Disassembly 0x61A1D0-0x61A326 and decompilation; one caller (findRefs --callers), CInGameIdler slot 24 at 0x674FA1. Shown wrong by a caller with the bar elsewhere than EDI."
+  },
+  {
+   "rva": "0x219720",
+   "kind": "function",
+   "name": "CDiploIcon::CDiploIcon",
+   "signature": "CDiploIcon* __stdcall CDiploIcon::CDiploIcon(int kind@ECX, CDiploIcon* this@stack:4, CDiplomacyDialog* dialog@stack:8, void* bar@stack:0xC, CCountryTag* from@stack:0x10) @EAX",
+   "no_signature": null,
+   "comment": "Builds one icon of the diplomatic message bar. `ret 0x10`, `kind` in ECX. Stores +0x4 the dialog, +0x8 the kind, +0xC/+0x10 the proposer's tag and id, +0x14 the bar; makes the window `diplomessageicon_entry_window` through the in-game screen's gui, binds `diplomessageicon_button` to CDiploIcon::OnClick (rva 0x219D80) through a CButtonObserverGlue<CDiploIcon> at +0x24, sets the `flag` element to `@` + the tag, and stamps **+0x18 = now, +0x1C = now + 0x78 (120 hours, five days) and +0x20 = now + 0xA8 (168 hours, seven days)** off g_CCurrentGameState->tick, then starts the `diplo_message` animation. What +0x8, the kind, selects was not traced.",
+   "confidence": "confirmed",
+   "evidence": "Disassembly from 0x619720 to the `ret 0x10` at 0x619BE5 and decompilation; the one call site 0x61A218 pushes from, bar (EDI), dialog and the new object and loads ECX from the kind argument. The two date offsets are the immediates 0x78 and 0xA8. Shown wrong by a second caller."
+  },
+  {
+   "rva": "0x219BF0",
+   "kind": "function",
+   "name": "CDiploIcon::Update",
+   "signature": "bool __stdcall CDiploIcon::Update(CDiploIcon* icon@EDI, double time@stack:4) @AL",
+   "no_signature": null,
+   "comment": "**The time limit on an offer the player has not opened.** `ret 8`, the icon in EDI, a double (the screen's clock, used only to blink) on the stack. Returns false - remove me - when the icon was clicked (+0x7C). Otherwise, with now = g_CCurrentGameState->tick: while now <= +0x20 (seven days after the icon appeared) it stays; between +0x1C and +0x20 (days five to seven) a laid-out icon (+0x7D) blinks, its button's alpha toggled on (int)(time x k) % 5. **Once now > +0x20 it calls the dialog's slot 6 (CDiplomacyDialog::Decline) and returns false**: an offer left unanswered for seven days is declined for the player, with the reply posted like a pressed Decline.",
+   "confidence": "confirmed",
+   "evidence": "Disassembly 0x619BF0-0x619D77: `cmp byte [edi+0x7c]` at 0x619C0F, the three compares at 0x619C9A/0x619CA3/0x619D57, `call [edx+0x18]` on [edi+4] at 0x619D64. One caller, DiploIconBar_Update. Shown wrong by slot 6 of a CAsk* table being anything but CDiplomacyDialog::Decline (vtable.py shows all twelve inherit 0x60FB20)."
+  },
+  {
+   "rva": "0x219D80",
+   "kind": "function",
+   "name": "CDiploIcon::OnClick",
+   "signature": "void __thiscall CDiploIcon::OnClick(CDiploIcon* this)",
+   "no_signature": null,
+   "comment": "The press of an offer's icon, bound by CDiploIcon::CDiploIcon to `diplomessageicon_button`. Shows the dialog's window (dialog slots 12 and 9), hands the dialog to CEU3Idler::AddDialog on the in-game screen - where CEU3Dialog::Update runs it every frame - clears the icon's dialog pointer and sets +0x7C so the bar drops the icon. From here the dialog's own slot 7 is its only time limit.",
+   "confidence": "confirmed",
+   "evidence": "Decompilation and disassembly 0x619D80-0x619E57; the address is the callback stored at +0x2C by the constructor (0x619795). Shown wrong by a different callback being bound to the button."
+  },
+  {
+   "rva": "0x219E80",
+   "kind": "function",
+   "name": "DiploIconBar_Update",
+   "signature": null,
+   "no_signature": "the bar is the one stack argument (`ret 4`) but the screen's clock arrives in XMM0 as a double, which the signature syntax cannot place",
+   "comment": "Per-frame update of the diplomatic message bar, called from UpdateTutorialAndAuxWindows with CInGameIdler +0x1D38. Positions the bar, runs CDiploIcon::Update on each icon, and deletes every icon that answers false - its window through slot 20 and its dialog through slot 0, so an icon dropped this way takes its dialog (and the dialog's copy of the action) with it - then lays the bar out again.",
+   "confidence": "confirmed",
+   "evidence": "Decompilation and disassembly 0x619E80-0x61A1C4 (`subsd xmm0, [edi+0x18]` at 0x619EA3 with nothing loading XMM0 before it); one caller at 0x64FF34. Shown wrong by XMM0 being set inside the function before that use."
+  },
+  {
+   "rva": "0x21C5A0",
+   "kind": "function",
+   "name": "DiploIconBar_Layout",
+   "signature": "void __stdcall DiploIconBar_Layout(void* bar)",
+   "no_signature": null,
+   "comment": "Places the bar's icons side by side from `diplomessageicon_offset`, names each `diploicon_<n>`, shows those that fit and marks them laid out (CDiploIcon +0x7D) - only a laid-out icon blinks. Two callers, DiploIconBar_Add and DiploIconBar_Update. `ret 4`.",
+   "confidence": "inferred",
+   "evidence": "Decompilation and the `ret 4` at 0x61C831; the strings `diplomessageicon_offset` and `diploicon_`. Read for what it stores, not line by line; likely right, and shown wrong by an icon being marked +0x7D outside it."
+  },
+  {
+   "rva": "0x20FAE0",
+   "kind": "function",
+   "name": "CDiplomacyDialog::Accept",
+   "signature": "void __thiscall CDiplomacyDialog::Accept(CDiplomacyDialog* this)",
+   "no_signature": null,
+   "comment": "**What the player's Accept does.** Slot 5, bound to `AgreeButton` by CEU3Dialog's constructor (0x63D4B0, through the shared `jmp [eax+0x14]` thunk at 0x6FB9A0). Sets the dialog's action (+0x6C) `type = 2` (ACCEPT), MakeCommand (slot 6) and posts the command through the host (+0x68) slot 18 -> +0x38 slot 6, then marks the dialog closed (+0x64 = 1). No other test: the reply is checked only where every peer checks it, in CDiplomaticActionCommand::Execute's IsValid. Inherited by all twelve CAsk* dialogs.",
+   "confidence": "confirmed",
+   "evidence": "Disassembly 0x60FAE0-0x60FB15; vtable.py shows 0x60FAE0 at slot 5 of CDiplomacyDialog and all twelve CAsk* classes and nowhere else; the binding of AgreeButton to slot 5 and DeclineButton to slot 6 is read off 0x63D4ED/0x63D518 and the thunks 0x6FB9A0 (`jmp [eax+0x14]`) and 0x998430 (`jmp [eax+0x18]`)."
+  },
+  {
+   "rva": "0x20FB20",
+   "kind": "function",
+   "name": "CDiplomacyDialog::Decline",
+   "signature": "void __thiscall CDiplomacyDialog::Decline(CDiplomacyDialog* this)",
+   "no_signature": null,
+   "comment": "**What the player's Decline does - and what every time limit on an offer to him does.** Slot 6, bound to `DeclineButton`. The same as CDiplomacyDialog::Accept with `type = 1` (DECLINE). Also called by CDiploIcon::Update when an unopened offer is seven days old, and by the dialogs' slot 7 when an open offer has expired or stopped being possible - so a lapsed offer is always answered with a DECLINE the proposer hears about.",
+   "confidence": "confirmed",
+   "evidence": "Disassembly 0x60FB20-0x60FB55; the callers through slot 6 read at 0x619D64, 0x60FC1A, 0x610725 and the five CAsk* slot 7 overrides."
+  },
+  {
+   "rva": "0x20FB60",
+   "kind": "function",
+   "name": "CDiplomacyDialog::IsStillOpen",
+   "signature": "bool __thiscall CDiplomacyDialog::IsStillOpen(CDiplomacyDialog* this)",
+   "no_signature": null,
+   "comment": "Slot 7, asked every frame by CEU3Dialog::Update (slot 1, 0x63D830) for an open dialog; false closes it. Base rule, kept by CAskOfferMilitaryAccess, CAskFaction, CAskPeace, CAskDebt, CAskLendLease and CAskBuyLicence: **expires = AddMonths(action->date, 2)**; if expires < now, Decline (slot 6) and false; if the action's IsValid (slot 13) is false, Decline and false; otherwise open while `type == 0`. So an opened offer lapses two months after it was made, counted from the action's own `date` - not from when the player saw it.",
+   "confidence": "confirmed",
+   "evidence": "Disassembly 0x60FB60-0x60FC58: AddMonths (rva 0xB8C90) with EAX = &date and 2 pushed at 0x60FB89, `cmp ecx,[esi+0xbdc]; jge` at 0x60FC0B, `call [edx+0x34]` (slot 13) at 0x60FC37, `sete al` on +0x18. vtable.py --holding: seven tables, CDiplomacyDialog and the six CAsk* classes that inherit it."
+  },
+  {
+   "rva": "0x20FA20",
+   "kind": "function",
+   "name": "CDiplomacyDialog::PlayOfferSound",
+   "signature": "void __thiscall CDiplomacyDialog::PlayOfferSound(CDiplomacyDialog* this)",
+   "no_signature": null,
+   "comment": "Slot 17: plays the `diplomaticoffer` sound (interface/sound.sfx, `diplomaticoffer.wav`) unless it is already playing. Called by DiploIconBar_Add as an offer's icon appears.",
+   "confidence": "confirmed",
+   "evidence": "Disassembly 0x60FA20-0x60FAD9, the literal at 0x15CAF24; the call `call [eax+0x44]` on the dialog at the end of 0x61A1D0. 14 holders, CDiplomacyDialog and the 13 classes derived from it."
+  },
+  {
+   "rva": "0x210660",
+   "kind": "function",
+   "name": "CAskAlliance::IsStillOpen",
+   "signature": "bool __thiscall CAskAlliance::IsStillOpen(CAskAlliance* this)",
+   "no_signature": null,
+   "comment": "Slot 7 for an offered alliance: **open only until action->date + 0xA8 (168 hours, seven days)**, not the base's two months, and only while the two have no alliance and no war (actor's CDiplomacyStatus toward the recipient: +0x14 alliance and +0x20 war both null); otherwise Decline. Does not ask IsValid. Open while type == 0.",
+   "confidence": "confirmed",
+   "evidence": "Disassembly 0x610660-0x61079A: `add ebx, 0xa8` at 0x61068E, `cmp ebx,[eax+0xbdc]; jge` at 0x610716, slot 6 at 0x610725. Shown wrong by the 0xA8 being added to anything but the action's +0x1C."
+  },
+  {
+   "rva": "0x213C40",
+   "kind": "function",
+   "name": "CAskNap::IsStillOpen",
+   "signature": "bool __thiscall CAskNap::IsStillOpen(CAskNap* this)",
+   "no_signature": null,
+   "comment": "Slot 7 for an offered non-aggression pact: two months from the action's date, and only while the two have no alliance and no war; otherwise Decline. Does not ask IsValid.",
+   "confidence": "confirmed",
+   "evidence": "Ghidra decompilation checked against the disassembly's AddMonths(…, 2) call and the two null tests on the status's +0x14 and +0x20."
+  },
+  {
+   "rva": "0x214830",
+   "kind": "function",
+   "name": "CAskMilitaryAccess::IsStillOpen",
+   "signature": "bool __thiscall CAskMilitaryAccess::IsStillOpen(CAskMilitaryAccess* this)",
+   "no_signature": null,
+   "comment": "Slot 7 for a request for military access: two months from the action's date and nothing else - neither IsValid nor any status test.",
+   "confidence": "confirmed",
+   "evidence": "Ghidra decompilation and disassembly: AddMonths(…, 2), the tick compare, `sete` on +0x18, no other call."
+  },
+  {
+   "rva": "0x216D10",
+   "kind": "function",
+   "name": "CAskTrade::IsStillOpen",
+   "signature": "bool __thiscall CAskTrade::IsStillOpen(CAskTrade* this)",
+   "no_signature": null,
+   "comment": "Slot 7 for an offered trade: two months from the action's date, and only while the two are not at war; otherwise Decline. Does not ask IsValid.",
+   "confidence": "confirmed",
+   "evidence": "Ghidra decompilation: AddMonths(…, 2), the tick compare, one null test on the status's +0x20."
+  },
+  {
+   "rva": "0x215D70",
+   "kind": "function",
+   "name": "CAskJoinWar::IsStillOpen",
+   "signature": "bool __thiscall CAskJoinWar::IsStillOpen(CAskJoinWar* this)",
+   "no_signature": null,
+   "comment": "Slot 7 for a call to arms (CCallAllyAction, the enemy at action +0x28/+0x2C): two months from the action's date; and only while the caller is at war with the enemy, the recipient is not, the recipient is on neither side of that war, and the enemy is not in a faction the recipient shares; otherwise Decline.",
+   "confidence": "inferred",
+   "evidence": "Ghidra decompilation only, its branches not walked on the disassembly; likely right because the same shape is confirmed in the four siblings. Shown wrong by the disassembly of 0x615D70-0x615F70."
+  },
+  {
+   "rva": "0x2122E0",
+   "kind": "function",
+   "name": "CAskExpedition::IsStillOpen",
+   "signature": "bool __thiscall CAskExpedition::IsStillOpen(CAskExpedition* this)",
+   "no_signature": null,
+   "comment": "Slot 7 for an expeditionary force: Decline at once when the action's unit no longer resolves (CSendExpeditionaryForceAction::GetUnit, CRef_ResolveAndCache), else the base rule (CDiplomacyDialog::IsStillOpen).",
+   "confidence": "confirmed",
+   "evidence": "Ghidra decompilation of 0x6122E0: the GetUnit/ResolveAndCache pair, slot 6 on null, the tail call into 0x60FB60."
+  },
+  {
+   "rva": "0x20FC60",
+   "kind": "function",
+   "name": "CAskAlliance::CAskAlliance",
+   "signature": "CAskAlliance* __stdcall CAskAlliance::CAskAlliance(CInGameIdler* host@ECX, CAskAlliance* this@stack:4, CAllianceAction* action@stack:8) @EAX",
+   "no_signature": null,
+   "comment": "The alliance offer's dialog, window `DefaultDialog`. Clones the action into +0x6C (slot 16) and keeps the host at +0x68; the proposer's and the player's shields; `ALLIANCEREQDESC` with $ACTOR$ the proposer's name (\"$ACTOR$ offers us an Alliance. By accepting it we are promising to help each other in times of war.\"); the title from the action's slot 10; buttons `ACCEPT` and `DECLINE`. A non-PROPOSE action only logs \"Atempted to alliance proposal screen when not actually a proposal\".",
+   "confidence": "confirmed",
+   "evidence": "Decompilation and the call site in CAllianceAction::AskPlayer (`mov ecx, edi` = the host, push action, push object, ret 8 at 0x6105BC); the vftable write 0x15CB33C at 0x60FD1D (findRefs --vftable CAskAlliance, one site)."
+  },
+  {
+   "rva": "0x213240",
+   "kind": "function",
+   "name": "CAskNap::CAskNap",
+   "signature": "CAskNap* __stdcall CAskNap::CAskNap(CInGameIdler* host@ECX, CAskNap* this@stack:4, CNapAction* action@stack:8) @EAX",
+   "no_signature": null,
+   "comment": "The non-aggression pact offer's dialog: `NAPREQDESC` with $ACTOR$, `ACCEPT`/`DECLINE`.",
+   "confidence": "confirmed",
+   "evidence": "The one vftable write of CAskNap at 0x6132FF and the string literals the body pushes (scripted listing); `ret 8` at 0x613B9C."
+  },
+  {
+   "rva": "0x213DB0",
+   "kind": "function",
+   "name": "CAskMilitaryAccess::CAskMilitaryAccess",
+   "signature": "CAskMilitaryAccess* __stdcall CAskMilitaryAccess::CAskMilitaryAccess(CInGameIdler* host@ECX, CAskMilitaryAccess* this@stack:4, CMilitaryAccessAction* action@stack:8) @EAX",
+   "no_signature": null,
+   "comment": "The request for military access: `MILACCREQDESC` with $COUNTRY$, `ACCEPT`/`DECLINE`.",
+   "confidence": "confirmed",
+   "evidence": "The one vftable write of CAskMilitaryAccess at 0x613E6F and its string literals; `ret 8` at 0x61470C."
+  },
+  {
+   "rva": "0x218D20",
+   "kind": "function",
+   "name": "CAskOfferMilitaryAccess::CAskOfferMilitaryAccess",
+   "signature": "CAskOfferMilitaryAccess* __stdcall CAskOfferMilitaryAccess::CAskOfferMilitaryAccess(CInGameIdler* host@ECX, CAskOfferMilitaryAccess* this@stack:4, COfferMilitaryAccessAction* action@stack:8) @EAX",
+   "no_signature": null,
+   "comment": "Military access offered: `MILACCOFFDESC` with $COUNTRY$, `ACCEPT`/`DECLINE`.",
+   "confidence": "confirmed",
+   "evidence": "The one vftable write of CAskOfferMilitaryAccess at 0x618DDF and its literals; `ret 8` at 0x61967C."
+  },
+  {
+   "rva": "0x215FA0",
+   "kind": "function",
+   "name": "CAskTrade::CAskTrade",
+   "signature": "CAskTrade* __stdcall CAskTrade::CAskTrade(CAskTrade* this, CInGameIdler* host, CTradeAction* action) @EAX",
+   "no_signature": null,
+   "comment": "The trade offer's dialog: `TRADEREQDESC` with $COUNTRY$, $FROM$, $TO$ and the debt and convoy notes (`IS_BOUGHT_WITH_DEBT`, `CONV_AT_TRADE`), `ACCEPT`/`DECLINE`. Unlike its siblings it takes the host on the stack (`ret 0xC`).",
+   "confidence": "confirmed",
+   "evidence": "The call in CTradeAction::AskPlayer pushes action, host and object with nothing in ECX (0xA38D64-0xA38D67); `ret 0xC` at 0x616C74; vftable write at 0x61605C."
+  },
+  {
+   "rva": "0x214920",
+   "kind": "function",
+   "name": "CAskJoinWar::CAskJoinWar",
+   "signature": "CAskJoinWar* __stdcall CAskJoinWar::CAskJoinWar(CInGameIdler* host@ECX, CAskJoinWar* this@stack:4, CCallAllyAction* action@stack:8) @EAX",
+   "no_signature": null,
+   "comment": "The call to arms: `CALLREQDESC` with $COUNTRY$ and $LIST$ (the enemy's side), and a warning line chosen from WCRD_ATT/WCRD_DEF/WCRD_VAS/WCRD_GUA/WCRD_WARNING and the CW_WARN*2 keys by what ties the player to the parties; `ACCEPT`/`DECLINE`.",
+   "confidence": "confirmed",
+   "evidence": "Decompilation; the one vftable write at 0x6149DF and the literals; `ret 8` at 0x615D67."
+  },
+  {
+   "rva": "0x2107B0",
+   "kind": "function",
+   "name": "CAskFaction::CAskFaction",
+   "signature": "CAskFaction* __stdcall CAskFaction::CAskFaction(CInGameIdler* host@ECX, CAskFaction* this@stack:4, CFactionAction* action@stack:8) @EAX",
+   "no_signature": null,
+   "comment": "A faction action put to the player: with `value` clear `INVITEFACTIONREQDESC` ($ACTOR$, $FACTION$ = the proposer's faction), with it set `ASKFACTIONREQDESC` ($ACTOR$, $FACTION$ = the player's); `ACCEPT`/`DECLINE`.",
+   "confidence": "confirmed",
+   "evidence": "Decompilation of 0x6107B0 (the faction's slot 19 calls it at 0xA349D2); the one vftable write at 0x61086D. functionStart answers 0x610660 here, which is CAskAlliance's slot 7 - the boundary was taken from the call target (trap 2)."
+  },
+  {
+   "rva": "0x218320",
+   "kind": "function",
+   "name": "CAskPeace::CAskPeace",
+   "signature": "CAskPeace* __stdcall CAskPeace::CAskPeace(CInGameIdler* host@ECX, CAskPeace* this@stack:4, CPeaceAction* action@stack:8) @EAX",
+   "no_signature": null,
+   "comment": "An offer of peace: `PEACEREQDESC` with $COUNTRY$, $FACTION$ and $RESULT$; `ACCEPT`/`DECLINE`.",
+   "confidence": "confirmed",
+   "evidence": "The one vftable write at 0x6183DF and its literals; `ret 8` at 0x618C7B."
+  },
+  {
+   "rva": "0x216E40",
+   "kind": "function",
+   "name": "CAskDebt::CAskDebt",
+   "signature": "CAskDebt* __stdcall CAskDebt::CAskDebt(CInGameIdler* host@ECX, CAskDebt* this@stack:4, CDebtAction* action@stack:8) @EAX",
+   "no_signature": null,
+   "comment": "A request to trade on debt: `ASKDEBTREQDESC` with $ACTOR$ and $FACTION$; `ACCEPT`/`DECLINE`.",
+   "confidence": "confirmed",
+   "evidence": "The one vftable write at 0x616EFD and its literals; `ret 8` at 0x61780D."
+  },
+  {
+   "rva": "0x2178B0",
+   "kind": "function",
+   "name": "CAskLendLease::CAskLendLease",
+   "signature": "CAskLendLease* __stdcall CAskLendLease::CAskLendLease(CInGameIdler* host@ECX, CAskLendLease* this@stack:4, CDiplomaticAction* action@stack:8, bool offer@stack:0xC) @EAX",
+   "no_signature": null,
+   "comment": "Lend-lease asked or offered: `ASK_LEND_LEASE_DESC`, or `OFFER_LEND_LEASE_DESC` when the flag is set (COfferLendLeaseAction pushes 1); `ACCEPT`/`DECLINE`.",
+   "confidence": "confirmed",
+   "evidence": "The one vftable write at 0x61796D and its literals; `ret 0xC` at 0x618279; `push 1` before the call in COfferLendLeaseAction's slot 19 at 0xA11CB4."
+  },
+  {
+   "rva": "0x212340",
+   "kind": "function",
+   "name": "CAskBuyLicence::CAskBuyLicence",
+   "signature": "CAskBuyLicence* __stdcall CAskBuyLicence::CAskBuyLicence(CInGameIdler* host@ECX, CAskBuyLicence* this@stack:4, CLicenceTechnologyAction* action@stack:8) @EAX",
+   "no_signature": null,
+   "comment": "A request to buy a licence: `ASKBUYLICENCEREQDESC` with $ACTOR$, $TYPE$, $NUM$, $CASH$ and the debt note; `ACCEPT`/`DECLINE`.",
+   "confidence": "confirmed",
+   "evidence": "The one vftable write at 0x612400 and its literals; `ret 8` at 0x613234."
+  },
+  {
+   "rva": "0x211500",
+   "kind": "function",
+   "name": "CAskExpedition::CAskExpedition",
+   "signature": "CAskExpedition* __stdcall CAskExpedition::CAskExpedition(CInGameIdler* host@ECX, CAskExpedition* this@stack:4, CSendExpeditionaryForceAction* action@stack:8) @EAX",
+   "no_signature": null,
+   "comment": "An expeditionary force offered: `ASKEXPEDITIONREQDESC` with $ACTOR$, $UNIT$, $NUM$, $PROV$ and $TYPE$ from EXP_SHIP/EXP_SQUADRON/EXP_DIVISION; `ACCEPT`/`DECLINE`.",
+   "confidence": "confirmed",
+   "evidence": "The one vftable write at 0x6115BD and its literals; `ret 8` at 0x612238."
+  },
+  {
+   "rva": "0x61BAA0",
+   "kind": "function",
+   "name": "CAllianceAction::AskPlayer",
+   "signature": "void __thiscall CAllianceAction::AskPlayer(CAllianceAction* this, CInGameIdler* host)",
+   "no_signature": null,
+   "comment": "Slot 19, called by CEU3Idler::Update for each action on the player's pending list. Only a PROPOSE with `value` set is put to him: a CAskAlliance dialog handed to CInGameIdler::AddDiplomaticOffer with kind 2 and the actor's tag. A reply (type 1 or 2) does nothing here - its message was raised by slot 7 in Execute - and is then deleted with the list.",
+   "confidence": "confirmed",
+   "evidence": "Disassembly 0xA1BAA0-0xA1BB17: `cmp [esi+0x18],0`, `cmp byte [esi+0x24],0`, new(0x70), `push 2`, `call [edx+0x60]`. vtable.py: CAllianceAction slot 19 alone."
+  },
+  {
+   "rva": "0x62E400",
+   "kind": "function",
+   "name": "CNapAction::AskPlayer",
+   "signature": "void __thiscall CNapAction::AskPlayer(CNapAction* this, CInGameIdler* host)",
+   "no_signature": null,
+   "comment": "Slot 19: a PROPOSE with `value` set becomes a CAskNap, kind 7. Anything else (the cancellation, a reply) is not shown.",
+   "confidence": "confirmed",
+   "evidence": "Decompilation and the immediates; vtable slot 19 of CNapAction alone."
+  },
+  {
+   "rva": "0x625640",
+   "kind": "function",
+   "name": "CMilitaryAccessAction::AskPlayer",
+   "signature": "void __thiscall CMilitaryAccessAction::AskPlayer(CMilitaryAccessAction* this, CInGameIdler* host)",
+   "no_signature": null,
+   "comment": "Slot 19: a PROPOSE with `value` set becomes a CAskMilitaryAccess, kind 4.",
+   "confidence": "confirmed",
+   "evidence": "Decompilation and the immediates; vtable slot 19 of CMilitaryAccessAction alone."
+  },
+  {
+   "rva": "0x627910",
+   "kind": "function",
+   "name": "COfferMilitaryAccessAction::AskPlayer",
+   "signature": "void __thiscall COfferMilitaryAccessAction::AskPlayer(COfferMilitaryAccessAction* this, CInGameIdler* host)",
+   "no_signature": null,
+   "comment": "Slot 19: a PROPOSE with `value` set becomes a CAskOfferMilitaryAccess, kind 5.",
+   "confidence": "confirmed",
+   "evidence": "Decompilation and the immediates; vtable slot 19 of COfferMilitaryAccessAction alone."
+  },
+  {
+   "rva": "0x638D20",
+   "kind": "function",
+   "name": "CTradeAction::AskPlayer",
+   "signature": "void __thiscall CTradeAction::AskPlayer(CTradeAction* this, CInGameIdler* host)",
+   "no_signature": null,
+   "comment": "Slot 19: a PROPOSE with `value` set becomes a CAskTrade, kind 3. (With automate_trade on, CEU3Idler::Update keeps trades back from here for CCountry::RunHourlyAITrade.)",
+   "confidence": "confirmed",
+   "evidence": "Disassembly 0xA38D20-0xA38D96: the two tests, new(0x70), the CAskTrade constructor at 0x615FA0, `push 3`. vtable slot 19 of CTradeAction alone."
+  },
+  {
+   "rva": "0x62ACB0",
+   "kind": "function",
+   "name": "CCallAllyAction::AskPlayer",
+   "signature": "void __thiscall CCallAllyAction::AskPlayer(CCallAllyAction* this, CInGameIdler* host)",
+   "no_signature": null,
+   "comment": "Slot 19 of a call to arms. **A PROPOSE with `value` clear is accepted on the player's behalf without asking**: type = 2, MakeCommand, posted through the host. A PROPOSE with `value` set becomes a CAskJoinWar (kind 6) only while the caller is at war with the enemy (+0x28) and the player is on neither side of that war; otherwise nothing is shown and the offer is dropped with the list.",
+   "confidence": "confirmed",
+   "evidence": "Disassembly from 0xA2ACB0: `cmp byte [esi+0x24],0; sete` at 0xA2ACDD, `mov [esi+0x18], 2` at 0xA2ACED and the post 0xA2ACF4-0xA2AD0B; the decompilation for the war-membership arm. vtable slot 19 of CCallAllyAction alone."
+  },
+  {
+   "rva": "0x634990",
+   "kind": "function",
+   "name": "CFactionAction::AskPlayer",
+   "signature": "void __thiscall CFactionAction::AskPlayer(CFactionAction* this, CInGameIdler* host)",
+   "no_signature": null,
+   "comment": "Slot 19: any PROPOSE (no `value` test - `value` chooses the text) becomes a CAskFaction, kind 8.",
+   "confidence": "confirmed",
+   "evidence": "Disassembly: only `cmp dword [edi+0x18], 0` before new(0x70) and `push 8`. vtable slot 19 of CFactionAction alone."
+  },
+  {
+   "rva": "0x641D80",
+   "kind": "function",
+   "name": "CPeaceAction::AskPlayer",
+   "signature": "void __thiscall CPeaceAction::AskPlayer(CPeaceAction* this, CInGameIdler* host)",
+   "no_signature": null,
+   "comment": "Slot 19: a PROPOSE with `value` set becomes a CAskPeace, kind 1.",
+   "confidence": "confirmed",
+   "evidence": "Disassembly: the two tests, new(0x70), the CAskPeace constructor 0x618320, `push 1`. vtable slot 19 of CPeaceAction alone."
+  },
+  {
+   "rva": "0x63F360",
+   "kind": "function",
+   "name": "CDebtAction::AskPlayer",
+   "signature": "void __thiscall CDebtAction::AskPlayer(CDebtAction* this, CInGameIdler* host)",
+   "no_signature": null,
+   "comment": "Slot 19: a PROPOSE with `value` set becomes a CAskDebt, kind 11.",
+   "confidence": "confirmed",
+   "evidence": "Disassembly: the two tests, the constructor 0x616E40, `push 0xB`. vtable slot 19 of CDebtAction alone."
+  },
+  {
+   "rva": "0x6106C0",
+   "kind": "function",
+   "name": "CRequestLendLeaseAction::AskPlayer",
+   "signature": "void __thiscall CRequestLendLeaseAction::AskPlayer(CRequestLendLeaseAction* this, CInGameIdler* host)",
+   "no_signature": null,
+   "comment": "Slot 19: a PROPOSE with `value` set becomes a CAskLendLease (asked), kind 12.",
+   "confidence": "confirmed",
+   "evidence": "Disassembly: the two tests, the constructor 0x6178B0, `push 0xC`. vtable slot 19 of CRequestLendLeaseAction alone."
+  },
+  {
+   "rva": "0x611C70",
+   "kind": "function",
+   "name": "COfferLendLeaseAction::AskPlayer",
+   "signature": "void __thiscall COfferLendLeaseAction::AskPlayer(COfferLendLeaseAction* this, CInGameIdler* host)",
+   "no_signature": null,
+   "comment": "Slot 19: a PROPOSE with `value` set becomes a CAskLendLease with its offer flag set, kind 13.",
+   "confidence": "confirmed",
+   "evidence": "Disassembly: the two tests, `push 1` and the constructor 0x6178B0, `push 0xD`. vtable slot 19 of COfferLendLeaseAction alone."
+  },
+  {
+   "rva": "0x63D420",
+   "kind": "function",
+   "name": "CLicenceTechnologyAction::AskPlayer",
+   "signature": "void __thiscall CLicenceTechnologyAction::AskPlayer(CLicenceTechnologyAction* this, CInGameIdler* host)",
+   "no_signature": null,
+   "comment": "Slot 19: any PROPOSE (no `value` test) becomes a CAskBuyLicence, kind 10.",
+   "confidence": "confirmed",
+   "evidence": "Disassembly: only the `type` test, the constructor 0x612340, `push 0xA`. vtable slot 19 of CLicenceTechnologyAction alone."
+  },
+  {
+   "rva": "0x63AFC0",
+   "kind": "function",
+   "name": "CSendExpeditionaryForceAction::AskPlayer",
+   "signature": "void __thiscall CSendExpeditionaryForceAction::AskPlayer(CSendExpeditionaryForceAction* this, CInGameIdler* host)",
+   "no_signature": null,
+   "comment": "Slot 19: a PROPOSE with `value` set becomes a CAskExpedition, kind 9.",
+   "confidence": "confirmed",
+   "evidence": "Disassembly: the two tests, the constructor 0x611500, `push 9`. vtable slot 19 of CSendExpeditionaryForceAction alone."
+  },
+  {
+   "rva": "0xDB042",
+   "kind": "instruction",
+   "name": "RunCountryDailyPass_ExpirePendingActions",
+   "signature": null,
+   "no_signature": "an instruction inside RunCountryDailyPass, not a function",
+   "comment": "`xor edi, edi` - the start of the block in RunCountryDailyPass (0x4DB042-0x4DB179) that **deletes, unanswered, every pending action (CCountry +0xF24) whose last_command_date + 0x60 (96 hours, four days) is before today's tick**. It runs for a country with a CEU3AI that nobody plays, and for the local player's own country only while his first delegation flag is 1 (foreign policy left to the AI) - so never for an undelegated player. In practice what it catches are the trade offers AnswerPendingOffers keeps back (only one trade is accepted per pass); they are dropped four days after they arrived. Removal honours the list's no_unlink byte (+0xF30), marking the node instead of unlinking it while that is set.",
+   "confidence": "confirmed",
+   "evidence": "Disassembly 0x4DAFBC-0x4DB179: the gates (+0x1D8, played_countries_array, GetLocalPlayer()+0x38[0] == 1), `mov eax,[eax+0x20]; add eax,0x60; cmp [ebp-0x28],eax; jle` at 0x4DB064-0x4DB06D, [ebp-0x28] = tick from 0x4DA5CD-0x4DA5D4, delete through slot 0 at 0x4DB0C6, the unlink and `cmp byte [ebx+0xf30],0` at 0x4DB101. functionStart answers 0x4DAE94, which is not an entry; RunCountryDailyPass's extent (0x4DA530-0x4DC239) holds it with retsBefore empty."
+  },
+  {
+   "rva": "0x282B37",
+   "kind": "instruction",
+   "name": "RunHourlyPass_TutorialAcceptAll",
+   "signature": null,
+   "no_signature": "an instruction inside RunHourlyPass, not a function",
+   "comment": "`mov ecx, [edi+0xBC0]` - the loop RunHourlyPass runs **instead of re-arming the AI pass** when tutorial_active (+0xD9D) is set (`jne 0x682B37` at 0x682B1B). For every country nobody plays it accepts each pending PROPOSE whose slot 18 is true (type = 2 at 0x682BB3, MakeCommand, posted through +0xF1C) and then clears the country's pending list (0x682BE5). **It is the tutorial's AI, not the ordinary game's**: in an ordinary game the clear of ai_pass_done at 0x682B1D runs instead and offers are answered by CAIForeignMinister::AnswerPendingOffers. FINDINGS-diploaction.md section 5 described this loop as the AI's answer; that is corrected in FINDINGS-agreements.md.",
+   "confidence": "confirmed",
+   "evidence": "Decoded from RunHourlyPass's entry 0x682630 to 0x682C20: `cmp byte [esi+0xd9d],0; jne 0x682b37` at 0x682B14, the loop 0x682B37-0x682C07. tutorial_active's writers are the two CTutorialScreen handlers (its record)."
+  },
+  {
+   "rva": "0x60E890",
+   "kind": "function",
+   "name": "CDiplomaticAction::MakeCommand",
+   "signature": "CDiplomaticActionCommand* __thiscall CDiplomaticAction::MakeCommand(CDiplomaticAction* this)",
+   "no_signature": null,
+   "revises": "comment only: it said the hourly AI pass at 0x682BC2 is 'its one caller inside the engine'. That loop runs only in the tutorial, and slot 6 is called from at least nine places, listed. Name, signature and confidence unchanged.",
+   "comment": "Slot 6, and the base's own body in all 24 tables of the family - the step that turns an action into something postable. Lazily creates g_CCurrentGameState, stamps `this->last_command_date` (+0x20) with its tick (+0xBDC) at 0xA0E92D, asks `operator new` for 0x40 bytes (sizeof CDiplomaticActionCommand), clones itself through slot 16 (0xA0E94F) and hands the clone to CDiplomaticActionCommand's two-argument constructor (0xA0E090 at 0xA0E953), returning the command. It does not post it: every caller pushes the result onto the session's command channel (country->+0xF1C slot 18 -> session +0x38 slot 6). Bare `ret`, no stack arguments, receiver in ECX.\n\nIts callers (virtual, so found by reading, not counted): CAIForeignMinister::AnswerPendingOffers (an AI's answers), CCountry::RunHourlyAITrade (the player's trades under automate_trade), CEU3AI::PostAction (an offer from Lua), CDiplomacyDialog::Accept and ::Decline (the player's answer), DiplomacyDialog_OnAgree (rva 0x373090, the player's own offer), CCallAllyAction::AskPlayer (a call to arms accepted unasked), and the tutorial's accept-all loop at 0x682BC2.",
+   "confidence": "confirmed",
+   "evidence": "The callers were each read posting its result: 0x89E184/0x89E20B, 0x4DC5B8/0x4DC5E9, 0x49A750's body, 0x60FAF6/0x60FB36, 0x773141, 0xA2ACF4, 0x682BC2. Shown wrong by any of them not calling slot 6 of a CDiplomaticAction."
+  },
+  {
+   "rva": "0xE63A0",
+   "kind": "function",
+   "name": "CCountry::ClearPendingDiplomaticActions",
+   "signature": "void __cdecl CCountry::ClearPendingDiplomaticActions(CCountry* country@EDI)",
+   "no_signature": null,
+   "revises": "comment only: it said the hourly AI pass runs it 'on every AI country ... so an offer not acted on in the hour it arrives is discarded'. That pass is the tutorial's; the ordinary game's clearing goes through CCountry::RetainPendingDiplomaticActions. Signature kept as recorded.",
+   "comment": "Deletes every action in the +0xF24 list through its slot 0 with the free flag, frees every node, and zeroes +0xF24, +0xF28 and +0xF2C. Receiver in EDI, no stack arguments, bare `ret`. Callers: CCountry::RetainPendingDiplomaticActions (rva 0xE6410) when nothing is to be kept - which is how AnswerPendingOffers, CEU3Idler::Update and RunHourlyAITrade empty a list - and the tutorial's accept-all loop in RunHourlyPass at 0x682BE5.",
+   "confidence": "confirmed",
+   "evidence": "The call at 0x4E6420 inside 0x4E6410 (EDI = EAX = the country) and the one at 0x682BE5; the tutorial gate at 0x682B14."
+  },
+  {
+   "rva": "0xDC410",
+   "kind": "function",
+   "name": "CCountry::RunHourlyAITrade",
+   "signature": "void __stdcall CCountry::RunHourlyAITrade(CCountry* country)",
+   "no_signature": null,
+   "revises": "comment only: adds the block in front of the Lua calls (0x4DC4A6-0x4DC66B) that answers the player's own trade offers under automate_trade. The Lua half is kept word for word.",
+   "comment": "**The engine calls the mod's Lua to run trade, and it does so on a worker thread.** One caller, 0x27B1A2, inside 0x27B160, which is the per-country body of ProcessAITradeFunctor - and FINDINGS-tick has that functor fanned out from RunHourlyPass at 0x6829DC, every hour. So this is **once per country per hour, on a TBB worker thread**.\n\nIt draws MT19937Next (0x6A2B90) directly against the game state's generator at +0x124 - not through Random (0x6A2F80) - and:\n\n    if (draw % 6 == 0)        Lua ProposeTrades(country->ai (+0x1D8), country->tag (+0xCA4))\n    else if (draw % 10 == 0)  Lua EvalutateExistingTrades(country->ai, country->tag)\n\nThe bridge is 0x110280 with the function name in EAX and a result buffer in ESI. Both names are BlackICE's own, in `script/ai_trade.lua` (`EvalutateExistingTrades` is misspelled in the engine's literal too, so the mod's spelling is required). **So the AI's trade-route decisions are entirely the mod's**, and a script error there silently stops the AI trading.\n\n**Before that, the player's trade offers under automate_trade** (0x4DC4A6-0x4DC66B, read 2026-10-13): only for the local player's own country (GetLocalPlayer()+0x24 == the country's id), with automate_trade set (+0x34) and foreign policy not delegated (+0x38 flag 0 != 1). For each pending PROPOSE whose slot 18 is true it asks GetAIAcceptance (slot 17); a non-trade is kept unanswered for CEU3Idler::Update; a trade is rolled with **a private C-runtime rand() seeded to 1 at every call** - x = x*214013 + 2531011, r = (x>>16) & 0x7FFF, two draws, roll = (r1*r2) % 100 - accepted when roll < score (the first only; later accepted trades are kept), else declined, each answer posted through MakeCommand. Actions failing slot 18 or not PROPOSE are dropped. Then RetainPendingDiplomaticActions. Because the seed is reset every hour, the rolls are the same fixed sequence each time: 47, 0, 56, 24, 68, 25, 87, 51...",
+   "confidence": "confirmed",
+   "evidence": "Disassembly 0x4DC4A6-0x4DC66B: the three gates at 0x4DC4BD/0x4DC4C9/0x4DC4D6, `mov [ebp-0x2c], 1` at 0x4DC4DF, the two LCG steps 0x4DC559-0x4DC582 (0x343FD, 0x269EC3), `idiv 0x64; cmp edx, edi; jge` at 0x4DC58C-0x4DC595, the call to 0x4E6410 at 0x4DC652. The roll sequence computed from those constants. Shown wrong by [ebp-0x2c] being written anywhere else in the function before 0x4DC559."
+  },
+  {
+   "rva": "0x64A550",
+   "kind": "function",
+   "name": "CDiplomacyStatus::SetNextOfferAllowed",
+   "signature": "void __stdcall CDiplomacyStatus::SetNextOfferAllowed(CDiplomacyStatus* status@EDI, int when@stack:4)",
+   "no_signature": null,
+   "revises": "comment and confidence: the field now has a reader (CCountry::HasDiplomatEnroute, rva 0xE3ED0, found by brief B of the same wave and found again here by an independent scan), so the cooldown is no longer inference. The signature places its stack argument explicitly; the convention is unchanged.",
+   "comment": "Stores its argument in the status's +0x50 (next_offer_allowed, the save's `last_send_diplomat`). The body is `status->+0x50 = when` on both arms of a comparison against `g_CCurrentGameState->tick + 0xA8` (0xA4A5E6, `jle`), so the comparison is dead. One caller: CDiplomaticActionCommand::Execute passes `action->date + 0xA8` - the proposal's date plus 168 hours, exactly seven days - on the PROPOSE path for every kind but `callaction`, on the proposer's status toward the recipient, whatever the answer turns out to be. **The reader is CCountry::HasDiplomatEnroute (rva 0xE3ED0)**: `tick <= +0x50`, registered to Lua and used by the diplomacy screen to grey a row (ENROUTE, \"We have a diplomat enroute, and he will arrive on $DATE$\") and by the shipped AI scripts (ai_foreign_minister.lua, ai_trade.lua, ai_support_functions.lua) before they post. So it is a seven-day cooldown on one country's offers to another, enforced where an offer is chosen and **not** in Execute. Receiver in EDI, one stack argument, `ret 4`.",
+   "confidence": "confirmed",
+   "evidence": "Disassembly 0xA4A5DB-0xA4A606 for the dead compare; the reader 0x4E3F68-0x4E3F76 (`mov ecx,[esi+0xbdc]; cmp ecx,[edi+0x50]; setle al`, EDI = this->+0xE28[other]). A scan of every [reg+0x50] (reg not ESP/EBP) in the diplomacy code ranges 0xA0D000-0xA4D000, 0x4E0000-0x4E7000, 0x770000-0x792000, 0x60F000-0x61D000 and 0x89C000-0x8A0000 returned 57 sites; its positive controls are this setter's three accesses and LoadKey's `lea esi,[ebx+0x50]` at 0xA482CB, and the one read through a status pointer is 0x4E3F6E. The GUI hits are `mov eax,[edx+0x50]` virtual calls. The Lua uses grepped in the install's script/ and tfh/script/."
+  }
+ ],
+ "structs": [
+  {
+   "name": "CEU3Dialog",
+   "vftable_rva": "0x11CD334",
+   "comment": "The base of every in-game dialog (46 tables). Its constructor (rva 0x23D4B0) makes the window and binds `AgreeButton` to slot 5 and `DeclineButton` to slot 6; slot 1 (rva 0x23D830) is the per-frame update the idler's dialog list runs, which first asks slot 7 and drops the dialog when that answers false.",
+   "evidence": "RTTI export (vftable 0x015CD334, base CUpdateable); the constructor 0x63D4B0 decompiled and its two button bindings read at 0x63D4ED and 0x63D518."
+  },
+  {
+   "name": "CDiplomacyDialog",
+   "inherits": "CEU3Dialog",
+   "vftable_rva": "0x11CB2EC",
+   "size": "0x70",
+   "comment": "The base of the twelve CAsk* dialogs that put an offer to the player (and of CWarGoalDialog).",
+   "evidence": "RTTI export (vftable 0x015CB2EC, base CEU3Dialog at offset 0); every AskPlayer body allocates 0x70 bytes for a CAsk* dialog and no CAsk* class adds a field written past +0x6C."
+  },
+  {
+   "name": "CDiploIcon",
+   "size": "0x80",
+   "comment": "One icon in the in-game screen's diplomatic message bar - an offer waiting for the player. Not polymorphic: +0x0 is its window, and the class is named only by its CButtonObserverGlue<CDiploIcon>. Built by CDiploIcon::CDiploIcon (rva 0x219720).",
+   "evidence": "new(0x80) at 0x61A1F0 immediately before the constructor call; the RTTI name VCDiploIcon::__CButtonObserverGlue (vftable 0x015CB888) is the glue the constructor writes at +0x24."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CEU3Dialog",
+   "offset": "0x4",
+   "name": "window",
+   "type": "void*",
+   "comment": "The dialog's window, made by the constructor; the CAsk* constructors look `AgreeButton`, `DeclineButton`, `Title` and `Description` up in it.",
+   "evidence": "`param_1[1] = window` in the constructor 0x63D4B0 and the lookups through [this+4] slot 13 in every CAsk* constructor."
+  },
+  {
+   "struct": "CEU3Dialog",
+   "offset": "0x64",
+   "name": "closed",
+   "type": "uint8_t",
+   "comment": "Set by a button that has done its work; slot 1 then answers false and the idler deletes the dialog.",
+   "evidence": "`mov byte [esi+0x64], 1` in CDiplomacyDialog::Accept/Decline and in the request dialogue's agree/cancel; zeroed by the constructor; read as `(char)this[0x19] == 0` by slot 1."
+  },
+  {
+   "struct": "CDiplomacyDialog",
+   "offset": "0x68",
+   "name": "host",
+   "type": "CInGameIdler*",
+   "comment": "The in-game screen the dialog was made for; Accept and Decline post their command through its slot 18.",
+   "evidence": "Stored from ECX by each CAsk* constructor (`param_1[0x1a] = this`); read as the poster in 0x60FAF8 and 0x60FB38."
+  },
+  {
+   "struct": "CDiplomacyDialog",
+   "offset": "0x6C",
+   "name": "action",
+   "type": "CDiplomaticAction*",
+   "comment": "The dialog's own clone of the offer (slot 16 of the pending action); Accept/Decline set its type and post it, the slot 7 tests read its date. The destructor deletes it while it is still valid.",
+   "evidence": "`param_1[0x1b] = action->slot16()` in each constructor; `mov eax,[esi+0x6c]; mov [eax+0x18], 2` in 0x60FAE3; the destructor 0x6147B0."
+  },
+  {
+   "struct": "CDiploIcon",
+   "offset": "0x0",
+   "name": "window",
+   "type": "void*",
+   "comment": "The icon's `diplomessageicon_entry_window`.",
+   "evidence": "`*param_1 = window` in 0x619720."
+  },
+  {
+   "struct": "CDiploIcon",
+   "offset": "0x4",
+   "name": "dialog",
+   "type": "CDiplomacyDialog*",
+   "comment": "The offer's dialog, opened on a click (and then cleared) or declined after seven days.",
+   "evidence": "`mov [edi+4], eax` at 0x619746; read by 0x619D5C and 0x619D80."
+  },
+  {
+   "struct": "CDiploIcon",
+   "offset": "0x8",
+   "name": "kind",
+   "type": "int",
+   "comment": "Which kind of offer, 1..13 as the AskPlayer bodies number them (1 peace, 2 alliance, 3 trade, 4 access asked, 5 access offered, 6 call to arms, 7 NAP, 8 faction, 9 expedition, 10 licence, 11 debt, 12 and 13 lend-lease asked and offered). Its reader was not traced.",
+   "evidence": "`mov [edi+8], ecx` at 0x61974C with ECX the kind from 0x61A212."
+  },
+  {
+   "struct": "CDiploIcon",
+   "offset": "0xC",
+   "name": "from",
+   "type": "CCountryTag",
+   "comment": "The proposer, whose flag the icon shows.",
+   "evidence": "Copied from the tag argument at 0x619754-0x61975C."
+  },
+  {
+   "struct": "CDiploIcon",
+   "offset": "0x14",
+   "name": "bar",
+   "type": "void*",
+   "comment": "The diplomatic message bar holding it (CInGameIdler +0x1D38).",
+   "evidence": "`mov [edi+0x14], ecx` at 0x61975F."
+  },
+  {
+   "struct": "CDiploIcon",
+   "offset": "0x18",
+   "name": "shown_at",
+   "type": "int",
+   "comment": "Tick the icon appeared.",
+   "evidence": "Stamped from g_CCurrentGameState->tick by the constructor."
+  },
+  {
+   "struct": "CDiploIcon",
+   "offset": "0x1C",
+   "name": "blink_from",
+   "type": "int",
+   "comment": "shown_at + 120 hours: from here the icon blinks.",
+   "evidence": "+0x78 in the constructor; compared at 0x619C9A."
+  },
+  {
+   "struct": "CDiploIcon",
+   "offset": "0x20",
+   "name": "expires_at",
+   "type": "int",
+   "comment": "shown_at + 168 hours: past it the offer is declined for the player.",
+   "evidence": "+0xA8 in the constructor; compared at 0x619CA3/0x619D57."
+  },
+  {
+   "struct": "CDiploIcon",
+   "offset": "0x7C",
+   "name": "clicked",
+   "type": "uint8_t",
+   "comment": "Set by CDiploIcon::OnClick; the next update drops the icon.",
+   "evidence": "Written at the end of 0x619D80, tested at 0x619C0F."
+  },
+  {
+   "struct": "CDiploIcon",
+   "offset": "0x7D",
+   "name": "laid_out",
+   "type": "uint8_t",
+   "comment": "Set by DiploIconBar_Layout for an icon it placed; only such an icon blinks.",
+   "evidence": "Written in 0x61C5A0, tested at 0x619C91."
+  },
+  {
+   "struct": "CInGameIdler",
+   "offset": "0x1D38",
+   "name": "diplo_icon_bar",
+   "type": "void*",
+   "comment": "The diplomatic message bar: the icons of offers waiting for the player. CInGameIdler::AddDiplomaticOffer adds to it; UpdateTutorialAndAuxWindows runs DiploIconBar_Update on it each frame.",
+   "evidence": "`mov edi, [edi+0x1d38]` before the call to 0x61A1D0 at 0x674F98; the UpdateTutorialAndAuxWindows record's call through 0x219E80."
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0xF30",
+   "name": "pending_diplomatic_actions_no_unlink",
+   "type": "uint8_t",
+   "comment": "The fourth member of the pending list's CList (head +0xF24, tail +0xF28, count +0xF2C): while set, a removal marks the node's +0xC byte instead of unlinking it.",
+   "evidence": "`cmp byte [ebx+0xf30], 0; je <unlink>; mov byte [eax+0xc], 1` at 0x4DB101-0x4DB10A, the CList::no_unlink shape at +0xC of a list starting at +0xF24."
+  },
+  {
+   "struct": "CDiplomacyStatus",
+   "offset": "0x50",
+   "name": "next_offer_allowed",
+   "type": "int",
+   "revises": "comment only: the field has a reader now (CCountry::HasDiplomatEnroute), so 'no reader was found' is withdrawn. Name and type kept.",
+   "comment": "A tick (hours), set to the proposal's `date + 0xA8` - **exactly seven days** - by CDiplomacyStatus::SetNextOfferAllowed (0xA4A550), whose one caller is CDiplomaticActionCommand::Execute on the PROPOSE path, for every kind of action except `callaction` (0x309), on the proposer's status toward the recipient. **Read by CCountry::HasDiplomatEnroute (rva 0xE3ED0), `tick <= this`**: while it holds the proposer has \"a diplomat enroute\" to that country - the diplomacy screen greys the row and shows ENROUTE with this date, and the AI scripts skip that country. Execute does not test it, so an offer posted regardless (Lua's PostAction with no check) is not refused. The setter's own comparison against `tick + 0xA8` is dead - both arms store the same value.\n\n**The game's own name for the field is `last_send_diplomat`**: CDiplomacyStatus::LoadKey (rva 0x648190) stores that key, token 0x306, here at 0xA482C1 through Date_SetFromString. The code is on the record's side about tense: what is stored is the date the diplomat arrives, seven days in the future. So the key is noted and the behavioural name kept.",
+   "evidence": "The reader at 0x4E3F6E and the scan described on SetNextOfferAllowed's entry, with its two positive controls."
+  }
+ ],
+ "vftable_slots": {
+  "CDiplomaticAction": {
+   "19": "AskPlayer"
+  },
+  "CAllianceAction": {
+   "19": "AskPlayer"
+  },
+  "CNapAction": {
+   "19": "AskPlayer"
+  },
+  "CMilitaryAccessAction": {
+   "19": "AskPlayer"
+  },
+  "COfferMilitaryAccessAction": {
+   "19": "AskPlayer"
+  },
+  "CTradeAction": {
+   "19": "AskPlayer"
+  },
+  "CCallAllyAction": {
+   "19": "AskPlayer"
+  },
+  "CFactionAction": {
+   "19": "AskPlayer"
+  },
+  "CPeaceAction": {
+   "19": "AskPlayer"
+  },
+  "CDebtAction": {
+   "19": "AskPlayer"
+  },
+  "CRequestLendLeaseAction": {
+   "19": "AskPlayer"
+  },
+  "COfferLendLeaseAction": {
+   "19": "AskPlayer"
+  },
+  "CLicenceTechnologyAction": {
+   "19": "AskPlayer"
+  },
+  "CSendExpeditionaryForceAction": {
+   "19": "AskPlayer"
+  },
+  "CDiplomacyDialog": {
+   "5": "Accept",
+   "6": "Decline",
+   "7": "IsStillOpen",
+   "17": "PlayOfferSound"
+  },
+  "CAskAlliance": {
+   "7": "IsStillOpen"
+  },
+  "CAskNap": {
+   "7": "IsStillOpen"
+  },
+  "CAskMilitaryAccess": {
+   "7": "IsStillOpen"
+  },
+  "CAskOfferMilitaryAccess": {
+   "7": "IsStillOpen"
+  },
+  "CAskTrade": {
+   "7": "IsStillOpen"
+  },
+  "CAskJoinWar": {
+   "7": "IsStillOpen"
+  },
+  "CAskFaction": {
+   "7": "IsStillOpen"
+  },
+  "CAskPeace": {
+   "7": "IsStillOpen"
+  },
+  "CAskDebt": {
+   "7": "IsStillOpen"
+  },
+  "CAskLendLease": {
+   "7": "IsStillOpen"
+  },
+  "CAskBuyLicence": {
+   "7": "IsStillOpen"
+  },
+  "CAskExpedition": {
+   "7": "IsStillOpen"
+  },
+  "CInGameIdler": {
+   "24": "AddDiplomaticOffer"
+  }
+ },
+ "slots_noted": "CEU3Idler::Update (rva 0x244750) is revised here for its comment only; its slot, CEU3Idler slot 1, is already recorded as Update and is not repeated. Every other slot a function of this fragment sits in is recorded above.",
+ "frontier": [
+  "0x648B20",
+  "0x23D830",
+  "0x219E60",
+  "0x2147B0",
+  "0x73FA30"
+ ]
+}
