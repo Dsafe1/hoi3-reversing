@@ -91,7 +91,7 @@ for (node in unit->plan.path) {
 for (t in tags) allTheatres += countryDatabase[t.id]->theatres (+0x570)
 ```
 
-`0x4EE110` walks every country in the game and keeps those that pass the same filter `0x4EFA00` applies — allied/same-faction, or has granted military access and is not an enemy — skipping id 0 and `REB`. One caller in the image: this one.
+`0x4EE110` walks every country in the game and keeps those that pass the same filter `0x4EFA00` applies — the same side, or a co-belligerent that is not an enemy (corrected 2026-10-13: not military access) — skipping id 0 and `REB`. One caller in the image: this one.
 
 `allTheatres` is `[esp+0xA0]`. Its members' **`+0x50` lists are `CAreaBorder`s**, which `CLASSES.md` already names `front`, each carrying its province array as the `PAVCProvince::__CArray` base at `+0x8`/`+0xC`.
 
@@ -349,6 +349,11 @@ CDiplomacyStatus  (the entries of CCountry +0xE28, indexed by country id)
   +0x58    a byte that, with "not at war", is what lets one country's armies use another's
            territory. **Inferred** from three independent consumers (0x4EFA00, 0x4EF7C0,
            0x4EE110) all treating it that way; nothing names it
+           *Corrected 2026-10-13: it is `co_belligerent` - set both ways when either country
+           joins a side of a war the other is on, cleared when either leaves, by
+           SetWarSideCoBelligerentFlags / ClearWarSideCoBelligerentFlags
+           (FINDINGS-trade2.md). Military access is +0x4C. So CanOperateIn is "on one side,
+           or fighting a war beside it and not at war with it" (FINDINGS-supplynetwork.md).*
 
 CCountry
   +0x4A8   a list; a matching entry's +0xC is added to an AI objective's priority
@@ -374,7 +379,7 @@ CUnit  (all inside the CUnitPlan at +0x1FC, whose layout project.json already ha
 | `0x492030` | `CMap::DistanceBetweenProvinces` | read; 77 callers |
 | `0x4EF940` | `CCountry::IsSameSide(tag)` — self, overlord, same faction leader | read; 37 callers |
 | `0x4EF7C0` | `CCountry::IsFriendly(tag, includeRequested)` | read; 75 callers |
-| `0x4EFA00` | `CCountry::CanOperateIn(tag)` — allied, or access and not at war | read; 31 callers |
+| `0x4EFA00` | `CCountry::CanOperateIn(tag)` — same side, or co-belligerent and not at war (corrected 2026-10-13: not access) | read; 31 callers |
 | `0x4EE110` | `CCountry::CollectCountriesWeCanOperateIn(out)` | read; 1 caller |
 | `0x4B08C0` | `CAIUnit::DistanceToTheatreFronts(province, theatre)` | read; 4 callers |
 | `0x5BDB00` | `CUnit::CountDivisions(bool landOnly)` — recursive, `oob_level >= 4` | read; 5 callers |

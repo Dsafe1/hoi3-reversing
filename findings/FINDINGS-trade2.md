@@ -923,7 +923,9 @@ The five names are `confirmed`.
   (in `0x4E3FE0`) and `0x89D9A1`, `+0xDE4` at `0xA1BDF4`, `0xA1DE77` and `0xA28CA0`, `+0xDD4` by
   nothing at all outside the clear. **Cheapest check:** read the three readers of `+0xDE4`, two of
   which are inside `CGuaranteeAction` slot 12 (`0xA1DC10`) and `CCallAllyAction` slot 7
-  (`0xA27BA0`); a per-action permission byte should name itself from which action tests it.
+  (`0xA27BA0`); a per-action permission byte should name itself from which action tests it. *Settled
+  2026-10-13: they are the faction rules NONE, LIMITED_WAR and ALLIANCE_GUARANTEE, written with
+  `+0xDEC` by `CCountry::RebuildRules` through `CRule::Merge` (`FINDINGS-factionplay.md` B.3).*
 - **`CDistributionSetting +0x10`**, unchanged and now known to be unreachable by displacement
   scanning. **Cheapest check:** live, as in section 7. A static route exists but is longer: read
   `CCountry::LoadKey`'s `distribution` (save token `0x229`) and `leadership` (`0x49B`) handlers,

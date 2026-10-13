@@ -109,6 +109,20 @@ the hour it arrives (step 11 of `CUnit::AdvanceMovement` calls this) or any hour
    not a subject and in whose ground `to` may operate (`CCountry::CanOperateIn`), and that
    country is an enemy of the controller: **that neighbour's controller takes it.** The last
    such neighbour in edge order wins.
+   *Made exact 2026-10-13, off the instructions (`0x4A1F12`-`0x4A2051`):* the walk is over
+   every entry of the province template's edge list (`CProvinceTemplate +0x90..+0x94`, 20
+   bytes an entry, the neighbour's id at `+4`). "Can be entered" is the neighbour template's
+   `simulated` byte (`+0x13D`), which a campaign sets on every province, so every way out
+   counts, the sea's too. A neighbour held by `to` sets a flag and the walk goes on; a set flag
+   at the end means nothing changes. Otherwise the candidate is the controller of the last
+   neighbour whose controller is not a subject (`+0xF34` clear) and passes
+   `CanOperateIn(to, that controller)`; the enemy test
+   (`CCountry::IsEnemy(candidate, &province.controller, province)`, `0x42F210`) is made once,
+   on that last candidate alone. Step 2's enemy test is the tag-only
+   `CCountry::IsEnemyTag(first member, &province.owner)` (`0x42F1B0`), and step 1's is the
+   overlord's diplomacy status towards the controller (`+0x20`), REB on either side, or an
+   undeclared war (`+0x24`) covering the province (`UndeclaredWarCoversProvince`).
+   `CanOperateIn`'s `+0x58` is `CDiplomacyStatus.co_belligerent`, not military access.
 5. `to` differs from the controller: `0x4A2400(province, &to, &now, 1, 0, 0)` sets it (not
    read here; the occupation write-up has what follows from a change of controller).
 6. where the controller did change: both countries' neighbour lists are rebuilt and the

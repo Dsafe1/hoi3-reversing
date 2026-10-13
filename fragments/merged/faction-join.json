@@ -1,0 +1,195 @@
+{
+ "agent": "faction wave, reader A",
+ "question": "Joining a faction and inviting to one: CFactionAction whole on the listing (the object, IsValid, IsSelectable, GetDescription, the dialog text, Apply past its gate with both AddCountry calls and every message, GetAIAcceptance and the Lua it asks, AskPlayer and CAskFaction); CJoinFactionGoalAction with GetJoinFactionGoalScoreFromLua - what it is, who makes one, what it does.",
+ "source": "reversing/findings/FINDINGS-factionplay.md",
+ "addresses": [
+  {
+   "rva": "0x630E70",
+   "kind": "function",
+   "name": "CFactionAction::Apply",
+   "signature": "void __thiscall CFactionAction::Apply(CFactionAction* this)",
+   "no_signature": null,
+   "comment": "CFactionAction slot 7, one holder (vftable 0x15FB874). 0xA30E70 to the bare `ret` at 0xA32FC6, 9 int3, then slot 11 at 0xA32FD0. `this` in ECX, no stack arguments. Read whole on the listing 2026-10-13 (FINDINGS-factionplay.md, A).\n\n**`value` (+0x24) is the direction, not a gate.** value 1 = Join Faction: the actor joins the recipient's faction. value 0 = Invite to Faction: the recipient joins the actor's faction. The joiner is the actor or the recipient accordingly, and the faction's owner the other one.\n\n**The one gate (0xA30E9D-0xA30F7A), for every type:** if the joiner is at war (`at_war`, +0xACC), then for every member of the owner's faction (`Members` +0x28, node id at +4, next at +0xC) the joiner's `diplomacy (+0xE28)[member]->war (+0x20)` must be null; any war returns at once (0xA32FB2), with no message, no charge and no refresh. A joiner at peace skips the test.\n\nThen the message variables: the player's `CCountry::BuildMessageVariables`, `ACTOR` and `RECIPIENT` (names). `type` (+0x18):\n\n- **PROPOSE (0): nothing else** - no influence charge (corrects the family rule that slot 7 charges on PROPOSE) and no message.\n- **ACCEPT (2)** (`cmp [ecx+0x18],2` at 0xA314A7): the **actor** pays - JOIN_FACTION_INFLUENCE_COST (diplomacy +0x8C) for a join, INVITE_FACTION_INFLUENCE_COST (+0x90) for an invite, `diplo_influence (+0xA88) -= cost`, floored at 0 (0xA31543-0xA31553); both 0 in Their Finest Hour. Variables JOINER (the joiner's name), FACTION (the owner's faction, slot 6), COMMENT = the key `FACTIONCOMMENT_` + the owner's faction tag (`CFaction +0xC`, std::string::operatorPlus at 0xA318A5). Then `CFaction::AddCountry(owner->faction, joiner, 0, 1)` (0xA319B2); then, for every country in `CCurrentGameState +0xBBC` (count from slot 6) whose `overlord_id (+0xF3C)` is the joiner's id, `AddCountry(owner->faction, it, 0, 1)` (0xA31AF5) - the subjects follow; `isSubject` is not tested. Then, for every member of the faction as it now is, the **joiner's** `diplomacy[member]->alliance (+0x14)`, where set, is ended: CAlliance::Deactivate (slot 11), unlinked from `CCurrentGameState +0xB2C` (CList_RemoveNode) and deleted (slot 0). Then one message, chosen on `played_country_id` (+0xC34): the actor played and an invite - FACTIONINVITEACCEPT (location the recipient's acting capital); a join and the player now in the faction - FACTIONJOINACCEPT (the recipient's); otherwise, unless the recipient is the player, FACTIONJOINACCEPTOTHER (the actor's). The two accept keys also play `diplomaticsuccess`.\n- **DECLINE (1)**, only where the actor is the player: a join - FACTIONJOINDECLINCE with FACTION = the recipient's faction; an invite - FACTIONINVITEDECLINCE with FACTION = the actor's; both with BAD_COMMENT and COMMENT_BAD = `FACTIONCOMMENTBAD_` + that faction's tag, the actor's acting capital as location, and the `diplomaticfailure` sound.\n\nLast, where `in_game` (+0xDA4): GameState_RequestIntelRefresh(-1) and bit 0x100 of `[state+0xBE8]+0x84`. Messages: diplomaticsuccess/failure sounds are played only if not already playing (the +0x64 / +0x24 sound-object slots, by the shape the other actions share).",
+   "confidence": "confirmed",
+   "evidence": "Off the listing, every arm: the gate 0xA30E9D-0xA30F7A (two symmetric loops selected by `cmp [ecx+0x24],bl; je 0xa30f18`, each skipped by `cmp byte [country+0xacc],bl; je 0xa30f7c` - i.e. at war is what *runs* the test, not what fails it - and exiting to the epilogue 0xA32FB2 on `cmp [status+0x20],ebx; jne`); the type test `cmp dword [ecx+0x18],2; jne 0xa32322` at 0xA314A7 ahead of the only GetDefines reads (0xA314F9 +0x90, 0xA3151F +0x8C) and the only CCountry store (0xA31545); joiner/owner registers 0xA314B8-0xA3157F; AddCountry pushes `push 1; push ebx(0); push joiner` with ECX = owner->+0xD8 at 0xA319A8; the subject loop 0xA319C0-0xA31B01 compares +0xF3C with [esp+0x44] (the joiner id); the alliance loop 0xA31B06-0xA31C1F (`[status+0x14]`, `call [vft+0x2c]`, the 0xB2C list walk, 0x5D49D0, `call [vft]` with 1); message selection 0xA31C25-0xA31F46 and 0xA321BC; declines 0xA32322-0xA328D8 and 0xA328D8-0xA32E8C (each `cmp value`, `cmp [+0x18],1`, `cmp [+0xC], player`); the keys are the pushed literals. Wrong if Execute did not call slot 7 on PROPOSE (then the charge rule still stands, only the 'nothing on PROPOSE' wording would be moot) or if CAlliance slot 11 were not Deactivate (it is recorded so, 0x646BF0).",
+   "source": "reversing/findings/FINDINGS-factionplay.md",
+   "revises": "The record said the gate requires `value` set and the actor's at_war **clear**, and that a non-null `recipient->faction->Members.first` is required. All three were misreadings of a branch: `value` selects which country is the joiner and whose faction is joined (join vs invite), at_war set is what runs the war-with-a-member test (at peace skips it), and an empty member list skips the loop. Added what was 'not read instruction by instruction': the charge is on ACCEPT only and to the actor, both AddCountry calls (the joiner, then every country whose overlord_id is the joiner's), the new finding that the joiner's bilateral alliances with every member of the faction are deactivated and deleted, and every message with its key, variables, location and who is told. Confidence stays confirmed."
+  },
+  {
+   "rva": "0x632FD0",
+   "kind": "function",
+   "name": "CFactionAction::GetDescription",
+   "signature": "Hoi3CString* __thiscall CFactionAction::GetDescription(CFactionAction* this, Hoi3CString* out)",
+   "no_signature": null,
+   "comment": "Slot 11, the row's tooltip; the first arm that holds: (1) actor id = recipient id - ACT_NO_SELF; (2) CCountry::HasDiplomatEnroute(actor, recipient) - ENROUTE, DATE = actor->diplomacy[recipient]->next_offer_allowed through FormatHourDate; (3) the **recipient** `isSubject` (+0xF34) - DIP_THEY_PUPPET, OVERLORD = the recipient's overlord's name; (4) influence (`diplo_influence`, or 100.000 under g_UnlimitedDiploInfluence) below the cost - DIP_NO_INFL, INF = FFP(cost, 0), the cost JOIN_FACTION_INFLUENCE_COST (+0x8C) for a join and INVITE_FACTION_INFLUENCE_COST (+0x90) for an invite; (5) a join and the **actor's** effective neutrality (+0xA90) > JOIN_FACTION_NEUTRALITY (+0x94) - DIP_TO_NEUTR_THREAT, VAL = FFP(its effective neutrality, 2), **LIM = trimmed INVITE_FACTION_NEUTRALITY (+0x98)**; (6) an invite and the **recipient's** > +0x98 - DIP_THEY_TO_NEUTR_THREAT, LIM = trimmed +0x94 (the limits are swapped in the text; both 25 in Their Finest Hour); (7) a join and not CAlignment::IsWithinFactionJoinDistance(actor +0xDC, recipient's faction) - FACTION_DISTANCE, VAL = FFP(FACTION_JOIN_DIST alignment +0x1C, 2), FACTION = the recipient's faction (slot 6), VALC = CAlignment_DistanceTo(actor's alignment, faction's group) as a single-precision float by FormatFloat with 2 decimals; (8) an invite and the recipient's alignment not within the actor's faction - FACTION_DISTANCE_2, the same with the actor's faction; (9) else JOINFACTIONDESC 'Request to join their faction.' / INVITEFACTIONDESC 'Invite them to join our faction'. **There is no arm for being at war with a member**, which IsSelectable tests last: such a row is greyed with the plain description.",
+   "confidence": "confirmed",
+   "evidence": "Read whole on the listing 0xA32FD0-0xA33BDE (`ret 4`): the self test `cmp [esi+0xc],eax` at 0xA32FFE; HasDiplomatEnroute at 0xA330FE; `cmp byte [edi+0xf34],bl` on the recipient (edi = GetCountry(this+0x10)) at 0xA3337B; the influence compares `cmp ecx,[eax+0x8c]` (value set) at 0xA334CB and `[eax+0x90]` (value clear) at 0xA33584, FormatFixedPoint with `push ebx` (0 decimals) at 0xA33524; the neutrality tests `add eax,0x94` / `jle` at 0xA33634-0xA3364C (actor) and `add eax,0x98` at 0xA3374A (recipient), with LIM read from +0x98 at 0xA336F1 and +0x94 at 0xA33808 through 0xA5ABC0 (trimmed); IsWithinFactionJoinDistance at 0xA3386A and 0xA339FF; VAL from `[defines+0xdc]+0x1c` at 0xA338BE; 0x4C4E20 + fstp + FormatFloat at 0xA33962-0xA33976. Wrong if the arm order were not the order of these blocks (each falls through to the next on its jcc).",
+   "source": "reversing/findings/FINDINGS-factionplay.md",
+   "revises": "Raised from inferred to confirmed on the listing; the arms and their order were right. Added: the subject test is the recipient's, the influence figure has 0 decimals, VALC is a float with 2 decimals from 0x4C4E20 (now CAlignment_DistanceTo), and there is no text for the at-war-with-a-member case that IsSelectable greys on."
+  },
+  {
+   "rva": "0x633BF0",
+   "kind": "function",
+   "name": "CFactionAction::IsValid",
+   "signature": "bool __thiscall CFactionAction::IsValid(CFactionAction* this)",
+   "no_signature": null,
+   "comment": "Slot 13 - what CDiplomaticActionCommand::Execute checks on every peer before slot 7, and what closes the player's dialog. False if either country is a government in exile (+0x95). **Join (value 1):** true only where the recipient's faction is real (slot 7), the recipient is its first member (GetFactionLeader inlined: `Members.count` +0x30 zero gives the '---' tag, id 0), and the actor's faction is not real. **Invite (value 0):** the actor's faction real, the actor its first member, the recipient's faction not real. Nothing else: no war, neutrality, distance or influence test.",
+   "confidence": "confirmed",
+   "evidence": "Read whole 0xA33BF0-0xA33CC4: exile bytes at 0xA33C17/0xA33C2D, `cmp byte [esi+0x24],0; je 0xa33c85` splits the two arms; each calls `[vft+0x1c]` (slot 7) on one faction, compares `[first node]+4` with this+0x14 or this+0xC, then calls slot 7 on the other faction and returns true only on `je` (false). The '---' literal at 0x170CF48 is followed by four zero bytes, so its id is 0. Wrong if slot 7 of CFaction were not the real/null test (recorded: 0xA92590 / 0x592360).",
+   "source": "reversing/findings/FINDINGS-factionplay.md",
+   "revises": "Raised from inferred to confirmed on the listing; the reading was right. Added the empty-faction edge (leader id 0)."
+  },
+  {
+   "rva": "0x633CD0",
+   "kind": "function",
+   "name": "CFactionAction::IsSelectable",
+   "signature": "bool __thiscall CFactionAction::IsSelectable(CFactionAction* this)",
+   "no_signature": null,
+   "comment": "Slot 14, which greys the row. False, in this order: (1) actor id = recipient id; (2) CCountry::HasDiplomatEnroute(actor, recipient); (3) the **recipient** is a subject (+0xF34) - the actor's subject status is not tested; (4) influence (`diplo_influence` +0xA88, or 100.000 under g_UnlimitedDiploInfluence) < JOIN_FACTION_INFLUENCE_COST (+0x8C) for a join / INVITE_FACTION_INFLUENCE_COST (+0x90) for an invite; (5) a join and the actor's effective neutrality (+0xA90) > JOIN_FACTION_NEUTRALITY (+0x94); (6) an invite and the recipient's > INVITE_FACTION_NEUTRALITY (+0x98); (7) a join and not CAlignment::IsWithinFactionJoinDistance(actor +0xDC, recipient's faction); an invite and not IsWithinFactionJoinDistance(recipient +0xDC, actor's faction); (8) a join: where the actor is at war, any member of the recipient's faction it is at war with (`actor->diplomacy[m]->war`); then where the recipient is at war, any member of the actor's faction (empty for a join that IsValid allows); an invite: where the recipient is at war, any member of the actor's faction. Otherwise true. Equal to a limit passes (`jg`/`jge`). Faction validity and leadership are IsValid's, not tested here.",
+   "confidence": "confirmed",
+   "evidence": "Read whole 0xA33CD0-0xA33EFF: `cmp eax,[esi+0x14]` 0xA33CE1; HasDiplomatEnroute 0xA33D0A; `cmp byte [ebx+0xf34],0` on the recipient (ebx = countries[+0x14]) 0xA33D34; influence 0xA33D4B-0xA33D71 (`jge` passes); neutralities 0xA33DBE (`jg` fails, +0x94, actor) and 0xA33DF6 (+0x98, recipient); IsWithinFactionJoinDistance 0xA33E1A (actor's alignment, recipient's faction) and 0xA33E42 (the reverse); the member walks 0xA33E55-0xA33EF5. Wrong if [esp+0x10] at 0xA33E0E were not the actor (it is overwritten three times between 0xA33CF3 and 0xA33D3F, the last with edi = countries[+0xC], and esp does not move before 0xA33E0E).",
+   "source": "reversing/findings/FINDINGS-factionplay.md",
+   "revises": "Raised from inferred to confirmed on the listing, with the order of the tests, which side each is asked of (the subject test is the recipient's only), the comparison directions, and the exact shape of the war test."
+  },
+  {
+   "rva": "0x633F10",
+   "kind": "function",
+   "name": "CFactionAction::GetDialogText",
+   "signature": "Hoi3CString* __thiscall CFactionAction::GetDialogText(CFactionAction* this, Hoi3CString* out)",
+   "no_signature": null,
+   "comment": "Slot 12, the body of the request dialog the proposer sees. Join: JOINFACTIONNEWDESC 'Do you wish to request being accepted into the $FACTION$?', FACTION = the recipient's faction (slot 6); invite: INVITEFACTIONNEWDESC 'Do you wish to invite $COUNTRY$ to join the $FACTION$?', COUNTRY = the recipient's name (through sprintf then GetText, as other dialogs do), FACTION = the actor's faction. Then a line break and DIP_INFLUENCECOST 'This will cost us $COST$ diplomatic influence points.' with COST = FFP(x, 2) where **x is the alliance's define, not the faction's**: JOIN_ALLIANCE_INFLUENCE_COST (diplomacy +0xC, 5.00) for a join and LEAVE_ALLIANCE_INFLUENCE_COST (+0x10, 1.00) for an invite - while the action charges JOIN/INVITE_FACTION_INFLUENCE_COST (0 in Their Finest Hour). The join arm also formats the recipient's name and never uses it.",
+   "confidence": "confirmed",
+   "evidence": "Read whole 0xA33F10-0xA347E6 (`ret 4`); one holder (vtable.py --holding: CFactionAction slot 12). The join arm's COST is `mov eax,[eax+0xbc]; mov eax,[eax+0xc]` at 0xA34155-0xA3415B; the invite arm's is `mov eax,[eax+edi]` at 0xA346A6 with edi = 0x10 set at 0xA3465C (the compiler reused the constant it had just used as a string-capacity bound). definesMap.py --block diplomacy: +0xC JOIN_ALLIANCE_INFLUENCE_COST, +0x10 LEAVE_ALLIANCE_INFLUENCE_COST; tfh/common/defines.lua 5.0 and 1.0. Wrong if edi were rewritten between 0xA3465C and 0xA346A6 (edi is callee-saved across the 0x40A160 string assign between them).",
+   "source": "reversing/findings/FINDINGS-factionplay.md"
+  },
+  {
+   "rva": "0x633F00",
+   "kind": "function",
+   "name": "CFactionAction::GetToken",
+   "signature": "int __thiscall CFactionAction::GetToken(CFactionAction* this)",
+   "no_signature": null,
+   "comment": "Slot 15: `mov eax, 0x6D4; ret` - save token 1748 `faction_action`.",
+   "confidence": "confirmed",
+   "evidence": "Two instructions at 0xA33F00; vtable.py --holding 0xA33F00: CFactionAction slot 15 only; not in luabind.json. The token is FINDINGS-diploaction.md's table. Wrong only if slot 15 were not the token slot across the family (CAddWarGoalAction's slot 15 is recorded GetToken).",
+   "source": "reversing/findings/FINDINGS-factionplay.md"
+  },
+  {
+   "rva": "0x6347F0",
+   "kind": "function",
+   "name": "CFactionAction::Clone",
+   "signature": "CFactionAction* __thiscall CFactionAction::Clone(CFactionAction* this)",
+   "no_signature": null,
+   "comment": "Slot 16: operator new(0x28) and a field copy - actor (+8/+0xC), recipient (+0x10/+0x14), type (+0x18), date (+0x1C, also written to +0x20), value (+0x24); +4 = 0x18D. **So a CFactionAction is 0x28 bytes and has no field of its own beyond `value`.**",
+   "confidence": "confirmed",
+   "evidence": "Read 0xA347F0-0xA3485C (two bare rets); one holder (CFactionAction slot 16). The same 0x28 allocation and 0x18D in CFactionAction::Create (0x8E8E30). Wrong if a CFactionAction were ever made larger elsewhere - its vftable 0x15FB874 is written only by these and the factory.",
+   "source": "reversing/findings/FINDINGS-factionplay.md"
+  },
+  {
+   "rva": "0x634860",
+   "kind": "function",
+   "name": "CFactionAction::GetAIAcceptance",
+   "signature": "int __thiscall CFactionAction::GetAIAcceptance(CFactionAction* this)",
+   "no_signature": null,
+   "comment": "**Slot 17: how much the answering AI likes the offer, 0 to 100.** Both directions ask the one Lua function `DiploScore_InviteToFaction` through GetDiploScoreFromLua, and **a join swaps the tags** so that Lua always sees (faction's owner, the country that would join): an invite calls it with (actor, recipient, observer = recipient), a join with (recipient, actor, observer = recipient); the by-value tag is the action's recipient in both, so the recipient's CEU3AI answers. A join additionally returns 100 where the recipient is the player and g_AiYesmen is set (the bridge already does the same for its own first tag). The answer is used as every other action's (FINDINGS-agreements.md A2): 30 or less declines, else a roll below it accepts.\n\n**The name is the game's own** - CDiplomaticAction::GetAIAcceptance is registered with luabind - but the registration resolves to _purecall. See reversing/findings/FINDINGS-diplomacy.md.",
+   "confidence": "confirmed",
+   "evidence": "Read whole 0xA34860-0xA3498E. Join arm (value set): pushes recipient.id, recipient.tag, &recipient, &actor(edi+8), &recipient, literal - GetDiploScoreFromLua(name, actor=&recipient, recipient=&actor, observer=&recipient, recipient by value) at 0xA34891-0xA348A3, then `cmp byte [0x1a8562f],bl` and `cmp [edi+0x14], [state+0xc34]` -> 100. Invite arm 0xA34963-0xA34975: (name, &actor, &recipient, &recipient, recipient by value). The Lua function (tfh/script/ai_diplomacy.lua:100) treats its actor as the faction side (`ministerCountry:GetFaction()`) and its recipient as the target that would join, which is what makes the swap the intended one. Wrong if GetDiploScoreFromLua's argument order were other than its recorded signature.",
+   "source": "reversing/findings/FINDINGS-factionplay.md",
+   "revises": "The comment said only that it pushes `DiploScore_InviteToFaction`. Added: a join swaps actor and recipient in the call, the observer and the answering AI are always the action's recipient, and the join arm's own yesmen check."
+  },
+  {
+   "rva": "0x4E8E30",
+   "kind": "function",
+   "name": "CFactionAction::Create",
+   "signature": "CFactionAction* __cdecl CFactionAction::Create(CCountryTag actor, CCountryTag recipient)",
+   "no_signature": null,
+   "comment": "The Lua-side constructor, `CFactionAction(actor, recipient)`: operator new(0x28), date = the game state's tick (+0xBDC) into +0x1C and +0x20, type 0, **value 1 - a request to join the recipient's faction**. The shipped AI (tfh/script/ai_foreign_minister.lua) calls SetValue(false) on it to make an invitation, which is the only faction action it ever proposes. See CAllianceAction::Create for the family.",
+   "confidence": "confirmed",
+   "evidence": "Off the listing 0x8E8E30-0x8E8F2E: `mov byte [esi+0x24],1` at 0x8E8F11, `mov [esi+0x18],ebx(0)`, the tick from `[state+0xbdc]`, vftable 0x15FB874 last. ai_foreign_minister.lua:530-537 builds `CFactionAction(ministerTag, target)`, `SetValue(false)`, tests IsSelectable and DiploScore_InviteToFaction > 50, then Propose. Wrong if SetValue wrote anything but +0x24.",
+   "source": "reversing/findings/FINDINGS-factionplay.md",
+   "revises": "Called 'a faction invitation'. Its default is the other direction: value 1, Join Faction; an invitation is made by SetValue(false)."
+  },
+  {
+   "rva": "0xC4E20",
+   "kind": "function",
+   "name": "CAlignment_DistanceTo",
+   "signature": "float __stdcall CAlignment_DistanceTo(CAlignment* alignment@stack:4, CIdeologyGroup* group@EAX)",
+   "no_signature": null,
+   "comment": "The straight-line distance on the alignment triangle as a float, for display: CAlignment::DistanceSquaredTo(alignment, group) (thousandths), converted to single precision, divided by 1000.0 (the double at 0x160A300), back to single, FloatSqrt. Two callers, both in CFactionAction::GetDescription, for FACTION_DISTANCE / FACTION_DISTANCE_2's $VALC$. The receiver arrives on the stack, not in ECX, hence a free name.",
+   "confidence": "confirmed",
+   "evidence": "Read whole 0x4C4E20-0x4C4E57 (`ret 4`): `push eax; lea ecx,[ebp+8]; push ecx; mov ecx,[ebp+8]; call 0x4C4660`, cvtdq2ps, cvtss2sd, `divsd [0x160a300]` (1000.0 read from the image), cvtsd2ss, call 0x402000 (FloatSqrt). findRefs --callers 0x4C4E20: 0xA33962 and 0xA33AFA, both with EAX = faction->+8. Wrong if 0x4C4660's second stack argument were not the group (CAlignment::DistanceSquaredTo is recorded so).",
+   "source": "reversing/findings/FINDINGS-factionplay.md"
+  },
+  {
+   "rva": "0x643C40",
+   "kind": "function",
+   "name": "CJoinFactionGoalAction::CJoinFactionGoalAction",
+   "signature": "CJoinFactionGoalAction* __stdcall CJoinFactionGoalAction::CJoinFactionGoalAction(CJoinFactionGoalAction* this, int date, CCountryTag actor, CCountryTag recipient)",
+   "no_signature": null,
+   "comment": "The only constructor, `ret 0x18`, `this` on the stack. Fills the CDiplomaticAction header (actor, recipient, date into +0x1C/+0x20, type 0, value 1, +4 = 0x18D), an embedded CWarGoal at +0x28 (vftable 0x15BDB34, every tag '---'), and **`leader` (+0x54/+0x58) = the first member of the faction named 'axis'** (CGameState_FindFactionByName with the literal; '---' where it has none). Its one caller is CDiplomaticAction::Create's join_with_war_goal case (0x4E5C43), with the default date and '---' for both countries - so every instance is made by the token factory and then loaded. **Trap 2**: it abuts CAddWarGoalAction slot 20 (0xA43C10, `ret 4` at 0xA43C3D) with no padding, so functionStart inside it answers 0xA43C10.",
+   "confidence": "confirmed",
+   "evidence": "Read whole 0xA43C40-0xA43DCB. The vftable 0x15FB4B4 is written at 0xA43CF6 and, by findRefs --address 0x15FB4B4, only otherwise at 0xA43E2A (Clone). findRefs --callers 0xA43C40: one call, 0x4E5C43, inside CDiplomaticAction::Create (0x4E5800). The 'axis' literal 0x15CA820 at 0xA43CEE, CGameState_FindFactionByName (0x686F50) at 0xA43D88, `[eax+0x30]`/`[eax+0x28]` then `+0x54`/`+0x58` at 0xA43D8D-0xA43DA8. Wrong if another code path wrote 0x15FB4B4 by a computed store (none was found by the reference scan, whose positive control is the Clone's write it does find).",
+   "source": "reversing/findings/FINDINGS-factionplay.md"
+  },
+  {
+   "rva": "0x643E00",
+   "kind": "function",
+   "name": "CJoinFactionGoalAction::GetToken",
+   "signature": "int __thiscall CJoinFactionGoalAction::GetToken(CJoinFactionGoalAction* this)",
+   "no_signature": null,
+   "comment": "Slot 15: `mov eax, 0x7BF; ret` - save token 1983 `join_with_war_goal`. The only `0x7BF` immediate in the code (a byte scan for `bf 07 00 00` finds this and data/misaligned hits only), so nothing in the engine asks the factory for this kind by a constant.",
+   "confidence": "confirmed",
+   "evidence": "0xA43E00-0xA43E05; one holder (vtable.py --holding: CJoinFactionGoalAction slot 15). The byte scan's positive control: the same scan for `push 0x6D4` finds GetDiplomaticActionsToward's two faction rows (0x4E4F14, 0x4E4FE2).",
+   "source": "reversing/findings/FINDINGS-factionplay.md"
+  },
+  {
+   "rva": "0x643E10",
+   "kind": "function",
+   "name": "CJoinFactionGoalAction::Clone",
+   "signature": "CJoinFactionGoalAction* __thiscall CJoinFactionGoalAction::Clone(CJoinFactionGoalAction* this)",
+   "no_signature": null,
+   "comment": "Slot 16: operator new(0x5C), CWarGoalBaseAction's copy, its own vftable, and `leader` (+0x54/+0x58) copied. So the class is 0x5C bytes.",
+   "confidence": "confirmed",
+   "evidence": "Read 0xA43E10-0xA43E3F; one holder (CJoinFactionGoalAction slot 16). The factory's case allocates the same 0x5C (`push 0x5c` at 0x4E5C01).",
+   "source": "reversing/findings/FINDINGS-factionplay.md"
+  },
+  {
+   "rva": "0x643E40",
+   "kind": "function",
+   "name": "CJoinFactionGoalAction::GetKeyPrefix",
+   "signature": "Hoi3CString* __thiscall CJoinFactionGoalAction::GetKeyPrefix(CJoinFactionGoalAction* this, Hoi3CString* out)",
+   "no_signature": null,
+   "comment": "Slot 20: \"JOIN_WARGOAL\". Neither base game nor Their Finest Hour has a JOIN_WARGOAL* key in its localisation.",
+   "confidence": "confirmed",
+   "evidence": "0xA43E40-0xA43E6D (`ret 4`), one holder. grep of localisation/*.csv and tfh/localisation/*.csv for JOIN_WARGOAL: nothing (the same grep finds JOINFACTIONTITLE).",
+   "source": "reversing/findings/FINDINGS-factionplay.md"
+  },
+  {
+   "rva": "0x643520",
+   "kind": "function",
+   "name": "CWarGoalBaseAction::IsValid",
+   "signature": "bool __thiscall CWarGoalBaseAction::IsValid(CWarGoalBaseAction* this)",
+   "no_signature": null,
+   "comment": "Slot 13 of CWarGoalBaseAction, inherited by CJoinFactionGoalAction (CAddWarGoalAction overrides it with 0xA43900): `CWarGoal::IsValidForWar(&this->+0x28 @EDI, countries[actor]->diplomacy[recipient]->war (+0x20))`, its answer returned. So a join-with-war-goal action is valid where its war goal is complete and valid for the actor-recipient war.",
+   "confidence": "confirmed",
+   "evidence": "Read whole 0xA43520-0xA4355F; vtable.py --holding 0xA43520: CWarGoalBaseAction slot 13 and CJoinFactionGoalAction slot 13. Not in luabind.json. Wrong if CWarGoal::IsValidForWar's register placement (goal@EDI, war@stack:4) were not as recorded.",
+   "source": "reversing/findings/FINDINGS-factionplay.md"
+  }
+ ],
+ "structs": [
+  {"name": "CJoinFactionGoalAction", "size": "0x5C", "inherits": "CDiplomaticAction",
+   "vftable_rva": "0x11FB4B4",
+   "comment": "The join_with_war_goal diplomatic action (token 1983). CWarGoalBaseAction at offset 0 (which embeds a CWarGoal at +0x28) plus `leader` at +0x54. Made only by CDiplomaticAction::Create's token case; nothing in the engine or the Lua asks for one. See reversing/findings/FINDINGS-factionplay.md.",
+   "evidence": "Size from operator new(0x5C) in the factory case (0x4E5C01) and in Clone (0xA43E15). RTTI: CJoinFactionGoalAction -> CWarGoalBaseAction -> CDiplomaticAction, all at offset 0; vftable VA 0x15FB4B4."}
+ ],
+ "struct_fields": [
+  {"struct": "CJoinFactionGoalAction", "offset": "0x54", "name": "leader", "type": "CCountryTag",
+   "comment": "A country tag, saved and loaded under the key `leader`; the constructor sets it to the first member of the faction 'axis'. Nothing reads it but SaveContents and Clone.",
+   "evidence": "Written at 0xA43DA2/0xA43DA8 (tag dword and id dword) by the constructor, copied at 0xA43E2C-0xA43E37 by Clone, written as `leader` by CJoinFactionGoalAction::SaveContents (0xA43E70) and read by its LoadKey (0x643F10, FINDINGS-definitions.md: +0x54/+0x58)."}
+ ],
+ "vftable_slots": {
+  "CFactionAction": {"12": "GetDialogText", "15": "GetToken", "16": "Clone"},
+  "CJoinFactionGoalAction": {"15": "GetToken", "16": "Clone", "20": "GetKeyPrefix"},
+  "CWarGoalBaseAction": {"13": "IsValid"}
+ },
+ "frontier": ["0x2F070", "0x32F70", "0x2B7540", "0x2B8D50", "0x589E90", "0x589DB0"]
+}

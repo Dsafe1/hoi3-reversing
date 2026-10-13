@@ -176,7 +176,7 @@ if (nb->controller_id != 0 && nb->controller != "REB")
 
 The three adjacency gates are the same three the rest of the unit AI uses. Four things come out of this block:
 
-- `friendlyNb` is **adjacent provinces we may enter** — same side, or military access (`CDiplomacyStatus +0x58`) and not an enemy.
+- `friendlyNb` is **adjacent provinces we may enter** — same side, or military access (`CDiplomacyStatus +0x58`) and not an enemy. *Corrected 2026-10-13: `+0x58` is `co_belligerent` (FINDINGS-trade2.md), so it is a country fighting a war beside us; military access is `+0x4C`.*
 - `frontNb` is **adjacent provinces that are on the front**, tested by membership of `CAIUnit +0xC0`. This is a reader of the vector `0x8BBB50` fills, which is the link between the two bodies, and it confirms the two run in the recorded order (`0x8BBB50` first, from `ReplanSubtree`, `SetArea` and `SetOpsAreaAndReplan` alike).
 - `flagA` is sticky and means "some neighbour of some province of my area is a war candidate, or lies in an area one of my objectives is in".
 - `flagB` is sticky and means "some neighbour is controlled by a front-worthy enemy that is either a major or has `max_ic > 100`". Note `max_ic` is **not** in thousandths here: `CCountry +0x60C` is recorded as an int and the comparison is against the literal `0x64`, so the test is "more than 100 IC" and not "more than 0.1".

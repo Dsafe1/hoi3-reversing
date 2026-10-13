@@ -93,8 +93,14 @@ recipient - a `CCallAllyAction(actor = recipient, recipient = c, third = the dec
 `value` 1, `date` the tick and **`type` 2 (ACCEPT)**, made into a command (slot 6) and **executed on the
 spot** (`0xA12D19`-`0xA12D2C`), so the guarantor joins inside this call, subject to
 `CCallAllyAction::IsValid` (B.1). c is listed on `+0x64` whatever the call did. A guarantee made by a
-faction (`CGuarantee +0x24` `via_faction`, which `FINDINGS-agreements.md` C.3 shows is never set) gets
-no call, unless c is the declarer's puppet.
+faction (`CGuarantee +0x24` `via_faction`, which `FINDINGS-agreements.md` C.3 showed as never set - *corrected 2026-10-13: it is set for an Allies
+member's guarantee, `FINDINGS-factionplay.md` B.3*) gets
+no call, unless c is the declarer's puppet. *Corrected 2026-10-13, off the instructions: nothing here tests
+`+0x24`. The block (`0xA12B40`-`0xA12BB3`) asks only that the recipient's status towards c holds a
+guarantee (`+0x1C`) whose first is c, that c is not on `+0x64`, and that c is not at war with the
+recipient; a by-faction guarantee's first is the member, so **the member is called like any guarantor**.
+`CCallAllyAction::IsValid` tests no `+0x24` either. A declarer's puppet takes the puppet arm
+(`0xA12AA6`) before this block is reached, which is all "unless" can mean.*
 
 **(d) The victim's overlord is asked**: where the recipient `isSubject` and its overlord is not on
 `+0x64`, `CCallAllyAction(recipient, overlord, declarer)`, PROPOSE, `value` 1, `date` the tick, executed
@@ -396,7 +402,7 @@ player's standard list, ACTOR, RECIPIENT, MESSENGER = `MESSAGE_HEAD_CHAN`, VERSU
 9. TARGETLIST = the names of the side the recipient now fights, joined with ", ";
 10. a branch behind the recipient's `+0xDE4` (the ALLIANCE_GUARANTEE faction rule) would call in each
     of its faction's members not already defending, as accepted calls executed on the spot - **nothing
-    writes `+0xDE4`** (`FINDINGS-agreements.md` C.3), so it is dead;
+    writes `+0xDE4`** (`FINDINGS-agreements.md` C.3), so it is dead; *corrected 2026-10-13: `CCountry::RebuildRules` writes it for every Allies member (`FINDINGS-factionplay.md` B.3), so the branch is live;*
 11. messages: the caller played, the `diplomaticsuccess` sound and `MILALLHONOUR` (popup); the
     recipient played, `WEMILALLHONOUR` where `value` is set (log only), or where it is 0
     `FACTIONWAROFF` (joined the attackers) or `FACTIONWARDEF` (the defenders), "§Y$ACTOR$s§W aggression

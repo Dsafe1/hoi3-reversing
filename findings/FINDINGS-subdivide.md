@@ -362,6 +362,8 @@ CDiplomacyStatus
   +0x58   byte   military access: the one extra condition AreaMayWidenFrontSearch (0x8951DD) and
                  CAIUnit::RebuildAreaNeighbourProvinces (0x8BC860) both require on the branch where
                  CCountry::IsSameSide has already said no. NEW
+                 *Corrected 2026-10-13: `co_belligerent` (FINDINGS-trade2.md); military access
+                 is +0x4C.*
 
 CUnit
   +0x1E4  CUnitList  children - walked by slot 83 (0x8C0ACE), by CUnit::CollectSubtree (0x5BDAD7)

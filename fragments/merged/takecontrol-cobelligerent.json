@@ -1,0 +1,43 @@
+{
+  "agent": "OpenHOI3 session, a battle's capture",
+  "question": "Which neighbours does CMapProvince::TakeControl walk, and what exactly is the test CCountry::CanOperateIn makes - is CDiplomacyStatus +0x58 military access?",
+  "source": "reversing/findings/FINDINGS-landbattle.md",
+  "addresses": [
+    {
+      "rva": "0x0A1CD0",
+      "kind": "function",
+      "name": "CMapProvince::TakeControl",
+      "signature": "void __stdcall CMapProvince::TakeControl(CMapProvince* province, CCountryTag* by)",
+      "no_signature": null,
+      "comment": "**A province changes hands to whoever walked in.** Who gets it, in order: `to = by`; while `to` is a subject (+0xF34) and its overlord (+0xF38/+0xF3C) is not the controller and is at war with it (the overlord's diplomacy status towards the controller +0x20, REB on either side, or an undeclared war +0x24 covering the province), `to = the overlord`; where `to` is a government in exile (+0x95) in a faction (+0xD8) of more than one member and is not its first, the first member if CCountry::IsEnemyTag(first, &province.owner); where the controller is no enemy of `by` (CCountry::IsEnemy), `to = the controller` - nothing changes; otherwise where the owner is no enemy of `by` and not in exile, `to = the owner`; otherwise, where `to` is still `by` and not the owner, a walk over every entry of the province template's edge list (+0x90..+0x94, 20 bytes, neighbour id at +4) whose neighbour template has `simulated` (+0x13D, every province in a campaign): a neighbour held by `to` sets a flag (nothing changes at the end), and the candidate is the controller of the last neighbour whose controller is not a subject and passes CCountry::CanOperateIn(to, it); that candidate takes it if CCountry::IsEnemy(candidate, &province.controller). Then 0x4A2400 (Province_SetController) with (now, 1, 0, 0) - consequences, no area rebuild, not peaceful - and, where the controller changed, both countries' neighbours (0x4E21E0, 0x4E39C0) and the province's modifiers are rebuilt. Called by CCombatManager::CheckForCombat for a land unit standing in a province with no enemy land unit that stands its ground. The name is ours. See reversing/findings/FINDINGS-landbattle.md, section 1.",
+      "confidence": "confirmed",
+      "source": "reversing/findings/FINDINGS-landbattle.md",
+      "revises": "Made exact: which neighbours the last step walks (every edge, gated only on the neighbour template's simulated byte), that a neighbour held by `to` stops it, that the enemy test is made once on the last candidate, the exile step's enemy test against the owner, the overlord step's three arms, and the setter's flags.",
+      "evidence": "Disassembly 0x4A1CD0-0x4A211B read: the overlord loop 0x4A1D30-0x4A1DE0 (+0xF34, +0xF38/+0xF3C, the controller-id compare at 0x4A1D60, status +0x20 at 0x4A1D71, the REB byte compares, status +0x24 and the call 0x4763A0); the exile step 0x4A1DF9-0x4A1E63 (+0x95, faction +0xD8 count +0x30 > 1, first member at +0x28, call 0x42F1B0 with &province+0x32C); the controller and owner tests 0x4A1E8C/0x4A1EC5 (0x42F210) and the exile byte at 0x4A1ED9; the neighbour walk 0x4A1F12-0x4A200B (edge list +0x90/+0x94 divided by 20 through 0x66666667, neighbour template +0x13D at 0x4A1F84, the flag at [esp+0xF], +0xF34 at 0x4A1FBE, call 0x4EFA00); the single enemy test at 0x4A2039; the setter call at 0x4A20EF pushing 0, 0, 1."
+    },
+    {
+      "rva": "0xEFA00",
+      "kind": "function",
+      "name": "CCountry::CanOperateIn",
+      "signature": "bool __stdcall CCountry::CanOperateIn(CCountry* this@ECX, const CCountryTag* tag@ESI)",
+      "no_signature": null,
+      "comment": "`bare ret`, 31 callers. False for tag id 0 and `REB`; true if CCountry::IsSameSide (0xEF940); otherwise true only when this country's diplomacy status for that tag has `co_belligerent` (+0x58) set **and** CCountry::IsEnemyTag (0x2F1B0) says no. So: on one side with it, or fighting a war beside it and not at war with it. Slot 76 uses it to decide where its drawn path stops being its own ground, CMapProvince::TakeControl to hand ground taken alone to a fighting friend, and CCountry::CollectCountriesWeCanOperateIn (0xEE110) is the same filter over every country.",
+      "confidence": "confirmed",
+      "source": "reversing/findings/FINDINGS-aiplans.md",
+      "revises": "The comment said CDiplomacyStatus +0x58 was inferred to be military access. The field's own record names it co_belligerent from its writers (SetWarSideCoBelligerentFlags / ClearWarSideCoBelligerentFlags, FINDINGS-trade2.md), and military access is +0x4C, so the test is a co-belligerent, not access.",
+      "evidence": "Disassembly 0x4EFA00-0x4EFA44 read: id 0 and the REB bytes at 0x4EFA01-0x4EFA17, call 0x4EF940 at 0x4EFA1B, the status +0x58 byte at 0x4EFA31, push esi and call 0x42F1B0 at 0x4EFA37. The field's identity is CDiplomacyStatus +0x58's record."
+    },
+    {
+      "rva": "0x495140",
+      "kind": "function",
+      "name": "AreaMayWidenFrontSearch",
+      "signature": "bool __cdecl AreaMayWidenFrontSearch(CCountry* us, COwnerArea* area, bool* outIsOwnFocusArea, bool acceptAnyUnplayed)",
+      "no_signature": null,
+      "comment": "0x495140 to the exits at 0x495394 / 0x4953AE (true) and 0x495524 (false) - bare `ret` with four stack arguments, so __cdecl. Read end to end; the name is inference. Five callers: CAIUnit::SetArea at 0x4BA8B8, two in slot 79 (0x4B3480, 0x4B37DB) and two at 0x498923/0x4989F3. CAIUnit::SetArea calls it as `0x495140(ourCountry, ownerArea, &out, 0)` at pass B, and the out-byte is what makes the agent widen its front search past its own theatre.\n\nFalse unless the area is valid (slot 0), its controller resolves (COwnerArea +0x24's first province, tag at +0x334 / id at +0x338; `---`/0 when +0x2C is zero) and is not REB. Then it needs CCountry::IsSameSide, or else a co-belligerent (CDiplomacyStatus +0x58, `co_belligerent`) **and** not CCountry::IsEnemyTag. After that:\n- `us->government_in_exile` (+0x95) short-circuits to **true**;\n- otherwise, if `us->ai` (+0x1D8) exists and is an AI-run country (CEU3AI +0x2C), it walks the AI's focus province list at CEU3AI +0x118: a focus province inside this area, or in a neighbour area (COwnerArea +0x34) whose owner we are at war with, sets **`*out = true`** and returns true;\n- then: false if the controller is human-played (gamestate->played_countries_array);\n- true if `acceptAnyUnplayed`;\n- true if the controller's faction_leader_id (CCountry +0xF3C) is our own id (+0xCA8), i.e. we lead their faction;\n- otherwise true if some neighbour area of more than five provinces belongs to someone we are at war with and either `gamestate->scenario` (+0xD0C) is set or the war's own attacker/defender vectors say the leading enemy is not human-played.\n\nSo the out-parameter and the return value answer two different questions: `*out` is 'this is one of my own focus areas', the return value is 'I am allowed to look for a front here'. Likely rather than confirmed: the body is read end to end, but the name and what the two answers are for are inferred from the callers.",
+      "confidence": "inferred",
+      "source": "reversing/findings/FINDINGS-subdivide.md",
+      "revises": "Only the name of the +0x58 test: it called the byte military access, which is +0x4C; +0x58 is co_belligerent (its field record, FINDINGS-trade2.md).",
+      "evidence": "Unchanged reading; the field's identity is CDiplomacyStatus +0x58's record."
+    }
+  ]
+}

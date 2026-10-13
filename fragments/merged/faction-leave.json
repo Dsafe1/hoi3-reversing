@@ -1,0 +1,301 @@
+{
+ "agent": "faction wave, reader B",
+ "question": "Leaving a faction, and what a member gets: the player's leave from the diplomacy screen, CFaction::RemoveMember, IsWithinFactionStratBonusDistance's readers, the faction rules' readers.",
+ "source": "reversing/findings/FINDINGS-factionplay.md",
+ "addresses": [
+  {
+   "rva": "0x122700",
+   "kind": "function",
+   "name": "CFaction::RemoveMember",
+   "signature": "void __thiscall CFaction::RemoveMember(CFaction* this, CCountryTag* member)",
+   "no_signature": null,
+   "comment": "**Takes a country out of a faction's member list, and nothing else of the country's.** 0x522700 to the single `ret 4` at 0x5227D8, read whole on the listing; 11 int3 above it after AddMember's `ret 0xC` at 0x5226F2, and int3 below it. `this` in ECX, the member's CCountryTag* on the stack. In order:\n\n1. Walks `Members (+0x28)` from `first`, following `next (+0xC)`, for the first node whose id half (`+4`) equals `member->id` - **the id alone is compared**, the four tag characters are not.\n2. CList_CCountryTag_RemoveNode(&Members, node) (0x4A85D0): a null node - the country was not a member - does nothing; where the list's no-unlink byte (+0xC of the head, Members +0x34) is set the node is only marked; otherwise it is unlinked, freed and `count (+0x30)` drops by one.\n3. `members_changed (+0x38) = 1` - **unconditionally**, member or not.\n4. CGameState_ClearAlliedObjectivesForCountry(CCurrentGameState singleton, member->id) - again unconditionally: every allied objective set for or asked by that country is cancelled, in both directions.\n\nIt does not touch the country: `faction (+0xD8)`, its modifiers, rules, wars, alliances and history are each caller's business. **Seven callers, all now identified** (VAs): CustomGame_LeaveFaction 0x418E1F; MakeVassal 0x4D9664; the annexation/capitulation at 0x4E81AD; CFaction::AddCountry step 2 0x4F5F8C; CCountry::LeaveFaction 0x4F6B68; FactionLeaderPromotion 0x502F07 (which pushes the same country back to the front); RemoveLandlessCountriesFromWars 0x68A041. Every caller but the promotion then sets `faction = CFaction::null()` and runs RebuildStaticModifiers and CCountry::RebuildRules itself. Since the leader is the first member (CFaction::GetFactionLeader), removing the leader makes the next member in list order the leader. See reversing/findings/FINDINGS-factionplay.md, B.2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-factionplay.md",
+   "revises": "Raised from likely to confirmed, read whole on the listing. The body as the record had it stands. Added: the match is on the id half only; a non-member is a no-op on the list but members_changed is still set and the allied objectives still cleared; the no-unlink arm of RemoveNode; and every one of the seven callers named (the record knew two).",
+   "evidence": "Disassembly 0x522700-0x5227D8 read in full: the walk 0x522721-0x52273B (`cmp [eax+4], edx` against `[ebx+4]`, next `[eax+0xC]`), the node passed by value at 0x52273D to `call 0x4A85D0` with ESI = &Members, `mov byte [edi+0x38], 1` at 0x522744 on the fall-through with no branch around it, the CCurrentGameState lazy-singleton block, then `push ebx(id); push eax(state); call 0x68B4C0` at 0x5227C3 and `ret 4`. 0x4A85D0 read whole (null node -> `xor al,al; ret 4`). findRefs --callers 0x522700 gives exactly the seven sites listed, each attributed by reading its enclosing function. Would be wrong if a call reached it indirectly - findRefs --address finds no data reference."
+  },
+  {
+   "rva": "0xF6A60",
+   "kind": "function",
+   "name": "CCountry_CanLeaveFaction",
+   "signature": "bool __cdecl CCountry_CanLeaveFaction(CCountry* country@EAX) @AL",
+   "no_signature": null,
+   "comment": "**Whether a country may leave its faction - asked only by the custom game mode.** 0x4F6A60 to the bare `ret` at 0x4F6B15 (an earlier bare `ret` at 0x4F6A8C is the false arm), 10 int3 below, then CCountry::LeaveFaction at 0x4F6B20. The country arrives in EAX. False where: its faction (+0xD8) is null or not real (slot 7); it is the faction's leader (the first member's id equals +0xCA8 - GetFactionLeader inlined, '---' arm included); or it is a subject (+0xF34) whose overlord (+0xF38/+0xF3C, id non-zero) is in a real faction - **whatever faction that is**. True otherwise. **There is no war test**: a member at war may leave. Four callers, all custom game: CustomGame_ApplyCountryNeutrality 0x418A19, 0x41EEC4 in 0x41ED50 (the custom game's points sum), CDiplomacyView::BuildTooltip 0x77F754 (the `cgm_leave_faction` button's tooltip) and CDiplomacyView_RefreshCgmWidgets 0x78F4D9 (the button's enabled state). CCountry_DescribeCannotLeaveFaction is the same three tests with a text each. See reversing/findings/FINDINGS-factionplay.md, B.1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-factionplay.md",
+   "evidence": "Disassembly 0x4F6A60-0x4F6B15 read whole: `mov esi, eax` at 0x4F6A6A is the only source of the country; slot 7 (`[eax+0x1C]`) on +0xD8 at 0x4F6A80; the count test `cmp [eax+0x30],0; jle` and leader compare `cmp eax,[esi+0xCA8]; sete al` at 0x4F6AAC; `cmp byte [esi+0xF34],0` at 0x4F6AB9, `[esi+0xF3C]` indexed into g_CCountryDataBase +0x16C and its faction's slot 7 at 0x4F6B05; `mov al,1` at 0x4F6B0F. findRefs --callers gives the four sites, no vftable holds it. Would be wrong if EAX at a call site were not the country - at 0x77F751 it is `countries[[esi+4]]`, at 0x418A19 the country loaded from rec+4."
+  },
+  {
+   "rva": "0xF6770",
+   "kind": "function",
+   "name": "CCountry_DescribeCannotLeaveFaction",
+   "signature": "Hoi3CString* __fastcall CCountry_DescribeCannotLeaveFaction(Hoi3CString* out@ECX, CCountry* country@EDX) @EAX",
+   "no_signature": null,
+   "comment": "**Why a country may not leave its faction, as the custom game's button tooltip says it.** 0x4F6770 to the bare `ret` at 0x4F6A55 (arms end at 0x4F6879, 0x4F6976, 0x4F6A28), the output string in ECX, the country in EDX, the string returned. The same three tests as CCountry_CanLeaveFaction in the same order: not in a real faction -> CGM_TOOLTIP_LEAVE_FACTION_NON_FACTIONED \"You are not a faction member.\" (red); the leader -> CGM_TOOLTIP_LEAVE_FACTION_LEADER \"You cannot leave the faction because you are the Leader.\"; a subject whose overlord is in a real faction -> CGM_TOOLTIP_LEAVE_FACTION_PUPPET with COUNTRY = the overlord's name, \"You are a puppet of $COUNTRY$ which is a faction member. We will automatically leave the faction if they do.\"; otherwise the empty string. One caller, CDiplomacyView::BuildTooltip at 0x77F9A3, on the arm where CanLeaveFaction answered false. See reversing/findings/FINDINGS-factionplay.md, B.1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-factionplay.md",
+   "evidence": "Disassembly read at the entry (`mov edi, edx` 0x4F6793, `mov esi, ecx` 0x4F6799), each arm's `push <len>; push <key>` (0x4F67BA, 0x4F68B3, the AppendLocalisedLine with 'COUNTRY'/'CGM_TOOLTIP_LEAVE_FACTION_PUPPET' at 0x4F69F2/0x4F69F7) and the empty-string arm 0x4F6A29-0x4F6A55 which returns ESI. The keys' English text from tfh/localisation. Would be wrong if the caller passed the operands the other way - at 0x77F9A3 the call follows a failed CanLeaveFaction on the same country."
+  },
+  {
+   "rva": "0x2A090",
+   "kind": "function",
+   "name": "CCgmLeaveFactionCommand_Construct",
+   "signature": "CCgmLeaveFactionCommand* __stdcall CCgmLeaveFactionCommand_Construct(CCgmLeaveFactionCommand* this@stack:4, bool isLeave@stack:8, const CCountryTag* country@EDI) @EAX",
+   "no_signature": null,
+   "comment": "The constructor of the custom game's leave-faction command. 0x42A090 to the `ret 8` at 0x42A125. The object is the first stack argument, the bool the second, the country's tag in EDI. Lays down CCommand (+4 = 0x18D, empty name at +8, type ids +0x2C/+0x30 = 0x6BA - the value slot 7 returns -, +0x34 = 0xFFFF, +0x24/+0x28/+0x36/+0x38 zero), then the class's vftable 0x15B6174, `country (+0x3C/+0x40)` = *EDI, `is_leave (+0x44)` = the bool. One caller, CDiplomacyView::OnCgmLeaveFaction (0x77C12E), after `operator new(0x48)`. See reversing/findings/FINDINGS-factionplay.md, B.1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-factionplay.md",
+   "evidence": "Disassembly 0x42A090-0x42A125 read whole: `mov esi,[ebp+8]` is the object, `mov cl,[ebp+0xC]` the bool stored at +0x44 (0x42A111), `mov edx,[edi]`/`mov eax,[edi+4]` to +0x3C/+0x40, `ret 8`. The caller pushes the bool then the object with EDI = &state->player (0x77C127). Would be wrong if EDI were reassigned before the copy - it is not touched between entry and 0x42A106."
+  },
+  {
+   "rva": "0x2A130",
+   "kind": "function",
+   "name": "CCgmLeaveFactionCommand::Execute",
+   "signature": "void __thiscall CCgmLeaveFactionCommand::Execute(CCgmLeaveFactionCommand* this)",
+   "no_signature": null,
+   "comment": "**Slot 6: the custom game's 'leave faction' button records an intention and nothing else.** 0x42A130 to the bare `ret` at 0x42A342, one holder (vftable 0x15B6174). It finds the custom-game record of `this->country` (GetCustomGameSettings +0x2C..+0x30, a vector of record pointers, matched on the record's +4 id) and writes `record->+0x54 (leaving) = this->is_leave (+0x44)`; then for every node of that country's `Vassals (+0xF78)` that has a record of its own, the same byte; then the in-game screen's slot 101 (`+0x194`, the diplomacy refresh) for the tag at +0x3C with false. **No faction, war or country field is touched** - the leave happens when the stage is confirmed (ApplyCustomGameSettings -> CustomGame_ApplyFactionLeave -> CustomGame_LeaveFaction). A country with no record is not tested for: the write goes through a null record (`xor edx,edx` at 0x42A186, store at 0x42A18B). See reversing/findings/FINDINGS-factionplay.md, B.1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-factionplay.md",
+   "evidence": "Disassembly 0x42A130-0x42A342 read whole; vtable.py --holding 0x42A130 gives CCgmLeaveFactionCommand slot 6 alone, and the RTTI export lists slot 6 among the five the class introduces. The vassal walk 0x42A1C1-0x42A295 follows node +0xC and compares the record's +4 with node +4; the refresh is `call [edx+0x194]` on state +0xBE8 with `push 0; push ebx(&this->+0x3C)`. Would be wrong if slot 6 were not what the command pump executes - CCommand's slot 6 is recorded as Execute."
+  },
+  {
+   "rva": "0x37C030",
+   "kind": "function",
+   "name": "CDiplomacyView::OnCgmLeaveFaction",
+   "signature": "void __thiscall CDiplomacyView::OnCgmLeaveFaction(CDiplomacyView* this)",
+   "no_signature": null,
+   "comment": "The `cgm_leave_faction` button's click (the glue at view +0x534, its receiver stored at +0x538 and this handler at +0x53C by the constructor at 0x77D925; the widget is +0x530, custom game only). 0x77C030 to the bare `ret` at 0x77C178, read whole. Finds the **player's** custom-game record (settings +0x2C..+0x30 matched on +4 against CCurrentGameState +0xC34) and reads its `leaving (+0x54)` byte; builds `operator new(0x48)` with CCgmLeaveFactionCommand_Construct(is_leave = **not** that byte, country = the player in EDI) - **a toggle**: Leave Faction when not leaving, Rejoin Faction when leaving; posts it on the command channel (in_game_screen +0xBE8 slot 18 -> +0x38 slot 6); then 0x77C180 with the view in ESI (unread: it calls slot 7 of each widget of the vector at +0x520..+0x524). **No confirmation dialog.** A player with no record reads through a null pointer (`xor edx,edx; mov bl,[edx+0x54]` at 0x77C101). See reversing/findings/FINDINGS-factionplay.md, B.1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-factionplay.md",
+   "revises": "Raised from inferred to confirmed, read whole on the listing. The record's outline stands; added that it is a toggle, that the command carries the player's tag, how it is posted, that there is no dialog, and the null read for a player without a record.",
+   "evidence": "Disassembly 0x77C030-0x77C178 read whole: the vector walk 0x77C0C8-0x77C0FD against `[esi+0xC34]`, `mov bl,[edx+0x54]` 0x77C103, `test bl,bl; sete cl; push edx(=cl); lea edi,[esi+0xC30]; push eax; call 0x42A090` 0x77C11E-0x77C12E, then `[ecx+0xBE8]` slot 18 (`[eax+0x48]`), `+0x38`, slot 6 (`[eax+0x18]`) with the command, then `call 0x77C180`. findRefs --address 0x77C030 finds the glue store at 0x77D925. Would be wrong if +0xC30 were not the player's tag - it is the CCurrentGameState player field the record names."
+  },
+  {
+   "rva": "0x38F900",
+   "kind": "function",
+   "name": "Cgm_IsLeavingFaction",
+   "signature": "bool __cdecl Cgm_IsLeavingFaction(CCountryTag* tag@EDI) @AL",
+   "no_signature": null,
+   "comment": "**False outside a custom game** (the custom-game settings' first byte, GetCustomGameSettings). 0x78F900 to the bare `ret` at 0x78F978 (arms at 0x78F939, 0x78F940), the tag in EDI. In one: where the settings hold a record for the country (0x41D470), whether that record (0x41F300) has `leaving (+0x54)` set; where they do not, the same question of its **overlord's** record (+0xF38/+0xF3C, nought where it has none) - so a puppet without a record of its own shows as leaving when its overlord is. Used by the faction icon, the status list's first line (LEAVE_FACTION_INTENTION \"$COUNTRY$ is going to leave the faction.\") and BuildFactionIntentionTooltip. See reversing/findings/FINDINGS-diplomacyview.md and FINDINGS-factionplay.md, B.1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-factionplay.md",
+   "revises": "Raised from inferred to confirmed on the listing; the record's account stands, with the overlord fallback made exact and the text of LEAVE_FACTION_INTENTION added.",
+   "evidence": "Disassembly 0x78F900-0x78F978 read whole: `cmp byte [esi],0` on GetCustomGameSettings' result, `push edi; push esi; call 0x41D470`, `push edi; mov edx,esi; call 0x41F300; cmp byte [eax+0x54],0`, and the overlord arm 0x78F941-0x78F970 building a tag from `[eax+0xF38]`/`[eax+0xF3C]` of CCountryTag::GetCountry(edi) and re-entering at 0x78F91F. Would be wrong if 0x41D470/0x41F300 were not has-record/find-record - their exact meaning is inferred from this use and from CustomGame code reading +0x54 off the vector's records."
+  },
+  {
+   "rva": "0x38F790",
+   "kind": "function",
+   "name": "Cgm_GetFactionJoining",
+   "signature": "CFaction* __cdecl Cgm_GetFactionJoining(CCountryTag* tag)",
+   "no_signature": null,
+   "comment": "**Null outside a custom game.** 0x78F790 to the bare `ret` at 0x78F8E9 (the null arm ends at 0x78F8FC), the tag on the stack, the caller cleaning. In one, walks the ideology groups (g_ideologies +0x1C..+0x20), takes each group's faction (+0x54; the null faction where none), and for each real one (slot 7) looks the faction up in the settings' join map at **+0x88** (0x421660) - a vector of 8-byte entries, id at +4 - and answers the first faction whose entry holds this country's id. The custom game's join intention, counterpart of Cgm_IsLeavingFaction: JOIN_FACTION_INTENTION \"$COUNTRY$ is going to join the $FACTION$.\" in the status list and BuildFactionIntentionTooltip. The join itself happens at the stage's confirmation through ApplyCustomGameSettingFaction (rva 0x19360). See reversing/findings/FINDINGS-diplomacyview.md and FINDINGS-factionplay.md, B.1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-factionplay.md",
+   "revises": "Raised from inferred to confirmed on the listing: the list the record called 'the custom-game list (0x421660, not read)' is the settings' map at +0x88 keyed by faction; the order is the ideology groups', and the join text added.",
+   "evidence": "Disassembly 0x78F790-0x78F8FC: the settings' first byte, the lazy g_ideologies (0x1A878BC) walk over +0x1C/+0x20, the group +0x54 faction with the null-faction lazy construction, slot 7, then `add edi,0x88` before `call 0x421660` (0x78F89F-0x78F8AB) and the 8-byte-stride compare of +4 against `[ebp+8]->+4`. Would be wrong if +0x88 were rebuilt elsewhere under another meaning - ApplyCustomGameSettings' stage-3 branch takes `lea edi,[ebx+0x88]` too (0x41D764), which fits a per-faction table."
+  },
+  {
+   "rva": "0x38F120",
+   "kind": "function",
+   "name": "CDiplomacyView_RefreshCgmWidgets",
+   "signature": "void __stdcall CDiplomacyView_RefreshCgmWidgets(CDiplomacyView* view)",
+   "no_signature": null,
+   "comment": "The diplomacy screen's custom-game widgets made current, for the **player's** record; nothing outside a custom game, or where the player has no record. Two callers: CInGameIdler slot 101's diplomacy refresh (0x6783BF) and the widget builder (0x78EB08). 0x78F120 to the `ret 4` at 0x78F690 (an early `ret 4` at 0x78F21A). Read with the decompiler and checked at its text keys: the neutrality widget (view +0x51C); each faction button of +0x520..+0x524, enabled or not by whether the player is in no real faction or is leaving one; and the leave button (+0x530): **disabled** where CCountry_CanLeaveFaction is false, or where the player is not leaving and the settings' points (+0x1C) are below the cost the record at 0x41D3D0 gives (+0x14), or where 0x4208B0 says so (the stage, inferred); its text LEAVE_FACTION \"Leave Faction\" when the record's +0x54 is clear (0x78F5D4), REJOIN_FACTION \"Rejoin Faction\" when set (0x78F539). Then CDiplomacyView::RefreshCountryInfo. See reversing/findings/FINDINGS-factionplay.md, B.1.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-factionplay.md",
+   "evidence": "Extent from retsBefore(0x78F120, 0x78F790): `ret 4` at 0x78F21A and 0x78F690, the latter followed by the next function's code; both callers `push` the view and call (0x6783BE, 0x78EB00). The CanLeaveFaction call at 0x78F4D9 and the two string pushes are on the listing; the enable/disable slots (+0xB8/+0xBC) and the points comparison are from the decompiler only, which is why this is inferred. Would be wrong if +0x530 were a different widget - ClearCgmWidgets destroys +0x530 among the custom-game widgets and BuildTooltip tests +0x530 before the CGM_TOOLTIP_LEAVE_FACTION text."
+  },
+  {
+   "rva": "0x192C0",
+   "kind": "function",
+   "name": "CustomGame_ApplyFactionLeave",
+   "signature": "void __stdcall CustomGame_ApplyFactionLeave(void* record, void* settings)",
+   "no_signature": null,
+   "comment": "**Where a custom game's leave intention becomes a leave.** 0x4192C0 to the `ret 8` at 0x419355. Nothing unless the record's `leaving (+0x54)` is set. Then, for each node of the record's country's `Vassals (+0xF78)` that has **no** record of its own in the settings (`+0x2C..+0x30`; a vassal with a record decides for itself), CustomGame_LeaveFaction(that node - its payload is the vassal's tag); then CustomGame_LeaveFaction(record) for the country itself - **its puppets go first**. One caller: ApplyCustomGameSettings at 0x41D84B, in the loop it runs over every record when called with stage 0 and the settings' +0x18 non-zero, each record's leave immediately followed by its join (ApplyCustomGameSettingFaction, 0x41D857). Custom game only. See reversing/findings/FINDINGS-factionplay.md, B.1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-factionplay.md",
+   "evidence": "Disassembly 0x4192C0-0x419355 read whole (`cmp byte [ecx+0x54],0` 0x4192CC; the vassal loop 0x4192FA-0x419344 with the record vector compare and `push ecx(node); call 0x418BC0` at 0x41933D; `push ecx(record); call 0x418BC0` at 0x41934A; `ret 8`). The caller ApplyCustomGameSettings 0x41D823-0x41D868 read: `cmp [ebp+0xC],0; jne` and `test eax([ebx+0x18])`. Would be wrong if a list node's +0 were not the vassal's tag - CListNode<CCountryTag> has the payload at +0, as CFaction's member list does."
+  },
+  {
+   "rva": "0x18BC0",
+   "kind": "function",
+   "name": "CustomGame_LeaveFaction",
+   "signature": "void __stdcall CustomGame_LeaveFaction(const CCountryTag* country)",
+   "no_signature": null,
+   "comment": "**A custom game's leave: the country's common wars end in a white peace, it leaves the faction, and its units abroad come home.** 0x418BC0 to the single `ret 4` at 0x4192B0 (retsBefore finds no other), clean `ret 8` and int3 above. With L = the country's faction's first member ('---' where the count is 0):\n\n1. For every war of CCurrentGameState +0xC00: where the country is an attacker and the first attacker is L, CWar::RemoveAttacker(war, false, country), and for every defender D, CCountry_ReturnOccupiedProvincesTo(country, D) and CCountry_ReturnOccupiedProvincesTo(D, country) - occupied land handed back both ways; otherwise the same on the defending side with RemoveDefender and every attacker. Wars it fights beside another first-listed country are kept.\n2. CCountry::OnDiplomacyChanged(country).\n3. Where its faction is real: CFaction::RemoveMember, `faction = CFaction::null()`, RebuildStaticModifiers, CCountry::RebuildRules, its display dirty byte - CCountry::LeaveFaction's body written out, no history.\n4. RebuildNeighbours and CCountry_AfterDiplomacyChange on the country and then on L.\n5. Where it is not a government in exile: every unit standing in a province it does not control has its movement cancelled and is moved to its capital - a fleet to the capital where that has a naval base, else to the first controlled province with one and based there; an air unit likewise with air bases; a land unit to the capital and based there - and a fleet or air unit with nowhere to go is disbanded with its manpower refunded in proportion to its strength (CGameState::RemoveUnit).\n\nNo message. Custom game only - the one canonical start never reaches it. See reversing/findings/FINDINGS-factionplay.md, B.1.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-factionplay.md",
+   "evidence": "Extent and convention on the listing: entry after `ret 8; int3*12` at 0x418BB5, retsBefore(0x418BC0, 0x4192B3) = the one `ret 4`. Steps 1-4 checked on the listing: the war walk 0x418CC0-0x418DED (side search, `cmp [edx+4],eax` against L, `call 0xA50440`/`0xA51710`, four `call 0x4E7190`), 0x4E70A0 at 0x418DF8, RemoveMember 0x418E1F, null 0x418E24, 0x4DDD80, 0x4FBC10, 0x4E21E0/0x4E39C0 twice. Step 5 (the units) is from the decompiler only, hence inferred for the entry. Would be wrong in step 5 if the base choice differed from the decompiled loops."
+  },
+  {
+   "rva": "0x49B730",
+   "kind": "function",
+   "name": "CEU3AI::CanTradeFreeResources",
+   "signature": "bool __thiscall CEU3AI::CanTradeFreeResources(CEU3AI* this, const CCountryTag* a, const CCountryTag* b)",
+   "no_signature": null,
+   "comment": "The Lua `CAI:CanTradeFreeResources(a, b)`. 0x89B730 to the `ret 8`s at 0x89B778 and after 0x89B77B, read whole: **true only where both countries hold the faction rule free_resource_gifts** - `countries[a->id]->+0xDEC` and `countries[b->id]->+0xDEC` both non-zero; `this` is not read. CCountry::RebuildRules sets that byte for every member of a real faction whose `rule` has free_resource_gifts (the Comintern in Their Finest Hour). The Lua name is from the registration at 0x8EFC94/0x8EFC8F (reversing/findings/FINDINGS-survivors.md). See reversing/findings/FINDINGS-factionplay.md, B.3.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-factionplay.md",
+   "revises": "Raised from likely to confirmed: the body was not read and now is; and it had neither a signature nor a no_signature, which it now has, read off the `ret 8` and the two dereferenced tag pointers.",
+   "evidence": "Disassembly 0x89B730-0x89B780: `mov eax,[ebp+8]`, `[eax+4]` indexed into g_CCountryDataBase +0x16C, `cmp byte [ecx+0xDEC],0`; the same with `[ebp+0xC]`; `mov al,1; ret 8` / `xor al,al ... ret 8`. ECX never read. vtable.py --holding: in no table. Would be wrong if the registration paired the name with another body - FINDINGS-survivors.md's two positive controls on the same call."
+  },
+  {
+   "rva": "0xFBC10",
+   "kind": "function",
+   "name": "CCountry::RebuildRules",
+   "signature": "void __stdcall CCountry::RebuildRules(CCountry* country)",
+   "no_signature": null,
+   "comment": "**A country's faction rules, made again from its faction.** 0x4FBC10 to the `ret 4` at 0x4FBC76, read whole, then 7 int3 and CCountry::GetRules (rva 0xFBC80, `lea eax,[ecx+0xdbc]; ret`). With ESI = &country->Rules (+0xDBC, a CRule): the four rule bools at Rules +0x18/+0x20/+0x28/+0x30 - **CCountry +0xDD4 (NONE), +0xDDC (LIMITED_WAR), +0xDE4 (ALLIANCE_GUARANTEE), +0xDEC (FREE_RESOURCE_GIFTS)** - cleared; the merged-rule list at Rules +0x8 freed node by node and its head zeroed; then, only where `country->faction` answers slot 7, CRule::Merge(&Rules, &faction->rule (CFaction +0x40)). So a member holds exactly its faction's rules, and a country in no faction none. **These stores go through the CRule base, as disp8 off ESI, which is why a disp32 scan of CCountry for writers of those bytes finds only CCountry_Reset's clear.** Eight callers: CInGameIdler::Enter's per-country loop (0x65B2B2), CCountry::UpdateMonthly (0x4DCB9E), CFaction::AddCountry's in-game step (0x4F6401), CCountry::LeaveFaction (0x4F6C50), and the four inline leaves - CustomGame_LeaveFaction 0x418E36, MakeVassal 0x4D967B, the annexation 0x4E81C4, RemoveLandlessCountriesFromWars 0x68A058. See reversing/findings/FINDINGS-faction.md, section 11, and FINDINGS-factionplay.md, B.3.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-factionplay.md",
+   "revises": "Raised from inferred to confirmed on the listing. The record's body stands. Added: which CCountry bytes the four Rules bools are, that their writes are disp8 off the Rules base (which is what hid them from every disp32 writer scan), that the faction test has no null check (the faction pointer is never null - the null faction is an object), and all eight callers.",
+   "evidence": "Disassembly 0x4FBC10-0x4FBC76: `lea esi,[edi+0xDBC]`, `mov byte [esi+0x18/0x20/0x28/0x30], bl`, the free loop over `[esi+8]` following node +8, the three zeroing stores, slot 7 on `[edi+0xD8]` with no null test, `add eax,0x40; push eax; call 0x45E340`. findRefs --callers 0x4FBC10 gives exactly the eight sites, each attributed by its enclosing function. The positive control for 'a disp32 scan cannot see these writes': the same scan does find CCountry_Reset's four clears at 0x4D3E14-0x4D3E29 and every reader named in FINDINGS-factionplay.md B.3."
+  },
+  {
+   "rva": "0x5E340",
+   "kind": "function",
+   "name": "CRule::Merge",
+   "signature": "CRule* __stdcall CRule::Merge(CRule* this@ESI, const CRule* other@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "ORs another rule set into this one: each of the four bools at +0x18, +0x20, +0x28 and +0x30 (the definitions NONE, LIMITED_WAR, ALLIANCE_GUARANTEE, FREE_RESOURCE_GIFTS) becomes `this || other`, and `other` is appended to this one's list at +0x8 (node {other, prev, next, byte}, 0x10 bytes). Returns `this`. 0x45E340 to the `ret 4`s at 0x45E3E6 and 0x45E3F0. Its one caller CCountry::RebuildRules passes `&faction->rule (CFaction +0x40)` into the country's `Rules (+0xDBC)` - **which is what sets all three live rule bytes of CCountry for every member of a real faction whose rule has them**: `+0xDDC` limited_war (the Axis in Their Finest Hour), `+0xDE4` allience_wide_guarantee (the Allies), `+0xDEC` free_resource_gifts (the Comintern) - common/ideologies.txt. Every store is a disp8 off ESI. See reversing/findings/FINDINGS-factionplay.md, B.3.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-factionplay.md",
+   "revises": "Comment only: the record said Merge is what sets +0xDEC; it sets +0xDDC and +0xDE4 the same way, which corrects the agreements, war and guarantee readings that called those two bytes unwritten.",
+   "evidence": "Disassembly 0x45E340-0x45E3F0: four `cmp byte [esi+N],0; jne; cmp byte [ecx+N],0` / `mov byte [esi+N], al` blocks for N = 0x18, 0x20, 0x28, 0x30, then `operator new(0x10)` and the append. The faction rules come from CRule::LoadKey (rva 0x5D920), which sets bool +0x18 + i*8 from a 'yes'/'no' value. Would be wrong if ESI at the call were not &country->Rules - RebuildRules sets it with `lea esi,[edi+0xDBC]` and does not change it."
+  },
+  {
+   "rva": "0x5D920",
+   "kind": "function",
+   "name": "CRule::LoadKey",
+   "signature": "void __thiscall CRule::LoadKey(CRule* this, CParseContext* parse, SaveToken key)",
+   "no_signature": null,
+   "comment": "**A faction's `rule = { ... }` block.** 0x45D920, three `ret 8` exits (0x45DB00, 0x45DB33, 0x45DB5A, and the error path's at 0x45DAC2). Key `icon` (token 0xB2): +0x38 = the value as an integer. Any other key is matched against the four rule definitions' tokens (InitRuleDefinitions' vector at 0x1A862C0, each definition's +0x20): **`limited_war`, `allience_wide_guarantee` (so spelled) and `free_resource_gifts`** - and the NONE definition's token. A match sets the bool at `this +0x18 + i*8` to 1 where the value is `yes`, 0 where it is `no`, and 0 after a call to 0xA7A960 (a parse complaint, inferred) for anything else. A key matching no definition is logged from rule.cpp as \"unknown rule '<key>' in file <file>\" and dropped. In Their Finest Hour's common/ideologies.txt the Axis has limited_war, the Allies allience_wide_guarantee, the Comintern free_resource_gifts. See reversing/findings/FINDINGS-factionplay.md, B.3.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-factionplay.md",
+   "revises": "The generated comment named only `icon`, because the rule keys are not cases of a switch but a search of the rule definitions; the search, the yes/no values and the unknown-rule message are added.",
+   "evidence": "Disassembly 0x45D920-0x45DB5A: `cmp ecx,0xB2` and the +0x38 store; the loop 0x45D96B-0x45D984 over `[0x1A862C0]` comparing `[edx+0x20]` with the key, four entries; the 'rule.cpp' / \"unknown rule '\" / \"' in file \" log; at 0x45DAC5 strcmp(value,'yes') -> `mov byte [eax+edi*8+0x18], 1`, at 0x45DB03 strcmp(value,'no') -> 0, else 0xA7A960 then 0. Would be wrong if the definitions' +0x20 were not the file keys - InitRuleDefinitions' record gives tokens 0x4BD/0x4BE/0x4BF for them."
+  },
+  {
+   "rva": "0x61BCC0",
+   "kind": "function",
+   "name": "CGuaranteeAction::Apply",
+   "signature": "void __thiscall CGuaranteeAction::Apply(CGuaranteeAction* this)",
+   "no_signature": null,
+   "comment": "**CGuaranteeAction slot 7**, one holder (vftable 0x15FB574). 0xA1BCC0 to the bare `ret` at 0xA1D379, 6 int3, then slot 11 at 0xA1D380. `this` in ECX, no stack arguments. **No arm tests `type`** - only `value` (+0x24) - so a guarantee takes effect the moment the offer is executed, and the AI never answers it (slot 18 is ReturnFalse). Arms read 2026-10-13:\n\n- `value` set: `new(0x28)`, CGuarantee::CGuarantee(0) (0xA46E90: CRelation fields, `+0x24` byte = the argument), `first` = actor (guarantor), `second` = recipient, `start_date` = the action's date; **appended to the relation list first (0xA1BDCA), then slot 10** (CGuarantee::Activate, `guarantee (+0x1C)` and `changed` both directions). Then, **only when the guarantor's `CCountry +0xDE4` byte is set** (0xA1BDF4), every other member of the guarantor's faction gets a guarantee of its own over the same recipient - CGuarantee(1), appended inline and activated. **`+0xDE4` is the faction rule allience_wide_guarantee**, set for every member of the Allies in Their Finest Hour by CCountry::RebuildRules through CRule::Merge (a disp8 store off the Rules base at +0xDBC, which no disp32 scan sees) - so **an Allies member's guarantee is made by every member of the Allies at once**, and the dialog says so with ALLIES_GUARANT. (Corrected 2026-10-13: this said nothing writes the byte and the branch was dead.) Then `diplo_influence -= GUARANTEE_INFLUENCE_COST` (diplomacy +0x14), clamped at 0, and `diplomaticsuccess` with WEGUARAT (actor played) / GUARATOUS (recipient played) / GUARATOOTHER. **No relation change.**\n- `value == 0` (revoking): `actor->diplomacy[recipient]->guarantee` taken **with no null test and no check that the actor is its `first`**, slot 11 (CGuarantee::Deactivate), unlinked (0xA1CB9D), deleted; `ChangeRelation(actor, recipient, REVOKE_GUARANTEE_RELATION_CHANGE +0x70)` at 0xA1CBEA; `diplo_influence += REVOKE_GUARANTEE_INFLUENCE_COST (+0x18)` at 0xA1CC19 - **an add**; GUARACANCELTOTHEM to a played actor (0xA1D063), GUARACANCELTOUS to a played recipient (0xA1D14C), and **GUARACANCELTOTHEM again to everybody else** (0xA1D223) - the revoke has a third case like every other arm, it just reuses the first key.\n- Both arms end with CCountry::RebuildNeighbours and 0x4E39C0 on both countries (0xA1D332-0xA1D360).\n\nWhat a guarantee does later is elsewhere: CDeclareWarAction::Apply calls the guarantors of a country it attacks to arms (0xA12B40-0xA12BE4) and voids the guarantee between the two belligerents (0xA12E14/0xA12E42); MonthlyRelationDrift adds 0.080 a month; CDiplomacyStatus_ExpireRelations ends it twenty years after its start. The name `Apply` is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-factionplay.md",
+   "revises": "One sentence corrected: the faction-wide guarantee branch behind the guarantor's CCountry +0xDE4 is live, not dead - the byte is the ALLIANCE_GUARANTEE rule and RebuildRules sets it for the Allies' members. Everything else in the entry is unchanged.",
+   "evidence": "The writer: CCountry::RebuildRules 0x4FBC1B `lea esi,[edi+0xDBC]` then CRule::Merge 0x45E386-0x45E38B `mov byte [esi+0x28], al` - 0xDBC + 0x28 = 0xDE4 - fed from the faction's rule, which CRule::LoadKey sets from `allience_wide_guarantee = yes` (0x45DAE8, definition 2). RebuildRules runs from CInGameIdler::Enter for every country and monthly. The read at 0xA1BDF4 is unchanged. No savegame holds a guarantee made by the action (all 45 BlackICE saves and the Their Finest Hour saves have only history guarantees), so there is no save oracle either way."
+  },
+  {
+   "rva": "0x627BA0",
+   "kind": "function",
+   "name": "CCallAllyAction::Apply",
+   "signature": "void __thiscall CCallAllyAction::Apply(CCallAllyAction* this)",
+   "no_signature": null,
+   "comment": "CCallAllyAction slot 7, one holder (vftable 0x15FB6F4). 0xA27BA0 to the bare `ret` at 0xA29D33, 12 int3, then slot 11 at 0xA29D40; the `ret` at 0xA284CE is an arm of the same frame. Parties: actor (+0x8) the caller, recipient (+0x10) the ally called, Versus (+0x28) the enemy; W = the caller's war with Versus. It first builds the message variables (the player's standard list, ACTOR, RECIPIENT, MESSENGER = MESSAGE_HEAD_CHAN, VERSUS), then by `type`:\n\n**PROPOSE (0)**: W's call map (+0x74) [recipient] = 1; then, **only where `value` is 0**, the caller's diplo_influence -= CALLALLY_INFLUENCE_COST (diplomacy +0x1C), clamped at 0. A value-1 call costs nothing.\n\n**ACCEPT (2)**: call map [recipient] = 0. On the recipient's status towards Versus: the alliance, the guarantee and the NAP are each Deactivated (slot 11), unlinked (CDiplomacy_RemoveRelation) and deleted, and an undeclared war is taken out of the game state's list at +0xC10 and deleted. Which side: the side the caller is on (attackers if CountryTagVector_Contains(+0x2C, caller), else defenders). A flag `lead` is set where the side's first country (attackers[0], or defenders[0], or the caller where defenders is empty) owns fewer provinces (+0xCF8) than the recipient, cleared where the recipient is a subject, and set where the recipient is the caller's overlord; it is CWar::AddAttacker/AddDefender's third argument. SetMilitaryAccess(0) on both directions between the recipient and Versus. Then CWar::AddDefender(W, 1, lead, recipient) - or CWar::AddAttacker(W, 1, lead, recipient) and, where the recipient is not the caller's puppet, AddCasusBelli(recipient, Versus) followed at once by CDiplomacyStatus::ClearCasusBelli on the same status: the new type-0 casus belli and every other one is unlinked from the status while the objects stay in the relation list. ChangeRelation(Versus, recipient, -WARDEC_WAR_DIPLOMACY_HIT) (-100); OnDiplomacyChanged on caller, recipient and Versus; TARGETLIST = the names of the side the recipient now fights, ', '-joined. A branch on the recipient's +0xDE4 (the faction rule ALLIANCE_GUARANTEE, set for the Allies' members by CCountry::RebuildRules through CRule::Merge) makes, for each member of the recipient's faction not already a defender, a CCallAllyAction (recipient calls member against Versus) at ACCEPT and executes it at once (its slot 6, the command, then the command's slot 6) - **live**: an Allies member answering a call brings the rest of the Allies in. (Corrected 2026-10-13: this said nothing writes the byte and the branch was dead.) Messages: caller played - sound diplomaticsuccess and MILALLHONOUR; recipient played - WEMILALLHONOUR where `value` is set, else FACTIONWAROFF (joined the attackers) or FACTIONWARDEF with VICTIM = Versus and FACTION = the caller's faction name; anybody else - OTHERMILALLHONOUR. Then DeleteAreaGroups (0x7FFF0), RebuildAreaGroups, DeleteSupplyGroups (0x807F0), RebuildSupplyGroups.\n\n**DECLINE (1)**: call map [recipient] = 0; ChangeRelation(recipient, caller, ALLIANCE_REJECT_RELATION_CHANGE) (diplomacy +0x44, -50); AddCasusBelli(caller, recipient) - a type-0 casus belli for the caller on the refuser; **the caller-recipient alliance, where there is one, is Deactivated, unlinked and deleted**. TARGETLIST = the side the caller fights. Messages **only where an alliance was broken**: caller played - sound diplomaticfailure and MILALLDISHONOUR; recipient played - WEMILALLDISHONOUR; else OTHERMILALLDISHONOUR.\n\nAny other `type` returns after the variables. Execute exempts this class from the seven-day cooldown write. See reversing/findings/FINDINGS-war.md, section B.1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-factionplay.md",
+   "revises": "One sentence corrected: the branch behind the recipient's +0xDE4 is live for Allies members, not dead. Everything else unchanged.",
+   "evidence": "The same writer as for CGuaranteeAction::Apply (RebuildRules -> CRule::Merge, disp8 +0x28 off &country->Rules). The read at 0xA28CA0 is `cmp byte [eax+0xDE4], bl` with eax = countries[[esp+0x20]->id] and [esp+0x20] the action's +0x10 (stored at 0xA27BC7 before three pushes) - the recipient. The member loop 0xA28CD0-0xA28DB2 and the `push 0x30; call operator new` / `call 0xA27AD0` / `mov [edi+0x18], 2` / slot 6 then slot 6 sequence are on the listing."
+  },
+  {
+   "rva": "0x49D9A1",
+   "kind": "instruction",
+   "name": "AIForeignMinister_LimitedWarByFactionRule",
+   "signature": null,
+   "no_signature": "An address inside CAIForeignMinister::DoWork (rva 0x49D600), not an entry point.",
+   "comment": "**The AI's war plans declare a limited war where its faction rule allows one.** In CAIForeignMinister::DoWork's walk of prepared war targets (country +0x5D4), a target **without** a decision (rva 0x49D967) gets a CDeclareWarAction built in place (constructor 0xA11DF0, which sets `value (+0x24)` = 1, a full war) with the war goal 'conquer'; then, **where the target entry's byte +0x14 is clear and the AI's own country has the faction rule limited_war (`CCountry +0xDDC`)**, `value` is set to 0 - a limited war (FINDINGS-war.md: value 0 sets CWar +0x70, and the declarer's allies are not called). In Their Finest Hour that is every member of the Axis. What the target's +0x14 means was not read. See reversing/findings/FINDINGS-factionplay.md, B.3.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-factionplay.md",
+   "evidence": "Listing 0x89D976-0x89D9AE: `lea esi,[ebp-0xA4]; call 0xA11DF0`, `cmp byte [ebx+0x14],0; jne`, the tag at EDI (the minister's own, the same EDI that 0x89D903 gives the CEventScope as its country) through CCountryTag::GetCountry, `cmp byte [eax+0xDDC],0; je`, `mov byte [ebp-0x80],0` - and 0xA4 - 0x80 = 0x24, the action's value. 0xA11DF0 writes the CDeclareWarAction vftable 0x15FB3F4 (whose slot 7 is CDeclareWarAction::Apply) and `mov byte [esi+0x24],1`. Would be wrong if EDI at 0x89D98E were the target - the target's tag is ebx +8/+0xC, pushed separately at 0x89D9F1."
+  }
+ ],
+ "structs": [
+  {
+   "name": "CCgmLeaveFactionCommand",
+   "size": "0x48",
+   "inherits": "CCommand",
+   "vftable_rva": "0x11B6174",
+   "comment": "The custom game mode's 'leave faction' command: the player's toggle of his country's leave intention, applied when the setup stage is confirmed. Built by CCgmLeaveFactionCommand_Construct after operator new(0x48); type id 0x6BA.",
+   "evidence": "operator new(0x48) at 0x77C106 immediately before the constructor; the RTTI export gives CCommand at offset 0 and the one table 0x15B6174 (rva 0x11B6174) with 15 slots; the constructor writes that table at 0x42A100."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CCountry",
+   "offset": "0xDDC",
+   "name": "rule_limited_war",
+   "type": "uint8_t",
+   "comment": "**The faction rule limited_war, as the country holds it**: Rules (+0xDBC) +0x20, CRule bool 1 (RULE_LIMITED_WAR \"Limited war\"). Cleared and set again by CCountry::RebuildRules from the faction's `rule` through CRule::Merge - a disp8 store off the Rules base - so it is 1 for every member of a real faction whose rule has `limited_war = yes`: the Axis in Their Finest Hour and BlackICE. Two readers: the diplomacy screen's action list offers 'Declare Limited War' only where it is set (0x4E40D5), and the AI's war plans declare a limited war where it is set (0x89D9A1, AIForeignMinister_LimitedWarByFactionRule). The four bytes +0xDD4/+0xDDC/+0xDE4/+0xDEC are the four rule definitions NONE, LIMITED_WAR, ALLIANCE_GUARANTEE, FREE_RESOURCE_GIFTS.",
+   "source": "reversing/findings/FINDINGS-factionplay.md",
+   "revises": "Name and type kept. 'Inferred' dropped: the writer is found (RebuildRules -> CRule::Merge, Rules +0x20), and the AI reader at 0x89D9A1 added.",
+   "evidence": "0xDBC + 0x20 = 0xDDC; CRule::Merge's `mov byte [esi+0x20], al` at 0x45E373 with ESI = &country->Rules set at 0x4FBC1B; CRule::LoadKey maps `limited_war` to definition 1. The two readers from a disp32 scan of 0xDDC over .text (9 hits; the rest are esp-based frame slots or the reset's clear); its positive control is the known reader 0x4E40D5, found."
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0xDE4",
+   "name": "rule_alliance_guarantee",
+   "type": "uint8_t",
+   "comment": "**The faction rule allience_wide_guarantee (so spelled in the file), as the country holds it**: Rules (+0xDBC) +0x28, CRule bool 2 (RULE_ALLIANCE_GUARANTEE \"Alliance-wide guarantees\"). Set by CCountry::RebuildRules through CRule::Merge for every member of a real faction whose rule has it - the Allies in Their Finest Hour and BlackICE. Three readers: CGuaranteeAction::Apply (0xA1BDF4) - the guarantor's guarantee is made by every other member of its faction too; CGuaranteeAction::GetDialogText (0xA1DE77) - ALLIES_GUARANT 'Should we need to come to their aid, all members of our faction will follow us.'; CCallAllyAction::Apply (0xA28CA0) - a member answering a call to arms brings in every member of its faction not already defending.",
+   "source": "reversing/findings/FINDINGS-factionplay.md",
+   "revises": "Name and type kept. 'Inferred' dropped; the writer is found, and the two readers that act on it - which the record called dead - added.",
+   "evidence": "0xDBC + 0x28 = 0xDE4; CRule::Merge's `mov byte [esi+0x28], al` at 0x45E38B; CRule::LoadKey maps `allience_wide_guarantee` to definition 2. A disp32 scan of 0xDE4 gives the reset's clear and these three readers (plus esp-based frame slots)."
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0xDD4",
+   "name": "rule_none",
+   "type": "uint8_t",
+   "comment": "Rules (+0xDBC) +0x18, the CRule bool of rule definition 0, NONE. Cleared by CCountry_Reset and CCountry::RebuildRules and ORed in by CRule::Merge like the other three, but no file rule names it in Their Finest Hour, and **nothing reads it**: a disp32 scan of 0xDD4 over .text finds only the reset's clear and esp-based frame slots.",
+   "source": "reversing/findings/FINDINGS-factionplay.md",
+   "evidence": "0xDBC + 0x18 = 0xDD4; RebuildRules' `mov byte [esi+0x18], bl` (0x4FBC21) and Merge's `mov byte [esi+0x18], al` (0x45E35B). The scan's positive control: the same scan finds the known reader of +0xDDC at 0x4E40D5. A reader through the Rules base (disp8 +0x18 off a CRule*) would not show - CRule::DescribeSetRules reads it that way on a faction's rule, not a country's."
+  },
+  {
+   "struct": "CCgmLeaveFactionCommand",
+   "offset": "0x3C",
+   "name": "country",
+   "type": "CCountryTag",
+   "comment": "The country whose leave intention is set - the player, as OnCgmLeaveFaction builds it. Saved as `country` (token 0x24D).",
+   "source": "reversing/findings/FINDINGS-factionplay.md",
+   "evidence": "Constructor 0x42A106-0x42A10E copies *EDI's two dwords here; Execute reads +0x40 as the id (0x42A16E) and passes &+0x3C to the diplomacy refresh; LoadKey's `country` case lands +0x3C/+0x40 (FINDINGS-fieldmap.md)."
+  },
+  {
+   "struct": "CCgmLeaveFactionCommand",
+   "offset": "0x44",
+   "name": "is_leave",
+   "type": "bool",
+   "comment": "1 to mark the country as leaving its faction, 0 to take that back (Rejoin Faction). Execute copies it into the custom-game record's +0x54. Saved as `is_leave` (token 0x7E2), which LoadKey keeps elsewhere than a plain field (FINDINGS-fieldmap.md).",
+   "source": "reversing/findings/FINDINGS-factionplay.md",
+   "evidence": "Constructor `mov byte [esi+0x44], cl` at 0x42A111 from its bool argument; Execute `mov al,[edi+0x44]` at 0x42A188 and again at 0x42A284, stored to the record's +0x54."
+  }
+ ],
+ "vftable_slots": {
+  "CCgmLeaveFactionCommand": {
+   "6": "Execute"
+  },
+  "CRule": {
+   "4": "LoadKey"
+  },
+  "CGuaranteeAction": {
+   "7": "Apply"
+  },
+  "CCallAllyAction": {
+   "7": "Apply"
+  }
+ },
+ "frontier": [
+  "0x37C180",
+  "0x1D470",
+  "0x1F300",
+  "0x21660",
+  "0x1D3D0",
+  "0x208B0",
+  "0x1ED50",
+  "0x1F7C0",
+  "0x611DF0",
+  "0x5D7B0",
+  "0x4ADEF0"
+ ]
+}

@@ -514,7 +514,7 @@ For each kind: the title, slot 13 (decides), slot 14 (greys), slot 11 (tooltip, 
 9. **ENROUTE is inclusive.** `tick <= next_offer_allowed` counts the last hour as en route. The date string is passed to `sprintf` as a format.
 10. **DIP_NO_INFL decimals vary by class** (0, 2, or cost/1000 as a whole number).
 11. **The expedition titles work only because their keys have no text.** If SENDEXPED were ever translated, the title lookup would break.
-12. **The rule bytes are inferred.** `+0xDD4`/`+0xDDC`/`+0xDE4`/`+0xDEC` stand in the order of the four faction rules NONE, LIMITED_WAR, ALLIANCE_GUARANTEE, FREE_RESOURCE_GIFTS. Only `+0xDDC`, `+0xDE4` and `+0xDEC` have a reader that fits that meaning. **`+0xDDC` is set in play** (2026-10-13): the maintainer's screenshot of the original's action list shows "Declare Limited War" under "Declare War", for a player who leads a faction (the list has "Invite to Faction") - so, unlike `+0xDE4` (C.3), something writes it. Its writer is still unread, and which faction the screenshot was of was not said; that it is the faction's rule remains the inference, now with a positive observation beside it.
+12. **The rule bytes are inferred.** `+0xDD4`/`+0xDDC`/`+0xDE4`/`+0xDEC` stand in the order of the four faction rules NONE, LIMITED_WAR, ALLIANCE_GUARANTEE, FREE_RESOURCE_GIFTS. Only `+0xDDC`, `+0xDE4` and `+0xDEC` have a reader that fits that meaning. **`+0xDDC` is set in play** (2026-10-13): the maintainer's screenshot of the original's action list shows "Declare Limited War" under "Declare War", for a player who leads a faction (the list has "Invite to Faction") - so, unlike `+0xDE4` (C.3), something writes it. Its writer is still unread, and which faction the screenshot was of was not said; that it is the faction's rule remains the inference, now with a positive observation beside it. *Settled 2026-10-13: the writer is `CCountry::RebuildRules` through `CRule::Merge`, and the bytes are the faction's rules (`FINDINGS-factionplay.md` B.3).*
 
 ### B.10 Not settled
 
@@ -522,7 +522,7 @@ For each kind: the title, slot 13 (decides), slot 14 (greys), slot 11 (tooltip, 
 - **Units on the war rows.** `CSendExpeditionaryForceAction`'s unit `+0x290`/`+0x294` and the defines date the builder compares against.
 - **Unread callees.** `0x507CE0` (sharing already?), `0x47BF70`, `0x4E67D0`, `0x4E68C0`, `0xA526D0` (war goal and call-to-arms gates), `0xA10180` (lend-lease eligibility and its reasons). The war byte `CWar +0x70`.
 - **The other dialogs' insides.** The trade, licence, expedition, share-technology and war-goal dialogs were not read past "this window opens".
-- **Rule bytes.** No writer of 1 to `+0xDDC`/`+0xDE4` was looked for, so the rule meaning is inferred.
+- **Rule bytes.** No writer of 1 to `+0xDDC`/`+0xDE4` was looked for, so the rule meaning is inferred. *Settled 2026-10-13: `CCountry::RebuildRules` writes all four through `CRule::Merge` from the faction's `rule` block (`FINDINGS-factionplay.md` B.3).*
 
 ### B.11 Frontier (rvas)
 
@@ -578,7 +578,7 @@ Agreements also end by themselves, in one daily function, `CDiplomacyStatus_Expi
 - **value set**:
   - `new(0x28)` `CGuarantee(0)`; first = guarantor, second = recipient, `start_date` = date;
   - appended (`0xA1BDCA`), **then** slot 10 (`+0x1C` on both directions);
-  - **if the guarantor's `CCountry +0xDE4` byte is set**, every other member of its faction also guarantees the recipient, through `CGuarantee(1)`. Nothing in `.text` ever writes 1 to `+0xDE4` (disp32 scan; the positive control finds CCountry_Reset's clear), so this branch is dead;
+  - **if the guarantor's `CCountry +0xDE4` byte is set**, every other member of its faction also guarantees the recipient, through `CGuarantee(1)`. Nothing in `.text` ever writes 1 to `+0xDE4` (disp32 scan; the positive control finds CCountry_Reset's clear), so this branch is dead; *Corrected 2026-10-13 (`FINDINGS-factionplay.md` B.3): `CCountry::RebuildRules` writes it through `CRule::Merge`, a disp8 store off `&country->Rules (+0xDBC)` that the disp32 scan could not see - a member holds its faction's rules, so this branch is live for the Allies.*
   - `diplo_influence -= GUARANTEE_INFLUENCE_COST` (5);
   - messages WEGUARAT / GUARATOUS / GUARATOOTHER;
   - **no relation change**.
@@ -748,7 +748,7 @@ The `+0x34` sweep finds no other reader beyond the status lines. It never expire
 - Revoking a guarantee *adds* `REVOKE_GUARANTEE_INFLUENCE_COST`. Declining access refunds the asker.
 - `MILACC_CANCEL_RELATION_CHANGE` is dead. COffer uses constants (+10, −20), and its withdrawal clears access **in both directions**.
 - The leave, revoke and break arms take the pointer with no null test (the gate is slot 13's).
-- `CGuaranteeAction` has a faction-wide branch behind `CCountry +0xDE4`, which nothing ever sets.
+- `CGuaranteeAction` has a faction-wide branch behind `CCountry +0xDE4`, which nothing ever sets. *Corrected 2026-10-13: it is the ALLIANCE_GUARANTEE rule, set for every Allies member by `CCountry::RebuildRules` (`FINDINGS-factionplay.md` B.3); the branch is live.*
 - A guarantee lasts exactly twenty years from its start, whatever `end_date` says.
 - An alliance that both partners outgrow by joining one faction is dissolved with the "left the alliance" messages.
 - CDeclareWarAction nulls the guarantee between belligerents **without unlinking it**. It stays in the list, is saved, and `CDiplomacy::LoadKey` re-activates it on load. Inferred from reading the bytes; no save has such a pair.
