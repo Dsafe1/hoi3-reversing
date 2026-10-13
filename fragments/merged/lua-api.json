@@ -1,0 +1,217 @@
+{
+ "agent": "the collecting session of OpenHOI3's Lua piece - what the DiploScore functions are handed and what they reach of the API",
+ "question": "What the engine hands the AI's DiploScore functions and does with a failure, and what each part of the Lua API those functions reach answers: CFixedPoint in Lua, the clausewitz iterators, equality and text, the methods, the alignment distance and CAIIntel.",
+ "source": "reversing/findings/FINDINGS-luaapi.md",
+ "addresses": [
+  {
+   "rva": "0x60DC70",
+   "kind": "function",
+   "name": "GetDiploScoreFromLua",
+   "revises": true,
+   "signature": "int __cdecl GetDiploScoreFromLua(const char* lua_function, CCountryTag* actor, CCountryTag* recipient, CCountryTag* recipient_again, CCountryTag recipient_value, int extra)",
+   "no_signature": null,
+   "comment": "**The engine asking the mod's Lua what the AI thinks of a diplomatic offer.** Six arguments, cdecl - every caller does `add esp, 0x18` - the first being the name of a Lua function, and the score comes back in eax. There are exactly 14 `DiploScore_*` literals in the image and every one is passed to this function or to one of its five name-baked clones; all 14 are defined in the mod, twelve in script/ai_diplomacy.lua plus DiploScore_OfferTrade in ai_trade.lua and DiploScore_LicenceTechnology in ai_license.lua.\n\n**It returns 100 without calling Lua** when the acting country's id equals g_CCurrentGameState +0xC34 (player) and g_AiYesmen (0x1A8562F), the `yesmen` console cheat, is set - so in a game nobody has cheated in, the script is asked about the player's offers as about anyone's. **It resolves an AI object as CCountry +0x1D8**, trying three tags and taking the first non-null - the recipient (by value), then the actor, then the third argument - each through CCountryTag::GetCountry (0x402610). **Then it calls Lua**: BuildLuaCallProxy_DiploScore_4Args (0x6445B0) with the AI pointer, the tags and the name, and LuaCallProxy_CallIntResult (0x644080), which pushes the AI as its most derived class or nil and **each tag as a fresh copy**, calls with four arguments and one result, and turns a number into an int to the nearest, ties to even.\n\n**A failure answers 0.** The function's one try block catches luabind::error (ehcatches: `.?AVerror@luabind@@`); the handler at 0xA0DDBE reports it through ReportLuaError (0x6A8050) and resumes at 0xA0DDCF with `xor eax, eax`. So a Lua error, or a missing function, refuses the offer. luabind::cast_failed, thrown for a result that is not a number, is not caught here.\n\nNamed for what it does; no class. See reversing/findings/FINDINGS-diplomacy.md and reversing/findings/FINDINGS-luaapi.md, section 1.\n\n**Signature note, 2026-10-01: there is no sixth `int extra` argument.** Arguments five and six are the two dwords of one `CCountryTag` passed by value - the bridge does `lea ecx, [ebp+0x18]; call CCountryTag::GetCountry` at 0xA0DD39, which needs all eight bytes. `recipient_value` is the right name for it. Left in the signature rather than changed, because the argument list's stack layout is what callers are matched against.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-luaapi.md",
+   "evidence": "Revised for two things. The old comment said the short-circuit means 'a script's opinion of what the human offers is never consulted down this path', which FINDINGS-diplomacy.md already corrected: the byte is the yesmen cheat (its one writer is the console handler at 0x4419D8). And it said nothing of the failure: `python scripts/ehcatches.py 0xA0DC70` lists one try catching luabind::error, and disasm.py 0xA0DDBE/0xA0DDCF shows the handler calling 0xAA8050 and the continuation clearing eax before returning. Wrong if the continuation set eax from anything but itself, or if a second catch existed."
+  },
+  {
+   "rva": "0x644080",
+   "kind": "function",
+   "name": "LuaCallProxy_CallIntResult",
+   "signature": "int __stdcall LuaCallProxy_CallIntResult(void* proxy)",
+   "no_signature": null,
+   "comment": "The call half of GetDiploScoreFromLua's luabind proxy: sets the proxy's called flag (+0x1C), pushes its arguments through LuaPushArgs_AiAndThreeTags (0x644CE0), and calls the proxy's +8 - luabind::detail::pcall - with four arguments and one result. A non-zero status throws luabind::error; a result whose lua_type is not 3 (LUA_TNUMBER) throws luabind::cast_failed; otherwise it answers lua_tointeger of it - to the nearest, ties to even, in this lua5.1.dll - and sets the stack back. See reversing/findings/FINDINGS-luaapi.md, section 1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-luaapi.md",
+   "evidence": "Decompiled 0xA44080: `*(byte*)(proxy+0x1C) = 1`, FUN_00a44ce0(proxy+0xC), `(*(proxy+8))(L, 4, 1)`, the two throws with luabind::error's and luabind::cast_failed's vftables, lua_type(L,-1) against 3, lua_tointeger, lua_settop. Ends `ret 4` at 0xA44179. Its one caller is 0xA0DD9C with `push eax` (the proxy). Wrong if the argument count pushed were not 4."
+  },
+  {
+   "rva": "0x644CE0",
+   "kind": "function",
+   "name": "LuaPushArgs_AiAndThreeTags",
+   "signature": "void __cdecl LuaPushArgs_AiAndThreeTags(void* L@EDI, void** args)",
+   "no_signature": null,
+   "comment": "Pushes the four arguments of a DiploScore call: the AI (args[0] points at the CEU3AI pointer) - nil where null, else __RTDynamicCast to its most derived class and that instance pushed - then args[1], args[2], args[3], each a CCountryTag* pushed as **a fresh heap copy** through LuaPush_CCountryTagByValue (0x1137C0) at 0xA44D2F, 0xA44D39 and 0xA44D43. The Lua state arrives in EDI. See reversing/findings/FINDINGS-luaapi.md, section 1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-luaapi.md",
+   "evidence": "disasm.py 0xA44CE0: `mov ebx,[ebp+8]` is the only stack argument, `[ebx]` dereferenced twice for the AI with `call [0xD2B4C4]` (lua_pushnil) on null and 0xB97799 (__RTDynamicCast) otherwise, then three `push [ebx+4/8/0xC]; push edi; call 0x5137C0`; bare `ret` at 0xA44D4F. EDI is never written before its use. Wrong if EDI were not the lua_State the caller holds."
+  },
+  {
+   "rva": "0x58A980",
+   "kind": "function",
+   "name": "ClausewitzIterator_Next_CFactionList",
+   "signature": "int __cdecl ClausewitzIterator_Next_CFactionList(void* L)",
+   "no_signature": null,
+   "comment": "The `next` closure return_clausewitz_iterator gives a CList<CFaction*> - CCurrentGameState.GetFactions. Its one upvalue is a userdata holding the current node: nil where it is null, else the node's faction pushed (0x98FA80: nil for a null pointer, else the most derived class) and the node stepped to its +8. So the list in its stored order. See reversing/findings/FINDINGS-luaapi.md, section 4.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-luaapi.md",
+   "evidence": "Decompiled: lua_touserdata(L, upvalue 1 = -10003), the null test, FUN_0098fa80 (CFaction's RTTI descriptor in its __RTDynamicCast), `*p = *(*p + 8)`, `return 1`. Pushed as a closure with one upvalue at 0x95DA48. Wrong if the node step were not the list's next."
+  },
+  {
+   "rva": "0x58FDA0",
+   "kind": "function",
+   "name": "ClausewitzIterator_Next_CCountryTagList",
+   "signature": "int __cdecl ClausewitzIterator_Next_CCountryTagList(void* L)",
+   "no_signature": null,
+   "comment": "The `next` closure for a list of country tags (CCountryList - GetCurrentAtWarWith, GetNeighbours): nil at the end of the list, else the node's tag pushed **as a fresh copy** through LuaPush_CCountryTagByValue (0x1137C0), the node stepping to its +0xC. See reversing/findings/FINDINGS-luaapi.md, section 4.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-luaapi.md",
+   "evidence": "Decompiled: the null test, LuaPush_CCountryTagByValue(L, node), `*p = *(*p + 0xC)`. Pushed at 0x96BF89 and 0x974C18. That the two registrations using it are GetCurrentAtWarWith and GetNeighbours is inferred from the element type alone; wrong if another tag list's registration owned both pushes."
+  },
+  {
+   "rva": "0x58FE90",
+   "kind": "function",
+   "name": "ClausewitzIterator_Next_CDiplomacyStatusArray",
+   "signature": "int __cdecl ClausewitzIterator_Next_CDiplomacyStatusArray(void* L)",
+   "no_signature": null,
+   "comment": "The `next` closure for a CArray<CDiplomacyStatus*> - CCountry:GetDiplomacy, one status per country id from 0. The upvalue holds {pointer, container}: while begin <= pointer < end it pushes *pointer (0x991E60: nil for a null pointer, else the status) and steps 4; then nil. **A null element is pushed as nil and still stepped over, so a Lua `for` ends at it.** See reversing/findings/FINDINGS-luaapi.md, section 4.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-luaapi.md",
+   "evidence": "Decompiled: `if (*(c) <= p && p < c[1]) { push; p += 4; return 1 } pushnil`; the element push 0x991E60 names CDiplomacyStatus's RTTI descriptor. Wrong if the container's second word were not its end."
+  },
+  {
+   "rva": "0x58A8E0",
+   "kind": "function",
+   "name": "ClausewitzIterator_Next_CCountryArray",
+   "signature": "int __cdecl ClausewitzIterator_Next_CCountryArray(void* L)",
+   "no_signature": null,
+   "comment": "The `next` closure for an array of CCountry*: while begin <= pointer < end, nil for a null element, else the country as its most derived class, stepping 4 either way; then nil. The same shape as ClausewitzIterator_Next_CDiplomacyStatusArray. See reversing/findings/FINDINGS-luaapi.md, section 4.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-luaapi.md",
+   "evidence": "Decompiled: the bounds test, the null arm pushing nil and stepping, __RTDynamicCast with CCountry's RTTI descriptor. Which registration uses it was not traced."
+  },
+  {
+   "rva": "0x591E60",
+   "kind": "function",
+   "name": "LuaPush_CDiplomacyStatusPtr",
+   "signature": "void __cdecl LuaPush_CDiplomacyStatusPtr(CDiplomacyStatus** element@EAX, void* L@EDI)",
+   "no_signature": null,
+   "comment": "Pushes *element: nil where it is null, else __RTDynamicCast to the most derived class and that instance, else (no RTTI match) the plain pointer instance. One of a family of identical pushes, one per element type, which the iterator closures call. See reversing/findings/FINDINGS-luaapi.md, section 4.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-luaapi.md",
+   "evidence": "Decompiled with the element pointer in EAX (`*in_EAX`) and L in EDI (unaff_EDI); the descriptor is CDiplomacyStatus's. Three bare `ret`s."
+  },
+  {
+   "rva": "0x58FA80",
+   "kind": "function",
+   "name": "LuaPush_CFactionPtr",
+   "signature": "void __cdecl LuaPush_CFactionPtr(CFaction** element@EAX, void* L@EDI)",
+   "no_signature": null,
+   "comment": "LuaPush_CDiplomacyStatusPtr's twin for a CFaction*: nil for null, else the most derived class - so the null faction arrives as a CNullFaction instance. See reversing/findings/FINDINGS-luaapi.md, section 4.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-luaapi.md",
+   "evidence": "Decompiled: the same body as 0x991E60 with CFaction's RTTI descriptor."
+  },
+  {
+   "rva": "0x49F240",
+   "kind": "function",
+   "name": "CAIIntel::CAIIntel",
+   "signature": "void __stdcall CAIIntel::CAIIntel(CAIIntel* this@ESI, CCountryTag* them@ECX, CCountryTag* us)",
+   "no_signature": null,
+   "comment": "What `CAIIntel(us, them)` in Lua builds. +0 = us, +4 = them (pointers to the tags), +8 = the game state's +0x124, the generator the AI rolls; Factor (+0xC) = a value out of us's espionage table for them (country +0x1160, 0xF8 bytes a country, through 0x52D630, not read) over 1000, as a float; UncertaintyFactor (+0x10) = 1 - Factor + the double at 0x160A260, clamped between that double and the float at 0x171DBAC. Only DiploScore_PeaceAction among the functions the engine calls makes one. See reversing/findings/FINDINGS-luaapi.md, section 8.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-luaapi.md",
+   "evidence": "Likely: it sits just before CAIIntel's six registered methods (0x89F3A0..0x89F8C0) and writes exactly the layout they read - +0 and +4 tag pointers, +8 the generator CalculateTheirPercievedMilitaryStrengh draws from, +0xC Factor and +0x10 UncertaintyFactor, the two luabind fields at those offsets. Not confirmed because its caller, the luabind constructor wrapper, was not found. `ret 4` at 0x89F391; ESI is written to without being set."
+  },
+  {
+   "rva": "0x2000",
+   "kind": "function",
+   "name": "FloatSqrt",
+   "signature": "float __cdecl FloatSqrt(float value)",
+   "no_signature": null,
+   "comment": "sqrt of a float, rounded to a float: `fld dword [ebp+8]; call 0xC0BDD0` (the CRT's sqrt) `; fstp dword; fld dword`. CEU3AI::GetCountryAlignmentDistance takes its root with it. See reversing/findings/FINDINGS-luaapi.md, section 7.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-luaapi.md",
+   "evidence": "disasm.py 0x402000: the five instructions and a bare `ret` at 0x40201C."
+  },
+  {
+   "rva": "0x5039A0",
+   "kind": "function",
+   "name": "CFixedPoint_LuaDivide",
+   "signature": null,
+   "no_signature": "luabind's operator glue: the result holder arrives as the third stack argument and the two operands as pointers in a mix of ECX/EDX and the stack that the one caller, CFixedPoint::luabind_opdiv (0x902120), sets up; no ordinary signature describes it.",
+   "comment": "CFixedPoint / CFixedPoint in Lua: a * 1000 / b - in 32 bits where a lies in -0x189373..0x20C49A, else in 64 - and **-1 thousandth where b is nought**, no error; the result is a new CFixedPoint. See reversing/findings/FINDINGS-luaapi.md, section 3.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-luaapi.md",
+   "evidence": "Decompiled: `if (b == 0) r = -1; else if (a out of range) r = __alldiv(__allmul(a,1000), b); else r = a*1000/b`, then operator_new(4) and the CFixedPoint auto_ptr holder. Bare `ret` at 0x903A59."
+  },
+  {
+   "rva": "0x503A60",
+   "kind": "function",
+   "name": "CFixedPoint_LuaMultiplyFloat",
+   "signature": null,
+   "no_signature": "the float operand arrives in XMM0, which no signature here can place.",
+   "comment": "CFixedPoint * number in Lua: the number to thousandths as fx(f) = floor((float)((float)(f + 0.0005) * 1000)), then fx * a / 1000 in 64 bits, toward nought; a new CFixedPoint. See reversing/findings/FINDINGS-luaapi.md, section 3.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-luaapi.md",
+   "evidence": "Decompiled: in_XMM0_Da through floorf((float)((double)(float)(f + _DAT_0160a460) * 1000.0)), _ftol2_sse, __alldiv(fx * a, 1000). 0x160A460 is the double 0.0005000000237 (image.read). Bare `ret` at 0x903B0D."
+  },
+  {
+   "rva": "0x503B10",
+   "kind": "function",
+   "name": "CFixedPoint_LuaDivideFloat",
+   "signature": null,
+   "no_signature": "the float operand arrives in XMM0.",
+   "comment": "CFixedPoint / number in Lua: a * 1000 / fx(f), -1 thousandth where fx(f) is nought; a new CFixedPoint. See reversing/findings/FINDINGS-luaapi.md, section 3.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-luaapi.md",
+   "evidence": "Decompiled: the same conversion as CFixedPoint_LuaMultiplyFloat, the nought test, the 32/64-bit division. Bare `ret` at 0x903BFC."
+  },
+  {
+   "rva": "0x4EAAD0",
+   "kind": "function",
+   "name": "FixedPoint_OverFloatAsFloat",
+   "signature": null,
+   "no_signature": "the float arrives in XMM0 and the result goes back in XMM0; the CFixedPoint* is the one stack argument.",
+   "comment": "What `number / CFixedPoint` in Lua computes, through CFixedPoint::luabind_opdiv (float, CFixedPoint) at 0x9025D0: **the object's thousandths times 1000 over fx(number)** - the object over the number, the other way round from what the script wrote - -1 where fx is nought, as a float over 1000, pushed as a Lua number by LuaPushFloat (0xC8A10). See reversing/findings/FINDINGS-luaapi.md, section 3.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-luaapi.md",
+   "evidence": "disasm.py 0x8EAAD0: XMM0 through the fx conversion into ESI, then `mov eax,[ebp+8]; mov eax,[eax]` (the object's thousandths) `imul eax, 0x3E8; idiv esi`, the result to a float over 1000 in XMM0; bare `ret` at 0x8EAB69. Wrong if [ebp+8] were the number's slot rather than the object's."
+  },
+  {
+   "rva": "0xC8A10",
+   "kind": "function",
+   "name": "LuaPushFloat",
+   "signature": "void __cdecl LuaPushFloat(void* L@ECX, float* value@EAX)",
+   "no_signature": null,
+   "comment": "lua_pushnumber(L, (double)*value). The tail of every `number op CFixedPoint` operator, which is why those answer a Lua number and not a CFixedPoint. See reversing/findings/FINDINGS-luaapi.md, section 3.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-luaapi.md",
+   "evidence": "Decompiled: `lua_pushnumber(param_1, (double)*in_EAX)`, bare `ret` at 0x4C8A32; the operators jump to it with eax = the float's address and ecx = L (0x9024D0..0x9024D5)."
+  },
+  {
+   "rva": "0x4EAB70",
+   "kind": "function",
+   "name": "CContinent_TagsEqual",
+   "signature": "bool __fastcall CContinent_TagsEqual(CContinent* a, CContinent* b)",
+   "no_signature": null,
+   "comment": "What `==` between two continents in Lua compares (CContinent's luabind __eq, 0x902BE0): each one's slot 7 - its name as a string - and whether the two are equal. See reversing/findings/FINDINGS-luaapi.md, section 5.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-luaapi.md",
+   "evidence": "disasm.py 0x8EAB70: `mov eax,[ecx]; mov eax,[eax+0x1C]; call eax` and the same through EDX, both into stack strings; the luabind wrapper passes ECX and EDX and pushes `movzx eax, al` as a boolean. The string comparison after the two calls was not read to its end, hence inferred."
+  },
+  {
+   "rva": "0x648A80",
+   "kind": "function",
+   "name": "CDiplomacyStatus_IsVassalWithTargetSecond",
+   "signature": "bool __cdecl CDiplomacyStatus_IsVassalWithTargetSecond(CDiplomacyStatus* this@EAX)",
+   "no_signature": null,
+   "comment": "Whether the pair's dependency (+0x18) is a vassal bond - its slot 7 answering the save token 0x298, `vassal` - whose +0x14 party is the status's target (+0xC). One of the five tests of CDiplomacyStatus::HasFriendlyAgreement (0x64A680). See reversing/findings/FINDINGS-luaapi.md, section 6.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-luaapi.md",
+   "evidence": "Decompiled: `if (this+0x18 && slot7(this+0x18) == 0x298) return dep+0x14 == this+0xC; return false`; 0x298 = 664 is `vassal` in ghidra/saveTokens.json. Two bare `ret`s."
+  },
+  {
+   "rva": "0x648AD0",
+   "kind": "function",
+   "name": "CDiplomacyStatus_IsVassalWithTargetFirst",
+   "signature": "bool __cdecl CDiplomacyStatus_IsVassalWithTargetFirst(CDiplomacyStatus* this@EAX)",
+   "no_signature": null,
+   "comment": "CDiplomacyStatus_IsVassalWithTargetSecond's twin, comparing the dependency's +0xC party with the target. Together: a vassal bond with the target at either end. See reversing/findings/FINDINGS-luaapi.md, section 6.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-luaapi.md",
+   "evidence": "Decompiled: the same body as 0xA48A80 with +0xC in place of +0x14."
+  }
+ ]
+}

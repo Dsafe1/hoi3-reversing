@@ -30,8 +30,11 @@ truth.
 > (`findings/FINDINGS-alignment.md`, `alignment.json`). Both merged; apply 161/162. **And a third
 > reading**, by the collecting session itself when the screen was built: the triangle's markers, the
 > faction boxes and the tooltips D and E left (`findings/FINDINGS-diplomacyview.md`, section F;
-> `diplomacy-triangle.json` and its signatures' revision; 14 addresses, apply 163/164). Kept as
-> history until the next plan replaces it.
+> `diplomacy-triangle.json` and its signatures' revision; 14 addresses, apply 163/164). **And a
+> fourth, 2026-10-13**, for the next piece of the maintainer's order, the Lua the AI answers offers
+> with: what the `DiploScore_*` functions are handed and what they reach of the API
+> (`findings/FINDINGS-luaapi.md`, `lua-api.json`; 18 addresses and `GetDiploScoreFromLua` revised,
+> apply 165/166). Kept as history until the next plan replaces it.
 
 Planned and launched 2026-10-12, for OpenHOI3's diplomacy, which the maintainer has cut in order:
 what two countries hold of each other (relation, threat, neutrality, how each moves); the diplomacy
