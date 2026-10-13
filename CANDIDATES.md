@@ -405,6 +405,47 @@ The record carries the open question on both fields - `CList +0xC no_unlink` and
 `CNavy +0x2F0 at_sea` - rather than a claim, and `at_sea`'s type was corrected from `uint8_t` to
 `int` at the same time, since the write is four bytes wide.
 
+## Does only the host run the AI in multiplayer? - 2026-10-13 `[both]`
+
+**The maintainer's understanding is that only the host runs the AI's Lua; the record cannot say,
+and one thing it does say argues against it.** Raised while OpenHOI3 made the hour's trading run
+side by side, which it had built to give the same result on every machine on the assumption that
+every peer runs the AI.
+
+What is established:
+
+- `CCountry::RunHourlyAITrade` (rva `0xDC410`) runs the Lua only where the country has a `CEU3AI`
+  (`CCountry +0x1D8`), and **draws on the game state's generator (`+0x124`) only then** - one draw in
+  six, then one in ten (`findings/FINDINGS-tradeaid.md`, B1). `CAIForeignMinister::ExecuteDiploDecisions`
+  draws on the same generator once a pass (`findings/FINDINGS-eventfire.md`, the table of draws).
+- `FireEvent` has no host test, so every peer with a `CEU3AI` for a country would post the AI's
+  command - "whether those objects exist only on the host was not read" (`FINDINGS-eventfire.md`, 1.9).
+- On a client the hour is advanced by the host's `CHourlyTickCommand` arriving, not by its own frame
+  loop (`findings/FINDINGS-commands.md`, the session modes - inferred from strings, nothing run).
+
+So if a client has no `CEU3AI`, it skips draws the host makes, and its generator leaves the host's at
+the first one. One of these holds: **the AI objects exist on every peer** (and the maintainer's
+"host only" is about something else - what is shown, or who sends); **`+0x124` is not the generator
+the peers keep in step**; or **the original desynced there** - its multiplayer was known for going out
+of sync.
+
+The reading:
+
+1. **Who creates a country's `CEU3AI`**, and on what condition - whether the session mode (host,
+   client, single player; `[session+0x34]`, `FINDINGS-commands.md`) or the local player gates it, and
+   whether a client's `+0x1D8` is null.
+2. **Whether `+0x124` is the generator the commands' `Execute` draw on** - the one a battle rolls on -
+   or a second one kept apart for the AI.
+3. If the AI is the host's alone: **how its results reach the clients** - the offers, the event options
+   and the trades as commands, presumably, which `FINDINGS-commands.md`'s ordered loop would carry.
+
+A live check would settle 1 at once: two machines in one game, and `+0x1D8` read on the client.
+
+**For OpenHOI3** the answer decides where its AI goes when multiplayer comes: inside the hourly tick
+on every machine as now, or out of it into a host-side step that only posts commands, with its draws
+kept off the shared generator. **For BiceLib** it decides whether a hook on an AI function fires on
+every peer or on the host alone, which the multiplayer-safe command framework has to know.
+
 ## The planned next wave is in `WAVE.md`
 
 **It is not in this file any more.** `WAVE.md` holds the wave that is planned and has not launched,
