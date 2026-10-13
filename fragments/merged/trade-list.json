@@ -1,0 +1,380 @@
+{
+ "agent": "tradeui wave, reader A",
+ "question": "The production screen's trade list (CTradeItem), its tooltip, CTradeCancelConfirm, the variables of the trade messages, and the diplomacy screen's trade_automate_checkbox.",
+ "source": "reversing/findings/FINDINGS-tradeui.md",
+ "addresses": [
+  {
+   "rva": "0x402AB0",
+   "kind": "function",
+   "name": "CTradeItem::CTradeItem",
+   "signature": "CTradeItem* __stdcall CTradeItem::CTradeItem(CTradeItem* this@stack:4, CTradeRoute* route@stack:8) @EAX",
+   "no_signature": null,
+   "comment": "**One line of the production screen's `trade_list`**, 0xA8 bytes, made by CProductionView::RebuildTradeList for each trade route of the played country. 0x802AB0 to `ret 8` at 0x803A17; `this` and the route on the stack, `this` back in EAX. The window `production_trade_item` (country_production.gui) at +0x20, the route (the live one on the relation list, not a copy) at +0x28, a button glue at +0x30 with OnCancelClicked (0x803C70), and two icon lists at +0x80 and +0x90.\n\n- **+0xA0, the partner**: the route's `first` (+0x8), or its `second` (+0x10) where `first` is the played country (game state +0xC34).\n- **`name`** (instantTextBox) = '@' + the partner's tag + ' ' + CountryNameOfCountry(partner) - the partner's flag drawn in the text, then its name (text +0xD0, then 0xB32880).\n- **For each good g = 0..6**, in pool order: where `trade_from[g]` (+0x44) > 0, an icon of the type key[g] + '_trade_icon' (keys at 0x170CF50: supplies, fuel, money, oil, metal, energy, raremat - set by the CRT initialiser 0xCB9020) is made by the GUI factory, wrapped in its own `production_trade_goods` window (0x28 bytes), put in `sales_box` where the route's `to` (+0x30) is the played country and in `purchase_box` otherwise, and appended to +0x80; else where `trade_to[g]` (+0x34) > 0, the same with the boxes the other way round, appended to +0x90. So **`purchase_box` holds what the player hands over and `sales_box` what he gets**, under the screen's PW_EXPORT \"Export\" and PW_IMPORT \"Import\" headers respectively. One icon per good, **no figure** - the amounts are in the tooltip (CTradeItem_BuildTooltip).\n- `inactive_icon` gets its slot 73 (0xAA27E0, not read); the `cancel` button gets the glue.\n\nName ours; the class is RTTI's.",
+   "confidence": "confirmed",
+   "evidence": "Read whole off the disassembly 0x802AB0-0x803A17 (ctor2.asm) beside the decompilation. The two goods tests are `cmp [eax+ecx],0; jle` on +0x44 (0x802FDD) and +0x34 (0x803456); the box choices are the `cmp [route+0x30], player` at 0x803395 and 0x803854 picking 'purchase_box'/'sales_box' as stated. The key table's strings come from 0xCB903C-0xCB911A. Callers: the one `call 0x802ab0` at 0x802991 with push route, push memory - so stack-passed this, ret 8. What would show it wrong: a second constructor call site with ECX set, or the boxes swapped in the .gui (they are not: purchase_box x 125 under PW_EXPORT at 135, sales_box x 240 under PW_IMPORT at 245, list origin 675).",
+   "source": "reversing/findings/FINDINGS-tradeui.md"
+  },
+  {
+   "rva": "0x403A20",
+   "kind": "function",
+   "name": "CTradeItem::ScalarDeletingDestructor",
+   "signature": "CTradeItem* __thiscall CTradeItem::ScalarDeletingDestructor(CTradeItem* this, uint flags)",
+   "no_signature": null,
+   "comment": "CTradeItem slot 0: CTradeItem::~CTradeItem, then frees `this` where flags bit 0 is set. `ret 4`.",
+   "confidence": "confirmed",
+   "evidence": "Nine instructions read at 0x803A20; held only by CTradeItem's primary table 0x15DEDB0 slot 0 (vtable.py --holding).",
+   "source": "reversing/findings/FINDINGS-tradeui.md"
+  },
+  {
+   "rva": "0x403A50",
+   "kind": "function",
+   "name": "CTradeItem::~CTradeItem",
+   "signature": "void __thiscall CTradeItem::~CTradeItem(CTradeItem* this)",
+   "no_signature": null,
+   "comment": "Restores the two tables, empties `purchase_box` (box slot 48) - **not `sales_box`** - clears +0x24, hides the window (its +0x18 subobject's slot 14), frees the two icon lists (+0x90 first, then +0x80) and releases the window (slot 20), then the base destructor 0xA7F830. Bare `ret` at 0x803BB8.",
+   "confidence": "confirmed",
+   "evidence": "Disassembly from 0x803A50 (thiscall, `mov esi, ecx`) to the bare ret at 0x803BB8; only 'purchase_box' is named (0x803A95). Called by slot 0 only.",
+   "source": "reversing/findings/FINDINGS-tradeui.md"
+  },
+  {
+   "rva": "0x403BC0",
+   "kind": "function",
+   "name": "CTradeItem::ReleaseWindow",
+   "signature": "void __thiscall CTradeItem::ReleaseWindow(void* this)",
+   "no_signature": null,
+   "comment": "Slot 4 of CTradeItem's table at +0x1C, so `this` is that subobject (the window is its +4, the object's +0x20): empties `purchase_box`, releases the window (slot 20) and nulls the pointer. Bare `ret`. The name is ours and rests on the shape.",
+   "confidence": "inferred",
+   "evidence": "Body read 0x803BC0-0x803C68; held only by CTradeItem's table 0x15DEDE4 (object offset 0x1C) at slot 4. Who calls slot 4 of that table was not read, so the name is a guess at the purpose.",
+   "source": "reversing/findings/FINDINGS-tradeui.md"
+  },
+  {
+   "rva": "0x403C70",
+   "kind": "function",
+   "name": "CTradeItem::OnCancelClicked",
+   "signature": "void __thiscall CTradeItem::OnCancelClicked(CTradeItem* this)",
+   "no_signature": null,
+   "comment": "**The `cancel` button of a trade line** (sprite GFX_trade_cancel): `new(0xF0)` CTradeCancelConfirm(item->route (+0x28)) and CEU3Idler::AddDialog on the in-game screen (state +0xBE8). No test of any kind - not the route's state, not influence, not an open dialog - so each press opens another. Bound by the constructor through the CButtonObserverGlue<CTradeItem> at +0x30.",
+   "confidence": "confirmed",
+   "evidence": "Whole body read, 0x803C70 to the bare ret at 0x803D53; the one reference is the `mov ecx, 0x803c70` handed to the glue constructor 0x806170 at 0x802C00, and the glue is attached to the button found by name 'cancel' (0x8039B9).",
+   "source": "reversing/findings/FINDINGS-tradeui.md"
+  },
+  {
+   "rva": "0x403D60",
+   "kind": "function",
+   "name": "CTradeItem::Show",
+   "signature": "void __thiscall CTradeItem::Show(void* this)",
+   "no_signature": null,
+   "comment": "Slot 10 of CTradeItem's table at +0x1C, `this` the subobject: sets the object's +0x24, shows the window (its +0x18 subobject's slot 13), and tail-jumps into slot 8 of the primary table, CTradeItem::Update. The same slot as CCountrylistItem@0x1C's Show.",
+   "confidence": "inferred",
+   "evidence": "Seven instructions read at 0x803D60 ending in `jmp [vftable+0x20]` with ecx = this - 0x1C. Held only by 0x15DEDE4 slot 10. `Show` rests on the window's slot 13 being show, as for the other list items, not on a read of the caller.",
+   "source": "reversing/findings/FINDINGS-tradeui.md"
+  },
+  {
+   "rva": "0x403D90",
+   "kind": "function",
+   "name": "CTradeItem::Update",
+   "signature": "void __thiscall CTradeItem::Update(CTradeItem* this)",
+   "no_signature": null,
+   "comment": "CTradeItem slot 8, **every frame** from CProductionView::Update (0x7FE7C8) for every line of `trade_list`. Only the inactive marker moves: where the route's `inactive` (+0x54) is set **and** the line's window is visible (+0x5B), `inactive_icon` is shown (icon slot 13) and put at the position of `sales_box` where the route's `convoy_responsible` (+0x5C) is the played country, else of `purchase_box`, **32 to the right** (box slot 15, x + 0x20, icon slot 50); otherwise it is hidden (icon slot 14). The icons, the name and the partner are never refreshed here - only a rebuild changes them.",
+   "confidence": "confirmed",
+   "evidence": "Disassembly 0x803D90-0x803FCE read: the two gates at 0x803DB9/0x803DC5 jump to the hide path; `cmp [route+0x5c], player` at 0x803E9B selects 'sales_box' (0x803E9E); `add word [ebp-0x10], 0x20` at 0x803F20 is the x of the box's {x,y} (box slot 15 at 0xAB99D0 writes x from +0x48 then y from +0x4C). Icon slots 13/14/50 read at 0xAA2390/0xAA23C0/0xAA2250 (+0x43 set/cleared; +0xB0 position). Only holder: 0x15DEDB0 slot 8.",
+   "source": "reversing/findings/FINDINGS-tradeui.md"
+  },
+  {
+   "rva": "0x403FD0",
+   "kind": "function",
+   "name": "CTradeItem_BuildTooltip",
+   "signature": "GuiTooltipText* __stdcall CTradeItem_BuildTooltip(CTradeItem* item, GuiTooltipText* out, CGuiObject* element)",
+   "no_signature": null,
+   "comment": "**The tooltip of a trade line**, asked by CProductionView::BuildTooltip (0x80168D) for every line whose window holds the hovered element - the last such line wins. `ret 0xC`, `out` back in EAX; ECX is not read.\n\n1. The element is one of +0x80's icons (a `trade_from` good) or of +0x90's (a `trade_to` good):\n   - the player gives when (+0x80 and the route's `from` (+0x28) is the played country) or (+0x90 and its `to` (+0x30) is) - **PW_EXPORTING** \"Exporting §Y$NUM$ $TYPE$§W to §Y$COUNTRY$§W\"; otherwise **PW_IMPORTING** \"Importing §Y$NUM$ $TYPE$§W from §Y$COUNTRY$§W\";\n   - g = the index whose key[g] + '_trade_icon' equals the element's name (7 if none);\n   - COUNTRY = the partner's name (item +0xA0); NUM = FormatFloat(block[g] / 1000.0 as a float, 2), the block being `trade_from` (+0x44) for a +0x80 icon and `trade_to` (+0x34) for +0x90 - **the daily amount, money included**; TYPE = GoodName(g).\n2. Otherwise, the element named `inactive_icon`: TRADE_IS_INACTIVE \"Trade is inactive, most likely due to either party being out of a traded resources\", and the delayed half = the route's `inactive_reason` (+0x60) as RunDailyTradeRoutes rendered it (TRADE_INACTIVE_CONVOY or TRADE_INACTIVE_NO_RES).\n3. Anything else - the name, the cancel button, the background - an **empty** tooltip.",
+   "confidence": "confirmed",
+   "evidence": "Disassembly 0x803FD0-0x804A9x read (tt.asm): the list walks at 0x804055/0x804072, the inactive_icon comparison at 0x80409E, the player tests at 0x8041F2/0x804204, the name loop over 0x170CF50 step 0x1C to 0x170D014, the NUM loads `[route+0x44]` at 0x804487 and `[route+0x34]` at 0x8044F4 each `cvtdq2ps; /1000.0 ([0x160A300]); cvtsd2ss` into 0xA5AEC0 with 2. One caller, 0x80168D, pushing element, out, item. Wrong if a second caller passes something else in ECX that the body reads - it reads none.",
+   "source": "reversing/findings/FINDINGS-tradeui.md"
+  },
+  {
+   "rva": "0x406EC0",
+   "kind": "function",
+   "name": "CTradeItem::ScalarDeletingDestructorAt1C",
+   "signature": "void* __thiscall CTradeItem::ScalarDeletingDestructorAt1C(void* this, uint flags)",
+   "no_signature": null,
+   "comment": "Slot 0 of the table at +0x1C: `sub ecx, 0x1c; jmp CTradeItem::ScalarDeletingDestructor`.",
+   "confidence": "confirmed",
+   "evidence": "Two instructions at 0x806EC0; held only by 0x15DEDE4 slot 0.",
+   "source": "reversing/findings/FINDINGS-tradeui.md"
+  },
+  {
+   "rva": "0x4050D0",
+   "kind": "function",
+   "name": "CTradeCancelConfirm::ScalarDeletingDestructor",
+   "signature": "CTradeCancelConfirm* __thiscall CTradeCancelConfirm::ScalarDeletingDestructor(CTradeCancelConfirm* this, uint flags)",
+   "no_signature": null,
+   "comment": "CTradeCancelConfirm slot 0: destroys the route copy at +0x68 (0x805100, receiver in ESI), then CEU3Dialog's destructor (0x63D6B0), and frees `this` where flags bit 0 is set. `ret 4`. Nothing of the dialog's text or buttons is here: the brief's 'slot 0' is the destructor.",
+   "confidence": "confirmed",
+   "evidence": "Body read 0x8050D0-0x8050FA; held only by CTradeCancelConfirm's table 0x15DEE74 slot 0.",
+   "source": "reversing/findings/FINDINGS-tradeui.md"
+  },
+  {
+   "rva": "0x23E670",
+   "kind": "function",
+   "name": "CEU3Dialog_SetTitle",
+   "signature": "void __fastcall CEU3Dialog_SetTitle(void* window@ECX, Hoi3CString* text@EDI)",
+   "no_signature": null,
+   "comment": "A dialog's `Title` text box (the window's slot 14, text boxes) given `text` through 0xA87F30, which takes the element in ESI and the text in EDI - so the caller's EDI passes straight through. Bare `ret`. Three callers (0x79062D, 0x804BDC in CTradeCancelConfirm's constructor, 0x82CDFA). Name ours.",
+   "confidence": "confirmed",
+   "evidence": "Whole body 0x63E670-0x63E6EA read: `push 'Title'`, window slot +0x38, call 0xA87F30 with ESI the element and EDI untouched; at 0x804BDA the caller sets `mov edi, eax` (the rendered CANCELTRADETITLE) and ECX = dialog +4.",
+   "source": "reversing/findings/FINDINGS-tradeui.md"
+  },
+  {
+   "rva": "0x23E6F0",
+   "kind": "function",
+   "name": "CEU3Dialog_SetDescription",
+   "signature": "void __stdcall CEU3Dialog_SetDescription(void* window, Hoi3CString* text)",
+   "no_signature": null,
+   "comment": "A dialog's `Description` text box given `text` with **every §W replaced by §b** (0x15B6700 -> 0x15B66FC, a find-and-replace loop) - the reset to white becomes a reset to black, for the dark text these windows use. `ret 8`. 26 callers. Name ours.",
+   "confidence": "confirmed",
+   "evidence": "Body read 0x63E6F0-0x63E85A: the loop 0x63E730-0x63E7E9 finds the two-byte string at 0x15B6700 (bytes A7 57) and replaces it with 0x15B66FC (A7 62) until none is left, then window slot +0x38 with 'Description' and 0xA87F30. findRefs --callers gives 26.",
+   "source": "reversing/findings/FINDINGS-tradeui.md"
+  },
+  {
+   "rva": "0x6C2E80",
+   "kind": "function",
+   "name": "CFixedWindow::FindButton",
+   "signature": "void* __thiscall CFixedWindow::FindButton(CFixedWindow* this, Hoi3CString* name)",
+   "no_signature": null,
+   "comment": "Window slot 13: a child by name among buttons (+0x25C/+0x26C), then the vector +0x27C/+0x28C, then the registry +0x360; `ret 4`, through the lookup 0xAC47C0 (name in EAX, the two vectors pushed). The containers are the ones FINDINGS-guistatic.md's resolve table lists. Every `window->slot 13(name)` in the screens is this lookup.",
+   "confidence": "confirmed",
+   "evidence": "Body read at VA 0xAC2E80; vtable.py --holding finds it in CEU3DialogGui's table 0x15CD3C4 slot 13 and nowhere else. The kind follows from which container it searches; wrong if those containers are mislabelled in FINDINGS-guistatic.md.",
+   "source": "reversing/findings/FINDINGS-tradeui.md"
+  },
+  {
+   "rva": "0x6C2EE0",
+   "kind": "function",
+   "name": "CFixedWindow::FindTextBox",
+   "signature": "void* __thiscall CFixedWindow::FindTextBox(CFixedWindow* this, Hoi3CString* name)",
+   "no_signature": null,
+   "comment": "Window slot 14: a child by name among the text-box registry +0x33C (its slot 1, tail-jumped), through the lookup 0xAC47C0 (name in EAX, the two vectors pushed). The containers are the ones FINDINGS-guistatic.md's resolve table lists. Every `window->slot 14(name)` in the screens is this lookup.",
+   "confidence": "confirmed",
+   "evidence": "Body read at VA 0xAC2EE0; vtable.py --holding finds it in CEU3DialogGui's table 0x15CD3C4 slot 14 and nowhere else. The kind follows from which container it searches; wrong if those containers are mislabelled in FINDINGS-guistatic.md.",
+   "source": "reversing/findings/FINDINGS-tradeui.md"
+  },
+  {
+   "rva": "0x6C2F00",
+   "kind": "function",
+   "name": "CFixedWindow::FindInstantTextBox",
+   "signature": "void* __thiscall CFixedWindow::FindInstantTextBox(CFixedWindow* this, Hoi3CString* name)",
+   "no_signature": null,
+   "comment": "Window slot 15: a child by name among the instant-text-box vector +0x2BC/+0x2CC; `ret 4`, through the lookup 0xAC47C0 (name in EAX, the two vectors pushed). The containers are the ones FINDINGS-guistatic.md's resolve table lists. Every `window->slot 15(name)` in the screens is this lookup.",
+   "confidence": "confirmed",
+   "evidence": "Body read at VA 0xAC2F00; vtable.py --holding finds it in CEU3DialogGui's table 0x15CD3C4 slot 15 and nowhere else. The kind follows from which container it searches; wrong if those containers are mislabelled in FINDINGS-guistatic.md.",
+   "source": "reversing/findings/FINDINGS-tradeui.md"
+  },
+  {
+   "rva": "0x6C2F50",
+   "kind": "function",
+   "name": "CFixedWindow::FindIcon",
+   "signature": "void* __thiscall CFixedWindow::FindIcon(CFixedWindow* this, Hoi3CString* name)",
+   "no_signature": null,
+   "comment": "Window slot 17: a child by name among the icon vector +0x29C/+0x2AC; `ret 4`, through the lookup 0xAC47C0 (name in EAX, the two vectors pushed). The containers are the ones FINDINGS-guistatic.md's resolve table lists. Every `window->slot 17(name)` in the screens is this lookup.",
+   "confidence": "confirmed",
+   "evidence": "Body read at VA 0xAC2F50; vtable.py --holding finds it in CEU3DialogGui's table 0x15CD3C4 slot 17 and nowhere else. The kind follows from which container it searches; wrong if those containers are mislabelled in FINDINGS-guistatic.md.",
+   "source": "reversing/findings/FINDINGS-tradeui.md"
+  },
+  {
+   "rva": "0x6C2E60",
+   "kind": "function",
+   "name": "CFixedWindow::FindCheckbox",
+   "signature": "void* __thiscall CFixedWindow::FindCheckbox(CFixedWindow* this, Hoi3CString* name)",
+   "no_signature": null,
+   "comment": "Window slot 18: a child by name among the checkbox vector +0x31C/+0x32C; `ret 4`, through the lookup 0xAC47C0 (name in EAX, the two vectors pushed). The containers are the ones FINDINGS-guistatic.md's resolve table lists. Every `window->slot 18(name)` in the screens is this lookup.",
+   "confidence": "confirmed",
+   "evidence": "Body read at VA 0xAC2E60; vtable.py --holding finds it in CEU3DialogGui's table 0x15CD3C4 slot 18 and nowhere else. The kind follows from which container it searches; wrong if those containers are mislabelled in FINDINGS-guistatic.md.",
+   "source": "reversing/findings/FINDINGS-tradeui.md"
+  },
+  {
+   "rva": "0x6C2D80",
+   "kind": "function",
+   "name": "CFixedWindow::FindListBox",
+   "signature": "void* __thiscall CFixedWindow::FindListBox(CFixedWindow* this, Hoi3CString* name)",
+   "no_signature": null,
+   "comment": "Window slot 31: a child by name among the list-box registry +0x3A8 (its slot 1, tail-jumped), through the lookup 0xAC47C0 (name in EAX, the two vectors pushed). The containers are the ones FINDINGS-guistatic.md's resolve table lists. Every `window->slot 31(name)` in the screens is this lookup.",
+   "confidence": "confirmed",
+   "evidence": "Body read at VA 0xAC2D80; vtable.py --holding finds it in CEU3DialogGui's table 0x15CD3C4 slot 31 and nowhere else. The kind follows from which container it searches; wrong if those containers are mislabelled in FINDINGS-guistatic.md.",
+   "source": "reversing/findings/FINDINGS-tradeui.md"
+  },
+  {
+   "rva": "0x6C2DA0",
+   "kind": "function",
+   "name": "CFixedWindow::FindOverlappingBox",
+   "signature": "void* __thiscall CFixedWindow::FindOverlappingBox(CFixedWindow* this, Hoi3CString* name)",
+   "no_signature": null,
+   "comment": "Window slot 39: a child by name among the overlapping-elements-box vector +0x2DC/+0x2EC; `ret 4`, through the lookup 0xAC47C0 (name in EAX, the two vectors pushed). The containers are the ones FINDINGS-guistatic.md's resolve table lists. Every `window->slot 39(name)` in the screens is this lookup.",
+   "confidence": "confirmed",
+   "evidence": "Body read at VA 0xAC2DA0; vtable.py --holding finds it in CEU3DialogGui's table 0x15CD3C4 slot 39 and nowhere else. The kind follows from which container it searches; wrong if those containers are mislabelled in FINDINGS-guistatic.md.",
+   "source": "reversing/findings/FINDINGS-tradeui.md"
+  },
+  {
+   "rva": "0x402700",
+   "kind": "function",
+   "name": "CProductionView::RebuildTradeList",
+   "signature": "void __stdcall CProductionView::RebuildTradeList(CProductionView* view@stack:4)",
+   "no_signature": null,
+   "comment": "**Rebuilds the production screen's `trade_list`.** 0x802700 to `ret 4` at 0x802A9E; the view the only argument, ECX not read. Finds the list in the main window (+0xA8, slot 31 FindListBox), keeps its scrollbar's value (list +0xF8; -1.0 where there is none), empties it (slot 23), then **for every country of the country database in id order except the played one** (game state +0xC34), every route on `played->diplomacy[that country]->trade_routes` (+0x60), in list order - the order CTradeRoute::Activate appended them - gets a CTradeItem (0xA8 bytes) added (list slot 4, with 0). Active and inactive routes alike, whichever side the player is on. Then the scroll is restored where it was above -1 (scrollbar slot 7 with floor((v + 0.0005) x 1000), 1, 1) and the list handed `production_view` through slot 30 of its +4 subobject (not read).\n\nCallers: CProductionView::Rebuild (0x7FBE09), Show (0x7FF5A9), and Update twice - at 0x7FD443 when the shown country changed, and at 0x7FE95D **when the list's count (slot 25) differs from the sum over every other country c of `played->diplomacy[c] +0x68`**, the routes' count; just before that test Update runs every line's CTradeItem::Update. So a route ended and another made in one frame leave the list as it was (inferred from the test alone). The name is ours.",
+   "confidence": "confirmed",
+   "revises": "Was a name with no signature and 'the body was not read'; read whole now - the stack-passed view, the order of the lines and the rebuild test.",
+   "evidence": "Disassembly 0x802700-0x802A9E read: [ebp+8] is the view at 0x802744, ECX first written at 0x80272F; the loop 0x8028A7-0x8029C4 over a copy (0x8DD860) of g_CCountryDataBase +0x16C skipping `+0xCA8 == player`, inner loop over status +0x60 nodes (route node[0], next node[2]) calling 0x802AB0 and list slot 4. Update's test read at 0x7FE8AD-0x7FE95D.",
+   "source": "reversing/findings/FINDINGS-tradeui.md"
+  },
+  {
+   "rva": "0x38E290",
+   "kind": "function",
+   "name": "CDiplomacyView::OnTradeAutomateToggled",
+   "signature": "void __thiscall CDiplomacyView::OnTradeAutomateToggled(CDiplomacyView* this)",
+   "no_signature": null,
+   "comment": "`trade_automate_checkbox`'s observer (the glue at view +0xE0, bound in BuildWidgets): `GetLocalPlayer()->+0x34 = !GetLocalPlayer()->+0x34` (read 0x78E328, write 0x78E3B4), bare `ret` at 0x78E3C3. **No command is posted** - automate_trade is the local player record's own byte, changed on this machine alone. The box's tick is not touched here: CDiplomacyView::Update sets it every frame from the same byte (checkbox +0x60 and +0x100 both 1 ticked, 0 unticked), **forced ticked while the view's automation setting (record +0x38 [view +0x78]) is 1, foreign policy left to the AI**, and does not untick a box whose +0xD8 and +0x136 are both set; it hides the box and its label `trade_automate_checkbox_label` (AUTOMATE_TRADE \"Automate Trade\") in a custom game. **No tooltip**: the element's name is referenced only by BuildWidgets (twice) and Update, never by CDiplomacyView::BuildTooltip, and the .gui gives none. Readers of the byte: CCountry::RunHourlyAITrade (0x4DC4C9), CEU3Idler::Update's offer tail, CTradeAction::Apply's accept and decline message gates (0xA3601F, 0xA363B0, 0xA3719F, 0xA37327) and CDiplomacyView::Update (0x77EEAD); CGameState::LoadKey writes it (0x680698).",
+   "confidence": "confirmed",
+   "revises": "Comment only: adds that no command is posted, the delegation override and the custom-game hiding of the box, the absence of a tooltip, and the list of the byte's readers.",
+   "evidence": "Body read 0x78E290-0x78E3C3; the checkbox block of CDiplomacyView::Update read at 0x77EB90-0x77EEDD; the name string 0x15DA59C has three references (0x77EB93, 0x782FC9, 0x7830C8) against surrender_progress's four, one of them (0x78039E) inside BuildTooltip - the positive control. Readers from a scan of all 115 GetLocalPlayer call sites for `[reg+0x34]` within 16 instructions (lp34.py); inlined walks of the player list (Update, CEU3Idler::Update) are not covered by it.",
+   "source": "reversing/findings/FINDINGS-tradeui.md"
+  },
+  {
+   "rva": "0x6352F0",
+   "kind": "function",
+   "name": "CTradeAction::Apply",
+   "signature": "void __thiscall CTradeAction::Apply(CTradeAction* this)",
+   "no_signature": null,
+   "comment": "**CTradeAction slot 7**, one holder (vftable 0x15FB8D4). 0xA352F0 to the single bare `ret` at 0xA3751B; 4 int3 then slot 12 at 0xA37520. Arms read whole 2026-10-13 (`type` +0x18: 0 PROPOSE, 1 DECLINE, 2 ACCEPT; `value` +0x24):\n\n**The message variables, before any arm** (0xA353BE-0xA359A0): the list is CCountry::BuildMessageVariables of the **played** country (game state +0xC34) - its fourteen, $COUNTRY$ first, so $MONARCHTITLE$ and the ministers are the player's own - and four are appended to it: ACTOR = the actor's name (CountryNameOfTag on this+8, 0xA35406), **ACTORS = the actor's name again** (the same call on the same tag, 0xA355CE), RECIPIENT = the recipient's name (this+0x10), and MESSENGER = MESSAGE_HEAD_CHAN rendered (\"The Foreign Office reports\"). Every message below carries them, so WEDETRA_5's $ACTORS$ is the proposer's name.\n\n- `type == PROPOSE && value` (0xA35AE9): `diplo_influence (+0xA88) -= TRADE_INFLUENCE_COST` (diplomacy +0xA0; 3.0 in Their Finest Hour), clamped at 0. Nothing else.\n- `value && type == ACCEPT` (0xA35B40): **CTradeRoute::IsValid(&this->route) or nothing**; `new(0x88)` copy of the route, `start_date (+0x18)` = the action's `date`, **slot 10 Activate first** (both statuses' `trade_routes`). Then, where CCountry::NeedConvoyToTradeWith(actor, recipient): with S = CTradeRoute::GetConvoyResponsible - **the buyer**: `to` where `trade_to`'s money is non-zero, else `from` - and O the other, `p = COwnerArea::FirstPortId(GetCapitalLocation(S)->area)`, `to = NearestPortTo(p, GetActingCapitalLocation(O)->area, S)`, `from = NearestPortTo(to, GetActingCapitalLocation(S)->area, S)`; if both have an owner (+0x330), a CPort (+0x354) and a naval base whose `level_max` > 0: a new convoy id (0x68A530), **CCountry::CreateConvoy(S, from, to, supplies = false, id, `---`, 0)**, TradeRouteSetConvoy (sets +0x7C/+0x80 and the convoy's `is_trade`), and the convoy's `ship` mask set to 1 for every good either block moves (money included). **Otherwise no convoy and the route stands** - and the next RunDailyTradeRoutes destroys it, silently. Then the route is appended to the relation list (0x493E10, state +0xB24) and `ChangeRelation(actor, recipient, TRADE_RELATION_CHANGES)` (+0x9C; +15). Messages (`diplomaticsuccess`), each with two more variables made by FormatTradeGoods out of the action's own route (trade_from +0x6C, trade_to +0x5C): actor played -> ACT_TRADE = trade_from, REC_TRADE = trade_to, then ACTRAWITHUS at the recipient's capital; recipient played -> REC_TRADE = trade_from, ACT_TRADE = trade_to, then WETRADEAG at the actor's - **each only where the local player's foreign policy is not delegated (record +0x38 [0] != 1) and `automate_trade` (+0x34) is clear**, the variables being made inside that gate; anybody else -> ACT_TRADE = trade_from, REC_TRADE = trade_to, OTHERTRADEAG at the actor's capital, ungated (its texts use neither). So for a played side ACT_TRADE is what it hands over and REC_TRADE what it gets, which ACTRAWITHUS_6 and WETRADEAG_4 print - on the route's `from` being the actor, which every offer path makes it. Then CCountry::RebuildNeighbours and 0x4E39C0 on both.\n- `value && type == DECLINE`: nothing written. `diplomaticfailure`: DETRAWITHUS to a played actor (at the recipient's capital), WEDETRA to a played recipient (at the actor's) - **each only while `automate_trade` is clear** - else DETRAWITHOTHER (at the actor's). No trade variable is made: only the four above.\n- `value == 0`, **any `type`** (0xA36916): FindMatchingTradeRoute(actor->diplomacy[recipient], &route) taken **with no null test**, its slot 11, CDiplomacy_RemoveRelation, deleted; `ChangeRelation(actor, recipient, -TRADE_CANCEL_RELATION_COST)` (+0xA8; -15). **TRADE_CANCEL_INFLUENCE_COST (+0xA4) is never charged** - slots 11 and 12 show it and nothing subtracts it. WEBRKTRADE to a played actor (at the recipient's capital, no trade variable); BRKTRADEUS to a played recipient (at the actor's) with ACT_TRADE / REC_TRADE chosen by **the route's own `from` (this+0x50)**: the played country is `from` -> ACT_TRADE = trade_from, REC_TRADE = trade_to, else the other way round (0xA36B7E) - its own give and get whichever side cancelled, as BRKTRADEUS_6 \"We will no longer receive $REC_TRADE$ for $ACT_TRADE$\" reads them; BRKTRADEOTH to anybody else (at the actor's, no trade variable); none gated; RebuildNeighbours and 0x4E39C0 on both; in-game screen slot 37 where either is the player.\n\nSo a cancellation takes effect when it is proposed (slot 18 is `value`, so nobody answers it). The name `Apply` is ours.",
+   "confidence": "confirmed",
+   "revises": "Comment only: the message variables of every arm - the ACTOR/ACTORS/RECIPIENT/MESSENGER preamble, which block each of ACT_TRADE and REC_TRADE is in each accept branch, none in the decline arm, and the cancel arm's BRKTRADEUS pair chosen by the route's `from` - and the capitals messages are placed at.",
+   "evidence": "Disassembly 0xA352F0-0xA3751B (apply.asm): 'ACTORS' pushed at 0xA3559C with the name call at 0xA355CE on EDI = this+8 (set at 0xA353EB, the same as ACTOR's); ACT_TRADE/REC_TRADE string loads at 0xA36028/0xA360F3 (actor), 0xA363B9/0xA36484 (recipient), 0xA36632/0xA36703 (other), 0xA36B87/0xA36C54 and 0xA36CDC/0xA36DAB (cancel, split by `cmp [ecx+0x50], player` at 0xA36B7E); none between 'diplomaticfailure' and 'DETRAWITHOTHER'.",
+   "source": "reversing/findings/FINDINGS-tradeui.md"
+  }
+ ],
+ "structs": [
+  {
+   "name": "CTradeItem",
+   "size": "0xA8",
+   "vftable_rva": "0x11DEDB0",
+   "comment": "A line of the production screen's trade list; base CStandardlistboxItem (RTTI), whose table at +0x1C is the second one. Built by CTradeItem::CTradeItem for one route.",
+   "evidence": "`push 0xA8; call new` before the constructor at 0x802970; vftable from the RTTI export (0x15DEDB0, object offset 0), written at 0x802C0B.",
+   "source": "reversing/findings/FINDINGS-tradeui.md"
+  },
+  {
+   "name": "CTradeCancelConfirm",
+   "size": "0xF0",
+   "inherits": "CEU3Dialog",
+   "vftable_rva": "0x11DEE74",
+   "comment": "The DefaultConfirm dialog asking to cancel a trade; a copy of the route at +0x68 (0x88 bytes, to the end).",
+   "evidence": "`push 0xF0; call new` at 0x803C8E; CEU3Dialog at offset 0 in the RTTI export; vftable 0x15DEE74 written by the constructor.",
+   "source": "reversing/findings/FINDINGS-tradeui.md"
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CTradeItem",
+   "offset": "0x20",
+   "name": "window",
+   "type": "void*",
+   "comment": "The `production_trade_item` window, from the GUI factory.",
+   "evidence": "Written at 0x802BC8 from the factory's slot 11 with 'production_trade_item'; every element lookup goes through it.",
+   "source": "reversing/findings/FINDINGS-tradeui.md"
+  },
+  {
+   "struct": "CTradeItem",
+   "offset": "0x24",
+   "name": "shown",
+   "type": "uint8_t",
+   "comment": "Set by Show (the +0x1C table's slot 10), cleared by the constructor and the destructor. Inferred meaning.",
+   "evidence": "0x802BB5 clears, 0x803D66 sets via [subobject+8], destructor clears.",
+   "source": "reversing/findings/FINDINGS-tradeui.md"
+  },
+  {
+   "struct": "CTradeItem",
+   "offset": "0x28",
+   "name": "route",
+   "type": "CTradeRoute*",
+   "comment": "The route the line shows - the live object on the relation list, not a copy.",
+   "evidence": "[ebp+0xC] stored at 0x802BE6; read as a CTradeRoute (+0x8, +0x30, +0x34, +0x44, +0x54, +0x5C, +0x60) throughout.",
+   "source": "reversing/findings/FINDINGS-tradeui.md"
+  },
+  {
+   "struct": "CTradeItem",
+   "offset": "0x30",
+   "name": "cancel_observer",
+   "type": "void*",
+   "comment": "Start of the 0x50-byte CButtonObserverGlue<CTradeItem> on `cancel`, handler OnCancelClicked.",
+   "evidence": "lea eax,[edi+0x30] into the glue constructor 0x806170 at 0x802C06, which writes 0x14 dwords; the `cancel` button's observer list (+0x48, slot 1) is handed this+0x30 at 0x8039EB-0x8039F2.",
+   "source": "reversing/findings/FINDINGS-tradeui.md"
+  },
+  {
+   "struct": "CTradeItem",
+   "offset": "0x80",
+   "name": "from_icons",
+   "type": "void*",
+   "comment": "Head of a {element, prev, next, byte} list of the icons made for `trade_from` goods; tail +0x84, count +0x88.",
+   "evidence": "Appended at 0x803436-0x803448; walked by the tooltip at 0x80404B.",
+   "source": "reversing/findings/FINDINGS-tradeui.md"
+  },
+  {
+   "struct": "CTradeItem",
+   "offset": "0x90",
+   "name": "to_icons",
+   "type": "void*",
+   "comment": "Head of the same list for `trade_to` goods; tail +0x94, count +0x98.",
+   "evidence": "Appended in the trade_to arm; walked by the tooltip at 0x804062.",
+   "source": "reversing/findings/FINDINGS-tradeui.md"
+  },
+  {
+   "struct": "CTradeItem",
+   "offset": "0xA0",
+   "name": "partner",
+   "type": "CCountryTag",
+   "comment": "The other country: the route's first, or its second where first is the played country.",
+   "evidence": "Written at 0x802D10/0x802D16 after the player test at 0x802CE9; named in the tooltip's COUNTRY (0x804396).",
+   "source": "reversing/findings/FINDINGS-tradeui.md"
+  },
+  {
+   "struct": "CTradeCancelConfirm",
+   "offset": "0x68",
+   "name": "route",
+   "type": "CTradeRoute",
+   "comment": "A copy of the route the line showed, made by the constructor; OnAgree posts it.",
+   "evidence": "CTradeRoute copy into this+0x68 in the constructor; +0x70/+0x78 (first/second ids), +0x9C/+0xAC (trade_to/trade_from) read off it.",
+   "source": "reversing/findings/FINDINGS-tradeui.md"
+  }
+ ],
+ "vftable_slots": {
+  "CTradeItem": {
+   "0": "ScalarDeletingDestructor",
+   "8": "Update"
+  },
+  "CTradeItem@0x1C": {
+   "0": "ScalarDeletingDestructorAt1C",
+   "4": "ReleaseWindow",
+   "10": "Show"
+  },
+  "CTradeCancelConfirm": {
+   "0": "ScalarDeletingDestructor"
+  },
+  "CTradeAction": {
+   "7": "Apply"
+  },
+  "CEU3DialogGui": {
+   "13": "CFixedWindow::FindButton",
+   "14": "CFixedWindow::FindTextBox",
+   "15": "CFixedWindow::FindInstantTextBox",
+   "17": "CFixedWindow::FindIcon",
+   "18": "CFixedWindow::FindCheckbox",
+   "31": "CFixedWindow::FindListBox",
+   "39": "CFixedWindow::FindOverlappingBox"
+  }
+ },
+ "frontier": [
+  "0x405100",
+  "0x406170",
+  "0x6A27E0",
+  "0x684E20",
+  "0x683A20",
+  "0x23D4B0",
+  "0x681D10"
+ ]
+}

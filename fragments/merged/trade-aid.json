@@ -1,0 +1,735 @@
+{
+ "agent": "reader C of the trade and aid wave (2026-10-13): aid - debt, licences, lend-lease, shared technology",
+ "question": "Each kind of aid as the original computes it: CDebtAction, CLicenceTechnologyAction, CRequestLendLeaseAction and COfferLendLeaseAction arm by arm; debt growth and repayment; the licence fee and what a licence builds; the lend-lease share's distribution, what a recipient receives, the neutrality limit and the IC caps, the lend-lease convoy; shared technology; slots 11, 12, 13, 14 and 18 and the messages.",
+ "source": "reversing/findings/FINDINGS-tradeaid.md",
+ "addresses": [
+  {
+   "rva": "0x63D8A0",
+   "kind": "function",
+   "name": "CDebtAction::Apply",
+   "signature": "void __thiscall CDebtAction::Apply(CDebtAction* this)",
+   "no_signature": null,
+   "comment": "CDebtAction slot 7, one holder (vftable 0x15FB9F4). 0xA3D8A0 to the bare `ret` at 0xA3E500, 15 int3, then slot 11 at 0xA3E510; the earlier `ret`s are arms of the same frame. `this` in ECX. **Read arm by arm, 2026-10-13.** `allowDebts` on `X->diplomacy[Y]` means *X may go into debt with Y* - so the asker of 'Allow Debt' is the would-be debtor.\n\n| arm | what it does |\n| --- | --- |\n| PROPOSE, value 1 (ask) | `actor->diplo_influence -= ALLOW_DEBT_INFLUENCE_COST` (diplomacy +0xC4), floored at 0 (0xA3DF85..) - charged on the offer, never refunded |\n| PROPOSE, value 0 (revoke) | `recipient->diplomacy[actor]->allowDebts = 0` (0xA3DD48) - the revoker is the creditor, the recipient the debtor - and then **`recipient->diplo_influence -= REVOKE_DEBT_INFLUENCE_COST`** (+0xC8), floored at 0 (0xA3DD77): the debtor pays for being cut off, although IsSelectable demands the cost of the revoker; the recipient, if played, is told DEBTREVOKE at its acting capital. No answer is asked (slot 18 is `value`) |\n| ACCEPT | with `value`: `actor->diplomacy[recipient]->allowDebts = 1` (0xA3E012); the actor, if played, hears `diplomaticsuccess` and is told DEBTALLOWACCEPT |\n| DECLINE | the actor, if played, hears `diplomaticfailure` and is told DEBTALLOWDECLINE |\n\nNothing here touches the debt itself (+0x70): revoking leaves an existing debt in place, and it is repaid as before (CCountry::CollectDailyProduction). No message to a third country. The name `Apply` is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Ghidra decompilation of 0xA3D8A0 and disassembly of the writes at 0xA3DD48 (esi = [esp+0x60] = this, `[ecx+0x78]` where ecx = countries[[edi+0x14]]->+0xE28[[esi+0xC]]), the influence write at 0xA3DD77 (`[edi+0x14]`, edi = this, reloaded at 0xA3DB5B), 0xA3DF85 (actor) and 0xA3E012. Wrong if edi were not `this` at 0xA3DD23 - the only writes to edi in 0xA3D8A0..0xA3DD23 are at 0xA3D8CB, 0xA3D9B2, 0xA3DA26, 0xA3DAA5 and 0xA3DB5B, the last restoring this.",
+   "revises": true
+  },
+  {
+   "rva": "0x63ECE0",
+   "kind": "function",
+   "name": "CDebtAction::GetDialogText",
+   "signature": "Hoi3CString* __thiscall CDebtAction::GetDialogText(CDebtAction* this, Hoi3CString* out)",
+   "no_signature": null,
+   "comment": "Slot 12 of CDebtAction - the standard dialog's Description. Revoking: REVOKEDEBTNEWDESC with NAME = the recipient's name and COST = REVOKE_DEBT_INFLUENCE_COST (+0xC8) to 0 places. Allowing: ALLOWDEBTNEWDESC with **NAME = the localised name of the recipient's faction** (CCountry +0xD8, its GetLocalisedName slot), not the country - the text reads 'accumulate debt when trading with the $NAME$' - YEAR = YEARS_TO_REPAY_DEBT (+0xCC) to 0 places, and COST = ALLOW_DEBT_INFLUENCE_COST (+0xC4) to 0 places. `ret 4` at 0xA3F2B6.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Ghidra decompilation of 0xA3ECE0 and the define reads at 0xA3EE3C (+0xCC) and 0xA3EEF9 (+0xC4); vtable.py --holding 0xA3ECE0 gives one holder, CDebtAction slot 12. Wrong if the faction call were the country's own name getter - the call goes through CCountry +0xD8's vftable."
+  },
+  {
+   "rva": "0x64A7F0",
+   "kind": "function",
+   "name": "CDiplomacyStatus::GetDailyRepay",
+   "signature": "int* __stdcall CDiplomacyStatus::GetDailyRepay(CDiplomacyStatus* status@EDI, int* out@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "**What a debtor repays a day.** Where debt (+0x70) > 0 and daily_repay (+0x74) <= 0 it fixes daily_repay = debt * 1000 / (YEARS_TO_REPAY_DEBT * 365000 / 1000) - the define in thousandths of years made thousandths of days, 50 years being 18,250.000 days - or -1 where that day count is 0; otherwise it keeps what is there. Writes daily_repay into out and returns out. So the figure is fixed once and recomputed only after something sets it to 0, and with Their Finest Hour's 50 years a debt under 18.250 repays 0 a day, which leaves it unpaid for ever. The status in EDI, `ret 4`. One caller, CCountry::CollectDailyProduction at 0x4F2505. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Disassembly 0xA4A7F0..0xA4A8AF: `cmp [edi+0x70],0; jle`, `cmp [edi+0x74],0; jg`, the define read at 0xA4A818 (diplomacy +0xCC, matched by definesMap), `push 0x591C8` (365000) into 0xB99AF0 and `push 0x3E8` into 0xB99980, the -1 arm at 0xA4A841, the divide at 0xA4A86C, stores to [edi+0x74]. findRefs --callers: one, 0x4F2505. Wrong if EDI at the call were not a CDiplomacyStatus - it is `[ebx+0xE28][other id]` at 0x4F24FE."
+  },
+  {
+   "rva": "0xF1F50",
+   "kind": "function",
+   "name": "CCountry::CollectDailyProduction",
+   "signature": "void __stdcall CCountry::CollectDailyProduction(CCountry* country)",
+   "no_signature": null,
+   "comment": "**Where a day's resources go.** Zeroes home_produced and total_produced, adds the base income of metal, energy and rare materials (BaseResourceIncome) to home_produced and the stockpile, then for every province the country controls and each of the five goods that are not supplies or fuel takes CMapProvince::ResourceYield. **Home** - the province's area is the capital's, or its supply depot is a province of the capital's area: the yield goes to the stockpile, home_produced and total_produced. **Cut off** - neither: it goes into the province's own pool and total_produced, and then everything that pool holds of the five goods is moved (CGoodsPool::TakeResources) to the pool of the area's loading port - the start of the first convoy starting in the area that is the country's and trade, lend-lease or without supplies and fuel, else the area's first port - where there is one and it is another province. A subject then calls 0x4F25E0 (not read). Called from RunCountryDailyPass at 0x4DB434. See reversing/findings/FINDINGS-supplyconvoys.md, section 8.\n\n**The loop at the end is debt repayment** (0x4F23E2..0x4F25B9, read 2026-10-13): for every country O in the game state's list, r = CDiplomacyStatus::GetDailyRepay(country->diplomacy[O]). Where r > 0: if the country is at war with anybody (+0xACC), or its pool's money is not **greater** than r, `country->diplomacy[O]->daily_repay = 0` and nothing is paid (so it is worked out afresh on a later day); otherwise its pool's money -= r, O's pool's money += r (each pool chosen as GetPool does, the exile pool or the acting capital's), **`country->repaid_away.money (+0x834) += r` and `O->income_from_debt.money (+0x858) += r`**. The debt (+0x70) is **not** reduced: nothing in the image subtracts from it, so repayment never ends. See reversing/findings/FINDINGS-tradeaid.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Disassembly 0x4F24E6..0x4F25B9: the GetDailyRepay call at 0x4F2505 on `[ebx+0xE28][O->+0xCA8]`, the war test at 0x4F2515, the strict money test `cmp [eax+0x10],edi; jle` at 0x4F253F, the four adds at 0x4F2563, 0x4F2586, 0x4F2589, 0x4F258F, and the reset at 0x4F25B2. The negative on reducing the debt: every `sub`/`add`/`mov` to `[reg+0x70]` in a full .text sweep (2,755,112 instructions) whose register came from a `+0xE28` element - two `add`s in RunDailyTradeRoutes and one in CLicenceTechnologyAction::Apply, no `sub` at all; positive control, the same scan finds the licence's known `add` at 0xA3C5A1. Wrong if the debt were reduced through a register the scan could not tie to the diplomacy array.",
+   "revises": true
+  },
+  {
+   "rva": "0x63B5A0",
+   "kind": "function",
+   "name": "CLicenceTechnologyAction::Apply",
+   "signature": "void __thiscall CLicenceTechnologyAction::Apply(CLicenceTechnologyAction* this)",
+   "no_signature": null,
+   "comment": "CLicenceTechnologyAction slot 7, one holder (vftable 0x15FB994). **A trap 2 case: 0xA3B5A0 to the bare `ret` at 0xA3CD5D, with only two int3 before slot 11 at 0xA3CD60.** `this` in ECX. Fields (luabind): Subunit +0x28 (CSubUnitDefinition*), Serial +0x2C, Paralell +0x30, Money +0x34. **Read whole 2026-10-13**; the actor is the buyer, the recipient the seller.\n\n1. Message variables ACTOR, RECIPIENT, MESSENGER (= MESSAGE_HEAD_CHAN). NAME = the name of the model the **seller** would build of the type today (CHistoricalModel::PickBestModel over the seller's historical_models[type->+0x24], scored against a CHistoricalModelSet::MakeSubUnit throwaway), with '+*' where that differs from the model the seller's throwaway already matches (FindModelOf); the type's own name where no model. NUM = Serial * Paralell.\n2. **onDebt = buyer->diplomacy[seller]->allowDebts && buyer is at war (+0xACC)** (0xA3C213..0xA3C24A).\n3. **fee = Money * Serial * Paralell**, thousandths of money: Serial and Paralell are whole counts made thousandths by `floor((n + 0.0005) * 1000)` and each step is a 64-bit `* x / 1000` through 0xB99980, truncating (0xA3C252..0xA3C2F5).\n4. ACCEPT and not onDebt and the buyer's money < fee: **the action is turned into a DECLINE** (`type = 1`, 0xA3C348).\n5. PROPOSE with value: `buyer->diplo_influence -= LICENCE_INFLUENCE_COST` (+0xB8), floored at 0.\n6. ACCEPT with value: a list of one node holding the Subunit; where the session's +0x34 byte is set, **Paralell times** a CConstructUnitCommand (0x84 bytes, constructor 0x545760) is posted to the session channel - the list, the buyer's acting capital (+0xE24), amount = Serial, **is_reserve = the type's +0x2D (land) byte**, build-now 0, country = the buyer, **builder = the seller**, no target. The constructor takes each brigade's technology levels from the builder (CConstructUnitCommand::CConstructUnitCommand), so a licensed unit is built at the seller's levels. Then onDebt: `buyer->diplomacy[seller]->debt (+0x70) += fee` (0xA3C5A1) and the seller is paid nothing now; otherwise buyer's money -= fee and seller's money += fee.\n7. Only the buyer, if played, is told: ACCEPT - `diplomaticsuccess`, ACCEPTED = the text of the key ACCEPTED (none in TFH, so the key itself), LICBUYACCEPT; DECLINE - DECLINED likewise, `diplomaticfailure`, LICBUYDECLINE. Both at the seller's acting capital. The name `Apply` is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Disassembly 0xA3C1F0..0xA3C640 (the debt test, the fee arithmetic with the doubles 0.0005 at 0x160A460 and 1000.0 at 0x160A300, the DECLINE rewrite, the influence charge, the CConstructUnitCommand push order 0xA3C4D0..0xA3C541 against the constructor's stores at 0x5457D8..0x545853, the debt add and the two money adds) and the Ghidra decompilation for the message arms. **Corrects the earlier record**, which had the debt as `countries[seller]->diplomacy[buyer]` and the branch byte unexplained: at 0xA3C579..0xA3C5A1 esi = countries[[this+8+4]] (the actor) and edi = [this+0x14] (the recipient). Wrong if `[esp+0x70]` were not &this->actor - it is set from `this+8` at the function head (puStack_138).",
+   "revises": true
+  },
+  {
+   "rva": "0x379A00",
+   "kind": "function",
+   "name": "CLicenceTechnologyDialog::CLicenceTechnologyDialog",
+   "signature": "CLicenceTechnologyDialog* __stdcall CLicenceTechnologyDialog::CLicenceTechnologyDialog(CInGameIdler* host@ECX, CLicenceTechnologyDialog* this@stack:4, CDiplomaticAction* action@stack:8, CDiplomacyView* view@stack:0xC) @EAX",
+   "no_signature": null,
+   "comment": "**The window a production licence is bought in**, `.gui` window `LicenceDialog` (interface/diplomacydialog.gui). Keeps a clone of the action (slot 16) at +0x6C and the view at +0x70; serial (+0x128) and parallel (+0x124) start at 1; the selected type (+0x134) starts as the null sub unit definition. LeftShield / RightShield the actor's and recipient's flags; the title is the action's slot 10; buttons serial_plus/serial_minus/paralell_plus/paralell_minus (0x77BB40/50/60/70: +1/-1 and Refresh); the offered money (+0x12C) from GetOfferedMoney; BuildUnitList; Refresh. `debt_desc` (IS_BOUGHT_WITH_DEBT, 'Debt is used for this deal.') is shown, prefixed with the white escape, only where the buyer may go into debt with the seller and is at war - the same test Apply makes - and hidden otherwise. AgreeButton/DeclineButton read ACCEPT/DECLINE. One caller, DiplomacyView_OpenActionDialog at 0x78BE0B, which passes the in-game screen (view +0xB0) in ECX; `ret 0xC`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Ghidra decompilation of 0x779A00 against the call at 0x78BE02..0x78BE0B (ECX = [edi+0xB0], pushes view, action, object); `ret 0xC` at 0x77A1BD, the vftable 0x15DA38C stored at 0x779A6A; the element names are the .gui file's. Wrong if the debt_desc arm tested a different pair - it reads action +8/+0xC (actor) then `+0xE28[action +0x14]` +0x78 and actor +0xACC."
+  },
+  {
+   "rva": "0x37A250",
+   "kind": "function",
+   "name": "CLicenceTechnologyDialog::Refresh",
+   "signature": "void __stdcall CLicenceTechnologyDialog::Refresh(CLicenceTechnologyDialog* dialog)",
+   "no_signature": null,
+   "comment": "Writes paralell_value and serial_value (decimal); disables paralell_minus/serial_minus at 1 and paralell_plus/serial_plus at 99, so each runs 1..99. Description: BUYLICENCENONE where no type is selected; otherwise BUYLICENCENEWDESC with RUNS = parallel, NUM = serial, TYPE = the type's name and **PAY = money/1000 * parallel * serial as a float to 1 place** - the fee Apply will charge. chance_string = DiplomaticAction_BuildChanceText(action). Then stores parallel, serial and the offered money into the action's Paralell (+0x30), Serial (+0x2C) and Money (+0x34). `ret 4`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Ghidra decompilation of 0x77A250 and disassembly 0x77AA00..0x77AA77 (the PAY arithmetic: [esi+0x12C]/1000.0 * [esi+0x124] * [esi+0x128]); the four handlers 0x77BB40..0x77BB70 each `inc`/`dec` +0x128 or +0x124 and call this. Wrong if +0x12C were not the money - it is what GetOfferedMoney returns into it in the constructor and in Update."
+  },
+  {
+   "rva": "0x37BB80",
+   "kind": "function",
+   "name": "CLicenceTechnologyDialog::GetOfferedMoney",
+   "signature": "int* __stdcall CLicenceTechnologyDialog::GetOfferedMoney(CLicenceTechnologyDialog* dialog@ESI, int* out@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "**The price per unit offered**: the `money_slider` scrollbar's value as a float, made thousandths by `floor((v + 0.0005) * 1000)`, times the **buyer's money stockpile** (its exile pool, or its acting capital's pool) over 1000. So the slider sets a share of today's cash per unit, and the fee is that times serial times parallel. `ret 4`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Ghidra decompilation of 0x77BB80 (the slider read through `money_slider`'s +0x48 slot 4, the pool test on +0x95, the 0xB99980 divide by 1000). Wrong if the slider's range were not 0..1 - the .gui file gives none and the scrollbar's own maximum was not read."
+  },
+  {
+   "rva": "0x37B690",
+   "kind": "function",
+   "name": "CLicenceTechnologyDialog::BuildUnitList",
+   "signature": "void __stdcall CLicenceTechnologyDialog::BuildUnitList(CLicenceTechnologyDialog* dialog)",
+   "no_signature": null,
+   "comment": "**Which unit types a licence may be bought for.** Every type of the sub unit database (+0x1C) whose slot 9 answers true, that is buildable (+0x36), usable by the buyer (SubUnitDefinitionIsUsableBy), that the **seller** can still build (CCountry::CountMaxUnitsStillBuildable >= 1), and that is not a capital ship (+0x2F); where the buyer can build it too, only if the buyer's version is worth no more than the seller's (GetSubUnitDefinitionCombatValue of each country's definition made by 0x507500). Each is a CTechMember row of `tech_list`. `ret 4`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Disassembly 0x77B830..0x77B8D6: the tests in order, the buyer ([ebp-0x14]) and seller ([ebp-0x28]) roles from the action's +0xC and +0x14 at the head, the `dec eax; js` that skips the comparison when the buyer cannot build the type, and the `jg` that drops a type whose buyer version scores higher. Wrong if 0x507500 did not build a country's version of the type - it is not recorded and is in the frontier."
+  },
+  {
+   "rva": "0x379620",
+   "kind": "function",
+   "name": "LicenceDialogRow_BuildTooltip",
+   "signature": "GuiTooltipText* __stdcall LicenceDialogRow_BuildTooltip(void* row, GuiTooltipText* out) @EAX",
+   "no_signature": null,
+   "comment": "The tooltip of a row of the licence window's `tech_list`, answered from CLicenceTechnologyDialog slot 3 for the element `counter_type`. Where the row's select_frame is disabled (+0x136 clear): BUYLICENCE_MPCOST ('We lack the $COST$ necessary manpower') with COST = the type's build_cost_manpower (+0xFC) times max(1000 + the buyer's build_cost_mp_by_unit_type, one twentieth) / 1000, to 1 place; otherwise the type's name. The delayed half is the **seller's** version of the type (0x507500) through CSubUnitDefinition::BuildStatsTooltip. `ret 8`.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Ghidra decompilation of 0x779620; the call from 0x77B400 with the row. Inferred because the meaning of the row's +0x136 byte (disabled) was not read; wrong if it is the selection state."
+  },
+  {
+   "rva": "0x37ADB0",
+   "kind": "function",
+   "name": "CLicenceTechnologyDialog::Update",
+   "signature": "bool __thiscall CLicenceTechnologyDialog::Update(CLicenceTechnologyDialog* this)",
+   "no_signature": null,
+   "comment": "Slot 1, each frame: refreshes the rows; calls Refresh where the offered money or the action's slot 17 (GetAIAcceptance - so the chance line follows the slider) has changed; disables AgreeButton with no type selected, and **where the buyer's manpower is below the men the order needs** - build_cost_manpower (+0xFC) * max(1000 + build_cost_mp_by_unit_type, one twentieth) / 1000 * serial*parallel - and enables it otherwise. Answers whether the dialog is still open.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Ghidra decompilation of 0x77ADB0; one holder (vtable.py --holding). Inferred for the slot's role (per-frame update) and for which enable/disable slot (+0xB8/+0xBC) is which; the arithmetic is read."
+  },
+  {
+   "rva": "0x37B570",
+   "kind": "function",
+   "name": "CLicenceTechnologyDialog::OnAgree",
+   "signature": "void __thiscall CLicenceTechnologyDialog::OnAgree(CLicenceTechnologyDialog* this)",
+   "no_signature": null,
+   "comment": "Slot 5, the Agree button: the action's date = tick, MakeCommand (slot 6) and post it through the in-game screen's session channel; EnableActionListUnlessAutomated; close (+0x64 = 1). It sets no field of the action itself - Refresh already has.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Ghidra decompilation of 0x77B570; one holder, slot 5; the same shape as CStandadDiplomacyDialogue::OnAgree. Wrong if slot 5 were not the Agree handler - section B.4 of FINDINGS-agreements.md infers the same of the standard dialog."
+  },
+  {
+   "rva": "0x37B3D0",
+   "kind": "function",
+   "name": "CLicenceTechnologyDialog::StaysOpen",
+   "signature": "bool __thiscall CLicenceTechnologyDialog::StaysOpen(CLicenceTechnologyDialog* this)",
+   "no_signature": null,
+   "comment": "Slot 7: true while the view's slot 7 answers true and the view's open dialog (+0x518) is none or this one.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Ghidra decompilation of 0x77B3D0; one holder. Inferred for the name, by the shape of CStandadDiplomacyDialogue::StaysOpen."
+  },
+  {
+   "rva": "0x60ECC0",
+   "kind": "function",
+   "name": "CRequestLendLeaseAction::Apply",
+   "signature": "void __thiscall CRequestLendLeaseAction::Apply(CRequestLendLeaseAction* this)",
+   "no_signature": null,
+   "comment": "CRequestLendLeaseAction slot 7, one holder (vftable 0x15FB334). 0xA0ECC0 to the bare `ret` at 0xA0FC57. `this` in ECX. The actor asks; the recipient would give. **Read arm by arm 2026-10-13:**\n\n| arm | what it does |\n| --- | --- |\n| PROPOSE, value 1 | `actor->diplo_influence -= ALLOW_DEBT_INFLUENCE_COST` (+0xC4), floored at 0 - the debt define, there being no lend-lease one |\n| PROPOSE, value 0 (cancel) | CCountry::RemoveLendLease(recipient, actor) (0xA0ED2F); the recipient - the giver - if played is told **LENDOFFERREFUSED**, with ACTOR = its own name and RECIPIENT = the canceller's, at its acting capital |\n| ACCEPT, value 1 | CCountry::AddLendLease(giver = recipient, receiver = actor) (0xA0F22C); the actor, if played, hears `diplomaticsuccess` and is told LENDACCEPT |\n| DECLINE | the actor, if played, hears `diplomaticfailure` and is told LENDDECLINE |\n\nNobody else is told anything. The name `Apply` is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Ghidra decompilation of 0xA0ECC0 and disassembly of the two calls: 0xA0ED10..0xA0ED2F (ecx = countries[recipient id], pushes the actor's id and tag) and 0xA0F20B..0xA0F22C (eax = countries[[edi+0x14]], pushes [edi+0xC] and [edi+8]). Wrong if the two helpers' roles were reversed - AddLendLease appends to the vector of the country in EAX, the giver's +0x6B8.",
+   "revises": true
+  },
+  {
+   "rva": "0x610870",
+   "kind": "function",
+   "name": "COfferLendLeaseAction::Apply",
+   "signature": "void __thiscall COfferLendLeaseAction::Apply(COfferLendLeaseAction* this)",
+   "no_signature": null,
+   "comment": "COfferLendLeaseAction slot 7, one holder (vftable 0x15FB394). 0xA10870 to the bare `ret` at 0xA11573. `this` in ECX. The actor offers; the recipient would receive. **Read arm by arm 2026-10-13**; reads no define and charges no influence at all.\n\n| arm | what it does |\n| --- | --- |\n| value 0 and PROPOSE (stop) | CCountry::RemoveLendLease(actor, recipient) (0xA11144); the recipient, if played, is told **LENDREVOKE** with ACTOR = its own name and RECIPIENT = the giver's, at its acting capital. A value-0 action of any other type does nothing |\n| value 1, ACCEPT | CCountry::AddLendLease(giver = actor, receiver = recipient) (0xA108DF); the actor, if played, hears `diplomaticsuccess` and is told LENDOFFERACCEPT |\n| value 1, DECLINE | the actor, if played, is told LENDOFFERREFUSED |\n| value 1, PROPOSE | nothing |\n\nThe name `Apply` is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Ghidra decompilation of 0xA10870 and disassembly of the calls at 0xA108B8..0xA108DF (eax = countries[[esi+4]], esi = this+8; pushes the recipient's id and tag) and 0xA1112B..0xA11144. Wrong if the outer test were not `value` - it reads `[this+0x24]` first.",
+   "revises": true
+  },
+  {
+   "rva": "0x610610",
+   "kind": "function",
+   "name": "CRequestLendLeaseAction::GetDialogText",
+   "signature": "Hoi3CString* __thiscall CRequestLendLeaseAction::GetDialogText(CRequestLendLeaseAction* this, Hoi3CString* out)",
+   "no_signature": null,
+   "comment": "Slot 12: LEND_LEASE_DESCRIPTION ('Request that they help us by sharing some of their industrial capacity') when asking, LEND_LEASE_BREAK_DESCRIPTION ('Cancel lend-lease') when cancelling. No cost line, though asking costs ALLOW_DEBT_INFLUENCE_COST.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Ghidra decompilation of 0xA10610 (0x35 bytes, `ret 4`); one holder, slot 12."
+  },
+  {
+   "rva": "0x611B10",
+   "kind": "function",
+   "name": "COfferLendLeaseAction::GetDialogText",
+   "signature": "Hoi3CString* __thiscall COfferLendLeaseAction::GetDialogText(COfferLendLeaseAction* this, Hoi3CString* out)",
+   "no_signature": null,
+   "comment": "Slot 12: OFFERLL_DESCRIPTION ('Offer them lend-lease aid.') when offering, STOPLL_DESCRIPTION when stopping.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Ghidra decompilation of 0xA11B10 (`ret 4`); one holder, slot 12."
+  },
+  {
+   "rva": "0x610180",
+   "kind": "function",
+   "name": "LendLease_GetRoute",
+   "signature": "int __cdecl LendLease_GetRoute(CCountryTag* giver@ECX, CCountryTag* receiver@stack:4, Hoi3CString* out@stack:8, bool offerWording@stack:0xC) @EAX",
+   "no_signature": null,
+   "comment": "**Whether lend-lease may run from giver to receiver, and how it travels.** In order, the first that holds: either a government in exile - 0, ACT_LENDLEASE_ANY_GOI (ACTOR = the receiver, RECIPIENT = the giver); the giver's EffectiveNeutrality (+0xA90) above LEND_LEASE_NEUTRALITY_LIMIT (+0x100) - 0, ACT_LENDLEASE_OUR_NEUTRALITY when offerWording else ACT_LENDLEASE_NEUTRALITY, LIMIT and VAL trimmed; the receiver at war with nobody (+0xACC) - 0, ACT_LENDLEASE_THEM_ONLY_AT_WAR / ACT_LENDLEASE_ONLY_AT_WAR; the two at war with each other - 0, WEWAR. Then the route: **2** where the receiver's neighbour byte for the giver is set or the giver is in its ControllerNeighbours list (LEND_LEASE_ALLOWED_NEIGHBOUR); **3** where both capitals' continents have the same tag (LEND_LEASE_ALLOWED_TELEPORT); **1** where both have a naval base (+0xD88 count > 0) (LEND_LEASE_ALLOWED_CONVOY, COUNTRY = the receiver); else 0, LEND_LEASE_NOT_ALLOWED. The text goes to out only where out is not null. The giver's tag in ECX, three stack arguments, bare `ret` - the caller cleans. Callers: 0xA0FEC0, 0xA11790 and CCountry::UpdateLendLeaseRoutes. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Disassembly 0xA10180..0xA105FB with every key named by disasm.py (0xA10200..0xA104BB); the caller 0x508C99 pushes 0, 0, the receiver and sets ECX before `add esp, 0xC`. Wrong if the ECX tag were the receiver - 0xA0FEC0 passes the action's recipient (the asked giver) in ECX and 0xA11790 the action's actor (the offering giver)."
+  },
+  {
+   "rva": "0x60FEC0",
+   "kind": "function",
+   "name": "LendLease_CheckRequest",
+   "signature": "int __cdecl LendLease_CheckRequest(CCountryTag* giver@ECX, CCountryTag* receiver@stack:4, Hoi3CString* out@stack:8) @EAX",
+   "no_signature": null,
+   "comment": "The request's gate (CRequestLendLeaseAction slots 11 and 14): 0 where the two are one country; 0 with ENROUTE (DATE the next_offer_allowed) where the receiver - the asker - has a diplomat en route to the giver; otherwise LendLease_GetRoute(giver, receiver, out, false). Bare `ret`. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Ghidra decompilation of 0xA0FEC0 and its two callers' arguments (this+0x10, this+8, out). Wrong if the HasDiplomatEnroute receiver were the giver - it is countries[param_1[1]], the actor."
+  },
+  {
+   "rva": "0x611790",
+   "kind": "function",
+   "name": "LendLease_CheckOffer",
+   "signature": "bool __cdecl LendLease_CheckOffer(CCountryTag* receiver@ECX, CCountryTag* giver@stack:4, Hoi3CString* out@stack:8) @EAX",
+   "no_signature": null,
+   "comment": "The offer's gate (COfferLendLeaseAction slots 11 and 14): false where the two are one country; false with ENROUTE where the giver has a diplomat en route; false and out untouched where the giver already gives the receiver lend-lease; otherwise r = LendLease_GetRoute(giver, receiver, out, true) and, where out is given, out = OFFERLL_DESCRIPTION + '\\n' + out **whatever r is** - a refusal reason is prefixed too. Answers r != 0. Bare `ret`. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Ghidra decompilation of 0xA11790. Wrong if the prefix were inside the success arm - it follows the GetRoute call unconditionally under `param_2 != 0`."
+  },
+  {
+   "rva": "0x60FC60",
+   "kind": "function",
+   "name": "CRequestLendLeaseAction::GetDescription",
+   "signature": "Hoi3CString* __thiscall CRequestLendLeaseAction::GetDescription(CRequestLendLeaseAction* this, Hoi3CString* out)",
+   "no_signature": null,
+   "comment": "Slot 11: cancelling - LEND_LEASE_CANCEL_DESC ('Cancel any lend-lease aid') where the recipient gives the actor lend-lease, else empty; requesting - LendLease_CheckRequest(recipient, actor, out), and only where it passes is the text made LEND_LEASE_DESC ('Request industrial aid') + '\\n' + the route line (LEND_LEASE_ALLOWED_NEIGHBOUR / _TELEPORT / _CONVOY); a refusal shows the reason alone.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Ghidra decompilation of 0xA0FC60 with LendLease_CheckRequest and LendLease_GetRoute read.",
+   "revises": true
+  },
+  {
+   "rva": "0x60FE50",
+   "kind": "function",
+   "name": "CRequestLendLeaseAction::IsSelectable",
+   "signature": "bool __thiscall CRequestLendLeaseAction::IsSelectable(CRequestLendLeaseAction* this)",
+   "no_signature": null,
+   "comment": "Slot 14: actor != recipient; requesting - LendLease_CheckRequest(recipient, actor, null) != 0, so neither in exile, the recipient's effective neutrality at most LEND_LEASE_NEUTRALITY_LIMIT, the actor at war, the two not at war with each other, a route, and no diplomat en route; cancelling - the recipient gives the actor lend-lease.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Ghidra decompilation of 0xA0FE50 with the helpers read.",
+   "revises": true
+  },
+  {
+   "rva": "0x611580",
+   "kind": "function",
+   "name": "COfferLendLeaseAction::GetDescription",
+   "signature": "Hoi3CString* __thiscall COfferLendLeaseAction::GetDescription(COfferLendLeaseAction* this, Hoi3CString* out)",
+   "no_signature": null,
+   "comment": "Slot 11: stopping - STOPLL_DESCRIPTION where the actor gives the recipient lend-lease, else empty; offering - LendLease_CheckOffer(recipient, actor, out): ENROUTE, or empty where already giving, or OFFERLL_DESCRIPTION + '\\n' + the route line or the refusal reason.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Ghidra decompilation of 0xA11580 with the helpers read.",
+   "revises": true
+  },
+  {
+   "rva": "0x611730",
+   "kind": "function",
+   "name": "COfferLendLeaseAction::IsSelectable",
+   "signature": "bool __thiscall COfferLendLeaseAction::IsSelectable(COfferLendLeaseAction* this)",
+   "no_signature": null,
+   "comment": "Slot 14: actor != recipient; offering - LendLease_CheckOffer(recipient, actor, null): no diplomat en route, not already giving, and LendLease_GetRoute with the actor as giver (neither in exile, the actor's effective neutrality at most LEND_LEASE_NEUTRALITY_LIMIT, the recipient at war, not at war with each other, a route); stopping - the actor gives the recipient lend-lease.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Ghidra decompilation of 0xA11730 with the helpers read.",
+   "revises": true
+  },
+  {
+   "rva": "0x1084B0",
+   "kind": "function",
+   "name": "CCountry::AddLendLease",
+   "signature": "void __stdcall CCountry::AddLendLease(CCountry* giver@EAX, int receiverTag@stack:4, int receiverId@stack:8)",
+   "no_signature": null,
+   "comment": "Starts lend-lease from giver to receiver: where the giver's lend-lease list (+0x6B8, 16-byte entries {tag, id, weight, effectiveness}) has no entry for the receiver, appends {receiver, **weight 500** (floor(500.5f), i.e. 0.500), **effectiveness 0**} and CCountry::AddLendLeaseSource(receiver, the giver's tag). The giver in EAX, `ret 8`. Callers: CRequestLendLeaseAction::Apply and COfferLendLeaseAction::Apply. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Disassembly 0x5084B0..0x508541 (the walk, the float 500.5 at 0x160A5E8 through floorf/ftol, the entry built at [esp+8] with +8 = 500 and +0xC = 0, the push_back 0x511C10, the call 0x508750 with EAX = countries[receiverId]). Wrong if the entry's +8 and +0xC were the other way round - the loader's `lendlease_distributions` writes +8 and `lendlease_effectiveness` +0xC (0x4CEE41, 0x4CEEC7)."
+  },
+  {
+   "rva": "0x108550",
+   "kind": "function",
+   "name": "CCountry::RemoveLendLease",
+   "signature": "void __stdcall CCountry::RemoveLendLease(CCountry* giver, int receiverTag, int receiverId)",
+   "no_signature": null,
+   "comment": "Ends lend-lease from giver to receiver: finds the receiver's entry in the giver's +0x6B8 list, calls CCountry::RemoveLendLeaseSource(receiver, the giver's tag) - which also scraps the receiver's lend-lease convoy from that giver - and erases the entry (0x50F9F0). Nothing where there is none. `ret 0xC`. Callers: both lend-lease actions' Apply and CRemoveLendLeaseCommand::Execute. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Disassembly 0x508550..0x5085CF. findRefs --callers: 0x555D93, 0xA0ED2F, 0xA11144."
+  },
+  {
+   "rva": "0x108620",
+   "kind": "function",
+   "name": "CCountry::GetLendLeaseShare",
+   "signature": "int* __stdcall CCountry::GetLendLeaseShare(CCountry* giver@EDX, int* out@stack:4, int receiverTag@stack:8, int receiverId@stack:0xC) @EAX",
+   "no_signature": null,
+   "comment": "The receiver's share of the giver's lend-lease, thousandths: its weight (+8) * 1000 / the sum of every entry's weight. 0 where the list is empty or the weights sum to 0 (the compare is against the zero global 0x1A874AC, so the following `-1` arm for a zero sum is never reached). `ret 0xC`. One caller, CDistributeLendLease::Distribute. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Disassembly 0x508620..0x5086E9; 0x1A874AC has no writer anywhere in a full .text sweep (four readers only) and lies past the file's raw data, so it is zero. Wrong if a non-code writer filled it."
+  },
+  {
+   "rva": "0x1086F0",
+   "kind": "function",
+   "name": "CCountry::SetLendLeaseEffectiveness",
+   "signature": "void __stdcall CCountry::SetLendLeaseEffectiveness(CCountry* giver@EDX, CCountryTag* receiver@stack:4, int effectiveness@stack:8)",
+   "no_signature": null,
+   "comment": "Writes the effectiveness (+0xC, thousandths) of the receiver's entry in the giver's lend-lease list. `ret 8`. Callers: CCountry::UpdateLendLeaseRoutes, with 1000 for a land route and the convoy's efficiency for a sea one. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Disassembly 0x5086F0..0x50873E (`mov [esi+ecx*8+0xC], eax`)."
+  },
+  {
+   "rva": "0x108750",
+   "kind": "function",
+   "name": "CCountry::AddLendLeaseSource",
+   "signature": "void __stdcall CCountry::AddLendLeaseSource(CCountry* receiver@EAX, CCountryTag* giver@stack:4)",
+   "no_signature": null,
+   "comment": "Appends {giver tag, id, 0} to the receiver's lend_lease_from list (+0x6C8, 12-byte entries) unless the giver is in it. `ret 4` at 0x5087BC, and **CCountry::RemoveLendLeaseSource starts on the next byte** with no padding (trap 2). The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Disassembly 0x508750..0x5087BC; the push_back 0x511D90."
+  },
+  {
+   "rva": "0x1087C0",
+   "kind": "function",
+   "name": "CCountry::RemoveLendLeaseSource",
+   "signature": "void __stdcall CCountry::RemoveLendLeaseSource(CCountry* receiver@EDI, CCountryTag* giver@stack:4)",
+   "no_signature": null,
+   "comment": "Takes the giver off the receiver: finds the receiver's convoy (+0xA0 list) with is_lend_lease (+0xA1) and lend_lease_partner id (+0xA8) the giver's, unlinks it (0x5D49D0), sets convoys_changed (+0x9C), returns its transports (+0x98) and escorts (+0x9C) to the receiver's Transports (+0xB0) and Escorts (+0xB4), and deletes it; then erases the giver's lend_lease_from entry and subtracts its value from lend_lease_income (+0x6E8), floored at 0. `ret 4`. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Disassembly 0x5087C0..0x5088F2."
+  },
+  {
+   "rva": "0x108900",
+   "kind": "function",
+   "name": "CCountry::ReceiveLendLease",
+   "signature": "void __stdcall CCountry::ReceiveLendLease(CCountry* receiver@ESI, int amount@stack:4, int giverTag@stack:8, int giverId@stack:0xC)",
+   "no_signature": null,
+   "comment": "Credits a day's lend-lease: where the receiver's lend_lease_from list has the giver, its value += amount and lend_lease_income (+0x6E8) += amount, both thousandths of IC; where it does not, nothing - and the giver's resources are already spent. `ret 0xC`. One caller, CDistributeLendLease::Distribute. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Disassembly 0x508900..0x50895F."
+  },
+  {
+   "rva": "0x108A90",
+   "kind": "function",
+   "name": "CCountry::GetMaxLendLeaseFraction",
+   "signature": "CFixedPoint* __thiscall CCountry::GetMaxLendLeaseFraction(CCountry* this, CFixedPoint* out)",
+   "no_signature": null,
+   "comment": "**The lend-lease cap as a share of IC**, thousandths: 0 with no lend-lease target; else with n = EffectiveNeutrality (+0xA90) * 1000 / LEND_LEASE_NEUTRALITY_LIMIT (+0x100) - the limit taken as 10 (floor(10.5f)) where it is 0 - clamped to 0..1000: **LEND_LEASE_MAX_IC_LOW + (LEND_LEASE_MAX_IC_HIGH - LEND_LEASE_MAX_IC_LOW) * (1000 - n) / 1000**. TFH: 0.05 to 0.90, so a country at neutrality 0 may give 90% and one at 60 or more 5%. Registered to Lua under this name. Callers: CCountry::GetMaxLendLease and CDistributeLendLease::GetLimit - **the engine never clamps the lend-lease share to it**; it is the slider's marker and the AI script's target. `ret 4`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Disassembly 0x508A90..0x508BC1 with the three define reads (+0x104 at 0x508ABD, +0x108 at 0x508AD4, +0x100 at 0x508AE8) and the float 10.5 at 0x160A680. findRefs --callers: 0x508BF4, 0x518BF5 only."
+  },
+  {
+   "rva": "0x108BD0",
+   "kind": "function",
+   "name": "CCountry::GetMaxLendLease",
+   "signature": "CFixedPoint* __thiscall CCountry::GetMaxLendLease(CCountry* this, CFixedPoint* out)",
+   "no_signature": null,
+   "comment": "TotalIC (+0x604, whole IC) * 1000 * GetMaxLendLeaseFraction / 1000 - the cap in thousandths of IC; 0 with no lend-lease target. Called by the top bar's tooltip (0x6CD3E6, LEND_LEASE_MAX_VALUE). `ret 4` at 0x508C2C, and **CCountry::UpdateLendLeaseRoutes starts on the next byte** (trap 2). Registered to Lua under this name.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Disassembly 0x508BD0..0x508C2C. findRefs --callers: 0x6CD3E6."
+  },
+  {
+   "rva": "0x108C30",
+   "kind": "function",
+   "name": "CCountry::UpdateLendLeaseRoutes",
+   "signature": "void __stdcall CCountry::UpdateLendLeaseRoutes(CCountry* receiver)",
+   "no_signature": null,
+   "comment": "**Every hour, for every country, its incoming lend-lease** (from RunCountryHourlyPass at 0x4D905E). For each giver in the receiver's lend_lease_from list, r = LendLease_GetRoute(giver, receiver, null, false):\n- r = 0: a CRemoveLendLeaseCommand(country = the giver, target = the receiver) is posted to the session channel;\n- r = 2 or 3 (land): the giver's entry gets effectiveness 1000;\n- r = 1 (sea): where the receiver has no lend-lease convoy from that giver, one is made - **the receiver's**, CCountry::CreateConvoy(receiver, from = the giver's harbour COwnerArea::NearestPortTo(the receiver's first port) in the giver's acting capital's area, to = COwnerArea::FirstPortId of the receiver's acting capital's area, no supplies, 0x2A, a new id, lend-lease partner = the giver), where both areas are valid and both ports exist; then the giver's entry gets **effectiveness = CConvoy::GetEfficiency** of that convoy. No harbour, no convoy, and the effectiveness is left as it was (0 for a new entry).\nWhere r is not 1 and a lend-lease convoy from that giver exists, it is scrapped as CCountry::RemoveLendLeaseSource does. `ret 4`. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Ghidra decompilation of 0x508C30 and disassembly of the first call (0x508C88..0x508C99). findRefs --callers: one, 0x4D905E. Wrong if the posted command's roles were reversed - its constructor 0x555CA0 stores the first pair at +0x3C/+0x40 (`country`) and the second at +0x44/+0x48 (`target`), the keys CRemoveLendLeaseCommand::SaveContents writes."
+  },
+  {
+   "rva": "0x118800",
+   "kind": "function",
+   "name": "CDistributeLendLease::Distribute",
+   "signature": "CFixedPoint* __thiscall CDistributeLendLease::Distribute(CDistributeLendLease* this@ECX, CFixedPoint* out@stack:4, __int64 available@stack:8, bool flag@stack:0x10) @EAX",
+   "no_signature": null,
+   "comment": "**Slot 0: the lend-lease share, read whole 2026-10-13.** total = available * base_percentage (+8) >> 15 * factor (+0x10) >> 15 - a 48.15 IC figure - then for each entry of the country's lend-lease list (+0x6B8): amount = (total * 1000 >> 15, thousandths of IC) * CCountry::GetLendLeaseShare / 1000 * the entry's effectiveness (+0xC) / 1000, each a truncating 64-bit divide. Where amount <= CCountry::GetResourceLimitedIC, CCountry::ConsumeIcResources(amount) charges the giver's metal, energy and rares and CCountry::ReceiveLendLease credits the receiver; **otherwise that receiver gets nothing at all that day**. Writes 0 to out whatever was sent. It reads no define and not CCountry +0x608, so lend-lease received cannot be lent on for free. Index 0 of the six production sliders, _PRODUCTION_LENDLEASE_, the one CCountry::GetAvailableIC leaves out.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Disassembly 0x518800..0x51895F: the two 0xB99AF0 multiplies with `shrd 0xF`, the 0x1F40000 (1000 << 15) multiply, the 0xB99980 divides, the compare at 0x5188F0 and the calls 0x4F15C0, 0x4F16D0, 0x508900 with ESI = countries[entry id]; the out written 0 at 0x51894E.",
+   "revises": true
+  },
+  {
+   "rva": "0x118BD0",
+   "kind": "function",
+   "name": "CDistributeLendLease::GetLimit",
+   "signature": "float __thiscall CDistributeLendLease::GetLimit(CDistributeLendLease* this)",
+   "no_signature": null,
+   "comment": "Slot 11 of CDistributeLendLease: where the lend-lease slider's `limit` marker goes. Nought when the country has no lend-lease target (+0x6B8); otherwise TotalIC * 1000 * CCountry::GetMaxLendLeaseFraction / 1000, over 1000.0 - the cap in whole IC. A marker only: nothing clamps the slider or the share to it. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Ghidra decompilation of 0x518BD0 with 0x508A90 read.",
+   "revises": true
+  },
+  {
+   "rva": "0x155580",
+   "kind": "function",
+   "name": "CChangeLendLeaseDistributionCommand::Execute",
+   "signature": "void __thiscall CChangeLendLeaseDistributionCommand::Execute(CChangeLendLeaseDistributionCommand* this)",
+   "no_signature": null,
+   "comment": "Slot 6. Where the tag vector (+0x44..+0x48, 8-byte tags) and the value vector (+0x54..+0x58, ints) have the same length, for each i: the entry of the country's (+0x40) lend-lease list whose id is tag i's gets **weight (+8) = value i** - not normalised; GetLendLeaseShare divides by the sum. A tag the list lacks is skipped. Save keys `country`, `target`, `distribution`. The AI's BalanceLendLeaseSliders (tfh/script/ai_production_minister.lua) posts one with each receiver's TotalIC as its value.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Ghidra decompilation of 0x555580 (bare `ret`); one holder, slot 6."
+  },
+  {
+   "rva": "0x155D40",
+   "kind": "function",
+   "name": "CRemoveLendLeaseCommand::Execute",
+   "signature": "void __thiscall CRemoveLendLeaseCommand::Execute(CRemoveLendLeaseCommand* this)",
+   "no_signature": null,
+   "comment": "Slot 6: CCountry::RemoveLendLease(country (+0x3C/+0x40), target (+0x44/+0x48)); where the target is the player, it is told **LENDREVOKE** ('$RECIPIENT$ have revoked our lend-lease aid') with ACTOR = the target's name and RECIPIENT = the giver's - **also when the rules ended it**, CCountry::UpdateLendLeaseRoutes being the poster.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Ghidra decompilation of 0x555D40; one holder, slot 6."
+  },
+  {
+   "rva": "0x64BDA0",
+   "kind": "function",
+   "name": "CShareTechnologyAction::IsValid",
+   "signature": "bool __thiscall CShareTechnologyAction::IsValid(CShareTechnologyAction* this)",
+   "no_signature": null,
+   "comment": "Slot 13: stopping - true; sharing - the recipient owns a province, the chosen category (+0x28, set by the dialog) is a **theory** (CTechnologyCategory +0x60) and the actor's own level in it (+0x698) is above the recipient's CCountry::GetAbility (its own, or its current sharer's where higher).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Ghidra decompilation of 0xA4BDA0; +0x60 is the theory flag ApplyTechCategoryDecay and CCountry::CheckTechSharing also test.",
+   "revises": true
+  },
+  {
+   "rva": "0x64BEF0",
+   "kind": "function",
+   "name": "CShareTechnologyAction::GetDialogText",
+   "signature": "Hoi3CString* __thiscall CShareTechnologyAction::GetDialogText(CShareTechnologyAction* this, Hoi3CString* out)",
+   "no_signature": null,
+   "comment": "Slot 12, used only when stopping (sharing opens CShareTechnologyDialog, and this answers ''): CANCEL_SHARE_TECH_INFO with TECH = the name of the first category the actor shares with the recipient (CCountry::GetCategorySharedWith) and COUNTRY = the recipient, or CANCEL_SHARE_TECH_INFO_NO with COUNTRY where there is none.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Ghidra decompilation of 0xA4BEF0 (`ret 4`); one holder, slot 12."
+  },
+  {
+   "rva": "0x107B40",
+   "kind": "function",
+   "name": "CCountry::StartSharingTechWith",
+   "signature": "void __stdcall CCountry::StartSharingTechWith(CCountry* receiver@EAX, CCountry* sharer@stack:4, int category@stack:8)",
+   "no_signature": null,
+   "comment": "Appends {receiver tag, id, category index} to the sharer's tech_sharing_given (+0x6F0); then, **where the receiver already has a sharer for that category**, CCountry::StopSharingTechWith(that sharer, receiver) - which ends **every** category that sharer gives the receiver, not just this one; then receiver->category_shared_from[category] (+0x6A8) = the sharer. `ret 8`. Callers: CShareTechnologyAction::Apply (0xA4B80E) and CCountry::LoadKey's `shared_technologies` (0x4CEB43). The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Ghidra decompilation of 0x507B40 (`ret 8` at 0x507C07). Wrong if the push_back 0x511E50 targeted another vector - the stores that follow write the last 12-byte slot of +0x6F0."
+  },
+  {
+   "rva": "0x107CE0",
+   "kind": "function",
+   "name": "CCountry::GetCategorySharedWith",
+   "signature": "CTechnologyCategory* __stdcall CCountry::GetCategorySharedWith(CCountry* sharer, CCountry* receiver)",
+   "no_signature": null,
+   "comment": "The technology category of the first tech_sharing_given entry of the sharer naming the receiver, out of the technology database's category vector (+0x1C), or null. What the diplomacy row builder (0x4E45BD) takes to mean 'already sharing' and what CShareTechnologyAction::GetDialogText names. `ret 8`. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Ghidra decompilation of 0x507CE0. findRefs --callers: 0x4E45BD, 0xA4BF50."
+  },
+  {
+   "rva": "0x107DF0",
+   "kind": "function",
+   "name": "CCountry::CheckTechSharing",
+   "signature": "void __stdcall CCountry::CheckTechSharing(CCountry* sharer@EDI)",
+   "no_signature": null,
+   "comment": "**The daily end of a sharing agreement** (RunCountryDailyPass at 0x4DAEA2, just before the leadership drain). For each tech_sharing_given entry: kept where the receiver owns a province, the category exists, is a theory (+0x60), and the sharer's **own** level (+0x698) is above the receiver's **own** level; otherwise CCountry::StopSharingTechWith(sharer, receiver), which drops every category shared with that receiver. TS_NO_SELECTED's 'Will automatically cancel if they no longer are at a lower level' is this. Bare `ret`. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Disassembly 0x507DF0..0x507F1D (the tests at 0x507E84..0x507EC3, the call at 0x507ED5). findRefs --callers: one, 0x4DAEA2."
+  },
+  {
+   "rva": "0x3904D0",
+   "kind": "function",
+   "name": "CShareTechnologyDialog::CShareTechnologyDialog",
+   "signature": "CShareTechnologyDialog* __stdcall CShareTechnologyDialog::CShareTechnologyDialog(CDiplomaticAction* action@ECX, CInGameIdler* host@EDX, CShareTechnologyDialog* this@stack:4, CDiplomacyView* view@stack:8) @EAX",
+   "no_signature": null,
+   "comment": "The window a theory is shared in, `.gui` window `ShareTechnologyDialog` (interface/share_technology.gui): a clone of the action at +0x70, the view at +0x74, the selected category item at +0x68 (none); LeftShield/RightShield, title = the action's slot 10, ACCEPT/DECLINE; then BuildCategoryList and RefreshDescription. One caller, DiplomacyView_OpenActionDialog at 0x78BE43 (value set only). `ret 8`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Ghidra decompilation of 0x7904D0 against the call at 0x78BE39..0x78BE43 (ECX = the action in esi, EDX = [edi+0xB0], pushes view and object)."
+  },
+  {
+   "rva": "0x390FF0",
+   "kind": "function",
+   "name": "CShareTechnologyDialog::BuildCategoryList",
+   "signature": "void __stdcall CShareTechnologyDialog::BuildCategoryList(CShareTechnologyDialog* dialog)",
+   "no_signature": null,
+   "comment": "Rows of `tech_list`, one CCategoryItem per technology category that is a theory (+0x60), where the recipient owns a province and the recipient's level - its own, or its current sharer's where higher - is below the actor's own level; each row shows the actor's level and that recipient level. `ret 4`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Ghidra decompilation of 0x790FF0."
+  },
+  {
+   "rva": "0x3908A0",
+   "kind": "function",
+   "name": "CShareTechnologyDialog::RefreshDescription",
+   "signature": "void __stdcall CShareTechnologyDialog::RefreshDescription(CShareTechnologyDialog* dialog)",
+   "no_signature": null,
+   "comment": "Description: TS_NO_SELECTED and AgreeButton disabled with nothing chosen; otherwise TS_SELECTED with TECH = the category's name, COUNTRY = the recipient, COST = SHARE_TECH_INFLUENCE_COST (+0xBC) and LEADERSHIP = SHARE_TECH_LEADERSHIP_COST (+0xC0), each to 1 place, and AgreeButton enabled. `ret 4`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Ghidra decompilation of 0x7908A0 and the define reads at 0x790B20/0x790C00."
+  },
+  {
+   "rva": "0x3912E0",
+   "kind": "function",
+   "name": "CShareTechnologyDialog::OnAgree",
+   "signature": "void __thiscall CShareTechnologyDialog::OnAgree(CShareTechnologyDialog* this)",
+   "no_signature": null,
+   "comment": "Slot 5: where a category is chosen, the action's date = tick, its +0x28 = the row's category, MakeCommand and post; EnableActionListUnlessAutomated; close.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Ghidra decompilation of 0x7912E0; one holder, slot 5."
+  },
+  {
+   "rva": "0x3913E0",
+   "kind": "function",
+   "name": "CShareTechnologyDialog::OnDecline",
+   "signature": "void __thiscall CShareTechnologyDialog::OnDecline(CShareTechnologyDialog* this)",
+   "no_signature": null,
+   "comment": "Slot 6: rebuilds the view's action list where the recipient is still selected; close. Nothing posted.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Ghidra decompilation of 0x7913E0; one holder, slot 6."
+  },
+  {
+   "rva": "0x391420",
+   "kind": "function",
+   "name": "CShareTechnologyDialog::StaysOpen",
+   "signature": "bool __thiscall CShareTechnologyDialog::StaysOpen(CShareTechnologyDialog* this)",
+   "no_signature": null,
+   "comment": "Slot 7: true while the view's slot 7 answers true and the view's open dialog is none or this one.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Ghidra decompilation of 0x791420; one holder. Inferred for the name, by the shape of CStandadDiplomacyDialogue::StaysOpen."
+  },
+  {
+   "rva": "0xDA530",
+   "kind": "function",
+   "name": "RunCountryDailyPass",
+   "signature": "void __stdcall RunCountryDailyPass(CCountry* country)",
+   "no_signature": null,
+   "comment": "**Everything a country does once a day**, not just politics: 0x4DA530 to the `ret 4` at 0x4DC239 **and cold blocks after it up to 0x4DC404** - corrected 2026-10-13, this said '0x4DC242 onward is SEH unwind, not body': 0x4DC23C..0x4DC24C and 0x4DC3E8..0x4DC3F8 are catch funclets (ReportLuaError, then a continuation address), but 0x4DC24D..0x4DC3E3 is body, reached by `je 0x4DC24F` at 0x4DC15B - the AI's call of BalanceProductionSliders and **BalanceLendLeaseSliders** (0x510160, 0x510210) - and 0x4DC3F9/0x4DC3FF are loop tails jumped to from 0x4DB9A0 and 0x4DA8F9 (trap 3). One caller, RunDailyPass at 0x682E1A, looping the country vector; the address is in no vftable. Phases: three unread helpers, then Neutrality clamped to [0,100000] and EffectiveNeutrality derived; convoys and lend-lease; CCountry::ChangeNeutrality by the NEUTRALITY_CHANGE modifier; the IC block; the daily influence upkeep and then dissent forced to 0 for REB; the underground; elections; surrender; the AI. Alignment drift at 0x4DB87E, every ALIGNMENT_INTERVAL days. See FINDINGS-politics.md for the full ordered table.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Disassembly 0x4DC239..0x4DC410 (eleven int3 from 0x4DC405 before the next function); the jumps into the region found by a sweep of every branch target (0x4DC15B je 0x4DC24F, 0x4DB9A0 jns 0x4DC3F9, 0x4DA8F9 jns 0x4DC3FF); the Lua names pushed at 0x510193 and 0x51021F. Wrong if the jumps belonged to another function - they lie inside 0x4DA530..0x4DC239.",
+   "revises": true
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CDiplomacyStatus",
+   "offset": "0x70",
+   "name": "debt",
+   "type": "int",
+   "comment": "**What the array's owner owes the other country**, thousandths of money - corrected 2026-10-13, this said the other way round. Save key `debt`, token 0x727 (CDiplomacyStatus::LoadKey at 0xA4836E). Grows only while the owner is at war and has allowDebts (+0x78) towards the other: by a licence fee (CLicenceTechnologyAction::Apply, 0xA3C5A1 - the buyer's status towards the seller) and by a trade route's money (CCountry::RunDailyTradeRoutes, 0x4FF442 and 0x4FF485). **Nothing reduces it**: the daily repayment (CCountry::CollectDailyProduction) pays out of it without subtracting, so a debt is repaid for ever.",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Writers by a full .text sweep of `[reg+0x70]` stores whose register came from a `+0xE28` element: the three `add`s only; the licence's debt arm reads the actor's (buyer's) array. Wrong if a writer reached the status another way.",
+   "revises": true
+  },
+  {
+   "struct": "CDiplomacyStatus",
+   "offset": "0x74",
+   "name": "daily_repay",
+   "type": "int",
+   "comment": "How much the owner repays the other a day, thousandths of money. Save key `dailyrepay`, token 0x728. Fixed by CDiplomacyStatus::GetDailyRepay as debt / (YEARS_TO_REPAY_DEBT * 365 days) the first time it is asked with a debt and nothing here; set back to 0 by CCountry::CollectDailyProduction on a day the owner is at war or cannot pay, so it is worked out again from the debt as it then stands.",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Disassembly of 0xA4A7F0 and of the reset at 0x4F25B2.",
+   "revises": true
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0x6B8",
+   "name": "lendlease_distributions",
+   "type": "void*",
+   "comment": "**The countries this one gives lend-lease to**: a vector of 16-byte entries {CCountryTag receiver; int weight (+8); int effectiveness (+0xC)}, end at +0x6BC. Save keys `lendlease_targets` (the tags, loaded with weight 0 and effectiveness 1000), `lendlease_distributions` (the weights) and `lendlease_effectiveness`. weight: the receiver's share is weight / the sum (CCountry::GetLendLeaseShare); a new entry gets 500, CChangeLendLeaseDistributionCommand sets them. effectiveness: thousandths, 1000 over land and the lend-lease convoy's efficiency over sea, set hourly by CCountry::UpdateLendLeaseRoutes; 0 until then.",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "CCountry::LoadKey's cases for tokens 2054/2055/2108 (0x4CECF8, 0x4CEDE7, 0x4CEE6D) and the readers and writers named.",
+   "revises": true
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0x6C8",
+   "name": "lend_lease_from_values",
+   "type": "void*",
+   "comment": "**The countries this one receives lend-lease from**: a vector of 12-byte entries {CCountryTag giver; int amount}, end at +0x6CC; save keys `lend_lease_from` (the tags) and `lend_lease_from_values`. amount: thousandths of IC credited by the giver's CDistributeLendLease and not yet turned into IC; CCountry::UpdateIC takes the whole IC out of the entries in order and leaves the fraction.",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "CCountry::ReceiveLendLease (0x508900) and UpdateIC 0x4F1529..0x4F15A5.",
+   "revises": true
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0x6D8",
+   "name": "lend_lease_from_yesterday_values",
+   "type": "void*",
+   "comment": "A copy of lend_lease_from_values (+0x6C8) taken by CCountry::UpdateIC before it spends them - what each giver delivered for the day, which the top bar's tooltip shows (0x508A20). 12-byte entries, end at +0x6DC; save keys `lend_lease_from_yesterday` and `_values`.",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "UpdateIC 0x4F14C7..0x4F1508 (clear, then assign from +0x6C8).",
+   "revises": true
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0x6E8",
+   "name": "lend_lease_income",
+   "type": "int",
+   "comment": "Lend-lease received and not yet turned into IC, thousandths of IC: the sum of lend_lease_from_values. CCountry::UpdateIC adds its whole part (/ 1000, truncated) to TotalIC (+0x604) after the resource cap and stores it in lend_lease_ic (+0x608), then subtracts what it used, keeping the fraction for the next day. Save key `lend_lease_income`.",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "UpdateIC 0x4F14AC..0x4F14D0 and 0x4F15A5; CCountry::ReceiveLendLease's add at 0x508952; LoadKey token 2114 (0x4CF1ED)."
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0x6EC",
+   "name": "lend_lease_income_yesterday",
+   "type": "int",
+   "comment": "The lend-lease IC a day's CCountry::UpdateIC turned into IC, thousandths (a whole number of IC times 1000), or 0 with no giver. Save key `lend_lease_income_yesterday`.",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "UpdateIC 0x4F1513..0x4F1523; LoadKey token 2115 (0x4CF212)."
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0x824",
+   "name": "repaid_away",
+   "type": "CGoodsPool",
+   "comment": "The pool the ledger labels **RES_REPAID_AWAY** (BuildGoodsLedgerTooltip, 0x4F42AF). **Corrected 2026-10-13: it is written** - its money (+0x834) gets each day's debt repayment the country pays, in the repayment loop at the end of CCountry::CollectDailyProduction (0x4F2589); no other good is ever written. The earlier comment's 'no writer outside construction and the daily reset' missed that site; the live zeros it recorded (0 of 108 countries in a 1936 and a 1942 game) fit, because no debt arrangement was in force. Not saved (CCountry::SaveContents writes ten pools, not this one).",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Disassembly 0x4F2589 `add [ebx+0x834], ecx`, ebx the paying country. The SaveContents negative: its pool sequence 0x4CFF1A..0x4D001F (lea ecx,[edi+N] for 0x9F8, 0x770, 0x98C, 0x9B0, 0x9D4, 0x7B8, 0x86C, 0x890, 0x7DC, 0x800).",
+   "revises": true
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0x848",
+   "name": "income_from_debt",
+   "type": "CGoodsPool",
+   "comment": "The pool the ledger labels **RES_INC_DEBT** (0x4F396C), and part of CCountry::GetDailyIncome. **Corrected 2026-10-13: it is written** - its money (+0x858) gets each day's debt repayment the country receives, in CCountry::CollectDailyProduction (0x4F258F); no other good. The live zeros recorded earlier fit, because no debt arrangement was in force. Not saved.",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Disassembly 0x4F258F `add [esi+0x858], ecx`, esi the creditor.",
+   "revises": true
+  },
+  {
+   "struct": "CConvoy",
+   "offset": "0xA4",
+   "name": "lend_lease_partner",
+   "type": "CCountryTag",
+   "comment": "The tag and id CCountry::CreateConvoy is handed for a lend-lease convoy, `---` and 0 for any other. **It names the giver**: a lend-lease convoy belongs to the receiver, runs from the giver's harbour to the receiver's, and is made, kept and scrapped by CCountry::UpdateLendLeaseRoutes, which finds it by is_lend_lease (+0xA1) and this id (+0xA8). See reversing/findings/FINDINGS-supplyconvoys.md, section 6.",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "CCountry::UpdateLendLeaseRoutes's CreateConvoy call (receiver as the country, the giver's tag and id as the last two arguments) and its search (`[conv+0xA1]`, `[conv+0xA8] == giver id`); CCountry::RemoveLendLeaseSource the same.",
+   "revises": true
+  },
+  {
+   "struct": "CTechnologyCategory",
+   "offset": "0x60",
+   "name": "is_theory",
+   "type": "bool",
+   "comment": "Set on a theory, clear on a practical. Only a theory can be shared (CShareTechnologyAction::IsValid, CShareTechnologyDialog::BuildCategoryList, CCountry::CheckTechSharing); ApplyTechCategoryDecay picks theories or practicals by it.",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "The four readers named; ApplyTechCategoryDecay's comment already reads +0x60 == 0 as a practical. Wrong if a practical were ever shared - the share dialog would list it."
+  }
+ ],
+ "vftable_slots": {
+  "CDebtAction": {
+   "7": "Apply",
+   "12": "GetDialogText"
+  },
+  "CLicenceTechnologyAction": {
+   "7": "Apply"
+  },
+  "CDistributeLendLease": {
+   "0": "Distribute",
+   "11": "GetLimit"
+  },
+  "CRequestLendLeaseAction": {
+   "7": "Apply",
+   "12": "GetDialogText"
+  },
+  "COfferLendLeaseAction": {
+   "7": "Apply",
+   "12": "GetDialogText"
+  },
+  "CShareTechnologyAction": {
+   "12": "GetDialogText"
+  },
+  "CChangeLendLeaseDistributionCommand": {
+   "6": "Execute"
+  },
+  "CRemoveLendLeaseCommand": {
+   "6": "Execute"
+  },
+  "CLicenceTechnologyDialog": {
+   "1": "Update",
+   "5": "OnAgree",
+   "7": "StaysOpen"
+  },
+  "CShareTechnologyDialog": {
+   "5": "OnAgree",
+   "6": "OnDecline",
+   "7": "StaysOpen"
+  }
+ },
+ "frontier": [
+  "0x107500",
+  "0x155CA0",
+  "0x1565C0",
+  "0xF25E0",
+  "0x10F9F0",
+  "0x111C10",
+  "0x111D90",
+  "0x111E50",
+  "0x37B400",
+  "0x118BA0",
+  "0x110160",
+  "0x110210",
+  "0x1085E0",
+  "0x108A20"
+ ]
+}

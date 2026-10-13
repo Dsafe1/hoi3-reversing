@@ -1,0 +1,400 @@
+{
+ "agent": "trade interface wave, brief B",
+ "question": "An offer to the player on screen: CTradeAction::AskPlayer and CAskTrade whole, the base CDiplomacyDialog and how every CAsk* dialog is laid out and placed; the bar of offer icons (AddDiplomaticOffer, DiploIconBar_*, CDiploIcon) - where it stands, order, flag, blinking, sound, tooltip, what the kind selects, what a click does; and where the player's own request dialogs stand (diplo_request_pos, the window's slots 42 and 11).",
+ "source": "reversing/findings/FINDINGS-tradeui.md",
+ "addresses": [
+  {
+   "rva": "0x23D830",
+   "kind": "function",
+   "name": "CEU3Dialog::Update",
+   "signature": "bool __thiscall CEU3Dialog::Update(CEU3Dialog* this)",
+   "no_signature": null,
+   "comment": "CEU3Dialog slot 1 (CUpdateable's), run every frame by CEU3Idler::Update for every dialog on the idler's list (+0xA0); false makes the idler delete the dialog through slot 0. **False at once where slot 7 (still open) answers false.** Otherwise it keeps the window's visibility in step with slot 4 (should be shown; ReturnTrue on the base and on every CAsk*): slot 4 true and the window shut (window +0x5B, its CGuiObject +0x43 is_open, clear) -> Show (CFixedWindow::Show, the window's +0x18 slot 13); slot 4 false and the window open -> Hide (slot 14). Then answers `closed (+0x64) == 0`. Two bare `ret`s, 0x63D83F and 0x63D894. See reversing/findings/FINDINGS-tradeui.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Decoded 0x63D830-0x63D894 whole: `call [eax+0x1C]` (slot 7), `call [eax+0x10]` (slot 4) twice, `cmp byte [eax+0x5B],0` on the window, `[edx+0x34]`/`[eax+0x38]` on window+0x18 (CFixedWindow::Show/Hide, rva 0x6C2690/0x6C2270, already in the record as slots 13 and 14 of 0x1602058), `cmp [esi+0x64],al; sete al`. In 46 tables, all CEU3Dialog and its heirs (vtable.py --holding 0x63D830). Wrong if slot 4 were not the visibility predicate - the CAsk tables hold ReturnTrue (0xA92590) there."
+  },
+  {
+   "rva": "0x23D8A0",
+   "kind": "function",
+   "name": "CEU3Dialog::SetPosition",
+   "signature": "void __thiscall CEU3Dialog::SetPosition(CEU3Dialog* this, int x, int y)",
+   "no_signature": null,
+   "comment": "CEU3Dialog slot 8: the window's slot 42 (CFixedWindow::SetPositionXY) with x and y - **the dialog's upper-left corner in pixels from the screen's upper-left**, whatever orientation the window's .gui entry has. DiplomacyView_OpenActionDialog (0x78BEBD) calls it with diplo_request_pos plus half the screen: so the player's own request dialogs stand with their corner at the screen's centre plus (10, -100). `ret 8`. See reversing/findings/FINDINGS-tradeui.md, section B.3.",
+   "confidence": "confirmed",
+   "evidence": "0x63D8A0-0x63D8BE: `mov ecx,[ecx+4]; call [eax+0xA8]` with [ebp+8] and [ebp+0xC] pushed, `ret 8`. Slot 42 of CEU3DialogGui's table 0x15CD3C4 is 0xAC1E10, which packs (short x, short y) and calls slot 6 (CFixedWindow::SetPosition). In 38+ tables, all CEU3Dialog heirs. Wrong if the coordinate meant were not the corner from the screen's upper-left: see CFixedWindow::SetPosition's evidence for why it is."
+  },
+  {
+   "rva": "0x23D8D0",
+   "kind": "function",
+   "name": "CEU3Dialog::BringToFront",
+   "signature": "void __thiscall CEU3Dialog::BringToFront(CEU3Dialog* this)",
+   "no_signature": null,
+   "comment": "CEU3Dialog slot 9: tail-jumps to the window's slot 11 - for a CEU3DialogGui, CEU3DialogGui::BringToFront (0x63E540): the window's render node taken off the screen's scene and put back on it, and the dialog's shields refreshed. Called by DiplomacyView_OpenActionDialog after SetPosition and by CDiploIcon::OnClick after Show. **That this raises the window above the others is inferred** from the remove-then-add pair; the scene's draw order was not read. See reversing/findings/FINDINGS-tradeui.md, section B.",
+   "confidence": "inferred",
+   "evidence": "0x63D8D0: `mov ecx,[ecx+4]; mov eax,[ecx]; mov edx,[eax+0x2C]; jmp edx` - window slot 11. CFixedWindow's own slot 11 (0xAC11D0) is the same node pair without the shields: node slot 32 (`[eax+0x80]`) then node slot 29 (`[eax+0x74]`) with graphics +0x6B9E0, the pair the CFixedWindow constructor makes as it puts a new window on the screen (0xAC0118). Wrong if node slot 32 is not a removal - then this is a refresh with no effect on order."
+  },
+  {
+   "rva": "0x23D910",
+   "kind": "function",
+   "name": "CEU3Dialog::Show",
+   "signature": "void __thiscall CEU3Dialog::Show(CEU3Dialog* this)",
+   "no_signature": null,
+   "comment": "CEU3Dialog slot 12: where slot 4 (should be shown) answers true, CFixedWindow::Show on the window (its +0x18 subobject, slot 13). CDiploIcon::OnClick calls it as an offer's dialog is opened. See reversing/findings/FINDINGS-tradeui.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "0x63D910-0x63D92E: `call [edx+0x10]` (slot 4), `test al,al; je ret`, then `mov ecx,[esi+4]; ...; add ecx,0x18; jmp [eax+0x34]`. Slot 13 of the CGuiObject table is CFixedWindow::Show (rva 0x6C2690). In 38+ tables, all CEU3Dialog heirs."
+  },
+  {
+   "rva": "0x23D930",
+   "kind": "function",
+   "name": "CEU3Dialog::Hide",
+   "signature": "void __thiscall CEU3Dialog::Hide(CEU3Dialog* this)",
+   "no_signature": null,
+   "comment": "CEU3Dialog slot 13: CFixedWindow::Hide on the window (its +0x18 subobject, slot 14). CDiploIcon::CDiploIcon calls it, so an offer's dialog - made shown by CEU3Dialog's constructor - is hidden until its icon is clicked. See reversing/findings/FINDINGS-tradeui.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "0x63D930: `mov ecx,[ecx+4]; mov eax,[ecx+0x18]; mov edx,[eax+0x38]; add ecx,0x18; jmp edx`. Slot 14 of the CGuiObject table is CFixedWindow::Hide (rva 0x6C2270). In 38+ tables, all CEU3Dialog heirs."
+  },
+  {
+   "rva": "0x23D940",
+   "kind": "function",
+   "name": "CEU3Dialog::SetTitle",
+   "signature": "void __thiscall CEU3Dialog::SetTitle(CEU3Dialog* this, Hoi3CString* text)",
+   "no_signature": null,
+   "comment": "CEU3Dialog slot 14: CEU3Dialog_SetTitle(window, text) - the window's `Title` text box. `ret 4`. See reversing/findings/FINDINGS-tradeui.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "0x63D940-0x63D951: `mov ecx,[ecx+4]; mov edi,[ebp+8]; call 0x63E670; ret 4`. 0x63E670 looks `Title` up by name and calls GuiObject_textBoxType::SetText with the text in EDI. In 38+ tables, all CEU3Dialog heirs."
+  },
+  {
+   "rva": "0x23D960",
+   "kind": "function",
+   "name": "CEU3Dialog::SetDescription",
+   "signature": "void __thiscall CEU3Dialog::SetDescription(CEU3Dialog* this, Hoi3CString* text)",
+   "no_signature": null,
+   "comment": "CEU3Dialog slot 15: CEU3Dialog_SetDescription(window, text) - the window's `Description` text box, every §W turned to §b on the way. `ret 4`. See reversing/findings/FINDINGS-tradeui.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "0x63D960-0x63D973: `push eax ([ebp+8]); push ecx ([ecx+4]); call 0x63E6F0; ret 4`. In 38+ tables, all CEU3Dialog heirs."
+  },
+  {
+   "rva": "0x23E860",
+   "kind": "function",
+   "name": "CEU3Dialog_SetAgreeText",
+   "signature": "void __stdcall CEU3Dialog_SetAgreeText(void* window@ECX, Hoi3CString* text@stack:4)",
+   "no_signature": null,
+   "comment": "A dialog window's `AgreeButton` (the window's slot 13 lookup) given the text as its label, through the button's slot 51 with a 0. `ret 4`. The CAsk* constructors label it ACCEPT 'Accept'. See reversing/findings/FINDINGS-tradeui.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled: `AgreeButton` looked up through `[*this+0x34]`, null-tested, `call [*btn+0xCC](text, 0)`; `ret 4` at 0x63E8F9. That slot 51 is the label setter is inferred from the callers handing it the rendered ACCEPT text and from the file's buttonText being overwritten on screen (FINDINGS-tradeaid.md A.4)."
+  },
+  {
+   "rva": "0x23E900",
+   "kind": "function",
+   "name": "CEU3Dialog_SetDeclineText",
+   "signature": "void __stdcall CEU3Dialog_SetDeclineText(void* window@ECX, Hoi3CString* text@stack:4)",
+   "no_signature": null,
+   "comment": "The same as CEU3Dialog_SetAgreeText for `DeclineButton`. The CAsk* constructors label it DECLINE 'Decline'. `ret 4`. See reversing/findings/FINDINGS-tradeui.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled: `DeclineButton` looked up, `call [*btn+0xCC](text, 0)`; `ret 4` at 0x63E999."
+  },
+  {
+   "rva": "0x23E540",
+   "kind": "function",
+   "name": "CEU3DialogGui::BringToFront",
+   "signature": "void __thiscall CEU3DialogGui::BringToFront(CEU3DialogGui* this)",
+   "no_signature": null,
+   "comment": "CEU3DialogGui slot 11, its own (CFixedWindow's slot 11 is 0xAC11D0): the window's render node (+0x484) through its slot 32 and then its slot 29 with the graphics' +0x6B9E0 - taken off the screen's scene and put back - and then, for each name on the shield list (+0x4EC, next at +0x20), the shield looked up in the shield registry (+0x4C8) and its slot 73 called. Reached through CEU3Dialog::BringToFront. **That the node pair raises the window is inferred.** See reversing/findings/FINDINGS-tradeui.md, section B.",
+   "confidence": "inferred",
+   "evidence": "Decoded 0x63E540-0x63E5A7, bare `ret`. The registry at +0x4C8 is the one SetDialogLeftShield (rva 0x23E5B0) looks `LeftShield` up in, so the list is the window's shields. Held by CEU3DialogGui alone at slot 11 (vtable.py --holding 0x63E540). Wrong if node slot 32 is not a removal, or the shield slot 73 is not a refresh - neither was read."
+  },
+  {
+   "rva": "0x6C1DA0",
+   "kind": "function",
+   "name": "CFixedWindow::SetPosition",
+   "signature": "void __thiscall CFixedWindow::SetPosition(CFixedWindow* this, int packed)",
+   "no_signature": null,
+   "comment": "CFixedWindow primary slot 6 (table 0x1601F88; CEU3DialogGui slot 6). **Puts the window's upper-left corner at (x, y) pixels from the screen's upper-left**, x and y the two signed shorts of `packed` (`x | y << 16`): stores `packed` at +0x240, then hands the render node (+0x484) its slot 51 the point (screen width / 2 + x, screen height / 2 + y) from the graphics' +0x6B9BC/+0x6B9C0 - the very transform the constructor applies to the position it worked out from the .gui entry (0xAC0D35-0xAC0D8C), whose UPPER_LEFT case adds nothing to the file's own position. So the coordinate is the one an UPPER_LEFT `position` means, and **no orientation is applied** - a window placed this way stands where it is put, whatever its file says. `ret 4`. See reversing/findings/FINDINGS-tradeui.md, section B.3.",
+   "confidence": "confirmed",
+   "evidence": "Decoded 0xAC1DA0-0xAC1E09: `mov [ecx+0x240],esi`, the two `cdq; sub; sar 1` halves of +0x6B9BC/+0x6B9C0 added to `movsx` of the low and high words, `call [eax+0xCC]` on [ecx+0x484], `ret 4`. The constructor's tail (0xAC0C92-0xAC0D8C) stores the position at +0x240, adds the parent's size by orientation +0x488 (0 UPPER_LEFT nothing, 1 UPPER_RIGHT x, 2 LOWER_LEFT y, 3 LOWER_RIGHT both, 4 CENTER half each, 5 CENTER_UP half x, 6 CENTER_DOWN half x and all y - the codes 0xB29CC0 parses) and makes the identical node call. Holders: CEU3DialogGui slot 6 (RTTI); CFixedWindow's own table 0x1601F88 slot 6 by reading it. Wrong if the node's coordinate were not the same in both places - the two code paths are byte-for-byte the same transform."
+  },
+  {
+   "rva": "0x6C1E10",
+   "kind": "function",
+   "name": "CFixedWindow::SetPositionXY",
+   "signature": "void __thiscall CFixedWindow::SetPositionXY(CFixedWindow* this, int x, int y)",
+   "no_signature": null,
+   "comment": "CFixedWindow primary slot 42 (CEU3DialogGui slot 42): packs (short)x and (short)y into one dword and calls slot 6, CFixedWindow::SetPosition. The slot CEU3Dialog::SetPosition uses. `ret 8`. See reversing/findings/FINDINGS-tradeui.md, section B.3.",
+   "confidence": "confirmed",
+   "evidence": "Decoded 0xAC1E10-0xAC1E32: `mov ax,[ebp+8]; mov dx,[ebp+0xC]`, the two words stored at [ebp-4]/[ebp-2], `call [eax+0x18]`, `ret 8`. Held by CEU3DialogGui alone at slot 42 among RTTI tables; CFixedWindow's 0x1601F88 slot 42 holds it too."
+  },
+  {
+   "rva": "0x6C3340",
+   "kind": "function",
+   "name": "CFixedWindow::ClearAttachedChildren",
+   "signature": "void __thiscall CFixedWindow::ClearAttachedChildren(CFixedWindow* this)",
+   "no_signature": null,
+   "comment": "CFixedWindow primary slot 35 (CEU3DialogGui slot 35): empties what CFixedWindow::AttachChild (slot 22) fills - the name vector at +0x30C, the attached-children list at +0x74 (its nodes freed, head, tail and count zeroed) and the vector at +0x2FC. The children themselves are not destroyed. DiploIconBar_Layout calls it on the bar's window before attaching the icons again. Bare `ret`. See reversing/findings/FINDINGS-tradeui.md, section B.2.",
+   "confidence": "confirmed",
+   "evidence": "Decoded 0xAC3340-0xAC33C2: an erase over [esi+0x30C..0x310] (0x414C60), a free loop over the +0x74 list by its +8 link, the three zeroes at +0x74/+0x78/+0x7C, and +0x300 set back to +0x2FC. The three containers are the ones AttachChild (rva 0x6C2F90) writes, per its record."
+  },
+  {
+   "rva": "0x6C3500",
+   "kind": "function",
+   "name": "CFixedWindow::GetSize",
+   "signature": "short* __thiscall CFixedWindow::GetSize(CFixedWindow* this, short* out) @EAX",
+   "no_signature": null,
+   "comment": "CFixedWindow primary slot 24 (CEU3DialogGui slot 24): the window's size as two shorts - its background's (+0x238, through the background's slot 61) where it has one, else +0x490/+0x494, the .gui `size` the constructor copied. DiploIconBar_Update and DiploIconBar_Layout read the bar's width and each icon's width through it; the CAsk* constructors its height. `ret 4`. Not the same slot as a CGuiObject's slot 24, which is a position. See reversing/findings/FINDINGS-tradeui.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Decoded 0xAC3500-0xAC3540; the constructor's `mov ecx,[eax]; mov [ebx+0x490],ecx; mov edx,[eax+4]; mov [ebx+0x494],edx` from its fifth argument, which CEU3DialogGui's constructor passes as the type's +0xA8 (`size`). Wrong if a window with a background answered something else - the background branch was not followed."
+  },
+  {
+   "rva": "0x2147B0",
+   "kind": "function",
+   "name": "CDiplomacyDialog::~CDiplomacyDialog",
+   "signature": "CDiplomacyDialog* __thiscall CDiplomacyDialog::~CDiplomacyDialog(CDiplomacyDialog* this, uint8_t flags)",
+   "no_signature": null,
+   "comment": "CDiplomacyDialog slot 0, the deleting destructor, inherited by all twelve CAsk*: **deletes the dialog's own copy of the action (+0x6C) only where that copy's slot 13 (IsValid) answers true**, then CEU3Dialog's destructor (0x63D6B0), then frees itself when bit 0 of the flag is set. A copy that is no longer valid is left undeleted. `ret 4`. See reversing/findings/FINDINGS-tradeui.md, section B.1.",
+   "confidence": "confirmed",
+   "evidence": "Decoded 0x6147B0-0x61482D: `call [eax+0x34]` on [esi+0x6C], `je` past the delete, `push 1; call [edx]` on the action, `call 0x63D6B0`, `test byte [ebp+8],1`, `ret 4`. In 13 tables: CDiplomacyDialog and the twelve CAsk* (vtable.py --holding 0x6147B0), one family. Wrong if slot 13 of a diplomatic action were not IsValid - the record names it so on every action class."
+  },
+  {
+   "rva": "0x219E60",
+   "kind": "function",
+   "name": "CDiploIcon::OnRightClick",
+   "signature": "void __thiscall CDiploIcon::OnRightClick(CDiploIcon* this, int unused)",
+   "no_signature": null,
+   "comment": "**A right click on an offer's icon declines the offer.** The handler of the icon's second observer (+0x50, bound to `diplomessageicon_button` beside the first): where the icon still has its dialog, the dialog's slot 6 (CDiplomacyDialog::Decline - type 1 posted as a pressed Decline would) - and then clicked (+0x7C) = 1, so the next DiploIconBar_Update drops the icon and deletes the dialog with it. `ret 4`, the argument unread. See reversing/findings/FINDINGS-tradeui.md, section B.2.",
+   "confidence": "confirmed",
+   "evidence": "Decoded 0x619E60-0x619E76. The constructor stores it at +0x74 = the second glue (+0x50) + 0x24, and that glue's slot 1 handler (+8) is left 0. Glue slot 9 (0x6D0F30) calls the handler at +0x24 - the slot FINDINGS-leaderwindow.md section 6 found to be the right click, which the maintainer confirmed from the running game on 2026-10-11. Wrong if this glue instantiation's slot 9 were bound to another event - its vftable 0x15CB888 has the same slot shape as the leader window's."
+  },
+  {
+   "rva": "0x21A340",
+   "kind": "function",
+   "name": "DiploIconBar_GetTooltip",
+   "signature": "GuiTooltipText* __stdcall DiploIconBar_GetTooltip(void* element@ECX, void* bar@EDX, GuiTooltipText* out@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "**An offer icon's tooltip**, called by CInGameIdler::GetElementTooltip (0x6C5B5D) for an element whose group string (+8) is `diplo_message` - the group CDiploIcon::CDiploIcon gives the icon's window and all its elements. It walks the bar's icons in order for the one whose `diplomessageicon_button` or `flag` is the element (the `messageicon_bg_overlay` answers nothing), and switches on its kind (+8, 1..13): text = DIPLOICON_TIP \"$TYPE$ from §Y$NATION$§W. \\n If we do not respond before §Y$DATE$§W we will autodecline.\" with TYPE the rendered kind key - 1 ICON_PEACE and 7 ICON_NAP (**in no localisation file, so they show as the key**), 2 ICON_ALLIANCE, 3 ICON_TRADE, 4 ICON_ASKMIL, 5 ICON_OFFACC, 6 ICON_CALLALLY, 8 INVITEFACTIONTITLE (whether invitation or request), 9 ICON_EXPEDITION, 10 ICON_LICENCE, 11 ALLOWDEBTTITLE, 12 ICON_LEND_LEASE, 13 ICON_LEND_LEASE_OFFER - NATION the proposer's name (+0xC) and DATE the icon's expires_at (+0x20) by FormatHourDate. **Kind 3 alone has a delayed half**, while the icon still holds its dialog: TRADE_TOOL_REQDESC \"$COUNTRY$ would like $TO$ each day in exchange for $FROM$ each day.\", COUNTRY the action's actor, FROM FormatTradeGoods(trade_from), TO FormatTradeGoods(trade_to). `ret 4`, answers `out`. See reversing/findings/FINDINGS-tradeui.md, section B.2.",
+   "confidence": "confirmed",
+   "evidence": "Decoded 0x61A340-0x61C567 and the jump table at 0x61C56C (13 entries: 0x61B4E6, 0x61B6FC, 0x61B912, 0x61BCF5, 0x61BF02, 0x61C10F, 0x61B2D0, 0x61AF92, 0x61AC11, 0x61A886, 0x61A4FB, 0x61C316, 0x61C316), indexed by kind - 1 with `cmp eax,0xC; ja`. The kind 12/13 arm picks its key on `cmp [esp+0x10],0xC`. The three strings of the out: text at the local +0x80, delayed +0x9C; the trade arm assigns TRADE_TOOL_REQDESC to the second (0x61BCC3). The caller arm: `mov ecx,0x15CB744 ('diplo_message'); lea eax,[edi+8]; call 0x40C3C0` at 0x6C5B3A. Localisation checked in localisation/ and tfh/localisation/, case-insensitively, for ICON_PEACE and ICON_NAP: no match; ICON_TRADE and ALLOWDEBTTITLE found by the same grep as positive controls."
+  },
+  {
+   "rva": "0x6CFDB0",
+   "kind": "function",
+   "name": "TButton::ClearShortcut",
+   "signature": "void __thiscall TButton::ClearShortcut(TButton* this)",
+   "no_signature": null,
+   "comment": "A button's slot 54: zeroes +0x74/+0x78, the pair the button constructor (0xB3FC3C-0xB3FC59) fills by looking the .gui `shortcut` text (type +0x1E4) up in the gui's key table (gui +0xA4, slot 14), and slot 55 refills from a string. **Every CAsk* constructor calls it on `AgreeButton` first thing, so an offer's Accept has no key** - eu3dialog.gui's `shortcut = \"ENTER\"` is undone - while DeclineButton keeps `ESCAPE`. That +0x74/+0x78 is the key the input layer answers to is inferred from the constructor; the dispatch was not read. Bare `ret`. See reversing/findings/FINDINGS-tradeui.md, section B.1.",
+   "confidence": "inferred",
+   "evidence": "Decoded 0xACFDB0-0xACFDBA (`xor eax,eax; xor edx,edx; mov [ecx+0x74],eax; mov [ecx+0x78],edx; ret`) and slot 55 at 0xACFDC0. Held at slot 54 of CEU3Minimap (TButton -> CButton -> CIcon -> CEU3Minimap) among RTTI tables and of the button widget table 0x1607698 the AgreeButton is built with. All twelve CAsk* constructors make the `[edx+0xD8]` call on the AgreeButton lookup within their first 0x200 bytes (scanned 0x60FC60, 0x613240, 0x613DB0, 0x618D20, 0x615FA0, 0x614920, 0x6107B0, 0x618320, 0x616E40, 0x6178B0, 0x612340, 0x611500). Wrong if the input layer read the shortcut from the type instead of +0x74 - slot 39, which the tooltip's shortcut line asks, does read the type."
+  },
+  {
+   "rva": "0x219720",
+   "kind": "function",
+   "name": "CDiploIcon::CDiploIcon",
+   "signature": "CDiploIcon* __stdcall CDiploIcon::CDiploIcon(int kind@ECX, CDiploIcon* this@stack:4, CDiplomacyDialog* dialog@stack:8, void* bar@stack:0xC, CCountryTag* from@stack:0x10) @EAX",
+   "no_signature": null,
+   "revises": "Two things in the old comment were wrong or open: `diplo_message` is not an animation but the group string the window's slot 30 writes into every element's +8, which is how the in-game screen finds the icon's tooltip; and the kind's reader is now found - it is also handed straight to the button as its frame. The comment also missed the second observer (+0x50, the right click) and that the icon window and the dialog are both hidden here.",
+   "comment": "Builds one icon of the diplomatic message bar. `ret 0x10`, `kind` in ECX. Stores +0x4 the dialog, +0x8 the kind, +0xC/+0x10 the proposer's tag and id, +0x14 the bar; makes the window `diplomessageicon_entry_window` (interface/menubar.gui) through the in-game screen's gui; **sets `diplomessageicon_button`'s frame to the kind** (the button's slot 18) - GFX_diplo_message_icons, 13 frames in Their Finest Hour (11 in the base game's file), one-based; binds the button to CDiploIcon::OnClick through a CButtonObserverGlue<CDiploIcon> at +0x24 (the plain click) and to CDiploIcon::OnRightClick through a second at +0x50 (the right click); sets the `flag` instant text box to `@` + the tag, which draws the proposer's flag; calls slot 76 on `messageicon_bg_overlay`'s +0x88 (not read); **hides the icon's window and the dialog** (CEU3Dialog::Hide); stamps **+0x18 = now, +0x1C = now + 0x78 (120 hours) and +0x20 = now + 0xA8 (168 hours)** off g_CCurrentGameState->tick; and gives the window and all its elements the group string `diplo_message` (the window's +0x18 slot 30), which CInGameIdler::GetElementTooltip answers with DiploIconBar_GetTooltip. See reversing/findings/FINDINGS-tradeui.md, section B.2.",
+   "confidence": "confirmed",
+   "evidence": "Decoded 0x619720-0x619BB0: `mov ecx,[edi+8]; push ecx; call [edx+0x48]` on the button at 0x6198EE (button slot 18 = 0xB41400, which stores +0x138 and calls the sprite's slot 24, SetFrame); glue vftable 0x15CB888 stored at +0x24 and +0x50 with OnClick at +0x2C and 0x619E60 at +0x74; `[edx+0x38]` on window+0x18 (CFixedWindow::Hide); the dialog's `[eax+0x34]` (slot 13, CEU3Dialog::Hide); `push 0x15CB744 ('diplo_message')` into window+0x18 slot 30 (0xAC3620, which hands the string to every child's slot 30, 0xA80040: assign to +8). GFX_diplo_message_icons: noOfFrames 11 in interface/menubar.gfx, 13 in tfh/interface/menubar.gfx. Frames one-based per FINDINGS-topbar.md."
+  },
+  {
+   "rva": "0x219BF0",
+   "kind": "function",
+   "name": "CDiploIcon::Update",
+   "signature": "bool __stdcall CDiploIcon::Update(CDiploIcon* icon@EDI, double time@stack:4) @AL",
+   "no_signature": null,
+   "revises": "The blink's constant and the two alphas were left as `k` and 'toggled'; they are 10 and 0.1 / 1.0, and the time is the screen clock less the bar's own start, not the screen clock.",
+   "comment": "**The time limit on an offer the player has not opened.** `ret 8`, the icon in EDI, a double on the stack: the screen's clock (CInGameIdler +0xA88) less the clock when the bar was made (bar +0x18), used only to blink. Returns false - remove me - when the icon was clicked (+0x7C). Otherwise, with now = g_CCurrentGameState->tick: while now <= +0x20 (seven days after the icon appeared) it stays; while blink_from (+0x1C) < now < expires_at (+0x20) a laid-out icon (+0x7D) blinks: its button's alpha (slot 62) is **0.1 where (int)(time x 10) % 5 == 0 and 1.0 otherwise** - dimmed one tenth in every half - and is not set outside that window. **Once now > +0x20 it calls the dialog's slot 6 (CDiplomacyDialog::Decline) and returns false**: an offer left unanswered for seven days is declined for the player, with the reply posted like a pressed Decline. See reversing/findings/FINDINGS-tradeui.md, section B.2.",
+   "confidence": "confirmed",
+   "evidence": "Decoded 0x619BF0-0x619D7A: `mulsd xmm0,[0x160A340]` (10.0), `cvttsd2si`, `idiv` by 5; `movss xmm0,[0x15C05F8]` (0.1f) on the zero arm and `[0x171DBAC]` (1.0f) on the other, each into `call [eax+0xF8]` on the button. The caller DiploIconBar_Update passes `in_XMM0 - [bar+0x18]` with XMM0 = cvtps2pd [idler+0xA88] (0x64FF28)."
+  },
+  {
+   "rva": "0x219E80",
+   "kind": "function",
+   "name": "DiploIconBar_Update",
+   "signature": null,
+   "no_signature": "the bar is the one stack argument (`ret 4`) but the screen's clock arrives in XMM0 as a double, which the signature syntax cannot place",
+   "revises": "Fills in 'positions the bar': where the bar and each icon are put each frame, and that CDiploIcon::Update - and so the seven-day decline - runs for every icon, including those that do not fit and were never shown.",
+   "comment": "Per-frame update of the diplomatic message bar, called from UpdateTutorialAndAuxWindows (0x64FF34) with CInGameIdler +0x1D38 whenever the bar exists. Puts the bar's window at the positionType `diplomessageicon_start` ((340, 80) in the files) through CFixedWindow::SetPosition; then walks the icons oldest first with x = 0: an icon with x <= the bar's width (CFixedWindow::GetSize) is placed at ((its width + `diplomessageicon_offset`.x) * n, 0), n counting the placed ones - **40 pixels apart with the files' 20 and 20, so ten fit the 380-wide bar** - and every icon adds its width and the offset to x. **CDiploIcon::Update runs on every icon, placed or not**, so one beyond the tenth is declined after seven days without ever having been on screen. Every icon that answers false is deleted - its window through slot 20 and its dialog through slot 0 (a left-clicked icon has handed its dialog on and holds none) - and the bar is laid out again. See reversing/findings/FINDINGS-tradeui.md, section B.2.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled and checked against the bytes: the two positionType lookups through the gui's slot 18 with the CRT-initialised strings at 0x170DCBC ('diplomessageicon_start', 0xCCD140) and 0x170DCD8 ('diplomessageicon_offset', 0xCCD160); `(*bar)->slot 6` with the packed start; the fit test `local_1c <= *GetSize()` before the placement; CDiploIcon::Update called outside the fit test. Bar widths from interface/menubar.gui and tfh/interface/menubar.gui (identical here)."
+  },
+  {
+   "rva": "0x21C5A0",
+   "kind": "function",
+   "name": "DiploIconBar_Layout",
+   "signature": "void __stdcall DiploIconBar_Layout(void* bar)",
+   "no_signature": null,
+   "revises": "Read line by line now (it was read for what it stores), so the confidence rises to confirmed and the placement rule is given exactly.",
+   "comment": "Lays the bar out: CFixedWindow::ClearAttachedChildren on the bar's window, then over the icons oldest first with x = 0: where x <= the bar's width, the icon's window is put at ((its width + `diplomessageicon_offset`.x) * n, 0) (CFixedWindow::SetPosition), attached to the bar as `diploicon_<n>` (CFixedWindow::AttachChild), shown (CFixedWindow::Show), its children walked (slot 36) and marked laid out (+0x7D), n counting from 0; every icon adds its width and the offset's x to x. The offset's y is read and unused. **So the oldest offer is leftmost and later ones follow to the right**; an icon that does not fit stays hidden until older ones go. Callers: DiploIconBar_Add, and DiploIconBar_Update after a removal. `ret 4`. See reversing/findings/FINDINGS-tradeui.md, section B.2.",
+   "confidence": "confirmed",
+   "evidence": "Decoded 0x61C5A0-0x61C821: the offset lookup (`[esi+0x64]`/`[esi+0x68]` into [ebp-0x30]/[ebp-0x2C]), `call [edx+0x8C]` (slot 35) on the bar's window, the `jg` fit test at 0x61C6D3 against `movsx` of GetSize's first short, `add ax,[ebp-0x30]` then the multiply by n, `__itoa` and 'diploicon_' + n into `[eax+0x58]` (slot 22), window+0x18 slots 13 and 36, `mov byte [eax+0x7D],1`. That a child's position is relative to the bar is inferred (the constructor places a child against its parent's size, and 9 * 40 + 20 = 380, the bar's width) - not read in the render node."
+  },
+  {
+   "rva": "0x215FA0",
+   "kind": "function",
+   "name": "CAskTrade::CAskTrade",
+   "signature": "CAskTrade* __stdcall CAskTrade::CAskTrade(CAskTrade* this, CInGameIdler* host, CTradeAction* action) @EAX",
+   "no_signature": null,
+   "revises": "The old comment named the texts only. Now: which window (eu3dialog.gui's DefaultDialog, not either window of diplomacydialog.gui), which shield is which, who CONV is, how the three texts are joined, the title, the Accept key, and the growth rule.",
+   "comment": "**The offer of a trade put to the player**: CEU3Dialog's constructor on window type **`DefaultDialog` (interface/eu3dialog.gui)** - not `TradeDiplomacyDialog` - so no slider, value, reset button, chance line or debt element exists in it; host +0x68, a clone of the action +0x6C. AgreeButton's shortcut cleared (TButton::ClearShortcut). Then, for a PROPOSE (type 0; any other logs 'Atempted to nap proposal screen when not actually a proposal'): LeftShield the proposer's flag, RightShield the player's (the recipient); Description = TRADEREQDESC \"$COUNTRY$ is offering us a Trade Agreement. \\n We would give them $TO$ each day in exchange for $FROM$ each day.\" (COUNTRY the proposer's name, FROM FormatTradeGoods(trade_from), TO FormatTradeGoods(trade_to)) rendered, **followed directly by** CONV_AT_TRADE \" $CONV$ would be responsible for the convoy needed for this trade.\" where CCountry::NeedConvoyToTradeWith(proposer, player) - CONV the buyer, `to` where trade_to's money is non-zero, else `from` - and then by \" \" + IS_BOUGHT_WITH_DEBT \"Debt is used for this deal.\" where proposer->diplomacy[player]->allowDebts (+0x78) and the proposer is at war (+0xACC), whichever side pays; Title = the action's slot 10, TRADETITLE \"Offer Trade Agreement\"; CEU3Dialog_SetDescription turns every §W of it to §b; AgreeButton ACCEPT \"Accept\", DeclineButton DECLINE \"Decline\". Last, where Title's and Description's drawn heights (their text objects' slot 54, the call the message popups lay out by) sum to more than 400, the window is made taller by that sum less 170 and both buttons moved down as much. `ret 0xC`. See reversing/findings/FINDINGS-tradeui.md, section B.1.",
+   "confidence": "confirmed",
+   "evidence": "Decoded 0x615FA0-0x616D0B whole: `push 0x15CAF34 ('DefaultDialog')` into 0x63D4B0 at 0x615FFD; `[edx+0xD8]` on the AgreeButton lookup at 0x616090; `cmp [eax+0x18],ebx; jne 0x616C77`; SetDialogLeftShield with action +8/+0xC and SetDialogRightShield with +0x10/+0x14; FormatTradeGoods on action +0x6C (route +0x44, trade_from) for FROM and +0x5C (route +0x34, trade_to) for TO; NeedConvoyToTradeWith at 0x6163FF; `cmp [eax+8],ebx` on [esi+0x5C] (trade_to[2], money) choosing +0x54/+0x58 or +0x4C/+0x50; the debt tests `cmp [edi+0x78],bl` and `cmp [eax+0xACC],bl`; 0x15B4E94 = ' '; slot 10 into CEU3Dialog_SetTitle, then CEU3Dialog_SetDescription; the resize `sub esi,0xC8; cmp esi,0xC8; jle` and `add esi,0x1E`. CTradeAction slot 20 answers 'TRADE' (record, rva 0x638DA0). Whether the drawn height is capped at the box's maxHeight (230 and 32 in the file, which would make the growth unreachable) was not read."
+  }
+ ],
+ "structs": [
+  {
+   "name": "DiploIconBar",
+   "size": "0x20",
+   "comment": "The in-game screen's bar of diplomatic offer icons (CInGameIdler +0x1D38). No RTTI; built in the in-game screen's construction at 0x66063C (`new 0x20`), stored at 0x660690. +0 the window `diplomessageicons_window`, +4..+0x10 a list of CDiploIcon* in the {head, tail, count, flag} shape (nodes {icon, prev, next, byte}, next at +8; appended at the tail, so oldest first), +0x18 the screen clock as the bar was made. Run by DiploIconBar_Add, DiploIconBar_Update, DiploIconBar_Layout and DiploIconBar_GetTooltip. See reversing/findings/FINDINGS-tradeui.md, section B.2.",
+   "source": "reversing/findings/FINDINGS-tradeui.md",
+   "evidence": "Decoded 0x66063C-0x660690: `push 0x20; call operator new`, then `mov [esi],ecx` ([ebx+0x1D34]), +4/+8/+0xC zeroed, `mov byte [esi+0x10],0`, `fstp qword [esi+0x18]` after `call [edx+0x14]` on [ebx+0x192C], and `mov [ebx+0x1D38],eax`. Size from the allocation."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "DiploIconBar",
+   "offset": "0x0",
+   "name": "window",
+   "type": "void*",
+   "comment": "The bar's window, `diplomessageicons_window` (interface/menubar.gui: position (340, 80), size 380 x 48), a copy of CInGameIdler +0x1D34. DiploIconBar_Update puts it at `diplomessageicon_start` every frame; the icons are attached to it as `diploicon_<n>`.",
+   "evidence": "`mov ecx,[ebx+0x1D34]; mov [esi],ecx` at 0x660668; `(*bar)->slot 6` in DiploIconBar_Update, `(*bar)->slot 22/35` in DiploIconBar_Layout."
+  },
+  {
+   "struct": "DiploIconBar",
+   "offset": "0x4",
+   "name": "icons_head",
+   "type": "void*",
+   "comment": "Head of the list of the bar's CDiploIcon*, oldest first: nodes {icon, prev, next, byte}, next at +8. DiploIconBar_Add appends at the tail.",
+   "evidence": "DiploIconBar_Add's append (`[bar+8]` old tail, `[bar+0xC]` count, head written where the count was 0); every walk starts at `[bar+4]` and follows `[node+8]`."
+  },
+  {
+   "struct": "DiploIconBar",
+   "offset": "0x8",
+   "name": "icons_tail",
+   "type": "void*",
+   "comment": "Tail of the list at +4.",
+   "evidence": "Written by DiploIconBar_Add's append and by DiploIconBar_Update's unlink."
+  },
+  {
+   "struct": "DiploIconBar",
+   "offset": "0xC",
+   "name": "icons_count",
+   "type": "int",
+   "comment": "Number of icons on the bar.",
+   "evidence": "Incremented by DiploIconBar_Add; tested for zero to decide whether to write the head."
+  },
+  {
+   "struct": "DiploIconBar",
+   "offset": "0x18",
+   "name": "start_clock",
+   "type": "double",
+   "comment": "The screen's clock (the in-game screen's +0x192C, its slot 5) when the bar was made; DiploIconBar_Update hands CDiploIcon::Update the clock less this, for the blink.",
+   "evidence": "`call [edx+0x14]` on [ebx+0x192C] then `fstp qword [esi+0x18]` at 0x66067D; `dVar1 = *(double*)(bar+0x18)` subtracted in DiploIconBar_Update."
+  },
+  {
+   "struct": "CInGameIdler",
+   "offset": "0x1D34",
+   "name": "diplo_icons_window",
+   "type": "void*",
+   "comment": "The window `diplomessageicons_window` (interface/menubar.gui), made through the gui's slot 11 and shown as the in-game screen is built (0x660100); the bar at +0x1D38 keeps a copy at its +0.",
+   "evidence": "`mov edx,0x15CE4A4 ('diplomessageicons_window')`, `call [edx+0x2C]` on [ebx+0x60], `mov [ebx+0x1D34],eax` at 0x660100, then `[eax+0x34]` on its +0x18 (Show)."
+  },
+  {
+   "struct": "CInGameIdler",
+   "offset": "0x1D38",
+   "name": "diplo_icon_bar",
+   "type": "DiploIconBar*",
+   "revises": "Type only: void* -> DiploIconBar*, the 0x20-byte struct this fragment declares; the name and the comment stand.",
+   "comment": "The diplomatic message bar: the icons of offers waiting for the player. CInGameIdler::AddDiplomaticOffer adds to it; UpdateTutorialAndAuxWindows runs DiploIconBar_Update on it each frame.",
+   "evidence": "The `new 0x20` at 0x66063C is stored here at 0x660690; its layout is the struct's evidence."
+  },
+  {
+   "struct": "CDiploIcon",
+   "offset": "0x8",
+   "name": "kind",
+   "type": "int",
+   "revises": "Comment only: 'Its reader was not traced' is answered. The kind is the button's frame (handed over in the constructor) and DiploIconBar_GetTooltip's switch.",
+   "comment": "Which kind of offer, 1..13 as the AskPlayer bodies number them (1 peace, 2 alliance, 3 trade, 4 access asked, 5 access offered, 6 call to arms, 7 NAP, 8 faction, 9 expedition, 10 licence, 11 debt, 12 and 13 lend-lease asked and offered). **It is `diplomessageicon_button`'s frame** (GFX_diplo_message_icons, one-based; set from the constructor's argument) **and the switch of DiploIconBar_GetTooltip**, which picks the TYPE key of the icon's tooltip and gives a trade alone its delayed half.",
+   "evidence": "`mov ecx,[edi+8]; push ecx; call [edx+0x48]` at 0x6198EE; `mov ecx,[eax+8]; lea eax,[ecx-1]; cmp eax,0xC; jmp [eax*4+0x61C56C]` at 0x61A4D1. No other reader found in the icon's functions (constructor, Update, OnClick, OnRightClick, the bar's three)."
+  },
+  {
+   "struct": "CDiploIcon",
+   "offset": "0x24",
+   "name": "click_observer",
+   "type": "void*",
+   "comment": "A CButtonObserverGlue<CDiploIcon> (vftable 0x15CB888, 0x2C bytes) bound to `diplomessageicon_button`, its plain-click handler (+0x2C here) CDiploIcon::OnClick.",
+   "evidence": "`mov [edi+0x24],0x15CB888`, owner at +0x28, `mov [edi+0x2C],0x619D80` in the constructor, and `call [*(btn+0x48)+4]` with edi+0x24."
+  },
+  {
+   "struct": "CDiploIcon",
+   "offset": "0x50",
+   "name": "right_click_observer",
+   "type": "void*",
+   "comment": "A second CButtonObserverGlue<CDiploIcon> bound to the same button, with no plain-click handler and CDiploIcon::OnRightClick (+0x74 here, the glue's +0x24, which its slot 9 calls) - a right click declines the offer.",
+   "evidence": "`mov [edi+0x50],0x15CB888`, owner +0x54, +0x58 left 0, `mov [edi+0x74],0x619E60`; attached at the second `call [*(btn+0x48)+4]`. Glue slot 9 (0x6D0F30) jumps through +0x24."
+  },
+  {
+   "struct": "CFixedWindow",
+   "offset": "0x240",
+   "name": "position",
+   "type": "int",
+   "comment": "The window's upper-left corner in pixels from the screen's upper-left, as two signed shorts (`x | y << 16`): the .gui `position` plus the orientation's share of the parent's size, worked out by the constructor, or what CFixedWindow::SetPosition was last handed. The render node gets (screen width / 2 + x, screen height / 2 + y) from it.",
+   "evidence": "Constructor: `mov [ebx+0x240],edx` from its position argument (0xAC0134), the orientation adds (0xAC0CA3-0xAC0D2E); SetPosition: `mov [ecx+0x240],esi` (0xAC1DB0)."
+  },
+  {
+   "struct": "CFixedWindow",
+   "offset": "0x484",
+   "name": "render_node",
+   "type": "void*",
+   "comment": "A 0x12C-byte object (vftable 0x15DB304) made by the constructor with the screen's size, that carries the window into the screen's scene: its slot 51 takes the position (SetPosition, the constructor), its slots 32 and 29 take it off and put it back (BringToFront), its slot 29 with the graphics' +0x6B9E0 at construction. Not read beyond that.",
+   "evidence": "`push 0x12C; call new` and `mov [ebx+0x484],esi` in the constructor (0xABFE5B-0xABFF06); the slot 51 calls at 0xAC0D8C and 0xAC1E02; slot 51's body 0xA5EC50 stores the point as floats at +0xFC/+0x100."
+  },
+  {
+   "struct": "CFixedWindow",
+   "offset": "0x488",
+   "name": "orientation",
+   "type": "int",
+   "comment": "The .gui `orientation` as 0xB29CC0 codes it: 0 UPPER_LEFT, 1 UPPER_RIGHT, 2 LOWER_LEFT, 3 LOWER_RIGHT, 4 CENTER, 5 CENTER_UP, 6 CENTER_DOWN. The constructor adds the parent's size to +0x240 by it once; CFixedWindow::SetPosition does not consult it.",
+   "evidence": "`mov [ebx+0x488],ecx` from the constructor's orientation argument (CEU3DialogGui's constructor passes type +0x258) at 0xABFF00; the `cmp eax,3/1/2/4/5/6` ladder at 0xAC0C92; the parser's return values at 0xB29CC0-0xB29DB3."
+  },
+  {
+   "struct": "CFixedWindow",
+   "offset": "0x490",
+   "name": "size",
+   "type": "int[2]",
+   "comment": "The .gui `size`, two ints copied by the constructor; CFixedWindow::GetSize answers them as shorts where the window has no background (+0x238).",
+   "evidence": "`mov ecx,[eax]; mov [ebx+0x490],ecx; mov edx,[eax+4]; mov [ebx+0x494],edx` (0xABFF12-0xABFF26); read at 0xAC3528-0xAC353B."
+  }
+ ],
+ "vftable_slots": {
+  "CEU3Dialog": {
+   "1": "Update",
+   "8": "SetPosition",
+   "9": "BringToFront",
+   "12": "Show",
+   "13": "Hide",
+   "14": "SetTitle",
+   "15": "SetDescription"
+  },
+  "CDiplomacyDialog": {
+   "0": "~CDiplomacyDialog"
+  },
+  "CEU3DialogGui": {
+   "6": "CFixedWindow::SetPosition",
+   "11": "BringToFront",
+   "24": "CFixedWindow::GetSize",
+   "35": "CFixedWindow::ClearAttachedChildren",
+   "42": "CFixedWindow::SetPositionXY"
+  },
+  "CEU3Minimap": {
+   "54": "TButton::ClearShortcut"
+  }
+ },
+ "frontier": [
+  "0x23DA80",
+  "0x6C11D0",
+  "0x65EC50",
+  "0x6C3550",
+  "0x23D980",
+  "0x23DA00",
+  "0x6C2EE0"
+ ]
+}

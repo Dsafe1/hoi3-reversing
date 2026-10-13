@@ -1,0 +1,528 @@
+{
+ "agent": "trade and aid wave, brief A (trade)",
+ "question": "CTradeAction and CTradeRoute whole: what a route holds and in what unit, the price, RunDailyTradeRoutes read whole, how a route ends, a route's convoy, the trade dialog and CTradeAction's slots 11-14 and 18, the AI's acceptance and cancellation of trades, RunHourlyAITrade checked.",
+ "source": "reversing/findings/FINDINGS-tradeaid.md",
+ "addresses": [
+  {
+   "rva": "0xFEE70",
+   "kind": "function",
+   "name": "CCountry::RunDailyTradeRoutes",
+   "signature": "void __stdcall CCountry::RunDailyTradeRoutes(CCountry* country)",
+   "no_signature": null,
+   "comment": "**Where a trade route's goods move, once a day.** Read whole 2026-10-13. One caller, RunCountryDailyPass at 0x4DB43A, behind `NumberOfOwnedProvinces (+0xCF8) > 0 || government_in_exile (+0x95)`, right after CCountry::CollectDailyProduction and before CCountry::UpdateIC and ConvertCrudeOilToFuel - so after the units have drawn their supplies and the non-trade convoys have delivered (CConvoy::RunDelivery skips is_trade), and before the three convoy-maintenance routines at the end of the country's day.\n\nFor every country `o` in the database (REB skipped) and every route on `country->diplomacy[o]->trade_routes (+0x60)`:\n\n1. **The convoy** is looked up by the route's id pair (+0x7C/+0x80, FindPersistentByIdPair).\n   - None, and CCountry::NeedConvoyToTradeWith(country, o) - the route is **put on a local list and destroyed at the end of the call** (slot 11 Deactivate, unlinked from the game state's relation list, deleted). No message, no relation change. With no convoy and no need of one it goes on to step 2 at efficiency 1000.\n   - A convoy with `path_count < 2`, no transports or !CConvoy::IsRouteUsable: TradeRouteSetInactive(1); `convoy_responsible (+0x58)` = CTradeRoute::GetConvoyResponsible; `inactive_reason (+0x60)` = TRADE_INACTIVE_CONVOY rendered with COUNTRY = that country's name. Nothing moves.\n   Both of these run from **either** side's pass.\n2. **Only when `route->first (+0xC) == country`** (the route's `from`): A = a copy of `country`'s stockpile (GetActingCapitalLocation()->pool, or `pool_in_exile` +0x9F8 in exile), B = the same of `second`. `eff` = CConvoy::GetEfficiency (not clamped), or 1000 with no convoy. For g = 0..6: `give = trade_from (+0x44)[g] * eff / 1000` (what `from` hands over), `get = trade_to (+0x34)[g] * eff / 1000` (what `to` hands over), 64-bit, truncated.\n   - **Debt**, money only (g == 2): if `country->at_war (+0xACC)` and `country->diplomacy[second]->allowDebts (+0x78)`, `give` goes onto that status's `debt (+0x70)` instead of out of A; likewise for `second` with `second->diplomacy[first]`. Either sets a flag that lasts for the rest of the route's goods.\n   - A[g] -= give; B[g] -= get (each unless paid by debt); A[g] += get; B[g] += give.\n   - **A[g] < 0 with the flag clear**: TRADE_INACTIVE_NO_RES (COUNTRY = first's name, RES = the good), `convoy_responsible` = first, TradeRouteSetInactive(1), and the route is left - **A and B are not written back**. Then the same for B[g] < 0 with `second`. So the test is on the stockpile **after** the day's exchange, and the good can be money: a buyer who cannot pay stops the route.\n   - Unless g is money and the flag is set: `TradedAway (+0x7DC)`, `TradedFor (+0x86C)`, `TradedAwaySansAlliedSupply (+0x800)`, `TradedForSansAlliedSupply (+0x890)` credited on both (`from`: away += give, for += get; `to`: away += get, for += give). **These are credited good by good inside the loop**, so a route that fails at good g has already recorded goods 0..g-1 that never moved.\n   - The convoy's `daily` value g = give + get.\n   After all seven: TradeRouteSetInactive(0), then A and B are written to the two stockpiles.\n\nSo a route is made inactive afresh each day it cannot run and active again on the first day it can; it never ends by being inactive. **What `debt` is worth and how it is repaid is brief C's** (FINDINGS-tradeaid.md, aid).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Decompiled and every arm checked in the disassembly: the convoy lookup and NeedConvoyToTradeWith at 0x4FEF9C/0x4FF217 and the list append 0x4FF226-0x4FF26F; the inactive arm 0x4FEFB1-0x4FF201; the first-id test 0x4FF2A3; the two pool copies 0x4FF2AF-0x4FF36B; the efficiency 0x4FF36E-0x4FF380; the loop body 0x4FF3A0-0x4FF619 (edi = +0x44 amount, [ebp-0x64] = +0x34 amount, the debt tests at 0x4FF40A-0x4FF48C, the four pool adds 0x4FF4F6-0x4FF5FE, the convoy's daily at 0x4FF611); the NO_RES arms at 0x4FF643 and 0x4FF8D0; the commit 0x4FFB10-0x4FFBA4; the delete loop 0x4FFBD9 on. The direction is borne out by four saves: in every one of 582 routes the money sits in the block opposite the goods and equals CTradeRoute::GetCost of them, and convoy 263 (Germany1936_04_20_03) is FRA's, Marseille to Walvis Bay, carrying `daily` money 0.521 + energy 13.900 for the SAF->FRA route that gives 13.900 energy and takes 0.521 money. Would be shown wrong by a route whose stockpile moves the other way in a live game.",
+   "revises": "Read whole. The comment had the convoy test as 'no transports' alone and NO_RES as 'the seller has none of the good'. Added: a route with no convoy that needs one is destroyed; the transfer runs only from the route's `from` side; the NO_RES test is on either stockpile after the exchange, money included; debt; the inactive reason text; TradedForSansAlliedSupply credited too; and the place in the day."
+  },
+  {
+   "rva": "0x6352F0",
+   "kind": "function",
+   "name": "CTradeAction::Apply",
+   "signature": "void __thiscall CTradeAction::Apply(CTradeAction* this)",
+   "no_signature": null,
+   "comment": "**CTradeAction slot 7**, one holder (vftable 0x15FB8D4). 0xA352F0 to the single bare `ret` at 0xA3751B; 4 int3 then slot 12 at 0xA37520. Arms read whole 2026-10-13 (`type` +0x18: 0 PROPOSE, 1 DECLINE, 2 ACCEPT; `value` +0x24):\n\n- `type == PROPOSE && value` (0xA35AE9): `diplo_influence (+0xA88) -= TRADE_INFLUENCE_COST` (diplomacy +0xA0; 3.0 in Their Finest Hour), clamped at 0. Nothing else.\n- `value && type == ACCEPT` (0xA35B40): **CTradeRoute::IsValid(&this->route) or nothing**; `new(0x88)` copy of the route, `start_date (+0x18)` = the action's `date`, **slot 10 Activate first** (both statuses' `trade_routes`). Then, where CCountry::NeedConvoyToTradeWith(actor, recipient): with S = CTradeRoute::GetConvoyResponsible - **the buyer**: `to` where `trade_to`'s money is non-zero, else `from` - and O the other, `p = COwnerArea::FirstPortId(GetCapitalLocation(S)->area)`, `to = NearestPortTo(p, GetActingCapitalLocation(O)->area, S)`, `from = NearestPortTo(to, GetActingCapitalLocation(S)->area, S)`; if both have an owner (+0x330), a CPort (+0x354) and a naval base whose `level_max` > 0: a new convoy id (0x68A530), **CCountry::CreateConvoy(S, from, to, supplies = false, id, `---`, 0)**, TradeRouteSetConvoy (sets +0x7C/+0x80 and the convoy's `is_trade`), and the convoy's `ship` mask set to 1 for every good either block moves (money included). **Otherwise no convoy and the route stands** - and the next RunDailyTradeRoutes destroys it, silently. Then the route is appended to the relation list (0x493E10, state +0xB24) and `ChangeRelation(actor, recipient, TRADE_RELATION_CHANGES)` (+0x9C; +15). Messages (`diplomaticsuccess`): actor played -> ACTRAWITHUS at the recipient's capital, recipient played -> WETRADEAG at the actor's, **each only where the local player's foreign policy is not delegated and `automate_trade` is clear**; anybody else -> OTHERTRADEAG, ungated. Message variables ACT_TRADE / REC_TRADE carry FormatTradeGoods of the player's side's give / receive block. Then CCountry::RebuildNeighbours and 0x4E39C0 on both.\n- `value && type == DECLINE`: nothing written. `diplomaticfailure`: DETRAWITHUS to a played actor, WEDETRA to a played recipient - **each only while `automate_trade` is clear** - else DETRAWITHOTHER.\n- `value == 0`, **any `type`** (0xA36916): FindMatchingTradeRoute(actor->diplomacy[recipient], &route) taken **with no null test**, its slot 11, CDiplomacy_RemoveRelation, deleted; `ChangeRelation(actor, recipient, -TRADE_CANCEL_RELATION_COST)` (+0xA8; -15). **TRADE_CANCEL_INFLUENCE_COST (+0xA4) is never charged** - slots 11 and 12 show it and nothing subtracts it. WEBRKTRADE to a played actor (at the recipient's capital), BRKTRADEUS to a played recipient, BRKTRADEOTH to anybody else, none gated; RebuildNeighbours and 0x4E39C0 on both; in-game screen slot 37 where either is the player.\n\nSo a cancellation takes effect when it is proposed (slot 18 is `value`, so nobody answers it). The name `Apply` is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Decompiled whole and the disassembly read at every arm boundary: the influence subtraction 0xA35AE9-0xA35B2F (the only +0xA88 access in the body - grep over the whole 0xA352F0-0xA3751B listing), the ACCEPT test 0xA35B40 and IsValid 0xA35B4D, the copy 0xA35B7F, Activate 0xA35BA4, NeedConvoyToTradeWith 0xA35BCE, GetConvoyResponsible 0xA35C0E and the swap 0xA35C13-0xA35C38, FirstPortId 0xA35C56, the two NearestPortTo 0xA35C91/0xA35CE0, the six port tests 0xA35CF6-0xA35D3E, CreateConvoy 0xA35DFE (country from the responsible tag at [esp+0xA8]), TradeRouteSetConvoy 0xA35E26 and the mask loop 0xA35E2F-0xA35E59, the append 0xA35ED3 and ChangeRelation 0xA35F15 (+0x9C); the cancel at 0xA36941 (FindMatchingTradeRoute) and 0xA369DF (+0xA8) with 0xA36A13. Save tokens and localisation for every key. Would be shown wrong by a cancel that charges influence in a live game.",
+   "revises": "The arms were summarised; now read whole: the convoy is made on ACCEPT (who, between which harbours), cancellation tests no type and charges no TRADE_CANCEL_INFLUENCE_COST, and the accept/decline messages are gated on automate_trade and delegation."
+  },
+  {
+   "rva": "0x64C9A0",
+   "kind": "function",
+   "name": "CTradeRoute::GetCost",
+   "signature": "CFixedPoint* __cdecl CTradeRoute::GetCost(CFixedPoint* result, GoodsCategory category, CFixedPoint amount, CCountryTag a, CCountryTag b)",
+   "no_signature": null,
+   "comment": "**The price of `amount` of one good between two countries** - static, registered to Lua as `CTradeRoute:GetCost` (luabind.json, the function_registration at 0x905178). Read whole 2026-10-13, 0xA4C9A0 to the bare `ret` at 0xA4CA87:\n\n    range = |[0x1710CD0]| + |[0x1710CD4]|                     ; 200000 + 200000, the relation scale (thousandths)\n    rel   = |[0x1710CD4]| + countries[b.id]->diplomacy[a.id]->relation (+0x38)   ; 0..400000\n    f     = range ? rel * 1000 / range : -1                   ; 0..1000, 500 at relation 0\n    d     = f * [0x1B15F48] / 1000                            ; [0x1B15F48] = (int)floor(500.5f) = 500, a CRT static (trap 8, case 3)\n    base  = goods_cost[category] * amount / 1000              ; CDefines +0x10C, the goods_cost block\n    *result = base * (1000 - d) / 1000                        ; every division truncating\n\nSo **a good costs its `goods_cost` per unit at relation -200, three quarters of it at 0 and half of it at +200**; nothing else enters - not the stockpiles, not distance, not the route. Their Finest Hour's goods_cost: supplies 0.25, fuel 0.75, money 0, crude oil 0.75, metal 0.1, energy 0.05, rare materials 0.2. The 0.5 is not a define.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Read off the disassembly 0xA4C9A0-0xA4CA87; [0x1B15F48]'s only writer is the static initialiser at 0xD1CC40 (floor of the float 500.5 at 0x160A5E8, then ftol). The arithmetic reproduced to the thousandth both money entries of all 582 trade routes in four of the maintainer's saves (Germany1936_04_20_03 239, autosave 115, Germany1936_01_08_07 42, olderautosave 186) for some whole relation, and where the pair has had no other change since (SAF-FRA, IRE-ENG, HUN-GER, CHI-ENG, BUL-GER, SIA-FRA, HUN-SOV) the fitted relation is 0 and the saved one 15, which is exactly TRADE_RELATION_CHANGES added on acceptance. Recorded until now as TradeRouteValueOneGood, read to its fifteenth instruction.",
+   "revises": "Was TradeRouteValueOneGood, inferred, unsigned and read only to its fifteenth instruction. Now read whole, named by its luabind registration, signed, and its formula checked against 582 saved routes."
+  },
+  {
+   "rva": "0x64C880",
+   "kind": "function",
+   "name": "TradeRouteSetOneGood",
+   "signature": null,
+   "no_signature": "The destination block arrives in EAX and six dwords on the stack, caller-cleaned (`add esp, 0x18`): out, category, value, the other block, and two CCountryTag pointers - which two depends on the caller's branch (to/from or from/to).",
+   "comment": "0xA4C880, two callers, both inside TradeRouteSetTradedOf (0xA4CAC8 and 0xA4CAEB). Read whole 2026-10-13: `old = (*block)[category]; (*block)[category] = value`; **when value > 0, `(*other)[category] = 0`** - one good never flows both ways; then `*out` = the CTradeRoute::GetCost arithmetic applied to `value - old` (the relation of the two tags, goods_cost, the 500), i.e. the price of the change. **TradeRouteSetTradedOf throws that result away** - it reuses the slot for GetCost's own output - so the money column is always recomputed whole, never adjusted by this delta.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Decompiled and the two call sites' pushes read in TradeRouteSetTradedOf (0xA4CAAA-0xA4CAEB); the out slot [ebp-8] is overwritten by the first GetCost in the money loop (0xA4CB6F) and never read before that. Would be shown wrong by a reader of the out value in TradeRouteSetTradedOf.",
+   "revises": "The comment said it 'keeps the delta' and reads the relation globals, with the result's use unknown, `likely`. Now read whole: the result is the price of the change, and its one consumer discards it."
+  },
+  {
+   "rva": "0x64A750",
+   "kind": "function",
+   "name": "FindMatchingTradeRoute",
+   "signature": "CTradeRoute* __fastcall FindMatchingTradeRoute(CDiplomacyStatus* status@EAX, const CTradeRoute* candidate@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "0xA4A750 to the two `ret 4`s at 0xA4A7B9/0xA4A7D6. Receiver in **EAX**, so class-free per trap 11. It walks the status's trade routes at +0x60 (node = {item, prev, next}) and **returns the first route** (`mov eax, [ecx]` - the node's item) that matches the candidate in `+0xC` and `+0x14` (the CRelation first/second ids, so order-sensitive) and in **both seven-value goods blocks** (`trade_from +0x44`, `trade_to +0x34`, compared for i < 0x1C); null where none does. Two callers: CTradeAction::IsValid's cancellation arm (0xA38906), which tests the pointer as a bool, and **CTradeAction::Apply's cancellation (0xA36941), which calls slot 11 on it with no null test** - so a cancel must carry an exact copy of the route it ends.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Disassembly 0xA4A750-0xA4A7D6: the found path ends `mov eax,[ecx]` (0xA4A770) left in EAX to the `ret 4` at 0xA4A7B9, the other path `xor eax,eax`; the caller at 0xA36946 does `mov edi, eax; mov edx,[edi]; call [edx+0x2c]`. findRefs --callers gives the two sites.",
+   "revises": "Recorded as returning bool with one caller. It returns the matching CTradeRoute* (or null), and CTradeAction::Apply is a second caller that uses the pointer."
+  },
+  {
+   "rva": "0x64CEE0",
+   "kind": "function",
+   "name": "CTradeRoute::IsValid",
+   "signature": "bool __thiscall CTradeRoute::IsValid(CTradeRoute* this)",
+   "no_signature": null,
+   "comment": "The game's own Lua name (registration 0x8ED463/0x8ED468). 0xA4CEE0 to the bare `ret`s at 0xA4D031/0xA4D03A. Read whole 2026-10-13:\n\n1. **True at once when both `from` and `to` have CCountry +0xDEC** - the faction rule free_resource_gifts (see that field).\n2. t = (int)floor(1.5f) = 1 (one thousandth). Over the six goods that are not money: if some good of `trade_from (+0x44)` and some good of `trade_to (+0x34)` each exceed t in absolute value - **goods both ways, a barter** - false.\n3. Where neither block's money exceeds t-1 (`|money| < 1` both ways) - **a trade with no price** - false.\n4. Where the route has a convoy (+0x7C/+0x80 resolves): false unless the controllers of both its start and its end province are `from` or `to`.\n5. True.\n\nSo without the rule a route is one-way goods for money; **with it on both sides, anything goes, money or none** - and SetTrading then leaves the money column at nothing. The text CTradeRoute::GetInvalidReason gives for step 2 is NO_TRADE_RULE. Its callers: CTradeAction::Apply on ACCEPT and the trade dialog's Agree gate and tooltip.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Disassembly 0xA4CF2A-0xA4D03A: the threshold from [0x17179AC] = 1.5f through floor/ftol, the per-good loop 0xA4CF50-0xA4CF8F with the barter exit at 0xA4CF85, the money tests 0xA4CF91-0xA4CFAF (`jge`/`jl` on edi = 1), the convoy lookup 0xA4CFB5-0xA4CFE8 and the controller tests 0xA4CFEA-0xA4D027. No saved route of the 582 checked moves goods both ways or lacks money, as step 2-3 require.",
+   "revises": "Only the +0xDEC short-circuit had been read. The validation proper - no barter, a price required, the convoy's ends held by the two - is now in the comment."
+  },
+  {
+   "rva": "0x49B810",
+   "kind": "function",
+   "name": "CEU3AI::EvaluateCancelTrades",
+   "signature": "float __thiscall CEU3AI::EvaluateCancelTrades(CEU3AI* this, float amount, GoodsCategory category)",
+   "no_signature": null,
+   "comment": "The game's own Lua name, from the baked-in registration at 0x8F68D1 (RTTI `float CEU3AI::EvaluateCancelTrades(float, GoodsCategory)`). Read whole 2026-10-13, 0x89B810 to the `ret 8` at 0x89BC7B. **The engine's own code for an AI giving up exports of one good, called only from Lua**:\n\n    if (amount <= 0) return amount\n    for each country o of the game state's country vector, o != us,\n      for each route r on us->diplomacy[o]->trade_routes:\n        v = (us == r.from ? r.trade_from (+0x44) : r.trade_to (+0x34))[category] / 1000.0   ; what we hand over\n        if v > 0:\n          if v > amount: keep r as a candidate\n          else:          amount -= v; PostTradeRouteCancel(r)\n    if amount > 0 and there are candidates:\n        PostTradeRouteCancel(the candidate with the smallest v, the first of equals); amount = 0\n    return amount\n\nSo every export of the good no larger than what is still to be freed is cancelled, in country order and list order, and then the smallest larger one. Each cancellation is a posted command, so it takes effect when the command executes.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Decompiled and checked in the disassembly: the `comiss` bail at 0x89B831, the min search's strict `comisd ... jbe` at 0x89BC36, the final cancel at 0x89BC51 after `movss [ebp+8], xmm3` (amount = 0), `fld [ebp+8]` as the return at 0x89BC6B; the threshold [0x15BED10] reads 0.0f. Two calls to 0x89BC80 (0x89B9D7, 0x89BC51), its only callers.",
+   "revises": "Only the prologue had been read (`likely`). Now read whole, and the name is the registration's, so confirmed."
+  },
+  {
+   "rva": "0x49BC80",
+   "kind": "function",
+   "name": "PostTradeRouteCancel",
+   "signature": "void __fastcall PostTradeRouteCancel(const CTradeRoute* route@ECX)",
+   "no_signature": null,
+   "comment": "Posts the cancellation of one route: a stack CTradeAction (vftable 0x15FB8D4, type PROPOSE, `date` and `last_command_date` = now) whose **actor is the route's `from` (+0x24) and recipient its `to` (+0x2C), whoever asked**, `value` cleared, its route assigned from `route` (0xA39020, so FindMatchingTradeRoute will match it); then, if CTradeAction::IsSelectable (always, for a cancel between two countries), MakeCommand posted through the in-game screen's session channel (+0x38 slot 6). Two callers, both in CEU3AI::EvaluateCancelTrades. **So when an AI that is a route's `to` cancels it, the messages and the relation penalty name the `from` as the one who broke it.** The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Disassembly 0x89BC80-0x89BE6E: actor from [edi+0x24]/[edi+0x28] at 0x89BD20-0x89BD38, recipient from [edi+0x2C]/[edi+0x30], value 1 at 0x89BD69 then 0 at 0x89BDA0, the route copy 0xA39020 at 0x89BDA6 with ESI = the action's route and EDI = the argument, IsSelectable at 0x89BDB1. Would be shown wrong by a caller passing a route reordered to put the canceller first."
+  },
+  {
+   "rva": "0x637520",
+   "kind": "function",
+   "name": "CTradeAction::GetDialogText",
+   "signature": "Hoi3CString* __thiscall CTradeAction::GetDialogText(CTradeAction* this, Hoi3CString* out)",
+   "no_signature": null,
+   "comment": "**CTradeAction slot 12**, the Description of the trade dialog (refreshed by CTradeDiplomacyDialog_RefreshTexts). Read whole 2026-10-13, to the `ret 4` at 0xA37EEF.\n\n- **Offering** (`value`): TRADENEWDESCTWO \"We offer §Y$COUNTRY$§W to §Y$TYPE$§W $SELL$ per day for $BUY$ per day.\", COUNTRY = the recipient. Where the actor pays no money (`trade_from` money < 1): SELL = FormatTradeGoods(trade_from), BUY = FormatTradeGoods(trade_to), TYPE = TRADE_BUY \"Buy\" (they buy what we sell). Otherwise BUY = FormatTradeGoods(trade_from), SELL = FormatTradeGoods(trade_to), TYPE = TRADE_TRADE \"Trade\" where the recipient pays money too, else TRADE_SELL \"Sell\". TYPE is the recipient's side of the deal.\n- **Cancelling**: CANCELTRADENEWDESC \"Do you wish to cancel our agreement with $COUNTRY$?\\nThis will stop the transfer of $SELL$ for $BUY$.\" with COUNTRY = GetText of the recipient's name passed through `sprintf` as a format; **SELL and BUY are never filled**; then \"\\n\" + DIP_INFLUENCECOST with COST = TRADE_CANCEL_INFLUENCE_COST (+0xA4) to 2 decimals - a cost CTradeAction::Apply never charges. No screen was found that shows this arm: the diplomacy screen lists no trade cancellation.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Decompiled and the keys read off the literals; the branch on trade_from's money ([+0x44]+8 < 1) and trade_to's (> 0) read in the decompilation against the record's offsets (Ghidra still names +0x44 trade_to). vtable.py --holding 0xA37520: CTradeAction slot 12 only. Localisation from localisation/*.csv."
+  },
+  {
+   "rva": "0x638FA0",
+   "kind": "function",
+   "name": "CTradeAction::SetRecipient",
+   "signature": "void __thiscall CTradeAction::SetRecipient(CTradeAction* this, CCountryTag tag)",
+   "no_signature": null,
+   "comment": "CTradeAction slot 8: `recipient (+0x10/+0x14) = tag` and the embedded route's slot 9 (CTradeRoute::SetSecond) with the same tag - so **the recipient is always the route's `second` and `to`**. `ret 8`. The base slot 8 is the 34-table folded setter 0xA3F510.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Disassembly 0xA38FA0-0xA38FBF: writes +0x10/+0x14, then `add ecx,0x28; call [vftable+0x24]`. One holder (vtable.py --holding)."
+  },
+  {
+   "rva": "0x638FD0",
+   "kind": "function",
+   "name": "CTradeAction::SetActor",
+   "signature": "void __thiscall CTradeAction::SetActor(CTradeAction* this, CCountryTag tag)",
+   "no_signature": null,
+   "comment": "CTradeAction slot 9: `actor (+0x8/+0xC) = tag` and the embedded route's slot 8 (CTradeRoute::SetFirst) - **the actor is always the route's `first` and `from`**. `ret 8`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Disassembly 0xA38FD0-0xA38FEF: writes +0x8/+0xC, then `call [vftable+0x20]` on this+0x28. One holder."
+  },
+  {
+   "rva": "0x638A90",
+   "kind": "function",
+   "name": "CTradeAction::GetToken",
+   "signature": "int __thiscall CTradeAction::GetToken(CTradeAction* this)",
+   "no_signature": null,
+   "comment": "CTradeAction slot 15: `mov eax, 0x6DA; ret` - the save token `trade_action`, which is how RunHourlyAITrade, AnswerPendingOffers and the screen tell a trade from other offers.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Two instructions at 0xA38A90; ghidra/saveTokens.json gives 0x6DA = trade_action. One holder."
+  },
+  {
+   "rva": "0x638AA0",
+   "kind": "function",
+   "name": "CTradeAction::Clone",
+   "signature": "CTradeAction* __thiscall CTradeAction::Clone(CTradeAction* this)",
+   "no_signature": null,
+   "comment": "CTradeAction slot 16: `new(0xB0)` and the copy constructor 0xA34C00 (the action's fields and a CTradeRoute copy of +0x28 through 0xA4C660); null where the allocation fails. What MakeCommand, the dialogs and CAskTrade call to keep their own copy.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Disassembly 0xA38AA0-0xA38AFD; 0xB0 = sizeof(CTradeAction) = 0x28 + 0x88. One holder."
+  },
+  {
+   "rva": "0x60FE10",
+   "kind": "function",
+   "name": "DiplomaticAction_ValueIsSet",
+   "signature": "bool __fastcall DiplomaticAction_ValueIsSet(CDiplomaticAction* action@ECX) @AL",
+   "no_signature": null,
+   "comment": "`cmp byte [ecx+0x24], 0; setne al; ret` - `value != 0`. **Slot 18 of CAllianceAction, CNapAction, CRequestLendLeaseAction and CTradeAction**, so class-free (trap 4). Slot 18 of the family answers whether the offer is one the other side answers: CAIForeignMinister::AnswerPendingOffers and RunHourlyAITrade skip an action where it is false, and DiplomaticAction_BuildChanceText shows no chance. For these four, **an offer is answered and a cancellation is not**.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Three instructions at 0xA0FE10; vtable.py --holding 0xA0FE10 lists the four tables, all at slot 18. Distinct from 0xA0E990 (`mov al,[ecx+0x24]`), which three other classes hold at slot 18."
+  },
+  {
+   "rva": "0x64CED0",
+   "kind": "function",
+   "name": "CTradeRoute::GetToken",
+   "signature": "int __thiscall CTradeRoute::GetToken(CTradeRoute* this)",
+   "no_signature": null,
+   "comment": "CTradeRoute slot 7 (CRelation leaves it pure): `mov eax, 0x222; ret` - save token `trade`, the key the route is written under in the top-level `diplomacy` block. CNap's answers 0x6CD `nap`, CAlliance's 0x294 `alliance`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Two instructions at 0xA4CED0; saveTokens.json 0x222 = trade. One holder."
+  },
+  {
+   "rva": "0x64D500",
+   "kind": "function",
+   "name": "CTradeRoute::SetFirst",
+   "signature": "void __thiscall CTradeRoute::SetFirst(CTradeRoute* this, CCountryTag tag)",
+   "no_signature": null,
+   "comment": "CTradeRoute slot 8: `first (+0x8/+0xC)` **and `from` (+0x24/+0x28)** = tag. So `first` and `from` are one country on every route, as are `second` and `to` (slot 9). `ret 8`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Disassembly 0xA4D500-0xA4D51B. One holder; CRelation's slot 8 is the folded 0xA46980."
+  },
+  {
+   "rva": "0x64D520",
+   "kind": "function",
+   "name": "CTradeRoute::SetSecond",
+   "signature": "void __thiscall CTradeRoute::SetSecond(CTradeRoute* this, CCountryTag tag)",
+   "no_signature": null,
+   "comment": "CTradeRoute slot 9: `second (+0x10/+0x14)` and `to` (+0x2C/+0x30) = tag. `ret 8`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Disassembly 0xA4D520-0xA4D53B. One holder."
+  },
+  {
+   "rva": "0x64D400",
+   "kind": "function",
+   "name": "CTradeRoute::Deactivate",
+   "signature": "void __thiscall CTradeRoute::Deactivate(CTradeRoute* this)",
+   "no_signature": null,
+   "comment": "CTradeRoute slot 11, the undo of slot 10: takes the route off `first->diplomacy[second]->trade_routes` and `second->diplomacy[first]->trade_routes` (CList_RemoveNode 0x5D49D0, twice), then, where its convoy id (+0x7C/+0x80) is not the null id, finds the convoy and **clears its `is_trade` (+0xA0)** - the convoy is not destroyed here. The daily look at a country's convoys (RunCountryDailyPass, 0x4DABDF on) then removes it: a convoy that is not trade and whose mask carries money is removed, and a trade convoy no route of the pair refers to is removed too.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Disassembly 0xA4D400-0xA4D4F5; `mov byte [eax+0xa0], 0` at 0xA4D4E9. The removal rules read at 0x4DABDF-0x4DADDC (the trade branch walks `owner->diplomacy[end controller, or start controller]->trade_routes` for a route whose convoy is this one, 0x4DAC35-0x4DAC7A). One holder."
+  },
+  {
+   "rva": "0x64CD60",
+   "kind": "function",
+   "name": "CTradeRoute::SaveContents",
+   "signature": "void __thiscall CTradeRoute::SaveContents(CTradeRoute* this, CSaveWriter* writer)",
+   "no_signature": null,
+   "comment": "CTradeRoute slot 2. Writes, in order: `to` (0x350, +0x2C), `from` (0x34F, +0x24), `trade_from` (0x6DC) **from +0x44**, `trade_to` (0x6DD) **from +0x34**, `convoy` (0x4D8, the id pair +0x7C/+0x80) unless null, then CRelation::SaveContents (`first`, `second`, `start_date`). Nothing of `inactive`, `inactive_reason`, `convoy_responsible` or `last_inactive` is saved, so a loaded route starts active. `ret 4`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Disassembly 0xA4CD60-0xA4CECA: `mov ecx, 0x6dc` with `lea edx,[ebx+0x44]` at 0xA4CE5D-0xA4CE61 and `mov ecx, 0x6dd` with `lea eax,[ebx+0x34]` at 0xA4CE6B-0xA4CE6F; tokens from saveTokens.json. CTradeRoute::LoadKey agrees (0x6DC -> +0x44 at 0xA4CD3C, 0x6DD -> +0x34 at 0xA4CD32). The save's key order (to, from, trade_from, trade_to, convoy, first, second, start_date) matches."
+  },
+  {
+   "rva": "0x64D660",
+   "kind": "function",
+   "name": "TradeRouteSetConvoy",
+   "signature": "void __fastcall TradeRouteSetConvoy(CTradeRoute* route@ECX, CConvoy* convoy@EAX)",
+   "no_signature": null,
+   "comment": "Links a route to its convoy: `route->convoy (+0x7C/+0x80)` = the convoy's id pair (+0x8/+0xC) and `convoy->is_trade (+0xA0)` = 1; a null convoy writes the null id ([0x1A8CC94]/[0x1A8CC98]). One caller, CTradeAction::Apply (0xA35E26). The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Disassembly 0xA4D660-0xA4D692, bare `ret`s, both arguments in registers (EAX tested, ECX written)."
+  },
+  {
+   "rva": "0x64D040",
+   "kind": "function",
+   "name": "CTradeRoute::GetInvalidReason",
+   "signature": "Hoi3CString* __thiscall CTradeRoute::GetInvalidReason(CTradeRoute* this, Hoi3CString* out)",
+   "no_signature": null,
+   "comment": "The trade dialog's Agree-button tooltip when CTradeRoute::IsValid fails. Repeats IsValid's barter test (any good above one thousandth in both blocks, money excluded) and, where it holds, NO_TRADE_RULE \"Only if both parties have the $RULE$ rule could we trade resources for resources.\" with RULE = the localised name of rule definition 3 (RULE_FREE_RESOURCE_GIFTS \"Free resources gifts\", from the vector at 0x1A862C0); **otherwise the empty string** - a trade invalid for having no price says nothing. `ret 4`. Reached through CTradeAction_GetRouteInvalidReason. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Decompiled; the `ret 4` at 0xA4D2B0 is the only one (retsBefore). Rule definition 3 per the InitRuleDefinitions entry (rva 0x5D4A0). Localisation from localisation/*.csv."
+  },
+  {
+   "rva": "0x638F10",
+   "kind": "function",
+   "name": "CTradeAction_GetRouteInvalidReason",
+   "signature": "Hoi3CString* __fastcall CTradeAction_GetRouteInvalidReason(CTradeAction* action@ECX, Hoi3CString* out@ESI) @EAX",
+   "no_signature": null,
+   "comment": "Five instructions: CTradeRoute::GetInvalidReason(&action->route, out), returning `out`. The output buffer arrives in ESI. One caller, CTradeDiplomacyDialog::GetTooltip (0x774BBE).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Disassembly 0xA38F10-0xA38F29: `push esi; add ecx,0x28; call 0xa4d040; mov eax, esi; ret`."
+  },
+  {
+   "rva": "0x103C60",
+   "kind": "function",
+   "name": "CCountry::NeedConvoyToTradeWith",
+   "signature": "bool __thiscall CCountry::NeedConvoyToTradeWith(CCountry* this, CCountryTag other)",
+   "no_signature": null,
+   "comment": "Registered to Lua under this name. Read whole 2026-10-13, 0x503C60 to the `ret 8`s:\n\n    if (this->neighbours (+0xF58)[other.id]) return false            ; a land neighbour: overland\n    a = GetActingCapitalLocation(this)->area; b = the same of other\n    if (!a || !b) return true\n    if (other's acting capital's continent (+0x368) == this one's) return false   ; one continent: overland\n    if (AreaIsConnectedTo(a, b)) return false\n    return true\n\nSo **trade needs a convoy only between two countries that do not border each other and whose acting capitals are on different continents in areas not joined overland**. Two countries of one continent trade overland whatever lies between them. Callers include CTradeAction::Apply, IsConvoyPossible, IsSelectable, GetDescription, CAskTrade and CCountry::RunDailyTradeRoutes.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Disassembly 0x503C60-0x503CFF: `cmp byte [ecx+eax], 0` with eax = [esi+0xF58] at 0x503C6B-0x503C74, the two GetActingCapitalLocation calls, `cmp ebx, [eax+0x368]` at 0x503CE0, AreaIsConnectedTo at 0x503CEE. The province field +0x368 is the continent in the record."
+  },
+  {
+   "rva": "0x5E340",
+   "kind": "function",
+   "name": "CRule::Merge",
+   "signature": "CRule* __stdcall CRule::Merge(CRule* this@ESI, const CRule* other@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "ORs another rule set into this one: each of the four bools at +0x18, +0x20, +0x28 and +0x30 (the definitions NONE, LIMITED_WAR, ALLIANCE_GUARANTEE, FREE_RESOURCE_GIFTS) becomes `this || other`, and `other` is appended to this one's list at +0x8 (node {other, prev, next, byte}). Returns `this`. Its caller CCountry::RebuildRules passes `&faction->rule (CFaction +0x40)` into the country's `Rules (+0xDBC)` - **which is what sets CCountry +0xDEC**, the free_resource_gifts rule, for every member of a real faction whose rule has it (in the base game, the Comintern: common/ideologies.txt).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Disassembly 0x45E340-0x45E3F0, `ret 4` both exits, the receiver read through ESI only; the caller at 0x4FBC1B-0x4FBC6D sets `lea esi,[edi+0xdbc]` and pushes faction+0x40. 0xDBC + 0x30 = 0xDEC."
+  },
+  {
+   "rva": "0x373220",
+   "kind": "function",
+   "name": "CTradeDiplomacyDialog::CTradeDiplomacyDialog",
+   "signature": "CTradeDiplomacyDialog* __stdcall CTradeDiplomacyDialog::CTradeDiplomacyDialog(CInGameIdler* host@ECX, CTradeDiplomacyDialog* self@stack:4, CTradeAction* action@stack:8, CDiplomacyView* view@stack:12) @EAX",
+   "no_signature": null,
+   "comment": "**The trade offer window** (`TradeDiplomacyDialog`, interface/diplomacydialog.gui), made by DiplomacyView_OpenActionDialog (0x78BCBA) with the host in ECX and the object, the row's action and the view on the stack; `ret 0xC`, returns the object. It keeps `host` at +0x68, **a clone of the action** (slot 16) at +0x6C, the view at +0x70 and a seven-value vector at +0x74; sets `LeftShield` to the actor and `RightShield` to the recipient, the title to slot 10; fills the vector with (int)floor(-999.5f) = **-1000 in every good - a sentinel, so the first update finds every slider changed** - and money with 0; binds `reset_fuel`, `reset_supplies`, `reset_metal`, `reset_energy`, `reset_rare_met` and `reset_crude_oil` to CTradeDiplomacyDialog::OnResetButton; labels `AgreeButton` ACCEPT and `DeclineButton` DECLINE (the file's PW_I_DO / PW_RUN_AWAY are overwritten); **hides `debt_desc` (IS_BOUGHT_WITH_DEBT \"Debt is used for this deal.\") unless `actor->diplomacy[recipient]->allowDebts` and the actor is at war**; then CTradeDiplomacyDialog_RefreshTexts.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Disassembly 0x773220-0x7739C6 (`ret 0xc`, `mov eax, ebx` = the object): ECX saved to esi and stored at [ebx+0x68] (0x773290), the vftable 0x15DA17C written at 0x77328A; the floor of -999.5f at [0x160AAD0]; the debt test read in the decompilation. The caller pushes edi (view), esi (action), eax (the new object) at 0x78BCB7-0x78BCB9 with ECX = view+0xB0."
+  },
+  {
+   "rva": "0x373E30",
+   "kind": "function",
+   "name": "CTradeDiplomacyDialog::StaysOpen",
+   "signature": "bool __thiscall CTradeDiplomacyDialog::StaysOpen(CTradeDiplomacyDialog* this)",
+   "no_signature": null,
+   "comment": "CTradeDiplomacyDialog slot 7, **the dialog's frame**. In the order crude oil, fuel, supplies, metal, rare materials, energy: the slider `crude_slider`, `fuel_slider`, `supplies_slider`, `metal_slider`, `rare_met_slider`, `energy_slider` is read as `s = (int)floor((pos + 0.0005) * 1000)` (0..1000; the .gui gives 0..1, step 0.001, start 0.5) and TradeDialog_ReadSlider turns it into an amount and writes `value_<good>`. **Where any changed**: CTradeAction::SetTrading for each good but money with the stored amount, then the vector's money entry = minus the money the actor pays where it pays any, else the money the recipient pays (never shown - there is no money slider), and CTradeDiplomacyDialog_RefreshTexts. Then **`AgreeButton` is enabled where CTradeRoute::IsValid and CTradeAction::IsConvoyPossible both hold**, disabled otherwise. Answers true (stay open) while the view is shown (slot 7) and the action's slot 13 (IsValid) holds, unless another dialog is at view +0x518; otherwise false, after RebuildActionList where the recipient is still selected.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Disassembly 0x773E30-0x774643: six calls to 0x773A90 (0x773F22 good 3, 0x77401E, 0x774118, 0x774214, 0x77430F, 0x77440B) each storing al to [esp+0xf] and setting [esp+0xe] = 1 where it is set; the test at 0x774433-0x77443D; the SetTrading loop 0x774450-0x774470 skipping 2; the money arithmetic 0x774472-0x7744D3; IsValid 0x7744E8 and IsConvoyPossible 0x7744F4 ahead of AgreeButton slot 46 (0xB8) or 47 (0xBC); the view +0x518 test 0x7745E0. One holder."
+  },
+  {
+   "rva": "0x373A90",
+   "kind": "function",
+   "name": "TradeDialog_ReadSlider",
+   "signature": "bool __cdecl TradeDialog_ReadSlider(int** amounts@ECX, GoodsCategory category@stack:4, int* position@stack:8, void* valueText@stack:12) @AL",
+   "no_signature": null,
+   "comment": "Turns a trade slider into an amount a day. With `s` the position 0..1000 and the centre (int)floor(500.5f) = 500:\n\n    s < 500:  amount = -(MAX_DAILY_TRADE * (500 - s) / 1000)     ; the left button is SELL\n    s >= 500: amount =   MAX_DAILY_TRADE * (s - 500) / 1000      ; the right button is BUY\n\nMAX_DAILY_TRADE is economy +0x38 (100 in Their Finest Hour, so **50.000 a day either way at the ends, 0.100 a step**). Where the amount equals the stored one it answers false and writes nothing; otherwise it stores it and writes `valueText` = TRADE_DAY \"$VAL$/Day\" with VAL = the amount to 2 decimals, and answers true. **This is the reader of MAX_DAILY_TRADE that FINDINGS-convoys.md did not find**: it caps the dialog, and nothing in the simulation reads it. Caller-cleaned (`add esp, 0xc`), the vector in ECX.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Decompiled; the call sites push valueText, &position and the good and set ECX = dialog+0x74 (e.g. 0x773F17-0x773F27). The economy offset +0x38 = MAX_DAILY_TRADE per definesMap.py. Would be shown wrong by a second reader of economy +0x38 in the simulation, which a GetDefines scan cannot exclude (trap 8)."
+  },
+  {
+   "rva": "0x374650",
+   "kind": "function",
+   "name": "CTradeDiplomacyDialog_RefreshTexts",
+   "signature": "void __fastcall CTradeDiplomacyDialog_RefreshTexts(CTradeDiplomacyDialog* dialog@ECX)",
+   "no_signature": null,
+   "comment": "`Description` = the action's slot 12 (CTradeAction::GetDialogText) and `chance_string` = DiplomaticAction_BuildChanceText - the AI's chance as a word, shown because a trade offer's slot 18 is true. Called from the constructor and whenever a slider moves.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Decompiled 0x774650-0x774737, bare `ret`; slot 12 called through [vftable+0x30]."
+  },
+  {
+   "rva": "0x374740",
+   "kind": "function",
+   "name": "CTradeDiplomacyDialog::OnResetButton",
+   "signature": "void __thiscall CTradeDiplomacyDialog::OnResetButton(CTradeDiplomacyDialog* this, void* element)",
+   "no_signature": null,
+   "comment": "The six `reset_<good>` buttons' handler, through the observer glue at +0x84: the slider of the pressed button's good is set back to its start value (slider +0x388 - 0.5 in the file, i.e. nothing traded); the next frame's StaysOpen sees the change and re-prices. `ret 4`.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Decompiled; the button-name compares and the slider calls `(slider+0x48)->slot 7(slider+0x388, 1, 1)` read; that +0x388 is the start value and slot 7 sets the position is inferred from the shape, hence inferred. The constructor stores 0x774740 as the glue's callback at dialog +0xA4 and registers the glue (+0x84) with each reset button."
+  },
+  {
+   "rva": "0x374AC0",
+   "kind": "function",
+   "name": "CTradeDiplomacyDialog::HasTooltip",
+   "signature": "bool __thiscall CTradeDiplomacyDialog::HasTooltip(CTradeDiplomacyDialog* this, void* element)",
+   "no_signature": null,
+   "comment": "CTradeDiplomacyDialog slot 2: true for the `AgreeButton` element alone. The base CEU3Dialog's slot 2 is 0x749390. The slot's meaning - which element the dialog answers a tooltip for - is inferred from slot 3, which builds that button's tooltip.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Disassembly 0x774AC0-0x774B41, `ret 4`: one element lookup by name and a compare. One holder."
+  },
+  {
+   "rva": "0x374B50",
+   "kind": "function",
+   "name": "CTradeDiplomacyDialog::GetTooltip",
+   "signature": "GuiTooltipText* __thiscall CTradeDiplomacyDialog::GetTooltip(CTradeDiplomacyDialog* this, GuiTooltipText* out, void* element)",
+   "no_signature": null,
+   "comment": "CTradeDiplomacyDialog slot 3, the `AgreeButton` tooltip: where CTradeRoute::IsValid holds, either TR_CANT_CONVOY \"$ACTOR$ cannot trace a convoyroute to collect his goods\" (ACTOR = GetConvoyResponsible's country, i.e. the buyer) where CTradeAction::IsConvoyPossible fails, or the action's slot 11 (CTradeAction::GetDescription); where it does not, CTradeAction_GetRouteInvalidReason - NO_TRADE_RULE for a barter, empty otherwise. `ret 8`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Decompiled 0x774B50-0x774D7C; the responsible side chosen on trade_to's money (Ghidra's trade_from, +0x34) exactly as GetConvoyResponsible. One holder."
+  },
+  {
+   "rva": "0x634CA0",
+   "kind": "function",
+   "name": "FormatTradeGoods",
+   "signature": "Hoi3CString* __cdecl FormatTradeGoods(Hoi3CString* out, int** goods)",
+   "no_signature": null,
+   "comment": "A goods block as text: for each of the seven goods whose value is non-zero, `§Y` + the value to 2 decimals + ` ` + the good's name + `§W ` (DAT 0x15C73CC), joined by `, ` and the last two by ` ` + AND \"and \"; TRADE_NOTHING \"Nothing\" where none. The separators count only positive values. Used for $SELL$/$BUY$, $FROM$/$TO$ and ACT_TRADE/REC_TRADE everywhere trade is described.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Decompiled 0xA34CA0-0xA352EC, bare `ret`; the two literals read from the image (0x15B5C54 = '§Y', 0x15C73CC = '§W ')."
+  },
+  {
+   "rva": "0x405160",
+   "kind": "function",
+   "name": "CTradeCancelConfirm::OnAgree",
+   "signature": "void __thiscall CTradeCancelConfirm::OnAgree(CTradeCancelConfirm* this)",
+   "no_signature": null,
+   "comment": "CTradeCancelConfirm slot 5 - **the player's own way to cancel a trade**, from the production screen's trade list. Posts a CTradeAction with actor = the player, recipient = the route's `first` or, where that is the player, its `second`, `value` 0 and the route copied from the dialog's (+0x68), through the in-game screen's session channel; marks the dialog closed. No test at the press.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Disassembly 0x805160-0x805386: [ebx+0x70]/[ebx+0x74] compared with played_country_id (+0xC34) and replaced by [ebx+0x78]/[ebx+0x7C], the action built at [esp+0x24], the route assigned from dialog+0x68 (0x8052B0-0x8052BC). One holder (vftable 0x15DEE74)."
+  },
+  {
+   "rva": "0x404A70",
+   "kind": "function",
+   "name": "CTradeCancelConfirm::CTradeCancelConfirm",
+   "signature": "CTradeCancelConfirm* __stdcall CTradeCancelConfirm::CTradeCancelConfirm(CTradeCancelConfirm* this@stack:4, const CTradeRoute* route@stack:8) @EAX",
+   "no_signature": null,
+   "comment": "The `DefaultConfirm` window asking to cancel a trade: a copy of the route at +0x68; title CANCELTRADETITLE \"Cancel Trade Agreement\"; text CANCELTRADENEWDESC with COUNTRY = the route's `first`, or its `second` where the first is the player, SELL = FormatTradeGoods(trade_from) and BUY = FormatTradeGoods(trade_to) - **the same two blocks whichever side the player is on**, so to the route's `to` it reads the wrong way round. One caller, 0x803CAE (the production screen's trade list).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "evidence": "Decompiled 0x804A70-0x8050C0 (`ret 8`); both branches of the player test pass param_1+0x2B (route +0x44) as SELL and param_1+0x27 (route +0x34) as BUY."
+  }
+ ],
+ "structs": [
+  {
+   "name": "CTradeDiplomacyDialog",
+   "size": "0xB0",
+   "inherits": "CEU3Dialog",
+   "vftable_rva": "0x11DA17C",
+   "comment": "The trade offer window, `TradeDiplomacyDialog` in interface/diplomacydialog.gui: six sliders, six value texts and six reset buttons, one per good but money, plus the standard Title, Description, chance_string, shields and buttons, and `debt_desc`. Made by DiplomacyView_OpenActionDialog for a trade_action row.",
+   "evidence": "`new 0xB0` in DiplomacyView_OpenActionDialog (its record); RTTI: one base CEU3Dialog at offset 0, vftable 0x15DA17C."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CTradeRoute",
+   "offset": "0x34",
+   "name": "trade_to",
+   "type": "int[3]",
+   "comment": "**What `to` (the recipient) hands over each day**: a vector header (begin at +0x34) over seven values in thousandths a day, one per good in pool order (supplies, fuel, money, crude oil, metal, energy, rare materials). Save key `trade_to` (token 0x6DD), Lua GetTradedToOf. Its money entry (index 2) is the price of `trade_from`'s goods (CTradeRoute::GetCost), recomputed by TradeRouteSetTradedOf; where it is non-zero `to` is the buyer and runs the convoy. RunDailyTradeRoutes moves it from `to`'s stockpile to `from`'s. A positive CTradeAction::SetTrading writes here.",
+   "evidence": "SaveContents writes token 0x6DD from +0x34 and LoadKey reads it there (0xA4CE6B, 0xA4CD32); RunDailyTradeRoutes adds +0x34's amount to `first`'s pool and takes it from `second`'s (0x4FF3D3, 0x4FF48E-0x4FF49D); GetTradedToOf reads it. 582 saved routes have their money in the block opposite their goods.",
+   "revises": "Was named trade_from, with the direction marked unproven. Named by the save key its own SaveContents writes, and the flow read off RunDailyTradeRoutes."
+  },
+  {
+   "struct": "CTradeRoute",
+   "offset": "0x44",
+   "name": "trade_from",
+   "type": "int[3]",
+   "comment": "**What `from` (the actor, the route's `first`) hands over each day**: a vector header over seven values in thousandths a day, pool order. Save key `trade_from` (token 0x6DC), Lua GetTradedFromOf, Lua's `voTradedFrom`. Its money entry is the price of `trade_to`'s goods; a negative CTradeAction::SetTrading writes here. CTradeRoute::IsValid refuses a route with goods in both blocks unless both countries have the free_resource_gifts rule.",
+   "evidence": "SaveContents writes token 0x6DC from +0x44 and LoadKey reads it there (0xA4CE5D, 0xA4CD3C); RunDailyTradeRoutes takes +0x44's amount out of `first`'s pool (0x4FF3A0, 0x4FF44B) and gives it to `second`.",
+   "revises": "Was named trade_to, with the direction marked unproven; swapped on its own save key and the daily transfer."
+  },
+  {
+   "struct": "CTradeRoute",
+   "offset": "0x54",
+   "name": "inactive",
+   "type": "uint8_t",
+   "comment": "**Whether the route failed to run today** - the engine's own word, CTradeRoute::IsInactive. Written only by TradeRouteSetInactive, from RunDailyTradeRoutes: set where the route's convoy has no path, no transports or no usable route, or where either stockpile would go below nothing after the day's exchange; cleared on a day it delivers. Not saved. CEU3AI::AlreadyTradingDisabledResource and HasTradeGoneStale read it.",
+   "evidence": "TradeRouteSetInactive's three call sites, all in RunDailyTradeRoutes (0x4FEFD4, 0x4FFB06, 0x4FF623); not among the keys CTradeRoute::SaveContents writes.",
+   "revises": "Was `disabled`, `likely`, from a reader's name. The registered accessor says IsInactive and the writer is daily state - FINDINGS-trade2.md section 6, now read in the daily pass itself."
+  },
+  {
+   "struct": "CTradeRoute",
+   "offset": "0x60",
+   "name": "inactive_reason",
+   "type": "Hoi3CString",
+   "comment": "Why the route is inactive, as rendered text: TRADE_INACTIVE_CONVOY \"§Y$COUNTRY$§W have not assigned enough convoys.\" (COUNTRY = the convoy's responsible country) or TRADE_INACTIVE_NO_RES \"§Y$COUNTRY$§W does not have enough §Y$RES$§Y.\" (the side whose stockpile would go negative, and the good). Written by RunDailyTradeRoutes when it makes a route inactive and never cleared; shown as the delayed half of the production screen's trade-list `inactive_icon` tooltip (TRADE_IS_INACTIVE). Not saved.",
+   "evidence": "std::string assignments to route+0x60 at 0x4FF1B4 and in both NO_RES arms; the copy constructor copies it (0xA4C660); the tooltip builder 0x803FD0 reads param+0x60 of the route as the delayed text."
+  },
+  {
+   "struct": "CTradeRoute",
+   "offset": "0x7C",
+   "name": "convoy_id_type",
+   "type": "int",
+   "comment": "Type half of the CPersistent id of the route's convoy (42 for a convoy), save key `convoy`; with +0x80 it is looked up by FindPersistentByIdPair. The null id ([0x1A8CC94]/[0x1A8CC98]) where the route has no convoy - an overland route, or one whose convoy could not be made. Set by TradeRouteSetConvoy.",
+   "evidence": "TradeRouteSetConvoy (0xA4D66A-0xA4D687), SaveContents/LoadKey with token 0x4D8 at +0x7C, RunDailyTradeRoutes' lookup at 0x4FEF89-0x4FEF9C."
+  },
+  {
+   "struct": "CTradeRoute",
+   "offset": "0x80",
+   "name": "convoy_id",
+   "type": "int",
+   "comment": "Id half of the route's convoy's CPersistent id; see +0x7C.",
+   "evidence": "As +0x7C; the convoy's own id is CConvoy +0xC, copied here at 0xA4D681."
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0xDEC",
+   "name": "can_trade_free_resources",
+   "type": "uint8_t",
+   "comment": "**The faction rule free_resource_gifts, as the country holds it**: the fourth bool of `Rules (+0xDBC)` (CRule +0x18 + 3 x 8, rule definition 3 RULE_FREE_RESOURCE_GIFTS \"Free resources gifts\"). Cleared and rebuilt by CCountry::RebuildRules, which ORs in the rule of the country's faction where that faction is real (CRule::Merge) - in the base game the Comintern's (common/ideologies.txt, `rule = { free_resource_gifts = yes }`). Three readers, all requiring it on **both** countries of a trade: CEU3AI::CanTradeFreeResources; CTradeRoute::IsValid, which then accepts any route; and CTradeAction::SetTrading, which then leaves the money column alone - so **two members of such a faction trade goods for goods, or for nothing**. NO_TRADE_RULE names the same rule definition.",
+   "evidence": "RebuildRules (0x4FBC10) clears [esi+0x30] with esi = country+0xDBC and passes faction+0x40 to CRule::Merge (0x45E340), which writes +0x30; CTradeRoute::GetInvalidReason takes the name of rule definition [0x1A862C0]+0xC. The disp32 scan in FINDINGS-trade2.md could not see the write because it is a disp8 through +0xDBC.",
+   "revises": "The comment said no writer was found and called the meaning inferred from the readers. The writer is CRule::Merge through Rules (+0xDBC), and the meaning is the free_resource_gifts faction rule; the name is kept."
+  },
+  {
+   "struct": "CTradeDiplomacyDialog",
+   "offset": "0x68",
+   "name": "host",
+   "type": "CInGameIdler*",
+   "comment": "The in-game screen the dialog was made on (ECX of the constructor).",
+   "evidence": "`mov [ebx+0x68], esi` with esi = ECX at 0x773290."
+  },
+  {
+   "struct": "CTradeDiplomacyDialog",
+   "offset": "0x6C",
+   "name": "action",
+   "type": "CTradeAction*",
+   "comment": "The dialog's own clone of the row's trade action (slot 16); the sliders set its route through CTradeAction::SetTrading, and Agree posts it.",
+   "evidence": "The constructor stores the result of the action's slot 16 call ([edx+0x40]) here; StaysOpen reads it as the SetTrading receiver at 0x774443."
+  },
+  {
+   "struct": "CTradeDiplomacyDialog",
+   "offset": "0x70",
+   "name": "view",
+   "type": "CDiplomacyView*",
+   "comment": "The diplomacy view the dialog was opened from; StaysOpen asks whether it is shown and rebuilds its action list on closing.",
+   "evidence": "Third stack argument of the constructor; StaysOpen reads its selected country and +0x518."
+  },
+  {
+   "struct": "CTradeDiplomacyDialog",
+   "offset": "0x74",
+   "name": "amounts",
+   "type": "int*",
+   "comment": "Begin of a vector of seven amounts, thousandths a day, pool order (end +0x78, capacity +0x7C): what each slider asks for, positive to buy and negative to sell; money holds minus what the actor pays, or what it receives. Starts at -1000 in every good as a sentinel.",
+   "evidence": "Filled in the constructor; TradeDialog_ReadSlider is called with ECX = this+0x74 and indexes `[*ecx + good*4]`."
+  }
+ ],
+ "vftable_slots": {
+  "CTradeAction": {
+   "8": "SetRecipient",
+   "9": "SetActor",
+   "12": "GetDialogText",
+   "15": "GetToken",
+   "16": "Clone"
+  },
+  "CTradeRoute": {
+   "2": "SaveContents",
+   "7": "GetToken",
+   "8": "SetFirst",
+   "9": "SetSecond",
+   "11": "Deactivate"
+  },
+  "CTradeDiplomacyDialog": {
+   "2": "HasTooltip",
+   "3": "GetTooltip",
+   "7": "StaysOpen"
+  },
+  "CTradeCancelConfirm": {
+   "5": "OnAgree"
+  },
+  "CDiplomaticAction": {
+   "18": "NeedsAnswer"
+  }
+ },
+ "slots_noted": "0xA0FE10 (DiplomaticAction_ValueIsSet) is the folded `value != 0` body at slot 18 of CAllianceAction, CNapAction, CRequestLendLeaseAction and CTradeAction, so it is recorded class-free and the slot is named once on the base, CDiplomaticAction, as NeedsAnswer.",
+ "frontier": [
+  "0x403C70",
+  "0x403FD0",
+  "0x4050D0",
+  "0xE39C0",
+  "0x28A530",
+  "0x10D0D0"
+ ]
+}
