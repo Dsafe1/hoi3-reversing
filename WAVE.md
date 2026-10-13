@@ -17,42 +17,27 @@ truth.
 
 ---
 
-## The trade interface wave - the trade list, an offer to the player, automate-trade, the messages
+## The aid screens wave - the lend-lease window, the licence and share-technology dialogs
 
-> **LANDED 2026-10-13.** Both briefs ran and merged (37 addresses new, 3 structs, 22 struct fields, and
-> one revision of `CEU3Dialog_SetTitle`'s callers; apply 179 `failed: 0`, `struct fields: 0`); the
-> write-up is `findings/FINDINGS-tradeui.md`, indexed in `CANDIDATES.md`. It corrects
-> `FINDINGS-tradeaid.md` A.6 on the messages' variables, and finds an offer's dialog is `eu3dialog.gui`'s
-> `DefaultDialog`. Kept as history until the next plan replaces it.
+> **LANDED 2026-10-13.** Both briefs ran and merged (D: 31 addresses, 7 structs, 30 fields; E: 4 new
+> addresses, 6 revised, 3 field comments; apply 180 `failed: 0`, `struct fields: 0`); the write-up is
+> sections D and E of `findings/FINDINGS-tradeui.md`, indexed in `CANDIDATES.md`. Kept as history until
+> the next plan replaces it.
 
-Planned and launched 2026-10-13, for OpenHOI3's trade screens. The maintainer looked at its trade
-window beside the original and asked for the trade interface finished, and for the variables of the
-trade messages filled. The previous wave (`findings/FINDINGS-tradeaid.md`, landed the same day) read
-the trade itself; this one reads the screens around it. The cut in two is the collecting session's.
+Planned and launched 2026-10-13, for OpenHOI3's aid (debt, licences, lend-lease, shared technology),
+whose rules `findings/FINDINGS-tradeaid.md` section C read; the screens around them were left. One
+brief; the write-up is a section D of `findings/FINDINGS-tradeui.md`.
 
-**What is known and is not to be redone**:
-- `findings/FINDINGS-tradeaid.md` section A: `CTradeAction` arm by arm, its slots 11, 12, 13, 14 and
-  18, `FormatTradeGoods`, the `TradeDiplomacyDialog`, who is told which message key, the route's day,
-  `CTradeCancelConfirm`'s constructor and `OnAgree` (a value-0 action, actor the player), the
-  production trade list's inactive tooltip and `PW_IMPORTING` / `PW_EXPORTING`, `CAskTrade`'s text
-  (`TRADEREQDESC`, `CONV_AT_TRADE`, `IS_BOUGHT_WITH_DEBT`), and the claim, **to be checked**, that
-  "no shipped text uses" `ACT_TRADE` / `REC_TRADE` - `ACTRAWITHUS_6`, `WETRADEAG_4` and
-  `BRKTRADEUS_6` do, and `WEDETRA_5` asks for `$ACTORS$`;
-- `findings/FINDINGS-agreements.md` A3 and A4: the pending list, `AskPlayer` and its 13 kinds,
-  `AddDiplomaticOffer`, the icon bar in outline (`CDiploIcon`, blinking from 120 h, declined after
-  168 h), the dialog's two buttons and when it lapses, the player's automate-trade answering, the
-  flag `GetLocalPlayer()+0x34`; and the record's `DiploIconBar_*` and `CDiploIcon::*` entries;
-- `findings/FINDINGS-countryviews.md` section 4 (the production screen's four lists, entries not
-  read), `FINDINGS-productiontooltip.md` (the trade list's tooltip in outline),
-  `FINDINGS-diplomacyview.md` (the diplomacy screen) and `FINDINGS-messages.md` (how a message's
-  variables are filled);
-- measured, not read: the maintainer's screenshot of 2026-10-13 has the player's own trade dialog
-  standing at the screen's centre plus `diplo_request_pos` (10, -100), to within three pixels.
+**What is known and is not to be redone**: `FINDINGS-tradeaid.md` C (every aid action arm by arm, the
+debt and its repayment, `LendLease_GetRoute`, `UpdateLendLeaseRoutes`, `CDistributeLendLease`, the
+receiver's IC, `GetMaxLendLeaseFraction`, `CChangeLendLeaseDistributionCommand`, the licence dialog's
+list rule, serial and parallel, money slider, description and Agree, the share-technology dialog's
+list rule and description, each kind's slots 11 to 18); `FINDINGS-agreements.md` B.2 (the rows) and A4
+(the offer to the player); `FINDINGS-tradeui.md` (the offer dialogs and the icon bar);
+`FINDINGS-countryviews.md` and `FINDINGS-productiontooltip.md` (the production screen and its
+tooltips); `FINDINGS-sliders.md` if it exists (the production sliders).
 
 | brief | what | fragment |
 | --- | --- | --- |
-| A | **the production screen's trade list and the trade messages**: `CTradeItem` (`0x803C70`) whole - its window in `country_production.gui`, every element and what it says, in what unit and colour, active and inactive, which side the player is on; the list's tooltip (`0x803FD0`) whole; how a line opens `CTradeCancelConfirm` and that dialog's window, texts and buttons whole (slot 0, `0x8050D0`); **the variables of the trade messages**: what the accept, decline and cancel arms of `CTradeAction::Apply` fill - `ACT_TRADE`, `REC_TRADE`, `ACTORS` and any other - with what text, from which side, and whether the cancel arm fills them; **the diplomacy screen's `trade_automate_checkbox`**: what a click does (a command, or the local player record), its frame, its tooltip | `trade-list.json` |
-| B | **an offer to the player on screen**: `CTradeAction::AskPlayer` and `CAskTrade` whole - which window it builds, every element and text, whether its sliders show and move; the base `CDiplomacyDialog` (its five introduced slots) and how every `CAsk*` dialog is laid out and **placed**; the bar of offer icons - `AddDiplomaticOffer`, `DiploIconBar_Add`/`Update`/`Layout`, `CDiploIcon` whole: its window (`diplomessageicon_entry_window`) and `diplomessageicons_window`, where they stand and in what order, the flag, the blinking, the sound, the tooltip, what `+0x8` (the kind) selects, what a click does; and **where the player's own request dialogs stand** - the diplomacy view's use of `diplo_request_pos` (the window's slots 42 and 11), for `TradeDiplomacyDialog` and the standard dialog | `diplo-offer-icons.json` |
-
-Both are written up as one, `findings/FINDINGS-tradeui.md`, a section each. **Every brief asks** what
-looks wrong but is what the bytes do, and which figure is shown in what unit and colour.
+| E | **lend-lease's IC, exactly**: `CDistributeLendLease::Distribute` (VA `0x518800`) line by line - what "available", "base percentage" and "factor" are and in what kind of number, the per-receiver amount, `GetResourceLimitedIC` and `ConsumeIcResources` as it calls them, `ReceiveLendLease` (rva `0x108900`); **the receiver's side** - the step of the IC calculation (`0x4F14D0` region) that adds `lend_lease_income / 1000` and rolls and drains the receipts vectors, exactly; **how each of the five other distributors uses `+0x608`**, the free pool: consumer goods `0x518D67`, **production** `0x519D5E` - its path where `+0x608` is not nought, which `FINDINGS-buildqueue.md` section 3 did not read - supply (already read), reinforcement `0x51BB96`, upgrades `0x51CEE9`; and **how a receiver's lend-lease convoy is manned** (`DistributeConvoyShips` and `GetDesiredTransports` for a lend-lease convoy, `FINDINGS-tradeaid.md` C.7) | `lendlease-ic.json` |
+| D | **the lend-lease distribution window** (`tfh/interface/lendlease.gui`, `lendlease_distribution_window`): what opens it (the production screen's "Distribute", the opener rva `0x118BA0`, slot 8), every element - a receiver's row (`lendlease_country_entry`/`lendlease_entry`: flag, name, `actual_slider`, `actual_IC`, `cancel`) - what each shows, in what unit, what a slider and `cancel` post (`CChangeLendLeaseDistributionCommand`, `CRemoveLendLeaseCommand` - its constructor `0x155CA0`), the rows' order, its tooltips; the production screen's lend-lease slider: its `limit` marker (`GetLimit`) and what the "Distribute" button and the slider's need text say; **the licence dialog's rows** (`prod_share_entry`: `select_frame`, `counter_type`, `name`), their order, what selecting one does, the row tooltip; `0x107500` (a country's version of a unit type); **the share-technology dialog** (`interface/share_technology.gui`, ctor rva `0x3904D0`) whole - its rows, what a row shows ("Our", "Their"), selection, its title and buttons; and `0x507CE0` (whether a country already shares with another) | `aid-screens.json` |

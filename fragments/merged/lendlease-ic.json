@@ -1,0 +1,162 @@
+{
+ "agent": "reader E of the aid screens wave (2026-10-13): lend-lease's IC, exactly",
+ "question": "What lend-lease does to IC to the thousandth: CDistributeLendLease::Distribute line by line, the receiver's step in CCountry::UpdateIC, how each other IC distributor uses CCountry +0x608, and how a receiver's lend-lease convoy is manned.",
+ "source": "reversing/findings/FINDINGS-tradeui.md",
+ "slots_noted": "CDistributeLendLease, CDistributeConsumerGoods and CDistributeProduction slot 0 are already recorded as Distribute in vftable_slots; this fragment only revises their comments, so no slot is offered again. The other entries sit in no table.",
+ "addresses": [
+  {
+   "rva": "0x118800",
+   "kind": "function",
+   "name": "CDistributeLendLease::Distribute",
+   "signature": "CFixedPoint* __thiscall CDistributeLendLease::Distribute(CDistributeLendLease* this@ECX, CFixedPoint* out@stack:4, __int64 available@stack:8, bool flag@stack:0x10) @EAX",
+   "no_signature": null,
+   "comment": "**Slot 0: the lend-lease share, read instruction by instruction 2026-10-13.** 0x518800 to the `ret 0x10` at 0x51895F, int3 to 0x518970. `available` is (__int64)TotalIC << 15 from the daily share loop (RunCountryDailyPass_DistributeProductionShares), lend-lease index 0, so it runs first of the six and after the giver's own UpdateIC. All arithmetic is 64-bit through 0xB99AF0 (multiply) and 0xB99980 (signed divide), every `>> 15` an arithmetic shift (rounds down):\n\n    total  = ((base_percentage (+8) * available) >> 15) * factor (+0x10) >> 15     ; fixed 15, IC\n    th     = ((total * 0x1F40000) >> 15) >> 15                                     ; = floor(total * 1000 / 32768), thousandths of IC\n    for each entry of the giver's lendlease_distributions (+0x6B8), in list order:\n        share  = CCountry::GetLendLeaseShare(giver, entry.receiver)                 ; weight * 1000 / sum of weights\n        amount = (th * share) / 1000           ; low dword of th times share, truncated\n        amount = (amount * entry.effectiveness (+0xC)) / 1000\n        if (amount <= CCountry::GetResourceLimitedIC(giver)):\n            CCountry::ConsumeIcResources(giver, amount)\n            CCountry::ReceiveLendLease(countries[entry.receiver id], amount, giver tag, giver id)\n    *out = 0\n\nThe stockpile check is redone per receiver against what the earlier receivers' charges left, so **list order decides who goes short**, and a receiver whose amount does not fit gets nothing that day while a later, smaller one may still be paid. An amount of 0 (effectiveness 0, weight 0) still calls both, harmlessly. The receiver is found by id in g_CCountryDataBase's vector without a test. `flag` is not read. No define and not CCountry +0x608 are read, so lend-lease received is lent on at full resource cost. With factor at its constructor's 1.0 the IC sent each day is floor(share x TotalIC x 1000 / 32768) thousandths, share in 1/32768. Index 0 of the six production sliders, _PRODUCTION_LENDLEASE_, the one CCountry::GetAvailableIC leaves out. See reversing/findings/FINDINGS-tradeui.md, section E.1.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x518800..0x518962 and followed every push across the three _allmul and two _alldiv calls to the stack slots; decompiled against the applied record and it agrees. The caller's argument is read at 0x4DB512..0x4DB537 (TotalIC shld/shl by 15, flag 0). Wrong if the effectiveness multiply at 0x5188CA reads anything but [entry+0xC], or if the compare at 0x5188F0 is the other way round (it is `cmp limit, amount; jl skip`).",
+   "source": "reversing/findings/FINDINGS-tradeui.md",
+   "revises": "Read whole again: exact rounding (thousandths = floor(total x 1000 / 32768) before the share), the per-receiver stockpile check in list order, the receiver looked up by id, and `available` from the caller. Nothing in the old comment is contradicted."
+  },
+  {
+   "rva": "0xF15C0",
+   "kind": "function",
+   "name": "CCountry::GetResourceLimitedIC",
+   "signature": "int* __stdcall CCountry::GetResourceLimitedIC(CCountry* country@ESI, int* out@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "**How much IC, in thousandths, the stockpile's metal, energy and rare materials will still pay for. Read whole 2026-10-13.** 0x4F15C0 to the `ret 4` at 0x4F16CA. The stockpile is the exile pool (+0x9F8) where government_in_exile (+0x95) is set, else the acting capital's pool (GetActingCapital +0x15C); from each good the matching slot of ic_resources_reserved (+0x944: +0x95C, +0x960, +0x964) is taken first, which this build never fills.\n\n    m = pool.metal  - reserved.metal\n    e = (pool.energy - reserved.energy) * 1000 / 2000         ; truncated toward zero\n    r = (pool.rare   - reserved.rare)   * 2000 / 1000\n    *out = max(0, min(m, e, r))\n\nSo one IC costs 1 metal, 2 energy and 0.5 rare materials (CCountry::ConsumeIcResources is the matching charge). Four callers: CCountry::UpdateIC at 0x4F1474 (the cap on TotalIC), CDistributeLendLease::Distribute at 0x5188E7, and CDistributeProduction::Distribute at 0x51A060 and 0x51A15A. No other distributor asks it.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled whole; the three terms and the min/max are at 0x4F16AC..0x4F16BF; the energy fast path is imul 1000 then the 0x10624DD3 / sar 7 divide by 2000, the slow path the same through 0xB99AF0/0xB99980. Callers by findRefs --callers 0x4F15C0, four. Wrong if the order of the two mins changes a result, which it cannot.",
+   "source": "reversing/findings/FINDINGS-tradeui.md",
+   "revises": "Read to the end: likely -> confirmed, the rare-materials term and the min/max combination added, the callers named."
+  },
+  {
+   "rva": "0xF146E",
+   "kind": "instruction",
+   "name": "UpdateIC_ResourceCapAndLendLease",
+   "signature": null,
+   "no_signature": "an instruction label inside CCountry::UpdateIC, not a function",
+   "comment": "**The resource cap and the receiver's lend-lease, read instruction by instruction 2026-10-13.** rva 0xF146E..0xF15A5 of CCountry::UpdateIC, the country in ebx, run only with applyDailyEffects (the test at 0xF145E jumps to the epilogue otherwise, so +0x608 stays at the 0 written at entry). All thousandths unless said:\n\n    limit = CCountry::GetResourceLimitedIC(country) / 1000          ; whole IC, truncated\n    if (TotalIC > limit) { ic_lost_to_shortage (+0x614) = (limit - TotalIC) * 1000 ; TotalIC = limit }\n    ll = lend_lease_income (+0x6E8) / 1000                          ; whole IC, truncated toward zero\n    TotalIC += ll ;  lend_lease_ic (+0x608) = ll\n    LendLeaseReceipts_Clear(&lend_lease_from_yesterday_values (+0x6D8))\n    if (lend_lease_from_values (+0x6C8) has entries):\n        LendLeaseReceipts_AppendAll(+0x6D8, +0x6C8)                  ; yesterday = the receipts as they stand\n        lend_lease_income_yesterday (+0x6EC) = ll * 1000\n    else:\n        lend_lease_income = 0 ;  lend_lease_income_yesterday = 0\n    left = ll * 1000\n    for each receipt in list order, while left > 0:\n        left -= receipt.amount\n        if (left < 0) { receipt.amount = -left ; stop }            ; this giver keeps the remainder\n        receipt.amount = 0\n    lend_lease_income -= ll * 1000\n\nSo the receiver turns the whole IC of what it holds into IC that needs no resources, **after** the cap - lend-lease IC is extra IC above what its own stockpile supports - and the fraction stays for tomorrow, credited to the givers last in its list. The cap has no floor: TotalIC may be cut to 0 here, where the province sum gave at least 1. The no-giver branch zeroes the income before subtracting, which is only consistent because CCountry::RemoveLendLeaseSource takes a giver's entry off the income when it removes it.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x4F145E..0x4F15AB and followed the two arms; 0x511E10 and 0x50FA80 decompiled. Wrong if the drain loop's js at 0x4F156D branches on the other sign (it stores -left on a negative result, zero otherwise).",
+   "source": "reversing/findings/FINDINGS-tradeui.md"
+  },
+  {
+   "rva": "0x111E10",
+   "kind": "function",
+   "name": "LendLeaseReceipts_Clear",
+   "signature": "void __stdcall LendLeaseReceipts_Clear(void* receipts@EDI)",
+   "no_signature": null,
+   "comment": "Empties a vector of 12-byte {CCountryTag, int} entries in EDI: an inlined erase(begin(), end()) whose move loop copies an empty range, then last = first. Bare `ret`. Two callers: CCountry::UpdateIC at 0x4F14D6, on lend_lease_from_yesterday_values (+0x6D8), and 0x511C70, the vector's assignment, when the source is empty. Named for its one use; class-free because it is a template instance. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled whole, 0x511E10..0x511E45 with int3 after. Callers by findRefs --callers, two.",
+   "source": "reversing/findings/FINDINGS-tradeui.md"
+  },
+  {
+   "rva": "0x10FA80",
+   "kind": "function",
+   "name": "LendLeaseReceipts_AppendAll",
+   "signature": "void __stdcall LendLeaseReceipts_AppendAll(void* target@ESI, void* source@stack:4)",
+   "no_signature": null,
+   "comment": "Puts every entry of one vector of 12-byte {CCountryTag, int} entries after those of another: where the target (ESI) is empty it calls 0x511C70, the vector's assignment, otherwise 0x5133B0, the range insert at the target's end. `ret 4`. One caller, CCountry::UpdateIC at 0x4F1508, which has just emptied the target - so lend_lease_from_yesterday_values (+0x6D8) becomes a copy of lend_lease_from_values (+0x6C8). The name is ours.",
+   "confidence": "inferred",
+   "evidence": "This body disassembled whole; the two callees only decompiled (0x511C70 has the shape of std::vector::operator= - self test, empty source clears, then copy within size, within capacity or reallocate; 0x5133B0 the shape of _Insert range with the 'vector<T> too long' throw). Inferred because neither callee was read off the bytes; what would show it wrong is 0x5133B0 inserting anywhere but at the second argument, which here is the target's end.",
+   "source": "reversing/findings/FINDINGS-tradeui.md"
+  },
+  {
+   "rva": "0xC4F50",
+   "kind": "function",
+   "name": "CConvoy::CConvoy",
+   "signature": "CConvoy* __stdcall CConvoy::CConvoy(CConvoy* this@stack:4, int ownerTag@stack:8, int ownerId@stack:0xC) @EAX",
+   "no_signature": null,
+   "comment": "The CConvoy constructor, with `this` on the stack. Writes CReferenceObject's table (0x15C3AE4) and then CConvoy's (0x15C0D44), the owner tag and id at +0x30/+0x34, zeroes the goods pools from +0x40 and the loading production (+0x74..+0x8C) and lend_lease_partner's id (+0xA8), and at the end sets start_date (+0xC8) to the game tick and **lend_lease_efficiency (+0xAC) to 1000** (0x4C518D) - so a new lend-lease convoy is not penalised. `ret 0xC`. Two callers: CCountry::CreateConvoy at 0x4FD326 and CCountry::LoadKey at 0x4CDB29 (a convoy read from a save, whose efficiency is therefore 1000 again: the field is not saved). Only the opening and the closing stores were read. The name is the class's own.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x4C4F50..0x4C4FF0 and 0x4C5150..0x4C51A5 (ret 0xc); image.retsBefore(0x4C4F50, 0x4C518D) is empty, so the store of 1000 is in this body. The two vftables checked against the RTTI export (CReferenceObject rva 0x11C3AE4, CConvoy 0x11C0D44). A scan of .text for every store and arithmetic on [reg+0xAC] found six sites, among them the known LoseShips subtraction (0x4C5A2B) and daily regain (0x4DABC2) as positive controls.",
+   "source": "reversing/findings/FINDINGS-tradeui.md"
+  },
+  {
+   "rva": "0xC6B80",
+   "kind": "function",
+   "name": "CConvoy::GetEfficiency",
+   "signature": "int* __thiscall CConvoy::GetEfficiency(CConvoy* this, int* out)",
+   "no_signature": null,
+   "comment": "The fraction of a convoy route that is running, in thousandths, written through out and returned. `ret 4`, `this` in ECX. Read whole 2026-10-13:\n\n    eff = 1000\n    d = CConvoy::GetDesiredTransports(this)\n    if (d != 0) eff = transports (+0x98) * 1000 * 1000 / (d * 1000)          ; truncated\n    if (is_lend_lease (+0xA1)) eff = eff * lend_lease_efficiency (+0xAC) / 1000\n\nNot clamped at 1000. For a lend-lease convoy this is the effectiveness CCountry::UpdateLendLeaseRoutes writes into the giver's entry every hour, and so the factor on every day's lend-lease along that route. The daily supply pass multiplies a depot's NavalBaseCapacity by it once per convoy that ends at the depot.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x4C6B80..0x4C6C25 and decompiled; GetDesiredTransports is called twice, the divide has a 64-bit path for large figures. Wrong if the lend-lease multiply were before the transports ratio, which the order of the stores rules out.",
+   "source": "reversing/findings/FINDINGS-tradeui.md",
+   "revises": "inferred -> confirmed off the bytes; +0xAC is named (lend_lease_efficiency) where the comment guessed, and the rounding is given."
+  },
+  {
+   "rva": "0xFD750",
+   "kind": "function",
+   "name": "CCountry::DistributeConvoyShips",
+   "signature": "void __stdcall CCountry::DistributeConvoyShips(CCountry* country)",
+   "no_signature": null,
+   "comment": "**Shares a country's transports and escorts out among its convoys.** Sorts the convoys into three lists - idle (no path, unusable, or a resource run with nothing to load), first (supply convoys, each put at the **head**; resource runs of importance 100.000 or more at the head and over 20.000 at the tail) and last (over 1.000 at the head, the rest at the tail) - setting transports_wanted and escorts_wanted on the way. Then: idle convoys give everything back; last, tail to head, give back what they have over wanted, or all of it where the supply convoys are short or the convoy is under strength; first give back their surplus, **and all they have where they are under strength**; first and then last are filled from the free transports in list order. Escorts: each convoy is due escorts_wanted x min(1, owned / wanted); a surplus goes back, and a shortfall of one or more is made up from the free ones **only for a convoy attacked within 99 days**; a convoy with no transports gives its escorts back. Writes TotalNeededTransports, TotalConvoyTransports and TotalNeededConvoyTransports. Called after the two Maintain routines, behind CCountry +0x748 in play. See reversing/findings/FINDINGS-supplyconvoys.md, section 7.\n\n**A lend-lease convoy is a resource run here** (the supply branch at 0x4FD821 needs is_lend_lease and is_trade clear): CConvoy::UpdateLoadingProduction sums the current_producing of the area it starts in - the **giver's** capital area - and where that holds no crude oil, metal, energy or rare materials it is idle and gives everything back; otherwise CConvoy::GetImportance answers 0 for it and it goes to the **tail of last**. So it is the first to be emptied whenever a supply convoy is short or it is itself under strength, and it is refilled last, with min(wanted, what is still free). This routine is the only thing that mans it in play (CreateConvoy gives it none outside a new game). See reversing/findings/FINDINGS-tradeui.md, section E.4.",
+   "confidence": "confirmed",
+   "evidence": "The lend-lease path disassembled: 0x4FD821 (is_lend_lease to the resource branch), 0x4FD93D..0x4FD95F (the four goods tested), 0x4FD9A8 (GetImportance, which writes 0 and returns at once where +0xA1 is set, 0x4C78D9..0x4C78E8), 0x4FDA46..0x4FDA97 (<= 1000 to the tail of the list at ebp-0x60/-0x5C), and the give-back and fill loops 0x4FDB75..0x4FDCBC. Wrong if GetImportance's early exit were for another flag.",
+   "source": "reversing/findings/FINDINGS-tradeui.md",
+   "revises": "Adds how a lend-lease convoy is sorted and manned; the rest of the comment is unchanged."
+  },
+  {
+   "rva": "0x119D10",
+   "kind": "function",
+   "name": "CDistributeProduction::Distribute",
+   "signature": "CFixedPoint* __thiscall CDistributeProduction::Distribute(CDistributeProduction* this@ECX, CFixedPoint* out@stack:4, __int64 available@stack:8, bool flag@stack:16) @EAX",
+   "no_signature": null,
+   "comment": "**The production share's day: pays each line of the country's build queue in queue order.** Slot 0, `ret 0x10`, extent 0x519D10..0x51A282. this->+0x28 is zeroed first. `pool = (pct * available >> 15) * factor >> 15` and `freePool = (pct * (lend_lease_ic (+0x608) << 15) >> 15) * factor >> 15`, both fixed 15 and both kept in fixed 15. Per line of +0xF40, with `need = cost << 30 / (1000 << 15)` (truncated toward zero): slot 12 (still buildable) or the line is dropped; `pool <= 0` gives AddProgress(0) unless `flag`; `need <= 0` gives AddProgress(1000).\n\n**With freePool > 0** (read 2026-10-13):\n\n    base = min(0x8000, (freePool << 15) / need) ;  spent = base * need >> 15\n    pool -= spent ;  freePool -= spent ;  amount = base * 1000 >> 15      ; no resources\n    if (base < 0x8000 and pool > 0):\n        r = min(0x8000, (pool << 15) / (need - spent))\n        extra = r * (0x8000 - base) >> 15 ;  want = extra * need >> 15 ;  this->+0x28 += want\n        if (GetResourceLimitedIC >= want * 1000 >> 15):\n            ConsumeICResources(want * 1000 >> 15) ;  pool -= need - spent\n            amount += extra * 1000 >> 15 ;  if (amount >= 999) amount = 1000   ; (int)floor(999.5f)\n    AddProgress(amount)\n\n**Without**: `share = min(1, (pool << 15) / need)`, `wanted = share * need >> 15`, this->+0x28 += wanted; where GetResourceLimitedIC answers at least `wanted` in thousandths, ConsumeICResources, **`pool -= need`** and `amount = share * 1000 >> 15`; else `amount = 0` and the pool is left as it was. AddProgress(amount). Either way a line that is paid takes its whole `need` off the pool. Where progress >= duration (or the byte at 0x1A8559A is set) slot 9 is called, and a line it answers 1 for is unlinked and freed. If anything was finished: CCountry::RebuildStaticModifiers, then slot 14 on every remaining line. Last, UpdateNeeded. Always answers 0.\n\nQueue order is the whole of a line's share. freePool rarely ends exactly at 0: the truncated base leaves a few 1/32768 behind, so later lines go the free way with base 0 - the same as the other path but for the 999 snap. See reversing/findings/FINDINGS-production.md, FINDINGS-buildqueue.md section 3, and FINDINGS-tradeui.md section E.3.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x519D10..0x51A283 and every local tracked across the pushes; the free path is 0x519EE3..0x51A0DF. The float at 0x160AAC4 reads 999.50006, so the snap threshold is 999. Wrong if 0x51A080 subtracted `want` rather than the [esp+0x50] local, which 0x519FE2 sets to need - spent.",
+   "source": "reversing/findings/FINDINGS-tradeui.md",
+   "revises": "Reads the path where +0x608 is not nought, which FINDINGS-buildqueue.md section 3 left: the free part first, the top-up taking need - spent off the pool, the 999 snap; and +0x28 is zeroed each pass."
+  },
+  {
+   "rva": "0x118C50",
+   "kind": "function",
+   "name": "CDistributeConsumerGoods::Distribute",
+   "signature": "CFixedPoint* __thiscall CDistributeConsumerGoods::Distribute(CDistributeConsumerGoods* this@ECX, CFixedPoint* out@stack:4, __int64 available@stack:8, bool flag@stack:16) @EAX",
+   "no_signature": null,
+   "comment": "**Slot 0 - money, the resource bill, and dissent.** Three things. First, where the `available` argument is non-zero it calls 0x118F00 with a fraction of 1000 and MaxIC (+0x60C) x 1000 and adds the money that comes back to HomeProduced's money (CCountry +0x780) and to the national stockpile's money (pool +0x10) - the fraction is a literal and the IC is MaxIC, so **the money income carries no term from the consumer goods share**. Second, the resource bill (read to the rounding 2026-10-13): each of available, percentage and factor is first turned into thousandths (`x * 0x1F40000 >> 30`, floor), then `alloc = (pct_th * avail_th / 1000) * factor_th / 1000`, truncated; `free = thousandths((pct * (+0x608 << 15) >> 15) * factor >> 15)`, computed in fixed 15 and turned into thousandths last, only where +0x608 > 0; and `ConsumeICResources(alloc - free)` at 0x518DE3 where that is positive. A free part larger than the bill is lost. Consumer goods spends its whole allocation daily, so it pays for all of it that is not resource-free in one go, without asking what the stockpile holds. Third, unless the flag argument is set, or gamestate +0xD0C is non-zero, it moves dissent: 0x118F80 gives GetConsumerGoodsNeeded minus percentage x factor plus MODIFIER_DISSENT, and that goes onto CCountry +0x10B4 floored at zero, or the field is zeroed outright for a country with no tag id (+0xCA8). So the dissent rate is **one for one and linear** - a share one point over what the country needs takes one point of dissent off a day - with no percentage and no half-life. Returns zero.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x518C50..0x518EF5; the alloc is 0x518CD0..0x518D5D (three conversions to thousandths, two truncating divides), the free part 0x518D67..0x518DCF. This is the 'converted, then multiplied' rounding FINDINGS-distribute.md section 5 measured on 20 countries and could not read; the read and the measurement agree.",
+   "source": "reversing/findings/FINDINGS-tradeui.md",
+   "revises": "The resource bill's rounding: alloc is worked in thousandths from the start, the free part in fixed 15; a free part above the bill is lost."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CCountry",
+   "offset": "0x608",
+   "name": "lend_lease_ic",
+   "type": "int",
+   "comment": "**The whole IC of lend-lease received, which costs no domestic resources**, in whole IC. Zeroed at the head of CCountry::UpdateIC (0xF0DE4); with applyDailyEffects set to lend_lease_income (+0x6E8) / 1000, truncated, and added to TotalIC (+0x604) from the same register at 0xF14C1/0xF14D0 - **after** TotalIC has been capped at what the stockpile supports (0xF14A6), so it is IC on top of the cap (UpdateIC_ResourceCapAndLendLease, 0xF146E). Read in exactly five places, one per IC distributor - consumer goods 0x118D67, production 0x119D5E, supply 0x11AB4A, reinforcement 0x11BB96, upgrade 0x11CEE9 - and by nothing else; the lend-lease distributor does not read it. Each takes its own slider's share of it as a free budget: production spends it first on each line with no resource check; consumer goods, supply and upgrade subtract it from their one resource charge; reinforcement takes it off brigade by brigade. The lend-lease slider's share of it is used by nobody. Not written on a day UpdateIC does not run, which is every day for a country that holds no province and is not in exile. Two readings of this field were merged here: `lend_lease_ic` (from the writer) and `resource_free_ic` (from the five readers).",
+   "source": "reversing/findings/FINDINGS-tradeui.md",
+   "evidence": "The writer read at 0x4F14AC..0x4F14D0 (imul by 0x10624DD3, sar 6: / 1000). The old comment said the value came from 'the goods pool at +0x6D8', reading the `lea edi, [ebx+0x6d8]` on the next instruction as its source; that lea sets up LendLeaseReceipts_Clear and +0x6D8 is a vector of 12-byte receipts, not a pool. Each reader's use read in its Distribute body.",
+   "revises": "Comment only: the value comes from +0x6E8 / 1000, not from +0x6D8, and what each of the five readers does with it is now said."
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0x6D8",
+   "name": "lend_lease_from_yesterday_values",
+   "type": "void*",
+   "comment": "A copy of lend_lease_from_values (+0x6C8) taken by the daily CCountry::UpdateIC before it spends them (LendLeaseReceipts_Clear, then LendLeaseReceipts_AppendAll): per giver, what that giver had credited and not yet turned into IC - today's deliveries since the last UpdateIC plus the fraction carried from before. The top bar's tooltip shows it (0x508A20). 12-byte entries {CCountryTag giver; int amount}, end at +0x6DC; save keys `lend_lease_from_yesterday` and `_values`.",
+   "source": "reversing/findings/FINDINGS-tradeui.md",
+   "evidence": "Read at 0x4F14C7..0x4F1508: the clear, then the append only where +0x6C8 has entries; the copy is taken before the drain loop at 0x4F1552.",
+   "revises": "Comment only: it holds the carried fraction too, not just a day's delivery, and the two helpers are named."
+  },
+  {
+   "struct": "CConvoy",
+   "offset": "0xAC",
+   "name": "lend_lease_efficiency",
+   "type": "int",
+   "comment": "**The lend-lease convoy efficiency, thousandths, capped at 1000.** Set to 1000 by the constructor (CConvoy::CConvoy, 0x4C518D), so a new route starts whole. CConvoy::GetEfficiency (0xC6B80) multiplies the whole result by it / 1000 when is_lend_lease (+0xA1) is set. CConvoy::LoseShips (0xC5940) subtracts `LL_CONVOY_EFF_IMPACT (economy +0x4C) * (transportsLost * 1000 / transports) / 1000`, floored at 0. RunCountryDailyPass (0xDA530, at 0x4DABA8..0x4DABD4) adds `LL_CONVOY_EFF_REGAIN (economy +0x50)` a day while it is below 1000 and clamps it to 1000, for every lend-lease convoy of the country, before and apart from the daily removal tests, which skip lend-lease convoys. Their Finest Hour sets 0.4 and 0.01, so a route that loses half its transports drops to 80% and takes 20 days to recover; BlackICE 0.5 and 0.02. Not saved.",
+   "source": "reversing/findings/FINDINGS-tradeui.md",
+   "evidence": "A scan of .text for every store and add/sub on [reg+0xAC] (mod 10, disp32) gives six sites in CConvoy and RunCountryDailyPass; the constructor zeroes it at 0x4C500E and writes 1000 at 0x4C518D, before its `ret 0xc`. The TFH values read from tfh/common/defines.lua lines 79-80.",
+   "revises": "Comment only: the constructor's 1000, the clamp in the regain, and Their Finest Hour's two values."
+  }
+ ],
+ "frontier": [
+  "0x111C70",
+  "0x1133B0",
+  "0x118F00"
+ ],
+ "notes": "Frontier: 0x111C70 and 0x1133B0 are the receipts vector's assignment and range insert, decompiled only; 0x118F00 the consumer goods money helper. The reinforcement share replaces its pct x available with gamestate +0xD0C's +0x110 where that is set (0x51BB27..0x51BB47) - not followed."
+}

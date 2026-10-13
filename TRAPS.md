@@ -132,6 +132,12 @@ followed by **no padding at all** before a fresh `push ebp`; and `0x47BC5D`/`0x4
 only two `int3` between them, where `functionStart` happens to get it right only because the
 next function does open with a prologue - `retsBefore` is what settles it either way.
 
+Two more, 2026-10-13, from the aid screens wave (VAs; `FINDINGS-tradeui.md` D.10): `0x456970`/`0x456AB0`,
+a `ret 4` at `0x456AAD` then `push ebp` with no padding; and `0x518BA0`/`0x518BD0`, a bare `ret` at
+`0x518BCF` then GetLimit's `push ebp`. And a decompiler trap beside them: Ghidra decompiles `0x7912A0`, a
+5-byte `jmp CEU3Dialog::Update`, as that update's whole body, which reads like the share dialog's own
+update.
+
 **`0x33` was added 2026-10-04** and it is the clearest case yet that this is a second
 cause and not abutment: `PersistentRegistryInit` (rva `0x67BFA0`) opens `xor ecx, ecx`
 and has **seven `int3`** in front of it, so the padding is immaculate and the walk still

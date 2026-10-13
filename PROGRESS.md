@@ -25,12 +25,12 @@ how many objects a census found (taken 2026-09-20).
 
 | | classes |
 | --- | --- |
-| `read` | 101 |
+| `read` | 103 |
 | `placed` | 155 |
 | `keys` | 79 |
-| `part` | 109 |
+| `part` | 114 |
 | `named` | 6 |
-| `RTTI` | 691 |
+| `RTTI` | 684 |
 | **all** | **1141** |
 
 ## What to read next
@@ -162,7 +162,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CCombatManager` | `CPersistent` |  | 3 | 1/7 | 8 | CCombatManager.hpp | 1 | placed |  |
 | `CCombatant` | `CPersistent` |  | 23 | 4/6 | 20 | CCombat.hpp |  | read |  |
 | `CConstruction` | `CReferenceObject` |  | 13 + 2 lua |  | 4 | CConstruction.hpp |  | read |  |
-| `CConvoy` | `CReferenceObject` |  | 22 + 3 lua | 6/13 | 17 | CConvoy.hpp | 839 | read |  |
+| `CConvoy` | `CReferenceObject` |  | 22 + 3 lua | 6/13 | 18 | CConvoy.hpp | 839 | read |  |
 | `CConvoyConstruction` | `CConstruction` |  | 1 | 1/1 | 2 | CConstruction.hpp | 40 | placed |  |
 | `CConvoyEscortOrder` | `CNavalOrder` |  |  | 1/3 | 6 |  |  | placed |  |
 | `CConvoyRaid` | `CNavalOrder` |  |  | 1/1 | 5 |  | 62 | placed |  |
@@ -462,8 +462,8 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CBuildTimeComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CBuildingMember` | `CStandardlistboxItem` |  |  |  |  |  | 102 | RTTI |  |
 | `CBuyConfirm` | `CEU3Dialog` |  |  |  |  |  |  | RTTI |  |
-| `CCancelLLPrompt` | `CEU3Dialog` |  |  |  |  |  |  | RTTI |  |
-| `CCategoryItem` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
+| `CCancelLLPrompt` | `CEU3Dialog` | 0x74 | 2 |  | 2 |  |  | part |  |
+| `CCategoryItem` | `CStandardlistboxItem` | 0x70 | 4 |  | 3 |  |  | part |  |
 | `CChatMessageObserver` |  |  |  |  |  |  |  | RTTI |  |
 | `CCheckBoxObserver` |  |  |  |  |  |  | 225 | RTTI |  |
 | `CChildUnitEntry` | `CUnitViewBaseEntry` |  |  |  | 3 |  |  | RTTI |  |
@@ -505,7 +505,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CDistributeConsumerGoods` | `CDistributionSetting` |  |  |  | 7 |  | 108 | RTTI |  |
 | `CDistributeDiplomacy` | `CDistributionSetting` |  |  |  | 5 |  | 108 | RTTI |  |
 | `CDistributeEspionage` | `CDistributionSetting` |  | 3 |  | 3 |  | 108 | part |  |
-| `CDistributeLendLease` | `CDistributionSetting` |  |  |  | 5 |  | 108 | RTTI |  |
+| `CDistributeLendLease` | `CDistributionSetting` |  |  |  | 7 |  | 108 | RTTI |  |
 | `CDistributeNCO` | `CDistributionSetting` |  |  |  | 3 |  | 108 | RTTI |  |
 | `CDistributeProduction` | `CDistributionSetting` |  | 2 |  | 7 |  | 108 | part |  |
 | `CDistributeReinforcement` | `CDistributionSetting` |  | 1 |  | 5 |  | 108 | part |  |
@@ -548,8 +548,8 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CLandOrdersView` | `COrdersView` |  |  |  |  |  |  | RTTI |  |
 | `CLawEntry` | `CStandardlistboxItem` |  |  |  |  |  | 16 | RTTI |  |
 | `CLeaderAssignmentEntry` | `CStandardlistboxItem` |  |  |  | 6 |  |  | RTTI |  |
-| `CLendLeaseDistribution` | `CReloadableInterface` |  |  |  |  |  | 1 | RTTI |  |
-| `CLendLeaseItem` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
+| `CLendLeaseDistribution` | `CReloadableInterface` | 0xA4 | 4 |  | 9 |  | 1 | part |  |
+| `CLendLeaseItem` | `CStandardlistboxItem` | 0x30 | 2 |  | 1 |  |  | part |  |
 | `CLiberateCreationDialogDialogue` | `CEU3Dialog` |  |  |  |  |  | 1 | RTTI |  |
 | `CLiberateEntry` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
 | `CLoadedUnitEntry` | `CUnitViewBaseEntry` |  |  |  |  |  |  | RTTI |  |
@@ -609,7 +609,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CPossibleSingleBrigadeEntry` | `CStandardlistboxItem` |  |  |  | 1 |  |  | RTTI |  |
 | `CPowerRatioEntry` | `CUnitViewBaseEntry` |  |  |  |  |  |  | RTTI |  |
 | `CPrioComparator` | `CBrigadeSortInterface` |  |  |  | 1 |  | 2 | RTTI |  |
-| `CProductionView` | `CCountryView` |  | 6 |  | 20 |  | 1 | read |  |
+| `CProductionView` | `CCountryView` |  | 8 |  | 20 |  | 1 | read |  |
 | `CProjectionObject` | `C3dVisibleObject` |  |  |  |  |  |  | RTTI |  |
 | `CProvinceCollisionObject` | `C3dVisibleObject` |  |  |  |  |  |  | RTTI |  |
 | `CProvinceManager` | `CLostDeviceInterface` |  |  |  |  |  | 1 | RTTI |  |
@@ -673,7 +673,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CSupplyConsumptionComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CSuppressionComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CTableLedgerItem` |  |  |  |  |  |  |  | RTTI |  |
-| `CTechMember` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
+| `CTechMember` | `CStandardlistboxItem` | 0x80 | 5 |  | 4 |  |  | read |  |
 | `CTechTreeEntry` |  | 0x40 | 4 |  | 4 |  |  | part |  |
 | `CTechnologyCategory` |  |  | 5 + 2 lua |  |  | CProvinceBuilding.hpp | 48 | read |  |
 | `CTechnologyFolder` |  |  | 2 lua |  |  |  | 36 | named |  |
@@ -851,7 +851,7 @@ One class per effect, trigger, command and decision the event scripts can use. E
 | `CChangeInvestmentCommand` | `CCommand` |  |  | 1/2 | 1 |  | 144 | placed |  |
 | `CChangeLawCommand` | `CCommand` |  |  | 3/3 | 2 |  | 2 | placed |  |
 | `CChangeLeadershipCommand` | `CCommand` |  |  | 1/2 |  |  | 162 | RTTI |  |
-| `CChangeLendLeaseDistributionCommand` | `CCommand` |  |  | 1/3 | 2 |  | 5 | placed |  |
+| `CChangeLendLeaseDistributionCommand` | `CCommand` |  |  | 1/3 | 4 |  | 5 | placed |  |
 | `CChangeManpowerEffect` | `CValueEffect` |  |  | 3/91 | 2 |  | 98 | RTTI |  |
 | `CChangeMinisterCommand` | `CCommand` |  |  | 3/3 | 2 |  | 1 | placed |  |
 | `CChangeOccupationPolicyCommand` | `CCommand` |  |  | 3/3 | 1 |  | 1 | placed |  |
@@ -1105,7 +1105,7 @@ One class per effect, trigger, command and decision the event scripts can use. E
 | `CRemoveDefenderChange` | `CWarHistoryEntry` |  |  |  |  |  | 2 | RTTI |  |
 | `CRemoveFoWEffect` | `CIntEffect` |  |  | 3/91 | 2 |  |  | RTTI |  |
 | `CRemoveGlobalFlagChange` | `CCountryHistoryEntry` |  |  |  |  |  |  | RTTI |  |
-| `CRemoveLendLeaseCommand` | `CCommand` |  |  | 2/2 | 2 |  | 1 | placed |  |
+| `CRemoveLendLeaseCommand` | `CCommand` |  |  | 2/2 | 3 |  | 1 | placed |  |
 | `CRemoveMinisterEffect` | `CIntEffect` | 0x2C | 2 | 3/91 | 3 |  | 146 | part |  |
 | `CRemoveModifierEffect` | `CEffect` |  | 1 |  | 1 |  |  | part |  |
 | `CRemoveProvinceModifierEffect` | `CRemoveModifierEffect` |  |  | 3/91 | 2 |  | 103 | RTTI |  |
@@ -1257,12 +1257,12 @@ Windows, pages, sprites and the map's own drawing.
 | `CGuiObject` | `TCollisionObserver` |  | 4 |  |  |  |  | part |  |
 | `CGuiType` | `CPersistent` |  | 3 |  | 1 |  |  | keys |  |
 | `CLawChangeConfirmDialog` | `CEU3Dialog` |  |  |  |  |  |  | RTTI |  |
-| `CLicenceTechnologyDialog` | `CEU3Dialog` |  |  |  | 7 |  |  | RTTI |  |
+| `CLicenceTechnologyDialog` | `CEU3Dialog` | 0x138 | 7 |  | 10 |  |  | read |  |
 | `CMessageListboxItem` | `CStandardlistboxItem` |  |  |  |  |  | 264 | RTTI |  |
 | `CMessageSettingWindow` | `CUpdateable` |  |  |  | 4 |  |  | RTTI |  |
 | `CQuitDialog` | `CEU3Dialog` |  |  |  |  |  |  | RTTI |  |
 | `CRadioButtonGroupObserver` |  |  |  |  |  |  | 1 | RTTI |  |
-| `CShareTechnologyDialog` | `CEU3Dialog` |  |  |  | 6 |  |  | RTTI |  |
+| `CShareTechnologyDialog` | `CEU3Dialog` | 0x78 | 4 |  | 7 |  |  | part |  |
 | `CSingleUnitButtons` | `CUnitViewBaseEntry` |  |  |  | 3 |  |  | RTTI |  |
 | `CSprite` | `C2dVisibleObject` |  |  |  |  |  |  | RTTI |  |
 | `CSpriteType` | `C2dObjectType` |  |  |  |  |  |  | RTTI |  |
