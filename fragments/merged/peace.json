@@ -1,0 +1,430 @@
+{
+ "agent": "war wave, reader C (peace)",
+ "question": "CPeaceAction whole - Apply in order, the gates, the texts, the AI's answer and the CAIIntel it reaches; CAskPeace; a war's end and CWarHistory",
+ "source": "reversing/findings/FINDINGS-war.md",
+ "addresses": [
+  {
+   "rva": "0x63F710",
+   "kind": "function",
+   "name": "CPeaceAction::Apply",
+   "signature": "void __thiscall CPeaceAction::Apply(CPeaceAction* this)",
+   "no_signature": null,
+   "confidence": "confirmed",
+   "revises": "Raised from inferred to confirmed, read whole on the listing (VA 0xA3F710 to the bare ret at 0xA40A9B; the ret at 0xA4085B ends the ACCEPT arm of the same frame). Corrected: 0xA44B10 is only a vector append; 0x4E70A0 runs for every attacker of the war, not 'on both countries', and 0x4E7190 is not a per-country notifier but the return of occupied control; the province transfers (0xA3F530 twice, CMapProvince::ChangeOwner) were missing; and the message gate is stated.",
+   "comment": "CPeaceAction slot 7, one holder (vftable 0x15FBA54). VAs below. **Peace has no terms and costs nothing**: no define, no influence, no relation, no threat, no neutrality, no war exhaustion, no casus belli is touched - the call list of the whole body is the one below and nothing else. Every arm first builds the message variables: the **player's** CCountry::BuildMessageVariables, then ACTOR and RECIPIENT as the two countries' names.\n\n**type 2, ACCEPT** (0xA3FC0A):\n1. `war = countries[actor]->diplomacy[recipient]->war`; none -> return.\n2. A = the actor and D = the recipient; when the actor is found among war->defenders (+0x3C) the two swap - A is the party on the attacking side, D the one on the defending side.\n3. CollectPeaceTransfers (0xA3F530) over the **defenders** against A, then over the **attackers** against D, the second list appended to the first (0xA44B10); for every province on it, in that order, `CMapProvince::ChangeOwner(province, province->peace_new_owner (+0x33C), now, applyConsequences 1, rebuildAreas 0, peaceful 0)` (0xA3FEA4).\n4. The attackers and the defenders are copied to two lists, in side order.\n5. **For the first attacker only**, and every defender: CCountry_ReturnOccupiedProvincesTo(firstAttacker, defender) and (defender, firstAttacker) (0xA40071, 0xA40090) - the defender-list iterator is loaded once outside the attacker loop (esi at 0xA40017) and never reset, so the second and later attackers are never paired. What they hold of the other side's land goes back at the next RunDailyProvincePass instead.\n6. Leaving, every call with recordHistory 1: **both sides of two or more** - every defender (CWar::RemoveDefender, 0xA400D4) and then every attacker (CWar::RemoveAttacker, 0xA400F6); **otherwise** the attacker alone if there is exactly one (0xA40118) and the defender alone if there is exactly one (0xA4013C). Either way every attacker-defender pair has its war pointer cleared, so the whole war is over for everybody, but a side of two or more facing a lone enemy is left standing in the CWar.\n7. For every attacker of the copied list (defenders are not visited): CCountry::OnDiplomacyChanged, CAIStrategy::Rebuild and CAIStrategy::BuildTheatres(1) on its strategy (+0x48C).\n8. **The message**, only when the player is the actor (`this+0xC == state+0xC34`) or is still in war->attackers (+0x2C..+0x30, read after the removal): the `diplomaticsuccess` sound and PEACEACCEPT, at the recipient's acting capital, actor and recipient tags into the message.\n\n**type 1, DECLINE** (0xA4085C): only when the actor is the player - the `diplomaticfailure` sound and PEACEDECLINE at the recipient's acting capital. Nothing else.\n\n**type 0, PROPOSE**: nothing (the seven-day next_offer_allowed is Execute's).\n\nNot called: CWarGoal::Enforce - **a negotiated peace enforces no war goal**; CWar::RemoveWarGoalsOf, inside the remove functions, deletes every goal of and against a leaver. Keys: PEACEACCEPT, PEACEDECLINE; no third-party key exists.",
+   "evidence": "Disassembly 0xA3F710-0xA40A9B read arm by arm against the decompilation; the call list is every `call` in the extent (BuildMessageVariables, CountryNameOfTag, 0xA3F530 x2, 0xA44B10, ChangeOwner, 0x4E7190 x2, RemoveDefender x2, RemoveAttacker x2, OnDiplomacyChanged, CAIStrategy::Rebuild, BuildTheatres, the sound and message helpers). The first-attacker-only pairing is the esi load at 0xA40017 outside the loop at 0xA40030 and the inner `cmp esi, ebx; je` at 0xA40044. Wrong if a call reached through a register (the sound object's slots) wrote game state."
+  },
+  {
+   "rva": "0x640AA0",
+   "kind": "function",
+   "name": "CPeaceAction::GetDescription",
+   "signature": "Hoi3CString* __thiscall CPeaceAction::GetDescription(CPeaceAction* this, Hoi3CString* out)",
+   "no_signature": null,
+   "confidence": "confirmed",
+   "revises": "Raised from inferred to confirmed and the leader rule restated exactly: it binds only a faction member that is not its faction's leader and stands on a side of two or more, and a country in no real faction must be the first of its side; a faction leader is exempt from being first. The old wording put the two conditions in one clause.",
+   "comment": "Slot 11, the row's tooltip; the first arm that holds. VAs. ACT_NO_SELF where actor == recipient; ENROUTE with DATE = FormatHourDate(next_offer_allowed) while CCountry::HasDiplomatEnroute; PEACE_FACTION \"You are both in factions, and factions fight until they surrender\" where both factions are real (slot 7); then, with war = actor->diplomacy[recipient]->war, for X the actor and then the recipient (Y the other): **if X is in a real faction, is not CCountry::IsFactionLeader, and stands on a side of two or more** - PEACE_NOT_LEADER \"You can only negotiate with the leader of your enemy\" where X's faction leader (first member; the null tag '---' at 0x170CF48 for an empty faction) is at war with Y, or where X is not the first country of its side (attackers[0] if X is an attacker, else defenders[0]); then **if X is in no real faction**, PEACE_NOT_LEADER where X is not the first of its side. Otherwise PEACEDESC \"Offer peace with minimal border adjustments.\" The war pointer is not null-tested (the row exists only at war).",
+   "evidence": "Listing 0xA40AA0-0xA41360 checked at every branch against the decompilation; the same tests in the same order as slot 14 (0xA41370, read on the listing). Eleven PEACE_NOT_LEADER sites (0xA40F87..0xA41283) map to the arms. Wrong if the IsFactionLeader call (0x4F6C90) answers something other than 'first member'."
+  },
+  {
+   "rva": "0x641370",
+   "kind": "function",
+   "name": "CPeaceAction::IsSelectable",
+   "signature": "bool __thiscall CPeaceAction::IsSelectable(CPeaceAction* this)",
+   "no_signature": null,
+   "confidence": "confirmed",
+   "revises": "Raised from inferred to confirmed, read on the listing, with the leader rules exact (see the comment); the old line merged them.",
+   "comment": "Slot 14, what greys the row. VAs. False where: actor == recipient (0xA41385); CCountry::HasDiplomatEnroute(actor, recipient) (0xA413C2); both factions real (slot 7, 0xA413DA/0xA413EB); actor->diplomacy[recipient]->war null (0xA41404). Then with A = the attacker count and D = the defender count, for X the actor and then the recipient (Y the other): **if X's faction is real, X is not CCountry::IsFactionLeader (0x4F6C90), and (X is an attacker and A > 1, or X is a defender and D > 1)**: false where X's faction leader (Members.first, or the '---' tag at 0x170CF48 when the faction is empty) has a war with Y, or where X is not the first of its side. Then **for X in no real faction**: false where X is not attackers[0] (if an attacker) or defenders[0]. Otherwise true. So a faction leader may make peace from anywhere on its side, a lone faction member may too, and a factionless country must lead its side.",
+   "evidence": "Listing 0xA41370-0xA41690 read whole: the two blocks at 0xA41437-0xA4150D and 0xA4151C-0xA415F7, the factionless tests after. Wrong if 0x421D00 is not CountryTagVector_Contains (it is called with the side vector in EAX and the tag in EDX at every site)."
+  },
+  {
+   "rva": "0x6416A0",
+   "kind": "function",
+   "name": "CPeaceAction::GetDialogText",
+   "signature": "Hoi3CString* __thiscall CPeaceAction::GetDialogText(CPeaceAction* this, Hoi3CString* out)",
+   "no_signature": null,
+   "confidence": "confirmed",
+   "comment": "Slot 12, the body of the player's own request dialog (CStandadDiplomacyDialogue's Description). VAs. `value` clear -> \"\". Otherwise PEACENEWDESC \"Do you wish to request peace with $COUNTRY$. $SELF$?\\nIf they accept, the war will end. $RESULT$\" with COUNTRY = the **recipient's** name (this+0x10, 0xA4176E), RESULT = CPeaceAction_BuildResultText (0xA41844), and SELF = PEACENEWALLY \"They are negotiating for their allies.\" where the recipient is attackers[0] or defenders[0] of the actor's war with it (0xA41915-0xA41929), else PEACESELF \"They are negotiating for themselves.\" - although Apply ends the war for both whole sides either way. `ret 4`, one holder.",
+   "evidence": "Listing 0xA416A0-0xA41CDB; the key strings by reference (PEACENEWDESC 0xA416DD, PEACESELF 0xA41932, PEACENEWALLY 0xA41A5E); vtable.py --holding 0xA416A0: CPeaceAction slot 12 alone. Texts from localisation. Wrong if the dialog shows another slot as its Description (FINDINGS-agreements.md B.4 says slot 12)."
+  },
+  {
+   "rva": "0x641690",
+   "kind": "function",
+   "name": "CPeaceAction::GetToken",
+   "signature": "int __thiscall CPeaceAction::GetToken(CPeaceAction* this)",
+   "no_signature": null,
+   "confidence": "confirmed",
+   "comment": "Slot 15: `mov eax, 0x729; ret` - token 1833, `peace_action`, the save key and the factory's case. One holder.",
+   "evidence": "Bytes at VA 0xA41690; vtable.py --holding: CPeaceAction slot 15 only; 0x729 = peace_action in FINDINGS-diploaction.md section 3. Wrong only if the table is misread."
+  },
+  {
+   "rva": "0x641CE0",
+   "kind": "function",
+   "name": "CPeaceAction::Clone",
+   "signature": "CPeaceAction* __thiscall CPeaceAction::Clone(CPeaceAction* this)",
+   "no_signature": null,
+   "confidence": "confirmed",
+   "comment": "Slot 16. `operator new(0x28)` - **sizeof(CPeaceAction) is the base's 0x28: a peace carries no terms** - then actor, recipient, type, value copied, persistent id 0x18D, vftable 0x15FBA54, and the source's `date` (+0x1C) written to both +0x1C and +0x20 (its last_command_date is not copied). One holder.",
+   "evidence": "Listing VA 0xA41CE0-0xA41D45 read whole; the only allocation is push 0x28. Wrong if a subclass field lived past +0x24 and were set elsewhere (the constructor 0x63F430 writes none either)."
+  },
+  {
+   "rva": "0x63F430",
+   "kind": "function",
+   "name": "CPeaceAction::CPeaceAction",
+   "signature": "CPeaceAction* __stdcall CPeaceAction::CPeaceAction(CPeaceAction* this@ESI, char actorTag[4]@stack:4, int actorId@stack:8, char recipientTag[4]@stack:12, int recipientId@stack:16) @EAX",
+   "no_signature": null,
+   "confidence": "confirmed",
+   "comment": "The (actor, recipient) constructor: base fields only - persistent id 0x18D, actor, recipient, type 0 (PROPOSE), date and last_command_date both the current tick, value 1 - and vftable 0x15FBA54. `this` in ESI, two tags by value, `ret 0x10`. **Its one caller is the luabind __init wrapper at VA 0x98A210**, so `CPeaceAction(actor, recipient)` exists in Lua - and no script of the base game or Their Finest Hour calls it: the AI never offers peace. The screen's row comes from CDiplomaticAction::Create (token 0x729) instead.",
+   "evidence": "Listing VA 0xA3F430-0xA3F502; findRefs --callers 0xA3F430: one, 0x98A280, inside the luabind init 0x98A210 (new(0x28), the Lua state calls at 0xD2B4EC/0xD2B530). findRefs --vftable CPeaceAction: three writes, here, Create and Clone. grep for CPeaceAction over script/ and tfh/script/: none, where CAllianceAction is found in ai_foreign_minister.lua (positive control)."
+  },
+  {
+   "rva": "0x218320",
+   "kind": "function",
+   "name": "CAskPeace::CAskPeace",
+   "signature": "CAskPeace* __stdcall CAskPeace::CAskPeace(CInGameIdler* host@ECX, CAskPeace* this@stack:4, CPeaceAction* action@stack:8) @EAX",
+   "no_signature": null,
+   "confidence": "confirmed",
+   "revises": "Comment only: the RESULT text, the unused FACTION variable, the shields, title and button texts, and the window's growth are stated.",
+   "comment": "**The offer of peace shown to a player**, made only by CPeaceAction::AskPlayer for a PROPOSE with `value` set (icon kind 1). VAs. CEU3Dialog's constructor on `DefaultDialog` (eu3dialog.gui), host at +0x68, a clone of the action at +0x6C. Only when the clone's type is 0 (else it logs 'Atempted to alliance proposal screen when not actually a proposal' under diplomacydialogs.cpp): LeftShield the actor's flag, RightShield the recipient's; Description = PEACEREQDESC \"$COUNTRY$ is requesting an end to hostilities. If we accept, the war will end.\\n$RESULT$\\nDo you wish to accept their offer?\" with COUNTRY = the actor's name, FACTION = the recipient's faction's localised name (**the text has no $FACTION$**), RESULT = CPeaceAction_BuildResultText - coloured from the **proposer's** side, so the player reads his own losses in green; Title = slot 10 (PEACETITLE \"Peace\"); AgreeButton ACCEPT, DeclineButton DECLINE. Then (0x618949-0x618A6F) where the Title's and the Description's text heights sum to more than 400, the window grows by that sum less 170 and both buttons move down by as much. Slots 5, 6, 7 and 17 are CDiplomacyDialog's (Accept, Decline, IsStillOpen - two months from the offer's date or IsValid false - and the sound).",
+   "evidence": "Decompilation of 0x618320 checked on the listing at the text calls and at the growth arithmetic (`sub esi, 0xC8; cmp esi, 0xC8; jle` then `add esi, 0x1E` at 0x618989-0x6189AA). vtable.py CAskPeace for the inherited slots. Wrong if slot 0xD8 of the text objects is not their laid-out size (inferred from use)."
+  },
+  {
+   "rva": "0x641E30",
+   "kind": "function",
+   "name": "CPeaceAction_BuildResultText",
+   "signature": "Hoi3CString* __stdcall CPeaceAction_BuildResultText(CPeaceAction* action, Hoi3CString* out)",
+   "no_signature": null,
+   "confidence": "confirmed",
+   "comment": "**$RESULT$ of PEACENEWDESC and PEACEREQDESC: the provinces a peace would move, worked out with the same helper Apply uses.** VA 0xA41E30 to the `ret 8` at 0xA43467 (an earlier `ret 8` at 0xA4222A is the empty arm). **It abuts CPeaceAction::GetKeyPrefix with no padding** (that ends `ret 4` at 0xA41E2D) - trap 2. Two callers: CAskPeace::CAskPeace and CPeaceAction::GetDialogText. With war = actor->diplomacy[recipient]->war and A/D the attacking-side and defending-side party as in Apply, it runs CollectPeaceTransfers over the defenders against A and over the attackers against D. Both empty -> PEACENEWWITHE \"All territory will revert to its prewar owner.\" Otherwise, first the attackers' losses, then the defenders': for each new owner X in the order first met, for each losing country C of that side in side order, the provinces of C going to X - one line `<PEACENEWPROVUS or PEACENEWPROVTHEM with NATION = C>` + FormatProvinceList + \"§W \" + PEACETO (\"to §Y$REC$§W\", REC = X) + \"\\n\". PEACENEWPROVUS \"§Y$NATION$§W will cede §R\" is used for the **actor's** side's losses and PEACENEWPROVTHEM \"...§G\" for the other's (the actor is on the attacking side unless found among the defenders, 0xA41EB3).",
+   "evidence": "Decompilation read whole, the call arguments to 0xA3F530 checked on the listing (0xA41F3C-0xA41F5E, the same tag order as Apply); string references PEACENEWWITHE 0xA420B5, PEACENEWPROVUS 0xA423B9/0xA42D55, PEACENEWPROVTHEM 0xA42644/0xA42F16, PEACETO 0xA4294A/0xA43178; DAT 0x15C73CC is 'A7 57 20 00' (§W ). Wrong if the two loops' lists were the other way round."
+  },
+  {
+   "rva": "0x63F530",
+   "kind": "function",
+   "name": "CollectPeaceTransfers",
+   "signature": "void* __cdecl CollectPeaceTransfers(void* out, CWar* war, bool attackers, void* newOwners, char partyTag[4], int partyId, char otherTag[4], int otherId)",
+   "no_signature": null,
+   "confidence": "confirmed",
+   "comment": "For one side of a war (`attackers` false: defenders +0x3C; true: attackers +0x2C), every country C on it in order: CCountry_ListPeaceTransfers(C, &provinces, &party) - `party` the peace's negotiator on the **other** side - and where that is not empty an entry {C's tag, the province vector} (0x18 bytes) appended to `out`; every province's peace_new_owner (+0x33C) not yet on `newOwners` (a 0x14-node tag list, compared by id) is appended to it. The last two dwords are passed and never read. Bare `ret`; three callers - Apply twice and CPeaceAction_BuildResultText twice (VAs 0xA3FD82, 0xA3FDCB, 0xA41F5E and the second in BuildResultText).",
+   "evidence": "Decompilation of VA 0xA3F530-0xA3F70A, the reads of +0x33C/+0x340 at 0xA3F623/0xA3F64F on the listing; callers' `add esp, 0x40` after two calls of eight pushes each. Wrong if the vector element were not 0x18 (Apply divides by 0x18 with the 0x2AAAAAAB magic)."
+  },
+  {
+   "rva": "0x1038A0",
+   "kind": "function",
+   "name": "CCountry_ListPeaceTransfers",
+   "signature": "void* __stdcall CCountry_ListPeaceTransfers(CCountry* country, void* out, CCountryTag* party)",
+   "no_signature": null,
+   "confidence": "confirmed",
+   "comment": "**Which of a country's provinces change hands at a peace, and to whom.** VAs. status = country->diplomacy[party]; no war there -> empty. E = the side of that war the country is **not** on (defenders, unless the country is a defender). For each province of `OwnedProvinces` (+0xCF0) in order whose controller (+0x338) is not its owner (+0x330), each core holder X (+0x344, in list order) other than the country itself, X taken only where X is `party` or in E:\n- **controller == party**: peace_new_owner (+0x33C) = party and the province is appended (0x503AC4);\n- **controller in E** (another than party): X is added to a local list, and while that list holds exactly one, peace_new_owner = its first and the province is appended (0x503B6B) - so the province goes to **the first qualifying core holder, who need not be the occupier**;\n- a controller outside E (an ally, a neutral): nothing.\nA province can be appended more than once (once per qualifying core while the count is one, or per core in the first case); the repeats carry the same owner. `ret 0xC`, out in EAX.",
+   "evidence": "Listing VA 0x5038A0-0x503C55 read whole (above, the branch at 0x503A58 on controller == party, the side searches at 0x503A34 and 0x503AD5, the two +0x33C stores). Wrong if +0x344 nodes were not {tag, id, ..., next@+0xC} (the core writer's layout in the record)."
+  },
+  {
+   "rva": "0xE7190",
+   "kind": "function",
+   "name": "CCountry_ReturnOccupiedProvincesTo",
+   "signature": "void __stdcall CCountry_ReturnOccupiedProvincesTo(CCountry* country, char ownerTag[4], int ownerId)",
+   "no_signature": null,
+   "confidence": "confirmed",
+   "comment": "Every province in the country's ControlledProvinces (+0xD00) whose owner id (+0x330) is `ownerId` is handed back: Province_SetController(province, owner, &tick, applyConsequences 1, rebuildAreas 0, peaceful 0). Then DeleteAreaGroups, RebuildAreaGroups, DeleteSupplyGroups, RebuildSupplyGroups - once per call. `ret 0xC`. Six callers: CPeaceAction::Apply twice and four in the custom-game setup at VA 0x418D37-0x418DDE. **It abuts CCountry::OnDiplomacyChanged above it** (functionStart answers 0x4E6EE0, trap 2).",
+   "evidence": "Decompilation of VA 0x4E7190-0x4E7296 checked on the listing; Apply's call sites push (country of the first, the other's tag and id). Wrong if +0xD00 were not the controlled list (it is, by the Lua accessor GetControlledProvinces)."
+  },
+  {
+   "rva": "0xEA090",
+   "kind": "function",
+   "name": "FormatProvinceList",
+   "signature": "Hoi3CString* __cdecl FormatProvinceList(Hoi3CString* out, void* provinces)",
+   "no_signature": null,
+   "confidence": "inferred",
+   "comment": "Joins a list of provinces into text: each province's name (the name slot at +0x1C of its +8 subobject), skipping a province already written (by pointer), with \", \" after it while more than one input remains, \" \" + GetText(AND) (\"and\") + \" \" before the last. So \"A, B and C\". The remaining count runs over the input list, duplicates included, so a repeated province can leave a stray separator. Bare ret.",
+   "evidence": "Listing VA 0x4EA090-0x4EA2DA read to the AND arm (0x4EA195-0x4EA22C); the strings at 0x15B89F4 (', ') and 0x15B4E94 (' '). Inferred: the tail after 0x4EA260 (0xA87020) was not read, and the exact spacing around AND rests on it."
+  },
+  {
+   "rva": "0x289EA0",
+   "kind": "function",
+   "name": "RemoveLandlessCountriesFromWars",
+   "signature": "void __stdcall RemoveLandlessCountriesFromWars(CCurrentGameState* state)",
+   "no_signature": null,
+   "confidence": "confirmed",
+   "comment": "For every country of the state's array (+0xBBC) that owns no province (OwnedProvinces.count <= 0) and is not a government in exile (+0x95): CWar::RemoveAttacker / RemoveDefender (recordHistory 0) from every active war (+0xC00) it is on, then, if its faction is real, CFaction::RemoveMember, faction = CFaction::null(), RebuildStaticModifiers, RebuildRules and its display dirty byte. One caller, VA 0x65CE7D inside CInGameIdler::Enter - so it runs as a session comes up, not hourly. `ret 4`.",
+   "evidence": "Decompilation of VA 0x689EA0-0x68A091 checked on the listing at the gates; findRefs --callers: one; retsBefore(0x65A2B0, 0x65CE7D) is empty, so the call is inside Enter. Wrong if Enter's extent ended before 0x65CE7D."
+  },
+  {
+   "rva": "0x49F240",
+   "kind": "function",
+   "name": "CAIIntel::CAIIntel",
+   "signature": "CAIIntel* __stdcall CAIIntel::CAIIntel(CAIIntel* this@ESI, CCountryTag* us@stack:4, CCountryTag* them@ECX) @EAX",
+   "no_signature": null,
+   "confidence": "confirmed",
+   "revises": "Raised from inferred to confirmed: 0x52D630 is read (CSpyPresence_GetIntelFactor), the argument order is checked at the Lua wrapper, and the clamp's constants are given.",
+   "comment": "What Lua's `CAIIntel(us, them)` builds; the luabind __init at VA 0x988DC0 passes the first tag on the stack and the second in ECX, after new(0x14). +0 = us, +4 = them (pointers to the tags), +8 = &state+0x124, the game's own generator. **Factor (+0xC) = (float)(CSpyPresence_GetIntelFactor(us->espionage[them]) / 1000.0)** - spies x1000 / MAX_SPY_LEVEL less them's COUNTER_INTELLIGENCE, so ten spies and no counter-intelligence give 1.0. **UncertaintyFactor (+0x10) = (float)(1.0 - Factor + 0.2)**, held to [0.2, 1.0] (the double 0x160A260 = 0.2 as the floor test, the float 0x171618C = 0.2 stored, the float 0x171DBAC = 1.0 the ceiling). `ret 4`.",
+   "evidence": "Listing VA 0x89F240-0x89F391 read whole; constants read out of the image; the wrapper at 0x988E0E-0x988E17. Wrong if the wrapper's [ebp+0xC]/[ebp+0x10] were not the Lua arguments in order."
+  },
+  {
+   "rva": "0x12D630",
+   "kind": "function",
+   "name": "CSpyPresence_GetIntelFactor",
+   "signature": "int* __stdcall CSpyPresence_GetIntelFactor(int* out@stack:4, CSpyPresence* presence@EDI) @EAX",
+   "no_signature": null,
+   "confidence": "confirmed",
+   "comment": "`*out = level (+0) * 1000 / MAX_SPY_LEVEL (g_MaxSpyLevel, 10000) - countries[presence->target_id (+0xE8)]->modifiers->COUNTER_INTELLIGENCE (+0x1B0)`, thousandths; the division truncates (a 64-bit path for large levels), and with MAX_SPY_LEVEL 0 the first term is -1. One caller, CAIIntel::CAIIntel. `ret 4`.",
+   "evidence": "Listing VA 0x52D630-0x52D6C1 read whole. Wrong if +0x1B0 of the values were not COUNTER_INTELLIGENCE (modifier 54 in the record)."
+  },
+  {
+   "rva": "0x49F4B0",
+   "kind": "function",
+   "name": "CAIIntel::CalculateTheirPercievedMilitaryStrengh",
+   "signature": "float __thiscall CAIIntel::CalculateTheirPercievedMilitaryStrengh(CAIIntel* this)",
+   "no_signature": null,
+   "confidence": "confirmed",
+   "comment": "**How strong `them` looks to `us`.** The name is the game's (Lua, so spelt). In order, thousandths unless said: bonus = SPY_INTEL_MISSION_BONUS (country +0x34, 0.5) x us->espionage[them].mission_share[1] (+0x30, the military mission) / 1000; f = floor(((float)((float)(bonus/1000.0) + Factor) + 0.0005) x 1000); **chance% = trunc(trunc(f x (100000 x SPY_UNIT_DETECTION_CHANCE (+0x30, 0.5) / 1000) / 1000) / 1000)** - 50 at Factor 1; land% = trunc(trunc(100000 x us.OFFMAP_LAND_INTEL / 1000) / 1000), sea% likewise with OFFMAP_NAVAL_INTEL. Then **for every unit of them (+0xBAC), in list order, one draw of the game's generator (state+0x124, MT19937Next inlined) is taken first**, and the unit counts as seen where us's intelligence of the unit's province (+0x370[us], when us < +0x374) is 2 or more, **or** where `(signed)draw % 100 < (land% or sea%, by the province's is_land) + chance%`; its strength is the sum of its regiments' +0x5C, added to seen or hidden. The draw is signed: **about half of all draws are negative and so under any threshold above 0**. Result = (seen + max(hidden + trunc(k x hidden x (1+U) / 1000), 0)) / 1000.0 as a float, k from RandomPerturbAtLeast with spread U = UncertaintyFactor and one more draw. Bare ret, the float in ST0.",
+   "evidence": "Listing VA 0x89F4B0-0x89F8B1 read whole (the tempering at 0x89F731-0x89F761, the signed /100 at 0x89F775-0x89F78B, the intel test at 0x89F790-0x89F7A9, the two sums at 0x89F7B1/0x89F7D2, the final call 0x89F887). 0x160A718 is the float 100000.5. Wrong if 0x445D90's +0xCC block offsets +0x30/+0x34 were swapped (the decompiler names them by the record's country-define layout)."
+  },
+  {
+   "rva": "0x49F8C0",
+   "kind": "function",
+   "name": "CAIIntel::CalculateOurMilitaryStrength",
+   "signature": "float __thiscall CAIIntel::CalculateOurMilitaryStrength(CAIIntel* this)",
+   "no_signature": null,
+   "confidence": "confirmed",
+   "comment": "`(float)(CUnitList::GetTotalStrength(&countries[us]->units (+0xBAC)) / 1000.0)` - every regiment of every unit of `us`, wherever it is, no intelligence and no draw. x87, stored through a float. Bare ret.",
+   "evidence": "Listing VA 0x89F8C0-0x89F902 read whole. Wrong if this[0] were not `us` (the constructor stores its stack argument there)."
+  },
+  {
+   "rva": "0x49F3B0",
+   "kind": "function",
+   "name": "CAIIntel::HasNoIntel",
+   "signature": "bool __thiscall CAIIntel::HasNoIntel(CAIIntel* this)",
+   "no_signature": null,
+   "confidence": "confirmed",
+   "comment": "`us->espionage[them].level (+0) < 1000` - fewer than one spy. Not reached by DiploScore_PeaceAction. Bare ret.",
+   "evidence": "Decompilation of VA 0x89F3B0 against its bytes. Wrong if the record's 0xF8 stride were wrong (it is fixed by CSpyPresence's accessor)."
+  },
+  {
+   "rva": "0x49F410",
+   "kind": "function",
+   "name": "CAIIntel::GetTheirFactor",
+   "signature": "float __thiscall CAIIntel::GetTheirFactor(CAIIntel* this)",
+   "no_signature": null,
+   "confidence": "confirmed",
+   "comment": "`them->espionage[them].level x 1000 / MAX_SPY_LEVEL / 1000.0` as a float (-1 when MAX_SPY_LEVEL is 0) - **them's record about itself**, i.e. its counter-espionage spies, not its spies in us. Not reached by DiploScore_PeaceAction. Bare ret.",
+   "evidence": "Decompilation of VA 0x89F410 (both indexes are this[1]'s id). Wrong if the second index were us (the bytes read [this+4] twice)."
+  },
+  {
+   "rva": "0x22D940",
+   "kind": "function",
+   "name": "RandomPerturbAtLeast",
+   "signature": null,
+   "no_signature": "The generator in EAX, the out pointer in EDI, the spread a float in XMM1, then three stack ints (base, floor, scale) the caller pops - no ordinary signature carries an SSE register argument.",
+   "confidence": "confirmed",
+   "comment": "`u = (float)((MT19937Next(gen) & 0x7FFFFFFF) x 2^-31)`; `k = floor((float)((float)((float)(u - 0.5) x spread) + 0.0005) x 1000)`; `v = base + trunc(k x scale / 1000)` (64-bit); `*out = v > floor ? v : floor`. Seven callers: CAIIntel::CalculateTheirPercievedMilitaryStrengh and six at VAs 0x61D498, 0x626154, 0x6262B4, 0x626414, 0x626573, 0x627A17 (not read). Bare ret.",
+   "evidence": "Listing VA 0x62D940-0x62D9E1 read whole; 0x160A2B8 = 2^-31 and 0x160A308 = 0.5 read out of the image. Wrong if the comparison were signed the other way (`jg` at 0x62D9D2 keeps v only when greater)."
+  },
+  {
+   "rva": "0x1D6420",
+   "kind": "function",
+   "name": "CUnitList::GetTotalStrength",
+   "signature": "CFixedPoint* __thiscall CUnitList::GetTotalStrength(CUnitList* this, CFixedPoint* result)",
+   "no_signature": null,
+   "confidence": "confirmed",
+   "comment": "The game's Lua name. Sum over the list's units of the sum of each unit's regiments' strength (regiment +0x5C, the regiment list at unit +0x38), into *result. `ret 4` at VA 0x5D645D; **the next function begins at 0x5D6460 with no padding** (trap 2).",
+   "evidence": "Listing VA 0x5D6420-0x5D645D read whole; luabind.json registers CUnitList::GetTotalStrength at this address. Wrong only if the luabind pointer were a thunk (it is the body)."
+  },
+  {
+   "rva": "0x200250",
+   "kind": "function",
+   "name": "CWarHistory::LoadEntry",
+   "signature": "void __thiscall CWarHistory::LoadEntry(CWarHistory* this, void* date, CParseContext* parse, SaveToken key)",
+   "no_signature": null,
+   "confidence": "confirmed",
+   "comment": "**Slot 9: the dated grammar of a war's history - the format of history/wars/*.txt.** VAs. Keys: `name` (0x1A, CNameChange, 0x48 bytes), `add_attacker` (0x2A8), `rem_attacker` (0x2A9), `add_defender` (0x2AA), `rem_defender` (0x2AB) - each a 0x18-byte CAdd/RemoveAttacker/DefenderChange holding the tag - `limited_war` (0x4BD, CChangeLimited) and `war_goal` (0x7A0, a 0x3C-byte entry carrying a CWarGoal, logged 'Non-valid wargoal ... in ...' under warhistory.cpp when its type fails slot 7). Each entry gets the block's date at +8 and goes into this history (slot 6) and into the object 0x5FA7E0 returns, +0x34 (slot 6). Ghidra's RTTI pass labels this body 'CChangeLimited constructor'; it is not. `ret 0xC`, one holder.",
+   "evidence": "Decompilation of VA 0x600250 against the listing at the token tests; tokens resolved through saveTokens.json; vtable.py --holding 0x600250: CWarHistory slot 9 alone. Wrong if 0x5FA7E0's object were not a history (not read)."
+  },
+  {
+   "rva": "0x2009C0",
+   "kind": "function",
+   "name": "CAddAttackerChange::Apply",
+   "signature": "void __thiscall CAddAttackerChange::Apply(CAddAttackerChange* this, bool forward)",
+   "no_signature": null,
+   "confidence": "confirmed",
+   "comment": "Slot 7: forward -> CWar::AddAttacker(war (+0xC), 0, 0, tag (+0x10), id (+0x14)); back -> CWar::RemoveAttacker(war, 0, tag). One holder. The history replay's way into a war.",
+   "evidence": "Decompilation of VA 0x6009C0 against its three `ret 4`; vtable.py --holding: CAddAttackerChange slot 7 only. Wrong if the flag were inverted (the forward arm tests al != 0)."
+  },
+  {
+   "rva": "0x200C30",
+   "kind": "function",
+   "name": "CRemoveAttackerChange::Apply",
+   "signature": "void __thiscall CRemoveAttackerChange::Apply(CRemoveAttackerChange* this, bool forward)",
+   "no_signature": null,
+   "confidence": "confirmed",
+   "comment": "Slot 7: forward -> CWar::RemoveAttacker(war (+0xC), 0, tag (+0x10)); back -> CWar::AddAttacker(war, 0, 0, tag). One holder. This is also the entry CWar::RemoveAttacker files in the war's history when its flag is set.",
+   "evidence": "Decompilation of VA 0x600C30; vtable.py --holding: CRemoveAttackerChange slot 7 only."
+  },
+  {
+   "rva": "0x200EA0",
+   "kind": "function",
+   "name": "CAddDefenderChange::Apply",
+   "signature": "void __thiscall CAddDefenderChange::Apply(CAddDefenderChange* this, bool forward)",
+   "no_signature": null,
+   "confidence": "confirmed",
+   "comment": "Slot 7: forward -> CWar::AddDefender(war, 0, 0, tag); back -> CWar::RemoveDefender(war, 0, tag). One holder.",
+   "evidence": "Decompilation of VA 0x600EA0; vtable.py --holding: CAddDefenderChange slot 7 only."
+  },
+  {
+   "rva": "0x201110",
+   "kind": "function",
+   "name": "CRemoveDefenderChange::Apply",
+   "signature": "void __thiscall CRemoveDefenderChange::Apply(CRemoveDefenderChange* this, bool forward)",
+   "no_signature": null,
+   "confidence": "confirmed",
+   "comment": "Slot 7: forward -> CWar::RemoveDefender(war, 0, tag); back -> CWar::AddDefender(war, 0, 0, tag). One holder. The entry CWar::RemoveDefender files when its flag is set.",
+   "evidence": "Decompilation of VA 0x601110; vtable.py --holding: CRemoveDefenderChange slot 7 only."
+  },
+  {
+   "rva": "0x651D20",
+   "kind": "function",
+   "name": "CWar::GetStartDate",
+   "signature": "int* __thiscall CWar::GetStartDate(CWar* this, int* result)",
+   "no_signature": null,
+   "confidence": "confirmed",
+   "comment": "The game's Lua name. **A war's start is the date of the first entry of its history** (the CWarHistory at +0x4C, entries from +0x58) whose date is in year 2 or later; with none, the null date. `ret 4` at VA 0xA51D8C, and CWar::GetCurrentRunningTimeInMonths begins at 0xA51D90 (trap 2).",
+   "evidence": "Decompilation of VA 0xA51D20 against the listing; luabind.json registers it here. Wrong if +0x58 were not the history's head (CHistoryContainer's list is at +0xC, and +0x4C + 0xC = +0x58)."
+  },
+  {
+   "rva": "0x651D90",
+   "kind": "function",
+   "name": "CWar::GetCurrentRunningTimeInMonths",
+   "signature": "int __thiscall CWar::GetCurrentRunningTimeInMonths(CWar* this)",
+   "no_signature": null,
+   "confidence": "confirmed",
+   "comment": "The game's Lua name. Calendar months from GetStartDate to now (year x 12 + month of each, from the tick through g_DaysPerYear and the month table); 0 where the start is the null date - **which is every war after a load, since CWar::SaveContents writes no history**. Bare ret.",
+   "evidence": "Decompilation of VA 0xA51D90 against its two bare rets; SaveContents (CWar slot 2, VA 0xA4EC90) writes name, limited, attacker, defender, revolutionary_war, action, original_attacker, original_defender and war_goal only, and the saves' active_war blocks carry no history (positive control: the same blocks carry every key it writes)."
+  },
+  {
+   "rva": "0x651F40",
+   "kind": "function",
+   "name": "CWar_GetLastHistoryDate",
+   "signature": "void __stdcall CWar_GetLastHistoryDate(CWar* war@EAX, int* out@EDI)",
+   "no_signature": null,
+   "confidence": "confirmed",
+   "comment": "GetStartDate's twin from the tail (+0x5C, walking back): the date of the **last** history entry in year 2 or later, else the null date. SetUpCountryForNewGame's 'latest 0xA51F40 over previous_war' is this - the end of a historical war, from which a new game's war exhaustion is counted. Bare ret.",
+   "evidence": "Decompilation of VA 0xA51F40-0xA51F9B against the listing (first instruction `mov ecx, [eax+0x5C]`). Wrong if EDI were not the out pointer at every caller."
+  },
+  {
+   "rva": "0x64F0B0",
+   "kind": "function",
+   "name": "CWar_DropFutureHistory",
+   "signature": "void __stdcall CWar_DropFutureHistory(CWar* war@EDI)",
+   "no_signature": null,
+   "confidence": "inferred",
+   "comment": "Deletes from the war's history every entry dated after the current tick (unlinking its node unless the history's byte +0x64 is set, then the entry's slot 0). Called by the history replay 0x5F5450 for each historical war it puts on active_war (+0xC00) - so a war the start date falls inside begins with its past only. Ends at the bare ret at VA 0xA4F1CE; CWar::IsPartOfWar follows at 0xA4F1D0.",
+   "evidence": "Decompilation of VA 0xA4F0B0 against the listing's ret; the caller read only through the decompilation of 0x5F5450 (not read whole), hence inferred."
+  },
+  {
+   "rva": "0x6489A0",
+   "kind": "function",
+   "name": "CDiplomacyStatus::HasTruce",
+   "signature": "bool __thiscall CDiplomacyStatus::HasTruce(CDiplomacyStatus* this)",
+   "no_signature": null,
+   "confidence": "confirmed",
+   "revises": "Comment only, and it corrects the reading: last_war (+0x54) is **not** refreshed every hour of a war, so a truce is not 'the 100 days after a war ends'. The code and the 2400 hours stand.",
+   "comment": "**A truce is the 2400 hours after the pair's `last_war` stamp, once they are no longer at war.** 0x6489A0 to two bare `ret` at 0x6489D7 and 0x648A70. The name is the game's Lua registration.\n\n    if (this->war (+0x20)) return false\n    last = this->war_seen_tick (+0x54)          // save key last_war\n    return last <= now && last + 0x960 > now    // 2400 hours, hard-coded\n\nThe stamp is written only by CCountry::UpdateAtWarAndEnemies, for the pairs still at war when it runs, and that runs **only** when the session is entered (CInGameIdler::Enter) and when a war's membership changes (CWar::AddAttacker/AddDefender/RemoveAttacker/RemoveDefender, for the joiner or leaver and each enemy) - not hourly. A peace clears the pair's war before the update, so the stamp is the last such moment **while** at war: a war that ran more than 100 days after the last load or membership change leaves no truce at all. The truce is one-directional per status (each side's own stamp). A pair never at war has 0 there and no truce. `truce_months` of the casus belli types is not read here (CCasusBelliType +0x1D0; +0x1F4 is `months` - see FINDINGS-war.md B.3). Six callers.",
+   "evidence": "findRefs --callers 0x4E6A70: nine, all in Enter and the four add/remove functions; no other reference to the address in code or data. Store sweep of [reg+0x54] over every .text chunk that mentions 0xE28: the writers are UpdateAtWarAndEnemies (0x4E6C32, the positive control), SetUpCountryForNewGame's reset, ReleaseProvinces and CDeclareWarAction::Apply's chunk - no hourly path. The saves agree: ITA's status toward ETH carries last_war=\"1936.1.1.0\" in saves of 1 January, 8 January, 1 February and 1 March 1936 with the war still running (autosave.hoi3 at 1936.3.1.1, played as ITA). Wrong if a writer reached a status through a pointer handed in from a chunk without 0xE28."
+  }
+ ],
+ "structs": [
+  {
+   "name": "CAIIntel",
+   "size": "0x14",
+   "comment": "What Lua's CAIIntel(us, them) builds: two tag pointers, the game's generator, and two floats. Allocated new(0x14) by the luabind __init at VA 0x988DF3.",
+   "evidence": "`push 0x14; call operator new` at VA 0x988DF3 immediately before the constructor call at 0x988E17; the constructor writes +0x0..+0x10 and nothing beyond. Wrong if the wrapper allocated for a holder rather than the object (the pointer goes straight to the constructor)."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CAIIntel",
+   "offset": "0x0",
+   "name": "us",
+   "type": "CCountryTag*",
+   "comment": "The country doing the looking - the first Lua argument; its espionage table and its intelligence are asked.",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "CAIIntel::CAIIntel stores its stack argument here (VA 0x89F262); CalculateOurMilitaryStrength reads this[0]'s units."
+  },
+  {
+   "struct": "CAIIntel",
+   "offset": "0x4",
+   "name": "them",
+   "type": "CCountryTag*",
+   "comment": "The country looked at - the second Lua argument, passed in ECX.",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Stored from ECX at VA 0x89F264; CalculateTheirPercievedMilitaryStrengh walks this[1]'s units."
+  },
+  {
+   "struct": "CAIIntel",
+   "offset": "0x8",
+   "name": "random",
+   "type": "void*",
+   "comment": "&CCurrentGameState+0x124 - the game's own MT19937 generator, which CalculateTheirPercievedMilitaryStrengh draws once per unit plus once.",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "`add eax, 0x124; mov [esi+8], eax` at VA 0x89F2E0; the draws at 0x89F718 read [this+8] as the state (index at +0x9C0)."
+  },
+  {
+   "struct": "CMapProvince",
+   "offset": "0x33C",
+   "name": "peace_new_owner",
+   "type": "CCountryTag",
+   "comment": "Scratch: who the province would go to at a peace. Written only by CCountry_ListPeaceTransfers (VA 0x503AC4, 0x503B6B) and read by CollectPeaceTransfers, CPeaceAction::Apply (the ChangeOwner owner, 0xA3FE74) and CPeaceAction_BuildResultText; set to '---' with id 0 by the province's constructor (0x494AD4). Never saved. So a tooltip or dialog that builds the result text rewrites it.",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Whole-.text sweep of [reg+0x33C] operands (80 sites; chunks split at int3 runs, decoding resumed past stops): the province hits are exactly these, the constructor's write the positive control. Wrong if a writer reached it through another base form (add reg, 0x33C was not swept)."
+  },
+  {
+   "struct": "CProvince",
+   "offset": "0x33C",
+   "name": "peace_new_owner",
+   "type": "CCountryTag",
+   "comment": "Scratch: who the province would go to at a peace - see CMapProvince +0x33C. CMapProvince derives from CProvince and adds nothing at this offset, so the field is the base's; both carry it because Ghidra has no inheritance between the two structures.",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "As for CMapProvince +0x33C; the province constructor (VA 0x494700) writes it beside owner and controller."
+  },
+  {
+   "struct": "CDiplomacyStatus",
+   "offset": "0x54",
+   "name": "war_seen_tick",
+   "type": "int",
+   "comment": "Save key `last_war` (CDiplomacyStatus::LoadKey, token 0x305, at VA 0xA4823E). **Written by CCountry::UpdateAtWarAndEnemies (0x4E6C32) with the current tick, for every pair still at war when it runs - and it runs only as a session is entered and when a war's membership changes, not hourly** (corrected 2026-10-13: this said 'on every diplomatic action and once an hour'). So it is the tick of the last such moment while the pair were at war, and CDiplomacyStatus::HasTruce counts the 2400-hour truce from it; a long war with no change of membership since the last load leaves no truce. Other writers: SetUpCountryForNewGame puts a value later than now back to the null date, and ReleaseProvinces stamps a released country's pair with its former owner.",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "findRefs --callers 0x4E6A70: nine, in CInGameIdler::Enter and CWar::Add/RemoveAttacker/Defender, none hourly; store sweep of [reg+0x54] in .text chunks mentioning 0xE28 (positive control 0x4E6C32 found). Saves: ITA->ETH last_war=\"1936.1.1.0\" in the 1 Jan, 8 Jan, 1 Feb and 1 Mar 1936 saves of one game with the war ongoing.",
+   "revises": true
+  }
+ ],
+ "vftable_slots": {
+  "CPeaceAction": {
+   "12": "GetDialogText",
+   "15": "GetToken",
+   "16": "Clone"
+  },
+  "CWarHistory": {
+   "9": "LoadEntry"
+  },
+  "CAddAttackerChange": {
+   "7": "Apply"
+  },
+  "CRemoveAttackerChange": {
+   "7": "Apply"
+  },
+  "CAddDefenderChange": {
+   "7": "Apply"
+  },
+  "CRemoveDefenderChange": {
+   "7": "Apply"
+  }
+ },
+ "frontier": [
+  "0x1F5450",
+  "0x283EE0",
+  "0x1FA7E0",
+  "0x64D920",
+  "0x94700",
+  "0x21D498",
+  "0x226154",
+  "0x227A17"
+ ]
+}

@@ -1,0 +1,292 @@
+{
+ "agent": "war and peace wave, reader D - the capitulation",
+ "question": "What a capitulation does, exactly enough to reimplement it: CCountry::GetSurrenderProgress whole with its direction; the capitulation VA 0x4E9220 in order; CWarGoal::Enforce for every peace option; peace_order; and 0x47E590.",
+ "source": "reversing/findings/FINDINGS-war.md",
+ "addresses": [
+  {
+   "rva": "0xE9220",
+   "kind": "function",
+   "name": "CCountry_Capitulate",
+   "signature": "void __stdcall CCountry_Capitulate(CCountry* country, CCountryTag* victor)",
+   "no_signature": null,
+   "comment": "**The capitulation proper**, called only by CCountry_Surrender (VA 0x4E9182) after `on_surrender` has fired. 0x4E9220 to two `ret 8` in one frame: 0x4EA052 (the main exit) and 0x4EA082, the early exit at 0x4EA055/0x4EA062 reached by jumps from 0x4E9286, 0x4E92C7 and 0x4E92DE - trap 3, settled: eleven int3 follow 0x4EA085 and a fresh SEH prologue opens 0x4EA090. Read whole on the listing. In order:\n\n1. `war = countries[victor]->diplomacy[country]->war (+0x20)`; none -> return.\n2. **The enemy side's goals**, copied into a local vector of 0x2C-byte CWarGoals: when the country is a defender (+0x3C) every attacker's goals (CWar::CollectAttackerGoals), when an attacker every defender's (CWar::CollectDefenderGoals); in neither -> return. So the goals of **every** enemy in this one war are considered, not only the victor's.\n3. SortWarGoalsByPeaceOrder(first, last, count, victor): ascending CCasusBelliType +0x10 (the `peace_order` rank), and among equal ranks the victor's own goals first. std::sort - not stable.\n4. **Pass 1**, every goal whose type has **no** `po_annex` (token 0x79C) and whose recipient (+0x24) is the country: if 0x47BF70(goal@EDI, war 0) passes - the type is real, the recipient owns at least one province, and its allowed_countries/allowed_regions blocks hold - the count goes up and CWarGoal::Enforce runs. True: the goal's actor goes on list A (unless already on A or B). False: the actor goes on list B and comes off A.\n5. **Pass 2**: the same over the goals that **have** `po_annex`. So annexing goals are enforced after every other, whatever their rank.\n6. **No goal passed the gate**: a `conquer` goal is built on the stack (actor the victor, recipient the country, no region; the type looked up by name, type 0 if absent) and Enforce runs on it **without** the gate or the type's is_valid; the victor goes on A or B the same way.\n7. **B empty** (every enforced goal made peace): the country leaves the war (CWar::RemoveAttacker / RemoveDefender, flag 0). Then each of its Vassals (+0xF78, copied first) that is in the war: if it is the recipient of any goal of the war (CWar::IsWarGoalRecipient) it is **released** - the CAlliance and the CDependency between the two deactivated (slot 11), unlinked from CCurrentGameState +0xB2C and deleted, military access cleared both ways (SetMilitaryAccess false), guarantee (+0x1C) nulled both ways without deleting the object, allowDebts (+0x78) cleared both ways - and it **stays in the war**; otherwise a `puppet` goal (actor the victor, recipient the vassal; CWarGoal_Make) is enforced where the type is real - MakeVassal, threat 5, the message - with no gate and no is_valid, and the vassal leaves the war. Every vassal, in the war or not, then gets CCountry_RefreshDiplomacy and CCountry::OnDiplomacyChanged.\n   **B not empty** (a goal with handles_peace, or the exile arm): the country **stays in the war**; CWar::RemoveWarGoalsOf(war, country) and the same for each vassal, which deletes every goal they hold and every goal held against them in this war; each vassal refreshed.\n8. Every country on A, then the country itself: CCountry_RefreshDiplomacy and OnDiplomacyChanged.\n9. **Occupied land goes back**: for each province the country controls (+0xD00) and does not own, Province_SetController(p, its owner, now, 1, 0, 0) where the owner's status towards the country has no war, or the owner is a government in exile and that war is this one.\n10. Where step 7 released a vassal or step 9 moved a province: DeleteAreaGroups, RebuildAreaGroups, DeleteSupplyGroups, RebuildSupplyGroups.\n11. In a running game: the in-game screen's +0x84 |= 0xF and -1 queued on its +0x88 deque (0x679590).\n\nThe country's units, capital and faction are not touched here: they move only inside AnnexCountry, SetGovernmentInExile and MakeVassal, through Enforce. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Read off the disassembly 0x4E9220-0x4EA085 instruction by instruction; the decompiler's `return` after each `free` is its own artefact and was ignored. Arguments: [ebp+8] is indexed +0xCA8/+0xCA4 (a CCountry), [ebp+0xC] goes to CCountryTag::GetCountry (0x402610); the one caller pushes `lea edx,[ebp-0x24]` and edi. The two passes' filters are the `cmp dword ptr [eax], 0x79c` at 0x4E9340 (je skip) and 0x4E9490 (je act). The B branch is `cmp [ebp-0x3c],0; jne 0x4E9D19` at 0x4E988A. Wrong if the vector filled at 0x4E92B8 is not the attackers' goals - read off 0xA52480, which walks +0x2C."
+  },
+  {
+   "rva": "0x652480",
+   "kind": "function",
+   "name": "CWar::CollectAttackerGoals",
+   "signature": "void __stdcall CWar::CollectAttackerGoals(CWar* war, void* outGoals)",
+   "no_signature": null,
+   "comment": "Appends to a std::vector<CWarGoal> (0x2C-byte elements) the goals of every attacker of the war, in the attackers' order (+0x2C..+0x30): each attacker's id is looked up in the war-goal map (+0x9C, header at +0xA0) and that country's vector copied in whole (0xA52D00 when the output is empty, the range insert 0xA54480 otherwise). 0xA52480 to the `ret 8` at 0xA52546. One caller, CCountry_Capitulate, which asks for it when the surrendering country is a **defender**.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Decompiled and the bounds checked: `ret 8`, two stack arguments, the walk over [war+0x2C, war+0x30) with an 8-byte stride and the map lookup by `[it+4]` (the id). Its twin 0xA52550 is byte for byte the same over +0x3C. Wrong if +0x2C is not the attackers (the record's CWar fields say it is, read live)."
+  },
+  {
+   "rva": "0x652550",
+   "kind": "function",
+   "name": "CWar::CollectDefenderGoals",
+   "signature": "void __stdcall CWar::CollectDefenderGoals(CWar* war, void* outGoals)",
+   "no_signature": null,
+   "comment": "The twin of CWar::CollectAttackerGoals over the defenders (+0x3C..+0x40): every defender's goals from the war-goal map appended to the vector. 0xA52550 to the `ret 8` at 0xA52616. One caller, CCountry_Capitulate, when the surrendering country is an attacker.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Decompiled: identical to 0xA52480 but for `+0x3c`/`+0x40` in the loop bounds; `ret 8`. Wrong if the two vectors' roles were swapped in the record's CWar fields."
+  },
+  {
+   "rva": "0x652620",
+   "kind": "function",
+   "name": "CWar::IsWarGoalRecipient",
+   "signature": "bool __stdcall CWar::IsWarGoalRecipient(CWar* war@EAX, CCountryTag* tag@stack:4) @AL",
+   "no_signature": null,
+   "comment": "True when any goal held by any country in the war (the whole map at +0x9C, header +0xA0, walked in key order) names `tag` as its recipient (CWarGoal +0x24 against tag +4). 0xA52620 to two `ret 4` at 0xA526B9 and 0xA526C4. One caller, CCountry_Capitulate (VA 0x4E99AA), which **releases** a vassal of the surrendering country that is a goal's recipient and **puppets to the victor** one that is not.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Decompiled with the listing checked at the call: `mov eax, edx` (the war) then `push &tag` at 0x4E99A4-0x4E99AA; the compare is `*piVar6 == *(param_1+4)` on goal +0x24, stride 0x2C. Wrong if +0x24 were the actor's id - the record has +0x18 Actor and +0x20 Recipient (tag, id)."
+  },
+  {
+   "rva": "0x6520F0",
+   "kind": "function",
+   "name": "CWar::RemoveWarGoalsOf",
+   "signature": "void __stdcall CWar::RemoveWarGoalsOf(CWar* war, char tag[4], int countryId)",
+   "no_signature": null,
+   "comment": "Deletes from the war every goal the country holds (its own vector in the map at +0x9C, emptied) and every goal any other country holds **against** it (recipient id +0x24 equal; collected first, then erased one by one with the vector's tail moved down). 0xA520F0 to the `ret 0xC` at 0xA52404. Four callers: CWar::RemoveAttacker (VA 0xA504F1) and CWar::RemoveDefender (0xA517C1), so leaving a war takes the goals with it; and CCountry_Capitulate twice (0x4E9D2B, 0x4E9D58), for a country that stays in the war because a goal handled the peace or it went into exile, and for its vassals.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Decompiled; `ret 0xC` with three stack dwords; the map lookup by the id argument (0xA52750 with &countryId) and the erase of the whole range (0xA46550), then the match on `puVar6[9]` = +0x24 = the id argument. Wrong if the second loop matched the actor (+0x1C) instead - it reads index 9, not 7."
+  },
+  {
+   "rva": "0x113540",
+   "kind": "function",
+   "name": "SortWarGoalsByPeaceOrder",
+   "signature": "void __cdecl SortWarGoalsByPeaceOrder(CWarGoal* first, CWarGoal* last, int depth, CCountryTag* victor)",
+   "no_signature": null,
+   "comment": "MSVC's std::sort (introsort) over 0x2C-byte CWarGoals: partitions (0x513B30) while more than 32 elements remain and depth lasts (depth = depth/2 + depth/4 each round), falls back to the heap sort (0x514A40, 0x514AF0) when depth runs out, and finishes with the insertion sort WarGoals_InsertionSortByPeaceOrder. The order: **`a` before `b` when both have a type and a's CCasusBelliType +0x10 (`peace_order` rank) is lower, or the ranks are equal and a's actor is the victor and b's is not**. Not stable. 0x513540, bare `ret`s at 0x51362D and 0x513673; called by CCountry_Capitulate with depth = the element count and by itself twice.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Decompiled for the shape (the 0x21 threshold, the depth halving, the two recursions) and the comparator read on the listing in 0x514C00 at 0x514C58-0x514C7D: `test ebx,ebx` / `[edi+0xc]` null tests, `cmp edx,ecx` on +0x10 of the two types with `jl` to the swap, then on equality the actor id +0x1C against victor+4 for one and not the other. Wrong if +0x10 were not the rank - read at its one writer in LoadCasusBelliTypes, VA 0x416DE0."
+  },
+  {
+   "rva": "0x114C00",
+   "kind": "function",
+   "name": "WarGoals_InsertionSortByPeaceOrder",
+   "signature": "void __cdecl WarGoals_InsertionSortByPeaceOrder(CWarGoal* first@EDI, CWarGoal* last@stack:4, CCountryTag* victor@stack:8)",
+   "no_signature": null,
+   "comment": "The final insertion sort of SortWarGoalsByPeaceOrder, and the clearest copy of its comparator (0x514C58-0x514C7D): a goal moves before another when both types are set and its type's +0x10 rank is lower, or equal with its actor (+0x1C) the victor and the other's not. A goal moved to the front is shifted through 0x515750 and rebuilt in place (vftable, +4 = 0x18D, the ten dwords). 0x514C00 to the bare `ret` at 0x514D8D; one caller, 0x51361F.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Listing: `cmp edi, eax` with eax = [ebp+8] at entry (first in EDI, last on the stack), [ebp+0xC]+4 read as the victor's id, bare `ret`. Wrong if the caller passed something other than the victor tag as the fourth argument of 0x513540 - CCountry_Capitulate pushes edi = [ebp+0xC], the victor."
+  },
+  {
+   "rva": "0x79810",
+   "kind": "function",
+   "name": "CWarGoal_Make",
+   "signature": null,
+   "no_signature": "goal in EDI; on the stack a std::string by value (0x1C bytes) naming the casus belli type, then the actor's tag and id and the recipient's tag and id; `ret 0x2C`. A by-value std::string has no spelling in the record's signature grammar.",
+   "comment": "Builds a CWarGoal in place: vftable, +4 = 0x18D, +0xC the CCasusBelliType looked up by name in the type database (CMessageHandler::LookupType over [0x1A85BD8]; type 0 when the name is unknown), +0x10 `---` / +0x14 0, +0x18/+0x1C the actor, +0x20/+0x24 the recipient, +0x28 no region. 0x479810 to the `ret 0x2C` at 0x4798DD; **0x4798E0 starts on the next byte with no padding** (trap 2 - CWarGoal_CopyInto). Five callers: CCountry_Capitulate's vassal arm (VA 0x4E9C58, `puppet`), three in the AI at 0x89DA29, 0x89DB6E and 0x89DC0A, and 0x98A735.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Decompiled and the ret read: `ret 0x2C` = 0x1C + 4 x 4; unaff_EDI[6..9] from stack +0x20..+0x2C after the string. At 0x4E9C27-0x4E9C4D the capitulation pushes vassal id, vassal tag, victor id, victor tag and then builds the string 'puppet' below them. Wrong if the copy at 0x4798E0 were this function's tail - it has its own callers (0x47BF08) and opens on a `mov [eax+4], 0x18d`."
+  },
+  {
+   "rva": "0x798E0",
+   "kind": "function",
+   "name": "CWarGoal_CopyInto",
+   "signature": "void __cdecl CWarGoal_CopyInto(CWarGoal* dst@EAX, const CWarGoal* src@ECX)",
+   "no_signature": null,
+   "comment": "Copy-constructs a CWarGoal: dst vftable 0x15BDB34 (CWarGoal's), +4 = 0x18D, then +8 to +0x28 copied from src. 0x4798E0 to the bare `ret` at 0x479923. **Abuts CWarGoal_Make's `ret 0x2C` at 0x4798DD with no padding** - trap 2. One direct caller, VA 0x47BF08.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Listing read whole (20 instructions). Wrong if 0x4798E0 were reached by a jump from inside 0x479810 - nothing in 0x479810 jumps past 0x4798DD, and findRefs finds a direct call to it."
+  },
+  {
+   "rva": "0x79D20",
+   "kind": "function",
+   "name": "CWarGoal_GetTypeName",
+   "signature": "Hoi3CString* __cdecl CWarGoal_GetTypeName(CWarGoal* goal@EAX, Hoi3CString* out@ESI) @EAX",
+   "no_signature": null,
+   "comment": "CCasusBelliType::GetLocalisedName on the goal's type (+0xC), into `out`. 0x479D20 to the bare `ret` at 0x479D3C. Two callers; CWarGoal::Enforce uses it for the `$WARGOAL$` message variable (VA 0x47B76A).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Decompiled (three instructions and a call) and the call site read: `mov eax,[ebp+8]; lea esi,[ebp-0x70]; call 0x479d20`. Wrong if GetLocalisedName returned something else in EAX than out."
+  },
+  {
+   "rva": "0xE3EB0",
+   "kind": "function",
+   "name": "CCountry_RefreshDiplomacy",
+   "signature": "void __cdecl CCountry_RefreshDiplomacy(CCountry* country@ESI)",
+   "no_signature": null,
+   "comment": "CCountry::RebuildNeighbours(country) then 0xE39C0(country) - the pair the diplomatic effects call on both countries after any change (FINDINGS-effectrun.md 2.2). 0x4E3EB0 to the bare `ret` at 0x4E3EC5; seven callers, five of them in CCountry_Capitulate.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Decompiled: two calls, both on the ESI receiver; the call sites load ESI from CCountryTag::GetCountry first (e.g. 0x4E9CD5). The name is ours; wrong only if 0xE39C0 turned out to be something other than a refresh (it is not read)."
+  },
+  {
+   "rva": "0x7FFF0",
+   "kind": "function",
+   "name": "DeleteAreaGroups",
+   "signature": "void __cdecl DeleteAreaGroups(void)",
+   "no_signature": null,
+   "comment": "Undoes RebuildAreaGroups: after 0x481930, for every country in order, every area's group pointer (COwnerArea region_group) set to 0 and the country's list at +0xD40 walked, each distinct group collected once; then 0x481CC0 on the collected list and the country's +0xD40 list freed and zeroed. Called before RebuildAreaGroups everywhere the pair appears - 18 callers, CCountry_Capitulate and CWarGoal::Enforce among them. 0x47FFF0 to the bare `ret` at 0x4801C5.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Decompiled only; the bare `ret` and the pairing with RebuildAreaGroups at every call site read in this wave (0x4E9F2E/0x4E9F33, 0x47AD7B/0x47AD80) checked. Inferred because 0x481930 and 0x481CC0 are not read - wrong if 0x481CC0 keeps the groups rather than deleting them."
+  },
+  {
+   "rva": "0x807F0",
+   "kind": "function",
+   "name": "DeleteSupplyGroups",
+   "signature": "void __cdecl DeleteSupplyGroups(void)",
+   "no_signature": null,
+   "comment": "The supply twin of DeleteAreaGroups: after 0x481980, every area's supply_group set to 0, the country's +0xD50 list's distinct groups collected and handed to 0x481D70, the list freed and zeroed. Called before RebuildSupplyGroups everywhere the pair appears (18 callers). 0x4807F0 to the bare `ret` at 0x4809C4.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Decompiled only; the same shape as 0x47FFF0 over supply_group and +0xD50, and the call order 0x4807F0 then RebuildSupplyGroups at 0x4E9F38/0x4E9F3D. Inferred for the same reason: 0x481980 and 0x481D70 are not read."
+  },
+  {
+   "rva": "0x7E590",
+   "kind": "function",
+   "name": "COwnerArea_DistanceToProvince",
+   "signature": "int __cdecl COwnerArea_DistanceToProvince(COwnerArea* area@EAX, CMapProvince* province@ECX) @EAX",
+   "no_signature": null,
+   "comment": "The distance from a province to the nearest province of an area: the minimum of CMap::DistanceBetweenProvinces(province id +0xD0, each area province's id) over the area's province list (+0x24, next at +8), starting from 1,000,000 - so 1,000,000 for an empty area. The distance is the map's (four times the straight line). 0x47E590 to the bare `ret` at 0x47E5D7, 18 instructions. **One caller, AnnexCountry at VA 0x4E8523**, in its surrender arm: where a province's neighbouring areas are held by more than one candidate, the candidate whose area is nearest by this measure (strictly nearer replaces, so the first of equals in the neighbour list keeps it) takes control. The capitulation never reaches it - CWarGoal::Enforce calls AnnexCountry with surrender false. VA 0x47E590, rva 0x7E590: FINDINGS-effectrun.md's '0x47E590' was the VA.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Listing read whole; edi = 0xF4240 and `cmovl`; the call site 0x4E851E-0x4E8530 passes the province in ECX and the neighbour area in EAX and keeps the smaller in EBX. Wrong if DistanceBetweenProvinces' arguments were not ids - its record says it indexes CMap +0x2A60 by id."
+  },
+  {
+   "rva": "0xA8540",
+   "kind": "function",
+   "name": "CList_CCountryTag_RemoveById",
+   "signature": "void __cdecl CList_CCountryTag_RemoveById(void* list@EAX, const CCountryTag* tag@ECX)",
+   "no_signature": null,
+   "comment": "Finds the first node of a CList of CCountryTags (0x14-byte nodes, id at +4, next at +0xC) whose id equals tag->id and removes it through CList_CCountryTag_RemoveNode (a null node when none matches, which that answers false for). 0x4A8540 to the bare `ret` at 0x4A8564. Two callers: CCountry_Capitulate (VA 0x4E9454) and 0x5EFEB2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Listing read whole (16 instructions): esi = eax as the list for the callee, the found node written into the pushed slot. Wrong if node +4 were not the id - CList_CCountryTag_PushBack writes the id there."
+  },
+  {
+   "rva": "0xA85D0",
+   "kind": "function",
+   "name": "CList_CCountryTag_RemoveNode",
+   "signature": "bool __stdcall CList_CCountryTag_RemoveNode(void* list@ESI, void* node@stack:4) @AL",
+   "no_signature": null,
+   "comment": "CList_RemoveNode's twin for 0x14-byte nodes (prev +8, next +0xC, flag +0x10): false for a null node; when the list's no_unlink byte (+0xC) is set only marks the node (+0x10 = 1) and answers true; otherwise unlinks it, fixes head and tail, frees it and decrements the count. 0x4A85D0 to three `ret 4`. Callers include CList_CCountryTag_RemoveById, CCountry_Capitulate (VA 0x4E95E8), 0x726D15, 0x8D5485 and 0xA8C4E0.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Listing read whole (31 instructions). Wrong if a caller passed the list elsewhere than ESI - both callers read in this wave set ESI to the list first."
+  },
+  {
+   "rva": "0x17420",
+   "kind": "function",
+   "name": "ParseStringListBlock",
+   "signature": "void __stdcall ParseStringListBlock(CParseContext* context, void* names)",
+   "no_signature": null,
+   "comment": "Reads a `{ name name ... }` block into a std::vector<std::string> (StringVector_PushBack per token), stopping at `}` (token type 4) or end of file (0x13); an unreadable token becomes 'Unreadable String'. 0x417420 to the `ret 8` at 0x4175B5; 17 callers, so a general reader. LoadCasusBelliTypes uses it for `peace_order` (VA 0x416C0F), and afterwards gives each casus belli type its position in that list as CCasusBelliType +0x10 (0x416D11-0x416DF8), logging 'Could not find peace execution order for casus belli: ' for a real type the list does not name.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Listing read for the loop (token types 4 and 0x13, the copy to [ebx+0x228], the StringVector_PushBack call with the vector in EDI). Inferred because the parse context's reader slot (slot 1) is taken on trust from the record; wrong if the 17 callers were not all list blocks."
+  },
+  {
+   "rva": "0x7A950",
+   "kind": "function",
+   "name": "CWarGoal::Enforce",
+   "signature": "bool __stdcall CWarGoal::Enforce(CWarGoal* goal)",
+   "no_signature": null,
+   "comment": "**A war goal carried out at a capitulation.** 0x47A950 to the single `ret 4` at 0x47BBD5, 8 int3, then CWarGoal::RunCasusBelliOnAdd at 0x47BBE0. One stack argument; ECX not read. Its only callers are four direct calls in CCountry_Capitulate (VA 0x4E9378, 0x4E94CC, 0x4E9727, 0x4E9C75); no vftable or data reference holds it. The return starts as `!handles_peace` (type +0x1F3) and is cleared by the exile arm. The acting capital of the actor is taken at entry (GetActingCapitalLocation). Then, against the type's peace-option list (+0x1E0, a CList of tokens), **in this fixed order whatever the file's order**:\n\n1. **po_annex (0x79C)**: a host is looked for among the recipient's real faction's members (+0xD8, slot 7 true): not the recipient, not REB, major (+0x15C) or max_ic above 100, owning a province, not in exile - the first found. Then `Random() % 100 < 80` is **always drawn**; if it fails, the recipient still qualifies when it is a subject whose overlord owns a province, or is BEL or HOL (CCountryDataBase +0x8C, +0x9C). **Host and qualified -> government in exile**: where the actor's id is set, every province the recipient controls on the continent of the actor's capital (GetCapitalLocation, +0x368) or whose area touches ground the actor controls (OwnerArea_TouchesController) is given to the actor's control (Province_SetController(p, actor, now, 1, 0, 0)), the area and supply groups made again, then SetGovernmentInExile(recipient, true), and the return is false. **Otherwise** AnnexCountry(actor, **false**, recipient) - the `inherit` mode, not surrender's - and where no host was found and the faction is real, every government in exile among its members is annexed by the actor too.\n2. **po_demand_region (0x798)**: the goal's region (+0x28) - null logs 'CB error: po_demand_region has no specified region for CB type ' - and every province of it the recipient owns is ChangeOwner(p, actor, now, 1, 0, 0), in the region's order.\n3. **po_demand_provinces (0x7AB)**: every province the recipient owns (OwnedProvinces order) for which `allowed_province` (+0x130) holds in a scope of country the recipient, THIS the actor, province p, collected first and then ChangeOwner to the actor.\n4. **po_puppet (0x7AF)**: MakeVassal(actor, recipient).\n5. The type's `threat` (+0x1C0) above 0: SpreadThreat(actor, &threat, &1000, the acting capital taken at entry).\n6. `on_completion` (+0x270) with children (+0x280 is its child count): Execute(scope, 0) with country the recipient, FROM the actor, THIS the actor.\n7. The message, every time, to the local player: variables of the player's country plus AGRESSOR (actor's name), TARGET (recipient's name), WARGOAL (CWarGoal_GetTypeName); key **WESURRENDER** when the recipient is the player, **THEYSURRENDERUS** when the actor is, else **THEYSURRENDER**; the recipient's tag in the message's country slot; posted with PostMessage_CInGameIdler.\n\n**po_install_government (0x799) and po_change_government (0x79A) are tested nowhere in the image** - TFH's install_democracy and install_communism do their work through on_completion (coup_by = FROM). The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "revises": "Raised from inferred to confirmed, read whole on the listing. Corrected: AnnexCountry is called with surrender = false (ebx, zero since 0x47A97C, pushed at 0x47ADC0 and 0x47AE0F), so the capitulation's annexation is inherit's, with no candidate controllers; the exile arm's conditions are now exact (host test at 0x47AA8C-0x47AAD6, the roll at 0x47AADA, the subject and BEL/HOL rescues at 0x47AAF8-0x47AB7D) and it also annexes the faction's other exiles when no host was found; +0x280 is on_completion's child count, not an unknown key; the message keys are added; and the two government peace options are recorded as untested.",
+   "evidence": "Disassembly 0x47A950-0x47BBD5 read in full. The four token tests are the only `cmp dword ptr [eax], 0x7xx` in the body (0x47AA23, 0x47AE40, 0x47B028, 0x47B223). The negative for 0x799/0x79A: every 32-bit immediate of either value in .text was decoded (tokscan) - 3 and 6 hits, none a compare against a peace-option node - with the positive control that the same scan finds all four Enforce compares and both capitulation compares of 0x79C. A jump table keyed on the token would escape that scan. BEL/HOL from the 45-tag .rdata array at 0x15C1DE4 (index 17 and 19), checked against the record's tag_GER +0 and tag_USA +0x18."
+  },
+  {
+   "rva": "0xFCB80",
+   "kind": "function",
+   "name": "CCountry::GetSurrenderProgress",
+   "signature": "int* __thiscall CCountry::GetSurrenderProgress(CCountry* this@ECX, int* out@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "0xFCB80 to three `ret 4` at 0xFCB9F, 0xFCBB9 and 0xFCC53 - one function, every exit sharing the same frame. 82 instructions, read end to end. `this` in ECX, the out pointer the single stack argument, and `out` comes back in EAX.\n\n    if (this->government_in_exile (+0x95))      *out = 0\n    elif (this->province_count (+0xD08) == 0)   *out = 1000      ; controls no province\n    else { u = national_unity (+0x10B8) * 1000 / 100000          ; 64-bit, truncated: unity/100, 10..1000\n           if (u == 0) *out = 1000\n           else *out = clamp(0xFCC60(this) * 1000 / u, 0, 1000) } ; truncated\n\n**1000 means on the brink of surrender.** 0xFCC60 is the share, in thousandths, of the victory points of the country's **core** provinces it owns that it does not also control. So **the progress reaches 1000 exactly when that occupied share, in tenths of a percent, is at least national unity in tenths of a percent** - a country at 70% unity surrenders once 70% of the victory points of its owned cores are occupied. A government in exile always answers 0, so it never surrenders again.\n\n**The surrender level is the constant 1000**: RunCountryDailyPass (VA 0x4DBCE3) compares this answer with 0x3E8 and nothing else; laws, ministers and modifiers enter only through national unity. Nine callers: CSurrenderProgressTrigger::Evaluate (VA 0x9F823D, which divides by ten - script scale 0..100); RunCountryDailyPass at VA 0x4DBCDE, which runs CCountry_Surrender at 1000 or more; and seven not read, VA 0x5003C5, 0x77E99B, 0x7851A1, 0x893F67, 0x896540, 0x8B45AA, 0x8B8AD9. The game's own Lua registration calls it **`CCountry::GetSurrenderLevel`** (ghidra/bicelib_findings.json).\n\n**For a mod:** a country with no owned core (an empty `CoreProvinces` +0xD10, or every core lost) answers 0 from 0xFCC60, so its progress is 0 however much has been lost; and one that owns provinces but controls none answers 1000.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "revises": "Comment only. The list +0xD10 is CoreProvinces (renamed from `claims` 2026-10-05), so the measure is of occupied cores, not 'claimed territory'; +0xD08 is the count of the controlled-provinces list, so the maximum arm means 'controls no province' rather than 'no provinces left'; the threshold is stated as the occupied share against unity; and the daily caller's fixed 1000 is stated as the surrender level the brief asked for.",
+   "evidence": "Disassembly 0x4FCB80-0x4FCC53 re-read: `cmp dword ptr [esi + 0xd08], 0` at 0x4FCBA2, the two __allmul/__alldiv pairs (0xB99AF0, 0xB99980) with 1000 and the guarded 100000, the clamp at 0x4FCC35-0x4FCC42. The daily gate at 0x4DBCDE-0x4DBCE9 (`cmp dword ptr [eax], 0x3e8; jl`). Wrong if +0xD10 were not the cores - its record carries the Lua accessor GetCoreProvinces."
+  },
+  {
+   "rva": "0xFCC60",
+   "kind": "function",
+   "name": "CCountry::GetOccupiedVictoryPointShare",
+   "signature": "int* __cdecl CCountry::GetOccupiedVictoryPointShare(CCountry* this@EAX, int* out@EDI) @EAX",
+   "no_signature": null,
+   "comment": "**The occupied share of the victory points of a country's owned cores, in thousandths - the whole of what `surrender_progress` measures.** 0x4FCC60 to three bare `ret` at 0x4FCCC9, 0x4FCCDE and 0x4FCCEA, 43 instructions. Receiver in EAX, out pointer in EDI.\n\n    owned = this->core_victory_points_owned (+0xBE0)\n    if (owned <= 0)  { *out = 0; return out }\n    held  = this->core_victory_points_held (+0xBE4)              ; owned and controlled, so held <= owned\n    *out = 1000 - clamp(held * 1000 / owned, 0, 1000)            ; truncated\n\n0 while it controls every owned core, 1000 when it controls none of them, and **0 when it owns no core at all**. The ratio takes a 32-bit imul/idiv fast path when `held` fits and the 64-bit helpers otherwise, which give the same truncation. The `jne` at 0x4FCC6D and its `or eax,-1` arm are dead. Its only caller is CCountry::GetSurrenderProgress at 0x4FCBC1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "revises": "The return is placed (`@EAX`, which checkSignatures asked for: every exit runs `mov eax, edi` first, e.g. 0x4FCCC4; its one caller reads the out slot `[ebp-4]` instead). And the comment: 'claimed' becomes the owned cores (+0xD10 is CoreProvinces), the field names follow the revised +0xBE0/+0xBE4, and held <= owned is stated, because RebuildNeighbours adds to +0xBE4 only inside its owner test.",
+   "evidence": "The listing of 0xFCC60 is unchanged from FINDINGS-negatives.md; the accumulation re-read at 0x4E3030-0x4E307E, where the controller compare at 0x4E3065 is reached only after the owner compare at 0x4E3048 passed (`jne 0x4e307c` skips both adds)."
+  },
+  {
+   "rva": "0xE8E80",
+   "kind": "function",
+   "name": "CCountry_Surrender",
+   "signature": "void __stdcall CCountry_Surrender(CCountry* country)",
+   "no_signature": null,
+   "comment": "**A country surrenders, and to whom.** 0x4E8E80 to the single `ret 4` at 0x4E9215. One caller, RunCountryDailyPass at 0x4DBE1D, which calls it when the country owns a province (+0xCF8 > 0), CCountry::GetSurrenderProgress answers 1000 or more, `at_war` (+0xACC) is set and at least 30 days have passed since `last_surrender` (+0xAC8).\n\n**The victor** is the country of `enemies` (+0x1008) with the highest score, itself skipped; a strictly higher score replaces, so of equals the first in the list wins:\n\n    score = 1000, or 2000 where the enemy leads a real faction (faction slot 7, first member)\n          + 5000 where the enemy controls our capital (CCountry::GetCapitalLocation)\n          + for each of our OwnedProvinces (+0xCF0) the enemy controls:\n                1000 + victory_points x 3000 + province modifier 15 (industry) x 1000 / 3000\n\nWith no enemy found nothing at all happens. Otherwise a CEventScope with seed Random(), country = the surrendering country, FROM = the victor, province 0 and no combatant is handed to FindOnAction(`on_surrender`) / OnAction_PickEvent / FireEvent (the call at 0x4E915F); then CCountry_Capitulate(country, &victor) (VA 0x4E9182) - the goals of every enemy in the war with the victor enforced in peace order, or a conquer goal when none can be, and the war left or kept - and `last_surrender` = now. So a country that stays at 100% surrender progress and at war surrenders again every 30 days, each time to the best-scoring enemy left; a government in exile's progress is always 0. The name is ours. See reversing/findings/FINDINGS-onactions.md and reversing/findings/FINDINGS-war.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-onactions.md",
+   "revises": "Comment only: the capitulation it calls is now read and recorded (CCountry_Capitulate), so the summary of 0x4E9220 written from its calls alone - 'the vassals (puppet), provinces handed back ... not read in order' - is replaced by a pointer to it.",
+   "evidence": "The call at 0x4E9180-0x4E9182 (`push edx` = &victor at [ebp-0x24], `push edi` = the country) re-read; nothing else in the entry changed."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CCasusBelliType",
+   "offset": "0x10",
+   "name": "peace_order",
+   "type": "int",
+   "comment": "**The type's position in `peace_order`**, 0-based: LoadCasusBelliTypes reads the block with ParseStringListBlock and, after the types are loaded, writes each type's index in that list here (VA 0x416DE0); a real type the list does not name logs 'Could not find peace execution order for casus belli: ' and keeps the constructor's 0 (0x4160EE) - first, with civil_war. The capitulation's sort (SortWarGoalsByPeaceOrder) orders goals by it, ascending, the victor's own goals first among equals.",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "The one writer at 0x416DE0 (`mov [edx+0x10], eax` with eax the loop index over the name vector) and the constructor's zero at 0x4160EE; the reader is the comparator at 0x514C63-0x514C69. Wrong if the loop index counted something other than the peace_order names - its bound is the vector size computed with /0x1C at 0x416D11."
+  },
+  {
+   "struct": "CCountryDataBase",
+   "offset": "0x88",
+   "name": "tag_BEL",
+   "type": "CCountryTag",
+   "comment": "The 18th of the 45 cached tags (index 17 of the .rdata name array at 0x15C1DE4), chars here and id at +0x8C. CWarGoal::Enforce reads the id half at VA 0x47AB75: when an annexing goal's recipient is Belgium, it goes into exile (given a host in its faction) even when the 80% roll fails.",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "The array at 0x15C1DE4 holds inline 4-byte tags GER ENG SOV USA JAP FRA ITA PHI CHI CHC CGX CSX KOR MEN SIK CXB CYN BEL LUX HOL ...; index 17 is BEL, and the record's tag_GER (+0x0, index 0) and tag_USA (+0x18, index 3) fix the stride at 8. Wrong if the slots were not in array order - only those two were checked against AddCountry's arms."
+  },
+  {
+   "struct": "CCountryDataBase",
+   "offset": "0x98",
+   "name": "tag_HOL",
+   "type": "CCountryTag",
+   "comment": "The 20th of the 45 cached tags (index 19), chars here and id at +0x9C. CWarGoal::Enforce reads the id half at VA 0x47AB6D: the Netherlands, like Belgium, go into exile under an annexing goal even when the 80% roll fails.",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "As tag_BEL: index 19 of the array at 0x15C1DE4 is HOL. Wrong on the same condition."
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0xBE0",
+   "name": "core_victory_points_owned",
+   "type": "int",
+   "comment": "**Victory points in thousandths, summed over the country's core provinces (CoreProvinces +0xD10) that it owns.** Written only by CCountry::RebuildNeighbours (0xE21E0): zeroed with its counter block at 0x4E2305, then `prov->victory_points (+0x34) * 1000` added at 0x4E3059 for each core whose `owner.id (+0x330)` is the country's id. The denominator of CCountry::GetOccupiedVictoryPointShare, the surrender measure; CAIUnit::EstimateTheatreNeed takes `+0xBE0 - +0xBE4` at 0x4B99FF and tests it against 2 victory points. CGameState and CInGameIdler also have a +0xBE0 - trap 12.",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "revises": "Renamed from claimed_victory_points_owned: the list it is summed over is CoreProvinces, renamed from `claims` on 2026-10-05, and the old name carried the old word.",
+   "evidence": "The loop 0x4E3025-0x4E307E walks [ebx+0xD10]; the field +0xD10's record has the Lua accessor GetCoreProvinces. Wrong if +0xD10 were not the cores."
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0xBE4",
+   "name": "core_victory_points_held",
+   "type": "int",
+   "comment": "**Victory points in thousandths, summed over the country's core provinces that it both owns and controls.** The other half of +0xBE0, in the same loop of CCountry::RebuildNeighbours: zeroed at 0x4E2311 and added at 0x4E3076 on `prov->controller_id (+0x338) == country->id`, a test reached **only after the owner test passed** - so a core held by another country and liberated by this one counts in neither, and this never exceeds +0xBE0. `1000 - 1000 * held / owned` is the occupied share surrender_progress is built from. CGameState writes a float at +0xBE4 - trap 12.",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "revises": "Renamed from claimed_victory_points_controlled, and the comment corrected: it is not the cores the country controls but the owned cores it also controls - the controller compare at 0x4E3065 sits inside the owner compare's arm (`jne 0x4e307c` at 0x4E304E skips both adds).",
+   "evidence": "Listing 0x4E3030-0x4E307E read instruction by instruction. Wrong if a second writer existed - FINDINGS-negatives.md's scan found RebuildNeighbours the only one."
+  }
+ ],
+ "frontier": ["0x7BF70", "0x113B30", "0x114A40", "0x114AF0", "0x115750", "0x652D00", "0x654480", "0x652750", "0x646550", "0x6543A0", "0x5BE9B0", "0x7C280", "0xE39C0", "0x81930", "0x81980", "0x81CC0", "0x81D70", "0x279590", "0x10E950", "0x5F300", "0x32F70", "0x2F070", "0x709E20"]
+}

@@ -1,0 +1,208 @@
+{
+ "agent": "surrender wave, reader D",
+ "question": "Province_SetController, CMapProvince::ChangeOwner and the owner setter read whole on the listing: what a province changing hands does, in order, with each flag; and what happens to a country's capital and acting capital when the capital province is lost.",
+ "source": "reversing/findings/FINDINGS-surrender.md",
+ "addresses": [
+  {
+   "rva": "0xA2400",
+   "kind": "function",
+   "name": "Province_SetController",
+   "signature": "void __stdcall Province_SetController(CMapProvince* province, CCountryTag* controller, int* date, bool applyConsequences, bool rebuildAreas, bool peaceful)",
+   "no_signature": null,
+   "comment": "**The controller setter**, 24 call sites. 0x4A2400 to the single `ret 0x18` at 0x4A36AE. Read whole on the listing 2026-10-13 (FINDINGS-surrender.md D.2). `old` below is the controller on entry (+0x334/+0x338, kept at [esp+0x34]); `new` is `controller`. In order:\n\n1. **No-ops**: `new.id == old.id` returns at once. An unowned province (`owner_id +0x330 == 0`) given to a real country (`new.id != 0`) returns when `CCurrentGameState +0xDA4 in_game` is set - in a running game unowned land can only be given to nobody.\n2. **With `applyConsequences`** (everything to the history entry in step 2f is inside this flag):\n   a. **unless `peaceful`**: where `CCountry::IsEnemy(new, &old, province)` (war, REB, or an undeclared war covering the province), each building of +0x310..+0x314 in order whose `level_max (+0x20)` is above 0 takes one `Random()` draw and, where `draw % 100 < COMBAT_PUSHBACK_CHANCE_FOR_DAMAGE / 1000` (50 in Their Finest Hour, so 50%), loses COMBAT_PUSHBACK_DAMAGE (1.0 = one level, 1000) off `level_current` through CProvinceBuilding_Damage (rva 0x94490). Then, enemy or not, `current_producing (+0x268)` money, crude oil, metal, energy and rare materials are set to [0x1A87818] (a .bss dword nothing writes - 0); supplies and fuel are left. Then, **where the province is `old`'s acting capital**, CGoodsPool::TakeResources(old's GetPool, 250) - the share is the `.CRT$XCU` static [0x1A86CEC] = floorf(250.5) - takes 25% of money and the four resources (not supplies or fuel) out of old's national stockpile and all seven counters are added to new's GetPool.\n   b. **Radar**: `v = province values[0x30] (MODIFIER_RADAR_LEVEL, +0x114 -> +0x180)`; v != 0: CCountry::AddRadarProvince(new, id) (rva 0xDD250); always CCountry_RemoveRadarProvince(old, id) (rva 0xDD370); `radar_level_applied (+0x378) = v`.\n   c. **Who may take a based unit**: a list holding `old` alone, or `old`'s faction's Members (+0x28) where the faction is real (slot 7).\n   d. **Air**: where the air base (+0x304) has level_max > 0, the nearest province of those countries' `AirBases (+0xD70)` other than this one (CMap::DistanceBetweenProvinces x 1000, strictly nearer wins, first of equals) gives a base object (+0x54). Each unit on this base's list (+0x54 -> +4) whose owner IsEnemy of `new` (with the province): no base found - it leaves its base (+0x98 = 0) and, **when it is not moving (+0x140 <= 0) and not fighting (combats_count +0x11C <= 0), is deleted** (CGameState::QueueUnitRemoval); a base found - CUnit::SetBase, and where the unit stands in this province a CRebaseAirOrder (0x80) to it through CUnit::SetOrder.\n   e. **Naval**: the same with the naval base (+0x300), `NavalBases (+0xD80)`, the base object at +0x58 and a CRebaseOrder (0x48).\n   f. A CControllerChange (0x20) stamped `*date`, with the new tag, added to the province's history (+0xD8 slot 6).\n3. `old.id != 0`: the province leaves old's ControlledProvinces (+0xD00); old's per-country display byte (`[0x1A8C388] + id*0x14 + 0x10`) set; where `old` is REB, the rebel faction holding the province (rva 0x286C60) loses it from +0x94.\n4. **Occupation policy**, where `new != old`: if new's `diplomacy[old] (+0xE28) -> occupation_policy (+0x10)` is the null policy (slot 14 is ReturnFalse on CNullOccupationPolicy, ReturnTrue on COccupationPolicy), `civil_war` is looked up and taken where it is real and its `allow` (+0x50, slot 6) holds with country = new, FROM = old; still null, the first policy of the file (database +0xC -> [1]; Their Finest Hour's `collaboration_government`).\n5. `controller (+0x334/+0x338) = new`.\n6. `new.id != 0`: CCountry_AddControlledProvince(new); new's display byte; where new is REB, old is not REB, the province is owned and has units: the first REB unit whose rebel faction (FindRebelFactionByObjectId) does not already hold the province makes that faction take it (rva 0xBCBB0) and the walk stops. Then the **underground** (+0x30C): where its level_max is above 0 and `underground_owner (+0x38C)` is new or **not** an enemy of new (IsEnemyTag), it is dissolved - both levels 0, CCountry_RemoveUnderground(owner, id) (rva 0x10A090), the template's byte +0x20 set, `underground_owner = ---`.\n7. Unowned province, new real and not REB: CMapProvince::SetOwner(province, new, date, 0, 0) - the controller becomes the owner, with no history entry.\n8. UpdateProvinceBlockaded(province), always.\n9. **In a real area** (area slot 0): UpdateOwnerAreaOfProvince(province, new, old); with `rebuildAreas` DeleteAreaGroups, RebuildAreaGroups, DeleteSupplyGroups, RebuildSupplyGroups; then `theatres_dirty (+0x580) = 1` on old, new and every distinct owner of a simulated neighbouring province (template edges +0x90, stride 0x14).\n10. CProvince::UpdateSupplyDepot (the controller always differs by now).\n11. **With `applyConsequences`: CCountry::UpdateActingCapital(old)** (rva 0xE0B80) - old's acting capital moves at once if this was it.\n12. Where the interface object at +0xCC exists: its +0x84 |= 1, the province id queued on it (0x6434C0, under 110 entries), +0x84 |= 0x100, and -1 pushed onto `CCurrentGameState +0xCF8` (the hourly intelligence refresh).\n13. AISubscribers_NotifyControllerChanged(old, province) (rva 0x4A2F10).\n\n**Nothing here** sends a message, fires an event, moves threat, relation or `war_seen_tick`, touches cores, the declared capital, convoys, trade routes, constructions or land units (only REB's faction, step 6) - the call list above is complete. A province's capture says nothing by itself; PROVINCELOST is CCombatManager::CheckForCombat's.",
+   "confidence": "confirmed",
+   "evidence": "Every instruction 0x4A2400-0x4A36AE decoded (one ret, 0x18 = six stack words, all six read at [ebp+8..0x1C]); every call in it named or listed. The flag gates: applyConsequences `cmp [ebp+0x14],0; je 0x4A2CF8` (the whole block to the history entry ends at 0x4A2CF2) and again at 0x4A354B before 0x4E0B80; peaceful `cmp [ebp+0x1C],0; jne 0x4A26B7` skipping damage, production and loot; rebuildAreas `cmp [ebp+0x18],0; je 0x4A32E4` skipping the four group calls. [0x1A86CEC] = floorf(250.5) by its initialiser at 0xCB1060 (float 250.5 at 0x160A688). COMBAT_PUSHBACK_* at military +0x8C/+0x90 as the record has them. The two-sided IsEnemy is the record's register convention (country ESI, tag EDX, province EDI). Would be wrong if a jump into 0x4A2513-0x4A2CF2 came from outside the applyConsequences test - cfg edges were checked only by reading the listing.",
+   "source": "reversing/findings/FINDINGS-surrender.md",
+   "revises": "Was inferred, from the decompiler. Corrected: the capital's stockpile loot is 25% of money and the four resources only, never supplies or fuel; a based unit with no base to go to is deleted only when it is neither moving nor fighting, and the base it goes to is the nearest of the OLD controller's (or its faction's) bases, not a 'friendly' one; 'refuses an unowned province' is only for a real new controller. Added: current production of money and resources zeroed, the radar list, the underground dissolved, REB faction bookkeeping, theatres_dirty on old, new and the neighbours' owners, CCountry::UpdateActingCapital on the old controller, the AI notification, the interface refresh. Raised to confirmed."
+  },
+  {
+   "rva": "0xA36C0",
+   "kind": "function",
+   "name": "CMapProvince::ChangeOwner",
+   "signature": "void __thiscall CMapProvince::ChangeOwner(CMapProvince* this, CCountryTag* owner, int* date, bool applyConsequences, bool rebuildAreas, bool peaceful)",
+   "no_signature": null,
+   "comment": "**A province changes hands.** 0x4A36C0 to the single `ret 0x14` at 0x4A38F7, read whole on the listing 2026-10-13 (FINDINGS-surrender.md D.3). Twelve call sites. In order, with `oldOwner` = CCountryTag::GetCountry(&this->owner) taken first:\n\n1. Province_SetController(this, owner, date, applyConsequences, rebuildAreas, peaceful) - **the new owner takes control first**, with every consequence that brings.\n2. CMapProvince::SetOwner(this, owner, date, recordHistory = applyConsequences, skipCountryLists = 0) (rva 0xA2180): the owned lists and a COwnerChange history entry. **No core, no capital, no building, construction or unit is touched by either setter.**\n3. Where oldOwner is a real country (`id +0xCA8 != 0`): AISubscribers_NotifyOwnerChanged(oldOwner, this) (rva 0x4A2FB0), then `nationalism (+0x24) = YEARS_OF_NATIONALISM` (country define block +8; 20 in Their Finest Hour, so 20000). It runs down 83 a month (RunMonthlyPass) and is read by the province rebuild's `nationalism` static modifier, where the owner controls it (FINDINGS-revolt.md, the +0x44 family - inferred, not read here).\n4. UnitList_MarkTrespassers(&this->units): units standing here that their owner may no longer enter are marked trespassing.\n5. **oldOwner leaves its faction** - CCountry::LeaveFaction(oldOwner, false), no history - where its faction (+0xD8) is real (slot 7) and `owned_province_count (+0xCF8) <= 0`.\n6. **In a running game** (`in_game +0xDA4`): every node of the province's active modifier list (+0x13C, count +0x144) is unlinked and freed - where the list's deferred-delete byte (+0x148) is set the head is only marked, and the loop would not end - then RebuildProvinceModifierValues(this), which runs even when the list was empty.\n\nNothing tests whether the owner changed: a second ChangeOwner to the same owner is two no-op setters plus the nationalism reset and the modifier wipe again. No message, event, threat or relation.",
+   "confidence": "confirmed",
+   "evidence": "Every instruction 0x4A36C0-0x4A38F7 decoded; the argument pushes at 0x4A36F4-0x4A36FF (peaceful, rebuildAreas, applyConsequences, date, owner, this) and 0x4A370B-0x4A370F (0, applyConsequences, date, owner). The decompiler's `free(block); return;` in the modifier loop is a lie: the listing decrements +0x144 at 0x4A38D2 and loops to 0x4A3880. YEARS_OF_NATIONALISM at defines +0xCC +8 as the record has it. Would be wrong if 0x4A2FB0 used an argument other than the pushed ebx and the inherited EDI - read in its own body.",
+   "source": "reversing/findings/FINDINGS-surrender.md",
+   "revises": "Was inferred. The owner setter 0xA2180 and 'rva 0x4A2FB0' are now read and named (the latter is an AI subscriber notification); the active-modifier wipe's deferred-delete arm and its endless loop added; that nothing tests for an unchanged owner added. Raised to confirmed."
+  },
+  {
+   "rva": "0xA2180",
+   "kind": "function",
+   "name": "CMapProvince::SetOwner",
+   "signature": "void __thiscall CMapProvince::SetOwner(CMapProvince* this, CCountryTag* owner, int* date, bool recordHistory, bool skipCountryLists)",
+   "no_signature": null,
+   "comment": "**The owner setter, and only bookkeeping.** 0x4A2180 to the single `ret 0x10` at 0x4A23F8. In order: (1) nothing at all where `owner->id == owner_id (+0x330)` or the owner's tag is `REB` - **REB never owns land**; (2) with `recordHistory`, a COwnerChange (0x20, ctor 0x5FE450) holding the tag (0xA694A0, 0x5FE4B0), stamped `*date`, added to the province's history (+0xD8 slot 6); (3) unless `skipCountryLists`, the province leaves the old owner's OwnedProvinces (+0xCF0) where there was one; (4) `owner (+0x32C/+0x330)` written; (5) unless `skipCountryLists`, CCountry_AddOwnedProvince(new) (rva 0xDD150); (6) a province with no controller (+0x338 == 0) given a real owner: Province_SetController(this, owner, date, 0, 0, peaceful 1); (7) where the owner changed and the interface object at +0xCC exists: 0x644620(object, 1, id) where the controller is the new or the old owner, then +0x84 |= 0x100 and -1 pushed on the intelligence refresh list (CCurrentGameState +0xCF8). **No core, capital, building, construction, unit, nationalism or modifier.** Six call sites: Province_SetController (0, 0), CMapProvince::ChangeOwner (applyConsequences, 0), CProvince::LoadKey, CProvinceHistory::LoadEntry, RunDailyRevoltRoll and the console's rebel command.",
+   "confidence": "confirmed",
+   "evidence": "Every instruction 0x4A2180-0x4A23F8 decoded; `this` in ECX (mov edi, ecx), four stack words read at [ebp+8..0x14], ret 0x10. The two flag tests: [ebp+0x10] at 0x4A21CF, [ebp+0x14] (bl) at 0x4A2242 and 0x4A22AA. The callers from findRefs --callers 0x4A2180 (six). Would be wrong if a caller passed skipCountryLists 1 and relied on another path to rebuild the lists - the loaders were not read.",
+   "source": "reversing/findings/FINDINGS-surrender.md"
+  },
+  {
+   "rva": "0xE0B80",
+   "kind": "function",
+   "name": "CCountry::UpdateActingCapital",
+   "signature": "void __stdcall CCountry::UpdateActingCapital(CCountry* country)",
+   "no_signature": null,
+   "comment": "**Where the government sits: the acting capital (+0xE24) chosen again.** 0x4E0B80 to the third `ret 4` at 0x4E1009 (three exits, one frame). Two callers: RunCountryHourlyPass at 0x4D914A, every hour for a country with `owned_province_count (+0xCF8) > 0`, and Province_SetController at 0x4A3560 on the **old** controller whenever `applyConsequences` is set. In order:\n\n1. **The acting capital is held by the country** (its controller id is the country's; the IsEnemyTag test beside it cannot be true for a country's own id): the original capital - CCountry::GetOriginalCapital, the history's first `capital` entry, else +0xE20 - becomes the acting capital where it differs and the country controls it; otherwise nothing. **A liberated original capital takes the government back at once.**\n2. **The acting capital is lost** and the country **controls no province** (`province_count +0xD08 == 0`): where its faction is real (slot 7) and its first member is not the country, the acting capital = that leader's acting capital (CCountry_SetActingCapital); otherwise nothing.\n3. **Otherwise the best province**: over OwnedProvinces (+0xCF0), those the country also controls and that lie in a real area (area slot 0):\n\n       score = trunc((victory_points (+0x34) * 1000 + values[15] (+0x114 -> +0x78)) * (area provinces_count (+0x2C) * 1000) / 1000)\n       score = score * 3000 / 1000 where the province's continent (+0x368) is the current acting capital's\n\n   strictly highest wins (start -1000, so the first of equals), all in 64-bit (__alldiv, __allmul). None: the same over ControlledProvinces (+0xD00), real area only, owner not asked. Still none: nothing. The pick is written raw to +0xE24.\n\nThe declared capital (+0xE20) is never touched here; CCountry::EnsureCapital moves that, daily, and only when the capital's owner changes.",
+   "confidence": "confirmed",
+   "evidence": "Every instruction 0x4E0B80-0x4E1009 decoded; `push ebx` callers with `mov ebx,[ebp+8]` and ret 4. The three stores of +0xE24 (0x4E0CA9, 0x4E0FF3, and the CCountry_SetActingCapital call at 0x4E0D24). Callers by findRefs --callers 0x4E0B80 (two) with the hourly gate `cmp [edi+0xCF8], 0; jle` at 0x4D9141. values[15] (+0x78) is MODIFIER_IC - the same slot CCountry::UpdateIC sums over ControlledProvinces, and the id ReleaseProvinces gates its free army on. A store sweep of `mov [reg+disp32 0xE24]` over .text found 8 writers - this function's two among them as the positive control - and nothing else that moves the acting capital in play but CCountry_SetActingCapital's callers.",
+   "source": "reversing/findings/FINDINGS-surrender.md"
+  },
+  {
+   "rva": "0xDD8D0",
+   "kind": "function",
+   "name": "CCountry::EnsureCapital",
+   "signature": "void __stdcall CCountry::EnsureCapital(CCountry* country)",
+   "no_signature": null,
+   "comment": "**The declared capital (+0xE20) moved when the country no longer owns it.** 0x4DD8D0 to the single `ret 4` at 0x4DDB1E, 15 int3 before, CCountry::GetOriginalCapital at 0x4DDB30 after. Read whole on the listing 2026-10-13 (FINDINGS-surrender.md D.5). (1) Capital 0: a country that is not id 0, not REB and owns a province logs \"<TAG> has NO capital defined.\" (country.cpp line 0x1311) and goes on to the choice. (2) A capital whose province's **owner** (+0x330) is the country: nothing - **occupation never moves the declared capital**. (3) Otherwise, where `owned_province_count (+0xCF8) > 0`: each province of OwnedProvinces (+0xCF0) in list order scores `trunc(manpower (+0x320) / 1000) + 1`, times 100 where its cores list (+0x344) holds the country; the first strictly highest (start 0) is passed to CCountry_SetCapital(country, id, logHistory true), which files a CCountryCapitalChange in the history. A country owning nothing keeps its old capital for good - the saves' 17 dormant tags (DDR, KOR, PAL ...) all hold a capital another country owns. The acting capital is not touched. Three callers: the head of RunCountryDailyPass (0x4DA5D7, so daily), 0x6490BF and CInGameIdler::Enter at 0x65B27C. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Every instruction 0x4DD8D0-0x4DDB1E decoded: the gates at 0x4DD8F6 (capital 0), 0x4DD9E5 (owner +0x330 against +0xCA8), 0x4DD9F1 (+0xCF8 <= 0); the score at 0x4DDAA5-0x4DDADE (0x10624DD3 / sar 6 = /1000 toward zero, +1, imul 0x64 on a core match over node +4 / next +0xC); `jle` at 0x4DDAE4, so equals keep the first; push 1 at 0x4DDB05. Savegames 1936.1.1, 1936.4.20 and the autosave: every country with capital != acting_capital none, 17 with a capital owned by another, all owning nothing.",
+   "source": "reversing/findings/FINDINGS-surrender.md",
+   "revises": "Was inferred (FINDINGS-diplostate.md). The reading is unchanged and now checked on the listing; added that it moves only on a change of owner, never of controller, that a country owning nothing keeps its capital, and that the acting capital is untouched. Raised to confirmed."
+  },
+  {
+   "rva": "0x4A2F10",
+   "kind": "function",
+   "name": "AISubscribers_NotifyControllerChanged",
+   "signature": "void __cdecl AISubscribers_NotifyControllerChanged(CCountry* oldController@stack:4, CMapProvince* province@EDI)",
+   "no_signature": null,
+   "comment": "VA 0x8A2F10 to the bare `ret` at 0x8A2F91. Walks the CAISubscriber channel g_AISubscriberList_1B14F30 and calls each subscriber's slot 32 (+0x80, through the thunk 0x4A91A0) with (oldController, province); a node whose subscriber is null is unlinked and freed, or only marked (+0xC = 1) while [0x1B14F3C] is set. One caller, Province_SetController at 0x4A3692, as its last act. Among the CAIAgent family only CAIUnit overrides slot 32 (0x8B0E60, not read). The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Body decoded whole; `mov ebx,[ebp+8]`, `push edi; push ebx; call 0x4A91A0` with ECX = node->data, and 0x4A91A0 is `mov eax,[ecx]; jmp [eax+0x80]`. Caller cleans 4 (add esp, 4 at 0x4A3697) and sets EDI = province at 0x4A3690. vtable.py: CAIUnit slot 32 = 0x8B0E60, every other agent the stub 0xA806D0.",
+   "source": "reversing/findings/FINDINGS-surrender.md"
+  },
+  {
+   "rva": "0x4A2FB0",
+   "kind": "function",
+   "name": "AISubscribers_NotifyOwnerChanged",
+   "signature": "void __cdecl AISubscribers_NotifyOwnerChanged(CCountry* oldOwner@stack:4, CMapProvince* province@EDI)",
+   "no_signature": null,
+   "comment": "VA 0x8A2FB0, the twin of AISubscribers_NotifyControllerChanged on the channel at [0x1B14F40] (tail 0x1B14F44, iterating byte 0x1B14F4C): each subscriber's slot 33 (+0x84, thunk 0x4A91D0) with (oldOwner, province). One caller, CMapProvince::ChangeOwner at 0x4A3721, only where the old owner is a real country. No CAIAgent subclass overrides slot 33 (all hold the stub 0xA806D0), so what listens, if anything, is outside that family. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Body decoded from 0x8A2FB0; the same shape as 0x8A2F10 with the second channel; 0x4A91D0 is `mov eax,[ecx]; jmp [eax+0x84]`. Caller pushes ebx (the old owner) with EDI = this. Would be wrong if a non-CAIAgent subscriber on this channel were missed - the channel's push_back sites were not searched.",
+   "source": "reversing/findings/FINDINGS-surrender.md"
+  },
+  {
+   "rva": "0x94490",
+   "kind": "function",
+   "name": "CProvinceBuilding_Damage",
+   "signature": "void __stdcall CProvinceBuilding_Damage(int amount@stack:4, CProvinceBuilding* building@EAX)",
+   "no_signature": null,
+   "comment": "`level_current (+0x24) -= amount`, floored at 0, and `changed (+0x28)` = whether it moved. 0x494490 to the `ret 4` at 0x4944B3. Two callers: Province_SetController's capture damage (0x4A25D8) and 0x593DD7, inside the body recorded as CNukeMission::IsActive (0x593C30). The same arithmetic CCombat::DamageProvinceBuildings inlines.",
+   "confidence": "confirmed",
+   "evidence": "Nine instructions read whole: mov edx,[ebp+8]; save [eax+0x24]; sub; jge; clamp; setne into [eax+0x28]; ret 4. Callers by findRefs.",
+   "source": "reversing/findings/FINDINGS-surrender.md"
+  },
+  {
+   "rva": "0xDD150",
+   "kind": "function",
+   "name": "CCountry_AddOwnedProvince",
+   "signature": "void __stdcall CCountry_AddOwnedProvince(int province@stack:4, CCountry* country@ESI)",
+   "no_signature": null,
+   "comment": "Appends the province id to OwnedProvinces (+0xCF0, tail +0xCF4, count +0xCF8) unless it is already there. 0x4DD150 to the `ret 4` at 0x4DD1C0. Called by CMapProvince::SetOwner.",
+   "confidence": "confirmed",
+   "evidence": "Read whole: the find loop over node+0 / node+8, a 0x10-byte node {id, prev, 0, 0}, count bumped, tail or head linked; two ret 4. ESI read before any write to it.",
+   "source": "reversing/findings/FINDINGS-surrender.md"
+  },
+  {
+   "rva": "0xDD1D0",
+   "kind": "function",
+   "name": "CCountry_AddControlledProvince",
+   "signature": "void __stdcall CCountry_AddControlledProvince(int province@stack:4, CCountry* country@ESI)",
+   "no_signature": null,
+   "comment": "The twin of CCountry_AddOwnedProvince on ControlledProvinces (+0xD00, tail +0xD04, count +0xD08): appended unless present. 0x4DD1D0 to the `ret 4` at 0x4DD240. Called by Province_SetController at 0x4A302C.",
+   "confidence": "confirmed",
+   "evidence": "Read whole; the same body as 0x4DD150 at +0xD00/+0xD04/+0xD08.",
+   "source": "reversing/findings/FINDINGS-surrender.md"
+  },
+  {
+   "rva": "0xDD250",
+   "kind": "function",
+   "name": "CCountry::AddRadarProvince",
+   "signature": "void __thiscall CCountry::AddRadarProvince(CCountry* this, int province)",
+   "no_signature": null,
+   "comment": "Appends the province id to the country's radar list (+0x1148, tail +0x114C, count +0x1150) unless present, then pushes -1 onto CCurrentGameState +0xCF8 so the hourly intelligence refresh runs. 0x4DD250 to the `ret 4` at 0x4DD36C. Called where MODIFIER_RADAR_LEVEL is non-zero: Province_SetController for the new controller, and RebuildProvinceModifierValues when radar_level_applied crosses 1000.",
+   "confidence": "confirmed",
+   "evidence": "Read whole; `mov esi, ecx`, the list at +0x1148, the refresh push through 0x45F5E0 with `add esi, 0xCF8`. The meaning of the list rests on its two callers both gating on modifier id 0x30, which the record has as MODIFIER_RADAR_LEVEL.",
+   "source": "reversing/findings/FINDINGS-surrender.md"
+  },
+  {
+   "rva": "0xDD370",
+   "kind": "function",
+   "name": "CCountry_RemoveRadarProvince",
+   "signature": "void __fastcall CCountry_RemoveRadarProvince(CCountry* country@ECX, int province@EDX)",
+   "no_signature": null,
+   "comment": "Takes the province id off the radar list (+0x1148) through CList_RemoveNode and pushes -1 onto the intelligence refresh list. 0x4DD370 to the bare `ret` at 0x4DD44A. Province_SetController calls it on the old controller for every change made with applyConsequences.",
+   "confidence": "confirmed",
+   "evidence": "Read whole: `cmp [eax], edx` in the find loop, ECX the country, no stack argument, bare ret.",
+   "source": "reversing/findings/FINDINGS-surrender.md"
+  },
+  {
+   "rva": "0x10A090",
+   "kind": "function",
+   "name": "CCountry_RemoveUnderground",
+   "signature": "void __cdecl CCountry_RemoveUnderground(CCountry* country@EAX, int province@EDX)",
+   "no_signature": null,
+   "comment": "Takes the province id off the country's underground list (+0xD60) through CList_RemoveNode. 0x50A090 to the bare `ret` at 0x50A0B3. One caller: Province_SetController at 0x4A323C, when an underground is dissolved because its owner, or a country not at war with its owner, takes the province.",
+   "confidence": "confirmed",
+   "evidence": "Read whole (0x24 bytes); `lea esi, [eax+0xD60]`, compare against EDX. findRefs --callers: one.",
+   "source": "reversing/findings/FINDINGS-surrender.md"
+  },
+  {
+   "rva": "0x286C60",
+   "kind": "function",
+   "name": "FindRebelFactionHoldingProvince",
+   "signature": "void* __stdcall FindRebelFactionHoldingProvince(CCurrentGameState* state@EAX, CMapProvince* province@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "The first rebel faction (CCurrentGameState +0xC7C) whose provinces list (+0x94) holds the province's id, or one of whose armies (+0x80, object id pairs through FindPersistentByIdPair) stands in it (unit +0x130 -> id); null otherwise. ret 4. Not FindRebelFactionForProvince (rva 0x286CF0), which matches by rebel type. Called by Province_SetController when REB loses control.",
+   "confidence": "confirmed",
+   "evidence": "Read whole 0x686C60-0x686CED (two ret 4); the two loops and their exits to 0x686CE7.",
+   "source": "reversing/findings/FINDINGS-surrender.md"
+  },
+  {
+   "rva": "0xBCBB0",
+   "kind": "function",
+   "name": "RebelFaction_TakeProvince",
+   "signature": "void __stdcall RebelFaction_TakeProvince(void* faction, int province)",
+   "no_signature": null,
+   "comment": "**Rebels take a province** (inferred, off the decompiler). Builds an event scope on the province and asks the faction's type (+0x30) `siege_won_trigger` (+0x60, slot 6); where it holds and the province's owner is the player, a REVOLTSIEGE message (MESSENGER, REBELS = the faction's name, EFFECT, PROV) - a key with no message type in the base game or Their Finest Hour - and the type's `siege_won_effect` (+0x120, slot 11) runs; then the province id is appended to the faction's provinces (+0x94). Two stack arguments, `ret 8` at 0x4BD4B6. Two callers: Province_SetController (0x4A31BA) and SpawnFullRevoltInProvince (0x4A6E22).",
+   "confidence": "inferred",
+   "evidence": "Decompiler, with the listing read at the ret 8 and at the two call sites (push province id, push faction). Which key +0x60 and +0x120 are is matched to rebel_types.txt's siege_won_trigger / siege_won_effect by the shape only, not by the loader; that the effect runs only where the trigger holds is the decompiler's.",
+   "source": "reversing/findings/FINDINGS-surrender.md"
+  },
+  {
+   "rva": "0x7F540",
+   "kind": "function",
+   "name": "UpdateOwnerAreaOfProvince",
+   "signature": "void __cdecl UpdateOwnerAreaOfProvince(CMapProvince* province, CCountryTag newController, CCountryTag oldController)",
+   "no_signature": null,
+   "comment": "**Keeps the areas right when a province changes hands.** Nothing where the two ids are equal and the province is in a real area. Otherwise the province leaves its area: the links its edges made are taken off, the area's slot 2 called and the province pointed at the null area; an area left empty is taken out of every list and freed, and one left with more than a province is **flooded again from scratch**, so a block cut in two becomes two areas. Then, where the new controller's id is not 0 and the province's MaxInfrastructure is above g_min_area_infrastructure, it joins a neighbouring area of the new controller - two such areas being merged, the smaller into the larger (COwnerArea::Absorb) - or a new one, and its links are made. Called from Province_SetController at 0x4A32C2 (every change of controller of a province in a real area, whatever the flags), from SetProvinceBuildingLevel at 0x4A3B33 and from CProvinceBuilding_OnLevelChanged at 0x4B808E; the caller cleans five words. The name is ours. See reversing/findings/FINDINGS-supplynetwork.md, section 2.",
+   "confidence": "inferred",
+   "evidence": "Only the caller attribution changes: 0x4A32C2 lies inside Province_SetController (0x4A2400-0x4A36AE, one ret 0x18), not CMapProvince::TakeControl (0x4A1CD0, ret 8), which reaches it only through Province_SetController. The other two callers named by the nearest recorded entry with functionStart agreeing.",
+   "source": "reversing/findings/FINDINGS-supplynetwork.md",
+   "revises": "The comment said it is called from CMapProvince::TakeControl at 0x4A32C2; that site is in Province_SetController. Callers 0x4A3B33 and 0x4B808E named. Nothing else changed."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CCountry",
+   "offset": "0x1148",
+   "name": "radar_provinces",
+   "type": "CList<int>",
+   "comment": "Head of the list of province ids where the country has radar (tail +0x114C, count +0x1150), 0x10-byte nodes {id, prev, next, deleted}. Kept by CCountry::AddRadarProvince (rva 0xDD250) and CCountry_RemoveRadarProvince (rva 0xDD370), both gated on MODIFIER_RADAR_LEVEL; every change asks for the hourly intelligence refresh.",
+   "source": "reversing/findings/FINDINGS-surrender.md",
+   "evidence": "The find-append at 0x4DD26D-0x4DD2D2 and the find-remove at 0x4DD389-0x4DD3AD, both on [this+0x1148]; tail and count at +0x114C/+0x1150 written at 0x4DD2BD/0x4DD2C3."
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0xD60",
+   "name": "underground_provinces",
+   "type": "CList<int>",
+   "comment": "Head of the list of province ids holding the country's undergrounds (tail +0xD64, count +0xD68). CCountry_RemoveUnderground (rva 0x10A090) takes one off when Province_SetController dissolves an underground; 0x50A0C0 frees the whole list. The underground tooltips walk it (FINDINGS-occupation.md section 2).",
+   "source": "reversing/findings/FINDINGS-surrender.md",
+   "evidence": "0x50A091 `lea esi,[eax+0xD60]` then the find loop and CList_RemoveNode; 0x50A0C0 clears +0xD60/+0xD64/+0xD68. Province_SetController passes the underground_owner's country and the province id."
+  }
+ ],
+ "frontier": ["0x4B0E60", "0x244620", "0x2434C0", "0x6694A0", "0x1FE450", "0x1FE4B0", "0x1FE8B0", "0x1FE910", "0x9E600"]
+}

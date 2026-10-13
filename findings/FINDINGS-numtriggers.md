@@ -162,7 +162,7 @@ outmatched by at most this ratio".
 answers a value clamped to `0..1000`, and the trigger compares `progress * 100` against
 `<script> * 1000`, i.e. `progress / 10 >= <script>`. BlackICE writes both `surrender_progress = 80`
 (meaningful) and `surrender_progress = 0.05` (satisfied by `progress >= 1` out of 1000, i.e.
-essentially always). **The direction is not established**: the function's answer rises with
+essentially always). **Settled by `FINDINGS-war.md` D.2: 1000 is the brink of surrender.** Was: **The direction is not established**: the function's answer rises with
 `national_unity` and its "no data" arm returns the maximum, which reads as "how far from
 surrendering", so even `= 80` may not mean what it looks like. Worth a live check.
 

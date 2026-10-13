@@ -1,0 +1,184 @@
+{
+ "agent": "surrender wave, reader C - the government in exile",
+ "question": "SetGovernmentInExile read whole on the listing both ways - manpower, officers, units on unfriendly ground, the acting capital, the faction's leader, trade routes, +0xA08 - and every reader of government_in_exile (CCountry +0x95) found and said: what being in exile changes elsewhere.",
+ "source": "reversing/findings/FINDINGS-surrender.md",
+ "addresses": [
+  {
+   "rva": "0x102BC0",
+   "kind": "function",
+   "name": "SetGovernmentInExile",
+   "signature": "void __stdcall SetGovernmentInExile(CCountry* country, bool inExile)",
+   "no_signature": null,
+   "revises": "Raised from inferred to confirmed: read whole on the listing 2026-10-13, both arms. Corrections to the old comment: +0xA08 is pool_in_exile's money, not a field of its own; the acting capital is set to the faction leader's own acting capital province (not 'moved toward' it), and only when the exile is not the leader after the promotion; the trade routes go exactly when the acting capital's owner is then not the exile; the +0xF40 list is the build queue; an expeditionary unit is returned to its lender by 0x5020E0 (CUnit::ReturnFromExpedition, which sends EXPRETURNED/EXPRETURNEDWE) and then ShatterUnit is called with the lender; units in sea provinces (controller id 0) are never tested; the return converts regiments of supply_consumption 0 or less into CDefines +0x80, defines.lua base_militia.",
+   "comment": "**A country goes into exile, or comes back from it.** 0x502BC0 to the `ret 8` at 0x5033AD; four `ret 8` arms in one frame (0x50315F, 0x503376, 0x503393, 0x5033AD). Both arguments on the stack. Read whole on the listing 2026-10-13. Seven callers: CWarGoal::Enforce's po_annex exile (0x47ADAF, 1); RunCountryDailyPass, an exile that leads its faction (0x4DBE6E, 0); CCountry_ReplaceExileWithPuppet (0x50C228, 0); CLiberateCountryCommand::Execute (0x54D8FE, 0); CExileStatusChange::Apply (0x5F1EDD forward, 0x5F1EF9 back - the history key government_in_exile); CFormGovernmentInExileAction::Execute (0x9BB1AB, the effect's value).\n\n**inExile 1, already in exile**: the flag is stored again and nothing else (0x503396).\n\n**inExile 1, not in exile**, in order:\n1. `pool_in_exile` (+0x9F8) money (+0xA08) = 0, then `government_in_exile` (+0x95) = 1 - from here every stockpile read and write goes to pool_in_exile, and what lay in the acting capital's province pool stays in that province.\n2. Manpower (+0xBCC) and officers (+0xC4) each = x * f / 1000, 64-bit through __alldiv, truncated toward zero; f = _ftol2_sse(floorf(100.5f)) = 100 (the float at 0x160A684). A tenth.\n3. The build queue (Constructions, +0xF40): every line's slot 0 (scalar deleting destructor, 1), then CList_FreeAndClear.\n4. Every unit of Units (+0xBAC), every level, list order, whose current province (+0x130) has a controller (controller_id +0x338 non-zero - so a unit at sea is never tested) for which CCountry::IsFriend(controller, the exile, 1) is false: with no expeditionary owner (+0x290 == 0) it is destroyed at once, CGameState::RemoveUnit(unit, 0, 0); a unit lent to the exile goes on a local list.\n5. Each unit of that list: CUnit::ReturnFromExpedition(unit, exile) (0x5020E0) - back to its lender, with EXPRETURNED/EXPRETURNEDWE - then CCountry::ShatterUnit(the lender, unit).\n6. FactionLeaderPromotion (0x502E2A-0x502F39): where faction (+0xD8) slot 7 is true, the first member is the exile and there are 2 or more members, the member with the strictly greatest max_ic (+0x60C) x 1000 that is not in exile and not the exile (starting from 0, so a member with max_ic 0 is never picked; first of equals) is taken out by CFaction::RemoveMember and pushed to the front (CountryTagList_PushFront, skipped if still present), members_changed = 1.\n7. Where faction slot 7 is true and the first member is not the exile: CCountry_SetActingCapital(exile, that member's acting_capital_province_id (+0xE24)). Otherwise the acting capital is not touched. capital_province_id (+0xE20) is never touched.\n8. Where GetActingCapitalLocation(exile)->owner_id (+0x330) is then not the exile: for every entry of diplomacy_status_array (+0xE28) and every route of its trade_routes (+0x60): slot 11 (Deactivate), the node holding it unlinked from the game state's relation list (CDiplomacy +0xB24, head +0xB2C; only marked where its byte +0x14 is set) and freed, the route deleted through slot 0.\n9. The local list freed; the flag stored again.\nNo message of its own.\n\n**inExile 0, in exile**: every unit of Units for which slot 15 answers true (land; CArmy's 0xA92590 is `mov al,1`, CNavy's and CAir's 0x592360 `xor al,al`): every regiment (+0x38) whose definition's supply_consumption (+0x110) is 0 or less is converted, when the subunit database's name hash (StringHashFind on db+0x10) knows CDefines +0x80 (defines.lua `base_militia`, 'militia_brigade' in Their Finest Hour), by CSubUnit_ConvertType (0x5ABDD0); then CUnit::RebuildDefinition(unit, 0). Then acting_capital_province_id = capital_province_id and the flag = 0. Manpower, officers, money, build queue, faction and routes are not restored.\n**inExile 0, not in exile**: only the flag. **Any other byte**: stored as the flag and nothing else (0x503379).",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x502BC0-0x5033AD end to end (scripts/disasm.py) and checked against the decompile. The arithmetic at 0x502BFD-0x502C56: floorf/_ftol2_sse of the float at 0x160A684 (bytes 0000c942 = 100.5f), imul then __alldiv by 0x3E8. The unit test at 0x502CB0-0x502DD6 (controller id at +0x338 tested against 0 at 0x502CC3, IsFriend with push 1 at 0x502CEE, +0x290 at 0x502D06, RemoveUnit at 0x502DD6). The acting capital at 0x502F3D-0x502F9F reads the first member's +0xE24. The trade-route loop at 0x503060-0x50311B calls slot 0x2C/4 = 11, unlinks from CCurrentGameState+0xB24's list and calls slot 0. The return arm at 0x503162-0x50335F: slot 0x3C/4 = 15, [def+0x110] jg skip, defines+0x80 at 0x503315 (sub edx,-0x80), StringHashFind at 0x50331C, 0x5ABDD0 at 0x50332B, RebuildDefinition at 0x50333E, +0xE20 -> +0xE24 at 0x503353. That CDefines +0x80 is base_militia: LoadDefines pushes the string 'base_militia' (0x15B8C04) at 0x44684C and assigns into [ebx+0x80] at 0x4468D2. Wrong if a branch I read as falling through is taken in the other direction - each was read off the listing, not the decompile.",
+   "source": "reversing/findings/FINDINGS-surrender.md"
+  },
+  {
+   "rva": "0x10C0B0",
+   "kind": "function",
+   "name": "CCountry_ReplaceExileWithPuppet",
+   "signature": "void __stdcall CCountry_ReplaceExileWithPuppet(CCountry* exile)",
+   "no_signature": null,
+   "comment": "**A government in exile is replaced by a puppet of whoever holds its capital** - the GIESWAP messages. 0x50C0B0 to two `ret 4` at 0x50C9C7 and 0x50CB3D, one frame. One caller, RunCountryDailyPass at 0x4DA722, which calls it daily only where the game state's +0xD0C is null, the country is in exile, the controller C of its capital province (+0xE20, GetCapitalLocation) is not CCountry::IsEnemyTag of it, C's faction pointer (+0xD8) is not the exile's (the null faction is one shared object, so two countries in no faction count as one faction and never qualify), and the exile's status towards C has no truce (CDiplomacyStatus::HasTruce). Here: share = (1000 for each OwnedProvinces (+0xCF0) province whose controller is C) x 1000 / (owned_province_count (+0xCF8) x 1000), 64-bit, truncated; 0 with no province. **Where share >= 500** (the static 0x1A87488 = (int)floorf(500.5f), written by the CRT initialiser 0xCB6830): MakeVassal(C, exile) - C becomes the overlord; SetGovernmentInExile(exile, 0); then the message, variables the exile's own set (CCountry::BuildMessageVariables) plus FACTION = C's faction's localised name, BOSS = C's name, VICTIM = the exile's name, CAPITAL = the exile's capital province's name, GOVERNMENT = the exile's government's name (+0xDFC slot 6, after MakeVassal): GIESWAP where the local player is C, GIESWAPFORUS where it is the exile, GIESWAPOTHER otherwise - every player is told. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "The gate read on the listing at 0x4DA6B9-0x4DA722 (scenario pointer, +0x95, GetCapitalLocation then IsEnemyTag 0x42F1B0, the faction compare at 0x4DA6FA, HasTruce 0xA489A0 at 0x4DA718); the share loop and the threshold at 0x50C0D1-0x50C1E5 (`add [ebp-0x1c], 0x3e8`, __allmul then __alldiv, `cmp edx, [0x1a87488]; jl`); the constant from 0xCB6830 (`floorf` of the float at 0x160A5E8 = 500.5f, stored to 0x1A87488); MakeVassal 0x4D94A0 at 0x50C21E with the capital's controller pushed as the first (overlord) pair, SetGovernmentInExile(exile, 0) at 0x50C228; the variable names pushed at 0x50C235/0x50C37B/0x50C4B5/0x50C5EF/0x50C734 and the three type names at 0x50C8F8/0x50C9E1/0x50CA83. Which of the three goes to whom is from the decompile (the two compares at 0x50C8E4 and 0x50C9CD seen on the listing). Wrong if HasTruce's argument is the other direction's status - it is the exile's +0xE28[C].",
+   "source": "reversing/findings/FINDINGS-surrender.md"
+  },
+  {
+   "rva": "0x1F1EA0",
+   "kind": "function",
+   "name": "CExileStatusChange::Apply",
+   "signature": "void __thiscall CExileStatusChange::Apply(CExileStatusChange* this, bool forward)",
+   "no_signature": null,
+   "comment": "**`government_in_exile = yes|no` in a country's history**, slot 7 of the history entry CCountryHistory::LoadEntry builds for that key (the base game has it for Poland 1939.9.28, France 1941.6.22 and eight others). Forward: the old value (CCountry::IsGovernmentInExile of the country at +0xC) kept at +0x11, then SetGovernmentInExile(country, +0x10). Back: SetGovernmentInExile(country, +0x11). So a start date after an exile's history date replays the whole of SetGovernmentInExile - the tenth of manpower, the units, the acting capital. 0x5F1EA0 to the `ret 4` at 0x5F1F01.",
+   "confidence": "confirmed",
+   "evidence": "vtable.py --holding 0x5F1EA0: CExileStatusChange slot 7, the only holder; disassembled whole (the two SetGovernmentInExile calls at 0x5F1EDD and 0x5F1EF9 push +0x10 and +0x11; the getter 0xB4EAE0 is `mov al,[ecx+0x95]`). The key: CCountryHistory::LoadEntry builds it at 0x5EDBC3 (operator new, then CExileStatusChange::CExileStatusChange, then the value through 0x5F1E80); the history files carry `government_in_exile = yes`.",
+   "source": "reversing/findings/FINDINGS-surrender.md"
+  },
+  {
+   "rva": "0x1F1E50",
+   "kind": "function",
+   "name": "CExileStatusChange::CExileStatusChange",
+   "signature": "CExileStatusChange* __thiscall CExileStatusChange::CExileStatusChange(CExileStatusChange* this, CCountry* country)",
+   "no_signature": null,
+   "comment": "Calls CCountryHistoryEntry::CCountryHistoryEntry(this, country) and writes CExileStatusChange's vftable (0x15C9B98). One caller, CCountryHistory::LoadEntry at 0x5EDBC3. 0x5F1E50 to the `ret 4` at 0x5F1E72.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled whole; findRefs --vftable CExileStatusChange gives the one write at 0x5F1E66; the base constructor's record says it takes the country on the stack.",
+   "source": "reversing/findings/FINDINGS-surrender.md"
+  },
+  {
+   "rva": "0x1F1E80",
+   "kind": "function",
+   "name": "CExileStatusChange::SetValue",
+   "signature": "void __thiscall CExileStatusChange::SetValue(CExileStatusChange* this, bool value)",
+   "no_signature": null,
+   "comment": "`this->+0x10 = value` - the yes/no the history line gives. One caller, CCountryHistory::LoadEntry at 0x5EDC00. 0x5F1E80 to the `ret 4` at 0x5F1E93. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled whole (`mov cl,[ebp+8]; mov [eax+0x10], cl`); findRefs --callers gives one site; in no virtual table.",
+   "source": "reversing/findings/FINDINGS-surrender.md"
+  },
+  {
+   "rva": "0x1ABDD0",
+   "kind": "function",
+   "name": "CSubUnit_ConvertType",
+   "signature": "void __stdcall CSubUnit_ConvertType(CSubUnit* regiment, CSubUnitDefinition* definition)",
+   "no_signature": null,
+   "comment": "**A regiment becomes another type, keeping its technology levels where the new type shares them.** Copies the regiment's `technologies` list (+0x84), frees it, CSubUnit::SetType(regiment, definition) builds the new list, each new node whose technology was in the old list takes the old node's two values, then CSubUnit::ApplyTechnologies(regiment, 0). One caller, SetGovernmentInExile's return arm (0x50332B), which turns a land regiment with supply_consumption 0 or less into `base_militia`. 0x5ABDD0 to the `ret 8` at 0x5ABF24. The name is ours.",
+   "confidence": "inferred",
+   "evidence": "Extent from retsBefore (one `ret 8` at 0x5ABF24) and the calls to 0x5ABF30 (SetType) at 0x5ABEAA and 0x5ABFC0 (ApplyTechnologies) at 0x5ABEF7 on the listing; the copy-and-match of the list nodes is the decompile's. Wrong if the copied values are not the levels.",
+   "source": "reversing/findings/FINDINGS-surrender.md"
+  },
+  {
+   "rva": "0xDA6C1",
+   "kind": "instruction",
+   "name": "ExileDaily_PuppetSwapGate",
+   "signature": null,
+   "no_signature": "An address inside RunCountryDailyPass (0xDA530), not an entry point.",
+   "comment": "**The daily test that can turn a government in exile into the puppet of whoever holds its capital.** Runs only where CCurrentGameState +0xD0C is null; the country in exile; its capital's controller C not an enemy (CCountry::IsEnemyTag); C's faction pointer not the exile's; no truce between them (the exile's status towards C, HasTruce). Then CCountry_ReplaceExileWithPuppet (0x50C0B0) at 0x4DA722, which acts where C controls at least half of what the exile owns.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x4DA6B9-0x4DA727 (every branch to 0x4DA727 skips the call).",
+   "source": "reversing/findings/FINDINGS-surrender.md"
+  },
+  {
+   "rva": "0xDB44E",
+   "kind": "instruction",
+   "name": "ExileDaily_SuppliesAndFuelToHost",
+   "signature": null,
+   "no_signature": "An address inside RunCountryDailyPass (0xDA530), not an entry point.",
+   "comment": "**A government in exile hands its supplies and fuel over every day.** Right after its CollectDailyProduction, RunDailyTradeRoutes, UpdateIC and ConvertCrudeOilToFuel (which run for a country that owns a province or is in exile): pool_in_exile's supplies (+0xA00) and fuel (+0xA04) are added to the received_from_exiles ledger (+0xA64: +0xA6C, +0xA70) of the controller of the exile's acting capital province, and to that province's pool (+0x164, +0x168), and both are set to 0.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x4DB41D-0x4DB4C7: the `jg`/`je` pair at 0x4DB424/0x4DB42D, the second exile test at 0x4DB44E, GetActingCapitalLocation then +0x334 through CCountryTag::GetCountry, the four adds and the two stores of zero.",
+   "source": "reversing/findings/FINDINGS-surrender.md"
+  },
+  {
+   "rva": "0xDBE24",
+   "kind": "instruction",
+   "name": "ExileDaily_ReturnWhenFactionLeader",
+   "signature": null,
+   "no_signature": "An address inside RunCountryDailyPass (0xDA530), not an entry point.",
+   "comment": "**A government in exile that leads its faction leaves it and comes back from exile.** Reached every day the country does not surrender (it owns nothing, or GetSurrenderProgress < 1000, or it is not at war - an exile always). In exile, faction slot 7 true, 1 or more members and the first member the country itself: CCountry::LeaveFaction(country, 0) then SetGovernmentInExile(country, 0). Next, at 0x4DBE73, a country **not** in exile has unknown_a1c's supplies (+0xA24) held to SupplyCapacity of its acting capital; an exile skips that.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x4DBCCC-0x4DBEA2; edi is 0 throughout the function (zeroed at 0x4DA55A and used as the null in every lazy-singleton test), so both pushes at 0x4DBE64 and 0x4DBE6C are false.",
+   "source": "reversing/findings/FINDINGS-surrender.md"
+  },
+  {
+   "rva": "0xD90CB",
+   "kind": "instruction",
+   "name": "ExileHourly_FollowFactionLeaderCapital",
+   "signature": null,
+   "no_signature": "An address inside RunCountryHourlyPass (0xD8EB0), not an entry point.",
+   "comment": "**Every hour, a government in exile whose acting capital an enemy holds moves into its faction leader's.** In exile, CCountry::IsEnemyTag(country, the controller of its acting capital), faction slot 7 true and the first member not the country: CCountry_SetActingCapital(country, the first member's acting_capital_province_id).",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x4D90CB-0x4D913F.",
+   "source": "reversing/findings/FINDINGS-surrender.md"
+  },
+  {
+   "rva": "0x1BBD8B",
+   "kind": "instruction",
+   "name": "ExileSupply_NoPaymentToFriend",
+   "signature": null,
+   "no_signature": "An address inside CUnit::ConsumeSuppliesAndFuel (0x1BB950), not an entry point.",
+   "comment": "**A government in exile's units draw on a friend's depot for nothing.** Where the depot's controller is not the payer but CCountry::IsFriend(controller, payer, 1), the payment flag is set only when the payer is not in exile; an exile's units take from the friend's province pool without paying the price, TradedAway or TradedFor.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x5BBD4F-0x5BBD98: controller id against the payer at 0x5BBD5C, IsFriend 0x4EF7C0 at 0x5BBD7E, `cmp [edi+0x95],0; jne 0x5bbed9` skipping `mov byte [ebp-0xd], 1`.",
+   "source": "reversing/findings/FINDINGS-surrender.md"
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CCountry",
+   "offset": "0xA64",
+   "name": "received_from_exiles",
+   "type": "CGoodsPool",
+   "revises": "Was unused_pool_A64, 'a CGoodsPool GetDailyIncome reads; it has writes but is empty in practice' (the name came from BiceLib/GameClasses/CCountry.hpp:244, which still carries it). The writer is found: RunCountryDailyPass at 0x4DB46F and 0x4DB48D adds a government in exile's daily supplies and fuel to the pool of the country that controls the exile's acting capital. Empty in practice because exiles are rare.",
+   "comment": "**What governments in exile hand this country each day**: RunCountryDailyPass (0x4DB46F, 0x4DB48D) adds an exile's pool_in_exile supplies and fuel here, for the controller of the exile's acting capital province, as it moves them into that province's pool. Only supplies (+0xA6C) and fuel (+0xA70) are ever written. GetDailyIncome counts it as income, so the top bar's ledger shows it (the game's text key for the line is likely LEDGER_FROM_EXILES 'From Exiles', near 'Into Network' at 0x7A1002 - not traced). Good g at +0xA64 + 8 + g*4.",
+   "evidence": "Disassembled 0x4DB457-0x4DB4C1: `add [eax+0xa6c], esi` and `add [eax+0xa70], esi` with eax = GetCountry(GetActingCapitalLocation(exile)->controller) and esi = the exile's +0xA00 / +0xA04. Wrong if another writer fills the other goods - findRefs on 0xA6C to 0xA80 found no other add.",
+   "source": "reversing/findings/FINDINGS-surrender.md"
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0x95",
+   "name": "government_in_exile",
+   "type": "bool",
+   "revises": "Name and type unchanged; the comment said only how the byte was identified. It now says where it is saved, loaded and written, and points at the readers' account.",
+   "comment": "**The country is a government in exile.** Saved by CCountry::SaveContents as `government_in_exile=yes` in the country's block and only when set (0x4CFED0, token 0x583 'government_in_exile'); loaded by CCountry::LoadKey's government_in_exile case through ParseBool. Written only by SetGovernmentInExile (rva 0x102BC0), whose seven callers are the po_annex exile, the effect form_government_in_exile, the history key government_in_exile (CExileStatusChange), a liberation (CLiberateCountryCommand), the daily puppet swap (CCountry_ReplaceExileWithPuppet) and the daily return of an exile that leads its faction. Read at about 170 sites in 85 functions - the stockpile becomes pool_in_exile (+0x9F8), surrender progress is 0, the AI and the diplomatic actions refuse or skip an exile; reversing/findings/FINDINGS-surrender.md section C lists them. The game's Lua reads it as CCountry::IsGovernmentInExile (0xB4EAE0, `mov al,[ecx+0x95]; ret`). Renamed from `use_own_pool` long ago: 0x50AFF5 emits WE_NOT_GOVERNMENT_IN_EXILE when it is clear.",
+   "evidence": "SaveContents at 0x4CFED0-0x4CFEE3 (`movzx eax, byte [edi+0x95]; test; je; push eax; mov ecx, 0x583`), the token's name from the CRT token table (`mov edx, 'government_in_exile'` before `mov ecx, 0x583` at 0xD04189); the loader case from the decompile of 0x4CCDA0; the writer census from a whole-.text sweep for byte accesses with displacement 0x95 (190 sites; the 12 stores are SetGovernmentInExile's five, CBuilding::LoadKey, CPatrolOrder::UpdateShadow's two on CUnit, a GUI class at 0xB4EDB2/0xB4EDDD and two stack slots), positive controls CIsGovernmentInExileTrigger::Evaluate (0x9E0FB4) and GetSurrenderProgress (0x4FCB87) both found.",
+   "source": "reversing/findings/FINDINGS-surrender.md"
+  },
+  {
+   "struct": "CDefines",
+   "offset": "0x80",
+   "name": "base_militia",
+   "type": "Hoi3CString",
+   "comment": "defines.lua's top-level `base_militia` ('militia_brigade' in Their Finest Hour), a string by value (buffer at +0x80, length +0x90, capacity +0x94, zeroed by the constructor at 0x445365). Read by name into the subunit database: the regiment type a government in exile's partisans (supply_consumption 0 or less) become when it comes back (SetGovernmentInExile, 0x503315).",
+   "evidence": "LoadDefines pushes the literal 'base_militia' (0x15B8C04) at 0x44684C and assigns the value into `lea ecx,[ebx+0x80]` at 0x4468D2 (0x401BD0). The four strings before it (+0x10..+0x64) were not checked.",
+   "source": "reversing/findings/FINDINGS-surrender.md"
+  }
+ ],
+ "vftable_slots": {
+  "CExileStatusChange": {
+   "7": {
+    "name": "Apply",
+    "signature": "void __thiscall Apply(CExileStatusChange* this, bool forward)"
+   }
+  }
+ },
+ "frontier": [
+  "0x4A2E00",
+  "0x1D3840",
+  "0xF25E0",
+  "0x109230",
+  "0x10AE40",
+  "0x18BC0",
+  "0x26D90",
+  "0x494CC0",
+  "0x4AD6E0",
+  "0x4B9710",
+  "0x4E1160",
+  "0x21D410",
+  "0x2B9D80",
+  "0x284E40"
+ ]
+}

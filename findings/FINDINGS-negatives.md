@@ -423,11 +423,18 @@ function's counter block at `0x4E2305`-`0x4E2323`, then accumulated in one loop 
 list at `CCountry +0xD10` at `0x4E3030`-`0x4E307E`:
 
     prov = gameState->+0xB8C[node->id]
-    if (prov->owner.id      (+0x330) == country->id)  country->+0xBE0 += prov->victory_points (+0x34) * 1000
-    if (prov->controller_id (+0x338) == country->id)  country->+0xBE4 += prov->victory_points (+0x34) * 1000
+    if (prov->owner.id      (+0x330) == country->id) {
+        country->+0xBE0 += prov->victory_points (+0x34) * 1000
+        if (prov->controller_id (+0x338) == country->id)  country->+0xBE4 += prov->victory_points (+0x34) * 1000
+    }
 
-- **`CCountry +0xBE0` = `claimed_victory_points_owned`** (thousandths)
-- **`CCountry +0xBE4` = `claimed_victory_points_controlled`** (thousandths)
+**Corrected 2026-10-13** (`FINDINGS-war.md` D.2, checked again off `0x4E3048`-`0x4E3076`): the two
+tests were given here as independent, and the controller test is **inside** the owner test - so
+`+0xBE4` counts only cores the country both owns and controls, and never exceeds `+0xBE0`. The list at
+`+0xD10` is the country's **cores**, and the fields are renamed for both:
+
+- **`CCountry +0xBE0` = `core_victory_points_owned`** (thousandths; was `claimed_victory_points_owned`)
+- **`CCountry +0xBE4` = `core_victory_points_held`** (thousandths; was `claimed_victory_points_controlled`)
 
 So `0xFCC60` is **the share of the country's own claimed, owned victory points that it does not
 control** - the occupied fraction of its national territory, in thousandths. Named

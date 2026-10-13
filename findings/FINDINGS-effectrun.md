@@ -361,6 +361,8 @@ is the faction's leader, then `OnDiplomacyChanged` and `LeaveFaction(false)`, wh
 
 ### 2.7 `create_vassal`: `MakeVassal` (`0xD94A0`, inferred)
 
+**Read whole on the listing 2026-10-13: `FINDINGS-surrender.md` B**, which confirms this outline and corrects step 6 - the puppet joins its faction **leader's** wars - and adds that the vassal's own puppets are freed.
+
 1. The vassal's provinces with an overlord's core, controlled by either, go to the overlord (a
    peaceful `ChangeOwner`).
 2. The vassal's own cores it owns but the overlord or the overlord's faction holds are given back to
@@ -376,6 +378,8 @@ is the faction's leader, then `OnDiplomacyChanged` and `LeaveFaction(false)`, wh
 8. The vassal takes the overlord's government (`0xE0460`, `0xF06D0`).
 
 ### 2.8 `inherit` and `surrender_inherit`: `AnnexCountry` (`0xE7B00`)
+
+**Read whole on the listing 2026-10-13: `FINDINGS-surrender.md` A**, which corrects steps 4, 5, 7 and 8 below (children left behind, two expedition lists, the wars left by the annexed alone, the statuses reset on the other side only).
 
 1. An `ANNEX` message.
 2. The annexed country leaves its faction.
@@ -405,6 +409,8 @@ No vassal relation is made.
 
 ### 2.10 Owner and controller
 
+**Read whole on the listing 2026-10-13: `FINDINGS-surrender.md` D** - both setters, the owner setter `0xA2180` (bookkeeping only, no cores) and the acting capital.
+
 `CMapProvince::ChangeOwner` (`0xA36C0`) calls the controller setter first, then the owner setter
 `0xA2180` (not read); sets `nationalism` to `YEARS_OF_NATIONALISM` where the old owner was real;
 **removes every active province modifier** in a running game; and takes the old owner out of its
@@ -429,6 +435,8 @@ flag. **`who = all`**: `SpreadThreatToAll(&N or &-N, &+-1000)`, the scope the co
 The effect calls `GetActingCapitalLocation` first and throws the answer away.
 
 ### 2.12 `form_government_in_exile`
+
+**Read whole on the listing 2026-10-13: `FINDINGS-surrender.md` C**, which corrects the acting capital (it becomes the leader's own) and the trade routes (gone exactly when the exile does not own its acting capital).
 
 Only with a FROM: the provinces the scope controls on the continent of FROM's capital, or whose area
 borders ground FROM holds, go to FROM where FROM is at war with their owner (or `REB` is concerned),
@@ -464,7 +472,8 @@ an event. The control for "no message": `CGuaranteeEffect`'s whole list of calls
 - What `CDeclareWarAction::Apply` does with `value = 0` (limited), and with actor and recipient one.
 - Whether `UndeclaredWar_AddRegion` with a null region faults.
 - The direction of military access, beyond the demand action's.
-- `0x47E590`, the nearest candidate in surrender.
+- `0x47E590`, the nearest candidate in surrender. (A VA: rva `0x7E590`, read 2026-10-13 as
+  `COwnerArea_DistanceToProvince`, `FINDINGS-war.md` D.5.)
 
 **Frontier:** `0xA2180`, `0x4A2FB0`, `0x1D6230`, `0xE39C0`, `0xE0460`, `0xF06D0`, `0xE0B80`,
 `0xA3B80`, `0xDD730`, `0xDD670`, `0x1020E0`, `0x1ABDD0`, `0x10F820`, `0x7E590`, `0x647F20`,

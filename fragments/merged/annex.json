@@ -1,0 +1,128 @@
+{
+ "agent": "surrender wave, reader A - annexation",
+ "question": "AnnexCountry read whole on the listing in both modes (inherit's, surrender false, which the capitulation's po_annex uses; and surrender_inherit's): the ANNEX message, the faction, each province's new owner and controller, constructions, expeditionary units, every other unit and its leader, occupied land, wars, relations, threat, what is left of the annexed country and what the annexer gains.",
+ "source": "reversing/findings/FINDINGS-surrender.md",
+ "addresses": [
+  {
+   "rva": "0xE7B00",
+   "kind": "function",
+   "name": "AnnexCountry",
+   "signature": "void __stdcall AnnexCountry(CCountry* annexer, bool surrender, char annexedTag[4], int annexedId)",
+   "no_signature": null,
+   "comment": "**inherit and surrender_inherit - one country annexes another.** 0x4E7B00 to the single `ret 0x10` at 0x4E8E76, seven int3 after. Read whole on the listing. Callers and their flag: CInheritEffect::Execute (VA 0x9AA169, surrender 0), CSurrenderInheritEffect's Execute (0x9AA509, 1), CWarGoal::Enforce twice (0x47ADCE and 0x47AE20, both 0 - the po_annex annexation and the faction's other exiles), and the `surrender` console command (handler 0x4401E0, 'Annex the other country', call at 0x440522, flag **1**: `surrender A B` makes B annex A). In order:\n\n1. **The ANNEX message, before anything changes, to every player**: no test of who is involved. Variables: the local player's own set (CCountry::BuildMessageVariables of CCurrentGameState +0xC30), then ACTOR = the annexer's name, RECIPIENT = the annexed's name (CountryNameOfTag). Province = the annexed's **capital** (CCountry::GetCapitalLocation, not the acting capital), taken now; first country (+0x34) the annexer, second (+0x3C) `---`. Posted through PostMessage_CMessageHandler with the callback 0x6995D0 (the Goto). Base game's ANNEX type: log, onmap, popup, option, not pausepopup, cat_diplomacy.\n2. **Surrender mode only, the candidates**: a copy (CCountryList_AppendAll) of the annexed's non_hostile_countries (+0xF98, itself plus its co-belligerents, as of the last daily RebuildNeighbours), each removed unless it is neither the annexer nor the annexed **and** the annexer's status toward it has a war (+0x20) or it or the annexer is REB.\n3. **The faction**: where faction (+0xD8) answers slot 7 (a real faction): CFaction::RemoveMember(faction, &tag), faction = CFaction::null(), CCountry::RebuildStaticModifiers, CCountry::RebuildRules, and the per-country display dirty byte ([0x1A8C388] + id*0x14 + 0x10). No LeaveFaction, no history, no new leader chosen - the faction's leader is its first member, so the next one simply is.\n4. **Each province it owns**, in OwnedProvinces (+0xCF0) order, date = CCurrentGameState +0xBDC: where the controller is neither the annexed (controller id == owner id) nor REB, **CMapProvince::ChangeOwner(p, its controller, now, 1, 0, 0)** - the occupier keeps it; otherwise ChangeOwner(p, the annexer, now, 1, 0, 0), and in surrender mode, with candidates, a controller is looked for among the areas neighbouring the province's area (COwnerArea +0x34), each area's holder being **the controller of its first province** as it stands at that moment (areas are not rebuilt inside the loop): the distinct candidates found; one -> it; several -> the one whose area is nearest by COwnerArea_DistanceToProvince, strictly nearer replacing, starting at 1,000,000; then **Province_SetController(p, that candidate, now, 1, 0, 0)** after the ChangeOwner.\n5. **Constructions** (+0xF40): each deleted through its slot 0 (scalar deleting destructor), the list freed. No refund, nothing handed over.\n6. **The active mission** (+0xE38, a CActiveMission held by value) is overwritten with a freshly built one (CActiveMission_Construct, CActiveMission_Assign): the null mission, owner `---`.\n7. **Units lent to it** (units +0xBAC with expeditionary_owner_id +0x290 set), collected first: each CUnit::ReturnFromExpedition(unit, annexed) and then CCountry::ShatterUnit(the unit's new owner - the lender - , unit).\n8. **Units it lent out** (+0xBBC): each CUnit::ReturnFromExpedition(unit, its current owner) - so they come back to the annexed and are dealt with in 9.\n9. **Every unit of +0xBAC, at every level**, in list order: inherit's mode, or surrender mode with no candidate: **CGameState::RemoveUnit(state, unit, 0, 1)**. Surrender mode with candidates: the unit's candidate is (a) for a unit that is not an air unit (slot 17), the controller of the province it is in (+0x130) if a candidate; else (b) for an air unit with a base (+0x98), the base province's controller if a candidate; else (c) for a naval unit (slot 16) in a sea province (is_land clear), the first candidate in the list. With one, **one draw of Random()**: even (`and 0x80000001` with the sign fix) -> CUnit_LeaveParent(unit, 1), CUnit_LeaveParent(child, 1) for each direct child (+0x1E4), the unit unlinked from the annexed's +0xBAC and CCountry::AddUnit(candidate, unit) - **the children are detached and stay behind**, each judged on its own; odd -> RemoveUnit. No draw for a unit without a candidate.\n10. **Every province it still controls** (+0xD00 - what it occupied of others) goes back by Province_SetController(p, X, now, 1, 0, 0), X the owner, or, where the owner is a government in exile (+0x95) whose faction's first member has an id, that first member.\n11. DeleteAreaGroups, RebuildAreaGroups, DeleteSupplyGroups, RebuildSupplyGroups.\n12. **For every other country c** of the database (index 0 up; only the annexed skipped, the annexer included): where c's status toward the annexed has a war, the annexed is taken out of it - RemoveAttacker if it is among the attackers, else RemoveDefender, **recordHistory 1**; c's espionage[annexed] level (+0x1160 entry +0) = 0; the alliance (+0x14), dependency (+0x18) and guarantee (+0x1C) on c's status each unlinked from CCurrentGameState +0xB2C, slot 11 (Deactivate) and deleted; threat (+0x5C) **c->annexed and annexed->c each -9999.000, floored at 0**; every trade route on c's status: slot 11, unlinked, deleted; CDiplomacyStatus::Reset(c->diplomacy[annexed]) - which also nulls c's NAP, influence, alignment and embargo pointers without deleting those objects, frees c's casus-belli list nodes, zeroes c's relation, access, debt and allowDebts toward it.\n13. CSupplyGroup::PickDepot on each of the **annexer's** supply groups (+0xD50).\n\nIt writes no field of the annexed country itself but faction (+0xD8): stockpile, manpower, officers, technology, leaders, ministers, capital and the annexed's own statuses toward others are left as they were; nothing marks it dead. It calls no RebuildNeighbours, no 0xE39C0 and no OnDiplomacyChanged for anyone. See reversing/findings/FINDINGS-surrender.md, section A.",
+   "confidence": "confirmed",
+   "revises": "Raised from inferred to confirmed, read whole on the listing (0x4E7B00-0x4E8E76). Corrected: in surrender mode the transferred unit's children are **detached from it** (CUnit_LeaveParent on each) and judged on their own, not carried over with it; a naval unit in port is judged by the port's controller as well as at sea by the first candidate; the roll is drawn only for a unit with a candidate; expeditionary units are two lists - units lent to the annexed go home and are shattered, units it lent out are recalled and then removed with the rest; CDiplomacyStatus::Reset is run on **each other country's** status toward the annexed only, which nulls that side's NAP, influence, alignment and embargo and frees its casus belli - 'NAPs, casus belli and embargoes are not cleared' was true only of the annexed's own side. Added: the message goes to everyone, its variables and shields; the active mission reset; the faction's dirty byte; the war removals' recordHistory 1; the console command's flag (1) and which tag annexes which.",
+   "evidence": "Off the listing: the message block 0x4E7B97-0x4E805F (CMessage args pushed at 0x4E7FAD-0x4E7FDA: '---'/0 second country, annexer +0xCA4/+0xCA8 first, capital from GetCapitalLocation at 0x4E7F0F; no compare with the player id anywhere before PostMessage at 0x4E805F); the candidate filter 0x4E80D0-0x4E817B (keep test at 0x4E80DD-0x4E8121); the faction 0x4E8186-0x4E81E0; the owner/controller test 0x4E82F9-0x4E8323 and the two ChangeOwner calls at 0x4E8330 and 0x4E8580 (push 0,0,1,&date,tag); the neighbour-area walk 0x4E8358-0x4E855B and the SetController at 0x4E8597 gated on the candidate id at 0x4E8585; constructions 0x4E85A5-0x4E85D5; the mission 0x4E85DA-0x4E85F0; the two expedition loops 0x4E8604-0x4E86DA; the unit loop 0x4E86EC-0x4E88BE with slot 17 (+0x44) at 0x4E8726/0x4E8754, slot 16 (+0x40) at 0x4E87AA, Random at 0x4E87D1, the transfer 0x4E87E4-0x4E8837 and RemoveUnit(unit,0,1) at 0x4E88B5; the controlled-province loop 0x4E88C4-0x4E89CD; the country loop 0x4E8A3C-0x4E8E34 (threat `add [eax+0x5C], 0xFF676D68` at 0x4E8D0E and 0x4E8D28); PickDepot 0x4E8E47. Slots 15/16/17 checked on CArmy, CNavy and CAir's tables (mov al,1 at 0xA92590 in slot 15, 16, 17 respectively). A store sweep of the whole body finds no write to the annexed country but +0xD8 (0x4E81B8) - the threat stores and the spy store are the positive control. Wrong if a callee named here does the opposite of its record (Reset, ChangeOwner and Province_SetController are other readers' functions).",
+   "source": "reversing/findings/FINDINGS-surrender.md"
+  },
+  {
+   "rva": "0x401E0",
+   "kind": "function",
+   "name": "ConsoleCmd_Surrender",
+   "signature": "void* __cdecl ConsoleCmd_Surrender(void* result, void* arguments)",
+   "no_signature": null,
+   "comment": "**The `surrender` console command** ('Annex the other country'), registered in the static command table at 0x170B498 - its entry's handler at 0x170BAEC - so it has no call site. Fewer than two arguments: 'Please specify 2 country tags.'; an unknown tag: 'Unknown country ...'. With tags A and B: **AnnexCountry(B, true, A)** - B annexes A, in surrender_inherit's mode, the only way a player reaches the candidate controllers besides the effect - and answers 'Country <B> annexed <A>'. 0x4401E0; bare `ret` at 0x440408 and 0x440509 (the two unknown-country exits) and 0x44071F. The name is ours, after the command's.",
+   "confidence": "confirmed",
+   "evidence": "The table entry (description 'Annex the other country' at 0x15B70C4, handler 0x4401E0, the name 'surrender' at 0x15B70DC in the same entry); the argument count test at 0x44023E; the two tag lookups at 0x4402AF/0x440307; the call at 0x440522 pushing countries[second id], 1, then the first tag and id; the answer built at 0x440527-0x4405C2 as 'Country ' + second + ' annexed ' + first. The answer text's tail and the result object were not read.",
+   "source": "reversing/findings/FINDINGS-surrender.md"
+  },
+  {
+   "rva": "0x1020E0",
+   "kind": "function",
+   "name": "CUnit::ReturnFromExpedition",
+   "signature": "void __thiscall CUnit::ReturnFromExpedition(CUnit* this, CCountry* host)",
+   "no_signature": null,
+   "comment": "**An expeditionary unit goes back to the country that lent it.** 0x5020E0 to the single `ret 4` at 0x502BB3. `this` the unit, `host` the country it served. In order: CUnit_LeaveParent(unit, 1); the unit unlinked from its lender's (expeditionary_owner +0x28C) list of units lent out (CCountry +0xBBC); expeditionary_owner set to `---`/0; an AI agent (+0x198) detached through its slot 64 (+0x100); 0x8A2E00; the unit unlinked from its owner's units (+0xBAC) and CCountry::AddUnit(lender, unit); 0x5D3840(unit, &lender, 1); CUnit::RebuildAvatar; CUnit::EnterProvince(its province); its intel_level (+0x1F8) recomputed for the player (9 where 0x5D37D0 says so, else the province's intel byte) and avatar_stale set when it changed. Then, **only where the local player is the host or the lender**, a message with ACTOR (the host's name), RECIPIENT (the lender's), MESSENGER and NAME (the unit's name, slot 7), at the unit's province: **EXPRETURNEDWE** to the host's player ('We returned an expeditionary force to $RECIPIENT$.'), else **EXPRETURNED** to the lender's ('$ACTOR$ returned an expeditionary force to us.'). Callers: AnnexCountry twice (0x4E8690, 0x4E86D3), SetGovernmentInExile (0x502DFB) and the country's daily pass (0x4DB418, with the unit in ECX - FINDINGS-distribute.md's '0x5020E0(country)' left out the unit). The name is ours.",
+   "confidence": "inferred",
+   "evidence": "Main path read on the listing 0x5020E0-0x5022C2 and the two message arms 0x502987-0x502B55 (EXPRETURNEDWE at 0x5029B7 when [host+0xCA8] == player id at 0x50298D, else EXPRETURNED at 0x502AAF); the player gate at 0x5022AE-0x5022C2. Inferred rather than confirmed because 0x8A2E00, 0x5D3840 and 0x5D37D0 and the MESSENGER block (0x5025EE-0x5028E2) were not read; wrong if 0x5D3840 itself changes the owner back or moves the unit.",
+   "source": "reversing/findings/FINDINGS-surrender.md"
+  },
+  {
+   "rva": "0x1B9A30",
+   "kind": "function",
+   "name": "CUnit_LeaveParent",
+   "signature": "void __stdcall CUnit_LeaveParent(CUnit* unit, bool notifyAgent)",
+   "no_signature": null,
+   "comment": "**Takes a unit out of its place in the order of battle.** 0x5B9A30 to the single `ret 8` at 0x5B9B34. With `notifyAgent`: the nearest of the unit and its ancestors (higher_oob_unit_ptr +0x1E0) with an AI agent (+0x198) whose slot 65 (+0x104) answers true has the agent's +0x86 set and 0x8BA2A0(agent, unit@EDI) called. Then the unit is unlinked from its parent's children (+0x1E4) and its parent set to null; and where its own agent answers slot 65 true, 0x899F70 on its owner's CEU3AI (CCountry +0x1D8) with the agent, and ai_agent cleared. The unit's own children are not touched. 20 callers - among them AnnexCountry's transfer (twice), CUnit::ReturnFromExpedition, CGameState::RemoveUnit (on the unit, its children and carried units) and the air-base order's 'leaves a carrier'. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Read whole on the listing: the ancestor walk 0x5B9A45-0x5B9A85, the unlink from [parent+0x1E4] at 0x5B9A94-0x5B9AB0 and `mov [ebx+0x1E0], 0` at 0x5B9ABB, the agent release 0x5B9AB5-0x5B9B24. Ends ret 8 with two stack arguments read ([ebp+8], [ebp+0xC]); ECX is never read. Wrong if +0x1E4 is not the parent's children list (the record and the Lua accessor CUnit::GetChildren say it is).",
+   "source": "reversing/findings/FINDINGS-surrender.md"
+  },
+  {
+   "rva": "0xE06F0",
+   "kind": "function",
+   "name": "CCountry::AddUnit",
+   "signature": "void __thiscall CCountry::AddUnit(CCountry* this, CUnit* unit)",
+   "no_signature": null,
+   "comment": "**A unit joins a country's list and takes it as owner.** 0x4E06F0 to the single `ret 4` at 0x4E082C. Where the unit is selected (is_selected +0x4) the in-game screen's slot 45 (+0xB4) is told of it; the unit is appended to units (+0xBAC); where interface_host (+0xF1C) is set, the unit's slot 28 (+0x70) is called with it; then CUnit_SetOwner(unit, this's tag and id). 26 callers - deploying a unit, AnnexCountry's surrender transfer, CUnit::ReturnFromExpedition among them. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Read whole on the listing 0x4E06F0-0x4E082C: the append at 0x4E07A3-0x4E07ED (node {unit, tail, 0, 0}, count +0xBB4), the slot 28 call at 0x4E0805, CUnit_SetOwner at 0x4E0817 with the unit in ESI and +0xCA4/+0xCA8 pushed. What slot 45 of the screen and slot 28 of the unit do was not read.",
+   "source": "reversing/findings/FINDINGS-surrender.md"
+  },
+  {
+   "rva": "0x1BC460",
+   "kind": "function",
+   "name": "CUnit_SetOwner",
+   "signature": "void __stdcall CUnit_SetOwner(CUnit* unit@ESI, char ownerTag[4]@stack:4, int ownerId@stack:8)",
+   "no_signature": null,
+   "comment": "**Sets a unit's owner, and its regiments'.** 0x5BC460 to the single `ret 8` at 0x5BC53E; the unit in ESI. Clears ai_agent (+0x198) without detaching it; writes the tag and id into every regiment's owner (CSubUnit +0x94/+0x98, the list at +0x38) and into the unit's owner (+0x124/+0x128); where the owner changed and the unit has its in-game idler (+0x160), intel_level (+0x1F8) = 0 and CUnit::RebuildAvatar. Not recursive: children keep their owner. It also looks up `REB` and does not use the answer. 19 callers. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Read whole on the listing 0x5BC460-0x5BC53E: the regiment loop 0x5BC4DE-0x5BC4FE, the owner store at 0x5BC506-0x5BC50C, the changed flag (dl) from the id compare at 0x5BC4D7. Wrong if +0x38's nodes were not CSubUnits (the record has +0x38 as the regiments list).",
+   "source": "reversing/findings/FINDINGS-surrender.md"
+  },
+  {
+   "rva": "0x10F820",
+   "kind": "function",
+   "name": "CCountryList_AppendAll",
+   "signature": "void __cdecl CCountryList_AppendAll(CCountryList* source@EAX, CCountryList* dest@ESI)",
+   "no_signature": null,
+   "comment": "Appends a copy of every tag of one CCountryList to another: a 0x14-byte node {tag, id, prev = dest's tail, next 0, flag 0} per source node (next at +0xC), dest's tail and count updated. 0x50F820 to the bare `ret` at 0x50F87D. Five callers; AnnexCountry uses it to copy the annexed country's non_hostile_countries. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Read whole on the listing 0x50F820-0x50F87D: source head from [eax], dest fields [esi], [esi+4], [esi+8]. Neither ECX nor any stack argument is read.",
+   "source": "reversing/findings/FINDINGS-surrender.md"
+  },
+  {
+   "rva": "0x5C7150",
+   "kind": "function",
+   "name": "CActiveMission_Construct",
+   "signature": "CActiveMission* __cdecl CActiveMission_Construct(CActiveMission* mission@ESI) @EAX",
+   "no_signature": null,
+   "comment": "**A fresh CActiveMission**, built in place at ESI and returned in EAX: vftable 0x15F5D74, CPersistent token 0x18D at +4, type (+8) = 0x9C5500() (the null mission's accessor, inferred), two empty CEventScopes at +0xC and +0x54 (vftable 0x15B8AEC, country and FROM `---`), start_date (+0x9C) = [0x170C2B8], owner (+0xA0) `---`/0. 0x9C7150 to the bare `ret` at 0x9C725D. Five callers; AnnexCountry builds one to reset the annexed country's mission. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Read whole on the listing 0x9C7150-0x9C725D; the field names are the record's CActiveMission struct. RTTI names 0x15F5D74 CActiveMission and the country_event entry names 0x15B8AEC CEventScope. Wrong if 0x9C5500 returns something other than the null mission (not read past its singleton test).",
+   "source": "reversing/findings/FINDINGS-surrender.md"
+  },
+  {
+   "rva": "0xD4B90",
+   "kind": "function",
+   "name": "CActiveMission_Assign",
+   "signature": "CActiveMission* __cdecl CActiveMission_Assign(CActiveMission* dest@ESI, CActiveMission* source@EDI) @EAX",
+   "no_signature": null,
+   "comment": "CActiveMission's assignment: copies +4 and +8 (the type), both CEventScopes (+0xC, +0x54) through 0x4D4BE0, start_date (+0x9C) and owner (+0xA0/+0xA4); the vftable is left alone. 0x4D4B90 to the bare `ret` at 0x4D4BD8. Two callers, AnnexCountry (0x4E85F0, onto CCountry +0xE38) and 0x4EF297. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Read whole on the listing 0x4D4B90-0x4D4BD8, 19 instructions.",
+   "source": "reversing/findings/FINDINGS-surrender.md"
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CCountry",
+   "offset": "0xBBC",
+   "name": "expeditionary_units_lent",
+   "type": "CUnitList",
+   "comment": "**The units this country has lent out as expeditionary forces** - its second unit list, right after units (+0xBAC). CUnit::ReturnFromExpedition unlinks a returning unit from its expeditionary_owner's list here (0x502120-0x502143); AnnexCountry walks the annexed country's (0x4E86AF) recalling each; the reinforcement and upgrade shares walk it after units, skipping units with an expeditionary owner in +0xBAC - so a lender reinforces and upgrades what it lent.",
+   "source": "reversing/findings/FINDINGS-surrender.md",
+   "evidence": "The unlink in 0x5020E0 is from GetCountry(unit +0x28C)+0xBBC - the lender's, by the unit's expeditionary_owner; the walk in AnnexCountry; the two slider bodies' 'second unit list (+0xBBC)'. No writer (the append, presumably CSendExpeditionCommand::Execute) was read, which is what would show it wrong."
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0xD50",
+   "name": "supply_groups",
+   "type": "CList<CSupplyGroup*>",
+   "comment": "The country's supply groups. AnnexCountry calls CSupplyGroup::PickDepot on each of the annexer's at its end (0x4E8E3D-0x4E8E54); DeleteSupplyGroups collects the distinct groups of this list, frees it and zeroes it.",
+   "source": "reversing/findings/FINDINGS-surrender.md",
+   "evidence": "AnnexCountry's walk passes each node's payload to CSupplyGroup::PickDepot (confirmed, one stack argument the group); DeleteSupplyGroups' record describes the same list. Wrong if the payloads were something PickDepot merely tolerates."
+  }
+ ],
+ "frontier": ["0x5F300", "0x4BA2A0", "0x499F70", "0x4A2E00", "0x1D3840", "0x1D37D0", "0x5C5500", "0xD4BE0", "0x2999E0", "0x2995D0", "0x284CE0"]
+}

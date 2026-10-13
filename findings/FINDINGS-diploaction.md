@@ -1321,7 +1321,9 @@ twenty-two more offsets known from its loader (rva `0x165F0`): `+0x30` `is_valid
 `peace_cost_factor` (0x790), `+0x1BC` `penalty_factor` (0x791), `+0x1C0` `threat` (0x674), `+0x1D0`
 `truce_months`, `+0x1E0`/`+0x1E4`/`+0x1E8` the peace-option list the `po_*` tokens append to, `+0x1F0`
 `is_triggered_only` (0x61D), `+0x1F1` `mutual` (0x78D), `+0x1F2` `always` (0x6A2), `+0x1F3`
-`handles_peace` (0x7B0), `+0x1F4` `truce_months` (0x792), `+0x1F8` `war_name` (0x793), `+0x214`
+`handles_peace` (0x7B0), `+0x1F4` ~~`truce_months` (0x792)~~ **`months` (0x32A)** - corrected
+2026-10-13, `FINDINGS-war.md` B.3: the loader's switch stores token 0x792 `truce_months` at `+0x1D0`
+and 0x32A `months` at `+0x1F4` - `+0x1F8` `war_name` (0x793), `+0x214`
 `country_desc` (0x794), `+0x230` `prov_desc` (0x795), `+0x24C` `on_add` (0x796), `+0x26C`
 `is_civil_war` (0x79D), `+0x270` `on_completion` (0x445). **None of these were recorded** - only
 `+0x30` and `+0x24C`, through the two function comments that depend on them - because the struct holds

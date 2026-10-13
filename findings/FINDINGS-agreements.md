@@ -514,7 +514,7 @@ For each kind: the title, slot 13 (decides), slot 14 (greys), slot 11 (tooltip, 
 9. **ENROUTE is inclusive.** `tick <= next_offer_allowed` counts the last hour as en route. The date string is passed to `sprintf` as a format.
 10. **DIP_NO_INFL decimals vary by class** (0, 2, or cost/1000 as a whole number).
 11. **The expedition titles work only because their keys have no text.** If SENDEXPED were ever translated, the title lookup would break.
-12. **The rule bytes are inferred.** `+0xDD4`/`+0xDDC`/`+0xDE4`/`+0xDEC` stand in the order of the four faction rules NONE, LIMITED_WAR, ALLIANCE_GUARANTEE, FREE_RESOURCE_GIFTS. Only `+0xDDC`, `+0xDE4` and `+0xDEC` have a reader that fits that meaning.
+12. **The rule bytes are inferred.** `+0xDD4`/`+0xDDC`/`+0xDE4`/`+0xDEC` stand in the order of the four faction rules NONE, LIMITED_WAR, ALLIANCE_GUARANTEE, FREE_RESOURCE_GIFTS. Only `+0xDDC`, `+0xDE4` and `+0xDEC` have a reader that fits that meaning. **`+0xDDC` is set in play** (2026-10-13): the maintainer's screenshot of the original's action list shows "Declare Limited War" under "Declare War", for a player who leads a faction (the list has "Invite to Faction") - so, unlike `+0xDE4` (C.3), something writes it. Its writer is still unread, and which faction the screenshot was of was not said; that it is the faction's rule remains the inference, now with a positive observation beside it.
 
 ### B.10 Not settled
 

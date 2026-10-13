@@ -241,9 +241,12 @@ candidates, `inferred`. `year` and `month` do not read it.
 ### 2.6 Definitions
 
 - **A truce** (`CDiplomacyStatus::HasTruce`, rva `0x6489A0`): not at war, and the war was last seen
-  less than **2400 hours** ago - `add edi, 0x960; setg` at rva `0x648A58`, checked. The war's time
-  is refreshed every hour of a war, so a truce is the hundred days after a war ends. The figure is
-  in the code, not a define.
+  less than **2400 hours** ago - `add edi, 0x960; setg` at rva `0x648A58`, checked. ~~The war's time
+  is refreshed every hour of a war, so a truce is the hundred days after a war ends.~~ **Corrected
+  2026-10-13** (`FINDINGS-war.md` C.11, A.9): the stamp, `last_war`, is written only as a session is
+  entered and when a war's membership changes, never hourly - so a truce is the 2400 hours after the
+  last load or change of membership in a war between the pair, and a long unchanged war leaves none.
+  The figure is in the code, not a define.
 - **A nation the country could release** (`CCountry::GetPossibleVassals`, rva `0xEE320`, rebuilt into
   `CCountry +0x11E0` at every call): a country that owns no province, is not us, has a core on a
   province we own and control other than our capital, and whose capital we own.

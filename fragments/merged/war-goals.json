@@ -1,0 +1,862 @@
+{
+ "agent": "war and peace wave, reader B",
+ "question": "Calls to arms, war goals and casus belli: CCallAllyAction whole, CWarGoalDialog and the add-war-goal action, where a casus belli comes from, CCasusBelliType's fields, CWarGoal whole",
+ "source": "reversing/findings/FINDINGS-war.md",
+ "structs": [
+  {
+   "name": "CWarGoalDialog",
+   "size": "0xA8",
+   "inherits": "CDiplomacyDialog",
+   "vftable_rva": "0x11BD844",
+   "comment": "The declare-war and add-war-goal dialog, window DeclareWarDialog of interface/wardialog.gui. See reversing/findings/FINDINGS-war.md, section B.2.",
+   "evidence": "RTTI: CWarGoalDialog derives CDiplomacyDialog at offset 0, vftable 0x015BD844 (VA), 18 slots; DiplomacyView_OpenActionDialog allocates 0xA8 (`push 0xA8` at 0x78BAE6) before calling the constructor."
+  }
+ ],
+ "addresses": [
+  {
+   "rva": "0x62A3C0",
+   "kind": "function",
+   "name": "CCallAllyAction::IsValid",
+   "signature": "bool __thiscall CCallAllyAction::IsValid(CCallAllyAction* this)",
+   "no_signature": null,
+   "comment": "Slot 13 of a call to arms (actor +0x8 the caller, recipient +0x10 the ally called, Versus +0x28 the enemy). In order: the recipient's status towards Versus has no war; the caller's has one (W); not (Versus is in a real faction - its CFaction slot 7 - and in the recipient's faction); the recipient is not in W's attackers (+0x2C, by id) nor its defenders (+0x3C, CountryTagVector_Contains); and **W's call map (+0x74, WarCallMap_Subscript) holds 0 for the recipient, or the action is not a PROPOSE** - so a second call to a country already called and unanswered in this war is invalid, while the answers to it pass. The subscript inserts a 0 entry as a side effect. Two bare `ret`s, 0xA2A3FF and 0xA2A4D0. See reversing/findings/FINDINGS-war.md, section B.1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Read off the disassembly 0xA2A3C0-0xA2A4D0: the war tests at 0xA2A3F1 and 0xA2A41C, the faction slot 7 call at 0xA2A438 and the faction compare at 0xA2A469, the attacker loop at 0xA2A480, Contains on +0x3C at 0xA2A49A, `lea eax,[edi+0x74]` and `call 0xA526D0` at 0xA2A4AE/0xA2A4B5, then `cmp [eax],0` / `cmp [esi+0x18],0`. Wrong if 0xA526D0 were not a std::map<int,int> subscript - it is byte for byte the shape of 0x421340, a red-black-tree lower bound with key at node +0xC and value at +0x10, inserting {key, 0} when absent.",
+   "revises": "Confidence raised from inferred; the unread gate 0xA526D0 is named - the war's call map at +0x74, written 1 by Apply on a PROPOSE and 0 on either answer."
+  },
+  {
+   "rva": "0x62A4E0",
+   "kind": "function",
+   "name": "CCallAllyAction::IsSelectable",
+   "signature": "bool __thiscall CCallAllyAction::IsSelectable(CCallAllyAction* this)",
+   "no_signature": null,
+   "comment": "Slot 14, what greys the row. In order: actor != recipient; the caller is at war with Versus (W); not (Versus in a real faction shared with the recipient); **W's `limited` byte (+0x70) set - a call to arms can be chosen only in a limited war**; influence (or 100.000 under g_UnlimitedDiploInfluence) >= CALLALLY_INFLUENCE_COST (diplomacy +0x1C, 1.0 in Their Finest Hour); both sides of W have at least one country. Then the puppet rule: where the recipient is no subject, **only the first country of a side (attackers[0] or defenders[0]) may call**; where the recipient's overlord is the caller, the caller needs only to be in W; where it has another overlord, the caller must lead its side and that overlord must already be on it. Last, false where the recipient has a NAP with any real country (not id 0, not REB) on the side the caller fights. Bare `ret`. See reversing/findings/FINDINGS-war.md, section B.1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Read off the disassembly from 0xA2A4E0: `cmp byte ptr [ebx+0x70],0; je false` at 0xA2A58B, the define at diplomacy +0x1C read at 0xA2A5B8, the two side-size tests at 0xA2A5EB/0xA2A605, the leader test on attackers[0]/defenders[0] from 0xA2A60E; the puppet branches and the NAP loop as decompiled, checked against the calls to CountryTagVector_Contains. Wrong if +0x70 meant full war: CDeclareWarAction::Apply writes 1 to it only when the action's value is 0 (0xA12807-0xA1280C), and the Declare Limited War row is the value-0 one.",
+   "revises": "Confidence raised from inferred; the war byte is the war's limited flag, the leader-of-a-side rule is added, and the subject rules are spelled out."
+  },
+  {
+   "rva": "0x629D40",
+   "kind": "function",
+   "name": "CCallAllyAction::GetDescription",
+   "signature": "Hoi3CString* __thiscall CCallAllyAction::GetDescription(CCallAllyAction* this, Hoi3CString* out)",
+   "no_signature": null,
+   "comment": "Slot 11, the row's tooltip; the first arm that holds: ENROUTE ('We have a diplomat enroute, and he will arrive on $DATE$') where CCountry::HasDiplomatEnroute(caller, recipient), DATE the caller's next_offer_allowed through FormatHourDate; DIP_NO_INFL with INF = FormatFixedPoint(CALLALLY_INFLUENCE_COST, 2) where influence is short; where the caller is at war with Versus **and leads a side** (attackers[0] or defenders[0] is the caller), CAN_NOT_JOIN_WAR_NAP ('They can not be called to our war because of a non-aggression pact with $COUNTRY$') for the first real country, in country-database order, with a NAP with the recipient and on the other side; else CALLDESC ('Call on your partner to aid you in this conflict.'). A caller who is in the war but leads no side skips the NAP line, while IsSelectable still greys the row for it. See reversing/findings/FINDINGS-war.md, section B.1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Decompiled whole; the key literals ENROUTE, DIP_NO_INFL, CAN_NOT_JOIN_WAR_NAP, CALLDESC are pushed in that order of arms, the leader flags are the compares of attackers[0].id and defenders[0].id with the actor id, and the define is diplomacy +0x1C (pCVar9->diplomacy + 7). Wrong if the NAP loop also ran for a non-leading caller - it is entered only through the two flags.",
+   "revises": "Confidence raised from inferred; the NAP line needs the caller to lead its side, which the old comment did not say."
+  },
+  {
+   "rva": "0x627BA0",
+   "kind": "function",
+   "name": "CCallAllyAction::Apply",
+   "signature": "void __thiscall CCallAllyAction::Apply(CCallAllyAction* this)",
+   "no_signature": null,
+   "comment": "CCallAllyAction slot 7, one holder (vftable 0x15FB6F4). 0xA27BA0 to the bare `ret` at 0xA29D33, 12 int3, then slot 11 at 0xA29D40; the `ret` at 0xA284CE is an arm of the same frame. Parties: actor (+0x8) the caller, recipient (+0x10) the ally called, Versus (+0x28) the enemy; W = the caller's war with Versus. It first builds the message variables (the player's standard list, ACTOR, RECIPIENT, MESSENGER = MESSAGE_HEAD_CHAN, VERSUS), then by `type`:\n\n**PROPOSE (0)**: W's call map (+0x74) [recipient] = 1; then, **only where `value` is 0**, the caller's diplo_influence -= CALLALLY_INFLUENCE_COST (diplomacy +0x1C), clamped at 0. A value-1 call costs nothing.\n\n**ACCEPT (2)**: call map [recipient] = 0. On the recipient's status towards Versus: the alliance, the guarantee and the NAP are each Deactivated (slot 11), unlinked (CDiplomacy_RemoveRelation) and deleted, and an undeclared war is taken out of the game state's list at +0xC10 and deleted. Which side: the side the caller is on (attackers if CountryTagVector_Contains(+0x2C, caller), else defenders). A flag `lead` is set where the side's first country (attackers[0], or defenders[0], or the caller where defenders is empty) owns fewer provinces (+0xCF8) than the recipient, cleared where the recipient is a subject, and set where the recipient is the caller's overlord; it is CWar::AddAttacker/AddDefender's third argument. SetMilitaryAccess(0) on both directions between the recipient and Versus. Then CWar::AddDefender(W, 1, lead, recipient) - or CWar::AddAttacker(W, 1, lead, recipient) and, where the recipient is not the caller's puppet, AddCasusBelli(recipient, Versus) followed at once by CDiplomacyStatus::ClearCasusBelli on the same status: the new type-0 casus belli and every other one is unlinked from the status while the objects stay in the relation list. ChangeRelation(Versus, recipient, -WARDEC_WAR_DIPLOMACY_HIT) (-100); OnDiplomacyChanged on caller, recipient and Versus; TARGETLIST = the names of the side the recipient now fights, ', '-joined. A branch on the recipient's +0xDE4 (the faction rule ALLIANCE_GUARANTEE, which nothing writes) would make, for each member of the recipient's faction not already a defender, a CCallAllyAction (recipient calls member against Versus) at ACCEPT and Execute it at once - dead. Messages: caller played - sound diplomaticsuccess and MILALLHONOUR; recipient played - WEMILALLHONOUR where `value` is set, else FACTIONWAROFF (joined the attackers) or FACTIONWARDEF with VICTIM = Versus and FACTION = the caller's faction name; anybody else - OTHERMILALLHONOUR. Then DeleteAreaGroups (0x7FFF0), RebuildAreaGroups, DeleteSupplyGroups (0x807F0), RebuildSupplyGroups.\n\n**DECLINE (1)**: call map [recipient] = 0; ChangeRelation(recipient, caller, ALLIANCE_REJECT_RELATION_CHANGE) (diplomacy +0x44, -50); AddCasusBelli(caller, recipient) - a type-0 casus belli for the caller on the refuser; **the caller-recipient alliance, where there is one, is Deactivated, unlinked and deleted**. TARGETLIST = the side the caller fights. Messages **only where an alliance was broken**: caller played - sound diplomaticfailure and MILALLDISHONOUR; recipient played - WEMILALLDISHONOUR; else OTHERMILALLDISHONOUR.\n\nAny other `type` returns after the variables. Execute exempts this class from the seven-day cooldown write. See reversing/findings/FINDINGS-war.md, section B.1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Read arm by arm on the disassembly (scratch apply.asm, 0xA27BA0-0xA29D33): the type dispatch at 0xA2840A/0xA284CF/0xA2962B; the PROPOSE map write `lea eax,[ecx+0x74]; call 0x421340; mov [eax],1` at 0xA28460-0xA2846C and `cmp [edi+0x24],bl; jne exit` at 0xA28472 before the charge at 0xA284A2; ACCEPT's three relation removals at 0xA28525-0xA2870A (+0x14, +0x1C, +0x28) and the undeclared war at 0xA2870E; the side test at 0xA287C7, the province compare at 0xA28827, the subject and overlord tests at 0xA28840/0xA2886C; SetMilitaryAccess at 0xA28891/0xA288C4; AddAttacker at 0xA288F5, the overlord test at 0xA28922, AddCasusBelli at 0xA2893C (holder pushed = countries[recipient], target ECX = &Versus) and ClearCasusBelli at 0xA28958 on countries[recipient]->diplomacy[Versus]; AddDefender at 0xA2897D; ChangeRelation at 0xA289C6; the +0xDE4 test at 0xA28CA0; the message keys at 0xA28F52, 0xA290A2, 0xA29343, 0xA29406, 0xA294F7 with the value test at 0xA2908B; DECLINE's map write at 0xA29682, ChangeRelation(EDI = recipient, ECX = &caller) at 0xA296B5, AddCasusBelli(caller, &recipient) at 0xA296D7, the alliance removal at 0xA29704-0xA2977B and the message gate `cmp [esp+0x26],bl; je` at 0xA29986. Wrong if 0x421340 were not a map subscript (its shape is identical to WarCallMap_Subscript's).",
+   "revises": "Confidence raised from inferred; read whole. Corrections: the influence is charged only for a value-0 call; joining as an attacker does not discard the casus belli the ally held - it gives the ally a type-0 one on the enemy and then unlinks all of them from that status; declining also breaks the caller-recipient alliance and only then raises the DISHONOUR messages; the next call this body manufactures sits behind +0xDE4, which nothing writes, so honouring a call never calls anyone else."
+  },
+  {
+   "rva": "0x6526D0",
+   "kind": "function",
+   "name": "WarCallMap_Subscript",
+   "signature": "int* __fastcall WarCallMap_Subscript(void* map@EAX, int* key@EDX) @EAX",
+   "no_signature": null,
+   "comment": "**std::map<int,int>::operator[]**: MSVC's red-black tree, head at map+4, node key at +0xC and value at +0x10, `_Isnil` at +0x15; the lower bound is walked and, where the key is absent, a {key, 0} node is inserted (0x542EF0, 0x422250) - so a lookup creates the entry. Its one caller hands it CWar +0x74, the war's call map, from CCallAllyAction::IsValid at 0xA2A4B5. A second instantiation of the same template as IntIntMap_Subscript (0x21340), compiled in another unit with other registers and not folded. Class-free: a template body, not a CWar method. See reversing/findings/FINDINGS-war.md, section B.1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Decoded 0xA526D0-0xA52746, two bare `ret`s; EAX is the map (`mov esi,eax; mov ecx,[esi+4]`), EDX the key pointer (`mov ecx,[edx]`), the return is the value's address (`lea eax,[ebx+0x10]` or `add eax,0x10`). Wrong if the value were wider than a dword - the insert writes {key, 0} as two dwords at [ebp-8]/[ebp-4]."
+  },
+  {
+   "rva": "0x21340",
+   "kind": "function",
+   "name": "IntIntMap_Subscript",
+   "signature": "int* __fastcall IntIntMap_Subscript(void* map@EAX, int* key@EDX) @EAX",
+   "no_signature": null,
+   "comment": "**std::map<int,int>::operator[]**, the same body as WarCallMap_Subscript (0x6526D0) in another compilation unit: lower bound over the red-black tree, insert {key, 0} where absent, return &value (node +0x10). Twelve direct callers; three are CCallAllyAction::Apply's writes to the war's call map (CWar +0x74) at 0xA28467 (=1), 0xA2851E and 0xA2967D (=0). See reversing/findings/FINDINGS-war.md, section B.1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Decoded 0x421340-0x4213B6, byte-compared with 0xA526D0: the same instructions up to register choice. findRefs --callers gives 12 direct calls. Wrong only in the name's generality, which was checked on the three Apply calls alone."
+  },
+  {
+   "rva": "0x62A810",
+   "kind": "function",
+   "name": "CCallAllyAction::GetDialogText",
+   "signature": "Hoi3CString* __thiscall CCallAllyAction::GetDialogText(CCallAllyAction* this, Hoi3CString* out)",
+   "no_signature": null,
+   "comment": "Slot 12, the standard request dialog's Description when the player calls: CALLNEWDESC ('Do you wish to call upon your Allies in these times of war?', COUNTRY = the recipient's name, unused by the text) + \"\\n\" + DIP_INFLUENCECOST ('This will cost us $COST$ diplomatic influence points.', COST = FormatFixedPoint(CALLALLY_INFLUENCE_COST, 2)) - shown although the row's call is value 0 and so is the one that is charged. `ret 4`. See reversing/findings/FINDINGS-war.md, section B.1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Decompiled; the literals CALLNEWDESC, COUNTRY, DIP_INFLUENCECOST, COST and the define diplomacy +0x1C at 0xA2A810-0xA2AC47, one `ret 4`. Wrong if slot 12 were not the Description - CAllianceAction's slot 12 is already recorded as that."
+  },
+  {
+   "rva": "0x62A7E0",
+   "kind": "function",
+   "name": "CCallAllyAction::GetToken",
+   "signature": "int __thiscall CCallAllyAction::GetToken(CCallAllyAction* this)",
+   "no_signature": null,
+   "comment": "Slot 15: `mov eax, 0x309; ret` - the save token `callaction`, which CDiplomaticActionCommand::Execute tests to exempt this class from the seven-day next_offer_allowed stamp and DiplomacyView_OpenActionDialog uses to pick the standard dialog. See reversing/findings/FINDINGS-war.md, section B.1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Six bytes at 0xA2A7E0 ending `ret` at 0xA2A7E5; one table holds it (CCallAllyAction slot 15). 0x309 is `callaction` in saveTokens.json."
+  },
+  {
+   "rva": "0x62AC50",
+   "kind": "function",
+   "name": "CCallAllyAction::Clone",
+   "signature": "CCallAllyAction* __thiscall CCallAllyAction::Clone(CCallAllyAction* this)",
+   "no_signature": null,
+   "comment": "Slot 16: operator new(0x30) and the copy constructor; null where the allocation fails. See reversing/findings/FINDINGS-war.md, section B.1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Decoded 0xA2AC50-0xA2AC6C, bare `ret`; `push 0x30; call 0xB9602F`. One table holds it."
+  },
+  {
+   "rva": "0x62AC70",
+   "kind": "function",
+   "name": "CCallAllyAction::NeedsAnswer",
+   "signature": "bool __thiscall CCallAllyAction::NeedsAnswer(CCallAllyAction* this)",
+   "no_signature": null,
+   "comment": "Slot 18: `type (+0x18) == 0` - only a proposal is answered, and only it has a chance line in the standard dialog. See reversing/findings/FINDINGS-war.md, section B.1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Decoded 0xA2AC70-0xA2AC77, bare `ret`; one table holds it; CDiplomaticAction's slot 18 is recorded as NeedsAnswer."
+  },
+  {
+   "rva": "0x62AE00",
+   "kind": "function",
+   "name": "CCallAllyAction::SaveContents",
+   "signature": "void __thiscall CCallAllyAction::SaveContents(CCallAllyAction* this, CSaveWriter* writer)",
+   "no_signature": null,
+   "comment": "Slot 2: CDiplomaticAction::SaveContents, then `versus` = the enemy's tag (+0x28). The war's call map (CWar +0x74) is not saved anywhere - CWar's SaveContents and LoadKey have no +0x74 - so a pending call's flag is lost on a reload. See reversing/findings/FINDINGS-war.md, section B.1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Decompiled; `ret 4` at 0xA2AE91; the key token is `versus`. The CWar negative is a grep of the decoded CWar::SaveContents (0xA4EC90) and CWar::LoadKey (0xA4E610) for +0x74, whose positive control is the +0x70 `limited` read at 0xA4ECD1."
+  },
+  {
+   "rva": "0x215D70",
+   "kind": "function",
+   "name": "CAskJoinWar::IsStillOpen",
+   "signature": "bool __thiscall CAskJoinWar::IsStillOpen(CAskJoinWar* this)",
+   "no_signature": null,
+   "comment": "Slot 7 of the call-to-arms dialog, every frame: Decline (slot 6) and false where AddMonths(action.date (+0x1C), 2) is before today; otherwise open only while the caller (+0x8) is at war with Versus (+0x28), the recipient is not, the enemy is not in a real faction the recipient shares, and the recipient is on neither side of the caller's war - then the answer is `type == PROPOSE`; otherwise Decline and false. **Where the caller's war has ended the body still reads its side vectors** through the null pointer (`mov ecx,[edi+0x30]` at 0x615F06 after `test edi,edi` only cleared the flag) - a fault if the caller makes peace while the dialog is open. See reversing/findings/FINDINGS-war.md, section B.1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Decoded 0x615D70-0x615F60: the AddMonths(…, 2) call at 0x615DA7 and the compare at 0x615E2A, the war loads at 0x615E7D and 0x615EA7, the faction test at 0x615EC8-0x615EFF, the attacker and defender loops from 0x615F03 reading [edi+0x30]/[edi+0x2C] and [edi+0x40]/[edi+0x3C] with no null test of edi. Wrong if edi could not be null there - it is the caller's status towards Versus +0x20, which a peace clears.",
+   "revises": "Confidence raised from inferred off the bytes; the null-war read is added."
+  },
+  {
+   "rva": "0x643900",
+   "kind": "function",
+   "name": "CAddWarGoalAction::IsValid",
+   "signature": "bool __thiscall CAddWarGoalAction::IsValid(CAddWarGoalAction* this)",
+   "no_signature": null,
+   "comment": "Slot 13: the actor's status towards the recipient has a war W; Country_CanAddWarGoal(actor, recipient, W) - the one-month cooldown; and 0x47BF70 (goal = this+0x28 in EDI, W on the stack): the goal fully specified - a real type, its recipient owning a province, a third country passing allowed_countries where that block has conditions, a region with a province passing allowed_regions where that one has - and the same goal not already in W. See reversing/findings/FINDINGS-war.md, section B.2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Decoded 0xA43900-0xA43986: the war load at 0xA43931, `call 0x4E67D0` with (actor, &recipient, war) pushed at 0xA43941-0xA43947, then `push war; lea edi,[esi+0x28]; call 0x47BF70` at 0xA43978-0xA4397C. Wrong if 0x47BF70 took the goal elsewhere - it reads [edi+0xC], [edi+0x20], [edi+0x28] from its first instruction on.",
+   "revises": "Confidence raised from inferred; both callees named and the goal's register stated."
+  },
+  {
+   "rva": "0x643990",
+   "kind": "function",
+   "name": "CAddWarGoalAction::IsSelectable",
+   "signature": "bool __thiscall CAddWarGoalAction::IsSelectable(CAddWarGoalAction* this)",
+   "no_signature": null,
+   "comment": "Slot 14: the actor is at war with the recipient and Country_CanAddWarGoal holds - i.e. the pair's next_wargoal_date (CDiplomacyStatus +0x7C) is before today. Nothing about influence or the goal. The row is also greyed while a diplomat is en route (slot 21 is ReturnTrue for this class) although no tooltip line says so. See reversing/findings/FINDINGS-war.md, section B.2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Decompiled and the single call to 0x4E67D0 checked at 0xA439D3.",
+   "revises": "Confidence raised from inferred; the cooldown named."
+  },
+  {
+   "rva": "0x643780",
+   "kind": "function",
+   "name": "CWarGoalBaseAction::GetDescription",
+   "signature": "Hoi3CString* __thiscall CWarGoalBaseAction::GetDescription(CWarGoalBaseAction* this, Hoi3CString* out)",
+   "no_signature": null,
+   "comment": "Slot 11 of CAddWarGoalAction **and** CJoinFactionGoalAction (one body; their common base leaves the slot pure, the precedent of CWarGoalBaseAction::Apply): DIPL_NOT_AT_WAR - which has no text in either localisation and so shows the key - where the actor's status towards the recipient has no war; else Country_BuildWarGoalCooldownText - CAN_NOT_ADD_WARGOAL_UNTIL ('Can not add a new war goal until $DATE$', DATE = the pair's next_wargoal_date) while the cooldown runs, else the empty string. See reversing/findings/FINDINGS-war.md, section B.2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Decompiled; the calls 0x4E67D0 at 0xA4388C and 0x4E68C0 at 0xA4389B (out in EDI, actor in ECX, &recipient pushed) checked on the listing.",
+   "revises": "Confidence raised from inferred; the two callees read and named."
+  },
+  {
+   "rva": "0xE67D0",
+   "kind": "function",
+   "name": "Country_CanAddWarGoal",
+   "signature": "bool __stdcall Country_CanAddWarGoal(CCountry* actor, CCountryTag* recipient, CWar* war)",
+   "no_signature": null,
+   "comment": "**The war-goal cooldown.** True at once where the global at 0x1A855A0 is non-zero - it has exactly one reference in the image, this read, and no writer or pointer anywhere, so it is a compiled-out debug switch and always 0. Otherwise false with no war, else `actor->diplomacy[recipient]->next_wargoal_date (+0x7C) < tick` - strictly before. next_wargoal_date is stamped by CWarGoal::AddToWar as AddMonths(tick, WARGOAL_ADD_COOLDOWN / 1000) (1 month in Their Finest Hour). Four callers, all CAddWarGoalAction slots (11, 12, 13, 14). Class-free: the country is on the stack. See reversing/findings/FINDINGS-war.md, section B.2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Decoded 0x4E67D0 to `ret 0xC`; the flag test at 0x4E67EC and the compare against [tick +0xBDC] as decompiled. The 'no writer' is findRefs --address 0x1A855A0 (1 reference) plus a byte search of every section for the pointer value (0 hits); the same search finds g_UnlimitedDiploInfluence (0x1BEA410) five times in .text."
+  },
+  {
+   "rva": "0xE68C0",
+   "kind": "function",
+   "name": "Country_BuildWarGoalCooldownText",
+   "signature": "Hoi3CString* __fastcall Country_BuildWarGoalCooldownText(CCountry* actor@ECX, Hoi3CString* out@EDI, CCountryTag* recipient@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "The cooldown's reason: with d = actor->diplomacy[recipient]->next_wargoal_date (+0x7C), the empty string where d < tick, else CAN_NOT_ADD_WARGOAL_UNTIL ('Can not add a new war goal until $DATE$') with DATE = d formatted by 0x44CB60. Two callers: CWarGoalBaseAction::GetDescription and CWarGoalBaseAction::GetDialogText. See reversing/findings/FINDINGS-war.md, section B.2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Decoded 0x4E68C0 to the two `ret 4` at 0x4E69D3/0x4E6A00: ECX read at 0x4E68EB as the country, [ebp+8] as the tag, `cmp ecx,[eax+0xBDC]; jl` empty at 0x4E6979, the literals DATE/CAN_NOT_ADD_WARGOAL_UNTIL at 0x4E6993/0x4E6998, EDI returned in EAX."
+  },
+  {
+   "rva": "0x6439F0",
+   "kind": "function",
+   "name": "CWarGoalBaseAction::GetDialogText",
+   "signature": "Hoi3CString* __thiscall CWarGoalBaseAction::GetDialogText(CWarGoalBaseAction* this, Hoi3CString* out)",
+   "no_signature": null,
+   "comment": "Slot 12 of CAddWarGoalAction and CJoinFactionGoalAction (one body; the base's own slot 12 is the 43-table stub 0x456DD0): the cooldown text where Country_CanAddWarGoal fails, else WARGOALDESC ('Add another war goal against $COUNTRY$', COUNTRY = the recipient). **Not shown for an added war goal**: that row opens CWarGoalDialog, which asks slot 10 and CWarGoal::BuildSetupText and never slot 12. See reversing/findings/FINDINGS-war.md, section B.2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Decompiled; two `ret 4`. vtable --holding: CAddWarGoalAction slot 12 and CJoinFactionGoalAction slot 12, one family (both derive CWarGoalBaseAction), so the name is put on the base as GetDescription's is."
+  },
+  {
+   "rva": "0x643BD0",
+   "kind": "function",
+   "name": "CAddWarGoalAction::GetToken",
+   "signature": "int __thiscall CAddWarGoalAction::GetToken(CAddWarGoalAction* this)",
+   "no_signature": null,
+   "comment": "Slot 15: `mov eax, 0x7A4; ret` - `add_war_goal`, which DiplomacyView_OpenActionDialog maps to CWarGoalDialog. See reversing/findings/FINDINGS-war.md, section B.2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Decoded 0xA43BD0-0xA43BD5; one table holds it; 0x7A4 is `add_war_goal` in saveTokens.json."
+  },
+  {
+   "rva": "0x643BE0",
+   "kind": "function",
+   "name": "CAddWarGoalAction::Clone",
+   "signature": "CAddWarGoalAction* __thiscall CAddWarGoalAction::Clone(CAddWarGoalAction* this)",
+   "no_signature": null,
+   "comment": "Slot 16: operator new(0x54) and CWarGoalBaseAction_CopyConstruct, then CAddWarGoalAction's vftable. So the class is 0x54 bytes, the embedded CWarGoal at +0x28..+0x53. See reversing/findings/FINDINGS-war.md, section B.2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Decompiled; two bare `ret`s at 0xA43BFF/0xA43C03; `push 0x54`."
+  },
+  {
+   "rva": "0x643470",
+   "kind": "function",
+   "name": "CWarGoalBaseAction_CopyConstruct",
+   "signature": "CWarGoalBaseAction* __fastcall CWarGoalBaseAction_CopyConstruct(CWarGoalBaseAction* dst@EAX, CWarGoalBaseAction* src@ECX) @EAX",
+   "no_signature": null,
+   "comment": "Copies a war-goal action: persistent id 0x18D, actor (+0x8), recipient (+0x10), type (+0x18), **date (+0x1C) into both +0x1C and +0x20** (the copy's last_command_date is the source's date, not its own), value (+0x24), CWarGoalBaseAction's vftable, then the embedded CWarGoal at +0x28 with CWarGoal's vftable, id 0x18D and the source's +0x30..+0x50. The caller writes the derived vftable. Class-free: the object is in EAX. See reversing/findings/FINDINGS-war.md, section B.2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Decompiled and the stores checked on the listing 0xA43470-0xA43515, bare `ret`. Callers: CAddWarGoalAction::Clone, and CJoinFactionGoalAction's clone by the same shape (not traced)."
+  },
+  {
+   "rva": "0x775D0",
+   "kind": "function",
+   "name": "CWarGoalDialog_Construct",
+   "signature": "CWarGoalDialog* __stdcall CWarGoalDialog_Construct(CWarGoalDialog* dialog, CInGameIdler* idler, CDiplomaticAction* action, CDiplomacyView* view)",
+   "no_signature": null,
+   "comment": "**The declare-war and add-war-goal dialog.** 0xA8 bytes (DiplomacyView_OpenActionDialog's `new`), window `DeclareWarDialog` of interface/wardialog.gui through CEU3Dialog's constructor; CDiplomacyDialog's layout: host (+0x68) = idler, action (+0x6C) = the row's action **cloned** (slot 16); then +0x70 idler, +0x74 view, +0x78 = the same clone (the action whose embedded goal the dialog fills), +0x7C a CButtonObserverGlue<CWarGoalDialog> whose handler is CWarGoalDialog::OnCancelSelect. LeftShield takes the actor's flag, RightShield the recipient's, Title the action's slot 10 (WARTITLE 'Declare War', LIMWARTITLE 'Declare Limited War' or WARGOALTITLE 'Add war goal'); both `cancel_select` buttons (in wargoal_state_select and wargoal_country_select) are bound to the glue; then CWarGoalDialog_BuildGoalList. `ret 0x10`, all four on the stack. See reversing/findings/FINDINGS-war.md, section B.2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Decompiled; the literals DeclareWarDialog, LeftShield, RightShield, cancel_select, wargoal_state_select, wargoal_country_select, message_dialog on the listing 0x4775D0-0x477923 (`ret 0x10`); the call site 0x78BB07-0x78BB11 pushes view, action, idler, memory after `push 0xA8; call new`. Wrong if +0x78 were a second object - it is assigned from +0x6C at the ctor (param_1[0x1e] = param_1[0x1b])."
+  },
+  {
+   "rva": "0x77930",
+   "kind": "function",
+   "name": "CWarGoalDialog::~CWarGoalDialog",
+   "signature": "CWarGoalDialog* __thiscall CWarGoalDialog::~CWarGoalDialog(CWarGoalDialog* this, uint8_t flags)",
+   "no_signature": null,
+   "comment": "Slot 0, the deleting destructor: the glue's vftable reset to CButtonObserver's, the clone (+0x6C) deleted only where its IsValid (slot 13) answers true - CDiplomacyDialog's own rule - then CEU3Dialog's destructor and free on flag bit 0. See reversing/findings/FINDINGS-war.md, section B.2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Decompiled; `ret 4` at 0x4779B4; one table holds it."
+  },
+  {
+   "rva": "0x781F0",
+   "kind": "function",
+   "name": "CWarGoalDialog::Update",
+   "signature": "void __thiscall CWarGoalDialog::Update(CWarGoalDialog* this)",
+   "no_signature": null,
+   "comment": "Slot 1, every frame: CWarGoalDialog::RefreshDescription, then AgreeButton enabled (button slot 46) where the action's IsValid (slot 13) holds and disabled (slot 47) where it does not, then CEU3Dialog::Update. So 'I do' can be pressed exactly while the action as filled in so far would be valid. See reversing/findings/FINDINGS-war.md, section B.2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Decompiled; the vftable offsets +0xB8/+0xBC on the button and +0x34 on the action at 0x4781F0-0x4782A5, bare `ret`."
+  },
+  {
+   "rva": "0x78120",
+   "kind": "function",
+   "name": "CWarGoalDialog::RefreshDescription",
+   "signature": "void __thiscall CWarGoalDialog::RefreshDescription(CWarGoalDialog* this)",
+   "no_signature": null,
+   "comment": "Writes CWarGoal::BuildSetupText(the action's goal, +0x78 -> +0x28) into the `Description` instantTextBox's text (+0xD0). Bare `ret`. See reversing/findings/FINDINGS-war.md, section B.2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Decompiled; one caller, CWarGoalDialog::Update."
+  },
+  {
+   "rva": "0x779C0",
+   "kind": "function",
+   "name": "CWarGoalDialog::Accept",
+   "signature": "void __thiscall CWarGoalDialog::Accept(CWarGoalDialog* this)",
+   "no_signature": null,
+   "comment": "Slot 5, AgreeButton ('I do'): **type = 2 (ACCEPT)** on the clone (+0x6C), MakeCommand (slot 6), posted through the idler's slot 18 session channel; then closed (+0x64 = 1). The date is not stamped (the standard dialog's Accept stamps it) and the action list is not rebuilt. Being ACCEPT, the command's Execute writes no next_offer_allowed and queues the clone on the actor's own pending list, where it is deleted unshown. See reversing/findings/FINDINGS-war.md, section B.2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Decoded 0x4779C0-0x4779F5 whole: `mov dword ptr [eax+0x18], 2` at 0x4779C6, the slot-6 call at 0x4779D6, the idler slot 18 (+0x48) and session +0x38 slot 6 (+0x18) at 0x4779DF-0x4779ED, `mov byte ptr [esi+0x64],1`."
+  },
+  {
+   "rva": "0x77A00",
+   "kind": "function",
+   "name": "CWarGoalDialog::Decline",
+   "signature": "void __thiscall CWarGoalDialog::Decline(CWarGoalDialog* this)",
+   "no_signature": null,
+   "comment": "Slot 6, DeclineButton ('Rather not'): where the view's selected country is still the recipient, CDiplomacyView::RebuildActionList; then closed (+0x64 = 1). Nothing is posted. See reversing/findings/FINDINGS-war.md, section B.2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Decompiled; bare `ret` at 0x477A37."
+  },
+  {
+   "rva": "0x77A40",
+   "kind": "function",
+   "name": "CWarGoalDialog::IsStillOpen",
+   "signature": "bool __thiscall CWarGoalDialog::IsStillOpen(CWarGoalDialog* this)",
+   "no_signature": null,
+   "comment": "Slot 7: open while the in-game screen's first view answers its slot 7 (shown) and the view's action_dialog (+0x518) is null or this dialog. No test of the action, unlike CDiplomacyDialog's. See reversing/findings/FINDINGS-war.md, section B.2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Decompiled; two bare `ret`s at 0x477AFE/0x477B22."
+  },
+  {
+   "rva": "0x77B30",
+   "kind": "function",
+   "name": "CWarGoalDialog_BuildGoalList",
+   "signature": "void __stdcall CWarGoalDialog_BuildGoalList(CWarGoalDialog* dialog)",
+   "no_signature": null,
+   "comment": "**The list of war goals.** Hides wargoal_state_select and wargoal_country_select, empties `wargoal_list` (in wargoal_setup), and for each casus-belli type in database (cb_types.txt) order: (1) its `is_valid` (slot 6) in a scope whose country is the recipient (action +0x10) with THIS = the player's country - the type is skipped where it fails (the null type at index 0 always does); (2) the player's status towards the recipient holds a casus belli of that index (+0x24), or the type has `always` (+0x1F2) - else skipped; (3) a CWarGoal {type, actor, recipient, no country, no region} must be CWarGoal_IsAvailable; (4) where the type's `allowed_regions` block has conditions (+0x100, its child count), CWarGoal_HasPeaceRegionFor must also hold. Each survivor is a CGoalEntry row. Not tested: is_triggered_only, months, prerequisites, mutual. `ret 4`. See reversing/findings/FINDINGS-war.md, section B.2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Decompiled whole and the type loop, the slot-6 call (+0x18 on the type), the held loop on +0x3C and the `cmp byte ptr [eax+0x1F2], bl` at 0x477FCA, the call 0x47BC60 at 0x478021 and `cmp [edi+0x100]` at 0x47802E checked on the listing. The 'not tested' list rests on a resumed sweep of .text for every memory operand at those offsets (positive control: the +0x1F2 read here and in two other functions was found)."
+  },
+  {
+   "rva": "0x782B0",
+   "kind": "function",
+   "name": "CWarGoalDialog_SelectGoal",
+   "signature": "void __stdcall CWarGoalDialog_SelectGoal(CWarGoalDialog* dialog, CCasusBelliType* type)",
+   "no_signature": null,
+   "comment": "A goal row clicked (CGoalEntry::OnClicked). In a tutorial, the in-game screen's slot 81 hook gets `wargoal_selected_` + the type's key. Then the action's goal (+0x78 -> +0x28) becomes {type, country `---`, actor and recipient = the action's, region null}; wargoal_setup is hidden; where the type's allowed_countries block has conditions (+0x180) the country list opens (CWarGoalDialog_BuildCountryList), else where allowed_regions has (+0x100) the state list (CWarGoalDialog_BuildStateList), else wargoal_setup is shown again. Three `ret 8`. See reversing/findings/FINDINGS-war.md, section B.2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Decompiled; the stores to +0x2C..+0x50 of the action and the two compares at 0x4785A4/0x4785C9 on the listing."
+  },
+  {
+   "rva": "0x78660",
+   "kind": "function",
+   "name": "CWarGoalDialog_SelectRegion",
+   "signature": "void __fastcall CWarGoalDialog_SelectRegion(CRegion* region@ECX, CWarGoalDialog* dialog@ESI)",
+   "no_signature": null,
+   "comment": "A state row clicked: the goal's region (+0x28 of the goal, action +0x50) = region; both select windows hidden; wargoal_setup shown. Bare `ret`. See reversing/findings/FINDINGS-war.md, section B.2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Decompiled; the one caller CRegionSelectionItem::OnClicked loads ECX = item +0x2C and ESI = item +0x28 at 0x477400-0x477409."
+  },
+  {
+   "rva": "0x78790",
+   "kind": "function",
+   "name": "CWarGoalDialog_SelectCountry",
+   "signature": "void __fastcall CWarGoalDialog_SelectCountry(CCountryTag* country@ECX, CWarGoalDialog* dialog@ESI)",
+   "no_signature": null,
+   "comment": "A country row clicked: the goal's third country (goal +0x10, action +0x38/+0x3C) = country; wargoal_country_select hidden; where the type's allowed_regions has conditions the state list opens, else wargoal_setup is shown. Two bare `ret`. See reversing/findings/FINDINGS-war.md, section B.2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Decompiled; the caller CCountrySelectionItem::OnClicked loads ECX = item +0x2C and ESI = item +0x28 at 0x4775C0-0x4775C9."
+  },
+  {
+   "rva": "0x78890",
+   "kind": "function",
+   "name": "CWarGoalDialog::OnCancelSelect",
+   "signature": "void __thiscall CWarGoalDialog::OnCancelSelect(CWarGoalDialog* this)",
+   "no_signature": null,
+   "comment": "`cancel_select` ('Cancel', shortcut ESCAPE) in either select window: both hidden, and the goal reset to {the static CNullCasusBelliType (0x1A85BC4), country `---`, actor and recipient the action's, region null} - so a cancelled choice leaves no goal and Agree greys - then wargoal_setup shown. Bare `ret`. See reversing/findings/FINDINGS-war.md, section B.2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Decompiled; it is the handler the constructor stores in the glue (+0x84 = 0x478890); `mov edi,[0x1A85BC4]` at 0x47896C stored to the goal's type (action +0x34) at 0x478979."
+  },
+  {
+   "rva": "0x78A10",
+   "kind": "function",
+   "name": "CWarGoalDialog_HasPeaceRegionFor",
+   "signature": "bool __stdcall CWarGoalDialog_HasPeaceRegionFor(CWarGoalDialog* dialog, CCasusBelliType* type)",
+   "no_signature": null,
+   "comment": "Whether a goal of `type` against the recipient has any region to name: it writes {type, no country, no region} into the action's goal, then for each region of g_CMap with useForPeace (+0x6C) set and each of its provinces evaluates the type's allowed_regions (+0xF0) in a scope {province, THIS = the player, FROM = the goal's recipient}; at the first province that passes, true where CWarGoal_IsAvailable holds for the goal with that region. Two `ret 8`. See reversing/findings/FINDINGS-war.md, section B.2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Decompiled; `add ecx, 0xF0` + slot-6 call at 0x478C84 found by the sweep, the useForPeace test, the call 0x47BC60 at 0x478CE4."
+  },
+  {
+   "rva": "0x78D20",
+   "kind": "function",
+   "name": "CWarGoalDialog_BuildStateList",
+   "signature": "void __stdcall CWarGoalDialog_BuildStateList(CWarGoalDialog* dialog)",
+   "no_signature": null,
+   "comment": "Shows wargoal_state_select and fills `state_list` with a CRegionSelectionItem for each region with useForPeace set where some province passes allowed_regions in {province, THIS = the player, FROM = the recipient} and the goal with that region is CWarGoal_IsAvailable. Rows in g_CMap's region order. `ret 4`. See reversing/findings/FINDINGS-war.md, section B.2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Decompiled; `add ecx, 0xF0` + slot-6 call at 0x4790AD (sweep), CWarGoal_IsAvailable at 0x47913E, `new(0x80)` and CRegionSelectionItem_Construct."
+  },
+  {
+   "rva": "0x79230",
+   "kind": "function",
+   "name": "CWarGoalDialog_BuildCountryList",
+   "signature": "void __stdcall CWarGoalDialog_BuildCountryList(CWarGoalDialog* dialog)",
+   "no_signature": null,
+   "comment": "Shows wargoal_country_select and fills `country_list` with a CCountrySelectionItem for every country of the game state's vector (id not 0) for which the type's allowed_countries (+0x170) passes in a scope whose country is the recipient, with THIS = the player and THIS's FROM = the candidate. `ret 4`. See reversing/findings/FINDINGS-war.md, section B.2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Decompiled; `add ecx, 0x170` + slot-6 call at 0x479530 found by the sweep; the candidate written into the this-scope's +0x18/+0x1C."
+  },
+  {
+   "rva": "0x77260",
+   "kind": "function",
+   "name": "CRegionSelectionItem_Construct",
+   "signature": "void* __fastcall CRegionSelectionItem_Construct(CInGameIdler* idler@ECX, void* entry@stack:4, CRegion* region@stack:8, CWarGoalDialog* dialog@stack:0xC) @EAX",
+   "no_signature": null,
+   "comment": "A state row, 0x80 bytes, window `wargoal_state_item` through the idler; +0x28 the dialog, +0x2C the region, +0x30 a button glue on `select_state`, whose text is the region's name (its slot 6). `ret 0xC`. See reversing/findings/FINDINGS-war.md, section B.2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Decompiled; `ret 0xC` at 0x4773FD; the idler's slots +0x40/+0x38 called through ECX."
+  },
+  {
+   "rva": "0x77410",
+   "kind": "function",
+   "name": "CCountrySelectionItem_Construct",
+   "signature": "void* __fastcall CCountrySelectionItem_Construct(CInGameIdler* idler@ECX, void* entry@stack:4, CCountryTag* country@stack:8, CWarGoalDialog* dialog@stack:0xC) @EAX",
+   "no_signature": null,
+   "comment": "A country row, 0x88 bytes, window `wargoal_country_item`; +0x28 the dialog, +0x2C/+0x30 the country, +0x38 a glue on `select_country`, whose text is the country's name. `ret 0xC`. See reversing/findings/FINDINGS-war.md, section B.2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Decompiled; `ret 0xC` at 0x4775B3."
+  },
+  {
+   "rva": "0x77400",
+   "kind": "function",
+   "name": "CRegionSelectionItem::OnClicked",
+   "signature": "void __thiscall CRegionSelectionItem::OnClicked(CRegionSelectionItem* this)",
+   "no_signature": null,
+   "comment": "Slot 4: CWarGoalDialog_SelectRegion(region = +0x2C, dialog = +0x28). See reversing/findings/FINDINGS-war.md, section B.2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Decoded 0x477400-0x47740F whole; one table holds it."
+  },
+  {
+   "rva": "0x775C0",
+   "kind": "function",
+   "name": "CCountrySelectionItem::OnClicked",
+   "signature": "void __thiscall CCountrySelectionItem::OnClicked(CCountrySelectionItem* this)",
+   "no_signature": null,
+   "comment": "Slot 4: CWarGoalDialog_SelectCountry(&country = +0x2C, dialog = +0x28). See reversing/findings/FINDINGS-war.md, section B.2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Decoded 0x4775C0-0x4775CF whole; one table holds it."
+  },
+  {
+   "rva": "0x37CDD0",
+   "kind": "function",
+   "name": "CGoalEntry_Construct",
+   "signature": "void* __fastcall CGoalEntry_Construct(CCountryTag* recipient@ECX, void* entry@stack:4, CInGameIdler* idler@stack:8, CCasusBelliType* type@stack:0xC, CWarGoalDialog* dialog@stack:0x10) @EAX",
+   "no_signature": null,
+   "comment": "A war-goal row of CWarGoalDialog, 0x88 bytes, window `wargoal_item`: +0x28/+0x2C the recipient, +0x30 the type, +0x34 the dialog, +0x38 a glue on `select_goal`, whose text is CCasusBelliType::GetLocalisedName ('Retake our cores' ...); `wargoal_icon`'s frame is the type's sprite_index (+0xC) against GFX_diplo_wargoal_icons. No tooltip is set. `ret 0x10`. See reversing/findings/FINDINGS-war.md, section B.2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Decompiled; `ret 0x10` at 0x77CFD0; ECX dereferenced as two dwords into +0x28/+0x2C; the one caller CWarGoalDialog_BuildGoalList passes a stack copy of the recipient tag in ECX."
+  },
+  {
+   "rva": "0x37D080",
+   "kind": "function",
+   "name": "CGoalEntry::OnClicked",
+   "signature": "void __thiscall CGoalEntry::OnClicked(CGoalEntry* this)",
+   "no_signature": null,
+   "comment": "Slot 4: CWarGoalDialog_SelectGoal(dialog = +0x34, type = +0x30). See reversing/findings/FINDINGS-war.md, section B.2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Decoded 0x77D080-0x77D08D whole; one table holds it."
+  },
+  {
+   "rva": "0x7BC60",
+   "kind": "function",
+   "name": "CWarGoal_IsAvailable",
+   "signature": "bool __fastcall CWarGoal_IsAvailable(CWarGoal* goal@EAX) @AL",
+   "no_signature": null,
+   "comment": "**Whether a war goal can still be chosen.** W = actor->diplomacy[recipient]->war. False where the type is not real (slot 7). False where allowed_countries has conditions (+0x180) and no third country is set. Where allowed_regions has conditions (+0x100) and no region is set: true where some province of some region of g_CMap (all regions, useForPeace not asked) passes allowed_regions in {province, THIS = actor} (FROM empty) and either there is no war or W's goals of the actor hold no goal equal in type, actor, recipient, third country and that region. Otherwise, where allowed_province has conditions (+0x140): the recipient's owned provinces are tried against allowed_province in {province, THIS = actor, FROM = recipient} - none passes, false; one passes and there is no war, true; else the goal must not already be among W's goals of the actor (0x47C280). Where neither, true unless the same goal is already in W. Bare `ret`. Callers: the war-goal dialog's three lists, CCountry::GetMaxNeutralityForWarWith and its tooltip twin. See reversing/findings/FINDINGS-war.md, section B.4.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Decoded 0x47BC60-0x47BF64 whole (scratch disassembly): the copy of the goal from EDI(=EAX) at 0x47BC6C-0x47BCB2, the war load at 0x47BCC9, slot 7 at 0x47BCD4, +0x180/+0x14 at 0x47BCE6/0x47BCEF, +0x100/+0x28 at 0x47BCF5/0x47BD02, the region walk over g_CMap +0x2A40 with the +0xF0 evaluation at 0x47BD91-0x47BDA1 and the duplicate scan at 0x47BE20-0x47BE4A, +0x140 at 0x47BE5D and the +0x130 loop over the recipient's +0xCF0 list at 0x47BEBF-0x47BEEF, the two 0x47C280 finds at 0x47BF25/0x47BF4C. What 0x47C280 compares is not read (frontier)."
+  },
+  {
+   "rva": "0x797C0",
+   "kind": "function",
+   "name": "CWarGoal_Construct",
+   "signature": "void __fastcall CWarGoal_Construct(CWarGoal* goal@EAX, CCasusBelliType* type@ECX, int actorTag@stack:4, int actorId@stack:8, int recipientTag@stack:0xC, int recipientId@stack:0x10)",
+   "no_signature": null,
+   "comment": "A CWarGoal from a type and two countries: vftable 0x15BDB34, id 0x18D, type +0xC, third country `---`/0 (+0x10/+0x14), actor +0x18/+0x1C, recipient +0x20/+0x24, region null (+0x28). +0x8 is left as it was. `ret 0x10`. Two callers, CCountry::GetMaxNeutralityForWarWith and its tooltip twin, each building the `aquire_all_cores` goal. See reversing/findings/FINDINGS-war.md, section B.4.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Decoded 0x4797C0-0x47980D whole."
+  },
+  {
+   "rva": "0x79950",
+   "kind": "function",
+   "name": "CWarGoal::IsValidWithTrigger",
+   "signature": "bool __thiscall CWarGoal::IsValidWithTrigger(CWarGoal* this)",
+   "no_signature": null,
+   "comment": "**The game's own Lua name** (luabind registers 0x479950 as CWarGoal::IsValidWithTrigger; its CWarGoal::IsValid is 0x479930, the type-is-real test alone). The gate on CWarGoal::AddToWar (rva 0x651FB0), and the AI's own test. 0x479950 to two bare `ret`s in one frame (`mov al, 1` at 0x479A7B, `xor al, al` at 0x479A82), 13 int3, then CWarGoal::LoadKey at 0x479A90. `this` in ECX. Two callers: 0xA51FD2 and 0x89DB95, inside the AI. Almost the whole body builds two CEventScopes on the stack, stamped with the goal's actor (+0x18/+0x1C) and receiver (+0x20/+0x24); only the one at esp+0x58 is used. Then: false with no type (+0xC); false where the type's slot 7 says it is not real; else the type's slot 6 (CCasusBelliType::IsValid, the `is_valid` block) for that scope. So a war goal may be added exactly when it names a real type whose is_valid passes for the goal's own actor and receiver; nothing about held casus belli is tested. See reversing/findings/FINDINGS-diploaction.md section 22 and reversing/findings/FINDINGS-war.md section B.4.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "ghidra/luabind.json registers the pointer 4692304 (0x479950) as CWarGoal::IsValidWithTrigger and 4692272 (0x479930) as CWarGoal::IsValid; 0x479930 decodes as `cmp [ecx+0xC],0; je; call [vft+0x1C]; ...` - exactly the first two of this body's three tests. The generated bicelib_findings.json already shows the Lua name on 0x79950, so project.json's name was the odd one out.",
+   "revises": "Renamed from CWarGoal::IsValid to the game's own name, CWarGoal::IsValidWithTrigger: the Lua API gives IsValid to 0x479930, a different body. The comment is otherwise the recorded reading."
+  },
+  {
+   "rva": "0x79D40",
+   "kind": "function",
+   "name": "CWarGoal::BuildSetupText",
+   "signature": "Hoi3CString* __stdcall CWarGoal::BuildSetupText(CWarGoal* this, Hoi3CString* out) @EAX",
+   "no_signature": null,
+   "comment": "A war goal's description, the war-goal dialog's Description and the war-goal row's delayed tooltip. Empty where the type is null or not real. Otherwise the text of `<type key>_setup` (puppet_setup 'Install a loyal government in $RECIPIENT$') with ACTOR and RECIPIENT = '§Y' + the country's name + '§W'; then the text's own replacement keys are scanned for THIRD and STATE. With a third country (+0x10/+0x14 id not 0), THIRD = its name the same way; with none and THIRD in the text, the whole result is WARDIALOG_SELECT_COUNTRY (which has no text in either localisation, so shows the key). With a region (+0x28), STATE = the region's name (its slot 6) the same way; with none and STATE in the text, the whole result is WARDIALOG_SELECT_STATE ('Select a region claim.'). Else '§W' + the rendered text. Three callers: the war-goal row's delayed tooltip and two in the war-goal dialog. 0x479D40, three `ret 8`, the last at 0x47A79B. See reversing/findings/FINDINGS-diplomacyview.md and reversing/findings/FINDINGS-war.md section B.4.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Checked on the listing: the `_setup` literal at 0x479DAF, ACTOR/RECIPIENT at 0x479E62/0x479FD5, the THIRD/STATE scans at 0x47A17E/0x47A1BD over 0x1C-byte replacement entries, `cmp [esi+0x14],ebx` at 0x47A1FE and `cmp [esi+0x28],ebx` at 0x47A380, the two fallback literals at 0x47A444/0x47A6E7. Localisation looked up in the install: WARDIALOG_SELECT_COUNTRY is in no CSV.",
+   "revises": "Confidence raised from inferred; the order (third country before region), the scan of the text's own keys, and that WARDIALOG_SELECT_COUNTRY has no text."
+  },
+  {
+   "rva": "0x647A00",
+   "kind": "function",
+   "name": "CCasusBelli::SaveContents",
+   "signature": "void __thiscall CCasusBelli::SaveContents(CCasusBelli* this, CSaveWriter* writer)",
+   "no_signature": null,
+   "comment": "Slot 2: `type` = the type's key (db[type], db[0] where out of range), then CRelation::SaveContents (first, second, end_date when real, start_date or cancel). A type-0 casus belli is saved as the null type's key. `ret 4`. See reversing/findings/FINDINGS-war.md, section B.3.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Decompiled; `ret 4` at 0xA47AA8; one table holds it."
+  },
+  {
+   "rva": "0x647D20",
+   "kind": "function",
+   "name": "CCasusBelli::Deactivate",
+   "signature": "void __thiscall CCasusBelli::Deactivate(CCasusBelli* this)",
+   "no_signature": null,
+   "comment": "Slot 11, the relations' Deactivate: CCasusBelli::RemoveFromStatus(this, countries[first]->diplomacy[second], notify = true) - the only path that can raise WELOSECB. WELOSECB has no entry in either messagetypes.txt and no localisation. Its one caller found is virtual, from CCasusBelliChange's history arm (slot 7, 0x5F3110) when a history casus belli is taken back - during the replay before play, when in_game is clear and so nothing is shown. The daily expiry (CDiplomacyStatus_ExpireRelations) does not call it. Bare `ret`. See reversing/findings/FINDINGS-war.md, section B.3.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Decompiled; bare `ret` at 0xA47D5D; one table holds it. The history arm's `call [edx+0x2C]` at 0x5F3278 follows the unlink from +0xB2C at 0x5F326E. Wrong if another virtual slot-11 call reaches a CCasusBelli - not searched beyond the CB's own callers."
+  },
+  {
+   "rva": "0xE6640",
+   "kind": "function",
+   "name": "AddCasusBelli",
+   "signature": "void __stdcall AddCasusBelli(CCountry* holder@stack:4, CCountryTag* target@ECX)",
+   "no_signature": null,
+   "comment": "Gives `holder` a casus belli against `target`. 0x4E6640 to the single `ret 4` at 0x4E67C9. Returns at once when `target->id == holder->id (+0xCA8)`. Otherwise `operator new(0x28)`, CCasusBelli::CCasusBelli (rva 0x6478A0: type 0, start and end the null date), `first (+8)` = holder, `second (+0x10)` = target, `start_date (+0x18)` = tick, slot 10 (CCasusBelli::Activate - which, with no end date, files it on `countries[holder]->diplomacy[target]->casus_belli` unconditionally), and appends it to the relation list. **No search for an existing one**, so repeated calls stack. **Type 0 is the CNullCasusBelliType**, whose slot 7 is false, so DiplomacyStatus_HasUsableCasusBelli never asks about it and no war-goal list or neutrality term counts it: a casus belli made here is saved and loaded but changes nothing that was found. Five call sites: CCasusBelliEffect::Execute and CReversedCasusBelliEffect::Execute (the parties swapped), CCallAllyAction::Apply twice (0xA2893C: the ally on the enemy, unlinked again at once; 0xA296D7: the caller on an ally who refused), and VA 0x4C0C30 in the rebels' defection (0x4C0B50: a province's old owner on the country it defected to, messages THEYDEFECT/WEDEFECT/OTHERDEFECT). See reversing/findings/FINDINGS-war.md, section B.3.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "As recorded, plus: the five call sites' arguments read on the listing; db[0] is the CNullCasusBelliType (g_casus_belli_types record; vtable.py shows its slot 7 is 0x592360, ReturnFalse, against 0xA92590 on CCasusBelliType).",
+   "revises": "The comment adds what each of the five callers is and that type 0 is the null type, which no typed test sees. Nothing about the body changes."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CWar",
+   "offset": "0x74",
+   "name": "called_allies",
+   "type": "void*",
+   "comment": "**The war's call map**: a std::map<int,int> held by value (head at +0x78), keyed by country id. CCallAllyAction::Apply writes 1 for the recipient of a PROPOSE and 0 on its ACCEPT or DECLINE; CCallAllyAction::IsValid refuses a PROPOSE to a country whose entry is not 0. Not saved and not loaded, so a reload forgets which calls are pending. See reversing/findings/FINDINGS-war.md, section B.1.",
+   "evidence": "The three `lea eax,[ecx+0x74]` + map-subscript calls in CCallAllyAction::Apply (0xA28460, 0xA28510, 0xA2966F) and `lea eax,[edi+0x74]` in IsValid (0xA2A4AE); no +0x74 in CWar::SaveContents (0xA4EC90) or CWar::LoadKey (0xA4E610), whose +0x70 access is the control.",
+   "source": "reversing/findings/FINDINGS-war.md"
+  },
+  {
+   "struct": "CCasusBelliType",
+   "offset": "0x30",
+   "name": "is_valid",
+   "type": "CAndTrigger",
+   "comment": "`is_valid = { }` (token 0x797), a CAndTrigger held by value; evaluated by CCasusBelliType::IsValid (slot 6) in the target's scope with THIS = the would-be holder: DiplomacyStatus_CanUseCasusBelliType, CWarGoal::IsValidWithTrigger, the war-goal dialog's list. See reversing/findings/FINDINGS-war.md, section B.3.",
+   "evidence": "The loader's case for the key (jump table 0x4168E0 over byte table 0x416924, base 0x78D, re-derived this session; the low tokens 0x1FC, 0x32A, 0x445, 0x61D, 0x674, 0x6A2 by their compares at 0x416616-0x41669C) stores to this offset; defaults from the constructor at 0x4160B0 (0x4162BD-0x4163CE). Readers from a resumed sweep of .text for memory operands and lea/add of the offset.",
+   "source": "reversing/findings/FINDINGS-war.md"
+  },
+  {
+   "struct": "CCasusBelliType",
+   "offset": "0x70",
+   "name": "is_valid_join",
+   "type": "CAndTrigger",
+   "comment": "`is_valid_join` (0x7A8). No reader found outside the loader. See reversing/findings/FINDINGS-war.md, section B.3.",
+   "evidence": "The loader's case for the key (jump table 0x4168E0 over byte table 0x416924, base 0x78D, re-derived this session; the low tokens 0x1FC, 0x32A, 0x445, 0x61D, 0x674, 0x6A2 by their compares at 0x416616-0x41669C) stores to this offset; defaults from the constructor at 0x4160B0 (0x4162BD-0x4163CE). Readers from a resumed sweep of .text for memory operands and lea/add of the offset.",
+   "source": "reversing/findings/FINDINGS-war.md"
+  },
+  {
+   "struct": "CCasusBelliType",
+   "offset": "0xB0",
+   "name": "prerequisites",
+   "type": "CAndTrigger",
+   "comment": "`prerequisites` (0x1FC), which cb_types.txt says 'automatically activates a CB'. **Nothing evaluates it**: a resumed sweep of .text for `lea`/`add` of +0xB0 followed by a virtual call finds only the loader's Load (positive control: every allowed_regions +0xF0 evaluation was found). No automatic casus-belli pass exists. See reversing/findings/FINDINGS-war.md, section B.3.",
+   "evidence": "The loader's case for the key (jump table 0x4168E0 over byte table 0x416924, base 0x78D, re-derived this session; the low tokens 0x1FC, 0x32A, 0x445, 0x61D, 0x674, 0x6A2 by their compares at 0x416616-0x41669C) stores to this offset; defaults from the constructor at 0x4160B0 (0x4162BD-0x4163CE). Readers from a resumed sweep of .text for memory operands and lea/add of the offset.",
+   "source": "reversing/findings/FINDINGS-war.md"
+  },
+  {
+   "struct": "CCasusBelliType",
+   "offset": "0xF0",
+   "name": "allowed_regions",
+   "type": "CAndTrigger",
+   "comment": "`allowed_regions` (0x78E); its child count (+0x100) non-zero means the goal needs a region. Evaluated per province in {province, THIS = actor} (CWarGoal_IsAvailable) or {province, THIS = the player, FROM = the recipient} (the dialog's state list); also 0x47BF70, the completeness test of CAddWarGoalAction::IsValid and CDeclareWarAction's slot 13. See reversing/findings/FINDINGS-war.md, section B.3.",
+   "evidence": "The loader's case for the key (jump table 0x4168E0 over byte table 0x416924, base 0x78D, re-derived this session; the low tokens 0x1FC, 0x32A, 0x445, 0x61D, 0x674, 0x6A2 by their compares at 0x416616-0x41669C) stores to this offset; defaults from the constructor at 0x4160B0 (0x4162BD-0x4163CE). Readers from a resumed sweep of .text for memory operands and lea/add of the offset.",
+   "source": "reversing/findings/FINDINGS-war.md"
+  },
+  {
+   "struct": "CCasusBelliType",
+   "offset": "0x130",
+   "name": "allowed_province",
+   "type": "CAndTrigger",
+   "comment": "`allowed_province` (0x7AC); child count (+0x140) non-zero makes CWarGoal_IsAvailable try the recipient's owned provinces in {province, THIS = actor, FROM = recipient}; also read by CWarGoal::Enforce (0x47B0D2). See reversing/findings/FINDINGS-war.md, section B.3.",
+   "evidence": "The loader's case for the key (jump table 0x4168E0 over byte table 0x416924, base 0x78D, re-derived this session; the low tokens 0x1FC, 0x32A, 0x445, 0x61D, 0x674, 0x6A2 by their compares at 0x416616-0x41669C) stores to this offset; defaults from the constructor at 0x4160B0 (0x4162BD-0x4163CE). Readers from a resumed sweep of .text for memory operands and lea/add of the offset.",
+   "source": "reversing/findings/FINDINGS-war.md"
+  },
+  {
+   "struct": "CCasusBelliType",
+   "offset": "0x170",
+   "name": "allowed_countries",
+   "type": "CAndTrigger",
+   "comment": "`allowed_countries` (0x78F); child count (+0x180) non-zero means the goal needs a third country, chosen in the dialog's country list (scope the recipient, THIS the player, THIS's FROM the candidate) and tested by 0x47BF70. See reversing/findings/FINDINGS-war.md, section B.3.",
+   "evidence": "The loader's case for the key (jump table 0x4168E0 over byte table 0x416924, base 0x78D, re-derived this session; the low tokens 0x1FC, 0x32A, 0x445, 0x61D, 0x674, 0x6A2 by their compares at 0x416616-0x41669C) stores to this offset; defaults from the constructor at 0x4160B0 (0x4162BD-0x4163CE). Readers from a resumed sweep of .text for memory operands and lea/add of the offset.",
+   "source": "reversing/findings/FINDINGS-war.md"
+  },
+  {
+   "struct": "CCasusBelliType",
+   "offset": "0x1B8",
+   "name": "peace_cost_factor",
+   "type": "int",
+   "comment": "`peace_cost_factor` (0x790), thousandths through ParseFixedPoint, 1000 by default. No reader found in the war, war-goal, declaration or AI code swept. See reversing/findings/FINDINGS-war.md, section B.3.",
+   "evidence": "The loader's case for the key (jump table 0x4168E0 over byte table 0x416924, base 0x78D, re-derived this session; the low tokens 0x1FC, 0x32A, 0x445, 0x61D, 0x674, 0x6A2 by their compares at 0x416616-0x41669C) stores to this offset; defaults from the constructor at 0x4160B0 (0x4162BD-0x4163CE). Readers from a resumed sweep of .text for memory operands and lea/add of the offset.",
+   "source": "reversing/findings/FINDINGS-war.md"
+  },
+  {
+   "struct": "CCasusBelliType",
+   "offset": "0x1BC",
+   "name": "penalty_factor",
+   "type": "int",
+   "comment": "`penalty_factor` (0x791), thousandths, 1000 by default. No reader found in the code swept. See reversing/findings/FINDINGS-war.md, section B.3.",
+   "evidence": "The loader's case for the key (jump table 0x4168E0 over byte table 0x416924, base 0x78D, re-derived this session; the low tokens 0x1FC, 0x32A, 0x445, 0x61D, 0x674, 0x6A2 by their compares at 0x416616-0x41669C) stores to this offset; defaults from the constructor at 0x4160B0 (0x4162BD-0x4163CE). Readers from a resumed sweep of .text for memory operands and lea/add of the offset.",
+   "source": "reversing/findings/FINDINGS-war.md"
+  },
+  {
+   "struct": "CCasusBelliType",
+   "offset": "0x1C0",
+   "name": "threat",
+   "type": "int",
+   "comment": "`threat` (0x674), thousandths, 0 by default; read by CWarGoal::Enforce (0x47B24F). See reversing/findings/FINDINGS-war.md, section B.3.",
+   "evidence": "The loader's case for the key (jump table 0x4168E0 over byte table 0x416924, base 0x78D, re-derived this session; the low tokens 0x1FC, 0x32A, 0x445, 0x61D, 0x674, 0x6A2 by their compares at 0x416616-0x41669C) stores to this offset; defaults from the constructor at 0x4160B0 (0x4162BD-0x4163CE). Readers from a resumed sweep of .text for memory operands and lea/add of the offset.",
+   "source": "reversing/findings/FINDINGS-war.md"
+  },
+  {
+   "struct": "CCasusBelliType",
+   "offset": "0x1D0",
+   "name": "truce_months",
+   "type": "int",
+   "comment": "`truce_months` (0x792), ParseInt, **60** by default. No reader found in the code swept (the truce is recorded elsewhere as a hundred days). See reversing/findings/FINDINGS-war.md, section B.3.",
+   "evidence": "The loader's case for the key (jump table 0x4168E0 over byte table 0x416924, base 0x78D, re-derived this session; the low tokens 0x1FC, 0x32A, 0x445, 0x61D, 0x674, 0x6A2 by their compares at 0x416616-0x41669C) stores to this offset; defaults from the constructor at 0x4160B0 (0x4162BD-0x4163CE). Readers from a resumed sweep of .text for memory operands and lea/add of the offset.",
+   "source": "reversing/findings/FINDINGS-war.md"
+  },
+  {
+   "struct": "CCasusBelliType",
+   "offset": "0x1E0",
+   "name": "peace_options",
+   "type": "void*",
+   "comment": "The list of `po_*` keys set to yes, in file order: a CList of 0x10-byte nodes {token, prev, next, byte} - head +0x1E0, tail +0x1E4, count +0x1E8. See reversing/findings/FINDINGS-war.md, section B.3.",
+   "evidence": "The loader's case for the key (jump table 0x4168E0 over byte table 0x416924, base 0x78D, re-derived this session; the low tokens 0x1FC, 0x32A, 0x445, 0x61D, 0x674, 0x6A2 by their compares at 0x416616-0x41669C) stores to this offset; defaults from the constructor at 0x4160B0 (0x4162BD-0x4163CE). Readers from a resumed sweep of .text for memory operands and lea/add of the offset.",
+   "source": "reversing/findings/FINDINGS-war.md"
+  },
+  {
+   "struct": "CCasusBelliType",
+   "offset": "0x1F0",
+   "name": "is_triggered_only",
+   "type": "bool",
+   "comment": "`is_triggered_only` (0x61D). No reader found: the war-goal dialog does not test it. See reversing/findings/FINDINGS-war.md, section B.3.",
+   "evidence": "The loader's case for the key (jump table 0x4168E0 over byte table 0x416924, base 0x78D, re-derived this session; the low tokens 0x1FC, 0x32A, 0x445, 0x61D, 0x674, 0x6A2 by their compares at 0x416616-0x41669C) stores to this offset; defaults from the constructor at 0x4160B0 (0x4162BD-0x4163CE). Readers from a resumed sweep of .text for memory operands and lea/add of the offset.",
+   "source": "reversing/findings/FINDINGS-war.md"
+  },
+  {
+   "struct": "CCasusBelliType",
+   "offset": "0x1F1",
+   "name": "mutual",
+   "type": "bool",
+   "comment": "`mutual` (0x78D). **Never read**: a sweep for every byte operand at +0x1F1 finds only an unrelated GUI class (positive control: `always` +0x1F2 at three sites, `handles_peace` +0x1F3 in Enforce). See reversing/findings/FINDINGS-war.md, section B.3.",
+   "evidence": "The loader's case for the key (jump table 0x4168E0 over byte table 0x416924, base 0x78D, re-derived this session; the low tokens 0x1FC, 0x32A, 0x445, 0x61D, 0x674, 0x6A2 by their compares at 0x416616-0x41669C) stores to this offset; defaults from the constructor at 0x4160B0 (0x4162BD-0x4163CE). Readers from a resumed sweep of .text for memory operands and lea/add of the offset.",
+   "source": "reversing/findings/FINDINGS-war.md"
+  },
+  {
+   "struct": "CCasusBelliType",
+   "offset": "0x1F2",
+   "name": "always",
+   "type": "bool",
+   "comment": "`always` (0x6A2): the type counts as held by every country against every other (DiplomacyStatus_CanUseCasusBelliType, the war-goal dialog). 11 of Their Finest Hour's 12 types set it; civil_war does not. See reversing/findings/FINDINGS-war.md, section B.3.",
+   "evidence": "The loader's case for the key (jump table 0x4168E0 over byte table 0x416924, base 0x78D, re-derived this session; the low tokens 0x1FC, 0x32A, 0x445, 0x61D, 0x674, 0x6A2 by their compares at 0x416616-0x41669C) stores to this offset; defaults from the constructor at 0x4160B0 (0x4162BD-0x4163CE). Readers from a resumed sweep of .text for memory operands and lea/add of the offset.",
+   "source": "reversing/findings/FINDINGS-war.md"
+  },
+  {
+   "struct": "CCasusBelliType",
+   "offset": "0x1F3",
+   "name": "handles_peace",
+   "type": "bool",
+   "comment": "`handles_peace` (0x7B0); read by CWarGoal::Enforce (0x47A976). See reversing/findings/FINDINGS-war.md, section B.3.",
+   "evidence": "The loader's case for the key (jump table 0x4168E0 over byte table 0x416924, base 0x78D, re-derived this session; the low tokens 0x1FC, 0x32A, 0x445, 0x61D, 0x674, 0x6A2 by their compares at 0x416616-0x41669C) stores to this offset; defaults from the constructor at 0x4160B0 (0x4162BD-0x4163CE). Readers from a resumed sweep of .text for memory operands and lea/add of the offset.",
+   "source": "reversing/findings/FINDINGS-war.md"
+  },
+  {
+   "struct": "CCasusBelliType",
+   "offset": "0x1F4",
+   "name": "months",
+   "type": "int",
+   "comment": "`months` (0x32A), ParseInt, **12** by default. **No reader found**: a casus belli gets an end date only from history or a save. Section 27 of FINDINGS-diploaction.md called this truce_months. See reversing/findings/FINDINGS-war.md, section B.3.",
+   "evidence": "The loader's case for the key (jump table 0x4168E0 over byte table 0x416924, base 0x78D, re-derived this session; the low tokens 0x1FC, 0x32A, 0x445, 0x61D, 0x674, 0x6A2 by their compares at 0x416616-0x41669C) stores to this offset; defaults from the constructor at 0x4160B0 (0x4162BD-0x4163CE). Readers from a resumed sweep of .text for memory operands and lea/add of the offset.",
+   "source": "reversing/findings/FINDINGS-war.md"
+  },
+  {
+   "struct": "CCasusBelliType",
+   "offset": "0x1F8",
+   "name": "war_name",
+   "type": "Hoi3CString",
+   "comment": "`war_name` (0x793), a string. No reader found in the code swept; how a war is named is reader A's. See reversing/findings/FINDINGS-war.md, section B.3.",
+   "evidence": "The loader's case for the key (jump table 0x4168E0 over byte table 0x416924, base 0x78D, re-derived this session; the low tokens 0x1FC, 0x32A, 0x445, 0x61D, 0x674, 0x6A2 by their compares at 0x416616-0x41669C) stores to this offset; defaults from the constructor at 0x4160B0 (0x4162BD-0x4163CE). Readers from a resumed sweep of .text for memory operands and lea/add of the offset.",
+   "source": "reversing/findings/FINDINGS-war.md"
+  },
+  {
+   "struct": "CCasusBelliType",
+   "offset": "0x214",
+   "name": "country_desc",
+   "type": "Hoi3CString",
+   "comment": "`country_desc` (0x794). No reader found. See reversing/findings/FINDINGS-war.md, section B.3.",
+   "evidence": "The loader's case for the key (jump table 0x4168E0 over byte table 0x416924, base 0x78D, re-derived this session; the low tokens 0x1FC, 0x32A, 0x445, 0x61D, 0x674, 0x6A2 by their compares at 0x416616-0x41669C) stores to this offset; defaults from the constructor at 0x4160B0 (0x4162BD-0x4163CE). Readers from a resumed sweep of .text for memory operands and lea/add of the offset.",
+   "source": "reversing/findings/FINDINGS-war.md"
+  },
+  {
+   "struct": "CCasusBelliType",
+   "offset": "0x230",
+   "name": "prov_desc",
+   "type": "Hoi3CString",
+   "comment": "`prov_desc` (0x795). No reader found. See reversing/findings/FINDINGS-war.md, section B.3.",
+   "evidence": "The loader's case for the key (jump table 0x4168E0 over byte table 0x416924, base 0x78D, re-derived this session; the low tokens 0x1FC, 0x32A, 0x445, 0x61D, 0x674, 0x6A2 by their compares at 0x416616-0x41669C) stores to this offset; defaults from the constructor at 0x4160B0 (0x4162BD-0x4163CE). Readers from a resumed sweep of .text for memory operands and lea/add of the offset.",
+   "source": "reversing/findings/FINDINGS-war.md"
+  },
+  {
+   "struct": "CCasusBelliType",
+   "offset": "0x24C",
+   "name": "on_add",
+   "type": "void*",
+   "comment": "`on_add` (0x796), a CEffect held by value (0x24 bytes, its vftable here) (vftable 0x15B58F4); run by CWarGoal::RunCasusBelliOnAdd in the goal's actor's scope. See reversing/findings/FINDINGS-war.md, section B.3.",
+   "evidence": "The loader's case for the key (jump table 0x4168E0 over byte table 0x416924, base 0x78D, re-derived this session; the low tokens 0x1FC, 0x32A, 0x445, 0x61D, 0x674, 0x6A2 by their compares at 0x416616-0x41669C) stores to this offset; defaults from the constructor at 0x4160B0 (0x4162BD-0x4163CE). Readers from a resumed sweep of .text for memory operands and lea/add of the offset.",
+   "source": "reversing/findings/FINDINGS-war.md"
+  },
+  {
+   "struct": "CCasusBelliType",
+   "offset": "0x26C",
+   "name": "is_civil_war",
+   "type": "bool",
+   "comment": "`is_civil_war` (0x79D); read only by Lua's CWarGoal::IsCivilWar (0x47C1F0). See reversing/findings/FINDINGS-war.md, section B.3.",
+   "evidence": "The loader's case for the key (jump table 0x4168E0 over byte table 0x416924, base 0x78D, re-derived this session; the low tokens 0x1FC, 0x32A, 0x445, 0x61D, 0x674, 0x6A2 by their compares at 0x416616-0x41669C) stores to this offset; defaults from the constructor at 0x4160B0 (0x4162BD-0x4163CE). Readers from a resumed sweep of .text for memory operands and lea/add of the offset.",
+   "source": "reversing/findings/FINDINGS-war.md"
+  },
+  {
+   "struct": "CCasusBelliType",
+   "offset": "0x270",
+   "name": "on_completion",
+   "type": "void*",
+   "comment": "`on_completion` (0x445), a CEffect held by value (its vftable here); run by CWarGoal::Enforce (0x47B288). See reversing/findings/FINDINGS-war.md, section B.3.",
+   "evidence": "The loader's case for the key (jump table 0x4168E0 over byte table 0x416924, base 0x78D, re-derived this session; the low tokens 0x1FC, 0x32A, 0x445, 0x61D, 0x674, 0x6A2 by their compares at 0x416616-0x41669C) stores to this offset; defaults from the constructor at 0x4160B0 (0x4162BD-0x4163CE). Readers from a resumed sweep of .text for memory operands and lea/add of the offset.",
+   "source": "reversing/findings/FINDINGS-war.md"
+  },
+  {
+   "struct": "CWarGoalDialog",
+   "offset": "0x70",
+   "name": "idler",
+   "type": "CInGameIdler*",
+   "comment": "The in-game screen the dialog posts through (slot 18) - the same pointer as CDiplomacyDialog's host (+0x68). See reversing/findings/FINDINGS-war.md, section B.2.",
+   "evidence": "CWarGoalDialog_Construct stores its second argument at +0x68 and +0x70; Accept calls [+0x70] slot 18.",
+   "source": "reversing/findings/FINDINGS-war.md"
+  },
+  {
+   "struct": "CWarGoalDialog",
+   "offset": "0x74",
+   "name": "view",
+   "type": "CDiplomacyView*",
+   "comment": "The diplomacy screen that opened it; Decline rebuilds its action list, IsStillOpen tests its action_dialog (+0x518). See reversing/findings/FINDINGS-war.md, section B.2.",
+   "evidence": "Stored from the fourth argument; read by slots 6 and 7.",
+   "source": "reversing/findings/FINDINGS-war.md"
+  },
+  {
+   "struct": "CWarGoalDialog",
+   "offset": "0x78",
+   "name": "goal_action",
+   "type": "CDiplomaticAction*",
+   "comment": "The action whose embedded war goal (+0x28) the dialog fills - the same clone as CDiplomacyDialog's action (+0x6C). See reversing/findings/FINDINGS-war.md, section B.2.",
+   "evidence": "Assigned from +0x6C in the constructor; every list builder and selector writes through [+0x78]+0x2C..+0x50.",
+   "source": "reversing/findings/FINDINGS-war.md"
+  },
+  {
+   "struct": "CWarGoalDialog",
+   "offset": "0x7C",
+   "name": "cancel_observer",
+   "type": "void*",
+   "comment": "A CButtonObserverGlue<CWarGoalDialog> by value (0x2C bytes to the end of the object), +0x80 the dialog and +0x84 the handler CWarGoalDialog::OnCancelSelect, bound to both cancel_select buttons. See reversing/findings/FINDINGS-war.md, section B.2.",
+   "evidence": "Written by the constructor (vftable, this, 0x478890, eight zero dwords); the object is 0xA8 bytes.",
+   "source": "reversing/findings/FINDINGS-war.md"
+  }
+ ],
+ "vftable_slots": {
+  "CWarGoalDialog": {
+   "0": "~CWarGoalDialog",
+   "1": "Update",
+   "5": "Accept",
+   "6": "Decline",
+   "7": "IsStillOpen"
+  },
+  "CGoalEntry": {
+   "4": "OnClicked"
+  },
+  "CCountrySelectionItem": {
+   "4": "OnClicked"
+  },
+  "CRegionSelectionItem": {
+   "4": "OnClicked"
+  },
+  "CCallAllyAction": {
+   "2": "SaveContents",
+   "12": "GetDialogText",
+   "15": "GetToken",
+   "16": "Clone",
+   "18": "NeedsAnswer"
+  },
+  "CCasusBelli": {
+   "2": "SaveContents",
+   "11": "Deactivate"
+  },
+  "CAddWarGoalAction": {
+   "12": "GetDialogText",
+   "15": "GetToken",
+   "16": "Clone"
+  },
+  "CJoinFactionGoalAction": {
+   "12": "GetDialogText"
+  },
+  "CAskJoinWar": {
+   "7": "IsStillOpen"
+  }
+ },
+ "frontier": [
+  "0x7C280",
+  "0x647D60",
+  "0xC0B50",
+  "0xBC800",
+  "0x1F3110",
+  "0x160B0",
+  "0x44CB60",
+  "0x7BF70"
+ ]
+}

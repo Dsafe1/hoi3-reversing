@@ -1,0 +1,369 @@
+{
+ "agent": "war and peace wave, reader A (declaring a war)",
+ "question": "CDeclareWarAction::Apply whole and in order; CWar whole (LoadKey, the four add/remove functions, +0x70, +0x9C, +0x4C, PostMessage_CWar); what a new war does outside Apply; slot 13's helper 0x47BF70",
+ "source": "reversing/findings/FINDINGS-war.md",
+ "addresses": [
+  {
+   "rva": "0x612030",
+   "kind": "function",
+   "name": "CDeclareWarAction::Apply",
+   "signature": "void __thiscall CDeclareWarAction::Apply(CDeclareWarAction* this)",
+   "no_signature": null,
+   "comment": "CDeclareWarAction slot 7, one holder (vftable 0x15FB3F4). VA 0xA12030 to the single bare `ret` at 0xA147B2. `this` in ECX. **Read whole and in order, 2026-10-13** (FINDINGS-war.md section A). With S = countries[actor]->diplomacy[recipient]:\n\n1. **The faction-leader preamble** (0xA12030-0xA121D3, as recorded 2026-10-06): only where the actor is in a real faction; for the first enemy E on the actor's `enemies` list that leads its own real faction, where the recipient's faction is not real or is E's: keep `actor->diplomacy[E]->war`, and if the recipient is in no real faction `CFaction::AddCountry(E.faction, recipient, 0, 0)` - the victim is put into the enemy's faction and the declaration widens that war.\n2. **The pair's alliance** (S+0x14) and **NAP** (S+0x28), where present: slot 11 (Deactivate), unlinked from the relation list `CCurrentGameState +0xB2C`, deleted. No message, no relation change of their own.\n3. **The undeclared war** (S+0x24): S+0x24 = 0 on the actor's side **only**, unlinked from `+0xC10`, deleted through slot 0 (whose body frees vectors and touches no status) - the recipient's +0x24 is left pointing at freed memory and neither side's CCountry::UpdateUndeclaredWars runs.\n4. **The AI**: `if actor->strategy.IsPreparingWarWith(recipient)` then `actor->strategy.CancelPrepareWar(recipient)` (0x8ADE10, 0x8AD650).\n5. **The war.** No war kept by step 1: `new(0xAC)`, CWar::CWar (rva 0x64D6D0), appended to `CCurrentGameState +0xC00` (active_war), `AddAttacker(war, 1, 0, actor)`, `AddDefender(war, 1, 0, recipient)`, frame byte `fresh` = 1. A kept war: the recipient goes on the side opposite the actor - AddDefender where the actor is an attacker, else AddAttacker and the frame byte `recipientAttacks` [esp+0x2B] = 1.\n6. **The goal**: `CWarGoal::AddToWar(&this->war_goal (+0x28), war, actor)`, `RunCasusBelliOnAdd`, then the first casus belli on S whose type is the goal's is spent silently (RemoveFromStatus notify false, unlinked from +0xB2C, deleted).\n7. `war->action (+0xC) = tick` - fresh or widened.\n8. **Fresh only**: CWar::GenerateName(war, 0) (rva 0x64DB50, `AGRESSION_WAR_NAME`), and `war->is_limited (+0x70) = 1` where `this->value (+0x24) == 0`.\n9. `ChangeRelation(actor, recipient, -WARDEC_WAR_DIPLOMACY_HIT)` (diplomacy +0x4; -100) - fresh or widened.\n10. The action's two join lists (+0x54, +0x64) freed and zeroed.\n11. **Fresh only**: `SpreadThreat(actor, &WARDEC_BELIGERENCY (the block pointer), &1000, recipient's acting capital)` - widening a war spreads no threat.\n12. `actor->diplo_influence (+0xA88) -= WARDEC_INFLUENCE_COST` (+0x8; 0 in Their Finest Hour), floored at 0.\n13. **Every country c in database order but the actor**: (a) c's Overlord is the recipient and c is not a defender: c joins the recipient's side (AddDefender, or AddAttacker where `recipientAttacks`), history recorded, listed on +0x64 (resp. +0x54); (b) otherwise c's Overlord is the actor and c is not an attacker: c joins the actor's side the same way; (c) otherwise, where c guarantees the recipient (`recipient->diplomacy[c]->guarantee->first == c`), is not on +0x64 and is not at war with the recipient: a `CCallAllyAction(actor = recipient, recipient = c, third = actor)` built, `value` = 1, `date` = tick, **`type` = 2 (ACCEPT)**, MakeCommand (slot 6) and the command's **Execute (slot 6) run at once** - unless the guarantee's `via_faction` (+0x24) is set and c is not the actor's puppet, when the action is deleted - and c listed on +0x64.\n14. `SetMilitaryAccess(0)` both ways; `changed = 1` and `guarantee (+0x1C) = 0` both ways (the CGuarantee is neither unlinked nor deleted); `allowDebts (+0x78) = 0` both ways.\n15. CCountry::OnDiplomacyChanged (rva 0xE70A0) on the actor, then the recipient.\n16. **The message** (variables: the player's BuildMessageVariables, AGRESSOR = actor's name, DEFENDER = recipient's, MESSENGER = MESSAGE_HEAD_MARS, BADWORD = MESS_BADWORDS<actor.id % 3 + 1> rendered - MESS_BADWORDS4 is unreachable - LIM = DECLWAR_LIMITED rendered where the war is limited **and the actor is in a real faction**, else empty): played country (+0xC34) = actor: sound `declarewar` where the sound system's slot 25 answers false, then WEDECLWAR at the recipient's acting capital; = recipient: sound `declarewar_onus`, DECLWAR at the actor's acting capital; anybody else: DECLWAROTHER at the actor's acting capital.\n17. **The recipient's overlord**, where the recipient `isSubject` (+0xF34) and the overlord is not on +0x64: `CCallAllyAction(recipient, overlord, actor)`, PROPOSE, value 1, date = tick, made and executed at once; the overlord listed on +0x64.\n18. CDeclareWarAction::BringInFactions (rva 0x616D00) with (attacker side, defender side) = (actor, recipient), or (recipient, actor) where `recipientAttacks`.\n19. CDeclareWarAction::CallAllies (rva 0x6147C0): (actor against recipient) **only where the war is not limited**, then (recipient against actor) always.\n20. In a running game `in_game_screen (+0xBE8) +0x84 |= 0x100` and -1 pushed onto `CCurrentGameState +0xCF8` (the hourly intelligence refresh, 0x45F5E0).\n21. CCountry::RebuildNeighbours and CCountry_AfterDiplomacyChange (rva 0xE39C0) on the actor, then the recipient.\n\nThe name `Apply` is ours; the slot is the family's.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "revises": "Was `inferred`, with 'the message construction and the two-site call-ally gate' unread and 'manufactures CCallAllyAction proposals at two sites'. Now read instruction by instruction end to end. Corrections: there are **three** CCallAllyAction sites in this body (0xA12BE4 guarantors, 0xA144FD overlord) plus two in CallAllies, not two; the guarantors' one is built **already accepted** (type 2) and executed at once, so a guarantor joins in this call rather than being asked; threat is spread and the war named/limited **only for a fresh war**; and the undeclared war is nulled on one side only. Influence, relation and the four CDiplomacyStatus writes stand as recorded.",
+   "evidence": "Disassembly of 0xA12030-0xA147B2 read in full (scratch apply.asm), cross-checked against the decompile; every call target and every branch cited by VA in FINDINGS-war.md A. Positive controls: the record's known writes (0xA12849 ChangeRelation, 0xA1292A influence, 0xA12DB6/0xA12DE6 SetMilitaryAccess, 0xA12E14/0xA12E42 guarantee) all fall where this reading puts them. The `type = 2` is `mov dword ptr [ecx+0x18], 2` at 0xA12D1C; Execute-not-post is `call [edx+0x18]` on the action (MakeCommand, slot 6) then `call [edx+0x18]` on the result (CDiplomaticActionCommand slot 6 = Execute, rva 0x60E120) at 0xA12D23/0xA12D2C. Fresh-only gates: `cmp byte [esp+0x1f], bl; je` at 0xA127F6 and 0xA12892. WHAT WOULD SHOW IT WRONG: a write to the recipient's status +0x24 elsewhere in this extent (none in the full listing), or CDiplomaticActionCommand slot 6 not being Execute."
+  },
+  {
+   "rva": "0x615D20",
+   "kind": "function",
+   "name": "CDeclareWarAction::IsValid",
+   "signature": "bool __thiscall CDeclareWarAction::IsValid(CDeclareWarAction* this)",
+   "no_signature": null,
+   "comment": "Slot 13. False where S.war (+0x20) or S.alliance (+0x14) is set, or where actor and recipient are in one real faction (both factions non-null, both slot 7 true, the same pointer); otherwise **CWarGoal::IsValidForWar(&this->war_goal (+0x28)@EDI, S.war)** (rva 0x7BF70) - with S.war necessarily null here, so: the action's war goal names a real casus belli type, its receiver owns a province, and the type's allowed_countries / allowed_regions pass. So **a declaration posted as a command is a no-op unless it carries a valid war goal**; the war effect calls Apply directly and is not gated by this.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "revises": "Was `inferred` with '0x47BF70 (not read)'. The helper is now read and named, and the slot's tests are confirmed off the listing.",
+   "evidence": "Listing 0xA15D20-0xA15E49: the two status tests, the faction compare at 0xA15E07, then `push S->+0x20; lea edi,[esi+0x28]; call 0x47BF70` at 0xA15E3B-0xA15E3F, bare `ret`. WHAT WOULD SHOW IT WRONG: another path to slot 13's answer - there is none in the extent."
+  },
+  {
+   "rva": "0x7BF70",
+   "kind": "function",
+   "name": "CWarGoal::IsValidForWar",
+   "signature": "bool __fastcall CWarGoal::IsValidForWar(CWarGoal* goal@EDI, CWar* war@stack:4) @AL",
+   "no_signature": null,
+   "comment": "VA 0x47BF70 to two `ret 4` at 0x47C1E1 and 0x47C1EB (one frame), then two int3 and the casus-belli getter at 0x47C1F0 (trap 2 shape; `retsBefore` lists only the two). Builds two CEventScopes from the goal's actor (+0x18) and receiver (+0x20); then:\n\n    if (!goal->casus_belli (+0xC) || !casus_belli->slot7()) return false     // a real type\n    if (receiver owns no province (+0xCF8 < 1)) return false\n    if (type->allowed_countries (+0x170) has conditions (+0x180)):\n        scope = receiver (and FROM = goal->country (+0x10) where its id (+0x14) is set)\n        if (!allowed_countries.Evaluate(scope)) return false\n        if (type->allowed_regions (+0xF0) has conditions (+0x100)):\n            need goal->region (+0x28) and some province of it for which allowed_regions holds\n    elif (type->allowed_regions has conditions): the same region test\n    if (!war) return true\n    return the goal is not already among War_GetGoalsOf(war, goal->actor)   // 0x47C280 finds an equal goal\n\nFive callers: CDeclareWarAction::IsValid (war null), CWarGoalBaseAction slot 13 (0xA43556, with the pair's war), 0xA4397C, and the capitulation at 0x4E936A and 0x4E94BE.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Listing 0x47BF70-0x47C1EB read against the decompile; receiver in EDI (`lea edi,[esi+0x28]` at every caller read, e.g. 0xA15E3C, 0xA43553), war the one stack dword (`ret 4`). The +0x170/+0x180 and +0xF0/+0x100 pairs are the allowed_countries and allowed_regions trigger blocks of CCasusBelliType (loader offsets in FINDINGS-diploaction.md section 27) and their +0x10 child counts. WHAT WOULD SHOW IT WRONG: +0x180/+0x100 being something other than the blocks' emptiness - which would change only the two 'has conditions' branches, not the casus-belli, province and duplicate tests."
+  },
+  {
+   "rva": "0x64D6D0",
+   "kind": "function",
+   "name": "CWar::CWar",
+   "signature": "CWar* __stdcall CWar::CWar(CWar* this)",
+   "no_signature": null,
+   "comment": "VA 0xA4D6D0 to the `ret 4` at 0xA4D842; one caller, CDeclareWarAction::Apply after `new(0xAC)` - so **sizeof(CWar) = 0xAC**. Writes: vftable, persistent id 0x18D, revolutionary_war (+8) = 0, action (+0xC) = the null date, name (+0x10) empty, both side vectors null, a global counter at 0x1A855F0 incremented, the embedded CWarHistory at +0x4C (CHistoryContainer: +0x50 id, +0x54 null date, an empty list +0x58..+0x60, +0x6C = the owning war), is_limited (+0x70) = 0, the call map `called_allies` at +0x74 (head +0x78, size +0x7C; CCallAllyAction's, FINDINGS-war.md B), target / original_attacker / original_defender (+0x84/+0x8C/+0x94) = `---` with id 0, and the war-goal map at +0x9C/+0xA0/+0xA4 (node 0x24 bytes).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Listing 0xA4D6D0-0xA4D842 and the decompile agree store for store; `push 0xac; call new` at 0xA124D3 is its caller's allocation. WHAT WOULD SHOW IT WRONG: another constructor for CWar (the revolt war at 0x4BE590 builds one too - not read, it may inline this)."
+  },
+  {
+   "rva": "0x64DB50",
+   "kind": "function",
+   "name": "CWar::GenerateName",
+   "signature": "void __stdcall CWar::GenerateName(CWar* war, bool normalName)",
+   "no_signature": null,
+   "comment": "**Where a war's name comes from.** VA 0xA4DB50 to the `ret 8` at 0xA4E606. Key `NORMAL_WAR_NAME` (\"$ORDER$$FIRST$-$SECOND$ War\") where `normalName`, else `AGRESSION_WAR_NAME` (\"$ORDER$War of $FIRST$ Aggression\"); FIRST = the localised adjective of the first attacker, SECOND of the first defender, TARGET of `---` (unused by both texts). For n = 1, 2, ...: ORDER is empty for n = 1, else itoa(n) + the localised suffix + \" \" - suffix key TH, ST, ND, RD by n % 10 (0 and 4-9 TH; 11-13 TH); the rendered name is taken unless CGameState_IsWarNameTaken (rva 0x283EE0) finds it among the active or previous wars. Two callers: CDeclareWarAction::Apply with 0 (a fresh war) and the revolt war at 0x4BEB75 with 1. No casus belli's `war_name` is read here.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Decompile of 0xA4DB50 checked on the listing at the key pushes (0xA4DB78 NORMAL_WAR_NAME, the AGRESSION_WAR_NAME swap on `cmp byte [ebp+0xc], bl` at 0xA4DBE6) and the suffix table at 0x15C0AF4 read out of the image: 'TH','ST','ND','RD'. Texts from localisation/*.csv. Corroborated by the saves: '2nd War of German Aggression', '3rd War of Japanese Aggression'. WHAT WOULD SHOW IT WRONG: a war named from a casus belli type - none of 490 saved wars is."
+  },
+  {
+   "rva": "0x283EE0",
+   "kind": "function",
+   "name": "CGameState_IsWarNameTaken",
+   "signature": "bool __stdcall CGameState_IsWarNameTaken(CGameState* state, Hoi3CString* name)",
+   "no_signature": null,
+   "comment": "True where a war on `active_war` (+0xC00) or `previous_war` (+0xC20) has exactly this name (`name` +0x10, length and bytes compared). VA 0x683EE0, two `ret 8`. One caller, CWar::GenerateName.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Listing and decompile of 0x683EE0: two list walks over +0xC00 and +0xC20, payload +0, next +8, MemCompareRegs on the war's +0x10 string. WHAT WOULD SHOW IT WRONG: nothing plausible; the two lists are the recorded active/previous war heads."
+  },
+  {
+   "rva": "0x616D00",
+   "kind": "function",
+   "name": "CDeclareWarAction::BringInFactions",
+   "signature": "void __stdcall CDeclareWarAction::BringInFactions(CDeclareWarAction* action, CCountryTag* attackerSide, CCountryTag* defenderSide, CWar* war)",
+   "no_signature": null,
+   "comment": "**The factions join at once.** VA 0xA16D00 to the `ret 0x10` at 0xA18BC5; one caller, Apply. (1) Where attackerSide's faction is real (not CNullFaction) **and the war is not limited**: every member other than the action's actor and recipient that is not already an attacker - `AddAttacker(war, 1, 0, member)` (so a faction leader takes the lead of the side, CWar::AddAttacker). (2) Where defenderSide's faction is real (no limited test): every member other than actor and recipient not already a defender - `AddDefender(war, 1, 0, member)`. A member that is the played country gets **FACTIONWAROFF** at the recipient's acting capital: the player's variables, ACTOR = the declarer's name, VICTIM = the recipient's, MESSENGER = MESSAGE_HEAD_MARS, BADWORD by the declarer's id % 3, MONARCHTITLE, FACTION = that loop's faction's localised name, COUNTRY = the member's adjective. No relation change, no history of membership, no OnDiplomacyChanged for the joiners.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Decompile of 0xA16D00 checked on the listing: the limited test `cmp [edx+0x70], bl` at 0xA16DA5 guards only the first loop; the call census of the extent (0xA4F220 once, 0xA506B0 once, no 0x4E65C0, no 0x4F50A0, no 0x4E70A0). Arguments from Apply 0xA145E4-0xA14608. WHAT WOULD SHOW IT WRONG: a second limited test before the defender loop - none in the listing."
+  },
+  {
+   "rva": "0x6147C0",
+   "kind": "function",
+   "name": "CDeclareWarAction::CallAllies",
+   "signature": "void __stdcall CDeclareWarAction::CallAllies(CDeclareWarAction* action, CWar* war, char callerTag[4], int callerId, char enemyTag[4], int enemyId)",
+   "no_signature": null,
+   "comment": "**The bilateral allies are asked, not brought.** VA 0xA147C0 to the `ret 0x18` at 0xA14BA6. For every country c in database order: skip c on the action's join list of the caller's side (+0x64 where the caller is the recipient, +0x54 where it is the actor), and c already an attacker or a defender of the war; then (a) where `caller->diplomacy[c]->alliance (+0x14)` is set (the gate at VA 0xA148FC) and c is not at war with the enemy: a `CCallAllyAction(actor = caller, recipient = c, third = enemy)`, PROPOSE, **`value` = the pair's war's is_limited**, `date` = tick, made and executed at once (MakeCommand, then Execute - which queues the offer on c); (b) where **the caller's** Overlord is the action's actor and c is not at war with the enemy, the same for c - an arm reachable only when a country declares on its own puppet. Faction members are already in the war by BringInFactions and so are skipped.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Listing 0xA147C0-0xA14BA6 read whole: the skip lists at 0xA1485E-0xA1489E, the war-membership searches at 0xA148A0-0xA148DE, the alliance gate at 0xA148FC, `setne cl` on `[war+0x70]` stored to the action's +0x24 at 0xA14981-0xA14988, the overlord arm `cmp [countries[caller]+0xF3C], [action+0xC]` at 0xA14A56. Callers 0xA1462E (actor, gated on `cmp [war+0x70], bl; jne` at 0xA14611) and 0xA1464B (recipient). WHAT WOULD SHOW IT WRONG: CCallAllyAction's +0x24 not being `value` (it is CDiplomaticAction +0x24)."
+  },
+  {
+   "rva": "0x64E610",
+   "kind": "function",
+   "name": "CWar::LoadKey",
+   "signature": "void __thiscall CWar::LoadKey(CWar* this, CParseContext* parse, SaveToken key)",
+   "no_signature": null,
+   "comment": "**Every key and its offset**: `name` (0x1A) +0x10; `target` (0x6A) +0x84/+0x88 by CCountryDataBase::GetTag; `history` (0x1E1) the embedded CWarHistory +0x4C through its slot 3 (Load); `attacker` (0x2B1) CWar::AddAttacker(this, 0, 0, tag) and `defender` (0x2B2) CWar::AddDefender(this, 0, 0, tag), an unknown tag logged ('Unknown country tag for attacker ... in war - <name>' - **the defender case prints 'attacker' too**) and skipped; `action` (0x2ED) Date_SetFromString into +0xC; `revolutionary_war` (0x622) +8 = value token is `yes`; `limited` (0x6C3) ParseBool into +0x70; `war_goal` (0x7A0) a stack CWarGoal loaded through slot 3 and appended to the bucket of its actor in +0x9C (0xA52750, 0x9BE8F0) **without CWarGoal::IsValid**; `original_attacker` (0x7AD) +0x8C/+0x90; `original_defender` (0x7AE) +0x94/+0x98. Anything else logs 'Unknown statement <key> in war -<name>'. CWar::SaveContents (rva 0x64EC90) writes name, limited, each attacker, each defender, revolutionary_war only where set, action, original_attacker, original_defender and every war goal bucket by bucket - **never `target` and never `history`**.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "revises": "The comment listed the eleven key names only; it now gives each key's token, store and parser, and what SaveContents leaves out.",
+   "evidence": "Listing 0xA4E610-0xA4EC86: the compare tree at 0xA4E639-0xA4EA96 and each case's store (0xA4E6B8 +0x84, 0xA4E6E1 +0x10, 0xA4E707 +0x4C, 0xA4E7AA AddDefender, 0xA4E8D9 AddAttacker, 0xA4E9AD +0xC, 0xA4EA1E +8, 0xA4E9EE +0x70, 0xA4EA3C war goal, 0xA4EC63 +0x8C, 0xA4EBEE +0x94). Save grammar oracle: 490 `active_war`/`previous_war` blocks across 47 savegames carry only name, limited, attacker, defender, action, original_attacker, original_defender and war_goal - no target, history or revolutionary_war. WHAT WOULD SHOW IT WRONG: a savegame with a `history` or `target` key inside a war."
+  },
+  {
+   "rva": "0x64F220",
+   "kind": "function",
+   "name": "CWar::AddAttacker",
+   "signature": "void __stdcall CWar::AddAttacker(CWar* war, bool recordHistory, bool mayTakeLead, char tag[4], int countryId)",
+   "no_signature": null,
+   "comment": "Adds a country to the attackers (+0x2C). In order: (1) already an attacker: return. (2) `mayTakeLead` is cleared where the side has a first attacker that is not a subject (+0xF34). (3) **The joiner goes to the front** where it leads a real faction (its faction's first member), or where `mayTakeLead` survives; otherwise it is appended. Going to the front: where the side had members and its first was the played country, that player gets **ALLYTAKEOVER** (ACTOR = the joiner's name, TARGETLIST = the defenders' names joined by ', ', MESSENGER = MESSAGE_HEAD_MARS); otherwise where the joiner is the played country and there are defenders, **ALLYTAKEOVERWE** (TARGETLIST the same) - both through PostMessage_CWar with the war as receiver and no callback. (4) SetWarSideCoBelligerentFlags over the attackers. (5) `recordHistory`: a CAddAttackerChange dated now handed to the war's history (+0x4C slot 6). (6) For every defender d: a log line 'Illegal AddAttacker' where either already has a war with the other; **SetPairWar both directions** (so +0x20 is written here); CCountry::UpdateAtWarAndEnemies(joiner, 0, 0) and (d, 0, 0); and BroadcastToListeners2(channel 0x15, slot-41 thunk 0x68FA20, joiner, d) - the AI ministers' OnWar. `mayTakeLead` is 0 at every call site but CCallAllyAction::Apply's (0xA288F5, from its frame); `recordHistory` is 1 from Apply, BringInFactions and CCallAllyAction, 0 from the loader, the history replay, the revolt war (0x4BEB59) and CFaction::AddCountry.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "revises": "The two flags were 'arg2, arg3 - not settled'; they are named here from what they gate. And the record said AddAttacker had no SetPairWar call: it has two (0xA503A6, 0xA503C5).",
+   "evidence": "Listing 0xA4F220-0xA5042F (`ret 0x14`): the flag clear at 0xA4F288-0xA4F290, the faction-leader test at 0xA4F293-0xA4F2CF, the append 0x422690 at 0xA4FFD9 against the front insert 0xA53B60 at 0xA4FFCF, the two keys in the decompile, the history object at 0xA5000A-0xA500C3, the pair loop at 0xA500D0-0xA5041A with SetPairWar at 0xA503A6/0xA503C5 and the broadcast `mov eax, 0x15; call 0x8A2E90` at 0xA50407. Call-site flags read at all eleven callers. WHAT WOULD SHOW IT WRONG: a caller passing mayTakeLead = 1 that is not CCallAllyAction's."
+  },
+  {
+   "rva": "0x6506B0",
+   "kind": "function",
+   "name": "CWar::AddDefender",
+   "signature": "void __stdcall CWar::AddDefender(CWar* war, bool recordHistory, bool mayTakeLead, char tag[4], int countryId)",
+   "no_signature": null,
+   "comment": "The defenders' twin (+0x3C) with **one asymmetry: no faction-leader test.** The joiner goes to the front only where `mayTakeLead` is set and the side is empty, or its first defender is not played by a person (`CCurrentGameState +0xBCC[id] == 0`), or is a subject; otherwise it is appended. So with `mayTakeLead` 0 - every caller but CCallAllyAction::Apply - a defender is always appended. The front path raises ALLYTAKEOVER / ALLYTAKEOVERWE as AddAttacker does, TARGETLIST the attackers. Then the co-belligerent flags, a CAddDefenderChange where `recordHistory`, and for every attacker SetPairWar both ways, UpdateAtWarAndEnemies on both and the channel-0x15 broadcast.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "revises": "Flags named; the front-insertion rule, which differs from AddAttacker's, read.",
+   "evidence": "Listing 0xA506B0-0xA506F5 and 0xA506FB-0xA507B0: `cmp [edx+eax*4], ebx` on `+0xBCC` at 0xA50795, `cmp [eax+0xF34], bl` at 0xA507A1, `cmp [ebp+0x10], bl; je 0xA51566` at 0xA507AD (append); no faction slot 7 call before it. The pair loop and broadcast at 0xA51566-0xA516E8. WHAT WOULD SHOW IT WRONG: a faction-leader test elsewhere in the extent before the append."
+  },
+  {
+   "rva": "0x650440",
+   "kind": "function",
+   "name": "CWar::RemoveAttacker",
+   "signature": "void __stdcall CWar::RemoveAttacker(CWar* war, bool recordHistory, char tag[4], int countryId)",
+   "no_signature": null,
+   "comment": "VA 0xA50440 to the `ret 0x10` at 0xA506A8. Erases the tag from the attackers (0xB4A260), ClearWarSideCoBelligerentFlags over the remaining attackers, CWar::RemoveWarGoalsOf(war, tag) (rva 0x6520F0), a CRemoveAttackerChange dated now into the history where `recordHistory`, then for every defender d: SetPairWar(null) both directions, UpdateAtWarAndEnemies on both (in that order - so the pair's `last_war` is **not** refreshed at the end of their war), and BroadcastToListeners2(channel 0x14, slot-40 thunk 0xA56310, leaver, d). It does not end the war when a side empties; 15 callers.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "revises": "Was `likely` with no signature; read through and given one.",
+   "evidence": "Decompile of 0xA50440 checked on the listing at the erase, 0xA504E3 (Clear flags), the 0xA520F0 call, the SetPairWar pair 0xA50620/0xA50640 and `mov eax, 0x14; call 0x8A2E90` at 0xA50686. `ret 0x10` = four stack dwords. WHAT WOULD SHOW IT WRONG: an UpdateAtWarAndEnemies call before the SetPairWar(null) pair - there is none."
+  },
+  {
+   "rva": "0x651710",
+   "kind": "function",
+   "name": "CWar::RemoveDefender",
+   "signature": "void __stdcall CWar::RemoveDefender(CWar* war, bool recordHistory, char tag[4], int countryId)",
+   "no_signature": null,
+   "comment": "The defenders' twin of RemoveAttacker, VA 0xA51710 to `ret 0x10` at 0xA51C37: erase from +0x3C, clear flags, RemoveWarGoalsOf, CRemoveDefenderChange, and per attacker 'Illegal RemoveDefender' logged where the pair's war is not this one, SetPairWar(null) both ways, UpdateAtWarAndEnemies on both, the channel-0x14 broadcast.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "revises": "Was `likely` with no signature.",
+   "evidence": "Decompile of 0xA51710 checked on the listing (SetPairWar 0xA51BAF/0xA51BCF, broadcast 0xA51C1A with eax 0x14). WHAT WOULD SHOW IT WRONG: as for RemoveAttacker."
+  },
+  {
+   "rva": "0x648790",
+   "kind": "function",
+   "name": "SetPairWar",
+   "signature": "void __stdcall SetPairWar(CDiplomacyStatus* status, CWar* war)",
+   "no_signature": null,
+   "comment": "**The writer of `CDiplomacyStatus::war (+0x20)`.** 0xA48790 to the single `ret 8` at 0xA4899D. `changed (+0x59)` = 1 and `war (+0x20)` = the argument; then, **whatever the argument**, a running influence on this side (`+0x2C`) is unlinked from the relation list, deactivated (slot 11) and deleted, and every trade route in `trade_routes (+0x60)` is deactivated, unlinked and deleted. **Eight callers, two in each of the four CWar membership functions**: CWar::AddAttacker (0xA503A6, 0xA503C5) and CWar::AddDefender (0xA5167F, 0xA516A1) with the war, both directions of each new attacker-defender pair; CWar::RemoveAttacker (0xA50620, 0xA50640) and CWar::RemoveDefender (0xA51BAF, 0xA51BCF) with null. So **joining a war ends the influence and the trade between the two belligerents**, whichever side the joiner takes. Not in a vftable. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "revises": "It said four callers and 'no caller in CWar::AddAttacker (whether that writes +0x20 another way was not looked at)'. There are eight; AddAttacker and RemoveAttacker call it twice each.",
+   "evidence": "`findRefs --callers 0xA48790`: eight direct calls, each inside one of the four extents (0xA4F220-0xA5042F, 0xA50440-0xA506A8, 0xA506B0-0xA516F5, 0xA51710-0xA51C37). WHAT WOULD SHOW IT WRONG: a call outside those four - none."
+  },
+  {
+   "rva": "0xE6A70",
+   "kind": "function",
+   "name": "CCountry::UpdateAtWarAndEnemies",
+   "signature": "void __thiscall CCountry::UpdateAtWarAndEnemies(CCountry* this, bool allowDemobilise, bool suppressDemobilise)",
+   "no_signature": null,
+   "comment": "0xE6A70-0xE6ED3, `ret 8`, `this` in ecx. **The only writer of `CCountry +0xACC` (at_war) and of the enemies list at `+0x1008`.** Clears +0xACC and frees the list, then for every country of the database whose `this->diplomacy[it]->war (+0x20)` is set: +0xACC = 1, a 0x14-byte node appended, and **`this->diplomacy[it]->last_war (+0x54)` = tick** - this side only. In a running game, CAIStrategy::Rebuild and CAIStrategy::BuildTheatres(…, 1) on +0x48C. Then mobilisation: not mobilised (+0x94) and at war - the timed static modifier `initial_mobilization` for (int)(MOBILIZATION_BONUS_DAYS / 1000.0) days (country block +0x60; 30 in Their Finest Hour) and +0x94 = 1; mobilised and at peace - with `allowDemobilise` set, removed unless `suppressDemobilise`; with it clear, removed only for a country no person plays (`CCurrentGameState +0xBCC[id] == 0`). **Nine call sites, none hourly**: CInGameIdler::Enter (0x25B398, flags (1, ...)) and two each in CWar::AddAttacker, AddDefender, RemoveAttacker and RemoveDefender, always (0, 0).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "revises": "Was `inferred`. The body is now read on the listing, the mobilisation branch and its define named, and the claim (carried in the war_seen_tick field and in FINDINGS-triggerleaves.md 2.6) that this runs once an hour is wrong: its nine callers are the four membership functions and the session's entry.",
+   "evidence": "Listing 0xE6A70-0xE6ED3: +0xACC clear at 0x4E6A91 and set at 0x4E6BCC, the +0x54 store at 0x4E6C32 inside the `war != 0` arm, Rebuild/BuildTheatres at 0x4E6CCB/0x4E6CD3 behind `in_game`, the modifier name at 0x4E6D37 with the duration `[defines+0xCC]+0x60` / [0x160A300] = 1000.0, the `+0xBCC` test at 0x4E6E59. `findRefs --callers 0x4E6A70` = 9, no reference by address. Savegame oracle: in 47 saves no pair's `last_war` equals the save's date, and in each the latest `last_war` is the session's load date or a membership change (e.g. Italy1936_02_02_21: 1936.2.2.5, the save it was loaded from). WHAT WOULD SHOW IT WRONG: a save with an at-war pair stamped at the save hour."
+  },
+  {
+   "rva": "0x652F20",
+   "kind": "function",
+   "name": "PostMessage_CWar",
+   "signature": null,
+   "no_signature": "A 0x78-byte message by value; handler +8, receiver +0xC, callback +0x10, message +0x14, ret 0x84.",
+   "comment": "**PostMessage<CWar>**, 4 direct callers - the leader-takeover messages ALLYTAKEOVER and ALLYTAKEOVERWE, in CWar::AddAttacker (0xA4F9D3, 0xA4FF90) and CWar::AddDefender (0xA50E9C, 0xA514F3), each with the war as receiver and **no callback** (a null pointer to member). Dialog constructor 0xA540B0. See reversing/findings/FINDINGS-messageshow.md, section 2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "revises": "Adds which four callers and what they post.",
+   "evidence": "`findRefs --callers 0xA52F20`: 0xA4F9D3, 0xA4FF90, 0xA50E9C, 0xA514F3, each inside an AddAttacker/AddDefender extent after the ALLYTAKEOVER/ALLYTAKEOVERWE FindType. WHAT WOULD SHOW IT WRONG: a fifth caller."
+  },
+  {
+   "rva": "0x4A2E90",
+   "kind": "function",
+   "name": "BroadcastToListeners2",
+   "signature": "void __cdecl BroadcastToListeners2(void* handler@stack:4, void* first@stack:8, void* second@stack:0xC, int channel@EAX)",
+   "no_signature": null,
+   "comment": "The two-subject twin of BroadcastToListeners (rva 0x4A2D70): for every node of the channel's list in the table at VA 0x1B14DC0 (16 bytes a channel) whose target is set, `handler(first, second)` with ECX = the target; nodes marked +0xC are unlinked and freed. Bare `ret`, callers clean. Five callers: the four CWar membership functions (channel 0x15 with the slot-41 thunk 0x68FA20 on a join, channel 0x14 with the slot-40 thunk 0xA56310 on a leave) and CGameState::StartAI (0x683550), which replays channel 0x15 for every attacker-defender pair of every active war. Channel 0x15's subscribers are the AI ministers, registered by CAIForeignMinister and CAIEspionageMinister slot 52 (0x89D360, 0x89CB30) at VA 0x1B14F10-0x1B14F18; CAIForeignMinister slot 41 is CAIForeignMinister::OnWar (Lua ForeignMinister_OnWar, empty in Their Finest Hour), the espionage minister's is the empty stub 0xA806D0.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Listing 0x8A2E90-0x8A2F0D (bare `ret`; `shl eax,4; mov esi,[eax+0x1b14dc0]`; `push ebx; push eax; call [ebp+8]`). Callers' `mov eax, 0x15`/`0x14` read at all five. Registration: findRefs on 0x1B14F10/14/18 lands in 0x89CB30 and 0x89D360, which `vtable.py` places at slot 52 of the two ministers. WHAT WOULD SHOW IT WRONG: a channel-0x15 subscriber other than the ministers registered by a computed address (not searchable statically)."
+  },
+  {
+   "rva": "0x4A2D70",
+   "kind": "function",
+   "name": "BroadcastToListeners",
+   "signature": "void __cdecl BroadcastToListeners(void* handler@stack:4, void* subject@stack:8, int channel@EAX)",
+   "no_signature": null,
+   "comment": "A signal/slot broadcast. Bare `ret` at 0x4A2DF1 and both callers do `add esp, 8`, so the two stack dwords are the caller's to clean; the channel arrives in **eax** and costs no stack. [ebp+8] is the handler (pushed last) and [ebp+0xC] the subject.\n\n    ecx = subject->+0x198;  if (ecx) handler(subject)\n    node = *(0x1714DC0 + channel*16)\n    for (; node; node = node->+8)\n        ecx = node->+0                       ; the listener's target\n        if (ecx) handler(subject)\n        ... unlinks nodes whose +0xC byte is set ...\n\nSo `handler` is called with the subject as its single stack argument and **ecx set to the listener's target**, which is why the handlers passed to it are vcall thunks such as VcallThunk_Slot11 (rva 0x149E00). The table at rva 0x1714DC0 is 16 bytes per channel; its two-subject twin is BroadcastToListeners2 (rva 0x4A2E90). Subscribers write their channel's slot by absolute address - the AI ministers' slot 52 bodies (rva 0x49CB30, 0x49D360) append to channel 0x15 at rva 0x1714F10 - so which classes register on a given channel can be found by a reference search on its 16-byte slot. Named for what it does; no symbol was recovered.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "revises": "It said the table 'is written by the add/remove side at 0x4A2E9D/0x4A2EA4; nothing static says which classes register'. Those two sites are in the two-subject twin BroadcastToListeners2 (rva 0x4A2E90), which reads the table; subscribers append to their channel's slot by its absolute address, and the minister constructors' slot 52 do so for channel 0x15. The signature now places its two stack parameters as well as the channel (checkSignatures listed it as placing 1 of 3).",
+   "evidence": "findRefs on VA 0x1B14DC0: 0x8A2D8E (this body), 0x8A2E9D/0x8A2EA4 (both inside 0x8A2E90, a function with its own prologue and bare `ret`), 0xD1021E (an initialiser). findRefs on 0x1B14F10/0x1B14F14/0x1B14F18: 0x89CB9B-0x89CBDA and 0x89D3CB-0x89D40A only. WHAT WOULD SHOW IT WRONG: the 0x8A2E9D sites being in this body - `retsBefore(0x8A2D70, 0x8A2E9D)` crosses the `ret` at 0x8A2DF1."
+  },
+  {
+   "rva": "0x1D6230",
+   "kind": "function",
+   "name": "UnitList_MarkTrespassers",
+   "signature": "void __fastcall UnitList_MarkTrespassers(CUnitList* units@EAX)",
+   "no_signature": null,
+   "comment": "VA 0x5D6230 to the bare `ret` at 0x5D62A7. For every unit of the list: where CCountry::MayEnterProvince(owner, false, unit->current_province_ptr) answers no, `unit->trespassing (+0x1A8)` = 1 - 0 for an REB unit; a unit that may stand there is left as it is. Three callers: CCountry::OnDiplomacyChanged (0x4E7147, on `&country->units`), CInGameIdler::Enter (0x65B7D9) and 0x4A3740. CUnit::UpdateHourly recomputes the same byte every hour both ways.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Listing 0x5D6230-0x5D62A7: the list in EAX (`mov ebx,[eax]` at 0x5D623A), the MayEnterProvince call, the REB compare and the store at 0x5D6297. WHAT WOULD SHOW IT WRONG: nothing in the listing; the byte's meaning rests on CUnit +0x1A8's readers."
+  },
+  {
+   "rva": "0x30050",
+   "kind": "function",
+   "name": "CCombatManager_RecheckCountry",
+   "signature": "void __stdcall CCombatManager_RecheckCountry(CCombatManager* manager, CCountry* country)",
+   "no_signature": null,
+   "comment": "VA 0x430050 to the `ret 8` at 0x430134; one caller, CCountry::OnDiplomacyChanged (0x4E713C). Gathers the country's battles (0x430140) and finishes each whose slot 9 (IsLive) answers false (CCombat::Finish); sets `country +0xBB8` = 1; then for every unit of the country in no battle (+0x11C <= 0) and not retreating (+0x158): CCombatManager::CheckForCombat(unit, its province) - **so a declaration starts the battles of the two principals' idle units at once, and a unit alone in an enemy province takes control of it**. Ghidra's own analysis labels this address 'CCombatList::CCombatList'; it is not a constructor.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Listing 0x430050-0x430134: `call [edx+0x24]` / `call 0x431730` on each gathered combat, `mov byte ptr [ebx+0xbb8], 1`, the unit walk over +0xBAC with the +0x11C and +0x158 tests and `call 0x430960`. WHAT WOULD SHOW IT WRONG: 0x430140 gathering something other than the country's battles (not read; the IsLive/Finish use is what says so)."
+  },
+  {
+   "rva": "0xD57D0",
+   "kind": "function",
+   "name": "CCountry_RevertDisallowedLaws",
+   "signature": "void __stdcall CCountry_RevertDisallowedLaws(CCountry* country)",
+   "no_signature": null,
+   "comment": "VA 0x4D57D0, `ret 4`; one caller, CCountry::OnDiplomacyChanged (0x4E7178), **only when the country is not at war**. For each law group from index 1: where the country's law (laws +0x628) is a real one and its `allow` trigger fails for the country, the first other real law of the group whose `allow` holds is posted as a CChangeLawCommand(law, group, 0, 1, country) on the country's command channel. Read off the decompile; inferred - the law's slot 16 and its +0x54 trigger are taken as `is real` and `allow` from their use.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Decompile of 0x4D57D0 and its one caller's gate `cmp byte [ebx+0xacc], 0; jne` at 0x4E716E. WHAT WOULD SHOW IT WRONG: +0x54 of a CLaw not being its allow block."
+  },
+  {
+   "rva": "0xE39C0",
+   "kind": "function",
+   "name": "CCountry_AfterDiplomacyChange",
+   "signature": "void __stdcall CCountry_AfterDiplomacyChange(CCountry* country)",
+   "no_signature": null,
+   "comment": "VA 0x4E39C0 to the `ret 4` at 0x4E3EA0; 65 direct callers, every diplomatic change's tail. Only for a country with an id, not REB, and with its +0x44 byte set: (1) for every other country owning a province whose NAP with it has it as `first`: CNap_UpdateForceBalance - in a running game only on a day of the year divisible by 7 or where the balance is negative; (2) in a running game, where 10 days or more have passed since `strategy (+0x48C)` was last rebuilt (+0x49C): CAIStrategy::Rebuild and theatres_dirty (+0x580) = 1; (3) the in-game screen's RefreshDiplomacyView(country, false). The name is ours.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-war.md",
+   "evidence": "Decompile of 0x4E39C0 checked on the listing at the CNap_UpdateForceBalance call 0x4E3C8E, CAIStrategy::Rebuild 0x4E3E5E and the `ret 4`; agrees with FINDINGS-agreements.md C.5 on the NAP measurement. Inferred for the name and the +0x44 gate's meaning. WHAT WOULD SHOW IT WRONG: the day difference being computed against something other than the strategy's rebuild tick."
+  }
+ ],
+ "structs": [
+  {
+   "name": "CDeclareWarAction",
+   "size": "0x74",
+   "inherits": "CDiplomaticAction",
+   "vftable_rva": "0x11FB3F4",
+   "comment": "Declare War / Declare Limited War. Its RTTI base is CWarGoalBaseAction (which holds the war goal at +0x28), itself a CDiplomaticAction; declared here on CDiplomaticAction so the base's fields lay in at offset 0 without declaring CWarGoalBaseAction. Size from `push 0x74; call new` at VA 0x4E5862 (GetDiplomaticActionsToward) and the Lua Create (0x8E8311). Constructor rva 0x611F90 (this in EAX): value 1, the embedded goal with its casus belli pointer from [0x1A85BC4] (as CWarGoalEffect's constructor does) and three `---` tags, both join lists empty.",
+   "evidence": "Hierarchy: CDiplomaticAction > CWarGoalBaseAction > CDeclareWarAction (ghidra/hoi3_tfh-class-hierarchy.txt). Size 0x74 = the second join list ending at +0x73 (+0x64 head, +0x68 tail, +0x6C count, +0x70 byte). vftable 0x15FB3F4 (VA) written at 0xA1200C."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CDeclareWarAction",
+   "offset": "0x28",
+   "name": "war_goal",
+   "type": "CWarGoal",
+   "comment": "The goal the declaration is made over, embedded by value (0x2C bytes, vftable 0x15BDB34). The war effect copies its first attacker goal here; Apply hands it to CWarGoal::AddToWar and RunCasusBelliOnAdd and spends a matching casus belli; slot 13 tests it with CWarGoal::IsValidForWar.",
+   "evidence": "Apply `lea edi,[esi+0x28]` before AddToWar at 0xA12671 and before RunCasusBelliOnAdd; IsValid `lea edi,[esi+0x28]` at 0xA15E3C; the constructor writes CWarGoal's vftable at +0x28 (0xA11FDF)."
+  },
+  {
+   "struct": "CDeclareWarAction",
+   "offset": "0x54",
+   "name": "joined_attackers",
+   "type": "CCountryList",
+   "comment": "Scratch list filled by Apply: the countries it put on the attacker side or called for it (puppets). Freed and zeroed at the start of each Apply; CallAllies skips the countries on it when the caller is the actor. Nodes 0x14 bytes {tag, id, prev, next, byte}.",
+   "evidence": "Freed at 0xA1284E-0xA1286D; appended at 0xA129EF-0xA12A39 and 0xA12B04-0xA12B3B; read by CallAllies at 0xA14885."
+  },
+  {
+   "struct": "CDeclareWarAction",
+   "offset": "0x64",
+   "name": "joined_defenders",
+   "type": "CCountryList",
+   "comment": "The same for the defender side: puppets, guarantors whose accepted call was executed, the recipient's overlord whose call was made. CallAllies skips them when the caller is the recipient; the overlord's call is skipped where the overlord is already here.",
+   "evidence": "Freed at 0xA12870-0xA1288F; appended at 0xA12A52-0xA12A81, 0xA12D2E-0xA12D76, 0xA14595-0xA145E1; read at 0xA12B86 (guarantor skip), 0xA14496 (overlord skip), 0xA14863 (CallAllies)."
+  },
+  {
+   "struct": "CWar",
+   "offset": "0x70",
+   "name": "is_limited",
+   "type": "bool",
+   "comment": "**Whether the war is limited** - saved as `limited`, and the game's own Lua `CWar::IsLimited` (rva 0x651FA0) is `mov al,[ecx+0x70]`. Set only by CDeclareWarAction::Apply on a fresh war declared with `value` 0 (Declare Limited War, or `war = { limited = yes }`), and by the loader. What it does: the declarer's bilateral allies are not called (CallAllies on the actor's side is skipped), the attacker side's faction does not join (BringInFactions, and CFaction::AddCountry's war sweep for an attacker-side leader), the messages carry DECLWAR_LIMITED where the declarer is in a real faction, every call to arms CallAllies makes carries it as its `value`, and CCallAllyAction's slot 14 (the screen's Call to Arms row) **requires** it - so a player can call allies by hand only into a limited war. The defenders' side is brought in as in any war. History wars are `limited=no`; every war declared in play in the BlackICE saves is `yes`.",
+   "evidence": "Writers: 0xA1280C (Apply, under `cmp [edx+0x24], bl; jne` - value 0) and LoadKey 0xA4E9EE; the constructor clears it. Readers: 0xA13BAA (message), 0xA14611 (CallAllies gate), 0xA14981/0xA14ADA (call value), 0xA16DA5 (BringInFactions), 0x4F6260 (CFaction::AddCountry), 0xA2A58B (CCallAllyAction slot 14). LIMITED_WARDESC: 'A limited war won't force your allies to also declare war.' Saves: 274 of 376 active wars `limited=yes`, all of them wars made in play.",
+   "revises": "The name and type stand. The comment said only 'saved as `limited`. Read live: set on all 19 wars'; FINDINGS-agreements.md B.8's 'a call to arms needs it set' was taken as a doubt about the name - it is not: a call to arms by hand needs a limited war, because a full war has already called the allies."
+  },
+  {
+   "struct": "CWar",
+   "offset": "0xC",
+   "name": "action",
+   "type": "int",
+   "comment": "A tick, saved as `action`. Set to now by CDeclareWarAction::Apply on every declaration, fresh or widening, and by the revolt war's creation (0x4BEA89); the constructor sets the null date. **In the saves it equals the save's own hour on every war with both sides populated in BlackICE games, and stays frozen on a war with an empty side** - so something refreshes it while a war is fought; that writer was not found (a tick-store search over the image finds only the two above). Not read by anything this reading reached.",
+   "evidence": "0xA127F3 `mov [esi+0xc], ecx` with ecx = tick; 0x4BEA89; LoadKey 0xA4E9AD. Save evidence: e.g. Ireland1942_05_04_22 'War of German Aggression' A10 D29 action 1942.5.4.22 against 'War of Spanish Aggression' A1 D0 action 1939.3.2.0.",
+   "revises": "Adds its writers and the save behaviour; the name and type stand."
+  },
+  {
+   "struct": "CWar",
+   "offset": "0x4C",
+   "name": "history",
+   "type": "void*",
+   "comment": "The war's CWarHistory, held by value (a CHistoryContainer: list head +0x58, +0x6C back to the war). Each membership change made with `recordHistory` appends a dated CAddAttackerChange / CAddDefenderChange / CRemove...Change. CWar::GetStartDate (rva 0x651D20) answers the first entry with a real date and GetCurrentRunningTimeInMonths (rva 0x651D90) counts from it. **SaveContents never writes it** (no `history` key in any of 490 saved wars) although LoadKey reads one - so after a load a war has no history, GetStartDate answers the null date and the running time is 0.",
+   "evidence": "Constructor 0xA4D6D0; AddAttacker 0xA5000A-0xA500C3 (slot 6 on +0x4C); GetStartDate's walk over [war+0x58] at 0xA51D27; SaveContents' key list; the save scan.",
+   "revises": "Adds what fills it, what reads it, and that it is not saved."
+  },
+  {
+   "struct": "CWar",
+   "offset": "0x84",
+   "name": "target",
+   "type": "CCountryTag",
+   "comment": "Saved as `target` by nothing - LoadKey reads the key, SaveContents does not write it. Set to `---` by the constructor and by LoadKey only; no war-making function (Apply, BringInFactions, the four membership functions, CFaction::AddCountry, CCallAllyAction::Apply, the history replay) writes it, nor +0x8C/+0x94 (original_attacker/defender), which are always `---` in the saves.",
+   "evidence": "Store census over those functions for +0x84..+0x98: only the constructor (0xA4D7B5-0xA4D7E9) and LoadKey (0xA4E6B8, 0xA4EBEE, 0xA4EC63); positive control +0x70 found at 0xA1280C in the same census.",
+   "revises": "Adds that it is never saved and has no writer in play."
+  },
+  {
+   "struct": "CDiplomacyStatus",
+   "offset": "0x20",
+   "name": "war",
+   "type": "CWar*",
+   "comment": "The war the pair are fighting, or null. **Its writer is SetPairWar (rva 0x648790)**, called both directions by all four CWar membership functions - with the war from AddAttacker and AddDefender, with null from RemoveAttacker and RemoveDefender - and which, whatever it writes, also ends the pair's running influence and trade routes. Readers: CCountry::IsEnemy (rva 0x2F1B0), CCountry::UpdateAtWarAndEnemies (which derives at_war and the enemies list from it), and the daily province pass inlines the IsEnemy tests at 0x49EE35.",
+   "evidence": "findRefs --callers 0xA48790: eight sites, two in each membership function.",
+   "revises": "It said SetPairWar was called by AddDefender and RemoveDefender only and that 'whether CWar::AddAttacker writes it another way was not looked at'. AddAttacker and RemoveAttacker call SetPairWar too."
+  },
+  {
+   "struct": "CUnit",
+   "offset": "0x1A8",
+   "name": "trespassing",
+   "type": "uint8_t",
+   "comment": "**The unit stands where its owner may not enter** - CCountry::MayEnterProvince(owner, false, province) answers no (never set for REB). Recomputed every hour by CUnit::UpdateHourly (0x5B9D33-0x5B9D70, both ways) and at once by UnitList_MarkTrespassers on a diplomatic change (CCountry::OnDiplomacyChanged) and on entering a session; cleared by the constructor and by the AI (0x8E35A1, 0x8E3BBB). A trespasser cannot be the attacking unit of CUnit::CanEngage, takes no province in CheckForCombat, moves at full speed whatever its fuel, may stand in land owned by the owner of the province it is in (CArmy::MayStandIn), and is pulled home by the AI (CAIUnit_PullHeadquartersIn). Nothing moves it by itself. A declaration of war makes no trespassers among the belligerents, since war is itself leave to enter.",
+   "evidence": "Byte-store census of disp 0x1A8 over .text: writers 0x5B530D (CUnit::CUnit), 0x5B9D41/0x5B9D70, 0x5D6297, 0x8E35A1, 0x8E3BBB; readers 0x430A38, 0x5C025D-0x5C027B, 0x5C8458, 0x5C8E4C, 0x5CE315, 0x5D5EBB, 0x898D1E, 0x899E7D, 0x8C52E1-0x8C5709, 0x8CC3C3, 0x8DA6A1 (frame stores at [esp+0x1A8] excluded). FINDINGS-movement.md and FINDINGS-landbattle.md describe the readers. WHAT WOULD SHOW IT WRONG: an AI writer setting it to 1 for another reason."
+  }
+ ],
+ "frontier": [
+  "0x651F40",
+  "0x4BE590",
+  "0x430140",
+  "0x47C280",
+  "0x600870",
+  "0x600D50",
+  "0x49E490",
+  "0x6995D0",
+  "0x652750"
+ ],
+ "vftable_slots": {
+  "CDeclareWarAction": {
+   "7": "Apply",
+   "13": "IsValid"
+  },
+  "CWar": {
+   "4": "LoadKey"
+  }
+ }
+}

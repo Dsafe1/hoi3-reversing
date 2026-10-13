@@ -17,27 +17,19 @@ truth.
 
 ---
 
-## The aid screens wave - the lend-lease window, the licence and share-technology dialogs
+## The acting capital wave - which capital each reader reads
 
-> **LANDED 2026-10-13.** Both briefs ran and merged (D: 31 addresses, 7 structs, 30 fields; E: 4 new
-> addresses, 6 revised, 3 field comments; apply 180 `failed: 0`, `struct fields: 0`); the write-up is
-> sections D and E of `findings/FINDINGS-tradeui.md`, indexed in `CANDIDATES.md`. Kept as history until
-> the next plan replaces it.
+> **LANDED 2026-10-13.** One brief, merged (12 address entries, 4 of them new; apply 185/186 `failed: 0`, `struct fields: 0`); the write-up is `findings/FINDINGS-capitalreaders.md`, indexed in `CANDIDATES.md`.
 
-Planned and launched 2026-10-13, for OpenHOI3's aid (debt, licences, lend-lease, shared technology),
-whose rules `findings/FINDINGS-tradeaid.md` section C read; the screens around them were left. One
-brief; the write-up is a section D of `findings/FINDINGS-tradeui.md`.
+Planned and launched 2026-10-13, for OpenHOI3, which is about to give its countries an acting capital
+(`FINDINGS-surrender.md` D.5: where a government sits when its capital falls, and so where its stockpile
+is). OpenHOI3 reads a country's capital in about a hundred places, written before the difference was
+known; each must read the field the original reads there. One brief.
 
-**What is known and is not to be redone**: `FINDINGS-tradeaid.md` C (every aid action arm by arm, the
-debt and its repayment, `LendLease_GetRoute`, `UpdateLendLeaseRoutes`, `CDistributeLendLease`, the
-receiver's IC, `GetMaxLendLeaseFraction`, `CChangeLendLeaseDistributionCommand`, the licence dialog's
-list rule, serial and parallel, money slider, description and Agree, the share-technology dialog's
-list rule and description, each kind's slots 11 to 18); `FINDINGS-agreements.md` B.2 (the rows) and A4
-(the offer to the player); `FINDINGS-tradeui.md` (the offer dialogs and the icon bar);
-`FINDINGS-countryviews.md` and `FINDINGS-productiontooltip.md` (the production screen and its
-tooltips); `FINDINGS-sliders.md` if it exists (the production sliders).
+**What is known and is not to be redone:** `FINDINGS-surrender.md` D.5 (the two fields, `EnsureCapital`,
+`UpdateActingCapital`, `GetPool`, the writers of `+0xE24`), C (the exile's acting capital); the 43 findings
+files that already name `GetActingCapitalLocation`, `GetCapitalLocation` or the acting capital.
 
 | brief | what | fragment |
 | --- | --- | --- |
-| E | **lend-lease's IC, exactly**: `CDistributeLendLease::Distribute` (VA `0x518800`) line by line - what "available", "base percentage" and "factor" are and in what kind of number, the per-receiver amount, `GetResourceLimitedIC` and `ConsumeIcResources` as it calls them, `ReceiveLendLease` (rva `0x108900`); **the receiver's side** - the step of the IC calculation (`0x4F14D0` region) that adds `lend_lease_income / 1000` and rolls and drains the receipts vectors, exactly; **how each of the five other distributors uses `+0x608`**, the free pool: consumer goods `0x518D67`, **production** `0x519D5E` - its path where `+0x608` is not nought, which `FINDINGS-buildqueue.md` section 3 did not read - supply (already read), reinforcement `0x51BB96`, upgrades `0x51CEE9`; and **how a receiver's lend-lease convoy is manned** (`DistributeConvoyShips` and `GetDesiredTransports` for a lend-lease convoy, `FINDINGS-tradeaid.md` C.7) | `lendlease-ic.json` |
-| D | **the lend-lease distribution window** (`tfh/interface/lendlease.gui`, `lendlease_distribution_window`): what opens it (the production screen's "Distribute", the opener rva `0x118BA0`, slot 8), every element - a receiver's row (`lendlease_country_entry`/`lendlease_entry`: flag, name, `actual_slider`, `actual_IC`, `cancel`) - what each shows, in what unit, what a slider and `cancel` post (`CChangeLendLeaseDistributionCommand`, `CRemoveLendLeaseCommand` - its constructor `0x155CA0`), the rows' order, its tooltips; the production screen's lend-lease slider: its `limit` marker (`GetLimit`) and what the "Distribute" button and the slider's need text say; **the licence dialog's rows** (`prod_share_entry`: `select_frame`, `counter_type`, `name`), their order, what selecting one does, the row tooltip; `0x107500` (a country's version of a unit type); **the share-technology dialog** (`interface/share_technology.gui`, ctor rva `0x3904D0`) whole - its rows, what a row shows ("Our", "Their"), selection, its title and buttons; and `0x507CE0` (whether a country already shares with another) | `aid-screens.json` |
+| A | **for each of OpenHOI3's reads of a country's capital** (a list of sites, each with what it does and the findings file its spec cites): which field the original reads at the matching place - the declared capital (`+0xE20`, `GetCapitalLocation`), the acting capital (`+0xE24`, `GetActingCapitalLocation`), the pool (`GetPool`), the original capital (`GetOriginalCapital`), or something else - settled from the findings or the record where they already say, and **read on the listing where they do not**; anything read goes in the fragment | `capital-readers.json` |

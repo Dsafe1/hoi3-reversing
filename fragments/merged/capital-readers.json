@@ -1,0 +1,177 @@
+{
+ "agent": "acting capital wave, reader A",
+ "question": "For each of OpenHOI3's reads of a country's capital, which capital the original reads at the matching place: declared (+0xE20), acting (+0xE24), the pool (GetPool) or the original capital.",
+ "source": "reversing/findings/FINDINGS-capitalreaders.md",
+ "addresses": [
+  {
+   "rva": "0x1EEAD0",
+   "kind": "function",
+   "name": "CCountryCapitalChange::Apply",
+   "signature": "void __thiscall CCountryCapitalChange::Apply(CCountryCapitalChange* this, bool forward)",
+   "no_signature": null,
+   "comment": "**`capital = N` in a country's history moves both capitals.** Slot 7 of the history entry, one holder (table 0x15C973C). 0x5EEAD0 to the `ret 4` at 0x5EEB65. Forward: the country's current declared capital (CCountry_GetCapitalProvinceId, `+0xE20`) is kept at `this+0x14`, then CCountry_SetCapital(country, this+0x10, logHistory 0) and CCountry_SetActingCapital(country@EDI, this+0x10). Backward: both set back to the kept `+0x14`. `this+0xC` is the CCountry. So a game started from the history files has `acting_capital == capital` for every country whose history names one; the declared and acting capitals part only in play (UpdateActingCapital, EnsureCapital, SetGovernmentInExile). See reversing/findings/FINDINGS-capitalreaders.md, section 2.",
+   "confidence": "confirmed",
+   "evidence": "vtable.py --holding 0x5EEAD0: CCountryCapitalChange slot 7, the only holder (CExileStatusChange's slot 7, 0x5F1EA0, is the recorded Apply of its sibling). Disassembled whole: the forward arm's three calls at 0x5EEAEE (0x43A670, country in EAX), 0x5EEB0F (0x4DD730 with push 0, push [this+0x10], push country) and 0x5EEB27 (0x4DD670, push [this+0x10], EDI = country); the backward arm the same pair with [this+0x14]. Wrong if 0x4DD670's register argument were not the country - its own record says EDI.",
+   "source": "reversing/findings/FINDINGS-capitalreaders.md"
+  },
+  {
+   "rva": "0x1F1370",
+   "kind": "function",
+   "name": "CGoodsChange::Apply",
+   "signature": "void __thiscall CGoodsChange::Apply(CGoodsChange* this, bool forward)",
+   "no_signature": null,
+   "comment": "**A goods line in a country's history (`metal = N` and the like) sets that good of the national stockpile.** Slot 7, one holder (table 0x15C9B08). 0x5F1370 to the `ret 4` at 0x5F143B. g = 0x5F14A0(the entry's save token, from slot 6) - the good's index in the pool's order; 7 (none) does nothing. Forward: the current GetPool(country)[g] kept at `this+0x14`, then CGoodsPool slot-setter 0x523C80 (`pool[g] = value`, pool in ECX, g in EDX, the value on the stack) with `this+0x10` into **CCountry::GetPool(country)** - the acting capital's province pool, or `pool_in_exile` for an exile. Backward: the kept value set back. **It sets, it does not add**: where two countries' histories carry a goods line and their capitals are one province, the later one wins. See reversing/findings/FINDINGS-capitalreaders.md, section 3.",
+   "confidence": "confirmed",
+   "evidence": "vtable.py --holding 0x5F1370: CGoodsChange slot 7, the only holder. Disassembled whole: GetPool (0x4F4DE0) at 0x5F13B0, 0x5F13FD and 0x5F1429 with ECX = this+0xC; 0x523C80 read whole (`mov eax,[ebp+8]; mov [ecx+edx*4+8], eax; ret 4`). The record's who.py nearest-name had put these three GetPool calls in CNeutralityChange::Apply (0x5F1250), which ends before. Not read: 0x5F14A0, the token-to-index map; that index 7 means none is inferred from the `cmp [ebp-4], 7; je` exit.",
+   "source": "reversing/findings/FINDINGS-capitalreaders.md"
+  },
+  {
+   "rva": "0x3A670",
+   "kind": "function",
+   "name": "CCountry_GetCapitalProvinceId",
+   "signature": "int __cdecl CCountry_GetCapitalProvinceId(CCountry* country@EAX) @EAX",
+   "no_signature": null,
+   "comment": "`mov eax,[eax+0xE20]; ret` - the declared capital's province id, the country in EAX. In no virtual table and not in the Lua registrations; one direct caller, CCountryCapitalChange::Apply (0x5EEAEE). The Lua `GetCapital` is a different body, CCountry::GetActingCapital (0x46C370), which answers +0xE24.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled: two instructions, 9 int3 before and after. vtable.py --holding 0x43A670: no table. findRefs --callers 0x43A670: one call, 0x5EEAEE. No luabind.json entry at that address. Wrong only if a jump table or a computed call reaches it, which a call scan does not see.",
+   "source": "reversing/findings/FINDINGS-capitalreaders.md"
+  },
+  {
+   "rva": "0xF25E0",
+   "kind": "function",
+   "name": "CCountry_PayTributeToOverlord",
+   "signature": "void __stdcall CCountry_PayTributeToOverlord(CCountry* puppet)",
+   "no_signature": null,
+   "comment": "**A puppet's daily tribute.** 0x4F25E0 to the `ret 4` at 0x4F28AA. One caller, CCountry::CollectDailyProduction at 0x4F23D0, for a country whose isSubject (+0xF34) is set. In order:\n1. `tribute_sent` (+0x920, its seven goods at +0x928) zeroed from [0x1A87818] (0).\n2. overlord = the country of `Overlord` (+0xF38/+0xF3C). Nothing more where the overlord owns no province (+0xCF8 <= 0), **where the puppet's acting capital (+0xE24) is not its declared capital (+0xE20)**, or where the puppet is a government in exile (+0x95).\n3. Where it goes: dest = -1; the neighbour links (+0x34) of the area (+0x2B4) of the puppet's acting capital, in order, while dest is not 0: with C the controller of the linked area's first province ('---' for an empty area), where C is the overlord - dest = 0 when that area is the overlord's acting capital's area, or has no port (+0x50 == 0); otherwise dest = the id of its first (largest) port. dest still -1 (no area of the overlord's touches the puppet's home area): nothing is paid.\n4. For money, crude oil, metal, energy and rare materials (pool indices 2 to 6; supplies and fuel never): amount = GetPool(puppet)[g] - 2000.000 (`add eax, 0xFFE17B80`); where above 0, `tribute_sent[g] -= amount` (held negative) and the puppet's pool loses it; then where dest is 0 the overlord's `tribute_received` (+0x8FC, goods at +0x904) += amount and GetPool(overlord)[g] += amount; otherwise the amount is added to the pool (+0x15C) of province `dest`, and no ledger of the overlord's records it.\nThe name is ours. See reversing/findings/FINDINGS-capitalreaders.md, section 4.",
+   "confidence": "confirmed",
+   "evidence": "Every instruction 0x4F25E0-0x4F28AA decoded; one `ret 4` (one stack argument, read at [ebp+8]); findRefs --callers 0x4F25E0: one call, 0x4F23D0, behind `cmp byte [ebx+0xF34],0; je`. The two capital fields compared at 0x4F267D/0x4F2683 (`mov eax,[ebx+0xE24]; cmp eax,[ebx+0xE20]; jne` to the exit). 0xFFE17B80 = -2,000,000. The overlord's ledger add at 0x4F27E3 (+0x904) sits only on the dest == 0 arm (`cmp [ebp-0x14], 0; jne 0x4F27FA`). Wrong if the link payload's first word were not the other area - COwnerArea +0x34's record says it is.",
+   "source": "reversing/findings/FINDINGS-capitalreaders.md"
+  },
+  {
+   "rva": "0x17D390",
+   "kind": "function",
+   "name": "CUnitDeployment::CanDeployIn",
+   "signature": "bool __thiscall CUnitDeployment::CanDeployIn(CUnitDeployment* this, CMapProvince* province)",
+   "no_signature": null,
+   "comment": "**Slot 10: whether the unit may be put in a province.** `ret 4`. A fleet (the unit's slot 16) needs the province's naval base (+0x300) at a level above 0; an air unit (slot 17) its air base (+0x304). Then, in an ordinary game, **the province must be in the same area (+0x2B4, a COwnerArea) as the country's **acting** capital** (CCountry::GetActingCapitalLocation at 0x57D461, compared at 0x57D466-0x57D46C). Where the object 0x41C4E0 returns is in use with +0x18 == 2 and lists the country (0x41D470), the test is the province's controller (+0x338) being the country instead; which kind of session that is was not read. The name is ours. See reversing/findings/FINDINGS-buildqueue.md, section 7.",
+   "confidence": "confirmed",
+   "evidence": "0x57D45F `mov ecx, ebx; call 0x42F100; mov ecx,[eax+0x2B4]; cmp ecx,[edi+0x2B4]; je` - the acting capital's area against the province's. The function calls 0x417AF0 nowhere (findRefs --callers 0x417AF0) and has no +0xE20 read (displacement sweep).",
+   "source": "reversing/findings/FINDINGS-buildqueue.md",
+   "revises": "Which capital: the acting one, read on the listing (FINDINGS-capitalreaders.md)."
+  },
+  {
+   "rva": "0x610180",
+   "kind": "function",
+   "name": "LendLease_GetRoute",
+   "signature": "int __cdecl LendLease_GetRoute(CCountryTag* giver@ECX, CCountryTag* receiver@stack:4, Hoi3CString* out@stack:8, bool offerWording@stack:0xC) @EAX",
+   "no_signature": null,
+   "comment": "**Whether lend-lease may run from giver to receiver, and how it travels.** In order, the first that holds: either a government in exile - 0, ACT_LENDLEASE_ANY_GOI (ACTOR = the receiver, RECIPIENT = the giver); the giver's EffectiveNeutrality (+0xA90) above LEND_LEASE_NEUTRALITY_LIMIT (+0x100) - 0, ACT_LENDLEASE_OUR_NEUTRALITY when offerWording else ACT_LENDLEASE_NEUTRALITY, LIMIT and VAL trimmed; the receiver at war with nobody (+0xACC) - 0, ACT_LENDLEASE_THEM_ONLY_AT_WAR / ACT_LENDLEASE_ONLY_AT_WAR; the two at war with each other - 0, WEWAR. Then the route: **2** where the receiver's neighbour byte for the giver is set or the giver is in its ControllerNeighbours list (LEND_LEASE_ALLOWED_NEIGHBOUR); **3** where both **declared** capitals' continents (CCountry::GetCapitalLocation at 0xA10380 and 0xA1038D, province +0x368) have the same name (LEND_LEASE_ALLOWED_TELEPORT); **1** where both have a naval base (+0xD88 count > 0) (LEND_LEASE_ALLOWED_CONVOY, COUNTRY = the receiver); else 0, LEND_LEASE_NOT_ALLOWED. The text goes to out only where out is not null. The giver's tag in ECX, three stack arguments, bare `ret` - the caller cleans. Callers: 0xA0FEC0, 0xA11790 and CCountry::UpdateLendLeaseRoutes. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "0xA10380 and 0xA1038D are both `call 0x417AF0` (GetCapitalLocation), each followed by `mov reg,[eax+0x368]` and the two continents' slot 7 names compared. No call to 0x42F100 in the function's extent.",
+   "source": "reversing/findings/FINDINGS-tradeaid.md",
+   "revises": "Which capital: the declared one (+0xE20), read on the listing (FINDINGS-capitalreaders.md)."
+  },
+  {
+   "rva": "0x62D8D0",
+   "kind": "function",
+   "name": "CNapAction::GetDialogText",
+   "signature": "Hoi3CString* __thiscall CNapAction::GetDialogText(CNapAction* this, Hoi3CString* out)",
+   "no_signature": null,
+   "comment": "Slot 12: offering NAPNEWDESC (COUNTRY) + \"\\n\" + DIP_INFLUENCECOST (FFP(+0x54, 2)); cancelling BREAKNAPNEWDESC (COUNTRY) + \"\\n\" + DIP_THREAT 'This will generate §Y$AMOUNT$§W threat in §Y$PROV$§W' (AMOUNT = FFP(LEAVE_NAP_THREAT_COST +0x60, 2), PROV = the name of the recipient's **declared** capital (CCountry::GetCapitalLocation at 0xA2E0BA)) + \"\\n\" + DIP_INFLUENCECOST (FFP(+0x5C, 2)).",
+   "confidence": "confirmed",
+   "evidence": "0xA2E0B3 `call 0x402610` (tag to country), `mov ecx,eax; call 0x417AF0`, then the province name through slot 7 of +8, after the literal PROV (0x15B6588) is pushed at 0xA2E096.",
+   "source": "reversing/findings/FINDINGS-agreements.md",
+   "revises": "Which capital: the declared one, read on the listing (FINDINGS-capitalreaders.md)."
+  },
+  {
+   "rva": "0x62B090",
+   "kind": "function",
+   "name": "CNapAction::Apply",
+   "signature": "void __thiscall CNapAction::Apply(CNapAction* this)",
+   "no_signature": null,
+   "comment": "**CNapAction slot 7** - one holder (vftable 0x15FB754). 0xA2B090 to the bare `ret` at 0xA2C8EA, 5 int3, then CNapAction slot 11 at 0xA2C8F0. `this` in ECX, no stack arguments. All four arms read:\n\n- `type == PROPOSE && value`: NAP_JOIN_INFLUENCE_COST (diplomacy +0x54) off `countries[actor_id]->diplo_influence` (+0xA88) at 0xA2B9D3, clamped at 0. Note it is **NAP_JOIN_INFLUENCE_COST and not NAP_INFLUENCE_COST** (+0x20), which this body never reads.\n- `type == ACCEPT`: `operator new(0x30)`, `CNap::CNap` (0xA46F00, vftable 0x15FBB68; balance -1000, powers 0), `nap->first = actor`, `nap->second = recipient`, `nap->start_date (+0x18) = this->date (+0x1C)`, `CNap::Activate()` (slot 10, 0xA471E0) which writes the nap into **both** directions' `CDiplomacyStatus +0x28` and, in a running game, measures the border at once (CNap_UpdateForceBalance), then the nap appended to the `CDiplomacy` relation list at `CCurrentGameState +0xB24` (0xA2BAC8) and `CCountry::ChangeRelation(actor, &recipient, NAP_RELATION_CHANGE)` (+0x4C, 50.0 in Their Finest Hour and BlackICE) at 0xA2BB00.\n- `type == DECLINE`: NAP_REJECT_RELATION_CHANGE (+0x58) at 0xA2C433; THEYREJECTNAP when the actor is played, WEREJECTNAP when the recipient is.\n- `value == 0` (breaking a pact), any `type`: `actor->diplomacy[recipient]->nap` taken **with no null test**, **its slot 11 (CNap::Deactivate, both directions nulled) at 0xA2BEEA**, then `CList_RemoveNode`d from the relation list (0xA2BF83) and deleted through its slot 0 (0xA2BF92); then **LEAVE_NAP_THREAT_COST (+0x60) passed to SpreadThreat by address** (`add edi, 0x60` at 0xA2BFE3) with the recipient feared and its **declared** capital the origin (CCountry::GetCapitalLocation at 0xA2BFEA - unlike every other SpreadThreat caller, which passes an acting capital); then LEAVE_NAP_RELATION_CHANGE (+0x50) at 0xA2C031 and LEAVE_NAP_INFLUENCE_COST (+0x5C).\n\nThe message keys are `WENAP` / `THEYNAP` / `OTHERNAP`, `WECANCELNAP` / `THEYCANCELNAP` / `OTHERCANCELNAP` and `WEREJECTNAP` / `THEYREJECTNAP` / `OTHERREJECTNAP` under `diplomaticsuccess` / `diplomaticfailure`. A NAP also ends by itself NAP_EXPIRY_MONTHS after its start (CNap::IsOver, in CDiplomacyStatus_ExpireRelations) and when the two go to war (CDeclareWarAction::Apply, 0xA122C8). The name `Apply` is ours; the body is read.",
+   "confidence": "confirmed",
+   "evidence": "0xA2BFEA `call 0x417AF0`, its answer pushed as SpreadThreat's (0x4F50A0) fourth argument at 0xA2BFF3. The other five SpreadThreat sources read by FINDINGS-diplostate.md B.3 call 0x42F100; checked here for CDeclareWarAction::Apply (0xA128E7), CEmbargoAction::Apply (0xA2F08C, 0xA2F56A) and CInGameIdler::Enter (0x65B63F).",
+   "source": "reversing/findings/FINDINGS-agreements.md",
+   "revises": "Which capital: the declared one, read on the listing (FINDINGS-capitalreaders.md)."
+  },
+  {
+   "rva": "0x105D00",
+   "kind": "function",
+   "name": "CCountry::GetMaxNeutralityForWarWith",
+   "signature": "CFixedPoint* __thiscall CCountry::GetMaxNeutralityForWarWith(CCountry* this, CFixedPoint* result, CCountryTag other)",
+   "no_signature": null,
+   "comment": "**The neutrality ceiling for declaring war on `other`.** A country may declare only while its effective_neutrality (+0xA90) is at most this. 0x505D00 to the `ret 0xC` at 0x505F0E, 9 int3 above; luabind registers it under this name.\n\n    m = max(0, this->diplomacy[other]->threat (+0x5C), other->diplomacy[this]->threat)\n    if casus belli type `aquire_all_cores` (so spelled) is valid (slot 7) and DiplomacyStatus_CanUseCasusBelliType\n       allows it for the pair, and 0x47BC60 answers true after 0x4797C0 prepares it:\n        m += NEUT_REDUCTION_AT_CLAIMS        (diplomacy +0xDC; 20.0)\n    if the two **declared** capitals' continents differ (GetCapitalLocation at 0x505E99 and 0x505EB6) and other is not in this->neighbours (+0xF58):\n        m -= NEUT_INCREASE_DIFF_CONTINENT    (diplomacy +0xD8; 10.0)\n    m += this->faction (+0xD8)->neutrality (CFaction +0xB0)\n    return max(m, 0)\n\n**These are the only readers of the two NEUT_ defines, and neither changes neutrality**: claims raise the ceiling, another continent lowers it. The threat term is the larger of the two directions, not only the threat the declarer feels. Callers: CDeclareWarAction code at 0xA1596E (`cmp +0xA90, max; jle` - equal is allowed - else DIP_WAR_NEUTR) and 0xA16109 (`jg` refuse), 0xA15A6C formatting it into the tooltip, and 0x789A0C. Its text twin is CCountry::BuildMaxNeutralityForWarTooltip (rva 0x105F20).",
+   "confidence": "confirmed",
+   "evidence": "0x505E97 `mov ecx, edi; call 0x417AF0; ... mov esi,[eax+0x368]`, then the other country's GetCapitalLocation at 0x505EB6 and `cmp esi,[eax+0x368]; je`. No call to 0x42F100 in it.",
+   "source": "reversing/findings/FINDINGS-diplostate.md",
+   "revises": "Which capital: the declared one, read on the listing (FINDINGS-capitalreaders.md)."
+  },
+  {
+   "rva": "0x5C35E0",
+   "kind": "function",
+   "name": "LocaliseEventText",
+   "signature": "Hoi3CString* __cdecl LocaliseEventText(Hoi3CString* out, Hoi3CString key, CEventScope scope, CCountryTag owner)",
+   "no_signature": null,
+   "comment": "**An event or decision text: a localisation key with the `$NAME$` variables filled from a scope.** 0x9C35E0 to the bare `ret` at 0x9C45E2; the caller pops 0x70 (out, the key and the scope by value, an 8-byte tag). GetText(key), then: the country C is scope.country, or **when that is null the controller of scope.province** (CMapProvince +0x334/+0x338). Variables, each only where its guard holds: `THISCOUNTRY` = name of this_scope's country (when this_scope+0x14 != 0); `FROMCOUNTRY` = name of the FROM country and `FROMCOUNTRY_ADJ` its adjective (when scope+0x1C != 0); when C exists - `COUNTRY` and `COUNTRYNAME` both = C's name (CCountry +0xCA4 tag), `MONARCHTITLE` = C's government slot 15, localised, `COUNTRY_ADJ` = C's adjective (**not passed through GetText**, unlike FROMCOUNTRY_ADJ), `CAPITAL` = the name of C's **declared** capital province (CCountry::GetCapitalLocation at 0x9C3DA6); always - `LAND_LOSER_LOSSES`, `LAND_WINNER_LOSSES`, `AIR_LOSER_LOSSES`, `AIR_WINNER_LOSSES`, `NAVAL_LOSER_LOSSES`, `NAVAL_WINNER_LOSSES` from the game state's last-battle counters, `PRIDE_SUNK` and `PRIDE_SINKER` from the names of the objects at state +0x48/+0x4C (empty when null), `YEAR` = (tick - 43800000)/24/365.0 truncated; when scope.province != 0 - `PROVINCENAME`, `REGIONNAME` (the first of the province's regions, +0x358/+0x360, localised; empty when it has none), `CONTINENTNAME` (+0x368, **the raw name, not localised**; empty when none) and `OWNERNAME` = name of `owner` when owner.id != 0, else of the province's owner (+0x32C). Rendered with the game settings' colours (+0x6C). Every window caller passes owner = {`---`, 0}. 16 callers: the event window, the decision texts, missions (0x9C75B6..0x9C78BF), 0x9AE651/0x9AE9CC and the two commands.",
+   "confidence": "confirmed",
+   "evidence": "0x9C3D7E pushes the literal 'CAPITAL' (0x15C1A98); 0x9C3D9F tag to country, 0x9C3DA6 `call 0x417AF0`, the name through slot 7 of the province's +8.",
+   "source": "reversing/findings/FINDINGS-eventfire.md",
+   "revises": "Which capital: the declared one, read on the listing (FINDINGS-capitalreaders.md)."
+  },
+  {
+   "rva": "0x6390D0",
+   "kind": "function",
+   "name": "CTradeAction::IsConvoyPossible",
+   "signature": "bool __thiscall CTradeAction::IsConvoyPossible(CTradeAction* this)",
+   "no_signature": null,
+   "comment": "The game's own Lua name, from the registration at 0x8ED29E/0x8ED2A3 (factory 0x8FDE30, RTTI type `bool CTradeAction::IsConvoyPossible() const`, which matches the bare `ret` and the absence of stack arguments). 0xA390D0 to 0xA3925D. **True at once when CCountry::NeedConvoyToTradeWith (0x503C60) says no convoy is needed.** Otherwise it picks the side whose goods block carries money - `this->+0x5C[2] != 0` selects the route's `to` tag at +0x54/+0x58, else the `from` tag at +0x4C/+0x50 - walks from that side's **declared** capital's area (CCountry::GetCapitalLocation at 0xA39168) to the other's acting capital area through 0x47E5E0, and requires the province at each end to be owned (+0x330), to pass +0x354 and to have a building at +0x300 whose +0x20 (level_max) is positive, i.e. a port. This is the second gate FINDINGS-survivors.md saw in slot 17.",
+   "confidence": "confirmed",
+   "evidence": "0xA39168 `call 0x417AF0`, its +0x2B4 area's first port taken; 0xA391A4 `call 0x42F100` for the other side. CTradeAction::Apply does the same at 0xA35C4B (declared) and 0xA35C6F/0xA35CBC (acting).",
+   "source": "reversing/findings/FINDINGS-trade2.md",
+   "revises": "Which capital: the declared one for the buyer's reference harbour, read on the listing (FINDINGS-capitalreaders.md)."
+  },
+  {
+   "rva": "0x3E4B20",
+   "kind": "function",
+   "name": "CDivisionDesigner::OnAccept",
+   "signature": "void __thiscall CDivisionDesigner::OnAccept(CDivisionDesigner* this)",
+   "no_signature": null,
+   "comment": "**The handler behind `accept`: orders the design.** `parallel` (+0x150) times it makes a CConstructUnitCommand (0x84 bytes) with the list at +0x1B4, the **declared** capital of the country played (`mov eax,[eax+0xE20]` at 0x7E4CA9 - where the brigade, air and ship builders pass the acting capital, +0xE24, at 0x7D97AD, 0x7D128F and 0x809E29), `serial` (+0x154) as the amount and the state of the `as_reserves` checkbox, and hands it to the command queue; then CloseBuilderWindow. See reversing/findings/FINDINGS-builders.md, section 2.",
+   "confidence": "confirmed",
+   "evidence": "0x7E4C96-0x7E4CA9: the country out of the database's vector, then `mov eax,[eax+0xE20]`, pushed as the command's province at 0x7E4CC9 before `call 0x545760`. The three sibling handlers load +0xE24 in the same place (displacement sweep, read at 0x7D97AD).",
+   "source": "reversing/findings/FINDINGS-builders.md",
+   "revises": "Which capital: the declared one, read on the listing (FINDINGS-capitalreaders.md)."
+  }
+ ],
+ "struct_fields": [],
+ "vftable_slots": {
+  "CCountryCapitalChange": {
+   "7": {
+    "name": "Apply",
+    "signature": "void __thiscall Apply(CCountryCapitalChange* this, bool forward)"
+   }
+  },
+  "CGoodsChange": {
+   "7": {
+    "name": "Apply",
+    "signature": "void __thiscall Apply(CGoodsChange* this, bool forward)"
+   }
+  },
+  "CUnitDeployment": {
+   "10": "CanDeployIn"
+  },
+  "CNapAction": {
+   "7": "Apply",
+   "12": "GetDialogText"
+  }
+ },
+ "frontier": [
+  "0x1F14A0",
+  "0xEE560",
+  "0x145760",
+  "0xEDED0",
+  "0x3C2E0",
+  "0xB0A00"
+ ]
+}

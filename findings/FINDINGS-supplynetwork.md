@@ -130,7 +130,7 @@ area in `ecx`, the tag written through `eax`) is the controller of the area's fi
 
 **Kept up to date.** A province that changes hands goes through `UpdateOwnerAreaOfProvince`
 (`0x47F540`, `__cdecl`, five words: the province, its new controller's tag and its old one's -
-called from `CMapProvince::TakeControl` at `0x4A32C2`, from `0x4A3B33` and from `0x4B808E`). It
+called from `Province_SetController` at `0x4A32C2` (corrected by `FINDINGS-surrender.md` D.6; `TakeControl` reaches it only through that), from `0x4A3B33` and from `0x4B808E`). It
 takes the province out of its area, where the area is left empty unlinks and frees it, where it is
 left with more than one province **floods it again from scratch** (so a block cut in two becomes
 two areas), then puts the province into a neighbouring area of its new controller - merging two

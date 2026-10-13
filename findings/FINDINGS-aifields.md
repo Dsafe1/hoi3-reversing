@@ -567,9 +567,11 @@ and `ministers` (1081, which calls `0x4F0A00` or `0x4F08F0`) and nothing law-sha
    `fieldchain.py --holder 0x2FC` bounded to the bodies that hold a `CArmy`, with `+0x2E4`/`+0x2E8`
    as the positive control since both have known readers.
 3. **`CDiplomacyStatus +0x54`.** `0x4E6C32` stamps it with the current tick for every pair at war and
-   for nobody else, but because `0x4E6A70` runs on every diplomatic action and once an hour, the
+   for nobody else, ~~but because `0x4E6A70` runs on every diplomatic action and once an hour, the
    value is refreshed rather than stamped at the start — so it is "last seen at war", not a war-start
-   date. No reader was looked for. *Cheapest check:* `dispscan.py 0x54` is useless (disp8), so
+   date~~. **Corrected 2026-10-13** (`FINDINGS-war.md` A.9, C.11): `0x4E6A70`
+   (`CCountry::UpdateAtWarAndEnemies`) has nine callers - session entry and the four war-membership
+   functions - and none hourly, so the stamp is the last load or change of membership while at war. No reader was looked for. *Cheapest check:* `dispscan.py 0x54` is useless (disp8), so
    `storescan.py 0x54 --neighbours 0x20,0x14,0x4C,0x58` with `+0x20` as the control.
 4. **Why `CCountry +0x94 mobilised` is cleared only for unplayed countries.** The path at `0x4E6DCB`
    removes the `initial_mobilization` modifier without clearing the byte; the one at `0x4E6E44`
