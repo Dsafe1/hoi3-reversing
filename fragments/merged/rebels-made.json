@@ -1,0 +1,270 @@
+{
+ "agent": "occupation and revolt wave, reader C (rebels made)",
+ "question": "How rebel brigades are made: CreateRebelsForFaction (rva 0xBAA20) whole, CreateRebelBrigadesInProvince (0xC1160) with 0xB9150, the faction made when none matches (0x286D80), an independence type's country (0xBF6F0), FindRebelFactionForProvince (0x286CF0), and the two script effects.",
+ "source": "reversing/findings/FINDINGS-occupation.md",
+ "addresses": [
+  {
+   "rva": "0xBAA20",
+   "kind": "function",
+   "name": "CreateRebelsForFaction",
+   "signature": "int* __fastcall CreateRebelsForFaction(CCountryTag* actor@ECX, CRebelFaction* faction@stack:4, int* outArmyId@stack:8, CMapProvince* province@stack:0xC, int count@stack:0x10, bool forActor@stack:0x14) @EAX",
+   "no_signature": null,
+   "revises": true,
+   "comment": "**Makes one rebel army of one to four brigades in a province, for a faction.** 0x4BAA20 to the second `ret 0x14` at 0x4BBA80 (the first is the count == 0 exit at 0x4BAA63) - 0x1063 bytes, not the 0xDE0 this entry used to say. Three callers: SpawnFullRevoltInProvince (0x4A6D38), CreateRebelBrigadesInProvince (0x4C134A) and CreateRebelFaction (0x686EE7). Read whole on the listing, 2026-10-14:\n\n    if (count == 0) { *out = {0,0}; return out }                       ; before the clamp\n    owner = faction->units_owner (+0x4C, always REB)\n    if (forActor) owner = *actor\n    elif (faction->type->auto_convert (+0x19B)\n          && CountryOf(province->owner)->government_in_exile (+0x95)\n          && province->owner_id != province->controller_id) owner = province->owner\n    count = clamp(count, 1, 4)\n    army = new CArmy (0x308), id {0x27, g_rebel_id++}, named RebelFaction_MakeArmyName (0x4BBE20)\n    CCountry::AddUnit(owner, army); CUnit_SetOwner(army, owner)\n    append {0x27, id} to faction->armies (+0x80/+0x84/+0x88)\n    repeat count times:\n        b = new CSubUnit (0xD8) with CRegiment's vftable, id {0x27, g_rebel_id++}\n        name = CCountry::MakeSubUnitName(faction->country (+0x38), definition, province, faction)\n        CSubUnit::SetType(b, faction->type->unit (+0x188)); b->home (+0x64) = province\n        t = faction->targets_first (+0x70)                                ; the FIRST target\n        b->experience (+0x3C) += CountryOf(t)->values[PARTISAN_EFFICENCY] (+0x278), capped 100000\n        for each technology of the definition: level = L ? Random() % L : 0, L = t's level\n        CSubUnit::ApplyTechnologies(b, false)        ; strength and organisation to the new maxima\n        AddRegimentToUnit(army, b)\n    CUnit::EnterProvince(army, province); avatar_stale = 1; CUnit::RebuildAvatar; EnterProvince again\n    intel_level (+0x1F8) for the player, inlined: 9 for his own, his faction's or an ally's, else the province's figure\n    CCombatManager::CheckForCombat(army, province)\n    message (below); *out = army id; return out\n\nThe inlined MT19937 draw at 0x4BADED is the technology level, one draw per technology the target has at a level above 0. Experience starts at the CSubUnit constructor's -1000 and nothing else in the path writes it, so a brigade begins at -1000 + the target's partisan_efficiency. No leader is given: the complete call list has no leader call. Nothing writes the faction's provinces (+0x94).\n\n**The message.** The province's controller is captured before the battle check. Where the controller is the player: type `REVOLT`, the controller's BuildMessageVariables plus MESSENGER (MESSAGE_HEAD_MARS rendered), REBELS (the faction's name, +0x54), REBELDESC (RebelFaction_GetDescText) and PROV (the province's name), an empty head, both country pairs the faction's +0x4C (REB) - then the sound `army_selected` played unless it is already playing. Otherwise, where the army's owner is the player: type `PARTISANS`, the owner's variables plus MESSENGER, PROV and EVIL (the controller's name), both country pairs the owner. Nobody else is told. Signature corrected 2026-10-02 by the signature audit (reversing/findings/FINDINGS-sigaudit.md); body, extent and parameter names 2026-10-14.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-occupation.md",
+   "evidence": "Every instruction from 0x4BAA20 to 0x4BBA83 decoded in one resumed pass (1276 instructions, a scratch listing.py), with the complete direct-call list: CArmy ctor 0x4828C0, CSubUnit ctor 0x5A88F0, SetType, ApplyTechnologies (push ebx=0 as keepStrength at 0x4BAE65), AddRegimentToUnit, EnterProvince twice, RebuildAvatar, CheckForCombat, MakeSubUnitName, BuildMessageVariables twice, CMessage ctor twice; no SetLeader, no RebelFaction_TakeProvince, no write to +0x94/+0x98. The owner choice is 0x4BAA66..0x4BAAC4, the clamp 0x4BAAC7..0x4BAADD, PARTISAN_EFFICENCY 0x4BAD1A..0x4BAD51 off [faction+0x70], the draw 0x4BADBE..0x4BAE49 with `idiv [ebp-0x74]` (the target's level), the message choice 0x4BB042 (controller id vs CCurrentGameState +0xC34) and 0x4BB6D1 (owner id). The -1000 start is the CSubUnit constructor's store at 0x5A8A18, and SetType, ApplyTechnologies, AddRegimentToUnit and 0x5A8BB0 hold no +0x3C store (positive control: the same scan finds ApplyTechnologies' +0x5C/+0x60 clamps). Would be shown wrong by a write of experience on another path between creation and the first read, or by +0x70's first node not being the province controller at creation."
+  },
+  {
+   "rva": "0xC1160",
+   "kind": "function",
+   "name": "CreateRebelBrigadesInProvince",
+   "signature": "void __fastcall CreateRebelBrigadesInProvince(CMapProvince* province@ECX, CRebelType* rebelType@stack:4, int count@stack:8, bool forActor@stack:0xC, CCountryTag* actor@stack:0x10)",
+   "no_signature": null,
+   "revises": true,
+   "comment": "**The shared entry for putting rebel or partisan brigades in a province**, five call sites: SpawnRebelsTextCommand (0x43DF5A), SpawnRebelsOfChosenTypeInProvince (0x4C114E), SpawnPartisansFromUnderground (0x50B92B, the only caller passing forActor = true, with the exile's tag), CCreateRebelsEffect::Execute and CCreateRevoltEffect::Execute. 0x4C1160 to the two `ret 0x10` at 0x4C1360 and 0x4C142C. Read whole on the listing:\n\n    if (!province->area->slot0() || !province->path_node->simulated (+0x13D)) return\n    if (count < 1) count = 1\n    if (forActor) faction = the first of +0xC7C with type == rebelType and country.id (+0x3C) == actor->id\n    else          faction = FindRebelFactionForProvince(province, rebelType)\n    SetProvinceRevoltRisk(province, 0, false)                 ; before the null test\n    if (faction) {\n        if (province->controller != REB) RebelFaction_AddTarget(faction, controller tag, id)\n        CreateRebelsForFaction(actor, faction, &tmp, province, count, forActor)\n    } else\n        CreateRebelFaction(rebelType, province, state, count, \"\", forActor, actor)\n\nSo **revolt risk is zeroed whenever the two gates pass**, also when no faction can be found or made - a null rebelType (every type scoring 0 in ChooseRebelTypeForProvince) zeroes it and makes nothing. There is no log on that path; the string pushed at 0x4C137F is the empty string at 0x15B4945, the new faction's name argument, which the constructor never reads. Signature corrected 2026-10-02 by the signature audit (reversing/findings/FINDINGS-sigaudit.md); parameter names 2026-10-14.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-occupation.md",
+   "evidence": "Disassembled 0x4C1160..0x4C142F end to end: the forActor walk 0x4C123B..0x4C126E (cmp [eax+0x30], rebelType; cmp [eax+0x3C], [actor+4]), the SetProvinceRevoltRisk call at 0x4C1301 with its three pushes (ebx, a slot written ebx, edi) ahead of `cmp esi, ebx` at 0x4C1306, the REB test 0x4C130A..0x4C1323 and the RebelFaction_AddTarget call at 0x4C1333 with esi = faction, and the CreateRebelFaction call at 0x4C1416 (ecx = rebelType, edi = province, pushes: actor, forActor, a 0x1C string assigned from 0x15B4945 whose first byte is 0, count, game state). Would be shown wrong by a second writer of revolt risk on this path, which the listing does not have."
+  },
+  {
+   "rva": "0x286CF0",
+   "kind": "function",
+   "name": "FindRebelFactionForProvince",
+   "signature": "CRebelFaction* __fastcall FindRebelFactionForProvince(CCurrentGameState* state@EAX, CMapProvince* province@stack:4, CRebelType* rebelType@stack:8) @EAX",
+   "no_signature": null,
+   "revises": true,
+   "comment": "**Which existing faction a new rising of this rebel type in this province joins.** 0x686CF0 to the two `ret 8`; game state in eax. Over the factions at CCurrentGameState +0xC7C, only those whose type (+0x30) is rebelType:\n\n    if (rebelType->independence (+0x190))            ; 0 or 1\n        if (faction->independence.id (+0x48) == ChooseRebelIndependenceTag(rebelType, province).id)\n            return faction                           ; the first match\n    elif (rebelType->area (+0x180) == 0              ; `area = nation`\n          && faction->country.id (+0x3C) == province->owner_id (+0x330))\n        found = faction                              ; kept, and the walk goes on\n    return found                                     ; the last match, or null\n\nSo an independence type has **one faction per country it would free**, a nation-wide type **one faction per country it rises in** (the province's owner, and the last in the list wins), and a type whose `area` is anything but `nation` **never matches** - every rising of it makes a new faction. Corrected 2026-10-14: this entry said one faction per (rebel type, area), which is not what the comparisons do. Signature corrected 2026-10-02 by the signature audit (reversing/findings/FINDINGS-sigaudit.md).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-occupation.md",
+   "evidence": "Disassembled 0x686CF0..0x686D7C whole: `cmp [esi+0x30], eax` then `cmp [eax+0x190], 0` (0x686D1D); the independence arm pushes province, &tmp, type to 0x4BF6F0 and compares ebx = [esi+0x48] with [eax+4], returning at 0x686D4A; the other arm tests [eax+0x180] == 0 and [esi+0x3C] == [province+0x330] and stores [ebp-4] = esi without leaving the loop (0x686D6A), returned at 0x686D71. The values of +0x180 and +0x190 are the loader's: area = (token != 0x649 `nation`) at 0x4BFB95, independence = (token != 0x18D `none`) at 0x4BFBE7. Wrong if a faction's +0x3C were not the country it rose in, which CRebelFaction::CRebelFaction sets at 0x4B9062."
+  },
+  {
+   "rva": "0xB9150",
+   "kind": "function",
+   "name": "RebelFaction_AddTarget",
+   "signature": "void __stdcall RebelFaction_AddTarget(CRebelFaction* faction@ESI, char tag[4]@stack:4, int id@stack:8)",
+   "no_signature": null,
+   "comment": "**A country the faction fights.** Appends {tag, id} to the faction's targets (+0x70 first, +0x74 last, +0x78 count; 0x14-byte nodes, next at +0xC) unless a node with the same id is already there. 0x4B9150 to the `ret 8`s at 0x4B91AF and 0x4B91B7; the faction in ESI. One caller, CreateRebelBrigadesInProvince (0x4C1333), with the province's controller whenever it is not REB - so every province a faction rises in adds its controller. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-occupation.md",
+   "evidence": "Disassembled whole (0x4B9150..0x4B91B7): the duplicate walk compares [node+4] with the id argument, the new node gets [ebp+8], [ebp+0xC], the old tail, 0, 0, and the head/tail/count stores are +0x70/+0x74/+0x78. findRefs --callers gives the one call at 0x4C1333, where ESI holds the faction and the pushes are [province+0x338], [province+0x334]. Wrong if +0x70 were a different list from the one the faction's `target=` lines are saved from (BiceLib's header names it from SaveContents)."
+  },
+  {
+   "rva": "0x286D80",
+   "kind": "function",
+   "name": "CreateRebelFaction",
+   "signature": null,
+   "no_signature": "Two register arguments and a 0x1C-byte std::string by value: rebelType in ECX, province in EDI; on the stack the game state (+4), count (+8), the string (+0xC..+0x27), forActor (+0x28) and the actor's CCountryTag* (+0x2C); `ret 0x2C`; the new CRebelFaction* (or null) in EAX.",
+   "comment": "**A rebel faction made where none matches, and its first army.** 0x686D80 to the two `ret 0x2C`. Two callers: CreateRebelBrigadesInProvince (0x4C1416) and SpawnFullRevoltInProvince (0x4A6DF4).\n\n    if (rebelType && rebelType->independence && !forActor\n        && ChooseRebelIndependenceTag(rebelType, province).id == 0)\n        rebelType = ChooseRebelTypeForProvince(db, province, false, \"---\")   ; chosen again\n    if (!province || !rebelType) return null\n    f = new CRebelFaction (0xA4 bytes) - CRebelFaction::CRebelFaction(rebelType, province, name,\n            forActor, actor, province->controller tag, id)\n    f->id = {0x27, g_rebel_id++}                       ; slot 6\n    append f to CCurrentGameState +0xC7C/+0xC80/+0xC84 (0x10-byte nodes, next at +8)\n    CreateRebelsForFaction(actor, f, &tmp, province, count, forActor)\n    return f\n\nThe re-chosen type is not tested again, and the name argument is passed on but never read. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-occupation.md",
+   "evidence": "Disassembled 0x686D80..0x686F2E whole: the independence gate 0x686DA4..0x686DC3 (cmp [esi+0x190]; cmp byte [ebp+0x2C]; 0x4BF6F0 then [ebp-0x18] == 0), the re-choice through GetRebelTypeDatabase and 0x4C0430 at 0x686DDB, new 0xA4 at 0x686DF2, the constructor call at 0x686E47 with EDX = type and pushes controller id/tag ([edi+0x338]/[edi+0x334]), actor, forActor, a copy of [ebp+0x10], province, the memory; g_rebel_id (0x170AF7C) at 0x686E5A; the list append at 0x686E7E..0x686ED6 and CreateRebelsForFaction at 0x686EE7 (ECX = [ebp+0x30]). findRefs --callers gives 0x4A6DF4 and 0x4C1416 only. Wrong if 0x4B8F40 read its string argument, which its listing does not."
+  },
+  {
+   "rva": "0xB8F40",
+   "kind": "function",
+   "name": "CRebelFaction::CRebelFaction",
+   "signature": null,
+   "no_signature": "A constructor with the rebel type in EDX and a 0x1C-byte std::string by value: this (+4), province (+8), the string (+0xC..+0x27), forActor (+0x28), actor CCountryTag* (+0x2C), the province controller's tag (+0x30) and id (+0x34) on the stack; `ret 0x34`; returns this.",
+   "comment": "**What a new rebel faction holds.** Writes CRebelFaction's vftable (0x15C0B6C) over CPersistent's, then: type (+0x30) = EDX; province (+0x34); **units_owner (+0x4C) = CCountryDataBase::GetTag(\"REB\")** - the literal `REB` this function was previously guessed to be 'the REB country lookup' for; country (+0x38) = *actor when forActor, else the province's owner (+0x32C); government (+0x40) = that country's government; one target, the province's controller (RebelFaction's +0x70 list); independence (+0x44) = ChooseRebelIndependenceTag(type, province); then RebelFaction_ChooseGovernment (0x4BC900); then name (+0x54) = CRebelFaction text of `<type key>_name` (0x4BF510, 0x4BBB20). Lists +0x80 and +0x94 empty, wants_removal (+0x90) 0. The string argument is only destroyed. One caller, CreateRebelFaction (0x686E47). The loader's constructor is 0x4B8DE0 (one caller, 0x6805EA), which also writes REB into +0x4C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-occupation.md",
+   "evidence": "Disassembled 0x4B8F40..0x4B9144 whole: vftable store 0x15C0B6C at 0x4B8FA0, the GetTag(\"REB\" at 0x15BE948) into +0x4C at 0x4B8FEC..0x4B8FF6, the country choice 0x4B904E..0x4B906B, +0x40 from [country+0xDFC] at 0x4B9073, the target node from [ebp+0x34]/[ebp+0x38] at 0x4B908D, 0x4BF6F0 into +0x44/+0x48 at 0x4B90C9, 0x4BC900 at 0x4B90DA, 0x4BBB20 into +0x54 at 0x4B90F6; [ebp+0x10] is read nowhere but the free at 0x4B9126. Ghidra's RTTI pass also names it the constructor. Wrong if another constructor wrote a different +0x4C, which neither does."
+  },
+  {
+   "rva": "0xBF6F0",
+   "kind": "function",
+   "name": "ChooseRebelIndependenceTag",
+   "signature": "CCountryTag* __stdcall ChooseRebelIndependenceTag(CRebelType* rebelType, CCountryTag* out, CMapProvince* province)",
+   "no_signature": null,
+   "comment": "**The country an independence-seeking rising in this province would free** - a country tag, not an area. `---`/0 when the province is null or in no real area or the type's independence (+0x190) is 0. Otherwise candidates, in order: each core of the province (+0x344) that is not REB, owns no province (owned_province_count +0xCF8 <= 0) and is not already listed; then each country of the database that is not REB, owns no province, is not listed, and whose original capital (CCountry::GetOriginalCapital) is this province or a neighbour of it (CProvinceTemplate::HasEdgeTo). Each scores 1000 when independence == 1 (it can only be 0 or 1), **+200000 when the province is its core**, **+300000 when its original capital is this province**; the first strictly highest wins. 0x4BF6F0 to the `ret 0xC`s at 0x4BF73B and 0x4BFA33. Four callers: CRebelFaction::CRebelFaction, ChooseRebelTypeForProvince, FindRebelFactionForProvince, CreateRebelFaction. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-occupation.md",
+   "evidence": "Disassembled 0x4BF6F0..0x4BFA33 whole: the early `---` exit 0x4BF717, the core walk 0x4BF768..0x4BF80D (REB bytes, [country+0xCF8] > 0 skip, duplicate id walk, node append), the country walk 0x4BF817..0x4BF92E (database +0x168 count, +0x16C array, GetOriginalCapital 0x4DDB30 compared with [province+0xD0], else HasEdgeTo 0x4A9C40 with EDI = [province+0xD4]), the scoring 0x4BF955..0x4BFA05 (history `capital` token 0x1F9 else +0xE20; 0x3E8 when [type+0x190] == 1; +0x30D40 on a core id match; +0x493E0 on capital == [province+0xD0]; `cmp ecx, [ebp-0x14]; jle`). Wrong if the +0x344 list were not the province's cores, which the record names from the save writer."
+  },
+  {
+   "rva": "0xBC900",
+   "kind": "function",
+   "name": "RebelFaction_ChooseGovernment",
+   "signature": "void __stdcall RebelFaction_ChooseGovernment(CRebelFaction* faction)",
+   "no_signature": null,
+   "comment": "**The government a new rebel faction would install** (+0x40). Starts from its country's government, or the independence country's where that one is not valid_for_new_country (+0x64); then over every government in the database (the vector at [0x1A87864]+0xC) whose slot 17 answers true (a real government, not CNullGovernment) and which is valid_for_new_country: 1000, or **31000 when its ideologies list holds the rebel type's ideology** (+0x184), **+50000 when it is the faction country's present government**; the first strictly highest replaces +0x40. Where the result is null or not real, the province owner's government; where that fails too, a log line from rebelfaction.cpp: \"Rebel Faction type '...' in <country> could not find a valid Government type.\" One caller, the constructor (0x4B90DA). `ret 4`. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-occupation.md",
+   "evidence": "Disassembled 0x4BC900..0x4BCA27 and the decompiler for the fallback: [country+0xDFC] into +0x40 at 0x4BC932, the +0x64 test, the vector walk at 0x4BC98C, slot 0x44 call then `cmp byte [esi+0x64], 0`, edi = 0x3E8 / 0x7918 on an ideology node equal to [type+0x184], `add edi, 0xC350` when [country+0xDFC] == esi, `cmp edi, [ebp+8]; jle`. CGovernment slot 17 is `mov al, 1` (0xA92590) and CNullGovernment's `xor al, al` (0x592360). The fallback and its log text are read off the decompiler only; wrong if the ideology `any` resolved to a non-null CIdeology, which was not checked."
+  },
+  {
+   "rva": "0xBBB20",
+   "kind": "function",
+   "name": "CRebelFaction::RenderText",
+   "signature": null,
+   "no_signature": "thiscall with the key as a 0x1C-byte std::string by value: this (the faction) in ECX, out Hoi3CString* (+4), the key (+8..+0x23); `ret 0x20`; returns out.",
+   "comment": "**A faction's localised text**: GetText(key) with COUNTRY = the adjective of the faction's country (+0x38), INDEP = the adjective of its independence country (+0x44) where that has an id, and EVIL = the adjective of its first target (+0x70) where there is one with an id; rendered into out. Three callers: the constructor (name, `<type>_name`), RebelFaction_GetArmyText (`<type>_army`) and RebelFaction_GetDescText (`<type>_desc`). The name is ours.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-occupation.md",
+   "evidence": "Read off the decompiler and the `ret 0x20` at 0x4BBDB8; the three variable names are string literals in it and the three callers are findRefs --callers. Inferred because the listing of the replacement calls (0xA832B0, SubWindowMap_Add, CInternationalizedText::Replace) was not followed instruction by instruction; wrong if EVIL were taken from a different target than the first node, which the decompiler shows as *(this+0x70)."
+  },
+  {
+   "rva": "0xBBDC0",
+   "kind": "function",
+   "name": "RebelFaction_GetArmyText",
+   "signature": "Hoi3CString* __stdcall RebelFaction_GetArmyText(CRebelFaction* faction@EDI, Hoi3CString* out@ESI) @EAX",
+   "no_signature": null,
+   "comment": "CRebelFaction::RenderText(faction, out, `<type key>_army`) - the text an army of the faction is named from, `$COUNTRY$ Partisans` and the like. Faction in EDI, out in ESI, bare `ret`. One caller, RebelFaction_MakeArmyName (0x4BBF06).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-occupation.md",
+   "evidence": "Disassembled whole (0x4BBDC0..0x4BBDEB): [edi+0x30] to 0x4BF610 (which pushes '_army' at 0x4BF633 and appends it to the type's key at +0xC), then `push esi; mov ecx, edi; call 0x4BBB20`. Wrong if 0x4BF610 used another key field than +0xC."
+  },
+  {
+   "rva": "0xBBDF0",
+   "kind": "function",
+   "name": "RebelFaction_GetDescText",
+   "signature": "Hoi3CString* __stdcall RebelFaction_GetDescText(CRebelFaction* faction@EDI, Hoi3CString* out@ESI) @EAX",
+   "no_signature": null,
+   "comment": "CRebelFaction::RenderText(faction, out, `<type key>_desc`) - the REBELDESC variable of the REVOLT message. Faction in EDI, out in ESI, bare `ret` at 0x4BBE1B. One caller, CreateRebelsForFaction (0x4BB3DA).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-occupation.md",
+   "evidence": "Same shape as RebelFaction_GetArmyText with 0x4BF590, which pushes '_desc' at 0x4BF5B3; the call site at 0x4BB3DA sets edi = [ebp+8] (the faction) and esi = a stack string. Wrong if the call at 0x4BBE11 were not 0x4BBB20 (findRefs lists it as one of three)."
+  },
+  {
+   "rva": "0xBBE20",
+   "kind": "function",
+   "name": "RebelFaction_MakeArmyName",
+   "signature": "Hoi3CString* __stdcall RebelFaction_MakeArmyName(CRebelFaction* faction, Hoi3CString* out)",
+   "no_signature": null,
+   "comment": "**A new rebel army's name**: for n = 1, 2, ..., itoa(n) + the localised ordinal (`TH` for n % 10 in 0 and 4..9, `ST` 1, `ND` 2, `RD` 3, and `TH` whenever n - 11 is 0..2) + \" \" + RebelFaction_GetArmyText(faction); the first that RebelFaction_IsArmyNameTaken does not report is written to out. So \"1st Ethiopian Partisans\", then \"2nd ...\". `ret 8` at 0x4BC270. One caller, CreateRebelsForFaction (0x4BAB38). The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-occupation.md",
+   "evidence": "Disassembled the suffix choice 0x4BBE90..0x4BBECE (n % 10 through the 0x66666667 multiply, the table at [ebp-0x8C] holding 0x15C0AF4 'TH', 0x15C0AF8 'ST', 0x15C0AFC 'ND', 0x15C0B00 'RD', `add ecx, -0xB; cmp ecx, 2; ja` zeroing the index for 11..13), GetText of the suffix at 0x4BBF4F, 0xB9A0C4 (itoa, radix 10) at 0x4BBFF4 and the three appends 0x4BC024..0x4BC051 in the order itoa, suffix, \" \" (0x15B4E94), [ebp-0x18] (the 0x4BBDC0 result). The loop exit hangs on 0x4BC280, which is inferred."
+  },
+  {
+   "rva": "0xBC280",
+   "kind": "function",
+   "name": "RebelFaction_IsArmyNameTaken",
+   "signature": null,
+   "no_signature": "The faction and a 0x1C-byte std::string by value on the stack, `ret 0x20`; returns a bool in AL.",
+   "comment": "Whether one of the faction's armies already has this name: 0x4BBA90 makes a list of them, each one's slot 7 (+0x1C) gives its name, compared with the argument. The name is ours.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-occupation.md",
+   "evidence": "Disassembled 0x4BC280..0x4BC36F: 0x4BBA90 with the faction in eax and a list in edi, a walk calling [[node]]+0x1C, a string compare (0x415F70) with the argument and `sete bl`. Inferred because 0x4BBA90 was not read; wrong if it collected something other than the faction's armies."
+  },
+  {
+   "rva": "0xBF510",
+   "kind": "function",
+   "name": "RebelType_NameKey",
+   "signature": "Hoi3CString* __fastcall RebelType_NameKey(Hoi3CString* out@ECX, CRebelType* rebelType@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "out = the rebel type's key (+0xC) + `_name`. `ret 4`. The siblings are 0x4BF590 (`_desc`), 0x4BF610 (`_army`) and 0x4BF3F0 (`_title`, rendered).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-occupation.md",
+   "evidence": "`mov esi, ecx` then `push 0x15C0BA4` ('_name') at 0x4BF533 and the append to [ebp+8]+0xC; `ret 4` at 0x4BF585. Wrong if +0xC were not CRebelType's key (the record names it from the live game)."
+  },
+  {
+   "rva": "0xBF590",
+   "kind": "function",
+   "name": "RebelType_DescKey",
+   "signature": "Hoi3CString* __fastcall RebelType_DescKey(Hoi3CString* out@ECX, CRebelType* rebelType@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "out = the rebel type's key (+0xC) + `_desc`. `ret 4`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-occupation.md",
+   "evidence": "`mov esi, ecx`, `push 0x15B57E4` ('_desc') at 0x4BF5B3, `add ecx, 0xC` on [ebp+8] and the append 0xA5B0D0 at 0x4BF5DD; `ret 4` at 0x4BF605."
+  },
+  {
+   "rva": "0xBF610",
+   "kind": "function",
+   "name": "RebelType_ArmyKey",
+   "signature": "Hoi3CString* __fastcall RebelType_ArmyKey(Hoi3CString* out@ECX, CRebelType* rebelType@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "out = the rebel type's key (+0xC) + `_army`. `ret 4`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-occupation.md",
+   "evidence": "`mov esi, ecx`, `push 0x15C0BAC` ('_army') at 0x4BF633 and the append 0xA5B0D0 at 0x4BF65D; `ret 4` at 0x4BF685."
+  },
+  {
+   "rva": "0x1C48E0",
+   "kind": "function",
+   "name": "CUnit_SetName",
+   "signature": "void __stdcall CUnit_SetName(CUnit* unit@EDI, Hoi3CString* name@stack:4)",
+   "no_signature": null,
+   "comment": "Gives a unit its name (+0x16C, after releasing the old one through 0x4CB510) and registers it with its owner's names (RegisterUnitName, the owner by +0x128); where the unit has an avatar (+0x164) and a game setting byte (+0xE9) is on, the counter shows the name, or `???` while intel_level (+0x1F8) is below 5; a selected unit has the in-game screen's slots 45 and 38 called. `ret 4`. The name is ours.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-occupation.md",
+   "evidence": "Read off the decompiler and the `ret 4` at 0x5C4B1D; the call site 0x4BAB85 sets edi = the new CArmy. Inferred: the listing past the assignment was not followed."
+  },
+  {
+   "rva": "0x1A8BB0",
+   "kind": "function",
+   "name": "CSubUnit_SetName",
+   "signature": "void __stdcall CSubUnit_SetName(CSubUnit* subunit@EDI, Hoi3CString* name@stack:4)",
+   "no_signature": null,
+   "comment": "Gives a brigade, ship or wing its name (CSubUnit +name) and registers it with its owner's names (CSubUnit::GetOwner, RegisterUnitName). `ret 4` at 0x5A8BE9. The name is ours.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-occupation.md",
+   "evidence": "Read off the decompiler and the `ret 4`; the call site 0x4BAD03 sets edi = the new brigade. Inferred, as for CUnit_SetName."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CRebelFaction",
+   "offset": "0x4C",
+   "name": "units_owner",
+   "type": "CCountryTag",
+   "comment": "**Who owns the armies the faction raises, unless the call says otherwise: always REB.** Both constructors write CCountryDataBase::GetTag(\"REB\") here (0x4B8E93 for the loader's, 0x4B8FEC for a new faction's) and nothing else writes it; it is not saved. CreateRebelsForFaction takes the owner from here when it is not raising for an actor or converting to a government in exile, and passes this pair as both country pairs of the REVOLT message. Tag here, id at +0x50.",
+   "source": "reversing/findings/FINDINGS-occupation.md",
+   "evidence": "The two GetTag(\"REB\") stores into [esi+0x4C] at 0x4B8E98 and 0x4B8FF1 (0x15BE948 is 'REB'); the reads at 0x4BAA66/0x4BAA69 and 0x4BB59C/0x4BB59F. Not among the ten keys CRebelFaction::LoadKey switches on. Wrong if a third writer existed; findRefs on the REB literal lists eleven sites, and only these two are in rebel-faction code."
+  },
+  {
+   "struct": "CRebelFaction",
+   "offset": "0x40",
+   "name": "government",
+   "type": "CGovernment*",
+   "revises": true,
+   "comment": "the government they would install, saved as `government`. **Read live**: a CGovernment by its own RTTI; the mod defines eighteen. **Chosen once, when the faction is made**, by RebelFaction_ChooseGovernment (rva 0xBC900): among real, valid_for_new_country governments, 31000 for one whose ideologies hold the rebel type's ideology, else 1000, +50000 for the faction country's own present government; the first highest.",
+   "source": "reversing/findings/FINDINGS-occupation.md",
+   "evidence": "Type changed from void* to CGovernment*: the live read already found a CGovernment, and 0x4BC900 stores [country+0xDFC] (CCountry::Government) and database entries whose +0x64 is CGovernment's valid_for_new_country. Name unchanged."
+  },
+  {
+   "struct": "CRebelFaction",
+   "offset": "0x70",
+   "name": "targets_first",
+   "type": "void*",
+   "revises": true,
+   "comment": "**who they are fighting**, a CCountryTag per entry and one `target=` line each; nodes of 20 bytes - the tag's four characters, its id, the previous node, the next and a spare. **The first is the controller of the province the faction was made in** (CRebelFaction::CRebelFaction), and each later rising adds that province's controller unless it is REB or already there (RebelFaction_AddTarget, rva 0xB9150). **The first target's country is what CreateRebelsForFaction equips new brigades from**: its partisan_efficiency goes on their experience and each technology's level is drawn below its level.",
+   "source": "reversing/findings/FINDINGS-occupation.md",
+   "evidence": "Comment only; name and type unchanged. The constructor's target append at 0x4B907C..0x4B90BD from the controller arguments, RebelFaction_AddTarget's call at 0x4C1333, and CreateRebelsForFaction's reads of [[faction+0x70]] and [[faction+0x70]+4] at 0x4BAD1A..0x4BAD2E."
+  },
+  {
+   "struct": "CRebelType",
+   "offset": "0x180",
+   "name": "area",
+   "type": "int",
+   "revises": true,
+   "comment": "the `area` key (token 0x648) - how far the rebels roam. **0 for `nation` and 1 for any other value**: the loader stores (token != 0x649 `nation`). A nation-wide type keeps one faction per country it rises in (FindRebelFactionForProvince, rva 0x286CF0); a type with any other area never matches an existing faction. The daily faction pass treats 0 as the value that lets a faction die when its country holds nothing.",
+   "source": "reversing/findings/FINDINGS-occupation.md",
+   "evidence": "Comment only. CRebelType::LoadKey's case at 0x4BFB90: `cmp [ctx+0x228], 0x649; setne al; mov [edi+0x180], eax`; saveTokens.json gives 0x649 = `nation`. The case-to-key pairing is the one the record already has for this offset."
+  },
+  {
+   "struct": "CRebelType",
+   "offset": "0x18C",
+   "name": "defection",
+   "type": "int",
+   "revises": true,
+   "comment": "the `defection` key (token 0x64F). **0 for `none` and 1 for any other value**: the loader stores (token != 0x18D `none`).",
+   "source": "reversing/findings/FINDINGS-occupation.md",
+   "evidence": "Comment only. CRebelType::LoadKey at 0x4BFBB9: `cmp [ctx+0x228], 0x18D; setne al; mov [edi+0x18C], eax`; 0x18D = `none` in saveTokens.json."
+  },
+  {
+   "struct": "CRebelType",
+   "offset": "0x190",
+   "name": "independence",
+   "type": "int",
+   "revises": true,
+   "comment": "the `independence` key (token 0x651). **0 for `none` and 1 for any other value** (`any` in the files): the loader stores (token != 0x18D `none`). Non-zero makes FindRebelFactionForProvince (rva 0x286CF0) match a faction by the country ChooseRebelIndependenceTag (rva 0xBF6F0) picks for the province, so there is one faction per country to be freed; that chooser gives a candidate its base 1000 only when this is exactly 1.",
+   "source": "reversing/findings/FINDINGS-occupation.md",
+   "evidence": "Comment corrected: it said the faction's own *area* had to match; it is the independence country's id ([faction+0x48] against 0x4BF6F0's answer at 0x686D3D). Loader case at 0x4BFBE2: `cmp [ctx+0x228], 0x18D; setne al; mov [edi+0x190], eax`."
+  }
+ ],
+ "frontier": ["0xBBA90", "0x2F290", "0x2F070", "0x32F70", "0xB8DE0", "0x828C0", "0xBF3F0"]
+}

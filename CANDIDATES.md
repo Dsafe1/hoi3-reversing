@@ -492,7 +492,10 @@ building:
 6. **Readers through another holder** (C.1): `PEACE_OFFMAP_INTEL` and `OFFMAP_POLITICAL_INTEL` have no reader
    through a country's modifier values, so three minister types do nothing; a reader through another holder or a
    computed offset would have been missed.
-7. **What `counter_espionage` really does** - the maintainer's observation in play, 2026-10-14: it "works more as a
+7. ~~**What `counter_espionage` really does**~~ - **settled 2026-10-14**, `FINDINGS-occupation.md` section F: the
+   reading stands - 55 helps at home only - and the observation describes `espionage_bonus` (42), which BlackICE
+   labels "Domestic Counterespionage Difficulty": the target's own, lowering every catch in its land, written green.
+   The 22-to-33 gap lies within the rolls' spread (24.9 expected, sd 5.0). As queued: it "works more as a
    'Domestic Counterespionage Difficulty' modifier", with no effect on the player's missions abroad, and its tooltip
    reads inverted in the original. The reading (`FINDINGS-espionage.md`, CatchSpies) has it **added to the base
    chance in the home arm only** - which agrees that it does nothing abroad, and says it helps at home - while
@@ -503,6 +506,26 @@ building:
    that the ninety countries in no faction carry `neutrality`'s +0.1 of each, its start-save check catches 22 spies
    in the two days where it caught 18 without them and the save has 33 - so the reading's formula accounts for part
    of the original's catches and not all of them.
+
+## What the occupation and revolt wave left - 2026-10-14 `[both]`
+
+`findings/FINDINGS-occupation.md` sections A to F (six readers; 131 address entries landed, 13 structs declared, 71
+fields; one hand edit, `CRebelFaction`'s size 0xA4; apply 199 `failed: 0`, `struct fields: 0`). It read occupation
+policies, a province's whole modifier, revolt risk with suppression's units settled against a save to the
+thousandth, how rebels are made and what they do each day and month, undergrounds whole, and settled item 7 above.
+What it left, none of it in the way of building:
+
+1. **The AI's undergrounds** (E.9): `0x47FD90`, the area gate, and unit slot 27, the strength the AI sums - its score
+   is read by its shape. And `CCountry::GetRandomUnderGroundTarget` (`0x509920`), where the Lua production minister
+   builds them.
+2. **The province view's refresh** (`0x6DE5F0`) and its `underground` window's gate (`0x6EA920`), read in part;
+   which mouse button steps `underground_mission` which way (`0x6EA380`, `0x6EA490`).
+3. **`CheckForCombat`'s rebel capture** (D.4, inferred): what it does with the tag it picks after `0x430BFC`, and
+   whether the independence branch that reads inverted is ever live.
+4. **The two AI readers of the effective revolt risk**, `0x8B9D46` and `0x8E1AA6` (B).
+5. **`ProvinceHistory_LatestControllerDate`'s order** (D.5): "latest" assumes the history list is in date order.
+6. **The four lower Ethiopian revolt risks of 20 April** (B.2) cannot be reproduced without saves between January and
+   April; a save of the next game with an occupation in progress would check the step day by day.
 
 ## The planned next wave is in `WAVE.md`
 
@@ -1145,7 +1168,7 @@ the six it was missing were wave 15's.
 | `findings/FINDINGS-research.md` | research speed, the practical bonus, and tech decay |
 | `findings/FINDINGS-researchshare.md` | how the research share's leadership reaches the queue, what finishing a level does, and the gain, cost and square root to the bit |
 | `findings/FINDINGS-techdecay.md` | where practical and theory decay is actually applied |
-| `findings/FINDINGS-occupation.md` | occupation, revolt risk, partisans and rebels |
+| `findings/FINDINGS-occupation.md` | occupation, revolt risk, partisans and rebels; **the occupation and revolt wave (2026-10-14), sections A to F**: occupation policies set on a first capture keyed by the old controller and only by the player after, a province's whole modifier with nationalism, revolt risk's day with suppression over two edges settled against a save, the revolt map mode and tooltip, rebels made (one army of 1 to 4 brigades, equipped from the occupier) and their day and month (movement, hand-back, 15% independence; defection and demands dead), undergrounds whole, and `counter_espionage` settled |
 | `findings/FINDINGS-revolt.md` | what consumes revolt risk: the roll, the rebel type, the underground |
 | `findings/FINDINGS-convoys.md` | convoys and trade, and that the AI drives a route through the mod's Lua |
 | `findings/FINDINGS-espionage.md` | spies, intelligence, and what the espionage sliders buy; **the espionage wave (2026-10-14), sections A to E**: spies placed by priority bands and never decayed, what each mission does (a tech theft takes the target's whole level; covert ops a thirtieth of its define a day; province covert operations), what a country knows (the spies alone, less counter-intelligence) and of a province (the whole daily rebuild and hourly raise, radar), the intelligence screen with every estimate and tooltip, and the AI's spying in Lua, matching the saves pair for pair |

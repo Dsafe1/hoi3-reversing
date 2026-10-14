@@ -1,0 +1,61 @@
+{
+ "agent": "occupation wave, reader F (counter_espionage)",
+ "question": "CANDIDATES.md espionage queue item 7: every reader of modifier 55 (counter_espionage, +0x1B8) and 42 (espionage_bonus, +0x150), their signs, the key-to-id mapping, the tooltip flags, and whether the maintainer's 'domestic counterespionage difficulty, inverted tooltip' is what the bytes do.",
+ "source": "reversing/findings/FINDINGS-occupation.md",
+ "addresses": [
+  {
+   "rva": "0x59620",
+   "kind": "function",
+   "name": "CModifier::LoadKey",
+   "signature": "void __thiscall CModifier::LoadKey(CModifier* this, CParseContext* parse, SaveToken key)",
+   "no_signature": null,
+   "comment": "**Two arms, and the second is how every modifier block is read.** Token 0xB2 (`icon`): the value text (parse +0x22C) through 0xB969F1 into `icon` (+0x28). **Every other key** is looked up in the modifier-definition vector (0x1A86194 begin, 0x1A86198 end; ModifierDefinitionDatabase::Add fills it) by the definition's `token` (+0x20), the first match by position; the value is read as ParseFixedPoint reads it, inlined - `sscanf(\"%i\")` straight when the tokenizer's slot 2 says binary, else 0xA696A0 (TokenToFixedPoint, thousandths) with ReportParseError (0xA7A960) on failure - and stored in the low dword of `values (+0x18)[position * 8]`. So the key a script writes is the definition's token (the `push <token>` in each InitModifierDefinitions block), and the slot is the definition's position in the vector, which is its id below 102: `espionage_bonus` (token 0x4C4) -> 42 -> +0x150, `counter_intelligence` (0x4EA) -> 54 -> +0x1B0, `counter_espionage` (0x4EB) -> 55 -> +0x1B8. A key that matches no definition is logged - `unknown modifier '<key>' in file <file>` (modifier.cpp, line 0x111, channel 0x10004) - and dropped. Inherited by 6 classes in all. **Corrected 2026-10-14**: this said that a key other than `icon` was dropped in silence; the switch reader (reversing/scripts/definitions.py) sees only the switch's one case and not the fall-through. See reversing/findings/FINDINGS-occupation.md, section F.",
+   "confidence": "confirmed",
+   "evidence": "Read whole off the listing, 0x459620..0x459869: `cmp edx, 0xb2` (icon) at 0x45964D; the loop 0x459683..0x459692 `mov esi,[ecx+edi*4]; cmp [esi+0x20], edx; je 0x4597D7` over ([0x1A86198]-[0x1A86194])/4 entries; the binary arm 0x4597D7..0x459820 (tokenizer slot 2 at [edx+8], sscanf 0xB964D4 with the literal '%i' at 0x15FD14C) and the text arm 0x45983A..0x45985F (0xA696A0 on parse+0x228, 0xA7A960 on failure), both ending `mov [ecx+edi*8], edx` with ecx = this->+0x18; the miss path 0x459694 builds 'unknown modifier '' / '' in file ' with 'modifier.cpp', 0x111, 0x10004 through LogRecord::Make (0x402410). The tokens 0x4C4/0x4EA/0x4EB are the pushes at 0x457D59, 0x458157, 0x4581AD, named by ghidra/saveTokens.json, and the three constructions are the 43rd, 55th and 56th in the initialiser (positions 42, 54, 55), each followed by ModifierDefinitionDatabase::Add (0x45C5D0). Would be wrong if a CModifier subclass overrode LoadKey without chaining here, or if anything pushed a definition into the vector before InitModifierDefinitions ran.",
+   "revises": "The comment said every key but `icon` is dropped in silence. The fall-through matches the key against each definition's token and writes the value at that definition's position; an unmatched key is logged. Source moves to the findings file that reads it."
+  },
+  {
+   "rva": "0x12E3A0",
+   "kind": "function",
+   "name": "CSpyPresence::CatchSpies",
+   "signature": "void __stdcall CSpyPresence::CatchSpies(CSpyPresence* presence, CCountryTag* actor, CCountryTag* target)",
+   "no_signature": null,
+   "comment": "Mission 0, counter-espionage: 0x52E3A0 to the `ret 0xC` at 0x52EBDD, abutting 0x52EBE0 with no int3. Chance, in thousandths: `SPY_DETECTION_CHANCE` (country +0x20, at 0x52E473) plus, when actor==target, the actor's MODIFIER_COUNTER_ESPIONAGE (modifier 55, +0x1B8); times the presence's level; times mission_share[0]; and in the home arm times `1 - 800*(1000-share[0])/1000` where 800 is floorf(800.5f) off the float 0x160AADC. Then per other country with provinces and at least one whole spy (level >= 1000) in the target: **`actor->IsFriend(other, true)`** (0x4EF7C0 - alliance, faction, overlord, war together, or military access) - a friend's spies are skipped in a foreign target, and at home skipped unless CSpyPresence::IsHostileMission, which adds 1000000 to the chance; times `1000 - target->MODIFIER_ESPIONAGE_BONUS` (modifier 42, +0x150 - read off the TARGET, so it LOWERS the chance); times NO_MISSION_SPY_DETECTION_MULTIPLIER (+0x3C) when none of that country's nine missions is set. Roll: `(MT19937 % 1000) < chance` through 0xAA2FD0, then a flat `(MT19937 % 100) < 10` through 0xAA2F80. On success the caught country loses exactly 1000 of level (one spy), floored at 0; the actor's spiescaught rises when target==actor. **Messages**: actor the player -> `SPIESFOUNDUS`, variables BuildMessageVariables(player) + WHERE = CountryNameOfCountry(the caught spies' owner), tags (actor, owner) - its text names $COUNTRY$, the player's own country, as where the spy was caught even in the foreign arm; else the caught owner the player -> `SPIESFOUNDTHEM`, WHERE = CountryNameOfCountry(target), tags (player, actor). Both types are log=no popup=no in TFH's messagetypes.txt. Signature corrected 2026-10-02 by the signature audit (reversing/findings/FINDINGS-sigaudit.md).\n\n**The only reader of either modifier in the image** (2026-10-14, reversing/findings/FINDINGS-occupation.md section F). Every load of a values pointer in .text - a country's +0xDA8, a province's +0x114, any CModifier's +0x18 - followed forward through register copies and stack spills reaches +0x1B8 and +0x150 here and nowhere else; no indexed read (`[values + reg*8]`) has 42 or 55 in its index; and no immediate 42 or 55 reaches a CModifier slot but the espionage screen's tooltip (0x620498, slot 9 of the player's country modifier with kind 55, the delayed half of `value_spies_caught`). So `counter_espionage` (key token 0x4EB) acts in the home arm and nowhere else - the arm a country's own record runs twice a day, from RunDailyMissions and from DailyEspionagePass's direct call - and `espionage_bonus` (0x4C4) only here, off the country the spies are in, never off their owner. Both definitions are percent and more-is-better (InitModifierDefinitions pushes 1, 1), so a positive value of either is written green.",
+   "confidence": "confirmed",
+   "evidence": "Re-read on the listing 0x52E3A0..0x52E786: [ebp-0x18] = CountryOf(arg 2, the actor) at 0x52E3D0, [ebp-0x2C] = CountryOf(arg 3, the target) at 0x52E3D8; `cmp ebx(actor id), [edi+4](target id); jne` at 0x52E476 guards `add edx, [[actor+0xDA8]+0x1B8]` at 0x52E484; `mov ecx, [[target+0xDA8]+0x150]; mov eax, 1000; sub eax, ecx; imul edi` at 0x52E6BD..0x52E6D0; the caught record is `other->espionage[target id]` (0x52E741..0x52E755). Callers: findRefs --callers 0x52E3A0 gives 0x4FFEA8 (own record, own tag twice) and 0x5300B7 (RunDailyMissions, actor and target by address). The census: a resumed sweep of .text (3,084,651 instructions, 923 resumes) and a forward register trace from every `mov r, [x+0xDA8|0x114|0x18]`; positive controls found by the same trace: RunMilitaryEspionage's +0x1D8/+0x1E0 (0x52FDE1, 0x52FDE7), 0x89F607/0x89F64C, and CSpyPresence_GetIntelFactor's +0x1B0 (0x52D6B2); the province form gives 159 hits. Would be wrong if a values pointer reached a reader as a function argument the trace does not follow, which no indexed read and no immediate site suggests.",
+   "revises": "Comment extended with the census of readers of modifiers 55 and 42 and their tooltip flags; the reading of the arithmetic is unchanged and re-confirmed. Source stays FINDINGS-espionage.md."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CModifierDefinition",
+   "offset": "0x20",
+   "name": "token",
+   "type": "SaveToken",
+   "comment": "The key a modifier block writes, as a save token: InitModifierDefinitions pushes it for all 108 file kinds (`espionage_bonus` 0x4C4, `counter_intelligence` 0x4EA, `counter_espionage` 0x4EB) and InitMissionEfficiencyModifiers writes the order's token for the 32 mission efficiencies (0x583997). CModifier::LoadKey matches a key against it, first match by position in the definition vector. Renamed 2026-10-14 from order_token, which described the 32 alone. See reversing/findings/FINDINGS-occupation.md, section F.",
+   "evidence": "CModifierDefinition_Construct (0x456D50) stores its token argument at +0x20; every InitModifierDefinitions block pushes a token the compiled table names (`push 0x4eb` 'counter_espionage' at 0x4581AD, `push 0x6be` 'dissent' at 0x457DAE); CModifier::LoadKey's loop `cmp [esi+0x20], edx` at 0x459686 compares it with the key. Would be wrong if a definition's +0x20 were rewritten after construction for file kinds, which no store found shows.",
+   "revises": "Name order_token -> token and type int -> SaveToken: the field holds the script key's token on every definition, not only the 32 mission efficiencies, and the old comment's 'not checked' is now checked."
+  },
+  {
+   "struct": "CModifierValues",
+   "offset": "0x150",
+   "name": "ESPIONAGE_BONUS",
+   "type": "CModifierEntry",
+   "comment": "modifier 42, script key `espionage_bonus` (token 0x4C4), percent and more-is-better, displayed 'Espionage bonus' (TFH interface.csv; BlackICE relabels it 'Domestic Counterespionage Difficulty'). Its one reader in the image is CSpyPresence::CatchSpies at 0x52E6C3, off the country the spies are in: every catch there is multiplied by (1000 - this)/1000, so a positive value makes spies in the holder's own country harder to catch, by anyone, and does nothing for the holder's spies abroad. Named in BiceLib/GameClasses/CModifier.hpp. See reversing/findings/FINDINGS-occupation.md, section F.",
+   "evidence": "The forward trace from every values-pointer load reaches +0x150 only at 0x52E6C3 (`mov ecx, [[target+0xDA8]+0x150]`, target = CountryOf(arg 3) at 0x52E3D8); no indexed read has 42 in its index and no immediate 42 reaches a CModifier slot or getter. The flags are the two `push 1` at 0x457D43/0x457D45. Would be wrong if a reader took the values pointer as an argument from elsewhere.",
+   "revises": "Comment only: the key, the flags, the display names and the one reader with its sign. Name and type unchanged."
+  },
+  {
+   "struct": "CModifierValues",
+   "offset": "0x1B8",
+   "name": "COUNTER_ESPIONAGE",
+   "type": "CModifierEntry",
+   "comment": "modifier 55, script key `counter_espionage` (token 0x4EB), percent and more-is-better, displayed 'Counterespionage'. Its one reader in the image is CSpyPresence::CatchSpies at 0x52E484, in the home arm only (actor == target): added to SPY_DETECTION_CHANCE before everything else, so a total of +0.1 doubles the base 0.1, and a total of -0.1 (free_press alone) brings it to nought and lower makes it negative - either way no roll then passes, except for a friend's hostile spies, whose +1000000 still does. It does nothing to spies abroad, the holder's or anyone's. The espionage screen lists its sources under `value_spies_caught` (0x620498). Named in BiceLib/GameClasses/CModifier.hpp. See reversing/findings/FINDINGS-occupation.md, section F.",
+   "evidence": "The forward trace from every values-pointer load reaches +0x1B8 only at 0x52E484 (`add edx, [[actor+0xDA8]+0x1B8]`, guarded by `cmp ebx, [edi+4]; jne` at 0x52E476); the only immediate 55 at a CModifier slot is `push 0x37` before `call [vftable+0x24]` at 0x620498. The flags are the two `push 1` at 0x458197/0x458199. Would be wrong if a reader took the values pointer as an argument from elsewhere.",
+   "revises": "Comment only: the key, the flags, the one reader with its sign and arm, and the screen site. Name and type unchanged."
+  }
+ ],
+ "vftable_slots": {"CModifier": {"4": "LoadKey"}},
+ "slots_noted": "CModifier::LoadKey (0x459620) is slot 4 of CModifier and is inherited unchanged at slot 4 by CFactionModifier, CNullStrategicResource, CProvinceModifier, CStaticModifier and CStrategicResource (vtable.py --holding); the one record on CModifier names it for the classes below, so they are not recorded one by one.",
+ "frontier": []
+}
