@@ -232,7 +232,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CMessageHandlerInterface` | `CReferenceObject` |  |  |  |  |  |  | RTTI |  |
 | `CMessageType` | `CPersistent` | 0x38 | 9 | 1/7 | 2 |  | 185 | read |  |
 | `CMilitaryAccessAction` | `CDiplomaticAction` |  |  | 5/6 | 9 |  | 2 | RTTI |  |
-| `CMilitaryConstruction` | `CConstruction` |  | 13 + 1 lua | 4/8 | 10 | CConstruction.hpp | 805 | read |  |
+| `CMilitaryConstruction` | `CConstruction` |  | 13 + 1 lua | 4/8 | 11 | CConstruction.hpp | 805 | read |  |
 | `CMoveOrder` | `COrder` |  |  | 5/10 | 6 |  |  | RTTI |  |
 | `CNap` | `CRelation` | 0x30 | 3 |  | 5 |  | 13 | keys |  |
 | `CNapAction` | `CDiplomaticAction` |  |  | 5/6 | 9 |  | 904 | RTTI |  |

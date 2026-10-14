@@ -398,6 +398,76 @@ others were not worked through. And the two
 lines whose price differs at a later save are in countries where something else was finished
 in between - a building or a convoy, which prices every line again too.
 
+## 10. `historical_model` on a queued brigade
+
+Read 2026-10-14, after the maintainer saw a queued Bismarck (`GER_Bismarck_build.txt`,
+`historical_model = 4`) come out with technology levels that were not its model's.
+
+A brigade of a queued line takes `model = { ... }` or `historical_model = N`, and
+`CBrigadeConstructionDefinition::LoadKey` (`0x482DD0 / 0x82DD0`) puts **both into the
+same model list**, `+0x44`, which `MakeDefinition` (section
+2) later pairs with the brigade's technologies **by position**. `model` is read in as
+written. `historical_model` is turned into a list (the arm at `0x482F7E`):
+
+    n     = atoi(value)
+    set   = the definition's country's models for the brigade's type
+    if n is out of the set's range, or set[n] is null:  nothing     ; the list stays as it was
+    empty the list
+    for each technology of the type, in the type's order:
+        if the model has an entry for it:  append that entry's level
+        otherwise:                          append nothing
+
+**A technology the model leaves out gets no place in the list.** Every level after it
+moves up a place, so the brigade is built with each of those levels on the technology
+before the one the model named, and the type's last technologies get none. On the map
+the same model is applied technology by technology (`CHistoricalModel::ApplyTo`,
+`FINDINGS-unitstart.md`, section 4), so a unit an order of battle places is right where
+the same unit queued is not.
+
+A default model lists every technology of its type (`FINDINGS-unitstart.md`, section 5) and
+is never affected. A model from `units/models` holds only what its file names. **BlackICE's
+model files name only a few technologies each, by design** - `light_bomber.3 = {
+light_bomber_design = 4 }` - which is right on the map and wrong in the queue: of the
+mod's 118,791 file models, 118,147 leave something of their type out (*measured*,
+2026-10-14).
+
+**Whose model.** The definition's own tag, `+0x8/+0xC`, given it when its block is read
+from the line's `+0x48/+0x4C`. A line starts with the null tag
+(`CMilitaryConstruction::CMilitaryConstruction`, `0x483E10 / 0x83E10`), and `CCountry::LoadKey` calls
+`CCountry::EnqueueConstruction` - which copies the owning country's tag in - **before**
+the block is read, so a file with no `country` key takes the country the `load_oob` runs
+for, and a `country` key overrides it for the brigades that follow it.
+
+*Measured*, the positive control: a BlackICE savegame of 22 January 1945 has three Soviet
+`armor_brigade` lines queued by `history/units/SOV/Tank_Corps_1_1943_Feb_build.txt` with
+`historical_model = 5`. Each line's model list in the save is **`6 1 1`** - three levels,
+for a type of 53 technologies - which is `SOV_Armor.txt`'s `armor_brigade.5`
+(`armor_brigade_design = 6`, `armor_sloped_design = 1`, `T_34_tech = 1`) taken in the
+type's order. By position they go to `armor_brigade_design` (right), and
+`gasoline_engine_design` and `diesel_engine_design` (each the 1 meant for another
+technology); the sloped armour and the T-34 get nothing. Two lines of
+`Sturm_Pionier_Batallion_52_53.txt` in a 1942 save agree the same way.
+
+The Bismarck: `BB_Bismarck.4` in `GER_Uniques.txt` names 40 of the type's 41
+technologies, and the one it leaves out, `Capital_Ship_Building_Technologies`, is the
+type's **first**. So every level of the ship moves up a place - battleship technology
+gets 1 where the model says 3, armament 1 where it says 4 - and the last technology,
+`night_combat_training`, gets none.
+
+**BiceLib mends it at the source** (`fixQueuedHistoricalModel`, 2026-10-14), because the
+other mend - having each model name every technology of its type - is not neutral:
+`CHistoricalModel::PickBestModel` scores a model only over the entries it has, so padding
+models with zeros would change which model a unit is given, and so its name and numeral.
+The patch replaces the five bytes at `0x483020` (`cmp eax, [esi+0x18]; jae 0x482FF1`, the
+end of the search through the model's entries) with a jump to a stub that makes the same
+test and, where the model has no entry for the technology, points `esi` at a zeroed entry
+and jumps to the append at `0x48302E`, which reads the level from `[esi+4]`. So a
+technology the model leaves out gets a 0 in its place - what `ApplyTo` gives it on the map -
+and the list is as long as the type's technologies. Nothing else jumps into those five
+bytes, the outer loop reloads `esi` before every search (`0x48301C`) and the function's exit
+pops it, so the stub may change it. **Whether a queued line then builds every level in its
+place has not been seen in a running game.**
+
 ## What is not established
 
 - **The upgrade arm of `RecalculateCost`** beyond its three defines: what makes a line an
@@ -426,3 +496,10 @@ in between - a building or a convoy, which prices every line again too.
 Entered in `ghidra/project.json` by `fragments/merged/buildqueue.json`: fifteen new
 functions, six revised, and five struct fields, one of them a revision that matters to the
 DLL - `CBrigadeConstructionDefinition +0x44` is a `CList<int>`, not a vector of ints.
+Section 10 by `fragments/merged/queued-historical-model.json`: one function new
+(`CMilitaryConstruction::CMilitaryConstruction`), one revised
+(`CBrigadeConstructionDefinition::LoadKey`, what `historical_model` does), and the
+`LoadKey` slot of `CBrigadeConstructionDefinition`'s table. The patch by
+`fragments/merged/queued-historical-model-patch.json`: the site
+(`Patch_QueuedHistoricalModel`, `0x83020`), and `LoadKey` revised to note it and to put the
+`historical_model` arm at `0x482F7E`, where the record had printed `0x582F7E`.

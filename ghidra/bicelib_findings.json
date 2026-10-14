@@ -62026,7 +62026,7 @@
    "namespace": "CBrigadeConstructionDefinition",
    "name": "LoadKey",
    "confidence": "CERTAIN",
-   "evidence": "**The keys its switch names**, 7 of them, one case each: `experience`, `historical_model`, `id`, `model`, `name`, `upgrading_from_subunit`, `upgrading_from_subunit_str`. Read from the switch by reversing/scripts/definitions.py. A loader may resolve further keys as names out of a database - CGovernment and CMinister both do - but anything that is neither is dropped in silence.\n(reversing/findings/FINDINGS-definitions.md)\n\nSlot 4 of CPersistent, this class's own: the RTTI export says CBrigadeConstructionDefinition introduced the implementation at this address. See GameClasses/CPersistent.hpp for what the five do.",
+   "evidence": "**The keys its switch names**, 7 of them, one case each: `experience`, `historical_model`, `id`, `model`, `name`, `upgrading_from_subunit`, `upgrading_from_subunit_str`. Read from the switch by reversing/scripts/definitions.py. A loader may resolve further keys as names out of a database - CGovernment and CMinister both do - but anything that is neither is dropped in silence.\n\n**`model` and `historical_model` both fill the model list at +0x44**, the list CBrigadeConstructionDefinition::MakeDefinition later hands out **by position**. `model` (token 0x45C) reads the block straight into it through 0x40A3C0. `historical_model` (token 0x513, the arm at 0x482F7E) does this:\n\n    n     = atoi(value)                                              ; 0xB969F1\n    set   = countries[this->country.id (+0xC)]->+0x48[this->Type (+0x34)->+0x24]\n    if n < 0 or n >= set.count or set[n] == null: return            ; the line keeps what it had\n    CList_FreeAndClear(this->model)                                  ; 0x50D1E0\n    for each technology of the type, in order (Type->technologies, +0x44..+0x48):\n        find the model's 12-byte entry (+0x14..+0x18) for that technology\n        if found: append its level to this->model\n        else:     append nothing\n\nSo **a technology the model does not name gets no place in the list**, and every level after it moves up one place: built by position, a queued brigade takes each level onto the technology before the one the model named, and the type's last technologies get none. A model from a file holds only what the file names (CSubUnitDataBase::BuildHistoricalModels), so this bites every file model that leaves a technology of its type out; a default model has every technology and does not. On the map the same model is applied by technology (CHistoricalModel::ApplyTo), so a unit placed by an order of battle is right where a queued one is not. The country is the definition's own tag (+0x8/+0xC), which the line gave it when the brigade's block was read: the `country` the file names, or the country the line is enqueued for (CCountry::EnqueueConstruction writes it before the block is read).\n\n**BiceLib's fixQueuedHistoricalModel changes this loop** (Patch_QueuedHistoricalModel, 0x483020): a technology the model does not name gets a 0 in its place instead of no place, so the list is as long as the type's technologies and nothing shifts.\n(reversing/findings/FINDINGS-buildqueue.md)\n\nSlot 4 of CPersistent, this class's own: the RTTI export says CBrigadeConstructionDefinition introduced the implementation at this address. See GameClasses/CPersistent.hpp for what the five do.",
    "signature": {
     "convention": "__thiscall",
     "return": "void",
@@ -62217,6 +62217,26 @@
     "return": "int",
     "hiddenReturn": false,
     "params": []
+   },
+   "labels": []
+  },
+  {
+   "rva": 540176,
+   "namespace": "CMilitaryConstruction",
+   "name": "CMilitaryConstruction",
+   "confidence": "CERTAIN",
+   "evidence": "**The constructor of a queued line**, 0xAC bytes, `this` in eax and returned in it, bare `ret`. It writes the base's vftable 0x15C3AE4 and meta 0x18D, the null id pair from 0x1A8CC94/0x1A8CC98 at +0x8/+0xC, and then CMilitaryConstruction's own vftable 0x15BDC34; **the country at +0x48/+0x4C and the builder at +0x50/+0x54 start as `---` and 0**, location (+0x44) 0, practical factor (+0x3C) and reserves factor (+0x9C) and +0xA0 1000, +0x40 1, the brigade list (+0x7C..+0x88) and the name (+0x60) empty. So a line knows no country until CCountry::EnqueueConstruction, which CCountry::LoadKey calls at 0x4CCFD2 before the block is read, copies the owning country's tag into +0x48/+0x4C; a `country` in the block then overrides it. The name is ours, from the vftable.\n(reversing/findings/FINDINGS-buildqueue.md)",
+   "signature": {
+    "convention": "__fastcall",
+    "return": "CMilitaryConstruction*",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "this",
+      "type": "CMilitaryConstruction*",
+      "storage": "EAX"
+     }
+    ]
    },
    "labels": []
   },
@@ -167510,6 +167530,15 @@
    "type": null
   },
   {
+   "rva": 536608,
+   "namespace": "",
+   "name": "Patch_QueuedHistoricalModel",
+   "kind": "instruction",
+   "confidence": "CERTAIN",
+   "evidence": "**A BiceLib patch site.** `cmp eax, [esi+0x18]; jae 0x482FF1` - in CBrigadeConstructionDefinition::LoadKey's `historical_model` arm, the end of the search through the model's 12-byte entries for one technology of the unit type; the `jae` is what skips a technology the model does not name, so the levels after it shift in the line's list. fixQueuedHistoricalModel writes a 5-byte `jmp` over the two instructions to a stub that repeats the test, goes on to 0x483025 if an entry is left, and otherwise points esi at a zeroed entry and jumps to the append at 0x48302E, which reads the level from [esi+4] - so the technology gets level 0, what CHistoricalModel::ApplyTo gives it on the map. esi is free to change: the outer loop reloads it from [esp+0xc] at 0x48301C before every search and the function's exit at 0x482E25 pops it.\n(BiceLib/Hooks/HookedPatches.cpp)",
+   "type": null
+  },
+  {
    "rva": 573314,
    "namespace": "",
    "name": "ClimateBitmapSample",
@@ -188223,7 +188252,7 @@
      "named": true,
      "typed": true,
      "own": true,
-     "comment": "slot 4, 00482DD0"
+     "comment": "slot 4, 00482DD0 - named by BiceLib"
     },
     {
      "slot": 5,

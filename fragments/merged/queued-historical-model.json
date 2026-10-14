@@ -1,0 +1,32 @@
+{
+ "agent": "main session, 2026-10-14, for BlackICE's validator after the maintainer saw a queued Bismarck built with the wrong technology levels",
+ "question": "What does `historical_model = N` do on a brigade of a queued line (a `military_construction` in an order of battle), and where does the country whose model it is come from?",
+ "source": "reversing/findings/FINDINGS-buildqueue.md",
+ "addresses": [
+  {
+   "rva": "0x82DD0",
+   "kind": "function",
+   "name": "CBrigadeConstructionDefinition::LoadKey",
+   "signature": "void __thiscall CBrigadeConstructionDefinition::LoadKey(CBrigadeConstructionDefinition* this, CParseContext* parse, SaveToken key)",
+   "no_signature": null,
+   "comment": "**The keys its switch names**, 7 of them, one case each: `experience`, `historical_model`, `id`, `model`, `name`, `upgrading_from_subunit`, `upgrading_from_subunit_str`. Read from the switch by reversing/scripts/definitions.py. A loader may resolve further keys as names out of a database - CGovernment and CMinister both do - but anything that is neither is dropped in silence.\n\n**`model` and `historical_model` both fill the model list at +0x44**, the list CBrigadeConstructionDefinition::MakeDefinition later hands out **by position**. `model` (token 0x45C) reads the block straight into it through 0x40A3C0. `historical_model` (token 0x513, the arm at 0x582F7E) does this:\n\n    n     = atoi(value)                                              ; 0xB969F1\n    set   = countries[this->country.id (+0xC)]->+0x48[this->Type (+0x34)->+0x24]\n    if n < 0 or n >= set.count or set[n] == null: return            ; the line keeps what it had\n    CList_FreeAndClear(this->model)                                  ; 0x50D1E0\n    for each technology of the type, in order (Type->technologies, +0x44..+0x48):\n        find the model's 12-byte entry (+0x14..+0x18) for that technology\n        if found: append its level to this->model\n        else:     append nothing\n\nSo **a technology the model does not name gets no place in the list**, and every level after it moves up one place: built by position, a queued brigade takes each level onto the technology before the one the model named, and the type's last technologies get none. A model from a file holds only what the file names (CSubUnitDataBase::BuildHistoricalModels), so this bites every file model that leaves a technology of its type out; a default model has every technology and does not. On the map the same model is applied by technology (CHistoricalModel::ApplyTo), so a unit placed by an order of battle is right where a queued one is not. The country is the definition's own tag (+0x8/+0xC), which the line gave it when the brigade's block was read: the `country` the file names, or the country the line is enqueued for (CCountry::EnqueueConstruction writes it before the block is read).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-buildqueue.md",
+   "revises": true,
+   "evidence": "Read off the bytes, 0x482F7E..0x483075: `call 0xb969f1` on parse+0x22c; `mov edx,[0x1a855a4]; mov edx,[edx+0x16c]; mov ecx,[edx+ecx*4]` with ecx = [ebx+0xc] (the country by id); `mov ecx,[ecx+0x48]; mov edx,[ebx+0x34]; mov edx,[edx+0x24]; mov ecx,[ecx+edx*4]` (the set by the type's index); `cmp eax,ecx; jge` and `test eax,eax; js` for the range, `test eax,eax; je` for a null model; `lea edi,[ebx+0x44]; call 0x50d1e0`; the outer walk over [Type+0x44]..[Type+0x48] in 4-byte steps, the inner over the model's [+0x14]..[+0x18] in 0xC steps comparing the entry's first dword with the technology, and only the found arm reaching the `push 0x10; call 0xb9602f` node append of [esi+4] at 0x48302E; the not-found arm `jae 0x482ff1` goes back to the outer loop. Positive control, measured: a BlackICE savegame of 22 January 1945 holds three Soviet armor_brigade lines queued by history/units/SOV/Tank_Corps_1_1943_Feb_build.txt with historical_model = 5, and each model list in the save is `6 1 1` - three levels for a type of 53 technologies, exactly SOV_Armor.txt's armor_brigade.5 (armor_brigade_design 6, armor_sloped_design 1, T_34_tech 1) taken in the type's order; two lines of Sturm_Pionier_Batallion_52_53.txt in a 1942 save agree the same way. What would show it wrong: a queued line from a sparse model saved with a list as long as its type's technologies."
+  },
+  {
+   "rva": "0x83E10",
+   "kind": "function",
+   "name": "CMilitaryConstruction::CMilitaryConstruction",
+   "signature": "CMilitaryConstruction* __fastcall CMilitaryConstruction::CMilitaryConstruction(CMilitaryConstruction* this@EAX)",
+   "no_signature": null,
+   "comment": "**The constructor of a queued line**, 0xAC bytes, `this` in eax and returned in it, bare `ret`. It writes the base's vftable 0x15C3AE4 and meta 0x18D, the null id pair from 0x1A8CC94/0x1A8CC98 at +0x8/+0xC, and then CMilitaryConstruction's own vftable 0x15BDC34; **the country at +0x48/+0x4C and the builder at +0x50/+0x54 start as `---` and 0**, location (+0x44) 0, practical factor (+0x3C) and reserves factor (+0x9C) and +0xA0 1000, +0x40 1, the brigade list (+0x7C..+0x88) and the name (+0x60) empty. So a line knows no country until CCountry::EnqueueConstruction, which CCountry::LoadKey calls at 0x4CCFD2 before the block is read, copies the owning country's tag into +0x48/+0x4C; a `country` in the block then overrides it. The name is ours, from the vftable.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-buildqueue.md",
+   "evidence": "The whole body, 0x483E10..0x483EEC, read: `mov dword [eax+0x48],0x2d2d2d` ('---'), `mov dword [eax+0x4c],ecx` with ecx = 0, the same pair at +0x50/+0x54, and `mov dword [eax],0x15bdc34` - the address the RTTI export (hoi3.classes) gives as CMilitaryConstruction's vftable, 21 slots. Its one call seen, 0x4CCFC3 in CCountry::LoadKey after `push 0xac; call operator_new`, matches the size. What would show it wrong: another vftable written after 0x15BDC34, or a caller passing a tag on the stack - there is no stack argument and no `ret N`."
+  }
+ ],
+ "struct_fields": [],
+ "vftable_slots": {"CBrigadeConstructionDefinition": {"4": "LoadKey"}}
+}

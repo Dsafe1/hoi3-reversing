@@ -1,0 +1,36 @@
+{
+ "agent": "main session, 2026-10-14, for BiceLib's fixQueuedHistoricalModel",
+ "question": "Where can BiceLib make `historical_model` on a queued line list a level for every technology of the type, and is the site safe to replace?",
+ "source": "reversing/findings/FINDINGS-buildqueue.md",
+ "addresses": [
+  {
+   "rva": "0x82DD0",
+   "kind": "function",
+   "name": "CBrigadeConstructionDefinition::LoadKey",
+   "signature": "void __thiscall CBrigadeConstructionDefinition::LoadKey(CBrigadeConstructionDefinition* this, CParseContext* parse, SaveToken key)",
+   "no_signature": null,
+   "comment": "**The keys its switch names**, 7 of them, one case each: `experience`, `historical_model`, `id`, `model`, `name`, `upgrading_from_subunit`, `upgrading_from_subunit_str`. Read from the switch by reversing/scripts/definitions.py. A loader may resolve further keys as names out of a database - CGovernment and CMinister both do - but anything that is neither is dropped in silence.\n\n**`model` and `historical_model` both fill the model list at +0x44**, the list CBrigadeConstructionDefinition::MakeDefinition later hands out **by position**. `model` (token 0x45C) reads the block straight into it through 0x40A3C0. `historical_model` (token 0x513, the arm at 0x482F7E) does this:\n\n    n     = atoi(value)                                              ; 0xB969F1\n    set   = countries[this->country.id (+0xC)]->+0x48[this->Type (+0x34)->+0x24]\n    if n < 0 or n >= set.count or set[n] == null: return            ; the line keeps what it had\n    CList_FreeAndClear(this->model)                                  ; 0x50D1E0\n    for each technology of the type, in order (Type->technologies, +0x44..+0x48):\n        find the model's 12-byte entry (+0x14..+0x18) for that technology\n        if found: append its level to this->model\n        else:     append nothing\n\nSo **a technology the model does not name gets no place in the list**, and every level after it moves up one place: built by position, a queued brigade takes each level onto the technology before the one the model named, and the type's last technologies get none. A model from a file holds only what the file names (CSubUnitDataBase::BuildHistoricalModels), so this bites every file model that leaves a technology of its type out; a default model has every technology and does not. On the map the same model is applied by technology (CHistoricalModel::ApplyTo), so a unit placed by an order of battle is right where a queued one is not. The country is the definition's own tag (+0x8/+0xC), which the line gave it when the brigade's block was read: the `country` the file names, or the country the line is enqueued for (CCountry::EnqueueConstruction writes it before the block is read).\n\n**BiceLib's fixQueuedHistoricalModel changes this loop** (Patch_QueuedHistoricalModel, 0x483020): a technology the model does not name gets a 0 in its place instead of no place, so the list is as long as the type's technologies and nothing shifts.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-buildqueue.md",
+   "revises": true,
+   "evidence": "Revised 2026-10-14 for two things only: the arm's address was printed as 0x582F7E where the bytes put it at 0x482F7E (the `call 0xb969f1` on parse+0x22c is at 0x482F87), and the BiceLib patch now in this loop is noted. The reading itself is unchanged: Read off the bytes, 0x482F7E..0x483075: `call 0xb969f1` on parse+0x22c; `mov edx,[0x1a855a4]; mov edx,[edx+0x16c]; mov ecx,[edx+ecx*4]` with ecx = [ebx+0xc] (the country by id); `mov ecx,[ecx+0x48]; mov edx,[ebx+0x34]; mov edx,[edx+0x24]; mov ecx,[ecx+edx*4]` (the set by the type's index); `cmp eax,ecx; jge` and `test eax,eax; js` for the range, `test eax,eax; je` for a null model; `lea edi,[ebx+0x44]; call 0x50d1e0`; the outer walk over [Type+0x44]..[Type+0x48] in 4-byte steps, the inner over the model's [+0x14]..[+0x18] in 0xC steps comparing the entry's first dword with the technology, and only the found arm reaching the `push 0x10; call 0xb9602f` node append of [esi+4] at 0x48302E; the not-found arm `jae 0x482ff1` goes back to the outer loop. Positive control, measured: a BlackICE savegame of 22 January 1945 holds three Soviet armor_brigade lines queued by history/units/SOV/Tank_Corps_1_1943_Feb_build.txt with historical_model = 5, and each model list in the save is `6 1 1` - three levels for a type of 53 technologies, exactly SOV_Armor.txt's armor_brigade.5 (armor_brigade_design 6, armor_sloped_design 1, T_34_tech 1) taken in the type's order; two lines of Sturm_Pionier_Batallion_52_53.txt in a 1942 save agree the same way. What would show it wrong: a queued line from a sparse model saved with a list as long as its type's technologies."
+  },
+  {
+   "rva": "0x83020",
+   "kind": "instruction",
+   "name": "Patch_QueuedHistoricalModel",
+   "signature": null,
+   "no_signature": null,
+   "comment": "**A BiceLib patch site.** `cmp eax, [esi+0x18]; jae 0x482FF1` - in CBrigadeConstructionDefinition::LoadKey's `historical_model` arm, the end of the search through the model's 12-byte entries for one technology of the unit type; the `jae` is what skips a technology the model does not name, so the levels after it shift in the line's list. fixQueuedHistoricalModel writes a 5-byte `jmp` over the two instructions to a stub that repeats the test, goes on to 0x483025 if an entry is left, and otherwise points esi at a zeroed entry and jumps to the append at 0x48302E, which reads the level from [esi+4] - so the technology gets level 0, what CHistoricalModel::ApplyTo gives it on the map. esi is free to change: the outer loop reloads it from [esp+0xc] at 0x48301C before every search and the function's exit at 0x482E25 pops it.",
+   "confidence": "confirmed",
+   "source": "BiceLib/Hooks/HookedPatches.cpp",
+   "evidence": "Read off the bytes 0x482FF1..0x483075: `3b 46 18` cmp eax,[esi+0x18]; `73 cc` jae 0x482ff1; `8b f0` mov esi,eax at 0x483025; the append from `8b 5f 04` mov ebx,[edi+4] at 0x48302E through `mov ecx,[esi+4]; mov [eax],ecx` at 0x48303F, both of whose loop ends `jmp 0x482ff1`. A scan of every branch in the function (0x482DD0 on) found none landing in 0x483021..0x483024, so the five bytes can be replaced whole. What would show it wrong: a queued line from a sparse model still saved with a list shorter than its type's technologies while the patch is active, which only a running game can produce."
+  }
+ ],
+ "struct_fields": [],
+ "vftable_slots": {
+  "CBrigadeConstructionDefinition": {
+   "4": "LoadKey"
+  }
+ }
+}
