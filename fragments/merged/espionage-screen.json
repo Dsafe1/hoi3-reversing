@@ -1,0 +1,633 @@
+{
+ "agent": "espionage wave, reader D (the screen)",
+ "question": "The espionage screen country_espionage: its view class, construction, Show, Update; the country list, tabs and sorts; own_country_info; country_info with what it hides at which level of knowledge; the sections; every command it posts; every tooltip.",
+ "source": "reversing/findings/FINDINGS-espionage.md",
+ "structs": [
+  {
+   "name": "CEspionageView",
+   "size": "0x37C",
+   "inherits": "CCountryView",
+   "vftable_rva": "0x11CC10C",
+   "comment": "The intelligence screen: country view index 4 (the fifth view the in-game screen makes; CCountryView view_index 4), main window `country_espionage`, second window `topcolor_espionage`. See reversing/findings/FINDINGS-espionage.md, section D.",
+   "evidence": "`push 0x37C; call operator_new` at 0x659C5D immediately before the one call of CEspionageView::CEspionageView (0x659C7A); the constructor writes vftable 0x15CC10C at 0x61EB87 and its last stores are +0x370/+0x374/+0x378 (0x61F000-0x61F00C); RTTI gives CEspionageView the single base CCountryView at offset 0. Wrong if a store past +0x37B turns up in the view's code (0x61C800-0x62EF70)."
+  },
+  {
+   "name": "CSpyMissionEntry",
+   "size": "0x90",
+   "vftable_rva": "0x11CC14C",
+   "comment": "One row of spy_missions (the chosen country) or our_spy_missions (the played country): window `spy_mission_entry`, one spy mission of one target. RTTI base CStandardlistboxItem at 0, a second table at +0x1C (0x15CC184). See reversing/findings/FINDINGS-espionage.md, D.5.",
+   "evidence": "`push 0x90; call operator_new` before both constructor calls (0x623A4B, 0x623CF7); vftable 0x15CC14C written by the constructor 0x61E460."
+  },
+  {
+   "name": "CForeignMinisterItem",
+   "size": "0x38",
+   "vftable_rva": "0x11CC31C",
+   "comment": "One row of minister_list1/2 in the espionage screen's Ministers section: window `foreign_minister_entry`, one government post of the chosen country. RTTI base CStandardlistboxItem at 0, a second table at +0x1C (0x15CC354). See reversing/findings/FINDINGS-espionage.md, D.6.",
+   "evidence": "`push 0x38; call operator_new` before both constructor calls in CEspionageView::OnViewMinisters (0x62C78E, 0x62C92E); RTTI vftable 0x15CC31C."
+  }
+ ],
+ "addresses": [
+  {
+   "rva": "0x21EAE0", "kind": "function", "name": "CEspionageView::CEspionageView",
+   "signature": "CEspionageView* __stdcall CEspionageView::CEspionageView(CEspionageView* this@stack:4, CInGameIdler* idler@stack:8) @EAX", "no_signature": null,
+   "comment": "The constructor: CCountryView::CCountryView(this, idler, `country_espionage`, `topcolor_espionage`, view_index 4), vftable 0x15CC10C, fourteen button glues (+0xD8 sort by name .. +0x344 Ministers tab; the handlers are in the struct record), the sort handler +0x1E0 = OnSortByName, the list handler +0x1E4 = ListAll, the direction byte +0x1F0 = 1, the selected tag '---'/0, +0x370 = 0, +0x374 = +0x378 = -1. **The first chosen country is the one the played country feels most threat from**: every country of the database (index 0 up) that owns a province and is not the played one, Diplomacy[c]->threat (+0x5C) compared with `>` against a start of -1000000 - so the first of equals in database order, and at no threat anywhere the first such country. Then BuildWidgets, both windows hidden, country_listbox's slot 14 with 1 and its byte +0x138 cleared. `ret 8`. One caller, 0x659C7A, after `new 0x37C`. See reversing/findings/FINDINGS-espionage.md, D.1.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x61EAE0-0x61F1EF read: the base call 0x61EB4E with push 4; the glue stores 0x61EBBD-0x61EFED; the threat loop 0x61F0A9-0x61F149 (`cmp eax,[ebp-0x10]; jle` keeps the first maximum); `ret 8` at 0x61F1EF."
+  },
+  {
+   "rva": "0x21F200", "kind": "function", "name": "CEspionageView::ScalarDeletingDestructor",
+   "signature": "CEspionageView* __thiscall CEspionageView::ScalarDeletingDestructor(CEspionageView* this, uint flags)", "no_signature": null,
+   "comment": "Slot 1: ~CEspionageView, then free when flags bit 0. `ret 4`.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x61F200-0x61F21E: call 0x61F230, `test byte [ebp+8],1`, free, `ret 4`; vtable.py: slot 1 of 0x15CC10C."
+  },
+  {
+   "rva": "0x21F230", "kind": "function", "name": "CEspionageView::~CEspionageView",
+   "signature": "void __thiscall CEspionageView::~CEspionageView(CEspionageView* this)", "no_signature": null,
+   "comment": "The destructor body (Ghidra's RTTI pass had labelled it a constructor because it writes the vftable): frees the continent-button list (+0xC8), the faction-box list (+0xB8) and the country list (+0x1FC), resets the fourteen glues to CButtonObserver, then the base (0xA7E2E0). Bare ret.",
+   "confidence": "inferred",
+   "evidence": "Decompiled; vftable store at 0x61F25B; bare `ret` at 0x61F487; one caller, slot 1. Inferred because only the decompilation was read past the vftable store."
+  },
+  {
+   "rva": "0x21F490", "kind": "function", "name": "CEspionageView::Update",
+   "signature": "void __thiscall CEspionageView::Update(CEspionageView* this)", "no_signature": null,
+   "comment": "Slot 6, every frame while open (its slot 7). (1) UpdateFactionBoxes, (2) RefreshOwnCountryInfo - both every frame; nothing more without a chosen country (+0x1F8). (3) spies = player.espionage[chosen].level / 1000 (truncated). Where spies differs from +0x374, or MonthRefreshKey() from +0x378: RefreshSpyCount and FillProductionSection - the whole country_info is made again; otherwise only each unit_queue row's slot 8. (4) RefreshSpyMissions. (5) Every country_listbox row's Refresh(row, &chosen, target_priority's frame). (6) attempt_coup_button: **enabled (slot 46) where spies > 0, the played country's covert_ops_points about the chosen one (+0xF4) >= COUP_COVERT_OPS_COST, and CanAttemptCoup(chosen, played); otherwise disabled (slot 47) - never hidden.** (7) covert_ops_value = itoa(covert_ops_points / 1000). See reversing/findings/FINDINGS-espionage.md, D.1.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x61F490-0x61FADF read end to end: IsOpen at 0x61F4BF; the two calls 0x61F4CA/0x61F4D0; the /1000 at 0x61F520; the +0x374/+0x378 tests 0x61F535/0x61F983; the row loop 0x61F641-0x61F6C0; the coup tests 0x61F6C6 (spies > 0), 0x61F6E5 (country +0x88 = COUP_COVERT_OPS_COST), 0x61F709 (CanAttemptCoup) and slot +0xB8 / +0xBC at 0x61F78E / 0x61FA98; covert_ops_value 0x61F85D-0x61F8E3."
+  },
+  {
+   "rva": "0x21FAF0", "kind": "function", "name": "CEspionageView::Show",
+   "signature": "void __thiscall CEspionageView::Show(CEspionageView* this)", "no_signature": null,
+   "comment": "Slot 2, each time the screen opens: shows topcolor_espionage then country_espionage, UpdateAutomationLine (slot 11), FillOwnCountryHeader, RefreshOwnCountryInfo, then **makes the country list again from scratch**: the list handler at +0x1E4 if set, else ListFactionMembers(+0x1E8), else ListContinent(+0x1EC); hides country_info when no country is chosen, else RefreshCountryInfo; tags the main window with the group string `espionage_view`. See reversing/findings/FINDINGS-espionage.md, D.1.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x61FAF0-0x61FC62 read whole."
+  },
+  {
+   "rva": "0x21FCA0", "kind": "function", "name": "CEspionageView::Rebuild",
+   "signature": "bool __thiscall CEspionageView::Rebuild(CEspionageView* this)", "no_signature": null,
+   "comment": "Slot 0: its own slot 4 (Hide), +0x314 = 1, CCountryView::Rebuild; on success BuildWidgets and +0x314 = 0. Answers the base's result.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x61FCA0-0x61FCCD read whole."
+  },
+  {
+   "rva": "0x21FCD0", "kind": "function", "name": "CEspionageView::BuildTooltip",
+   "signature": "GuiTooltipText* __thiscall CEspionageView::BuildTooltip(CEspionageView* this, GuiTooltipText* out, CGuiObject* element) @EAX", "no_signature": null,
+   "comment": "**Slot 10 of CEspionageView (vftable 0x15CC10C): every tooltip of the intelligence screen, by the element's name.** political_popularity_chart: the slice under the mouse (0xAA3270) - the ideology's slot 14 for the chosen country + ' - §Y' + the slice + '%§W', delayed QUALIFIES_FOR_CABINET with COUNT = chosen cabinet (+0x112C)[ideology]. value_spies_caught: ESP_SPIES_CAUGHT, NUM = played spiescaught (+0x11D4); delayed the contributors to the played country's MODIFIER_COUNTER_ESPIONAGE (55) through CModifier slot 9 at scale 1000. foreign_spy_actions_indicator: DETECTED_SPY_ACTIONS alone. value_our_neutrality: ESP_NEUTRALITY, NUM = FormatFloat(effective_neutrality/1000, 0). value_active_spies (the name answers in both windows): ESP_NUM_SPIES with NUM = played spies in the chosen country (level/1000) and NATION, delayed ESP_NUM_SPIES_DELAYED with PRIO = the presence's priority 0..3. The seven resource boxes, ic_number, diplomacy_number, espionage_number, manpower_number, dissent_number, national_unity_number, leadership_number: ESP_ESTIMATE_RES with NUM = **the text the box already shows** and ITEM = GoodName(GoodIndexByShortName(the name up to its '_')), MODIFIER_IC, DISTRIBUTE_DIPLOMACY, DISTRIBUTE_ESPIONAGE, MANPOWER_IRO, DISSENT_IRO, ESP_NATIONAL_UNITY, PV_LEADERSHIP; delayed ESP_ESTIMATE_RES_DELAY. attempt_coup_button: 0x4F7EE0(chosen, out, &played). Rows of spy_missions / our_spy_missions owning the element (row window slot 22): CSpyMissionEntry_BuildTooltip; of minister_list1 / minister_list2: CForeignMinisterItem_BuildTooltip. Nothing else answers. Body 0x21FCD0..0x2225CF: a `ret 8` at 0x2225CD is followed three bytes later by a fresh `push ebp` at 0x2225D0, so the `ret 4` at 0x22269A belongs to the next function - trap 2. See reversing/findings/FINDINGS-espionage.md, D.8.",
+   "confidence": "confirmed",
+   "revises": "Raised from inferred: the signature's types (out is a GuiTooltipText, the second argument the hovered element) and the whole dispatch read on the listing; the old comment's list of keys was right and incomplete.",
+   "evidence": "Listing 0x61FCD0-0x6225CF read branch by branch: the name tests through 0x40C3C0 at 0x620170 .. 0x622308; the out record initialised at [esp+0xF0] and copied with GuiTooltipText::CopyConstruct at 0x6225A6; text appends to [esp+0xFC]/delayed to [esp+0x118] (three pushes pending); `ret 8` at 0x6225CD, eax = out at 0x6225C0. Wrong if an element name test exists that the dump of 0x61FCD0-0x6225D0 does not show."
+  },
+  {
+   "rva": "0x22CF40", "kind": "function", "name": "CEspionageView::ApplyAutomation",
+   "signature": "void __thiscall CEspionageView::ApplyAutomation(CEspionageView* this)", "no_signature": null,
+   "comment": "Slot 14, in place of the base's whole-window greying: ungreys the main window (slot 38 with 1); under 'Ai Control' (the local player's setting for view_index == 1) greys own_priority, country_info and own_country_info and ungreys unit_queue and country_info_sections, otherwise ungreys own_priority, country_info and own_country_info; then every country_listbox row's `priority` button greyed exactly under Ai Control. See reversing/findings/FINDINGS-espionage.md, D.1.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x62CF40-0x62D59A: the `cmp edi, 1` at 0x62CFFF and each slot +0x98 call with push ebx (0) or push 1 (0x62D0BF .. 0x62D3CD); the row loop from 0x62D3E9; bare `ret`."
+  },
+  {
+   "rva": "0x2225D0", "kind": "function", "name": "CEspionageView::SelectCountry",
+   "signature": "void __stdcall CEspionageView::SelectCountry(CCountryTag* country@stack:4, CEspionageView* this@EDI)", "no_signature": null,
+   "comment": "Choosing a country: nothing for the played country; otherwise the tag goes to +0x1F4/+0x1F8 and, for a real id, RefreshCountryInfo. Two callers: a row's OnClicked and ListAll (the owner of the one selected province). `ret 4`.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled and the two call sites read: 0x62B344 `mov edi,[esi+0x34]` (the row's view) with the tag pushed, 0x629E89 the province owner (+0x32C) pushed with edi = the view; `ret 4`."
+  },
+  {
+   "rva": "0x2226A0", "kind": "function", "name": "CEspionageView::BuildWidgets",
+   "signature": "void __fastcall CEspionageView::BuildWidgets(CEspionageView* this@EDI)", "no_signature": null,
+   "comment": "Attaches the glues: sortby_name/threat/covert/spy_level/spy_priority_button (+0xD8, +0x104, +0x130, +0x188, +0x15C), majors/neighbours/unaligned/all_button (+0x238, +0x264, +0x290, +0x20C) - **self_button gets nothing** - button_viewproduction/viewministers (+0x318, +0x344) with frame 1 each, attempt_coup_button (+0x1B4), target_priority (+0x2E8). Then one espionage_faction_box_window per real faction of the game state's list (+0xCE4) at espionage_faction_start + n x espionage_faction_offset, its faction_symbol_button sprite GFX_sort_<key> and label the faction's slot 6; UpdateFactionBoxes; one continent_button `cont_button_<n>` per continent IsContinentListedInDiplomacy accepts, placed from espionage_continent_offset by espionage_continent_start and wrapping at espionage_continent_end; FillSpyMissions, FillOwnSpyMissions, BindOwnCountryInfo. From the constructor and Rebuild. Bare ret.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x6226A0-0x622E4B for the bindings (each `lea edx,[edi+N]; push edx` before the observer's slot 1) and the frame-1 calls 0x622D7F/0x622D8C; faction and continent loops 0x622EA9-0x6238F5 read for the positions and names; the three calls 0x6238FD-0x623908."
+  },
+  {
+   "rva": "0x223930", "kind": "function", "name": "CEspionageView::FillSpyMissions",
+   "signature": "void __fastcall CEspionageView::FillSpyMissions(CEspionageView* this@ESI)", "no_signature": null,
+   "comment": "spy_missions (in country_info) emptied and filled with a CSpyMissionEntry(view, k, &chosen) per mission k = 0..8 in order, by a jump table: 0 and 3 always; 7 only when the chosen country is the played one; 1, 2, 4, 5, 6 and 8 only when it is not. Since the chosen country is never the played one, the rows are counter-espionage, military, tech, boost ruling party, boost our party, lower national unity, increase threat and covert operations - eight, raise national unity missing. Bare ret.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x623A20-0x623A96: `sete al` against +0x1F8, the byte table at 0x623ABF (missions 1..8: 0,0,2,0,0,0,1,0) and the jump table 0x623AB4 (0x623A42 not-equal, 0x623A47 equal, 0x623A4B always); mission 0 takes `ja` past the table."
+  },
+  {
+   "rva": "0x223AD0", "kind": "function", "name": "CEspionageView::RefreshSpyMissions",
+   "signature": "void __thiscall CEspionageView::RefreshSpyMissions(CEspionageView* this)", "no_signature": null,
+   "comment": "Every frame (Update): each spy_missions row's slot 8 (Refresh) while its target is the chosen country; at the first row about another country, FillSpyMissions instead.",
+   "confidence": "inferred",
+   "evidence": "Decompiled; the call to FillSpyMissions at 0x623BDF on the listing. Inferred: the loop was read in the decompilation only."
+  },
+  {
+   "rva": "0x223C00", "kind": "function", "name": "CEspionageView::FillOwnSpyMissions",
+   "signature": "void __stdcall CEspionageView::FillOwnSpyMissions(CEspionageView* this@stack:4)", "no_signature": null,
+   "comment": "our_spy_missions (in own_country_info) emptied and filled with a CSpyMissionEntry(view, k, &played) for k = 0, 3 and 7 only - counter-espionage, boost ruling party, raise national unity. `ret 4`.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x623CDF-0x623D3E: the byte table 0x623D6B (missions 1..8: 0,0,2,0,0,0,1,0) and jump table 0x623D60 (0x623D3D skip, 0x623CF7 add, 0x623CF7 add); `ret 4`."
+  },
+  {
+   "rva": "0x223D80", "kind": "function", "name": "CEspionageView::RefreshOwnSpyMissions",
+   "signature": "void __stdcall CEspionageView::RefreshOwnSpyMissions(CEspionageView* this@stack:4)", "no_signature": null,
+   "comment": "Every frame (from RefreshOwnCountryInfo): each our_spy_missions row's Refresh while its target is the played country; otherwise FillOwnSpyMissions.",
+   "confidence": "inferred",
+   "evidence": "Decompiled; `ret 4`. Inferred: read in the decompilation only."
+  },
+  {
+   "rva": "0x223EB0", "kind": "function", "name": "CEspionageView::UpdateFactionBoxes",
+   "signature": "void __stdcall CEspionageView::UpdateFactionBoxes(CEspionageView* this@stack:4)", "no_signature": null,
+   "comment": "Every frame and from BuildWidgets: looks up espionage_faction_start and espionage_faction_offset and walks the faction-box list (+0xB8) **with an empty body** - nothing moves.",
+   "confidence": "inferred",
+   "evidence": "Decompiled; `ret 4`. Inferred: an emptied loop is what the decompilation shows, not checked instruction by instruction."
+  },
+  {
+   "rva": "0x223F90", "kind": "function", "name": "CEspionageView::RefreshCountryInfo",
+   "signature": "void __stdcall CEspionageView::RefreshCountryInfo(CEspionageView* this@stack:4)", "no_signature": null,
+   "comment": "No chosen country: country_info hidden. Otherwise: shown (when the view is open); country_flag the chosen country's flag (icon slot 53); label_nation its name; faction_symbol_icon hidden (slots 65 and 14) for the null faction, else shown (slot 66) with frame CFaction +0x3C; then RefreshSpyCount and OnViewProduction - **choosing a country always goes back to the Production section**. From Show and SelectCountry.",
+   "confidence": "inferred",
+   "evidence": "Decompiled; `ret 4`; the two calls confirmed on the listing as the tail of 0x623F90. Inferred: the element work was read in the decompilation only."
+  },
+  {
+   "rva": "0x224450", "kind": "function", "name": "CEspionageView::RefreshSpyCount",
+   "signature": "void __stdcall CEspionageView::RefreshSpyCount(CEspionageView* this@stack:4)", "no_signature": null,
+   "comment": "spies = played espionage[chosen].level / 1000 into +0x374; F = CEspionageView::GetIntelFactor / 1000.0 as a float; value_active_spies = (F > 0.6 '§G', else F > 0.3 '§Y', else '§R') + itoa(spies) + '§W'; spy_bar frame spies + 1 (null-tested); target_priority frame = priority + 1; then FillSpyMissions and FillEstimates. From RefreshCountryInfo and Update.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x624567-0x624636: the /1000 and the store to +0x374 at 0x6245B6; the two comisd against 0.3 (0x160A418) and 0.6 (0x160AA38) choosing 0x15B5C58 (§R), 0x15B5C54 (§Y), 0x15B5C50 (§G); 0x15B6700 is '§W'. Spy bar, priority and the two calls from the decompilation with the calls checked on the listing (0x624930)."
+  },
+  {
+   "rva": "0x224970", "kind": "function", "name": "CEspionageView::FillEstimates",
+   "signature": "void __stdcall CEspionageView::FillEstimates(CEspionageView* this@stack:4)", "no_signature": null,
+   "comment": "**What the screen shows of the chosen country and how much it hides.** A fresh MT19937 on the stack seeded with MonthRefreshKey's value (month index + played id). F = intel factor / 1000; noIntel = played spies there (level) < 1000, cleared by the `spy` cheat; u = clamp((1 - F) + 0.1, 0.1, 1.0), 0 under the cheat; bonus = SPY_INTEL_MISSION_BONUS / 1000, **applied whatever missions are set**. counter_intel = SPYMISSION_COUNTER_ESPIONAGE_TITLE + ': ' + ('?' or FFP(RandomPerturbClamped(chosen's own level x mission_share[0] / 1000, 0, 10000, u), 0)). The seven goods (energy, metal, raremat, oil, fuel, supplies, money in that order) = '?' or FormatEstimatedStock(good 5, 4, 6, 3, 1, 0, 2) with spread clamp(u - played OFFMAP_INDUSTRY_INTEL, 0, 1) x (1 - bonus). ic_number = '?/?/?' or (avail > 0 '§R' else '§G') + GetAvailableIC + '/' + (max_ic > TotalIC '§R' else '§G') + max_ic + '/' + TotalIC, exact. dissent = FFP(Clamped(dissent, 0, 100000, u x (1 - bonus)), 2); national unity = FFP(Clamped(unity, 0, 100000, u), 1); diplomacy = FFP(AtLeast(diplo_influence, or 100.000 under [0x1BEA410], floor 0, scale 100000, u), 0); manpower = FFP(AtLeast(manpower, 0, 100000, u), 0); leadership = FFPTrimmed(AtLeast(TotalLeadership, 0, 100000, u)); espionage = itoa(AtLeast(spy_pool, 0, 10000, u) / 1000) - each '?' under noIntel, the draw made either way. Then FillResearchLists(view, gen, u, F) and FillPopularityChart. A copy of the played presence is made at [esp+0x174] and never read. `ret 4`. See reversing/findings/FINDINGS-espionage.md, D.4.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x624970-0x6266F9 read end to end (dump in the reader's scratch): seed at 0x624B7B (0xAA2BF0, eax = month + [esp+0x88] the played id); noIntel 0x624BD0 and the cheat 0x624BEE; the clamp 0x624BF4-0x624D90; bonus 0x624C55; the counter-intel perturbation 0x624D3B with pushes 10000 / 0 / base; industry intel +0x1E8 at 0x6250DE; the spreads stored to [esp+0x40] and [esp+0x18] at 0x625154/0x62515A; each figure's pushes (0x186A0, 0x2710) and decimals; `ret 4` at 0x6266F9."
+  },
+  {
+   "rva": "0x226700", "kind": "function", "name": "EspionageCategoryLevelBefore",
+   "signature": "bool __stdcall EspionageCategoryLevelBefore(CTechnologyCategory* node@stack:4, CTechnologyCategory* item@ECX, CCountry** country@EAX) @AL", "no_signature": null,
+   "comment": "The comparison TechCategoryList_InsertByLevel walks with: L(node) < L(item), where L(c) is the country's category_levels (+0x698)[c->index (+0x5C)], or the country it shares that category from (+0x6A8[index], a tag) where that one's is higher. `ret 4`.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x626700-0x626782 read whole: two identical level fetches, `cmp eax, edi; setl al`."
+  },
+  {
+   "rva": "0x226790", "kind": "function", "name": "CEspionageView::FillResearchLists",
+   "signature": "void __stdcall CEspionageView::FillResearchLists(CEspionageView* this@stack:4, void* generator@stack:8, float uncertainty@stack:12, float intelFactor@stack:16)", "no_signature": null,
+   "comment": "k = clamp(F + played OFFMAP_INDUSTRY_INTEL/1000, 0, 1); u' = clamp(u - that, 0, 1). current_research: the first trunc(GetAllowedResearchSlots(chosen) x k + 0.5) entries of the chosen country's CurrentResearch list, each an espionage_research_entry `label` = the technology's slot 7 + ' (' + p + '%)', p = floor((progress/32768 + 0.0005) x 1000) x 100000/1000/1000 + trunc((r - 0.5) x u' x 99) on the generator, held to 0..99. top_tech / weak_tech: every technology category of the database put in order of level (TechCategoryList_InsertByLevel), n = min(trunc(k x 5), count); top walks from the highest, weak from the lowest; each label = the category's name (slot 0) + ' (' + FFPTrimmed(shown) + ')', the level perturbed by +-u' x 2.5 levels (scale 5000) and floored at 0; **top shows min(previous raw value, this one), weak max(previous, this one)**, the first against 999999.000 / -99999.000. Rows tagged `espionage_view`; the three lists shown when the view is open, hidden otherwise. `ret 0x10`.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x626790-0x627DEA read: the clamps 0x62689A-0x626922; slots x k + 0.5 at 0x6269DE-0x626A01; the progress and the inline MT draw 0x626B65-0x626CAC (x -99.0 at 0x160A430, clamp 0..0x63); the category list 0x6271C7-0x627266; n at 0x62727A-0x627296 (5.0 at 0x160A508); top 0x6272B8-0x62787D (prev init 0x3B9AC618, min at 0x627568), weak 0x6278A8-0x627D77 (init 0xFA0A22E8, max at 0x627A5E, RandomPerturbAtLeast at 0x627A17 with 0x1388); `ret 0x10`."
+  },
+  {
+   "rva": "0x227DF0", "kind": "function", "name": "CEspionageView::BindOwnCountryInfo",
+   "signature": "void __fastcall CEspionageView::BindOwnCountryInfo(CEspionageView* this@ESI)", "no_signature": null,
+   "comment": "Attaches +0x2BC to own_priority, then FillOwnCountryHeader and RefreshOwnCountryInfo. From BuildWidgets.",
+   "confidence": "inferred",
+   "evidence": "Decompiled; the caller sets esi = the view at 0x6238FB; bare `ret`. Inferred: decompilation only."
+  },
+  {
+   "rva": "0x227EF0", "kind": "function", "name": "CEspionageView::FillOwnCountryHeader",
+   "signature": "void __thiscall CEspionageView::FillOwnCountryHeader(CEspionageView* this)", "no_signature": null,
+   "comment": "own_country_info: country_flag the played country's flag (slot 53), label_nation its name. From Show and BindOwnCountryInfo.",
+   "confidence": "inferred",
+   "evidence": "Decompiled; bare `ret`. Inferred: decompilation only."
+  },
+  {
+   "rva": "0x228060", "kind": "function", "name": "CEspionageView::RefreshOwnCountryInfo",
+   "signature": "void __stdcall CEspionageView::RefreshOwnCountryInfo(CEspionageView* this@stack:4)", "no_signature": null,
+   "comment": "Every frame (Update) and on Show, for the played country P: value_free_spies = itoa(spy_pool (+0x1170) / 1000); value_active_spies = itoa(P.espionage[P].level / 1000); value_partisan_efficiency = ('§R' above 50.000, '§Y' above 0, nothing at or below 0) + FFPTrimmed(MODIFIER_PARTISAN_EFFICENCY, modifier 79 at +0x278), no closing §W; value_spies_caught = itoa(spiescaught (+0x11D4)); value_our_neutrality = FormatFloat(effective_neutrality (+0xA90)/1000, 0); value_active_foreign_spies = the sum over every country owning a province other than P of P.espionage[c].level / 1000, each truncated; own_priority frame = P.espionage[P].priority + 1; RefreshOwnSpyMissions; foreign_spy_actions_indicator shown (slot 13) when P.espionage[P].level x 1000 / (MAX_NUMBER_OF_SPIES/1000 x 1000) > floorf(300.5f) = 300 **and** some country owning a province has level > 0 in P, hidden (slot 14) otherwise. `ret 4`.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x628060-0x628BEF read: +0x1170 at 0x628164; P's own record 0x628266; +0x278 against 0xC350 at 0x628366; +0x11D4 at 0x62849E; +0xA90 and FormatFloat(push 0) 0x628591-0x6285B2; the foreign loop 0x6286C0-0x628711; the indicator test 0x628904-0x6289B9 (float 300.5 at 0x160AAB4) and loop 0x628A43-0x628B03 with slot +0x34 / +0x38."
+  },
+  {
+   "rva": "0x228C00", "kind": "function", "name": "CEspionageView::OnOwnPriorityClick",
+   "signature": "void __thiscall CEspionageView::OnOwnPriorityClick(CEspionageView* this)", "no_signature": null,
+   "comment": "own_priority's click: frame + 1, 4 wrapping to 1, set at once; posts CChangeSpyPriority(played, played, frame - 1) through the idler's slot 18 -> +0x38 -> slot 6.",
+   "confidence": "inferred",
+   "evidence": "Decompiled; the same body as OnTargetPriorityClick, whose listing was read, with own_country_info/own_priority and the played tag twice. Inferred on that likeness."
+  },
+  {
+   "rva": "0x228DE0", "kind": "function", "name": "CEspionageView::OnTargetPriorityClick",
+   "signature": "void __thiscall CEspionageView::OnTargetPriorityClick(CEspionageView* this)", "no_signature": null,
+   "comment": "target_priority's click: frame + 1 (`cmp edi, 3; jg` -> 1), set at once; posts CChangeSpyPriority(played, chosen +0x1F4/+0x1F8, frame - 1) (constructor 0x5588F0) through the idler's slot 18 -> +0x38 -> slot 6. The chosen row's own button follows next frame (CCountrylistItem::Refresh).",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x628E90-0x628FBE: slot 19 read, `cmp edi,3; jg`, slot 18 write, idler slot 23 for the played tag, the six pushes into 0x5588F0 (dec edi), slot 18 of the idler and slot 6 of +0x38."
+  },
+  {
+   "rva": "0x228FC0", "kind": "function", "name": "CEspionageView::OnOwnPriorityRightClick",
+   "signature": "void __thiscall CEspionageView::OnOwnPriorityRightClick(CEspionageView* this, int unused)", "no_signature": null,
+   "comment": "own_priority's right click (glue +0x24): frame - 1, 1 wrapping to 4; posts CChangeSpyPriority(played, played, frame - 1). `ret 4`.",
+   "confidence": "inferred",
+   "evidence": "Decompiled; `ret 4`; stored at glue +0x2E0 (= +0x2BC + 0x24), the right-click handler offset the trade UI's CDiploIcon glue uses (0x6197D6). Inferred."
+  },
+  {
+   "rva": "0x2291A0", "kind": "function", "name": "CEspionageView::OnTargetPriorityRightClick",
+   "signature": "void __thiscall CEspionageView::OnTargetPriorityRightClick(CEspionageView* this, int unused)", "no_signature": null,
+   "comment": "target_priority's right click: frame - 1, 1 wrapping to 4; posts CChangeSpyPriority(played, chosen, frame - 1). `ret 4`.",
+   "confidence": "inferred",
+   "evidence": "Decompiled; `ret 4`; at glue +0x30C (= +0x2E8 + 0x24). Inferred."
+  },
+  {
+   "rva": "0x229390", "kind": "function", "name": "CEspionageView::SetTargetPriorityFrame",
+   "signature": "void __thiscall CEspionageView::SetTargetPriorityFrame(CEspionageView* this, CCountryTag* country, int frame)", "no_signature": null,
+   "comment": "Where the country is the chosen one, target_priority's frame = frame. From a list row's priority clicks. `ret 8`.",
+   "confidence": "inferred",
+   "evidence": "Decompiled; `ret 8`. Inferred."
+  },
+  {
+   "rva": "0x229480", "kind": "function", "name": "EspionageSpyPriorityBefore",
+   "signature": "bool __stdcall EspionageSpyPriorityBefore(CCountryTag* node@stack:4, CCountryTag* item@ECX, void* config@EAX) @AL", "no_signature": null,
+   "comment": "With config = {tag, id, direction} and P(c) = config country's espionage[c].priority: direction set, P(node) < P(item); clear, P(item) < P(node). `ret 4`.",
+   "confidence": "inferred",
+   "evidence": "Decompiled; the `cmp byte [eax+8],0` at 0x629480; `ret 4`. Inferred."
+  },
+  {
+   "rva": "0x229550", "kind": "function", "name": "EspionageCountryNameBefore",
+   "signature": "bool __stdcall EspionageCountryNameBefore(char* direction, CCountryTag* node, CCountryTag* item) @AL", "no_signature": null,
+   "comment": "The names (CountryNameOfCountry) compared byte by byte as unsigned characters, case and all: direction set, node < item; clear, node > item. `ret 0xC`.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x629550-0x62967A: name of [ebp+0x10] into edi, of [ebp+0xC] into eax; `cmp dl,[ecx]` with `sbb esi,esi; sbb esi,-1`; `sets` / `setg` on the direction byte."
+  },
+  {
+   "rva": "0x229680", "kind": "function", "name": "CEspionageView::OnSortByName",
+   "signature": "void __thiscall CEspionageView::OnSortByName(CEspionageView* this)", "no_signature": null,
+   "comment": "sortby_name_button: SortCountryListByName(this, copy of the direction byte +0x1F0 taken **before** the sort flips it).",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x629680-0x6296A0 read whole."
+  },
+  {
+   "rva": "0x2296B0", "kind": "function", "name": "CEspionageView::OnSortByThreat",
+   "signature": "void __thiscall CEspionageView::OnSortByThreat(CEspionageView* this)", "no_signature": null,
+   "comment": "sortby_threat_button: SortCountryListByThreat(this, {played tag (game state +0xC30/+0xC34), direction +0x1F0}).",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x62974D-0x629788."
+  },
+  {
+   "rva": "0x229790", "kind": "function", "name": "CEspionageView::OnSortByCovert",
+   "signature": "void __thiscall CEspionageView::OnSortByCovert(CEspionageView* this)", "no_signature": null,
+   "comment": "sortby_covert_button: SortCountryListByCovertOps(this, {played tag, direction +0x1F0}).",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x62982D-0x629852."
+  },
+  {
+   "rva": "0x229870", "kind": "function", "name": "CEspionageView::OnSortByPriority",
+   "signature": "void __thiscall CEspionageView::OnSortByPriority(CEspionageView* this)", "no_signature": null,
+   "comment": "sortby_spy_priority_button: SortCountryListBySpyPriority(this, {played tag, **direction 1**}) - always highest first; the sort still flips +0x1F0.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x62990D-0x62992D: `mov byte ptr [esp+0x20], 1`."
+  },
+  {
+   "rva": "0x229950", "kind": "function", "name": "CEspionageView::OnSortBySpyLevel",
+   "signature": "void __thiscall CEspionageView::OnSortBySpyLevel(CEspionageView* this)", "no_signature": null,
+   "comment": "sortby_spy_level_button: SortCountryListBySpyLevel(this, {played tag, direction +0x1F0}).",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x6299ED-0x629A12."
+  },
+  {
+   "rva": "0x229A30", "kind": "function", "name": "CEspionageView::OnAttemptCoup",
+   "signature": "void __thiscall CEspionageView::OnAttemptCoup(CEspionageView* this)", "no_signature": null,
+   "comment": "attempt_coup_button: posts CPerformCoupCommand(from = the chosen country +0x1F4/+0x1F8, to = the played country, game state +0xC30/+0xC34) through the idler's slot 18 -> +0x38 -> slot 6. No test here; the button's enabling is Update's.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled and agrees with CPerformCoupCommand::CPerformCoupCommand's record (its caller 0x629B04); bare `ret`."
+  },
+  {
+   "rva": "0x229B50", "kind": "function", "name": "CEspionageView::ListAll",
+   "signature": "void __thiscall CEspionageView::ListAll(CEspionageView* this)", "no_signature": null,
+   "comment": "all_button and the default tab: +0x1E4 = itself, the faction and continent cleared; the stored list (+0x1FC) emptied and refilled with every country of the database (0 to count - 1) owning a province, not the played one, **by name A to Z** (CountrySortList_Insert, flags {0, 1}); then the direction byte flipped and the current sort handler (+0x1E0) run - so the last sort and its direction are kept; then, where one province is selected on the map and has an owner, SelectCountry(that owner).",
+   "confidence": "inferred",
+   "evidence": "Decompiled; flags 0x100 at local_50; the CountrySortList_Insert call at 0x629D40 is in that record's caller list. Inferred: decompilation only."
+  },
+  {
+   "rva": "0x229EC0", "kind": "function", "name": "CEspionageView::ListMajors",
+   "signature": "void __thiscall CEspionageView::ListMajors(CEspionageView* this)", "no_signature": null,
+   "comment": "majors_button: every country of the game state's vector, not the played one, owning a province, and major (+0x15C) or with max_ic (+0x60C) above 100, in the vector's order; then flip and re-sort as ListAll.",
+   "confidence": "inferred",
+   "evidence": "Decompiled. Inferred."
+  },
+  {
+   "rva": "0x22A0B0", "kind": "function", "name": "CEspionageView::ListNeighbours",
+   "signature": "void __thiscall CEspionageView::ListNeighbours(CEspionageView* this)", "no_signature": null,
+   "comment": "neighbours_button: the played country's neighbour list, those owning a province, in its order; then flip and re-sort.",
+   "confidence": "inferred",
+   "evidence": "Decompiled. Inferred."
+  },
+  {
+   "rva": "0x22A270", "kind": "function", "name": "CEspionageView::ListUnaligned",
+   "signature": "void __thiscall CEspionageView::ListUnaligned(CEspionageView* this)", "no_signature": null,
+   "comment": "unaligned_button: every country of the vector owning a province, in the null faction, **neither the played nor the chosen country**, in the vector's order; then flip and re-sort.",
+   "confidence": "inferred",
+   "evidence": "Decompiled: the +0x1F8 and played-id tests. Inferred."
+  },
+  {
+   "rva": "0x22A4C0", "kind": "function", "name": "CEspionageView::ListContinent",
+   "signature": "void __thiscall CEspionageView::ListContinent(CEspionageView* this, CContinent* continent)", "no_signature": null,
+   "comment": "A continent button: +0x1EC = the continent; every country of the vector whose capital (CCountry::GetCapitalLocation) is on it, owning a province, not the played one, by name A to Z; then flip and re-sort. `ret 4`.",
+   "confidence": "inferred",
+   "evidence": "Decompiled; `ret 4`; its CountrySortList_Insert call 0x62A675 is in that record's caller list. Inferred."
+  },
+  {
+   "rva": "0x22A760", "kind": "function", "name": "CEspionageView::ListFactionMembers",
+   "signature": "void __stdcall CEspionageView::ListFactionMembers(CFaction* faction@stack:4, CEspionageView* this@EDI)", "no_signature": null,
+   "comment": "A faction box: +0x1E8 = the faction; its members (+0x28) owning a province, not the played one, by name A to Z; then flip and re-sort. `ret 4`.",
+   "confidence": "inferred",
+   "evidence": "Decompiled; the stores through edi at 0x62A766; `ret 4`; called from Show and the faction glue's handler with edi loaded. Inferred."
+  },
+  {
+   "rva": "0x22AAF0", "kind": "function", "name": "CEspionageView::CCountrylistItem::CCountrylistItem",
+   "signature": "CEspionageView::CCountrylistItem* __stdcall CEspionageView::CCountrylistItem::CCountrylistItem(CEspionageView::CCountrylistItem* this@stack:4, CCountryTag* country@stack:8, CEspionageView* view@stack:0xC, CInGameIdler* idler@ECX) @EAX", "no_signature": null,
+   "comment": "A row (window `espionage_country_entry`, 0x110 bytes): country +0x2C/+0x30, view +0x34; country_button and country_icon both to OnClicked; country_icon the flag (slot 53, the id); name = CountryNameOfTag; covert = itoa(played.espionage[c].covert_ops_points / 1000); spy_level = itoa(level / 1000); threat = FFP(played.Diplomacy[c]->threat, 1); priority frame = priority + 1 with left OnPriorityClick and right OnPriorityRightClick. `ret 0xC`.",
+   "confidence": "inferred",
+   "evidence": "Decompiled; the flag call 0x62ADBD (slot +0xD4 with the id) and `ret 0xC` at 0x62B201 on the listing. Inferred: the texts were read in the decompilation."
+  },
+  {
+   "rva": "0x22B210", "kind": "function", "name": "CEspionageView::CCountrylistItem::ScalarDeletingDestructor",
+   "signature": "CEspionageView::CCountrylistItem* __thiscall CEspionageView::CCountrylistItem::ScalarDeletingDestructor(CEspionageView::CCountrylistItem* this, uint flags)", "no_signature": null,
+   "comment": "Slot 0 of the row's primary table: the destructor body 0x62B240, then free when flags bit 0. `ret 4`.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled, 0x30 bytes; vtable.py: slot 0 of 0x15CC210 only."
+  },
+  {
+   "rva": "0x22B2C0", "kind": "function", "name": "CEspionageView::CCountrylistItem::OnClicked",
+   "signature": "void __thiscall CEspionageView::CCountrylistItem::OnClicked(CEspionageView::CCountrylistItem* this)", "no_signature": null,
+   "comment": "A row's checkbox or flag: the row's slot 4, country_button's +0x60 and +0x100 set to 1 (ticked), then SelectCountry(this country).",
+   "confidence": "inferred",
+   "evidence": "Decompiled; the SelectCountry call at 0x62B34E with edi = [esi+0x34]. Inferred."
+  },
+  {
+   "rva": "0x22B370", "kind": "function", "name": "CEspionageView::CCountrylistItem::OnPriorityClick",
+   "signature": "void __thiscall CEspionageView::CCountrylistItem::OnPriorityClick(CEspionageView::CCountrylistItem* this)", "no_signature": null,
+   "comment": "A row's `priority`: frame + 1 (4 -> 1), set; posts CChangeSpyPriority(played, the row's country, frame - 1); then SetTargetPriorityFrame(view, &row country, frame).",
+   "confidence": "inferred",
+   "evidence": "Decompiled. Inferred."
+  },
+  {
+   "rva": "0x22B4F0", "kind": "function", "name": "CEspionageView::CCountrylistItem::OnPriorityRightClick",
+   "signature": "void __thiscall CEspionageView::CCountrylistItem::OnPriorityRightClick(CEspionageView::CCountrylistItem* this, int unused)", "no_signature": null,
+   "comment": "A row's `priority` right click: frame - 1 (1 -> 4); the same post and SetTargetPriorityFrame. `ret 4`.",
+   "confidence": "inferred",
+   "evidence": "Decompiled; `ret 4`. Inferred."
+  },
+  {
+   "rva": "0x22B670", "kind": "function", "name": "CEspionageView::CCountrylistItem::Refresh",
+   "signature": "void __stdcall CEspionageView::CCountrylistItem::Refresh(CEspionageView::CCountrylistItem* this@stack:4, CCountryTag* chosen@stack:8, int targetFrame@stack:12)", "no_signature": null,
+   "comment": "Every frame from Update, per row: where the row's byte +0x24 is set, spy_level = FormatFixedPointTrimmed(level) (the constructor wrote the whole number), covert = itoa(covert_ops_points / 1000), threat = FFP(threat, 1) - **all three live**; where the row is the chosen country and its priority frame differs from targetFrame, the frame is set to it. `ret 0xC`.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x62B670-0x62BB10: +0x24 at 0x62B696; FormatFixedPointTrimmed at 0x62B78A; +0xF4 0x62B843; threat 0x62B9D5-0x62B9F1; the frame compare 0x62BA7C-0x62BAFD; `ret 0xC`."
+  },
+  {
+   "rva": "0x22BB20", "kind": "function", "name": "CEspionageView::FillProductionSection",
+   "signature": "void __stdcall CEspionageView::FillProductionSection(CEspionageView* this@stack:4)", "no_signature": null,
+   "comment": "minister_list1 and minister_list2 emptied; +0x378 = MonthRefreshKey(); unit_queue emptied (its scroll kept) and refilled: chance = trunc(trunc(floorf(100000.5f) x SPY_BASE_PRODUCTION_DETECTION_CHANCE / 1000 x F / 1000) / 1000) whole percent; for each CConstruction of the chosen country (+0xF40, list order), s1 = (construction id + month key) x 0x343FD + 0x269EC3, s2 = s1 x 0x343FD + 0x269EC3, r = ((s2 >> 16) & 0x7FFF) x ((s1 >> 16) & 0x7FFF) % 100; **shown where r < chance** as a CBuildQueueEntry; scroll restored; units_label = rendered SPY_PRODUCTION_LABEL. Not gated on the section shown. `ret 4`.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x62BCB0-0x62BF5B: MonthRefreshKey and the store at 0x62BCC4; define +0x7C at 0x62BDD8 with 100000.5 at 0x160A718; the two __alldiv and /1000; the LCG 0x62BE56-0x62BE94 with `cmp edx, edi; jge`; CBuildQueueEntry constructor at 0x62BECE."
+  },
+  {
+   "rva": "0x22C150", "kind": "function", "name": "CEspionageView::OnViewProduction",
+   "signature": "void __thiscall CEspionageView::OnViewProduction(CEspionageView* this)", "no_signature": null,
+   "comment": "button_viewproduction (and every RefreshCountryInfo): +0x370 = 0, button_viewproduction frame 2, button_viewministers frame 1, FillProductionSection.",
+   "confidence": "inferred",
+   "evidence": "Decompiled; the +0x370 store at 0x62C184 on the listing. Inferred."
+  },
+  {
+   "rva": "0x22C2E0", "kind": "function", "name": "CEspionageView::OnViewMinisters",
+   "signature": "void __thiscall CEspionageView::OnViewMinisters(CEspionageView* this)", "no_signature": null,
+   "comment": "button_viewministers: +0x370 = 1, the two frames the other way; minister_list1 and _2 emptied and filled as the politics screen fills its cabinet - n = (posts - 1) / 2, posts 1..n left, n + 1.. right - each a CForeignMinisterItem(post, &chosen); units_label = CCountry_GetGovernmentName(chosen); unit_queue emptied. **No knowledge test.**",
+   "confidence": "inferred",
+   "evidence": "Decompiled; the two constructor calls 0x62C78E/0x62C92E with `lea edx,[ecx+0x1F4]` pushed, on the listing. Inferred."
+  },
+  {
+   "rva": "0x22CB70", "kind": "function", "name": "CEspionageView::FillPopularityChart",
+   "signature": "void __thiscall CEspionageView::FillPopularityChart(CEspionageView* this)", "no_signature": null,
+   "comment": "political_popularity_chart for the chosen country, as CPoliticsView::FillPopularityChart for the played one: total = popularity from index 1; above 1.000, a slice per ideology from index 1 of p x 100000/1000 x 1000/total, floored at 0, / 1000.0 as a float and `fistp` - whole percent, half to even. Exact: no knowledge test.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x62CD40 (`cmp edi, 0x3E8; jle`), 0x62CDCA-0x62CE28 (`jns` floor, `fistp`)."
+  },
+  {
+   "rva": "0x22D890", "kind": "function", "name": "EspionageContinentButton_OnClick",
+   "signature": "void __fastcall EspionageContinentButton_OnClick(void* container@ECX)", "no_signature": null,
+   "comment": "A continent button's glue handler: ListContinent(container +0x34 (the view), container +0 (the continent)).",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x62D890-0x62D89B read whole; installed at glue +8 by 0x62D6EF."
+  },
+  {
+   "rva": "0x22D8A0", "kind": "function", "name": "EspionageFactionBox_OnClick",
+   "signature": "void __fastcall EspionageFactionBox_OnClick(void* container@ECX)", "no_signature": null,
+   "comment": "A faction box's glue handler: ListFactionMembers(container +0 (the faction)) with edi = container +8 (the view).",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x62D8A0-0x62D8AD read whole; installed at glue +8 by 0x62D77A."
+  },
+  {
+   "rva": "0x22D9F0", "kind": "function", "name": "RandomPerturbClamped",
+   "signature": null,
+   "no_signature": "The generator in EAX, the out pointer in EDI, the spread a float in XMM1, then three stack ints (base, floor, ceiling) the caller pops - no ordinary signature carries an SSE register argument.",
+   "comment": "RandomPerturbAtLeast with a ceiling that is also the scale: u = (float)((MT19937Next(gen) & 0x7FFFFFFF) x 2^-31); k = floor((float)((float)((float)(u - 0.5) x spread) + 0.0005) x 1000); v = base + trunc(k x ceiling / 1000) (64-bit); *out = v < floor ? floor : v > ceiling ? ceiling : v. Bare ret. Callers: the espionage screen's counter-intelligence, dissent and national unity estimates.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x62D9F0-0x62DA94 read whole: [ebp+0x10] is both the multiplier (`imul esi`) and the upper clamp; [ebp+0xC] the lower."
+  },
+  {
+   "rva": "0x22DAA0", "kind": "function", "name": "TechCategoryList_InsertByLevel",
+   "signature": "void __stdcall TechCategoryList_InsertByLevel(void* list, CTechnologyCategory** category, CCountry** country)", "no_signature": null,
+   "comment": "Walks the list forward from list +4 through node +4 while EspionageCategoryLevelBefore(node) holds and inserts before the first node it stops at - so ascending by level, **a later insertion before earlier equals**; at the end, appended (0x45F5E0). `ret 0xC`.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x62DAA0-0x62DB64 read whole."
+  },
+  {
+   "rva": "0x22DB70", "kind": "function", "name": "CEspionageView::SortCountryListByName",
+   "signature": "void __thiscall CEspionageView::SortCountryListByName(CEspionageView* this, char* direction)", "no_signature": null,
+   "comment": "+0x1E0 = OnSortByName; country_listbox emptied (slot 23); the direction byte +0x1F0 flipped; every country of the stored list put into a fresh list with CountryNodeList_InsertByName(direction) and a CEspionageView::CCountrylistItem added per entry (slot 4); where the view is open, the list box shown (slot 20) and tagged with the group string `diplomacy_view`. `ret 4`. The four siblings below are the same body with their own insert.",
+   "confidence": "inferred",
+   "evidence": "Decompiled; `ret 4`. Inferred."
+  },
+  {
+   "rva": "0x22DDF0", "kind": "function", "name": "CEspionageView::SortCountryListByThreat",
+   "signature": "void __thiscall CEspionageView::SortCountryListByThreat(CEspionageView* this, void* config)", "no_signature": null,
+   "comment": "As SortCountryListByName with CountryList_InsertByThreat; +0x1E0 = OnSortByThreat. `ret 4`.",
+   "confidence": "inferred",
+   "evidence": "Decompiled. Inferred."
+  },
+  {
+   "rva": "0x22E070", "kind": "function", "name": "CEspionageView::SortCountryListByCovertOps",
+   "signature": "void __thiscall CEspionageView::SortCountryListByCovertOps(CEspionageView* this, void* config)", "no_signature": null,
+   "comment": "As SortCountryListByName with CountryNodeList_InsertByCovertOps; +0x1E0 = OnSortByCovert. `ret 4`.",
+   "confidence": "inferred",
+   "evidence": "Decompiled; the flip at 0x62E0FA-0x62E109 and the insert call 0x62E11A on the listing. Inferred."
+  },
+  {
+   "rva": "0x22E2F0", "kind": "function", "name": "CEspionageView::SortCountryListBySpyPriority",
+   "signature": "void __thiscall CEspionageView::SortCountryListBySpyPriority(CEspionageView* this, void* config)", "no_signature": null,
+   "comment": "As SortCountryListByName with CountryNodeList_InsertBySpyPriority; +0x1E0 = OnSortByPriority. `ret 4`.",
+   "confidence": "inferred",
+   "evidence": "Decompiled. Inferred."
+  },
+  {
+   "rva": "0x22E570", "kind": "function", "name": "CEspionageView::SortCountryListBySpyLevel",
+   "signature": "void __thiscall CEspionageView::SortCountryListBySpyLevel(CEspionageView* this, void* config)", "no_signature": null,
+   "comment": "As SortCountryListByName with CountryNodeList_InsertBySpyLevel; +0x1E0 = OnSortBySpyLevel. `ret 4`.",
+   "confidence": "inferred",
+   "evidence": "Decompiled. Inferred."
+  },
+  {
+   "rva": "0x22E900", "kind": "function", "name": "CountryNodeList_InsertByName",
+   "signature": "void __stdcall CountryNodeList_InsertByName(void* list@stack:4, char* direction@stack:8, CCountryTag* item@EDI)", "no_signature": null,
+   "comment": "Walks back from the tail (list +4, node prev +8) while EspionageCountryNameBefore(direction, node, item) holds and inserts after the node it stops at, at the head when it walks off - **equal names keep the stored order**. `ret 8`.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x62E900-0x62E93C: `mov esi,[ebx+4]`, the pushes edi/esi/eax into 0x629550, `mov esi,[esi+8]`; `ret 8`."
+  },
+  {
+   "rva": "0x22EB40", "kind": "function", "name": "CountryNodeList_InsertByCovertOps",
+   "signature": "void __stdcall CountryNodeList_InsertByCovertOps(void* list@stack:4, void* config@EAX, CCountryTag* item@EDI)", "no_signature": null,
+   "comment": "As CountryNodeList_InsertByName, comparing config country's espionage[c].covert_ops_points (+0xF4): direction set, walk while node < item (largest first); clear, while item < node. `ret 4`.",
+   "confidence": "inferred",
+   "evidence": "Decompiled; `ret 4`. Inferred."
+  },
+  {
+   "rva": "0x22ECD0", "kind": "function", "name": "CountryNodeList_InsertBySpyPriority",
+   "signature": "void __stdcall CountryNodeList_InsertBySpyPriority(void* list@stack:4, void* config@stack:8, CCountryTag* item@EDI)", "no_signature": null,
+   "comment": "As CountryNodeList_InsertByName with EspionageSpyPriorityBefore. `ret 8`.",
+   "confidence": "inferred",
+   "evidence": "Decompiled; config loaded into eax from [ebp+0xC] before 0x629480 (0x62ECE5); `ret 8`. Inferred."
+  },
+  {
+   "rva": "0x22EDF0", "kind": "function", "name": "CountryNodeList_InsertBySpyLevel",
+   "signature": "void __stdcall CountryNodeList_InsertBySpyLevel(void* list@stack:4, void* config@EAX, CCountryTag* item@EDI)", "no_signature": null,
+   "comment": "As CountryNodeList_InsertByCovertOps on espionage[c].level (+0). `ret 4`.",
+   "confidence": "inferred",
+   "evidence": "Decompiled; `ret 4`. Inferred."
+  },
+  {
+   "rva": "0x21E460", "kind": "function", "name": "CSpyMissionEntry::CSpyMissionEntry",
+   "signature": "CSpyMissionEntry* __stdcall CSpyMissionEntry::CSpyMissionEntry(CSpyMissionEntry* this@stack:4, CEspionageView* view@stack:8, int mission@stack:0xC, CCountryTag* target@stack:0x10, CInGameIdler* idler@ECX) @EAX", "no_signature": null,
+   "comment": "Window `spy_mission_entry`; view +0x2C, mission +0x30, target +0x34/+0x38; `title` = SpyMissionTitle(mission); `priority`'s glue (+0x40) with OnPriorityClick and the right-click OnPriorityRightClick. `ret 0x10`.",
+   "confidence": "inferred",
+   "evidence": "Decompiled; the call site 0x623A72-0x623A76 pushes &chosen, mission, view, item with ecx = the idler; `ret 0x10`. Inferred."
+  },
+  {
+   "rva": "0x21E690", "kind": "function", "name": "CSpyMissionEntry::Refresh",
+   "signature": "void __thiscall CSpyMissionEntry::Refresh(CSpyMissionEntry* this)", "no_signature": null,
+   "comment": "Slot 8: `priority`'s frame = played.espionage[target].missions[mission] + 1 - the mission's weight 0..3 as frames 1..4.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x61E690-0x61E777 read whole: idler slot 23, +0x38 x 0xF8 into +0x1160, `[ecx + eax*4 + 8]` with eax = +0x30, `inc eax`, slot 18."
+  },
+  {
+   "rva": "0x21E780", "kind": "function", "name": "CSpyMissionEntry::OnPriorityClick",
+   "signature": "void __thiscall CSpyMissionEntry::OnPriorityClick(CSpyMissionEntry* this)", "no_signature": null,
+   "comment": "frame + 1 (4 -> 1), set; posts CChangeSpyMission(played, the row's target, mission, frame - 1) (constructor 0x558E00) through the idler's slot 18 -> +0x38 -> slot 6.",
+   "confidence": "inferred",
+   "evidence": "Decompiled. Inferred."
+  },
+  {
+   "rva": "0x21E910", "kind": "function", "name": "CSpyMissionEntry::OnPriorityRightClick",
+   "signature": "void __thiscall CSpyMissionEntry::OnPriorityRightClick(CSpyMissionEntry* this, int unused)", "no_signature": null,
+   "comment": "frame - 1 (1 -> 4); the same post. `ret 4`.",
+   "confidence": "inferred",
+   "evidence": "Decompiled; `ret 4`. Inferred."
+  },
+  {
+   "rva": "0x21EA40", "kind": "function", "name": "CSpyMissionEntry_BuildTooltip",
+   "signature": "GuiTooltipText* __stdcall CSpyMissionEntry_BuildTooltip(GuiTooltipText* out@stack:4, CSpyMissionEntry* row@EDX) @EAX", "no_signature": null,
+   "comment": "A mission row's tooltip, whichever of its elements: out emptied, below = 1, text = SpyMissionDescription(mission +0x30). One caller, CEspionageView::BuildTooltip (0x6222C9).",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x61EA40-0x61EAA1: out at [ebp+8] initialised, `[esi+0x58] = 1`, `[edx+0x30]` pushed into 0x52DD70; `ret 4`."
+  },
+  {
+   "rva": "0x21CB20", "kind": "function", "name": "CForeignMinisterItem::CForeignMinisterItem",
+   "signature": "CForeignMinisterItem* __stdcall CForeignMinisterItem::CForeignMinisterItem(CForeignMinisterItem* this@stack:4, CGovernmentPosition* post@stack:8, CCountryTag* country@stack:0xC, CInGameIdler* idler@ECX) @EAX", "no_signature": null,
+   "comment": "Window `foreign_minister_entry`: `title` the post's slot 6 text; the country's holder of the post (ministers[post->index]): none or failing IsValid gives name '???', personality '???', legend_color hidden; otherwise name, the personality's display name (CMinister::GetPersonality(post)), legend_color tinted with his ideology's colour and shown, photo a sprite of gfx/pictures/portraits/<picture>.tga on GFX_empty_position, shown. `ret 0xC`.",
+   "confidence": "inferred",
+   "evidence": "Decompiled; the call sites push &chosen, post, item with ecx = the idler; `ret 0xC`. Inferred."
+  },
+  {
+   "rva": "0x21D2A0", "kind": "function", "name": "CForeignMinisterItem_BuildTooltip",
+   "signature": "GuiTooltipText* __stdcall CForeignMinisterItem_BuildTooltip(CForeignMinisterItem* row@stack:4, GuiTooltipText* out@stack:8, CGuiObject* element@ECX) @EAX", "no_signature": null,
+   "comment": "below = 1; on legend_color, the minister's ideology's slot 14 for the country (nothing without a minister); on any other element, the personality's DescribeAllValues where the post is set and its slot 14 holds. One caller, CEspionageView::BuildTooltip (0x6222FE). `ret 8`.",
+   "confidence": "inferred",
+   "evidence": "Decompiled; the call site 0x6222F3-0x6222FE (push out, push row, ecx = element); `ret 8`. Inferred."
+  },
+  {
+   "rva": "0x21D410", "kind": "function", "name": "FormatEstimatedStock",
+   "signature": "Hoi3CString* __cdecl FormatEstimatedStock(Hoi3CString* out@stack:4, int good@stack:8, void* generator@stack:0xC, float spread@stack:0x10, CCountry* country@ECX) @EAX", "no_signature": null,
+   "comment": "The espionage screen's estimate of a stockpile: pool = the exile pool (+0x9F8) for a government in exile (+0x95), else the acting capital's province pool (+0x15C); s = pool[good] (+8 + good x 4); v = RandomPerturbAtLeast(base s, floor 0, scale s, spread) - so +-spread/2 of the stock; v <= 99999.000 gives FFP(v, 0), more gives FFP(v / 1000, 0) + 'K'. Bare ret.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x61D410-0x61D5F8 read whole: +0x95, +0x9F8, 0x42F100 + 0x15C; the three pushes into 0x62D940; `cmp esi, 0x5F5DD18; jle`; 'K' at 0x15C7718."
+  },
+  {
+   "rva": "0x21D600", "kind": "function", "name": "_A0x9c81124e::CBuildQueueEntry::CBuildQueueEntry",
+   "signature": "_A0x9c81124e::CBuildQueueEntry* __stdcall _A0x9c81124e::CBuildQueueEntry::CBuildQueueEntry(_A0x9c81124e::CBuildQueueEntry* this@stack:4, CCountryTag* country@stack:8, CConstruction* construction@stack:0xC, CInGameIdler* idler@ECX) @EAX", "no_signature": null,
+   "comment": "The espionage screen's production row (window `spy_production_queue_entry`, 0x5C bytes): the construction kept as a persistent id at +0x28, the country +0x54/+0x58; counter_type GFX_counter_<unit> for a unit, icon_build_convoy / icon_build_escort for convoys, icon_build_<building> for a building; unit_target '=> ' + the target's name (the element sits at x 99300); unit_name the construction's name; then Refresh. `ret 0xC`.",
+   "confidence": "inferred",
+   "evidence": "Decompiled; the call 0x62BECE pushes construction, &chosen, item with ecx = the idler. Inferred."
+  },
+  {
+   "rva": "0x21DD40", "kind": "function", "name": "_A0x9c81124e::CBuildQueueEntry::Refresh",
+   "signature": "void __thiscall _A0x9c81124e::CBuildQueueEntry::Refresh(_A0x9c81124e::CBuildQueueEntry* this)", "no_signature": null,
+   "comment": "Slot 8: the construction resolved again (nothing if gone); while the row is visible, prodqueue_progress = progress (+0x38) x 1000 / total (+0x34) as a percent, the naval/division/air icon by the unit's type; series_info '+' + (count +0x40 - 1) where count >= 2, else ''. From Update every frame.",
+   "confidence": "inferred",
+   "evidence": "Decompiled; vtable.py: slot 8 of 0x15CC3B4 only. Inferred."
+  },
+  {
+   "rva": "0x21E350", "kind": "function", "name": "EspionageView_MonthRefreshKey",
+   "signature": "int __cdecl EspionageView_MonthRefreshKey(void)", "no_signature": null,
+   "comment": "The month of the year of the game state's date (0 for January: days = (tick - 43800000) / 24, the day of the year walked down the month-length table at 0x1713294) plus the played country's id (+0xC34). The espionage screen's key for 'make the estimates again' and the seed of their generator.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x61E350-0x61E45D read whole."
+  },
+  {
+   "rva": "0x12DD70", "kind": "function", "name": "SpyMissionDescription",
+   "signature": "Hoi3CString* __cdecl SpyMissionDescription(Hoi3CString* out, int mission)", "no_signature": null,
+   "comment": "SpyMissionTitle's sibling: a jump table (0x52E31C) over 0..8 - SPYMISSION_COUNTER_ESPIONAGE_DESC, _MILITARY_, _TECH_, _BOOST_RULING_PARTY_, _BOOST_OUR_PARTY_, _LOWER_NATIONAL_UNITY_, _INCREASE_THREAT_, _RAISE_NATIONAL_UNITY_, _COVERT_OPS_DESC - each localised into out; anything else SPYMISSION_NONE_DESC. Bare ret.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x52DD70-0x52E318: `cmp eax, 8; ja`, the nine targets of 0x52E31C and the key at each, the default at 0x52E267; bare rets."
+  },
+  {
+   "rva": "0x6A2BF0", "kind": "function", "name": "MT19937Seed",
+   "signature": null,
+   "no_signature": "The state in ECX and the seed in EAX, nothing on the stack, bare ret.",
+   "comment": "Seeds a 624-word MT19937 state: state[0] = seed, state[i] = 0x6C078965 x (state[i-1] ^ (state[i-1] sar 30)) + i - **sar**, as MT19937Next's shifts. A seed of 0 copies a table at 0x170A1B8 seeded once with 0. Does not reset the index (+0x9C0); its callers zero it.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0xAA2BF0-0xAA2C74 read whole."
+  },
+  {
+   "rva": "0x123950", "kind": "function", "name": "GoodIndexByShortName",
+   "signature": "int __cdecl GoodIndexByShortName(Hoi3CString* name)", "no_signature": null,
+   "comment": "The good whose short name equals name, from a table of seven static strings at 0x170CF50 (0x1C apart) the CRT fills as supplies, fuel, money, oil, metal, energy, raremat - goods 0..6; no match gives 0. Bare ret.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x523950-0x5239E9; the table's initialisers at 0xCB903C-0xCB911A push the seven strings in that order."
+  }
+ ],
+ "struct_fields": [
+  {"struct": "CEspionageView", "offset": "0xB8", "name": "faction_boxes", "type": "void*", "comment": "Head of the list of faction-box glue containers (tail +0xBC, count +0xC0) BuildWidgets makes, one per real faction.", "evidence": "BuildWidgets 0x623167-0x623185; destructor."},
+  {"struct": "CEspionageView", "offset": "0xC8", "name": "continent_buttons", "type": "void*", "comment": "Head of the list of continent-button glue containers (tail +0xCC, count +0xD0).", "evidence": "BuildWidgets (decompiled) and the destructor; emptied at 0x622DF9-0x622E4E."},
+  {"struct": "CEspionageView", "offset": "0xD8", "name": "sort_name_observer", "type": "void*", "comment": "Button glue on sortby_name_button, handler OnSortByName (0x229680).", "evidence": "Constructor 0x61EBC7; BuildWidgets attaches it at 0x622707."},
+  {"struct": "CEspionageView", "offset": "0x104", "name": "sort_threat_observer", "type": "void*", "comment": "Glue on sortby_threat_button, handler OnSortByThreat (0x2296B0).", "evidence": "Constructor 0x61EC09; attached 0x622778."},
+  {"struct": "CEspionageView", "offset": "0x130", "name": "sort_covert_observer", "type": "void*", "comment": "Glue on sortby_covert_button, handler OnSortByCovert (0x229790).", "evidence": "Constructor 0x61EC4F; attached 0x6227E4."},
+  {"struct": "CEspionageView", "offset": "0x15C", "name": "sort_priority_observer", "type": "void*", "comment": "Glue on sortby_spy_priority_button, handler OnSortByPriority (0x229870).", "evidence": "Constructor 0x61EC95; attached 0x6228BC."},
+  {"struct": "CEspionageView", "offset": "0x188", "name": "sort_spy_level_observer", "type": "void*", "comment": "Glue on sortby_spy_level_button, handler OnSortBySpyLevel (0x229950).", "evidence": "Constructor 0x61ECDB; attached 0x622850."},
+  {"struct": "CEspionageView", "offset": "0x1B4", "name": "coup_observer", "type": "void*", "comment": "Glue on attempt_coup_button, handler OnAttemptCoup (0x229A30).", "evidence": "Constructor 0x61ED21; attached 0x622D4E."},
+  {"struct": "CEspionageView", "offset": "0x1E0", "name": "sort_handler", "type": "void*", "comment": "The current sort's handler (OnSortBy*), run again by every list handler; each SortCountryListBy* writes its own here. OnSortByName at construction.", "evidence": "Constructor 0x61ED67; written at the head of 0x62DB70/0x62DDF0/0x62E070/0x62E2F0/0x62E570; called by ListAll and its siblings."},
+  {"struct": "CEspionageView", "offset": "0x1E4", "name": "list_handler", "type": "void*", "comment": "The current tab's handler (ListAll, ListMajors, ListNeighbours, ListUnaligned), or null when a faction or continent is listed. Show runs it. ListAll at construction.", "evidence": "Constructor 0x61ED9B; Show 0x61FB4B; written by each list handler."},
+  {"struct": "CEspionageView", "offset": "0x1E8", "name": "listed_faction", "type": "CFaction*", "comment": "The faction a faction box listed, for Show to list again; cleared by the other lists.", "evidence": "ListFactionMembers 0x62A766; Show 0x61FB5D."},
+  {"struct": "CEspionageView", "offset": "0x1EC", "name": "listed_continent", "type": "CContinent*", "comment": "The continent a continent button listed, for Show; cleared by the other lists.", "evidence": "ListContinent 0x62A4C0; Show 0x61FB6F."},
+  {"struct": "CEspionageView", "offset": "0x1F0", "name": "sort_descending", "type": "bool", "comment": "One direction byte for all five sorts: a sort uses the value it finds (1 descending) and flips it; a list handler flips it before re-running the sort, so a tab keeps the last direction. 1 at construction.", "evidence": "Constructor 0x61ED79; the flips at 0x62E0FA-0x62E109 and in each list handler."},
+  {"struct": "CEspionageView", "offset": "0x1F4", "name": "selected", "type": "CCountryTag", "comment": "The chosen country: tag +0x1F4, id +0x1F8. '---'/0 before the constructor's choice.", "evidence": "Constructor 0x61F133/0x61F139; SelectCountry; read throughout."},
+  {"struct": "CEspionageView", "offset": "0x1FC", "name": "countries", "type": "void*", "comment": "Head of the stored country list (tail +0x200, count +0x204; nodes {tag, id, prev +8, next +0xC, byte}) the list handlers fill and the sorts copy from.", "evidence": "List handlers and SortCountryListBy* (decompiled); 0x62E100."},
+  {"struct": "CEspionageView", "offset": "0x20C", "name": "all_observer", "type": "void*", "comment": "Glue on all_button, handler ListAll (0x229B50).", "evidence": "Constructor 0x61EDB9; attached 0x622A6B."},
+  {"struct": "CEspionageView", "offset": "0x238", "name": "majors_observer", "type": "void*", "comment": "Glue on majors_button, handler ListMajors (0x229EC0).", "evidence": "Constructor 0x61EDFB; attached 0x622928."},
+  {"struct": "CEspionageView", "offset": "0x264", "name": "neighbours_observer", "type": "void*", "comment": "Glue on neighbours_button, handler ListNeighbours (0x22A0B0).", "evidence": "Constructor 0x61EE41; attached 0x622994."},
+  {"struct": "CEspionageView", "offset": "0x290", "name": "unaligned_observer", "type": "void*", "comment": "Glue on unaligned_button, handler ListUnaligned (0x22A270).", "evidence": "Constructor 0x61EE87; attached 0x6229FF."},
+  {"struct": "CEspionageView", "offset": "0x2BC", "name": "own_priority_observer", "type": "void*", "comment": "Glue on own_priority: click OnOwnPriorityClick (0x228C00), right click (glue +0x24 = +0x2E0) OnOwnPriorityRightClick (0x228FC0).", "evidence": "Constructor 0x61EECD-0x61EF07; attached by BindOwnCountryInfo (0x627EC4)."},
+  {"struct": "CEspionageView", "offset": "0x2E8", "name": "target_priority_observer", "type": "void*", "comment": "Glue on target_priority: click OnTargetPriorityClick (0x228DE0), right click (+0x30C) OnTargetPriorityRightClick (0x2291A0).", "evidence": "Constructor 0x61EF17-0x61EF51; attached 0x622DD1."},
+  {"struct": "CEspionageView", "offset": "0x314", "name": "rebuilding", "type": "bool", "comment": "Set around Rebuild's base call and BuildWidgets; nothing in the view's code reads it.", "evidence": "Rebuild 0x61FCAC/0x61FCC3; constructor 0x61EF61. The no-reader claim is a displacement grep over the dump of 0x61C800-0x62F000 (positive control: +0x374 found at its three sites, 0x61F000, 0x61F535, 0x6245B6)."},
+  {"struct": "CEspionageView", "offset": "0x318", "name": "view_production_observer", "type": "void*", "comment": "Glue on button_viewproduction, handler OnViewProduction (0x22C150).", "evidence": "Constructor 0x61EF67; attached 0x622C29."},
+  {"struct": "CEspionageView", "offset": "0x344", "name": "view_ministers_observer", "type": "void*", "comment": "Glue on button_viewministers, handler OnViewMinisters (0x22C2E0).", "evidence": "Constructor 0x61EFAD; attached 0x622D04."},
+  {"struct": "CEspionageView", "offset": "0x370", "name": "section", "type": "int", "comment": "0 after OnViewProduction, 1 after OnViewMinisters; **written and never read**, so a refresh does not know which section is up.", "evidence": "Writes 0x61F00C, 0x62C184, 0x62C31F; no read in a displacement grep over 0x61C800-0x62F000 (control as for +0x314)."},
+  {"struct": "CEspionageView", "offset": "0x374", "name": "shown_spies", "type": "int", "comment": "The whole spies the country_info was last made for (level / 1000); Update makes it again when this changes. -1 at construction.", "evidence": "RefreshSpyCount 0x6245B6; Update 0x61F535; constructor 0x61F000."},
+  {"struct": "CEspionageView", "offset": "0x378", "name": "shown_month_key", "type": "int", "comment": "EspionageView_MonthRefreshKey when the country_info was last made; Update makes it again when this changes. -1 at construction.", "evidence": "FillProductionSection 0x62BCC4; Update 0x61F983; constructor 0x61F006."},
+  {"struct": "CSpyMissionEntry", "offset": "0x20", "name": "window", "type": "void*", "comment": "The row's window, `spy_mission_entry`.", "evidence": "Constructor (decompiled), read by Refresh at 0x61E713."},
+  {"struct": "CSpyMissionEntry", "offset": "0x28", "name": "idler", "type": "CInGameIdler*", "comment": "The constructor's ECX.", "evidence": "Refresh 0x61E6B2."},
+  {"struct": "CSpyMissionEntry", "offset": "0x2C", "name": "view", "type": "CEspionageView*", "comment": "The espionage view.", "evidence": "Constructor's second stack argument (decompiled)."},
+  {"struct": "CSpyMissionEntry", "offset": "0x30", "name": "mission", "type": "int", "comment": "The SpyMission, 0..8.", "evidence": "Refresh 0x61E740; CSpyMissionEntry_BuildTooltip 0x61EA90."},
+  {"struct": "CSpyMissionEntry", "offset": "0x34", "name": "target", "type": "CCountryTag", "comment": "The country the mission is in: tag +0x34, id +0x38 - the chosen country, or the played one in our_spy_missions.", "evidence": "Refresh 0x61E6DA; RefreshSpyMissions compares +0x38 with the view's +0x1F8."},
+  {"struct": "CForeignMinisterItem", "offset": "0x20", "name": "window", "type": "void*", "comment": "The row's window, `foreign_minister_entry`.", "evidence": "Constructor (decompiled)."},
+  {"struct": "CForeignMinisterItem", "offset": "0x28", "name": "idler", "type": "CInGameIdler*", "comment": "The constructor's ECX.", "evidence": "Constructor (decompiled)."},
+  {"struct": "CForeignMinisterItem", "offset": "0x2C", "name": "post", "type": "CGovernmentPosition*", "comment": "The government post the row shows.", "evidence": "Constructor and CForeignMinisterItem_BuildTooltip (decompiled)."},
+  {"struct": "CForeignMinisterItem", "offset": "0x30", "name": "country", "type": "CCountryTag", "comment": "The chosen country: tag +0x30, id +0x34.", "evidence": "Constructor and its tooltip (decompiled)."}
+ ],
+ "vftable_slots": {
+  "CEspionageView": {"0": "Rebuild", "1": "ScalarDeletingDestructor", "2": "Show", "6": "Update", "10": "BuildTooltip", "14": "ApplyAutomation"},
+  "CSpyMissionEntry": {"8": "Refresh"},
+  "CEspionageView::CCountrylistItem": {"0": "ScalarDeletingDestructor"},
+  "_A0x9c81124e::CBuildQueueEntry": {"8": "Refresh"}
+ },
+ "slots_noted": "CSpyMissionEntry slot 0 (0x7DFDA0) is folded with CConvoyCreationWindow's slot 0 and is not named for either. CEspionageView::CCountrylistItem slot 7 is 0x7862D0, already recorded as CCountrylistItem::SetSelected (the diplomacy row's), whose record notes the identical body.",
+ "frontier": ["0x4F7EE0", "0x4F7940", "0x6A3270", "0x6A37D0", "0x113980", "0x5588F0", "0x558E00", "0x7C9530", "0x50D210", "0x21C840", "0x22D640", "0x22D6C0", "0x22D740", "0x22B240", "0x8E5F82"]
+}

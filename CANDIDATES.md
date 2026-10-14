@@ -465,6 +465,29 @@ screen.
 
 OpenHOI3 follows the save on both until they are settled.
 
+## What the espionage wave left - 2026-10-14 `[both]`
+
+`findings/FINDINGS-espionage.md` sections A to E read the spies whole. What they left, none of it in the way of
+building:
+
+1. **What drains an AI's posted command an hour later** (E.1, E.9). Every AI intelligence minister's `spy_date`
+   stamp in the saves falls at the hour after the minister's own `(id + 1) mod 24` - Paraguay's home record alone
+   in its own hour. Read off the saves, not the bytes. **Read**: the command queue's drain against `ProcessAI`'s
+   hour, which would also say when the politics minister's commands land.
+2. **Whether `CUnit::UpdateDaily` (slot 32, `0x5BAF70`) runs daily** (B.3, C.4): a unit's intel grant counts down
+   once a call, so military intel's 32 and `local_intel_boost`'s 15 are days only if it does. **Read**: its callers.
+3. **Two new games from one start differ in 27 priority-0 presences** (A.7): the 9 October saves' start and the 7
+   October start save, each one higher, where nothing can raise a priority-0 presence after setup.
+   `SetUpCountryForNewGame`'s allocation score is deterministic but for the Lua `AI_GenerateNonHistoricalRelation`;
+   why the two came out differently was not found.
+4. **The covert-operations window** (B.14): what the province view shows of `common/covert_ops.txt`, in what
+   order, and who asks a `CCovertOpsMission`'s `is_valid` (`+0x48`). Frontier `0x2E1DB0`, `0x2E2C10`,
+   `0x2E1FF0`, `0x44B40`.
+5. **The coup's tooltip** `0x4F7EE0` (D.6, D.8), and who raises an alert named `intel` (D.1).
+6. **Readers through another holder** (C.1): `PEACE_OFFMAP_INTEL` and `OFFMAP_POLITICAL_INTEL` have no reader
+   through a country's modifier values, so three minister types do nothing; a reader through another holder or a
+   computed offset would have been missed.
+
 ## The planned next wave is in `WAVE.md`
 
 **It is not in this file any more.** `WAVE.md` holds the wave that is planned and has not launched,
@@ -1109,7 +1132,7 @@ the six it was missing were wave 15's.
 | `findings/FINDINGS-occupation.md` | occupation, revolt risk, partisans and rebels |
 | `findings/FINDINGS-revolt.md` | what consumes revolt risk: the roll, the rebel type, the underground |
 | `findings/FINDINGS-convoys.md` | convoys and trade, and that the AI drives a route through the mod's Lua |
-| `findings/FINDINGS-espionage.md` | spies, intelligence, and what the espionage sliders buy |
+| `findings/FINDINGS-espionage.md` | spies, intelligence, and what the espionage sliders buy; **the espionage wave (2026-10-14), sections A to E**: spies placed by priority bands and never decayed, what each mission does (a tech theft takes the target's whole level; covert ops a thirtieth of its define a day; province covert operations), what a country knows (the spies alone, less counter-intelligence) and of a province (the whole daily rebuild and hourly raise, radar), the intelligence screen with every estimate and tooltip, and the AI's spying in Lua, matching the saves pair for pair |
 | `findings/FINDINGS-events.md` | events, and why a loaded save fires none until the month turns |
 | `findings/FINDINGS-diploaction.md` | a diplomatic offer in flight: three stages, the lifecycle, the null singleton |
 | `findings/FINDINGS-diplomacy.md` | how the engine asks the mod's Lua whether the AI accepts |

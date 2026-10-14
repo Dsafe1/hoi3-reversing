@@ -1,0 +1,243 @@
+{
+ "agent": "espionage wave, reader C (what a country knows)",
+ "question": "How much one country knows of another - the figure, where it lives, what makes it and which thresholds its readers use - and how much it knows of a province: RunIntelRefresh whole, both intel bodies, the hourly per-province refresh, the scratch array, prov +0xD4 and the fog switch.",
+ "source": "reversing/findings/FINDINGS-espionage.md",
+ "addresses": [
+  {
+   "rva": "0x288D40",
+   "kind": "function",
+   "name": "RunIntelRefresh",
+   "signature": "void __stdcall RunIntelRefresh(CCurrentGameState* state)",
+   "no_signature": null,
+   "comment": "**Rebuilds from nothing what every country knows of every province** (CMapProvince +0x370, one byte a country, 0 to 9), and the screen's own figure per province (CProvinceTemplate +0x278 stack_intel). 0x688D40 to the `ret 4` at 0x689303, read on the listing end to end. In order: (1) `_alloca` a 12-byte scratch entry per province (state +0xB8C..+0xB90), then the ClearIntelFunctor fan-out (ClearIntelFunctor_Construct; SpawnClearIntelParallelForOuter at 0x688DD8): every byte to 0, or to 9 where g_FogOfWarEnabled is clear, and the scratch filled - +0 the controller's encryption (CTechnologyStatus +0x3C), +4 the controller's allied_or_faction_countries (CCountry +0xFA8), +8 the province is land and simulated, +9 the controller is the screen's friend. (2) Serially, every country that exists (+0x44): each province on its underground_provinces (+0xD60) gets 9 for it and for every country on its +0xFA8 list, and stack_intel 9 where it is the screen's friend. (3) Serially, every land simulated province P, over its edges (template +0x90, 0x14 a step), each neighbour N that is land and simulated: N's byte for P's controller and for every country on the controller's +0xFA8 list at least **3** (stack_intel 3 where the controller is the screen's friend); then for each unit in P whose owner is not P's controller and not the owner of the unit before it in the list: s = 0 where the owner's decryption (CTechnologyStatus +0x40) is below N's controller's encryption (scratch[N] +0), 1 where equal, and where above 2 - or trunc(d x [0x170DF54] (10000) / 1000) / 1000 + 1 where that quotient before the last division exceeds 1000, d the difference in thousandths; N's byte for the owner at least min(s + 2, 9), stack_intel at least s + 2 where the owner is the screen's friend. (4) The UpdateIntelFunctor fan-out (UpdateIntelFunctor_Construct; SpawnUpdateIntelParallelForOuter at 0x689278). (5) Where g_FogOfWarEnabled is clear, every simulated province's byte for the screen's country and its stack_intel 9. Both fan-outs take a grain of province count / 32 (the whole range where [0x170ABB0] is 1) and save, set and restore the byte at 0x1A857BF. 'The screen's friend' is the test Intel_IsFriendOfViewer makes, inlined throughout: the screen's country itself (state +0xC30/+0xC34), a country in the same real faction (faction slot 7 true and the same object), or one whose diplomacy status towards the screen's country holds an alliance (+0x14) - not a puppet, not a co-belligerent. Six callers: RunDailyPass (0x683056, once a game day, unconditionally), RunIntelRefreshIfRequested (0x68932D, at the end of an hour whose request list has -1 at its head), CInGameIdler::Enter (0x66042A, as a game - new or loaded - is entered; the savegame keeps no intelligence), ApplyCustomGameSettings (0x41D8EA), RefreshAllCountries (0x683EC9) and CNudgeIdler slot 3 (0x69DDB3). Runs on the tick thread; the two element bodies run on TBB workers and the tick thread. See reversing/findings/FINDINGS-espionage.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-espionage.md",
+   "revises": "The entry described the two launchers, the callers and the threads, and said only that 'between the two launches it also walks the province vector and the country vector'. That walk is now read: the underground pass, the neighbours' level 3 and the decryption-scaled level a foreign unit gives its owner on adjacent land, and the no-fog arm after the second fan-out. It also named the caller at 0x66042A only by address; it is CInGameIdler::Enter.",
+   "evidence": "Decoded 0x688D40..0x689306 with disasm.py and read every instruction against Ghidra's decompilation of the applied copy; retsBefore(0x688D40, 0x689303) is empty. The underground pass is 0x688E10..0x688F3B ([ebx+0xd60] head, `mov byte [ecx+edx], 9` at 0x688EC8, the +0xFA8 walk at 0x688EF0); the neighbour pass 0x688F70..0x68920B (scratch byte +8 tested at 0x688F73 and 0x688FF6, `cmp byte [eax+ecx], 3` at 0x689019, the friend byte +9 at 0x689029, the unit loop 0x689096..0x6891E2 with the dedupe `cmp ebx,[ebp-0x64]` at 0x6890B3 and the controller test at 0x6890BC, decryption `[eax+0x40]` at 0x689151 against `[edx]` = scratch +0 at 0x689154, `imul [0x170df54]` at 0x689161, `lea esi,[edx+eax+1]` at 0x689193, `lea ecx,[esi+2]` and the cap 9 at 0x68919D..0x6891A7); the no-fog arm 0x689280..0x6892EE. Callers by findRefs --callers 0x688D40 (six) and the container of 0x66042A by retsBefore(0x65A2B0, 0x66042A) = []. Would be wrong if a branch into the unit loop bypassed the controller test - cfg shows none - or if [0x170DF54] were written at run time: absrefs.py finds only the read at 0x689161."
+  },
+  {
+   "rva": "0x289310",
+   "kind": "function",
+   "name": "RunIntelRefreshIfRequested",
+   "signature": "void __stdcall RunIntelRefreshIfRequested(CList<int>* requests@EAX, CCurrentGameState* state@stack:4)",
+   "no_signature": null,
+   "comment": "**Corrected: it is not ten instructions and not only a gate.** 0x689310 to the `ret 4` at 0x689AC5, 0x7B8 bytes. RunHourlyTick calls it at the end of every hour (0x6822C3), requests = state +0xCF8. Where the list holds at least one node and the head's value is -1: RunIntelRefresh(state), return. Otherwise it walks the list from the head, stopping at a negative value, and for every province P a node names whose template is simulated it **raises** bytes, clearing nothing: P's byte for its controller and for each country on the controller's allied_or_faction_countries 9 (stack_intel 9 where the controller is the screen's friend, Intel_IsFriendOfViewer); each land simulated neighbour: the controller and each country on its list at least 3 (stack_intel 3 for any of them that is the screen's friend); each unit in P: its intel grants (CUnit +0x2A8) as the daily pass gives them, and where its owner is not P's controller, the owner 9 on land, at sea 9 where a combat of kind 1 (slot 11) is in P or the unit is a patrol (order 0x42E) whose target resolves, else at least 2, stack_intel 9 for the screen's friend - and then on **every land neighbour, simulated or not**, at least 2, 3 or 4 as the owner's decryption is below, equal to or above the neighbour's controller's encryption, with none of the daily pass's scaling; P's underground's owner and its list 9 where P's underground building (CProvince +0x30C) has a level_max above nothing. No radar. Positive province ids are appended by CUnit::EnterProvince (the province left and the one entered) and CLocalIntelBoost::Execute through GameState_RequestIntelRefresh; a -1 is pushed to the **front** by GameState_RequestIntelRefresh(-1) (CFactionAction::Apply) and by inline push-fronts in CMapProvince::SetOwner, Province_SetController, RebuildProvinceModifierValues, CCountry::AddRadarProvince, CAlliance::Activate and ::Deactivate, CAllianceAction::Apply, the military-access actions, CNapAction::Apply, CSendExpeditionaryForceAction::Apply and CSetCountryControllerCommand slot 6. RunHourlyTick then sets every unit's intel_level (CUnit +0x1F8) and frees the whole list (0x6823DD..0x682407), so a request lives one hour.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-espionage.md",
+   "revises": "Said 'Ten instructions ... It calls RunIntelRefresh only when that list holds at least one entry and the head node's value is -1. Neither it nor RunIntelRefresh consumes the list, so once a -1 is queued the hourly refresh keeps happening ... what a value other than -1 would mean is not established.' The ten instructions are only the -1 arm; the body runs on to 0x689AC5 and refreshes each requested province, and RunHourlyTick drains the list every hour. The signature now places `state` (@stack:4), which checkSignatures.py reported as having nowhere to live.",
+   "evidence": "Decoded 0x689310..0x689AC8: the -1 test at 0x689319..0x689327, the fall-through at 0x68933B into the list walk (`js 0x689abf` on a negative id at 0x689356, the simulated test at 0x689372), the controller arm 0x689383..0x689422 (call 0x688050 at 0x6893B9), the neighbour arm 0x689424..0x6895CE, the unit arm 0x6895D4..0x6899BD (grants 0x689686..0x6897B5, the sea tests 0x6897E9..0x689862, the neighbour decryption arm 0x689890..0x6899B2 with `mov edx,2` / `xor edx,edx` and `lea ecx,[edx+2]` at 0x68994F..0x68995A), the underground arm 0x6899C3..0x689AB2 (`[eax+0x30c]` then `cmp [ecx+0x20], 0`). The drain: RunHourlyTick 0x6823DD..0x682407 frees every node through 0xB95F9B and zeroes +0xCF8/+0xCFC/+0xD00, reached unconditionally after the unit pass that begins at 0x6822C8. The -1 sites: callers of the push-front 0x45F5E0 with `esi = state + 0xCF8` (13 found) and GameState_RequestIntelRefresh's own -1 branch (0x68ACF7..0x68AD09). Would be wrong if anything other than RunHourlyTick called 0x689310 (findRefs: one caller)."
+  },
+  {
+   "rva": "0x2883B0",
+   "kind": "function",
+   "name": "UpdateIntelFunctor_SerialBody",
+   "signature": "void __stdcall UpdateIntelFunctor_SerialBody(blocked_range* range@ECX, void* functor@stack:4)",
+   "no_signature": null,
+   "comment": "The per-element body of the UpdateIntelFunctor fan-out, range in **ECX**; functor (UpdateIntelFunctor_Construct): +0 the province vector, +4 the country vector, +8 RADAR_RANGE (military define +0x48), +0xC/+0x10 the screen's country, +0x14 the map. For each province P whose template has `simulated` (+0x13D): **9** for the controller and every country on its allied_or_faction_countries (CCountry +0xFA8: alliance, dependency or the same real faction); 9 for the underground's owner (+0x38C, where its id +0x390 is not 0) and its list; for each unit in P: each intel grant (CUnit +0x2A8, {country, duration, level}) with duration above 0 gives that country at least min(level, 9), and where the unit's owner is not P's controller - 9 on land; at sea 9 where a combat of kind 1 is in P or the unit is a patrol (order 0x42E) whose target resolves, else at least 2; then **radar**, per country that exists and has `listening_station` (CTechnologyStatus +0xDC): s = -1 where its decryption (+0x40) is below P's controller's encryption (+0x3C), 0 where equal, else max(1, trunc(trunc(d x [0x1A89770] (10000) / 1000) / 1000)) with d the difference; m = trunc(its modifier / 1000) - **LAND_INTEL_BOOST (id 103, +0x338) over land, NAVAL_INTEL_BOOST (id 104, +0x340) over sea**; near = s + 2 + m, far = s + 1 + m, each held to 0..8; the country is skipped where its byte here is already at least near; otherwise over its radar provinces (CCountry +0x1148) with a RADAR_LEVEL (modifier 48, +0x180) above nothing: reach = level x (RADAR_RANGE x Province_RadarVisibility(P) / 1000) / 1000, R1 = trunc(trunc([0x170DF60] (250000) x reach / 1000) / 1000), R2 likewise from [0x170DF64] (350000); dist = 16 x (dx^2 + dy^2) between the two template centres (+0x2C/+0x30, CMap +0x2A60), dx the short way round the map width (CMap +0x2A74); dist >= R1^2: nothing; dist < R2^2: **near**, else far - and since R2 > R1 the far branch is never reached: every province within R1 gets near. The level goes to the country and to every country on its +0xFA8 list. Each 9 or level written for a country that is the screen's friend (the inlined Intel_IsFriendOfViewer test) also raises stack_intel (CProvinceTemplate +0x278) and sets +0x13C; CProvinceTemplate_RefreshStacks runs after each grant, after the radar walk and at the end. See reversing/findings/FINDINGS-espionage.md, section C, and reversing/findings/FINDINGS-airbattle.md, section 7.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-espionage.md",
+   "revises": "The comment (and FINDINGS-airbattle.md section 7) had the two boosts the wrong way round ('+0x340 over a land province, +0x338 over sea') and the rings reversed ('within [0x170DF64] x reach: near ... within [0x170DF60] x reach: far'); left the define behind 0x4A76A0 unnamed; and did not say which friends share the 9s. All corrected or settled; the rest of the reading stands.",
+   "evidence": "Decoded 0x6883B0..0x688D3E end to end. Boosts: `cmp byte [edx+0x22], 0; jne 0x688a2d` at 0x688A19 - the jne (land) arm reads `[ecx+0x338]` at 0x688A33, the sea arm `[eax+0x340]` at 0x688A25; fieldchain.py --holder 0xDA8 finds these as the only readers of +0x338 and +0x340. Rings: [0x170DF60] is loaded at 0x688B51 and `cmp esi, eax; jge 0x688c5a` (skip) at 0x688B86-0x688B88; [0x170DF64] at 0x688B8E and `cmp esi, eax; jl 0x688c6a` at 0x688BC8 - and 0x688C6A writes [esp+0x28], the near level (`lea edi,[esi+2]` at 0x688A15), 0x688BD0 the far ([esp+0x1c], `inc esi`). Both globals hold 250000 and 350000 in .data and absrefs.py finds no writer of either. Functor+8 is written by UpdateIntelFunctor_Construct from GetDefines()+0xAC +0x48, which definesMap.py names RADAR_RANGE. Would be wrong if either ring global were written at run time through a computed address."
+  },
+  {
+   "rva": "0x288170",
+   "kind": "function",
+   "name": "ClearIntelFunctor_SerialBody",
+   "signature": "void __stdcall ClearIntelFunctor_SerialBody(blocked_range* range@EAX, void* functor@stack:4)",
+   "no_signature": null,
+   "comment": "The per-element body of the ClearIntelFunctor fan-out, range in **EAX**; functor (ClearIntelFunctor_Construct): +0 the province vector, +4 the 12-byte-per-province scratch array RunIntelRefresh alloca'd, +8/+0xC the screen's country. For each province: `memset(prov->intel_by_country_ptr (+0x370), g_FogOfWarEnabled ? 0 : 9, prov->+0x374)`; the template's (prov +0xD4, CProvinceTemplate) stack_intel (+0x278) to 0 and stacks_stale (+0x13C) to 1; scratch[i] +8 = the template is simulated (+0x13D) and land (+0x22); and only where that is set, scratch +9 = the controller is the screen's friend (the screen's country, the same real faction, or an alliance in the controller's status towards it), scratch +0 = the controller's encryption (CTechnologyStatus +0x3C), scratch +4 = &the controller's allied_or_faction_countries (CCountry +0xFA8). RunIntelRefresh's neighbour pass reads all four.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-espionage.md",
+   "revises": "Said 'writes a flag into the 12-byte-per-province scratch array ... What prov+0xD4 is was not established'. The scratch entry's four fields and what reads them are now settled, and prov +0xD4 is the CProvinceTemplate (path_node_ptr) the record already names.",
+   "evidence": "Decoded 0x688170..0x6882C4: the memset value `cmp byte [0x170ad30], cl; setne cl; dec ecx; and ecx, 9` at 0x6881C5..0x6881D6 and call 0xB99220; the stores `[edi+0x278] = 0`, `[edi+0x13c] = 1`; byte +8 at 0x688204; the friend test 0x68822E..0x68828F stored at 0x688292 as byte +9; the encryption and list stores follow (decompilation lines 757-759 of the applied copy, matching `[edx+0x3c]` at 0x68829F that fieldchain.py --holder 0xDF8 --field 0x3C lists). Would be wrong if the scratch were read with another layout - RunIntelRefresh's reads at 0x688F73 (+8), 0x689029 (+9), 0x68904F (+4) and 0x689154 (+0) agree."
+  },
+  {
+   "rva": "0x2880B0",
+   "kind": "function",
+   "name": "ClearIntelFunctor_Construct",
+   "signature": "void* __stdcall ClearIntelFunctor_Construct(void* this@EDI, void* scratch@ECX, void* provinces@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "Builds the ClearIntelFunctor on RunIntelRefresh's stack: +0 = the province vector (&state->provinces_begin), +4 = the scratch array, +8/+0xC = the screen's country tag (CCurrentGameState +0xC30/+0xC34, the singleton made if missing). Returns this. One caller, RunIntelRefresh at 0x688DCF.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-espionage.md",
+   "evidence": "Decoded 0x6880B0..0x688166 (`ret 4`): `mov [edi], [ebp+8]`, `mov [edi+4], ecx`, the inlined get-or-create of [0x1A89790], `mov [edi+8], [eax+0xc30]`, `mov [edi+0xc], [eax+0xc34]`, `mov eax, edi`. The caller pushes edi = state+0xB8C and loads ecx with the alloca'd base at 0x688DBB. Would be wrong if a second caller passed something else; findRefs --callers finds one."
+  },
+  {
+   "rva": "0x2882D0",
+   "kind": "function",
+   "name": "UpdateIntelFunctor_Construct",
+   "signature": "void* __stdcall UpdateIntelFunctor_Construct(void* this@ESI, void* countries@ECX, void* provinces@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "Builds the UpdateIntelFunctor on RunIntelRefresh's stack: +0 = the province vector, +4 = the country vector (state +0xBBC), +8 = RADAR_RANGE (GetDefines()->military (+0xAC) +0x48, thousandths; 0.18 in Their Finest Hour), +0xC/+0x10 = the screen's country tag (CCurrentGameState +0xC30/+0xC34), +0x14 = g_CMap. Returns this. One caller, RunIntelRefresh at 0x68926F.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-espionage.md",
+   "evidence": "Decoded 0x6882D0..0x6883AA (`ret 4`): `mov [esi], [ebp+8]`, `mov [esi+4], ecx`, `mov [esi+0x14], [0x1a8557c]`, `[esi+0xc]/[esi+0x10]` from [eax+0xc30]/[eax+0xc34], `call 0x445d90; mov eax,[eax+0xac]; mov ecx,[eax+0x48]; mov [esi+8], ecx`. definesMap.py --block military puts RADAR_RANGE at +0x48. The caller loads ecx = state+0xBBC and pushes edi = state+0xB8C at 0x689258..0x68925B. Would be wrong if the military block's +0x48 were another define; definesMap.py reads it off the loader's stores."
+  },
+  {
+   "rva": "0x288050",
+   "kind": "function",
+   "name": "Intel_IsFriendOfViewer",
+   "signature": "bool __stdcall Intel_IsFriendOfViewer(CCountryTag* tag@ECX, CCountryTag* viewer@EDI) @AL",
+   "no_signature": null,
+   "comment": "**Whose province knowledge the screen shows as its own.** True where tag's id is viewer's; or where tag's country has a faction (+0xD8) whose slot 7 answers true and viewer's country has the same faction object; or where tag's country's diplomacy status towards viewer (diplomacy_status_array +0xE28, [viewer id]) holds an alliance (+0x14). Not a puppet or master, not a co-belligerent, not military access - narrower than CCountry::IsFriend (0xEF7C0). Bare `ret`, the bool in AL. One caller, RunIntelRefreshIfRequested (0x6893B9); RunIntelRefresh, both intel bodies and RunHourlyTick's unit pass inline the same test.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-espionage.md",
+   "evidence": "Decoded 0x688050..0x6880A7 whole: `cmp [ecx+4], [edi+4]`, GetCountry(tag) (0x402610), `cmp [esi+0xd8], 0`, the slot-7 call `[edx+0x1c]`, GetCountry(viewer) and `cmp [esi+0xd8], [eax+0xd8]`, then `[esi+0xe28][viewer id] +0x14` and `setne al`; bare `ret` at 0x6880A7 and no stack argument read. Would be wrong if the caller passed something else in EDI: at 0x6893A9 edi = state + 0xC30."
+  },
+  {
+   "rva": "0xA76A0",
+   "kind": "function",
+   "name": "Province_RadarVisibility",
+   "signature": "int* __stdcall Province_RadarVisibility(int* out@stack:4, CMapProvince* province@EAX) @EAX",
+   "no_signature": null,
+   "comment": "**How far off radar sees a province, as a factor in thousandths.** 1000 where the province has no controller or no unit (units_count +0x2C0). Otherwise r = the largest radio_strength (CSubUnitDefinition +0x180) of the **first** brigade of each unit there with brigades, never below 1000; t = the controller's radio_strength technology (CTechnologyStatus +0x38) x 1000 / 100000, never below [0x1A86CE8] (100, a static set at start-up); answer = r x t / 1000 x BASE_RADIO_STRENGTH (military +0x4C) / 1000 + 1000, 64-bit where large. With Their Finest Hour's BASE_RADIO_STRENGTH 10, brigades of radio_strength 1 and no radio technology: 2000 - a province with troops in it is seen by radar from twice as far. One caller: UpdateIntelFunctor_SerialBody (0x6888DA), which multiplies RADAR_RANGE by it.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-espionage.md",
+   "evidence": "Decoded 0x4A76A0..0x4A77EB (`ret 4` at 0x4A77DA and 0x4A77EB, both exits): the unit walk 0x4A76D4..0x4A7709 (`[eax+0x2b8]` head, `cmp [ecx+0x40], 0`, `[ecx+0x38]` -> `[ecx]` -> `+0x58` -> `+0x180`, `cmp edi, ecx; jge`), the controller and units_count tests at 0x4A770B/0x4A7718, `[eax+0xdf8]` +0x38 at 0x4A7744 (fieldchain.py: its only reader), the /100000 magic 0x14F8B589 and the 64-bit path, the max with [0x1A86CE8] at 0x4A778D..0x4A77A7 (written only by 0xCB1520, `mov [0x1a86ce8], 0x64`), BASE_RADIO_STRENGTH from [define+0xAC]+0x4C at 0x4A76BC, `add eax, 0x3e8` at 0x4A77CB. fieldmap.py places CTechStatistics' radio_strength at +0x38. Would be wrong if +0x38 of the tech status were another effect."
+  },
+  {
+   "rva": "0x22A9E0",
+   "kind": "function",
+   "name": "CEspionageView::GetIntelFactor",
+   "signature": "int* __thiscall CEspionageView::GetIntelFactor(CEspionageView* this, int* out)",
+   "no_signature": null,
+   "comment": "**The espionage screen's figure for the chosen country**: 0 where no country is chosen (this +0x1F8, the selected country's id, is 0); else CSpyPresence_GetIntelFactor of **the screen's country's** presence in the chosen one (CCurrentGameState +0xC34's CCountry +0x1160, + id x 0xF8) - spies x 1000 / MAX_SPY_LEVEL less the chosen country's COUNTER_INTELLIGENCE, thousandths. Three callers, all in the view's code: 0x6245BC, 0x624B8E (the country_info refresh 0x624970, which turns it into the uncertainty clamp(1.0 - F + 0.1, 0.1, 1.0)) and 0x62BDC0 (the production list).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-espionage.md",
+   "evidence": "Decoded 0x62A9E0..0x62AAE7: `cmp [edi+0x1f8], 0` with edi = ecx, the inlined get-or-create of [0x1A89790], `[eax+0xc34]` indexing the country database, `imul edi, edi, 0xf8; add edi, [edx+0x1160]`, `push esi (out); call 0x52d630`, `ret 4` both exits. findRefs --callers 0x62A9E0: three. Not in any vftable (vtable.py --holding). The class is inferred from the callers loading ecx with the view object; would be wrong if +0x1F8 were not the view's chosen country, which reader D settles."
+  },
+  {
+   "rva": "0x12D630",
+   "kind": "function",
+   "name": "CSpyPresence_GetIntelFactor",
+   "signature": "int* __stdcall CSpyPresence_GetIntelFactor(int* out@stack:4, CSpyPresence* presence@EDI) @EAX",
+   "no_signature": null,
+   "comment": "**The whole of 'how much X knows of Y'.** `*out = level (+0) * 1000 / MAX_SPY_LEVEL (g_MaxSpyLevel, 10000) - countries[presence->target_id (+0xE8)]->modifiers->COUNTER_INTELLIGENCE (id 54, +0x1B0)`, thousandths; the division truncates (a 64-bit path for large levels), and with MAX_SPY_LEVEL 0 the first term is -1. No floor and no ceiling - counter-intelligence above the spies' share makes it negative - and nothing else enters it: no neighbour, alliance, faction, puppet or war term. **Two callers**, not one: CAIIntel::CAIIntel (0x89F313) and CEspionageView::GetIntelFactor (0x62AAB6). `ret 4`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-espionage.md",
+   "revises": "Said 'One caller, CAIIntel::CAIIntel'. The espionage screen calls it too, through CEspionageView::GetIntelFactor; the arithmetic is unchanged and the modifier's id is added.",
+   "evidence": "Decoded 0x52D630..0x52D6C4 whole: [0x170D164] tested at 0x52D646, `imul eax, eax, 0x3e8; cdq; idiv esi` and the 64-bit path, then `[edi+0xe8]` -> country -> `[ecx+0xda8]` -> `sub eax, [edx+0x1b0]`. findRefs.py --callers 0x52D630: two, 0x62AAB6 and 0x89F313. fieldchain.py --holder 0xDA8 --field 0x1B0: this is the only reader of COUNTER_INTELLIGENCE. Would be wrong if a third caller existed through a computed call; none is in any vftable."
+  },
+  {
+   "rva": "0x130AD30",
+   "kind": "global",
+   "name": "g_FogOfWarEnabled",
+   "signature": null,
+   "no_signature": null,
+   "comment": "**The fog-of-war switch, set by default and toggled by the `fow` console command.** One byte, 1 in .data. ClearIntelFunctor_SerialBody fills every province's intel bytes with 0 while it is set and 9 while it is clear (0x6881C5: `cmp byte [0x170AD30], cl; setne cl; dec ecx; and ecx, 9`); RunIntelRefresh, after the UpdateIntel fan-out, gives the screen's country 9 on every simulated province while it is clear (0x689280); ShouldStartNavalCombat starts a sea battle without a spotting roll while it is clear. The console handler (0x4418C4, the literal 'fow' at 0x15B84E0) prints 'Fog of war turned OFF' when it was set, 'Fog of war turned ON' when it was clear, and stores the opposite (`sete cl; mov byte [0x170ad30], cl` at 0x441908..0x44191B). 17 code references in all; the others (province graphics, the map's colour textures, messages, the scenario end dialog) were not read.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-espionage.md",
+   "revises": "Was `likely`: 'The name is inference from that behaviour; nothing in the image names it'. The console command names it, and the default is read off .data.",
+   "evidence": "image.read(0x170AD30) = 01 01 00 00 (byte 1); disasm 0x4418C4..0x44192A: the `fow` compare through 0x40C3C0, the two message literals 0x15B84E4/0x15B84FC chosen on `cmp byte [0x170ad30], bl; je`, and the toggling store. absrefs.py finds the 17 references. Would be wrong if another writer existed; the sweep finds one store, in that handler."
+  },
+  {
+   "rva": "0x16855F4",
+   "kind": "global",
+   "name": "g_SpyCheat",
+   "signature": null,
+   "no_signature": null,
+   "comment": "**The `spy` console cheat.** One byte, zero in a game nobody has cheated in; toggled by the console handler (the literal 'spy' at 0x15B854C, `sete al; mov byte [0x1a855f4], al` at 0x44198E..0x441991). Its only reader is the espionage screen's country_info refresh (0x624BD5): while it is set the screen does not hide the chosen country's figures behind '?' when the player has fewer than one spy there, and the estimates' uncertainty is 0 - the screen shows the true figures. Nothing in the simulation reads it.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-espionage.md",
+   "evidence": "absrefs.py 0x1A855F4: three references, 0x441984 and 0x441991 in the console handler and 0x624BD5. At 0x624BD5..0x624BF0 a set byte clears the no-intelligence flag (`setl [esp+0x17]` from `cmp level, 0x3e8`) and at 0x624C3D..0x624C44 zeroes the uncertainty kept at [esp+0x68]. Would be wrong if the byte were also read through a pointer; it is a plain global with no other displacement."
+  },
+  {
+   "rva": "0x130DF60",
+   "kind": "global",
+   "name": "g_RadarReachScale",
+   "signature": null,
+   "no_signature": null,
+   "comment": "250000 (250, thousandths), never written. **The radius that bounds all radar sight**: UpdateIntelFunctor_SerialBody gives a radar's country anything only where 16(dx^2+dy^2) < R^2 with R = trunc(trunc(this x reach / 1000) / 1000), reach = radar level x RADAR_RANGE x Province_RadarVisibility / 10^6 (0x688B51). Distances are in the game's kilometres, quarters of a map pixel.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-espionage.md",
+   "evidence": "image.read gives 250000; absrefs.py finds one reference, the load at 0x688B51, and no store. Would be wrong if written through a computed address."
+  },
+  {
+   "rva": "0x130DF64",
+   "kind": "global",
+   "name": "g_RadarNearScale",
+   "signature": null,
+   "no_signature": null,
+   "comment": "350000, never written. The second radar radius UpdateIntelFunctor_SerialBody tests (0x688B8E): a province inside it gets the near level, one outside it the far level. Since it is larger than g_RadarReachScale (250000) and the province is already inside that one, the test always passes and **the far level is never written** - in effect a radar's country sees every province in reach at the near level, step + 2 + boost.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-espionage.md",
+   "evidence": "image.read gives 350000; absrefs.py finds one reference, the load at 0x688B8E, and no store. Both radii are computed from the same reach (edi:ebx reused at 0x688B58/0x688B93). Would be wrong if either global were written at run time."
+  },
+  {
+   "rva": "0x130DF54",
+   "kind": "global",
+   "name": "g_IntelDecryptionScale",
+   "signature": null,
+   "no_signature": null,
+   "comment": "10000, never written. RunIntelRefresh's neighbour pass scales the gap between a unit owner's decryption and the neighbouring province's controller's encryption by it: v = d x 10000 / 1000, and where v > 1000 the level is v / 1000 + 3 (0x689161). So a gap of 0.1 or less gives 4 and each further 0.1 one more, to 9.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-espionage.md",
+   "evidence": "image.read gives 10000; absrefs.py finds one reference, `imul dword ptr [0x170df54]` at 0x689161, and no store."
+  },
+  {
+   "rva": "0x1689770",
+   "kind": "global",
+   "name": "g_RadarDecryptionScale",
+   "signature": null,
+   "no_signature": null,
+   "comment": "An `(int)floorf(10000.5f)` static holding 10000, written once at start-up by 0xCD0320 off the float at 0x160A648. UpdateIntelFunctor_SerialBody's radar step: s = trunc(trunc(d x this / 1000) / 1000) where that exceeds 1000, else 1 (0x6889D2).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-espionage.md",
+   "evidence": "absrefs.py: two references, the store at 0xCD033B (after floorf of the float 10000.5 at 0x160A648 and the float-to-int at 0xC08870) and the read at 0x6889D2. Would be wrong if a second writer existed; there is none."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CMapProvince",
+   "offset": "0x370",
+   "name": "intel_by_country_ptr",
+   "type": "uint8_t*",
+   "comment": "One byte per country index: how well that country knows the province, **0 to 9**. Rebuilt from nothing once a game day (RunIntelRefresh) and raised for single provinces in the hour a unit enters or leaves them (RunIntelRefreshIfRequested): 9 for the controller and every country on its allied_or_faction_countries (alliance, dependency, the same faction), for the underground's owner and its list, and for a foreign unit's owner on land (at sea where in a battle or patrolling after a target, else 2); 3 on every adjacent land province for the controller and its list; 2 to 9 on every adjacent land province for a foreign unit's owner, by its decryption against that province's controller's encryption; up to 8 from radar; a spy's or local_intel_boost's grant on a unit. All 0 to 9 can be written. Not saved. See reversing/findings/FINDINGS-espionage.md, section C. CMapProvince derives from CProvince and adds nothing at this offset; both carry it because Ghidra has no inheritance between the two structures.",
+   "source": "reversing/findings/FINDINGS-espionage.md",
+   "revises": "Said '9 for whoever holds it and their friends and for a country with a unit on its ground, 2 for a country with a unit in its water, up to 8 from radar; worked out afresh by UpdateIntelFunctor_SerialBody'. Missing: the neighbours' 3, the decryption-scaled level on adjacent land, the underground, the hourly per-province raise, and who 'their friends' are. Name and type unchanged.",
+   "evidence": "RunIntelRefresh 0x688D40..0x689303, ClearIntelFunctor_SerialBody, UpdateIntelFunctor_SerialBody and RunIntelRefreshIfRequested 0x689310..0x689AC5, all read on the listing. The savegames (Germany1936_01_01_00 .. 04_20_03) have no intel key but minister_of_intelligence. Would be wrong if another writer of +0x370's bytes existed outside these four; the +0x374 census (dispscan.py, 107 sites) shows reads and these writers only, by the sites read."
+  },
+  {
+   "struct": "CProvinceTemplate",
+   "offset": "0x278",
+   "name": "stack_intel",
+   "type": "int",
+   "comment": "**What the screen's country and its friends know of the province** - the highest level any intel pass writes here for the screen's country or a country that is its friend (Intel_IsFriendOfViewer: itself, the same real faction, an alliance). Zeroed with +0x13C set by ClearIntelFunctor_SerialBody each day, raised by RunIntelRefresh, UpdateIntelFunctor_SerialBody and RunIntelRefreshIfRequested, and read by CProvinceTemplate_RefreshStacks to decide whether a stack is drawn and fanned (reversing/findings/FINDINGS-counters.md). Unlike the byte array it is not held to 9 where a grant's level is above 9.",
+   "source": "reversing/findings/FINDINGS-espionage.md",
+   "revises": "Said 'the intel level of the unit last put in a stack here'. It is written by the intel passes as the screen's own figure for the province. Name and type unchanged.",
+   "evidence": "Every write in 0x688170, 0x6883B0, 0x688D40 and 0x689310 is `cmp [x+0x278], level; jge; mov byte [x+0x13c], 1; mov [x+0x278], level` behind the friend test, e.g. 0x68849F, 0x688C4D, 0x6891D1, 0x6893E7; the grant write at 0x688784 uses the unclamped entry level. Would be wrong if another writer set it per unit; none was found among the sites read."
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0xFA8",
+   "name": "allied_or_faction_countries",
+   "type": "CCountryList",
+   "comment": "One of the nine CCountryLists CCountry::RebuildNeighbours fills: the other country is appended when the pair's CDiplomacyStatus +0x14 (`alliance`) or +0x18 (`dependency`) is non-null, or both are in the same real faction (+0xD8, slot 7). The else-arm of the same test elects `highest_threat` (+0x11D8/+0x11DC). **Read by the intelligence passes**: every 9 a controller, an underground's owner or a radar's country gets on a province goes to every country on its list too, and a controller's 3 on adjacent land likewise - so allies, puppets and masters, and faction members share what each other's ground and radar show. `last` at +0xFAC, `count` at +0xFB0; append at 0x4E3506-0x4E3553.",
+   "source": "reversing/findings/FINDINGS-espionage.md",
+   "revises": "Said 'no reader of this offset was traced, so the name says what gets into the list and makes no claim about what it is for'. Readers are now traced: RunIntelRefresh, both intel bodies and RunIntelRefreshIfRequested. Name and type unchanged.",
+   "evidence": "Reads of `[reg+0xfa8]` as a list head at 0x6884B5, 0x68858F and 0x688C0B (UpdateIntelFunctor_SerialBody), 0x688EF0 (RunIntelRefresh), 0x6893FF and 0x689A92 (RunIntelRefreshIfRequested), and through scratch +4 written by ClearIntelFunctor_SerialBody; each walks nodes {+4 id, +0xC next} and writes the byte at that id. Would be wrong if +0xFA8 were not the list RebuildNeighbours appends to; the existing record's append sites say it is."
+  },
+  {
+   "struct": "CUnit",
+   "offset": "0x1F8",
+   "name": "intel_level",
+   "type": "int",
+   "comment": "**How well the screen's country knows this unit**: 9 for its own units and its friends' (the same real faction, or an alliance in the owner's status towards it), else the byte of `intel_by_country` for it in the province the unit is in (0 unseen, 3 partial, 9 own). Written by CUnit::EnterProvince and **every hour for every unit of every country by RunHourlyTick** (0x6822C8..0x6823D7), which sets the avatar's rebuild byte (+0x10C) where it changed. Under 2 its stack is not drawn, under 3 its counter shows the unknown picture, under 5 its name is `???`, under 7 its two figures are `?`.",
+   "source": "reversing/findings/FINDINGS-espionage.md",
+   "revises": "Named only CUnit::EnterProvince's write and 'an observer'. The hourly writer in RunHourlyTick is added and the rule for 9 stated. Name and type unchanged.",
+   "evidence": "RunHourlyTick 0x6822F0..0x6823D7: per country (+0xBBC) per unit (+0xBAC), owner id against state +0xC34, the faction slot-7 and alliance (+0xE28 [player] +0x14) tests, else `[esi+0x130]` province's `[+0x370][player]` bounded by +0x374; `cmp eax,[esi+0x1f8]; je; mov [esi+0x1f8], eax; mov byte [esi+0x10c], 1`. Reached every hour after RunIntelRefreshIfRequested. Would be wrong if the loop were skipped in some hours; no branch around it was found from 0x6822BC."
+  },
+  {
+   "struct": "CCurrentGameState",
+   "offset": "0xCF8",
+   "name": "intel_refresh_requests_first",
+   "type": "void*",
+   "comment": "Head of a `CList` of 0x10-byte nodes each holding an int: provinces whose intelligence is to be raised this hour, appended by GameState_RequestIntelRefresh (CUnit::EnterProvince, CLocalIntelBoost::Execute), and **-1 pushed to the front** to ask for the whole rebuild (a change of owner or controller, a radar, an alliance or military access made or ended, a faction joined, a change of who controls a country, and the rest RunIntelRefreshIfRequested lists). RunIntelRefreshIfRequested reads it at the end of every hour - the whole rebuild where the head is -1, else each named province - and RunHourlyTick then frees every node and zeroes head, tail and count (0x6823DD..0x682407). So a request lives one hour.",
+   "source": "reversing/findings/FINDINGS-espionage.md",
+   "revises": "Said 'RunHourlyTick runs both intel fan-outs ... when ... this head node's value is -1 ... Nothing found drains the list.' The list is drained every hour, and positive ids are acted on. Name and type unchanged.",
+   "evidence": "Writers: GameState_RequestIntelRefresh appends (0x68AC9F..0x68ACEB) or, for -1, calls the push-front 0x45F5E0 with esi = state+0xCF8 (0x68ACFF); 12 more push-fronts of -1 found as callers of 0x45F5E0 with `add esi, 0xcf8` or `lea esi, [eax+0xcf8]` just before. Readers: 0x689310 and the drain in RunHourlyTick. The other +0xCF8 hits from dispscan.py (0x683E0B, 0x684790, 0x689E5A, 0x689EEC, 0x68A1C9, 0x68C359) are CCountry +0xCF8 (owned provinces), read through the country vector."
+  }
+ ],
+ "vftable_slots": {},
+ "frontier": ["0x224970", "0x226790", "0x22BB20", "0x22D9F0", "0x21E350", "0x6A2BF0", "0x1BAF70", "0x130076"]
+}

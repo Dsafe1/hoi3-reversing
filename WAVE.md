@@ -17,33 +17,42 @@ truth.
 
 ---
 
-## The politics wave - laws, ministers, parties, dissent and unity, the screen, and the AI's politics
+## The espionage wave - spies placed and caught, what their missions do, what a country knows, the screen, and the AI's spying
 
-> **LANDED 2026-10-14.** Five briefs, merged (171 address entries; 16 structs declared, 81 fields; apply 193/194 `failed: 0`, `struct fields: 0`); the write-up is `findings/FINDINGS-government.md`, indexed in `CANDIDATES.md`. Two questions left open are queued there: the minister pool at a new game, and what runs the AI's `Laws()` more than once before the start save.
+> **LANDED 2026-10-14.** Five briefs, merged (131 address entries landed; 7 structs declared, 72 fields; three hand edits - `CDistributeEspionage`'s size, `CSpyPresence`'s comment, `CanAttemptCoup`'s comment; apply 195 `failed: 0`, `struct fields: 0`); the write-up is `findings/FINDINGS-espionage.md` sections A to E, indexed in `CANDIDATES.md`, where six things it left are queued.
 
-Planned and launched 2026-10-14, for OpenHOI3, whose stage 4 lists "diplomacy, factions, politics, espionage,
-occupation, revolt"; diplomacy and factions are built. What OpenHOI3 has: a country's laws and ministers as
-the history gives them, its ruling party and government, dissent moved by consumer goods, national unity held
-at one; nothing changes a law or a minister, parties have no figures, and every condition and effect on the
-government, the parties and the ministers reports as unbuilt. Five briefs; the write-up is the new
-`findings/FINDINGS-government.md`, sections A to E.
+Planned and launched 2026-10-14, for OpenHOI3, whose stage 4 lists "diplomacy, factions, politics, espionage, occupation,
+revolt"; the first three are built. What OpenHOI3 has: spies trained from the espionage share of leadership into a
+country's free pool, and nothing that spends them; a party's figures with a tally slot for spies that nothing
+writes; `CAIIntel` built for the AI's offers, its espionage terms answering nought; every espionage condition and
+effect reporting as unbuilt; the top bar's Intelligence button opening nothing. Five briefs; the write-up is the
+existing `findings/FINDINGS-espionage.md`, **extended** with sections A to E rather than a new file, since its
+first reading is the ground every brief stands on.
 
-**What is known and is not to be redone:** `FINDINGS-politics.md` (the country's daily pass and its order,
-phase 4's schedule of elections, `CCountry +0x618` ministers and `+0x628` laws, the three law accessors);
-`FINDINGS-effectrun.md` sections 1.4 and 1.5 (`organisation` and `popularity`, `coup_by`, `do_election` and
-`CCountry_HoldElection`'s scoring, a government position `= id`, `remove_minister`); `FINDINGS-triggerleaves.md`
-(`minister_alive`, the government position, `government`, `has_removable_minister`, `ideology`,
-`ideology_group`); `FINDINGS-numtriggers.md` (`dissent`, `national_unity`, `popularity` and `organisation` as
-conditions); `FINDINGS-distribute.md` (consumer goods' dissent, `CDistributeConsumerGoods::GetDissentChange`);
-`FINDINGS-topbar.md` and `FINDINGS-topbartooltip.md` (what the top bar shows of dissent and national unity);
-`FINDINGS-espionage.md` (`CSpyPresence::ApplyUnityModifiers`, the coup mission); `FINDINGS-ai.md` (when the AI's
-ministers tick); `FINDINGS-luaapi.md` and `FINDINGS-luahost.md` (the Lua API read so far and the state);
-`FINDINGS-fieldmap.md` (the history keys); `FINDINGS-alignment.md`; `FINDINGS-revolt.md`.
+**What is known and is not to be redone:** `FINDINGS-espionage.md` (the `CSpyPresence` record field by field,
+the nine missions and which function resolves each, the daily pass and its order, the arithmetic of each
+mission's chance, detection and `spiescaught`, the espionage slider, the two intel fan-outs, the defines and the
+three with no reader); `FINDINGS-government.md` B.6 (the coup command), B.1 (`CIdeologyData` and its five
+tallies - the spies' is slot 3); `FINDINGS-luaapi.md` and its `CAIIntel` section (what the AI's offers read of
+espionage); `FINDINGS-ai.md` (the intelligence minister is `CEU3AI`'s agent with `IntelligenceMinister_Tick` at
+slot 10); `FINDINGS-definitions.md` and `FINDINGS-fieldmap.md` (`CChangeSpyMission`, `CChangeSpyPriority` and
+`CPerformCoupCommand`'s save blocks and fields); `FINDINGS-onactions.md` (`on_coup_success`, `on_coup_fail`);
+`FINDINGS-diplomacyview.md` (the list, sort and faction-box machinery the espionage screen shares with
+diplomacy's).
 
-| brief | what | fragment |
+**The oracle.** Every save holds, per country, `spies` (the free pool), and towards every other country
+`spy_priority`, `spy_allocation` (the presence's level), `spy_date`, and `spy_mission` (the nine settings of each
+presence, flattened). The maintainer's saves of one game - 1 January, the three autosaves and 20 April 1936 - give
+the presence's growth and decay over time against its priority. Each brief that reads something a save keeps
+should say which save fields it predicts.
+
+| brief | what it settles | starting points |
 | --- | --- | --- |
-| A | **a law or a minister changed**: `CChangeLawCommand` and `CChangeMinisterCommand` whole - who may post one, what is checked before and in `Execute`, and everything a change sets off at once or later (a law's `allow`, the cost or delay if any, dissent, the modifier, the brigades, history, messages); which ministers a post may take - `CMinister::CanTakePosition`, `IsValid` (slot 8), ideology against the ruling party, dates, the pool `+0x160` and how it is made; `CCountry_FillMinisterPosts` (inferred) whole and **who calls it when**, the start of a game included; ministers dying or retiring as the days pass | `politics-change.json` |
-| B | **the parties over time**: `CIdeologyData` and the country's two of them (popularity, organisation): where they come from (the history), **every writer** - what moves popularity and organisation day by day or month by month, by laws, ministers, events or drift - with the defines; `CCountry_AllotCabinetSeats` (inferred) whole and who reads the seats; `CIdeologyData::GetLeading` (inferred) to confirmed; the tally at `+0x18`; the forced election and the "never" sentinel left open in `FINDINGS-politics.md` phase 4; `CPerformCoupCommand` (`from`, `to`) - who posts one and what it does | `politics-parties.json` |
-| C | **dissent and national unity**: every writer of dissent (`CCountry +0x10B4`) besides consumer goods and the rebels' zeroing - its daily decay or drift, ministers and laws - and of national unity through `CCountry::ChangeNationalUnity` (every caller and why: war, occupation, events, espionage); what dissent and national unity **do** elsewhere (a surrender level, IC, revolts - say where and stop: revolts are a later wave); and the unread helpers of the country's daily pass (`FINDINGS-politics.md`, "The rest of the pass") - name each one and say which touch politics | `politics-unity.json` |
-| D | **the politics screen**: `CPoliticsView` whole - every element it finds by name in `interface/` and what it writes there, the parties' figures, the cabinet with `CMinisterItem`, the laws with `CLawEntry`, `CPossibleLawEntry` and `CLawChangeConfirmDialog`, what each button posts, every tooltip with its keys and variables; the `C*Change` history classes (`CLawChange`, `CMinisterChange`, `CIdeologyChange`, `CGovernmentChange`, `CPopularityChange`, `CDissentChange`, `CNationalUnityChange`) - who writes and who **reads** them; and the top bar's politics button | `politics-view.json` |
-| E | **the AI's politics**: `CAIPoliticsMinister::DoWork` and `Lua_PoliticsMinister_Tick` - for which countries and when (the player's excluded or not; whether it runs in a new game's first days, which is how the original's first screen has other laws than the history); every method the install's `tfh/script/ai_politics_minister.lua` reaches that `FINDINGS-luaapi.md` has not read - `CLawDataBase`, `CLaw:ValidFor`/`GetGroup`/`GetIndex`, `CCountry:GetLaw`/`GetMinister`/`GetPossibleMinisters`/`GetRulingIdeology`, `CGovernmentPositionDataBase`, `CMinister:CanTakePosition`, `CChangeLawCommand(...)`, `CChangeMinisterCommand(...)`, `ai:Post`/`CCurrentGameState.Post`, `CCurrentGameState.GetAIRand` (which generator) and the rest - on the listing, as `FINDINGS-luaapi.md` did; and what `CToggleMobilizationCommand` and `CLiberateCountryCommand` do when the AI posts them | `politics-ai.json` |
+| **A. Placing spies** | How free spies become a presence: `CChangeSpyPriority` and `CChangeSpyMission` read whole (fields, `IsValid`, `Execute`, who may post them); how the priority shares the pool out and how fast a level grows to `MAX_SPY_LEVEL`, decays, and is lost when a spy is caught; `spy_date`; what the presence's `mission_share` is made from and when; the messages the slider's distribution raises (`CDistributeEspionage`, two, text not chased); what a new game's presences hold - the history's `spy_priority` key, the start save. Predicts `spies`, `spy_allocation` and `spy_priority` across the saves. | `CDistributeEspionage::Distribute`; `CSpyPresence` slots; the two command classes; `RunDailyMissions` |
+| **B. What a mission does** | The parts the first reading left: the tech steal past `0x52EBE0`'s chance (which technology, how much, the message), military intel past `0x52FD40`'s (what the walk over the target's units yields and how long it lasts); the party boosts' two targets (`CCountry +0x10C4` is organisation by the politics wave; `+0x10D4`'s stride-16 is very likely the tally array - confirm); the threat pair `0x42F100`/`0x4F4E80`; covert ops points and the coup - when `attempt_coup_button` may be pressed, its chance and cost, and `CPerformCoupCommand`'s posting; `0x4EF7C0`, the ally predicate; every message a mission or a catch raises, with its keys; the script keywords `spies`, `spy_mission_count`, `has_hostile_spy_mission` (conditions), `modify_spies` (effect), `local_intel_boost` and `spy_lower_neutrality`/`spy_support_resistance` (modifiers) | `FINDINGS-espionage.md`'s *not established*; the effect and trigger tables |
+| **C. What a country knows** | The figure that says how much a country knows of another - what the espionage screen and the diplomacy screen hide behind it, and what `CAIIntel::GetFactor` reads - and how a presence, a neighbour, an alliance or a faction makes it; `UpdateIntelFunctor`'s per-province body past `0x688480`, what it writes and from what (OpenHOI3's `CIntelligence` has the part air combat needed: 9 for one's own and friends' ground and a unit's, 2 for a unit's water; radar unread), so that province intel is read whole once; `prov +0xD4`; the switch at `[0x170AD30]` | `0x688D40` and its two fan-outs; `CAIIntel::GetFactor`; the screen's own gating (shared with D) |
+| **D. The screen** | `country_espionage`, its view class, as section D of `FINDINGS-government.md` read the politics view: construction, Show, Update; the country list, its tabs and five sorts (`threat`, `covert`, `spy_level`, `spy_priority`); `own_country_info` (free, active and foreign spies, partisan efficiency, spies caught, foreign actions, own priority, our missions); `country_info` for the chosen country - what each figure shows at each level of knowledge, `spy_bar`, `target_priority`, covert ops, the nine `spy_mission_entry` rows and their priority buttons, `attempt_coup_button`; `country_info_sections` - the production and minister views and the research lists; every command the screen posts; every tooltip, by element | the view's vftable from RTTI; `country_espionage.gui` (TFH) |
+| **E. The AI's spying** | When the intelligence minister acts (its schedule, as the politics wave read the politics minister's, and whether only a country nobody plays has one); `IntelligenceMinister_Tick` in TFH's `ai_intelligence_minister.lua` and each method it reaches - `CSpyPresence` (`GetPriority`, `GetPrimaryMission`, `GetMissionPriority`, `MAX_SPY_PRIORITY`, the rest of its registered methods), `CCountry:GetSpyPresence`, `GetSpyingOnUs`, `AccessIdeologyPopularity`, `GetCapitalLocation`, `GetNationalUnity`, `CalculateIsAllied`, `CCurrentGameState.GetPlayer`, `CDate:GetTotalDays`; the two constructors `CChangeSpyMission(actor, target, mission, priority)` and `CChangeSpyPriority(actor, target, priority)` from Lua; any C++ side of the minister | `FINDINGS-ai.md`'s agent table; the luabind registrations; the script itself |
+
+Every brief gets `TRAPS.md` and the two report tables verbatim from `CLAUDE.md`. B and C share `0x4EF7C0` and the
+ally test; D reads what C's figure gates, so D's agent is told C's starting points and to cite rather than re-derive.

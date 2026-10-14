@@ -1,0 +1,361 @@
+{
+ "agent": "espionage wave, reader B (what a mission does), 2026-10-14",
+ "question": "What each of the nine spy missions does once its roll succeeds, the coup's gate, the ally predicate, every message a mission or a catch raises, the script keywords on spies, and what spends covert-ops points.",
+ "source": "reversing/findings/FINDINGS-espionage.md",
+ "addresses": [
+  {
+   "rva": "0x1300A0",
+   "kind": "function",
+   "name": "CSpyPresence::RunDailyMissions",
+   "signature": "void __stdcall CSpyPresence::RunDailyMissions(CSpyPresence* this@ESI, CCountryTag actor@stack:4, CCountryTag target@stack:0xC)",
+   "no_signature": null,
+   "comment": "0x5300A0 to the `ret 0x10` at 0x530331, read whole on the listing. **`this` arrives in ESI** and the two tags are by value (characters + id each, which is what `ret 0x10` counts). Each of the nine mission dwords is tested `> 0` in turn (L = level +0x0, S[k] = mission_share[k] at +0x2C+4k, every product a 64-bit multiply and a truncating /1000):\n\n- +0x08 counter-espionage -> CSpyPresence::CatchSpies(this, &actor, &target).\n- +0x10 tech -> CSpyPresence::RunTechEspionage(this, &actor, &target).\n- +0x0C military -> CSpyPresence::RunMilitaryEspionage, **only when `(Date_DayOfMonth(&gamestate->tick +0xBDC) + target.id) & 7 == 0`** (0x5300D6). 0x44C5C0 is Date_DayOfMonth, 0-based - **not** a day count - so it runs on the days of the month d with (d + targetId) mod 8 = 0: three or four times a month, the pattern restarting each month.\n- +0x14 boost ruling party (0x53010C): `x = L * SPY_PARTY_ORGANIZATION_BOOST (country +0x38) / 1000 * S[3] / 1000`; `i = target->ruling ideology (+0x1140)->index (+0x4C)`; `v = target->organisation_by_ideology (+0x10C4)[i] + x`; **when v < 0 nothing is written**, otherwise tally slot 3 of the organisation CIdeologyData (+0x10BC; its tallies vector at +0x10D4, 16-byte entries whose first dword is the slot array, so `[[+0x10D4] + i*16] + 0xC`) gets `+= v` - the new figure, not the change - and `organisation[i] = v`. No upper clamp (the month's NormaliseToHundred is what brings the parties back to 100), no null test on the ruling ideology.\n- +0x18 boost our party (0x530182): the same with `S[4]` and the **actor's** ruling ideology's index - into the **target's** organisation and tally.\n- +0x20 increase threat (0x5301F7): `amount = L * SPY_THREAT_INCREASE_ACTION (+0x54) / 1000 * S[6] / 1000 * 1000 / 10000` (a tenth), `scale = 1000`; CCountry::GetActingCapitalLocation(target) is called and **its result discarded**; then SpreadThreatToAll(&amount, &scale, feared = target@EDI) - every other country's threat from the TARGET rises.\n- +0x28 covert ops (0x530281): `x = L * SPY_COVERT_OPS_GAIN (+0x80) / 1000 * S[8] / 1000`, then **`x * 1000 / 30000`** - a thirtieth, so the define is a monthly figure (32-bit path when -1607028 < x < 2147483, 64-bit otherwise, same result) - added to covert_ops_points (+0xF4), then stored down to SPY_COVERT_OPS_MAX (+0x84) when above it.\n\nMissions 5 (+0x1C) and 7 (+0x24) are not here: they are modifiers, CSpyPresence::ApplyUnityModifiers from CCountry::RebuildStaticModifiers. **Nothing here tests an alliance.** CCountry::DailyEspionagePass calls this for the country's OWN record too (its loop does not skip its own id), so spies at home run every mission on the country itself - counter-espionage then rolls twice a day, once here and once from the pass's own direct call.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-espionage.md",
+   "evidence": "Revised: (1) the throttle was recorded as `(days + targetId) & 7`; 0x44C5C0 is recorded Date_DayOfMonth and its body was read (tick - 0x29C55C0, /24, day of year by /365 round trip, minus the month table at 0x1713294 = 31,28,31,...) - day of month, 0-based; (2) the covert-ops thirtieth (0x5302CF `imul eax,eax,0x3e8` then magic 0x45E7B273 `sar edx,0xd` = /30000, and the 64-bit arm 0x5302F4 x1000 then 0x530302 /0x7530) was missing; (3) the party arms' targets: 0x530144/0x5301C8 resolve [ebp+0x10] (target) for the arrays, 0x5301BA resolves [ebp+8] (actor) only for the ideology in mission 4; `add [edi+0xc], edx` at 0x53016D/0x5301E8 is tally slot 3, which FINDINGS-government.md B.1 names the spies' slot; (4) 0x42F100's eax is overwritten by `lea eax,[ebp-8]` at 0x53026E before any use. DailyEspionagePass loop 0x4FFE30..0x4FFE82 compares only +0xCF8 and the level, never the own id. Would be wrong if 0x44C5C0 were a day count - its subtraction of the month lengths says not. Signature: the two by-value tags given their stack places (@stack:4 and @stack:0xC, 8 bytes each, `ret 0x10`), which checkSignatures asked for; nothing else changed.",
+   "revises": "0x1300A0"
+  },
+  {
+   "rva": "0x12EBE0",
+   "kind": "function",
+   "name": "CSpyPresence::RunTechEspionage",
+   "signature": "void __stdcall CSpyPresence::RunTechEspionage(CSpyPresence* presence, CCountryTag* actor, CCountryTag* target)",
+   "no_signature": null,
+   "comment": "Mission 2, read whole: 0x52EBE0 to the `ret 0xC` at 0x52FD32, abutting CatchSpies above it with no padding. In order:\n\n1. **First roll**: `percent = L * TECH_ESPIONAGE_BASE_CHANCE (+0x94) / 1000 * S[2] / 1000 / 1000`; return when `Random() % 100 > percent` - so the chance is (percent + 1) in 100.\n2. **Weights** over every technology of g_CTechnologyDataBase's vector (n of them, built on demand through CTechnologyDataBase::CTechnologyDataBase and SetTechnologyDataBase - 0x540D60 is that constructor, not the steal): `w[t] = 0` unless the technology answers slot 9 (true for a real technology, false for CNullTechnology), is `stealable` (+0x2BC) and the target's level (+0x218[index]) is above the actor's; then `gap = target level - actor level`, `w[t] = (10000000 / (gap*1000)) * 1000 / (max(difficulty (+0x2C8), 1) * 1000)` = trunc(trunc(10000/gap) / difficulty). Sum = the weights' total.\n3. **Second roll**: `D = floor(((float)n + 0.0005) * 1000) * 10000 / 1000` (= n x 10000); `v = Sum * 1000 / D` (-1 when D is 0) - the mean weight over ALL n technologies as a fraction of 10000, in thousandths; `chance = v * TECH_ESPIONAGE_TECH_PICK_FACTOR (+0x98) / 1000 * S[2] / 1000`; return unless `RandomThousandths() < chance`.\n4. **The pick**: PickWeightedIndex(w, n, Random()) - the first index whose running total of positive weights exceeds `draw % total`; return when it answers 0 or less.\n5. **The theft**: `actor.progress_by_technology (+0x228)[i] = 0` (64-bit); when the target's level is above the actor's, `actor.level[i] = target level` - **all the way, however many levels** - and CTechnologyStatus::ApplyTechnologyEffects(tech@EDI, actor status, gap*1000). The technology is unlinked from the actor's CurrentResearch list (+0x638) where it is on it. No max_level, allow or prerequisite test.\n6. **Messages**: actor the player -> `WE_STEAL_TECH_ONCE` when the technology's additional_offset (+0x2C0) is 0, else `WE_STEAL_TECH_REPEAT`; variables CCountry::BuildMessageVariables(actor) + LEVEL (the new level, IntToString), TYPE (slot 7, the player-facing name +0x228), TARGET_ADJ (CountryAdjectiveOfTag(target)), EFFECT (CTechStatistics::BuildEffectsText(tech, levels = the new level, no unit filter, actor) with its first `§W` turned to `§b`, or the localised `none` when empty); tags (actor, target). Otherwise, target the player and the target's OWN record's `level * mission_share[0] / 1000` above 2000 (more than two spies on counter-espionage at home): LEVEL, TYPE, then above 5000 RESPONSIBLE = CountryNameOfTag(actor) and `TECH_STOLEN` (tags target, actor), else `TECH_STOLEN_BY_UNKNOWN` (tags target, target). At 2000 or fewer the victim is told nothing.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-espionage.md",
+   "evidence": "Revised from a chance-only reading: the listing 0x52EBE0..0x52FD32 read on the disassembly (tech.asm in the reader's scratch), the weights 0x52ED00..0x52EDCE, the n-based divisor 0x52EDD7..0x52EE89 (doubles 0x160A460 = 0.0005 and 0x160A300 = 1000.0), PICK_FACTOR at 0x52EEED, RandomThousandths at 0x52EF1E with `jge` return, the pick 0x52EF2E..0x52EF45 (`push eax(draw); push edi(n); mov edi,[ebp-0x8c](weights)`), the theft 0x52EF4B..0x52EFDD, the branches 0x52F05C (actor == CCurrentGameState +0xC34) and 0x52F8C2 (target), thresholds `cmp eax,0x7d0` 0x52F8F8 and `cmp [ebp-0x20],0x1388` 0x52FA67, `cmp [eax+0x2c0],ebx` 0x52F6CD. CTechnology +0x2BC/+0x2C0/+0x2C8/+0x228 and CTechnologyStatus +0x218/+0x228 are the record's names. Would be wrong if 0x540D60 had been the pick - its body is three 0x1FF-bucket hash maps and a vector, a constructor.",
+   "revises": "0x12EBE0"
+  },
+  {
+   "rva": "0x12FD40",
+   "kind": "function",
+   "name": "CSpyPresence::RunMilitaryEspionage",
+   "signature": "void __stdcall CSpyPresence::RunMilitaryEspionage(CSpyPresence* presence, CCountryTag* actor, CCountryTag* target)",
+   "no_signature": null,
+   "comment": "Mission 1, read whole: 0x52FD40 to the `ret 0xC` before the int3 run at 0x530091. Run three or four days a month (RunDailyMissions' day-of-month test). `T = SPY_MILITARY_INTEL_TIME_BASE (+0x9C) / 1000` (whole); `base = MILITARY_ESPIONAGE_DETECTION_CHANCE (+0xA0) * 10000 / 1000 * L / 1000 * S[1] / 1000`; `land = 1000 + actor.mod[OFFMAP_LAND_INTEL] (+0x1D8)`, `naval = 1000 + actor.mod[OFFMAP_NAVAL_INTEL] (+0x1E0)`, `atBase = MILITARY_ESPIONAGE_AT_BASE_CHANCE (+0xA4)`. For **every unit on the target's Units list (+0xBAC)**:\n\n    c = base\n    land unit (slot IsLand):  c = land * base / 1000\n    else air (IsAir): c = atBase * base / 1000 when CUnit_IsAtOwnBase's three clauses hold (inlined), else base - no offmap modifier for air\n    else naval (IsNaval): c = naval * base / 1000; and c = c * atBase / 1000 when CUnit_IsAtOwnBase\n    p = (int)((float)c / 1000.0) by fistp - rounded to nearest, not truncated\n    roll: inlined MT19937 draw (the same generator and arithmetic-shift tempering as 0xAA2F80, draws counter 0x174DA8C) % 1000 < p\n\nOn success `v = min(RandomThousandths() * (floor(2000.5f) * S[1] / 1000) / 1000, 1000)`, `level = v * 7000 / 1000 / 1000 + 2` (2..9), and CUnit_GrantIntel(actor.id, T, level, unit) - the actor knows that unit at that level for T of the unit's updates (32 in TFH; CUnit::UpdateDaily takes one off each call and drops the entry at 0). **GrantIntel overwrites an existing entry**, so a later low roll replaces a higher level. No message, no ally test, no detection here.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-espionage.md",
+   "evidence": "Revised from an opening-only reading: listing 0x52FD40..0x530091 on the disassembly. The unit dispatch is vslots +0x3C/+0x44/+0x40 (IsLand/IsAir/IsNaval, Ghidra's names); the air arm 0x52FE51..0x52FEBE is CUnit_IsAtOwnBase's body inlined (+0x98 slot 0 vs +0x130, slot 1, +0x18->+0xB0->+0x11C/+0x110) choosing [ebp-4] = atBase; the naval arm 0x52FEC0..0x52FF02 calls 0x5CDC30. The float at 0x160A5F4 is 2000.5. Rounding: `fld [ebp-0x1c]; fistp [ebp-8]` 0x52FF20. The level: `cmp eax,0x3e8; jg -> 1000` then x0x1B58 /1000, magic /1000, `lea ecx,[edx+eax+2]`. GrantIntel push order 0x53006E..0x530076: level, duration, actor id, unit in EAX. Would be wrong if the vslot names were swapped; Ghidra's applied record names them.",
+   "revises": "0x12FD40"
+  },
+  {
+   "rva": "0x12E3A0",
+   "kind": "function",
+   "name": "CSpyPresence::CatchSpies",
+   "signature": "void __stdcall CSpyPresence::CatchSpies(CSpyPresence* presence, CCountryTag* actor, CCountryTag* target)",
+   "no_signature": null,
+   "comment": "Mission 0, counter-espionage: 0x52E3A0 to the `ret 0xC` at 0x52EBDD, abutting 0x52EBE0 with no int3. Chance, in thousandths: `SPY_DETECTION_CHANCE` (country +0x20, at 0x52E473) plus, when actor==target, the actor's MODIFIER_COUNTER_ESPIONAGE (modifier 55, +0x1B8); times the presence's level; times mission_share[0]; and in the home arm times `1 - 800*(1000-share[0])/1000` where 800 is floorf(800.5f) off the float 0x160AADC. Then per other country with provinces and at least one whole spy (level >= 1000) in the target: **`actor->IsFriend(other, true)`** (0x4EF7C0 - alliance, faction, overlord, war together, or military access) - a friend's spies are skipped in a foreign target, and at home skipped unless CSpyPresence::IsHostileMission, which adds 1000000 to the chance; times `1000 - target->MODIFIER_ESPIONAGE_BONUS` (modifier 42, +0x150 - read off the TARGET, so it LOWERS the chance); times NO_MISSION_SPY_DETECTION_MULTIPLIER (+0x3C) when none of that country's nine missions is set. Roll: `(MT19937 % 1000) < chance` through 0xAA2FD0, then a flat `(MT19937 % 100) < 10` through 0xAA2F80. On success the caught country loses exactly 1000 of level (one spy), floored at 0; the actor's spiescaught rises when target==actor. **Messages**: actor the player -> `SPIESFOUNDUS`, variables BuildMessageVariables(player) + WHERE = CountryNameOfCountry(the caught spies' owner), tags (actor, owner) - its text names $COUNTRY$, the player's own country, as where the spy was caught even in the foreign arm; else the caught owner the player -> `SPIESFOUNDTHEM`, WHERE = CountryNameOfCountry(target), tags (player, actor). Both types are log=no popup=no in TFH's messagetypes.txt. Signature corrected 2026-10-02 by the signature audit (reversing/findings/FINDINGS-sigaudit.md).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-espionage.md",
+   "evidence": "Revised to add the two messages and the friend test's second argument: 0x52E684 `push 1` before 0x52E68A; 0x52E786..0x52E78F (actor vs CCurrentGameState +0xC30/+0xC34, [ebp-0x1c]) and 0x52E993 (other's +0xCA8 vs the player); WHERE from 0x4CB430 with eax = ebx (the other country) at 0x52E7BB and with eax = [ebp-0x2C] (target) at 0x52E9C9; type strings 0x15C2E20 and 0x15C2E30; the tag pushes at 0x52E8CA..0x52E8D8 and 0x52EAD8..0x52EAEE. messagetypes.txt in tfh/interface lines 1513-1531. Everything else is the existing record unchanged.",
+   "revises": "0x12E3A0"
+  },
+  {
+   "rva": "0x12D4A0",
+   "kind": "function",
+   "name": "CSpyPresence::SetLevel",
+   "signature": "void __stdcall CSpyPresence::SetLevel(CSpyPresence* this@EAX, int level@stack:4)",
+   "no_signature": null,
+   "comment": "`this` arrives in **EAX**, `ret 4`. Stores, floors at 0, caps at the dword at 0x170D164 (MAX_SPY_LEVEL = 10000, ten spies). **One caller, CCountry::LoadKey at 0x4CE411** (the `spy_allocation` list). Every other writer inlines the same store-floor-cap: CModifySpiesEffect::Execute (0x9BE181), CatchSpies (0x52E74D) and the slider's placement - so `modify_spies` does not call this, though it clamps the same way.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-espionage.md",
+   "evidence": "Revised: the comment said CModifySpiesEffect::Execute uses this setter. findRefs --callers 0x52D4A0 answers exactly one call, 0x4CE411, inside CCountry::LoadKey (0x4CCDA0); CModifySpiesEffect::Execute (0x9BE130..0x9BE1A0) was read whole and calls nothing after its target slot - its clamp is inline at 0x9BE181..0x9BE199. Would be wrong if a call reached 0x52D4A0 through a register; none of the inlined sites does. Signature: `level` given its stack place (@stack:4), which checkSignatures asked for.",
+   "revises": "0x12D4A0"
+  },
+  {
+   "rva": "0x5BE130",
+   "kind": "function",
+   "name": "CModifySpiesEffect::Execute",
+   "signature": "void __thiscall CModifySpiesEffect::Execute(CModifySpiesEffect* this, CEventScope* scope, int unknown)",
+   "no_signature": null,
+   "comment": "**`modify_spies`, which cannot be configured.** Read whole: 0x9BE130 to the `ret 8` at 0x9BE1A0. `tag = this->slot 12 (+0x30)(&tag, scope)` (CWarEffect-family target resolution); `p = countries[scope->country_id (+0x14)]->espionage (+0x1160) + tag.id * 0xF8`; `p->level += this->+0x28 * 1000`, then floored at 0 and capped at MAX_SPY_LEVEL (0x170D164, 10000) **inline** - it does not call CSpyPresence::SetLevel. No modifier rebuild follows, so a spy added on lower/raise national unity takes effect at the next CCountry::RebuildStaticModifiers. The effect table builds it with the scalar tail (0x59A096 reads a block by calling slot 3; 0x599E71 hands the value to slot 7 - this keyword takes the second), and CModifySpiesEffect's slot 7 is CEffect's stub (rva 0x15FF0), `ret 0x104`, so CModifySpiesEffect::LoadKey is never called and +0x28 - the count - is whatever the constructor left: the game's own tooltip shows `Add 587232376 spies to Null`. See reversing/findings/FINDINGS-script.md. Signature corrected 2026-10-02 by the signature audit (reversing/findings/FINDINGS-sigaudit.md).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-espionage.md",
+   "evidence": "Raised from inferred: the listing 0x9BE130..0x9BE1A0 read whole (the slot 12 call 0x9BE14D, `imul esi,esi,0x3e8` 0x9BE15B on +0x28, `imul eax,eax,0xf8` + [+0x1160] 0x9BE175..0x9BE17B, `add/jns/mov 0` 0x9BE183..0x9BE189, cap against [0x170D164] 0x9BE18F..0x9BE199). vtable.py CModifySpiesEffect --all shows slot 7 = 0x415FF0, the CEffect stub. Would be wrong if slot 12 resolved the scope country rather than a target - CModifySpiesEffect::GetText reads the same slot for TARGET.",
+   "revises": "0x5BE130"
+  },
+  {
+   "rva": "0x1D4070",
+   "kind": "function",
+   "name": "CUnit_GrantIntel",
+   "signature": "void __stdcall CUnit_GrantIntel(int countryId@stack:4, int duration@stack:8, int level@stack:0xC, CUnit* unit@EAX)",
+   "no_signature": null,
+   "comment": "**What fills CUnit +0x2A8**, the list FINDINGS-airbattle.md found the intel pass reading but nobody writing: a vector of 12-byte `{country id, duration, level}`. Finds the entry for countryId and overwrites its duration and level - **a lower level replaces a higher** - or appends one (0x111E50). CUnit::UpdateDaily takes one off every entry's duration each call and removes it at 0. **Two callers**: CLocalIntelBoost::Execute (0x9BE641, level 8, SPY_MILITARY_INTEL_LOCAL_TIME_BASE) and CSpyPresence::RunMilitaryEspionage (0x530076, level 2..9, SPY_MILITARY_INTEL_TIME_BASE).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-espionage.md",
+   "evidence": "Revised: the comment said one caller. findRefs --callers 0x5D4070 answers two, 0x530076 and 0x9BE641; the first is RunMilitaryEspionage's success arm (push order 0x53006E..0x530076). The ageing: CUnit::UpdateDaily 0x5BAFC1 `dec dword ptr [edi+ecx+4]` then `cmp ...,0; jg` keep, else erase.",
+   "revises": "0x1D4070"
+  },
+  {
+   "rva": "0xEF7C0",
+   "kind": "function",
+   "name": "CCountry::IsFriend",
+   "signature": "bool __thiscall CCountry::IsFriend(CCountry* this, const CCountryTag* tag, bool includeMilitaryAccess)",
+   "no_signature": null,
+   "comment": "**The game's own name, out of the Lua API (`CCountry:IsFriend`).** `ret 8`, 75 callers; read whole, 0x4EF7C0..0x4EF933. True, in order, when: the tag is this country; the other country's Overlord (+0xF38/+0xF3C) is this country, or this country's Overlord is the other; both have the same non-null Overlord; this country's faction (+0xD8) is real (its slot 7) and is the other's faction; **the other country's** diplomacy status toward this one (`countries[tag]->+0xE28[this->id]`) has an alliance (+0x14); or that status is co_belligerent (+0x58) and this country is not its enemy (CCountry::IsEnemyTag); or, only with includeMilitaryAccess, **this country's** status toward the other has hasMilitaryAccess (+0x4C). False otherwise. Espionage passes true in CSpyPresence::CatchSpies (a friend's spies are not caught, a hostile friend's at home are certain to pass the first roll) and false in CSpyPresence::IsHostileMission (counter-espionage in a friend is benign). CAIUnit slot 76 uses it with true to skip any plan objective in friendly-controlled territory.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-espionage.md",
+   "evidence": "Revised: renamed to the Lua registration's own name (bicelib_findings.json rva 980928, CCountry::IsFriend, memfun bool(CCountryTag const&, bool) const), the second parameter renamed from includeRequested - it gates CDiplomacyStatus +0x4C, which the Lua API names hasMilitaryAccess (0x4EF902..0x4EF925) - and the status direction of each test stated: 0x4EF8B4..0x4EF8C7 index countries[tag]->diplomacy[this id] for +0x14 and +0x58, 0x4EF902..0x4EF921 countries[this id]->diplomacy[tag id] for +0x4C. Callers in the espionage bodies (0x52E000..0x531000, 0x4FFD00..0x4FFF00, 0x51ED00..0x51F200, 0x4F7A00..0x4F8500): exactly 0x52E381 (push 0) and 0x52E68A (push 1), out of 75.",
+   "revises": "0xEF7C0"
+  },
+  {
+   "rva": "0x6060C0",
+   "kind": "function",
+   "name": "CHasHostileSpyMissionTrigger::Evaluate",
+   "signature": "bool __thiscall CHasHostileSpyMissionTrigger::Evaluate(CHasHostileSpyMissionTrigger* this, CEventScope* scope)",
+   "no_signature": null,
+   "comment": "**`has_hostile_spy_mission`.** Slot 6, 0xA060C0 to the `ret 4` at 0xA06126. `target = scope->this_scope (+0x38) && this_scope->country_id (+0x14) ? this_scope's country : scope->country_id`; `p = countries[scope->country_id]->espionage (+0x1160) + target * 0xF8`; `return CSpyPresence::IsHostileMission(p) == this->+0x40`. So it asks whether the **scope country's** spies in THIS's country (its own record when THIS is itself) run any hostile mission. The byte at +0x40 is never initialised by the constructor and the keyword is built on the block tail, so what it compares against is the heap's (see CHasHostileSpyMissionTrigger::CHasHostileSpyMissionTrigger). Unused in vanilla and BlackICE.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-espionage.md",
+   "evidence": "Read whole on the listing 0xA060C0..0xA06126: the this_scope test 0xA060D2..0xA060ED, `imul eax,eax,0xf8` + [country +0x1160] 0xA060F3..0xA0610F, `call 0x52e340` with the presence in EAX, `cmp al,[esi+0x40]; sete al`. vtable.py --holding 0xA060C0: one table, CHasHostileSpyMissionTrigger slot 6 (CTrigger's Evaluate slot). bicelib_findings already shows it as `Evaluate` from the CTrigger slot naming; this adds the body."
+  },
+  {
+   "rva": "0x6B4790",
+   "kind": "function",
+   "name": "PickWeightedIndex",
+   "signature": "int __cdecl PickWeightedIndex(const int* weights@EDI, int count@stack:4, int draw@stack:8) @EAX",
+   "no_signature": null,
+   "comment": "**A weighted pick.** 0xAB4790 to the bare `ret` at 0xAB47D8; the caller pops. `total = sum of weights[0..count) that are > 0`; total 0 -> -1; otherwise `r = draw % total` (signed idiv) and the answer is the first i whose running total of positive weights exceeds r. Weights of 0 or less are never picked. One caller, CSpyPresence::RunTechEspionage (0x52EF3B), with a raw MT19937 draw.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-espionage.md",
+   "evidence": "Read whole on the listing; findRefs --callers 0xAB4790 answers one call, 0x52EF3B, preceded by `push eax(draw); push edi(count); mov edi,[ebp-0x8c](weights)` and followed by `add esp,8`. Would be wrong if the second loop compared `>=`: it is `cmp esi,edx; jg` at 0xAB47C9."
+  },
+  {
+   "rva": "0x5A080",
+   "kind": "function",
+   "name": "CModifier_ScaleValues",
+   "signature": "CModifier* __stdcall CModifier_ScaleValues(CModifier* modifier, int factor)",
+   "no_signature": null,
+   "comment": "Every value of a modifier times a factor in thousandths: for each modifier definition id (count ([0x1A86198] - [0x1A86194]) / 4) `values (+0x18)[id] (8-byte entries, low dword) = value * factor / 1000`, 64-bit, truncated. Returns the modifier; `ret 8`. Eleven callers, among them CSpyPresence::ApplyUnityModifiers twice per mission (level, then mission share) and the province revolt-risk block of RebuildProvinceModifierValues.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-espionage.md",
+   "evidence": "Read whole 0x45A080..0x45A0D6; findRefs --callers: 11 (0x4A00A1, 0x4A027B, 0x4A05DB, 0x4B84D3, 0x4DEF4D, 0x4DF053, 0x4DF1F2, 0x5303D3, 0x5303E1, 0x5304F1, 0x5304FF). The read_static_modifier_revolt_risk entry already described the body in prose."
+  },
+  {
+   "rva": "0x5A020",
+   "kind": "function",
+   "name": "CModifier_CopyValues",
+   "signature": "CModifier* __stdcall CModifier_CopyValues(CModifier* dest@EAX, const CModifier* source@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "Copies a modifier's values (+0x18, both dwords of each 8-byte entry, one per modifier definition) from source into dest; returns dest in EAX unchanged; `ret 4`. CSpyPresence::ApplyUnityModifiers uses it to refill its embedded CStaticModifier from the static-modifier template before scaling it. Eight callers.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-espionage.md",
+   "evidence": "Read whole 0x45A020..0x45A073 (`mov ebx,[ebp+8]` source, EAX dest never written, loop 0x45A040..0x45A06D, `ret 4`); findRefs --callers 0x45A020 counts 8."
+  },
+  {
+   "rva": "0x140D60",
+   "kind": "function",
+   "name": "CTechnologyDataBase::CTechnologyDataBase",
+   "signature": "CTechnologyDataBase* __stdcall CTechnologyDataBase::CTechnologyDataBase(CTechnologyDataBase* this)",
+   "no_signature": null,
+   "comment": "The 0x58-byte technology database's constructor: the technology vector at +0 (begin/end/capacity zeroed), then three hash maps of 0x1FF buckets each (+0x14/+0x18, +0x30/+0x34, +0x50/+0x54 bucket counts and arrays, the rest zeroed). `ret 4`, returns the object. Called wherever g_CTechnologyDataBase (0x1A87B78) is built on demand - inlined GetTechnologyDataBase sites all over the image, RunTechEspionage's among them. **It is not the tech steal**: FINDINGS-espionage.md named 0x540D60 as the steal's callee because it is the first call after the chance.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-espionage.md",
+   "evidence": "Read on the listing 0x540D60..0x540E5D (`ret 4` at 0x540E5D, `mov eax,esi` before it) and in the decompiler; every call site is `push 0x58; call operator new; ... push eax; call 0x540d60; push eax; call 0x542630` (e.g. 0x52EC8A..0x52ECB0, GetTechnologyDataBase 0x540D24..0x540D45). No vftable is written, so no RTTI class - the name follows CSubUnitDataBase::CSubUnitDataBase."
+  },
+  {
+   "rva": "0x142630",
+   "kind": "function",
+   "name": "SetTechnologyDataBase",
+   "signature": "CTechnologyDataBase** __stdcall SetTechnologyDataBase(CTechnologyDataBase* database)",
+   "no_signature": null,
+   "comment": "Installs a technology database as g_CTechnologyDataBase (0x1A87B78): when it differs from the one there, the old one is destroyed (0x540B50) and freed; returns &g_CTechnologyDataBase. `ret 4`. The second half of every build-on-demand of the database.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-espionage.md",
+   "evidence": "Read whole 0x542630..0x54267B (both exits `mov eax,0x1a87b78; ret 4`)."
+  },
+  {
+   "rva": "0x159430",
+   "kind": "function",
+   "name": "CSendCovertOpsMission::CSendCovertOpsMission",
+   "signature": "CSendCovertOpsMission* __stdcall CSendCovertOpsMission::CSendCovertOpsMission(CSendCovertOpsMission* this, int actorTag, int actorId, int provinceId, CCovertOpsMission* mission)",
+   "no_signature": null,
+   "comment": "The constructor: the CCommand base (CPersistent token 0x18D, type id 0x7F6 `send_covert_ops_mission` at +0x2C and +0x30, empty name, +0x34 = 0xFFFF), then actor = (+0x3C, +0x40), province = +0x44, mission = +0x48, and the vftable 0x15C41F4. `ret 0x14`. **One caller, 0x6E2CE2**, in the province view's covert-operations entry callback 0x6E2C10 (the `cov_ops_mission_entry` window's `selectbutton`, bound at 0x6E1E79 in 0x6E1DB0), which passes the player (CCurrentGameState +0xC30/+0xC34) as actor and the entry's province (+0x78) and mission (+0x7C).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-espionage.md",
+   "evidence": "Read whole 0x559430..0x5594CC; findRefs --vftable CSendCovertOpsMission finds the table written here, in Clone (0x559900) and in one more constructor-shaped site (0x559380); findRefs --callers 0x559430 answers 0x6E2CE2 only; 0x6E2CCB..0x6E2CE2 push [esi+0x78], [esi+0x7C] and the game state's +0xC30/+0xC34. Token 0x7F6 = send_covert_ops_mission in saveTokens.json."
+  },
+  {
+   "rva": "0x1594D0",
+   "kind": "function",
+   "name": "CSendCovertOpsMission::Execute",
+   "signature": "void __thiscall CSendCovertOpsMission::Execute(CSendCovertOpsMission* this)",
+   "no_signature": null,
+   "comment": "**A covert operation: its points are spent and its effect run.** Slot 6, 0x5594D0 to the bare `ret` at 0x559610. Nothing when the mission (+0x48) is null. `controller = provinces[this->province (+0x44)]->controller (+0x338)`; `countries[this->actor id (+0x40)]->espionage[controller].covert_ops_points (+0xF4) -= mission->cost (+0xC8) * 1000` - **no floor and no test that the points are there** (CCovertOpsMission_CanSelect is the interface's test). Then, where the mission's effect block has children (+0x28's +0x10 count, read as +0x38), a CEventScope is built with FROM = the actor and province = the target province (no country) and the effect's slot 11 (Execute) runs on it. No message.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-espionage.md",
+   "evidence": "Read whole on the listing 0x5594D0..0x559610: `cmp [esi+0x48],ebx; je` 0x5594F5, [0xB8C]->[+0x44]->+0x338 at 0x559576..0x559582, `imul eax,eax,0xf8` + countries[+0x40]->+0x1160 0x55958B..0x5595A7, `imul ecx,ecx,0x3e8; sub [eax+0xf4],ecx` 0x5595B6..0x5595BC, scope 0x5595CE..0x5595F9 (CEventScope ctor 0x9C1610; +0x18/+0x1C = actor, +0x28 = province), `call [edx+0x2c]` on mission+0x28. vtable.py --holding 0x5594D0: CSendCovertOpsMission slot 6 only."
+  },
+  {
+   "rva": "0x159990",
+   "kind": "function",
+   "name": "CSendCovertOpsMission::IsValid",
+   "signature": "bool __thiscall CSendCovertOpsMission::IsValid(CSendCovertOpsMission* this)",
+   "no_signature": null,
+   "comment": "Slot 14: true when the actor id (+0x40), the province (+0x44) and the mission (+0x48) are all non-zero. Nothing else - not the points, not is_valid or is_selectable.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-espionage.md",
+   "evidence": "Read whole 0x559990..0x5599AA. vtable.py --holding 0x559990: CSendCovertOpsMission slot 14 only."
+  },
+  {
+   "rva": "0x159620",
+   "kind": "function",
+   "name": "CSendCovertOpsMission::GetTypeId",
+   "signature": "int __thiscall CSendCovertOpsMission::GetTypeId(CSendCovertOpsMission* this)",
+   "no_signature": null,
+   "comment": "Slot 7: `mov eax,0x7f6; ret` - the save token `send_covert_ops_mission`, the command's type in a stream.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-espionage.md",
+   "evidence": "Two instructions at 0x559620; saveTokens.json 2038 = send_covert_ops_mission; vtable.py --holding 0x559620: CSendCovertOpsMission slot 7 only."
+  },
+  {
+   "rva": "0x44C60",
+   "kind": "function",
+   "name": "CCovertOpsMission_CanSelect",
+   "signature": "bool __stdcall CCovertOpsMission_CanSelect(CCovertOpsMission* mission@stack:4, int provinceId@stack:8, const CCountryTag* actor@EDI) @AL",
+   "no_signature": null,
+   "comment": "**Whether a covert operation may be ordered in a province.** 0x444C60 to the `ret 8` at 0x444DE1. False when the province id is 0; false when the actor's **whole** covert-ops points about the province's controller - `espionage[controller].covert_ops_points / 1000`, truncated - are below the mission's cost (+0xC8); true when its is_selectable block (+0x88) has no children; otherwise is_selectable's Evaluate (slot 6) on a scope with FROM = the actor and province = the province. One caller, 0x6E2195 inside 0x6E1FF0, in the province view's covert-operations entries.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-espionage.md",
+   "evidence": "Read whole on the listing; findRefs --callers 0x444C60 answers 0x6E2195. +0x88 is the CAndTrigger CCovertOpsMission's constructor (0x444940) builds there and CCovertOpsMission::LoadKey fills from `is_selectable` (0x444E58); +0x98 is that trigger's child count. The magic 0x10624DD3 `sar edx,6` at 0x444D62 is /1000."
+  }
+ ],
+ "structs": [
+  {
+   "name": "CSendCovertOpsMission",
+   "inherits": "CCommand",
+   "vftable_rva": "0x11C41F4",
+   "size": "0x4C",
+   "comment": "The command a covert operation is ordered with (save token 0x7F6 `send_covert_ops_mission`, save keys actor/id/target). Posted only by the province view's covert-operations entry; Execute spends the points and runs the operation's effect on the province. Slots: 6 Execute, 7 GetTypeId, 13 Clone, 14 IsValid.",
+   "evidence": "RTTI export: CSendCovertOpsMission under CCommand, 16 slots, table VA 0x15C41F4 (vtable.py). Clone (0x559900) allocates 0x4C bytes and copies +0x3C..+0x48, the last four dwords.",
+   "source": "reversing/findings/FINDINGS-espionage.md"
+  },
+  {
+   "name": "CCovertOpsMission",
+   "inherits": "CPersistent",
+   "vftable_rva": "0x11B8B88",
+   "comment": "One operation of common/covert_ops.txt (TFH's sabotage_strategic_resource, steal_battle_plans, scout_area, sabotage_area ...): its key at +0x8, `effect` a CEffect by value at +0x28, `is_valid` a CAndTrigger at +0x48, `is_selectable` a CAndTrigger at +0x88, `cost` at +0xC8. Held in the covert-operations database (GetCovertOperations).",
+   "evidence": "RTTI export: CCovertOpsMission under CPersistent, 6 slots, table VA 0x15B8B88, written by its constructor 0x444940 at 0x444968. The constructor writes CEffect's table 0x15B58F4 at +0x28 and CAndTrigger's 0x15B589C at +0x48 (0x4449ED) and builds the same at +0x88; LoadKey 0x444DF0 sends `effect` (0x58) to +0x28 slot 3, `is_valid` (0x797) to +0x48, `is_selectable` (0x7F5) to +0x88 and `cost` (0x204) to ParseInt into +0xC8. Size omitted: nothing past +0xC8 was checked.",
+   "source": "reversing/findings/FINDINGS-espionage.md"
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CSendCovertOpsMission",
+   "offset": "0x3C",
+   "name": "actor_tag",
+   "type": "char[4]",
+   "comment": "The ordering country's tag characters - the player, from CCurrentGameState +0xC30. Saved as `actor`.",
+   "source": "reversing/findings/FINDINGS-espionage.md",
+   "evidence": "Constructor 0x55949C stores its second argument here; SaveContents (0x559630) writes the string at +0x3C under `actor`; the poster 0x6E2CD9 passes +0xC30."
+  },
+  {
+   "struct": "CSendCovertOpsMission",
+   "offset": "0x40",
+   "name": "actor_id",
+   "type": "int",
+   "comment": "The ordering country's id; Execute indexes the country database with it.",
+   "source": "reversing/findings/FINDINGS-espionage.md",
+   "evidence": "Constructor 0x5594A2; Execute 0x5595A1 `mov ecx,[esi+0x40]; mov ecx,[edx+ecx*4]`; IsValid tests it."
+  },
+  {
+   "struct": "CSendCovertOpsMission",
+   "offset": "0x44",
+   "name": "province_id",
+   "type": "int",
+   "comment": "The target province; its controller's record is the one the points come out of, and the effect runs with it as the scope's province. Saved as `target`.",
+   "source": "reversing/findings/FINDINGS-espionage.md",
+   "evidence": "Constructor 0x5594AF; Execute 0x55957C indexes the province vector (+0xB8C) with it; SaveContents itoa's it under `target`."
+  },
+  {
+   "struct": "CSendCovertOpsMission",
+   "offset": "0x48",
+   "name": "mission",
+   "type": "CCovertOpsMission*",
+   "comment": "The operation ordered. Saved as `id`, its key.",
+   "source": "reversing/findings/FINDINGS-espionage.md",
+   "evidence": "Constructor 0x5594BB; Execute reads +0xC8 (cost) and +0x28/+0x38 (the effect) through it; SaveContents writes [+0x48]+8 under `id`."
+  },
+  {
+   "struct": "CCovertOpsMission",
+   "offset": "0x8",
+   "name": "key",
+   "type": "Hoi3CString",
+   "comment": "The operation's key as covert_ops.txt spells it - `steal_battle_plans` - and what a CSendCovertOpsMission saves as `id`.",
+   "source": "reversing/findings/FINDINGS-espionage.md",
+   "evidence": "Constructor 0x444965..0x444984 assigns its first string argument to +0x8; CSendCovertOpsMission::SaveContents writes mission+8 under `id`."
+  },
+  {
+   "struct": "CCovertOpsMission",
+   "offset": "0x48",
+   "name": "is_valid",
+   "type": "CAndTrigger",
+   "comment": "`is_valid`, a CAndTrigger held by value. Which code asks it was not found here.",
+   "source": "reversing/findings/FINDINGS-espionage.md",
+   "evidence": "Constructor 0x4449AC..0x4449ED (CAndTrigger table 0x15B589C written at 0x4449ED); LoadKey token 0x797 -> +0x48 slot 3 (0x444E30). CAndTrigger is 0x40 bytes in the record, ending at +0x88."
+  },
+  {
+   "struct": "CCovertOpsMission",
+   "offset": "0x88",
+   "name": "is_selectable",
+   "type": "CAndTrigger",
+   "comment": "`is_selectable`, a CAndTrigger held by value: CCovertOpsMission_CanSelect evaluates it (FROM = the actor, province = the target) after the cost test; with no children it holds.",
+   "source": "reversing/findings/FINDINGS-espionage.md",
+   "evidence": "LoadKey token 0x7F5 -> +0x88 slot 3 (0x444E58); CanSelect 0x444D7F tests [+0x98] (the trigger's child count) and calls [[+0x88]+0x18] at 0x444DCF. FINDINGS-triggereval.md found CCovertOpsMission among the two classes embedding a CAndTrigger at +0x88."
+  },
+  {
+   "struct": "CCovertOpsMission",
+   "offset": "0xC8",
+   "name": "cost",
+   "type": "int",
+   "comment": "`cost`, a whole number of covert-ops points (ParseInt, not thousandths): CanSelect compares it with the points / 1000, Execute takes cost x 1000 off them.",
+   "source": "reversing/findings/FINDINGS-espionage.md",
+   "evidence": "LoadKey 0x444E0B `lea eax,[ecx+0xc8]` then ParseInt (0xA7B470); CanSelect 0x444D73; Execute 0x5595B0 `imul ecx,ecx,0x3e8`."
+  },
+  {
+   "struct": "CSpyPresence",
+   "offset": "0xF4",
+   "name": "covert_ops_points",
+   "type": "int",
+   "comment": "x1000, the save key `covert_ops_points`, a country's points **about one target**. Mission 8 adds `level * SPY_COVERT_OPS_GAIN / 1000 * mission_share[8] / 1000 / 30` a day (the define is per spy per month) and then stores it down to SPY_COVERT_OPS_MAX when above - a hard store, not a refusal. Spent by a coup (PerformCoup, COUP_COVERT_OPS_COST x1000, floored at 0) and by a covert operation in a province the target controls (CSendCovertOpsMission::Execute, cost x 1000, **not floored**); CCovertOpsMission_CanSelect (0x444C60) and the espionage view's coup gate test it.",
+   "source": "reversing/findings/FINDINGS-espionage.md",
+   "evidence": "Revised: the daily gain's thirtieth (RunDailyMissions 0x5302CF..0x530302, /30000 after x1000) was missing, and the two spenders were not named. CSendCovertOpsMission::Execute 0x5595BC `sub [eax+0xf4],ecx`; PerformCoup per its record.",
+   "revises": true
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0x10C4",
+   "name": "organisation_by_ideology",
+   "type": "int*",
+   "comment": "Thousandths, one per ideology, indexed by CIdeology +0x4C - **the values array of the organisation CIdeologyData at +0x10BC** (CIdeologyData +0x8), so its tallies vector is +0x10D4 (+0x18). Read by the `organisation` trigger and written by the `organisation`/ideology-block effects, the history, and the two party-boost spy missions (CSpyPresence::RunDailyMissions, tally slot 3).",
+   "source": "reversing/findings/FINDINGS-espionage.md",
+   "evidence": "Revised: the comment said 'Likely' the party-organisation array; CCountry::AccessIdeologyOrganization (rva 0xC8820) is `lea eax,[ecx+0x10bc]` and CIdeologyData +0x8 is its values (FINDINGS-government.md B.1), so +0x10C4 is that array by offset arithmetic; RunDailyMissions 0x530152/0x530162 reads +0x10C4 and +0x10D4 together exactly as a CIdeologyData's +0x8 and +0x18.",
+   "revises": true
+  }
+ ],
+ "vftable_slots": {
+  "CHasHostileSpyMissionTrigger": {
+   "6": "Evaluate"
+  },
+  "CModifySpiesEffect": {
+   "11": "Execute"
+  },
+  "CSendCovertOpsMission": {
+   "6": "Execute",
+   "7": "GetTypeId",
+   "14": "IsValid"
+  }
+ },
+ "frontier": [
+  "0x2E1DB0",
+  "0x2E2C10",
+  "0x2E1FF0",
+  "0x44B40",
+  "0x21F490",
+  "0xF7EE0",
+  "0x159900",
+  "0x159380",
+  "0x140B50"
+ ]
+}

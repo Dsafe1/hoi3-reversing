@@ -1,0 +1,416 @@
+{
+ "agent": "espionage wave, reader A",
+ "question": "How free spies become a presence and how a presence lives: CChangeSpyPriority and CChangeSpyMission whole, CDistributeEspionage::Distribute whole, the level's growth, cap and writers, spy_date, mission_share, the primary mission, a new game's presences, checked against the saves.",
+ "source": "reversing/findings/FINDINGS-espionage.md",
+ "addresses": [
+  {
+   "rva": "0x11ED00",
+   "kind": "function",
+   "name": "CDistributeEspionage::Distribute",
+   "signature": "CFixedPoint* __thiscall CDistributeEspionage::Distribute(CDistributeEspionage* this, CFixedPoint* out, __int64 available, bool flag)",
+   "no_signature": null,
+   "revises": "Was inferred and 'not read line by line'. Now read whole: raised to confirmed; the signature's half-placed storage (three @stack parameters beside an unplaced this) is replaced by the plain __thiscall form it was; and two claims corrected - it raises no message, and 0x4DDD80 is called per placement on the target, not at the end.",
+   "comment": "**The espionage leadership slider: it fills the free pool and hands whole spies to presences by priority band.** Slot 0, `this` in ECX, `ret 0x10` at 0x51F187; read whole on the listing 2026-10-14 (VAs here). Run once a game day for every country with a tag but REB, from the leadership loop of RunCountryDailyPass (0x4DB5BE), so before that country's own DailyEspionagePass (0x4DB93E).\n\n1. **The pool.** maxSpies = MAX_NUMBER_OF_SPIES (country +0x1C) / 1000, truncated - a count of spies (10 in TFH). spy_pool (+0x1170) += trunc(L * LEADERSHIP_TO_SPIES (economy +0x24) / 1000), where L is ((base_percentage * available) >> 15 * factor) >> 15 turned into thousandths by `(x * (1000 << 15)) >> 30` - floored before the define is applied. **There is no ceiling on the pool.**\n2. **Count the bands.** For i = 1 .. GetCountryCount - 1 (CCurrentGameState slot 6; index 0 is never looked at), p = this country's espionage[countries[i]->id (+0xCA8)]; skipped when p->level >= maxSpies * 1000; band = p->priority, less one when p->level >= (int)(maxSpies * 0.7 + 0.01) * 1000 (the doubles 0x160A600 and 0x160A5F8, compiled in: 7000 with TFH's define), clamped to 0..3; buckets[band]++. **No province test here**, so a presence in a country that does not exist still counts in its band and thins everyone else's share.\n3. **Spend, band 3, then 2, then 1** - band 0 never - with the cursor at this+0x34, +0x30, +0x2C respectively. Skip the band when the pool holds less than one whole spy or its bucket is empty. perTarget = max(1, (pool / 1000) / bucket). If *cursor >= count the band places nothing and *cursor = 1. Otherwise for i from *cursor to count - 1: skip a country owning no province (+0xCF8 <= 0), a presence whose band (recomputed as above) is not this one, and one already at maxSpies; **break** when the pool is under one whole spy; give = min(maxSpies - level / 1000, perTarget), skip if not positive; *cursor = i + 1; level += give * 1000, floored at 0 and capped at g_MaxSpyLevel; pool -= give * 1000 (the whole of it, even if the cap cut the level); then **CCountry::RebuildStaticModifiers(countries[i]) - the target's**, whose modifier carries every foreign presence's unity modifiers. After the loop, *cursor = 1 if nothing was placed in this band or *cursor has reached count; else it stays.\n4. *out = 0 (both dwords); returns out.\n\n**The scan never wraps within a day.** It runs from the cursor to the end of the country list, so a presence before the cursor waits for a day whose scan places nothing and resets the cursor to 1 - a country whose only eligible presence is its own home gets a spy every second day at most, whatever its pool holds. The cursors start at 1 (CCountry::CCountry, 0x4C9F93-0x4C9F9C) and are not saved.\n\n**It raises no message.** Every call in it: GetDefines twice, the 64-bit multiply 0xB99AF0 three times and divide 0xB99980 once, the lazy construction of g_CCurrentGameState (operator new 0xB9602F and CGameState::CGameState 0x67D070) twice with the old one's deleting destructor, GetCountryCount four times, and 0x4DDD80. No string is referenced. This entry said it 'raises two messages' and 'ends by calling 0x4DDD80'; both were wrong - the two were the two lazy constructions, and 0x4DDD80 is called inside the loop, once per placement, on the target.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x51ED00-0x51F187 decoded from the entry; no branch leaves the range and slot 5 begins at 0x51F190. The band arithmetic is at 0x51EE97-0x51EEDB and again at 0x51F05D-0x51F083, the band loop test `test esi, esi; jg` at 0x51F15E, the cursor stores at 0x51F0EE and 0x51F148. Positive control for 'no message': CatchSpies' message path calls 0xA5A7A0 with 'SPIESFOUNDUS' and 0x698E80; neither address nor any string push is in this body. The savegames bear it out: in the start save Germany, Britain and the United States hold 1.226, 1.208 and 1.578 free spies with their home presence at 5 (4 from SetUpCountryForNewGame + 1), which needs a daily gain over 1 and only one placement in the two new-game days - the cursor rule's second-day skip; Germany's pool then grows by exactly 1.113 a day from 4 to 8 January with its home at 7 and priority 1 (the 70% rule drops it to band 0), and by 19 x 0.133 from 1 to 20 April at a 0.03 share. What would show it wrong: a save in which a presence at priority 1 stands above 7, or one at priority 0 grows."
+  },
+  {
+   "rva": "0x158840",
+   "kind": "function",
+   "name": "CChangeSpyPriority::CChangeSpyPriority_default",
+   "signature": "CChangeSpyPriority* __stdcall CChangeSpyPriority::CChangeSpyPriority_default(CChangeSpyPriority* this)",
+   "no_signature": null,
+   "comment": "The prototype constructor, `ret 4`, one caller: RegisterCommandTypes at 0x8867C0 (VA). CCommand base (+4 = 0x18D, empty name, type id 0x6E1 - the save token `spy_priority` - at +0x2C and +0x30, +0x34 = 0xFFFF), both tags `---` with id 0, priority (+0x4C) 0, vftable 0x15C4174.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x558840-0x5588EC: the stores and the `ret 4`; the one call from 0x8867C0, inside RegisterCommandTypes (0x885050). Wrong if another caller passes a different object size than the 0x50 the clone allocates."
+  },
+  {
+   "rva": "0x1588F0",
+   "kind": "function",
+   "name": "CChangeSpyPriority::CChangeSpyPriority",
+   "signature": "CChangeSpyPriority* __stdcall CChangeSpyPriority::CChangeSpyPriority(CChangeSpyPriority* this, CCountryTag actor, CCountryTag target, int priority)",
+   "no_signature": null,
+   "comment": "`ret 0x18`: the object, then the actor's and the target's tags **by value** (letters and id, 8 bytes each) and the new priority. Stores them at +0x3C/+0x40, +0x44/+0x48 and +0x4C **as given - no range check**. Seven callers (VAs): the espionage view's six priority buttons - own_priority up and down (0x628D9B, 0x62915B), target_priority up and down (0x628F86, 0x629346) and the country list's `priority` up and down (0x62B4A9, 0x62B629), each cycling the button's frame so the priority it posts goes round 0..3 - and Lua's CChangeSpyPriority(actor, target, priority) (__init 0x989940, call 0x9899B3), which passes the Lua integer through untouched.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x5588F0-0x558992; findRefs --callers 0x5588F0 gives the seven sites, and the screen handlers' `cmp edi, 3; jg; inc` / `cmp edi, 1; ... dec` before `dec edi; push edi` were read at 0x628CE3-0x628D95. Wrong if a caller passes a priority through a clamp this missed - the constructor itself has none."
+  },
+  {
+   "rva": "0x1589A0",
+   "kind": "function",
+   "name": "CChangeSpyPriority::Execute",
+   "signature": "void __thiscall CChangeSpyPriority::Execute(CChangeSpyPriority* this)",
+   "no_signature": null,
+   "revises": "Adds the signature it lacked, and says the store is unchecked and who posts the command; the store itself is as recorded.",
+   "comment": "Slot 6, `this` in ecx, bare `ret`, and the whole body is one store: `countryDatabase[+0x16C][cmd->+0x40]->espionage[cmd->+0x48 * 0xF8] + 4 = cmd->+0x4C`. So +0x40 is the actor's country id, +0x48 the target's, +0x4C the new priority, and **CSpyPresence +0x04 is the priority** - which agrees with the save key `spy_priority` and with the Lua accessor GetPriority. **Nothing is checked**: not the range of the priority, not whether either country exists - IsValid (CountryPairCommand_IsValid, slot 14) refuses only a zero id. The screen and the AI's Lua only ever post 0..3 (CSpyPresence.MAX_SPY_PRIORITY is 3); anything else would be stored, and CDistributeEspionage::Distribute clamps the band it derives to 0..3. +0x3C (the actor's letters) is copied to a stack slot and never used. A change takes effect at the actor's next daily Distribute.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x5589A0-0x5589DA, bare `ret`, slot 6 of the one table 0x15C4174. Wrong if a check sits in the command channel between post and Execute - FINDINGS-commands.md has the channel calling only slot 14 there."
+  },
+  {
+   "rva": "0x1589E0",
+   "kind": "function",
+   "name": "CChangeSpyPriority::GetTypeId",
+   "signature": "int __thiscall CChangeSpyPriority::GetTypeId(CChangeSpyPriority* this)",
+   "no_signature": null,
+   "comment": "Slot 7: `mov eax, 0x6E1; ret` - the save token `spy_priority`.",
+   "confidence": "confirmed",
+   "evidence": "The two instructions at 0x5589E0; ghidra/saveTokens.json maps 1761 to spy_priority; one holder (vtable.py --holding)."
+  },
+  {
+   "rva": "0x1589F0",
+   "kind": "function",
+   "name": "CChangeSpyPriority::SaveContents",
+   "signature": "void __thiscall CChangeSpyPriority::SaveContents(CChangeSpyPriority* this, CSaveWriter* writer)",
+   "no_signature": null,
+   "comment": "Slot 2, `ret 4`. After CCommand::SaveContents (0x67BB80): `priority` (token 0x8A) as the plain `%d` of +0x4C, then `actor` (0x2E9) from the letters at +0x3C and `target` (0x6A) from those at +0x44. The ids are not written; LoadKey resolves the letters again.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x5589F0-0x558B30: the three token loads (`mov ecx, 0x8a / 0x2e9 / 0x6a` before 0xA7A1B0) and the format 0x15DC2B4 the same as CChangeSpyMission's integers. One holder."
+  },
+  {
+   "rva": "0x158C90",
+   "kind": "function",
+   "name": "CChangeSpyPriority::Clone",
+   "signature": "CCommand* __thiscall CChangeSpyPriority::Clone(CChangeSpyPriority* this, Hoi3CString arg)",
+   "no_signature": null,
+   "comment": "Slot 13, `ret 0x1C`: new 0x50 bytes, the CCommand base copied through 0x40B530, the vftable, and +0x3C..+0x4C copied. So the object is 0x50 bytes.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x558C90-0x558D1C: `push 0x50; call 0xB9602F`, the four dword copies and +0x4C. One holder."
+  },
+  {
+   "rva": "0x158D40",
+   "kind": "function",
+   "name": "CChangeSpyMission::CChangeSpyMission_default",
+   "signature": "CChangeSpyMission* __stdcall CChangeSpyMission::CChangeSpyMission_default(CChangeSpyMission* this)",
+   "no_signature": null,
+   "comment": "The prototype constructor, `ret 4`, one caller: RegisterCommandTypes at 0x886823 (VA). Type id 0x6E3 (the save token `spy_mission`) at +0x2C/+0x30, both tags `---`/0, mission (+0x4C) and priority (+0x50) 0, vftable 0x15C41B4.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x558D40-0x558DEF; one call, from RegisterCommandTypes. Wrong if the clone's 0x54 were not the object size."
+  },
+  {
+   "rva": "0x158E00",
+   "kind": "function",
+   "name": "CChangeSpyMission::CChangeSpyMission",
+   "signature": "CChangeSpyMission* __stdcall CChangeSpyMission::CChangeSpyMission(CChangeSpyMission* this, CCountryTag actor, CCountryTag target, int mission, int priority)",
+   "no_signature": null,
+   "comment": "`ret 0x1C`: the object, the two tags by value, the mission (0..8, a SpyMission) into +0x4C and **the mission's priority** into +0x50 - the save calls the first `id` and the second `priority`. Stored as given. Three callers (VAs): the espionage view's spy_mission_entry priority buttons, up (0x61E8CD) and down (0x61E9FB), which cycle 0..3 as the country's priority buttons do, and Lua's CChangeSpyMission(actor, target, mission, priority) (__init 0x989A20, call 0x989A97).",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x558E00-0x558EA8; findRefs --callers 0x558E00 gives the three; `cmp edi, 3; jg; inc edi` at 0x61E811 and `dec edi; push edi` at 0x61E8BA before the call. Wrong if a mission row passes a priority outside 0..3 by another path."
+  },
+  {
+   "rva": "0x158EB0",
+   "kind": "function",
+   "name": "CChangeSpyMission::Execute",
+   "signature": "void __thiscall CChangeSpyMission::Execute(CChangeSpyMission* this)",
+   "no_signature": null,
+   "revises": "Adds the signature it lacked; says the value is a priority, that the range test is signed, and that the date is stamped whatever the mission.",
+   "comment": "Slot 6, `this` in ecx. `presence = countryDatabase[+0x16C][cmd->+0x40]->espionage + cmd->+0x48 * 0xF8`; when `cmd->+0x4C` (the mission) is under 9 it calls CSpyPresence::SetMissionAllocation (0x52D4D0) with the mission on the stack and `cmd->+0x50` in eax; then it writes the game state's tick (+0xBDC) into `presence->+0x50`. **That is what CSpyPresence +0x50 / the save key `spy_date` / Lua's GetLastMissionChangeDate is**, and the 9 is the SpyMission count. **The value is the mission's priority, a weight, not a number of spies** - the screen and the AI give 0..3 - and mission_share is each weight over their sum. The range test is `cmp ecx, 9; jge`, **signed**, so a negative mission would reach SetMissionAllocation and write before the array (-1 into priority, -2 into level); nothing in the image or the scripts posts one. **The tick is written whether or not the mission was in range**, and whether or not the value changed: a post with mission 9 or more only stamps spy_date. If g_CCurrentGameState is null it is constructed first (0x558F0C-0x558F7B).",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x558EB0-0x558FB6, two bare `ret`s; the `jge` at 0x558F02 is the signed form. Wrong if the AI or screen can post a negative id - the Lua constructor takes a SpyMission enum and the screen its row's index."
+  },
+  {
+   "rva": "0x158FC0",
+   "kind": "function",
+   "name": "CChangeSpyMission::GetTypeId",
+   "signature": "int __thiscall CChangeSpyMission::GetTypeId(CChangeSpyMission* this)",
+   "no_signature": null,
+   "comment": "Slot 7: `mov eax, 0x6E3; ret` - the save token `spy_mission`.",
+   "confidence": "confirmed",
+   "evidence": "The two instructions at 0x558FC0; saveTokens.json 1763 = spy_mission; one holder."
+  },
+  {
+   "rva": "0x158FD0",
+   "kind": "function",
+   "name": "CChangeSpyMission::SaveContents",
+   "signature": "void __thiscall CChangeSpyMission::SaveContents(CChangeSpyMission* this, CSaveWriter* writer)",
+   "no_signature": null,
+   "comment": "Slot 2, `ret 4`. After CCommand::SaveContents: `id` (token 0xB) as `%d` of +0x4C - the mission - and `priority` (0x8A) as `%d` of +0x50, then `actor` (0x2E9) and `target` (0x6A) from the letters at +0x3C and +0x44.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x558FD0-0x559150: `mov ebx, [edi+0x4c]` before token 0xB and `mov ebx, [edi+0x50]` before 0x8A. Agrees with LoadKey's placement (FINDINGS-fieldmap.md). One holder."
+  },
+  {
+   "rva": "0x1592E0",
+   "kind": "function",
+   "name": "CChangeSpyMission::Clone",
+   "signature": "CCommand* __thiscall CChangeSpyMission::Clone(CChangeSpyMission* this, Hoi3CString arg)",
+   "no_signature": null,
+   "comment": "Slot 13, `ret 0x1C`: new 0x54 bytes, base copied through 0x40B530, vftable, +0x3C..+0x50 copied. So the object is 0x54 bytes.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x5592E0-0x559370: `push 0x54; call 0xB9602F` and the six dword copies. One holder."
+  },
+  {
+   "rva": "0x12D6D0",
+   "kind": "function",
+   "name": "CSpyPresence::GetPrimaryMission",
+   "signature": "int __thiscall CSpyPresence::GetPrimaryMission(CSpyPresence* this)",
+   "no_signature": null,
+   "comment": "What the AI's Lua calls the presence's primary mission: **the mission with the highest priority, the lowest index winning a tie** (each later one must be strictly greater), and 9 (SPYMISSION_MAX, i.e. none) when every priority is 0 or less. Bare `ret`. Reached only from Lua (the registration at 0x8FFE28 stores its address); no C++ caller. The Lua half already names it.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x52D6D0-0x52D74E: starts with (missions[0], 0) or (0, 9) by `test esi, esi; jle`, then eight `cmp edx, [ecx+k]; jge` keeping the first maximum. findRefs --callers finds no call; --address finds only the registration."
+  },
+  {
+   "rva": "0x12D750",
+   "kind": "function",
+   "name": "CSpyPresence::Reset",
+   "signature": "void __fastcall CSpyPresence::Reset(CSpyPresence* this@EAX)",
+   "no_signature": null,
+   "comment": "`this` in **EAX**, bare `ret`. Zeroes level, priority, the nine mission priorities, the nine shares and covert_ops_points, and puts last_mission_change back to the epoch (0x170C2B8). The tags and the two embedded modifiers are left alone. One caller, CCountry_Reset (0x4D48C0), for every presence of the country. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x52D750-0x52D79C, every store read; findRefs --callers gives the one site. Wrong if a second, indirect caller exists - the body is in no virtual table (vtable.py --holding)."
+  },
+  {
+   "rva": "0x1305B0",
+   "kind": "function",
+   "name": "CSpyPresence::MissionAllowed",
+   "signature": "bool __cdecl CSpyPresence::MissionAllowed(int mission, CCountryTag* actor, CCountryTag* target)",
+   "no_signature": null,
+   "comment": "A Lua-only function, registered as a free function in CSpyPresence's scope (luabind function_registration, __cdecl, no this), bare `ret`: same = (actor's id == target's id); missions 3 (boost ruling party), 0 (counter-espionage) and anything outside 1..8 answer **true**; 7 (raise national unity) answers **same** - at home only; the rest (1 military, 2 tech, 4 boost our party, 5 lower national unity, 6 increase threat, 8 covert ops) answer **!same** - abroad only. **Nothing in the C++ asks it**: CChangeSpyMission::Execute does not, so a mission posted where this says no is stored and runs. Neither TFH's nor the base game's AI script calls it either. The Lua half already names it.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x5305B0-0x5305E5 with the jump table 0x5305E8 (0x5305D9, 0x5305E4, 0x5305E2) and its index bytes 0x5305F4 = 00 00 02 00 00 00 01 00 for missions 1..8. findRefs --callers finds no call and --address only the registration at 0x907215; grep of script/ and tfh/script/ finds no MissionAllowed."
+  },
+  {
+   "rva": "0xD4C50",
+   "kind": "function",
+   "name": "InitCountryPerCountryArrays",
+   "signature": "void __stdcall InitCountryPerCountryArrays(CCountry* country)",
+   "no_signature": null,
+   "revises": "Adds the espionage half: the presence vector's construction loop and the tail that gives a country's own presence priority 1 and counter-espionage priority 1.",
+   "comment": "**Gives a country its arrays indexed by the other country's id**, once, as the country database is built (one caller, 0x517FEA, in a loop over every country of the database). Sized by the database's count (+0x168): for each country of the database in order it allocates a 0x80-byte CDiplomacyStatus constructed with that country's tag and appends it to the diplomacy array (+0xE28/+0xE2C/+0xE30) - **REB and the country itself included**, so diplomacy[id] is the status towards the country with that id - and grows the neighbours byte vector (+0xF58) and a second byte vector at +0xF68 by one zero each; +0x1048 is reserved to the same count first. 0x4D4C50 to the `ret 4` at 0x4D515D; the block at 0x4D5160 after it is the std::length_error throw the vector growth jumps to. Only the diplomacy half and the two byte vectors were read; what follows in the loop was not. **The espionage half** (0x4D4FB7-0x4D515D, read 2026-10-14, reversing/findings/FINDINGS-espionage.md section A): the presence vector (+0x1160) is sized to the database's count (0x50EB70) and filled by CSpyPresence::CSpyPresence for each country in order, all zero; then, when this country's id is inside the vector, **its own presence gets priority (+4) = 1 and SetMissionAllocation(counter-espionage, 1)** - which is why every country of every save starts with priority 1 and a counter-espionage priority of 1 at home.",
+   "confidence": "inferred",
+   "evidence": "Listing 0x4D4FB7-0x4D515D: `mov dword ptr [eax+ecx+4], 1` at 0x4D5135 and `push 0; mov eax, 1; call 0x52D4D0` at 0x4D5141. The start save has spy_priority 1 at the country's own index and nowhere else for all 101 countries, and its spy_mission's own counter-espionage entry 1. Still inferred as a whole: the rest of the loop body was not read."
+  },
+  {
+   "rva": "0xD2B60",
+   "kind": "function",
+   "name": "CCountry_Reset",
+   "signature": "void __stdcall CCountry_Reset(CCountry* country)",
+   "no_signature": null,
+   "revises": "Adds the espionage stretch: the free pool zeroed, every presence reset, and the own presence's priority 1 and counter-espionage 1.",
+   "comment": "A long reset of a country's state - frees and empties several lists (+0xBAC, +0xBBC, +0x119C ...), zeroes the `tech_decay_modifier` vector (+0x1174) for every technology category, and sets **neutrality (+0xA8C) to g_CountryDefaultNeutrality, 50.000** (0x4D307F). Called from the tail of CCountry::CCountry (0x4CA64E) and from ResetSession_ClearLoadedFromSave (0x67BDFC) over the country vector. 0x4D2B60 to the `ret 4` at 0x4D4B88, 10 int3 above. Only the stretch 0x4D2F80-0x4D30D0 was read; the name is from its shape and its two callers. **Espionage** (read 2026-10-14, reversing/findings/FINDINGS-espionage.md section A; esi is the function's zero, `xor esi, esi` at 0x4D2B84 and again at 0x4D4396): spy_pool (+0x1170) = 0 (0x4D2EBA) and spiescaught (+0x11D4) = 0 (0x4D2BA7); every presence through CSpyPresence::Reset (0x4D48C0); then the country's own presence, when its id is inside the vector, gets priority 1 and SetMissionAllocation(counter-espionage, 1) (0x4D4927-0x4D493D) - the same as InitCountryPerCountryArrays' tail. Called from CCountry::CCountry before the vector exists (so that part does nothing there) and over every country on a session reset.",
+   "confidence": "inferred",
+   "evidence": "Decoded from the entry 0x4D2B60 to 0x4D4943 so the window is synchronised; no write to esi between 0x4D4396 and 0x4D4943. Inferred as a whole because most of the function is still unread."
+  },
+  {
+   "rva": "0xD6230",
+   "kind": "function",
+   "name": "SetUpCountryForNewGame",
+   "signature": "void __stdcall SetUpCountryForNewGame(CCountry* country)",
+   "no_signature": null,
+   "revises": "Only the closing open question of the spy paragraph: the self entries one higher for the majors are explained, by the slider's placement during the two new-game days.",
+   "comment": "**What a country starts a new game with**: the effects of the decisions its history says it has taken, its war exhaustion, its stockpile, its diplomatic influence, **its relation with every other country and its first spy allocation**, its manpower, **and its pool of ministers and any empty cabinet post**. One stack argument, `ret 4` at 0x4D757A. One caller, 0x65B4F2 in CInGameIdler::Enter, inside the block that gamestate->loaded_from_save (+0xD9C) == 0 guards, so it never runs on a load. **The function before it ends `ret 4` at 0x4D622D with no padding** - a walk back from inside this one answers 0x4D59D0, which is what fieldchain.py prints (trap 2). (Addresses in this comment are VAs.)\n\n**The decisions** (VA 0x4D6342-0x4D668A, read 2026-10-12): after UpdateIC(country, 0) at 0x4D633D it builds a CEventScope whose country is this one (CCountry +0xCA4), FROM `---`, province 0, and **random_state, its copy and seed all 0**, and walks the country's **taken list** (+0x128, next at node +0x20) - the names its history's `decision = <name>` entries put there, less any `remove_decision`, through CCountryDecisionChange::Apply. Each name is looked up **in the political table first and then the diplomatic** (the reverse of CExecuteDecisionCommand's order); not found, it logs `<TAG> has unknown decision '<name>'` under country.cpp; found, **its effect runs** - CEffect::Execute (slot 11) with (scope, 0) at 0x4D6658. Neither `potential` nor `allow` is asked, no message is raised and no history entry is filed. The scope's random state is never reset between decisions, so each draws on where the one before left it.\n\n**The pool of ministers** (VA 0x4D6741-0x4D683C, read 2026-10-14, FINDINGS-government.md A.6): for each minister of HistoricalMinisters (+0x170) in file order, **appended to PossibleMinisters (+0x160) when `start_date (+0x54) <= now < death_date (+0x58)`** - no test that he is there already. (The two Date-to-text calls inside the loop, 0x44C710, build strings that are thrown away.) A minister with no `death_date` keeps g_NullDate there, which no `now` is below - **but the start save has every such minister in the pool**: see FINDINGS-government.md A.6 for that open contradiction.\n\nRead from 0x4D69DF to 0x4D7108 and from 0x4D7346 to the end. Months are calendar months, year * 12 + month off the tick. At war (at_war, +0xACC): began = the earliest 0xA51D20(war) over the active wars (gamestate +0xC00) the country is an attacker or defender in, and war_exhaustion (+0xAD0) = min(months since * 0.05, 10). Otherwise war_exhaustion = max(3 - months since the latest 0xA51F40(war) over previous_war (+0xC20) * 0.05, 0). Then **days = 30 + 5 * max(12 - months at war, 2)** - 90 at peace, five fewer a month of war, never under 40 - and amount = MaxIC (+0x60C) * days, **held to 1000 for a subject (isSubject, +0xF34)**. Into the acting capital's pool, each an `add`: crude oil and metal `amount`, energy twice it, rare materials half; money, **only when the pool has none**, amount * IC_TO_MONEY * 0.05; supplies and fuel, `days` times the sum of CUnit::SupplyConsumption and CUnit::FuelConsumption over the country's units (+0xBAC). Then **diplo_influence (+0xA88) = MaxIC / 5 in whole points**. The 0.05 is g_OneTwentieth.\n\n**The dates** (0x4D6841 loop, read 2026-10-12): for every country of the database, a pair whose war_seen_tick (`last_war`, +0x54) is later than now is put back to g_NullDate.\n\n**The relations** (0x4D710E..0x4D733F, read 2026-10-12, FINDINGS-diplostate.md): skipped whole for REB and for a country that owns no province (+0xCF8). Otherwise for every country B of the database in order, REB and itself included: value = 25; when B is not REB and owns a province, value = the Lua global **`AI_GenerateNonHistoricalRelation(country, B)`** (script/ai_country.lua; the call is built by PrepareLuaCall_AI_GenerateNonHistoricalRelation, 0x5100D0, and run by 0x50D2F0 for an integer - see the Lua paragraph below), whole points. Then, **only when `diplomacy[B]->relation (+0x38)` is exactly 0**, it becomes clamp(value * 1000, -200000, 200000) with `changed (+0x59) = 1` - **this country's side only**. So a relation the history set is kept, a computed 0 is written as 0, and an existing country is left with 25 towards REB and towards every country that does not exist. In the same loop, for a B that exists and is not REB, the first spy allocation - entry +0 of the 0xF8-byte record B in the array at espionage (+0x1160) - is 1000 * score clamped to [0, g_MaxSpyLevel], score = [value < -100] + [value < 0] + neighbours[B] (+0xF58) + [same continent (+0x368 of each acting capital)] + 2 * [both factions valid and different] + [ruling_ideology (+0x1140) differs] + 2 * [diplomacy[B]->war] - 2 * [diplomacy[B]->alliance] + 3 * [B is this country], **halved toward zero when CCountry::IsMajor (0x4F8AB0) says no**. Against the start save the non-self entries of Germany's row agree; the self entries are 1 higher for the seven majors (5, not 4) and for China (3, not 2) - **that spy is CDistributeEspionage::Distribute's, on one of the two days a new game runs before the save**: those eight are exactly the countries whose daily espionage gain reaches half a spy, and the home presence at priority 1 is the only one in a band above 0 (reversing/findings/FINDINGS-espionage.md section A). The other 70 that hold land are at 2, and the 23 that hold none at 0.\n\n**The tail is the manpower and the cabinet.** ReapplyAllTechnologies (0x4D7346), **the Lua global `Laws(country)`** (0x4D734B-0x4D7375, below), RebuildStaticModifiers (0x4D7380), UpdateMaxManpower (0x4D7386), and then **manpower (+0xBCC) = max_manpower (+0xBD0)**, a `mov` - so whatever `manpower` a country's history file gave is overwritten. If it owns a province (the count at +0xCF8 above 0) and is at war, it then loses year * (1000 + months at war * g_StartingManpowerLostPerMonthAtWar / 1000) / 1000, where year = max_manpower * 1000 / MAX_MANPOWER and the months are the same thousandths the war exhaustion used; floored at 0. Then **last_election (+0xAB0) = now where it holds a date before year 3** (0x4D7476-0x4D752F), **CCountry_FillMinisterPosts(country, 0, 0)** (0x4D7538 - empty posts only, from the pool above), CCountry_AllotCabinetSeats (0x4D753E), and **where `ruling_ideology (+0x1140)` is null or its slot 17 says no, the ruling ideology becomes the head of state's** (`ministers[1]->ideology (+0x6C)`, 0x4D7543-0x4D7564). The CChangeLawCommands `Laws(country)` posts are made before `in_game` is set, so their pay_cost and post_message are cleared: free and silent.\n\nNot read: VA 0x4D6230-0x4D6342 (a month count from the last election at +0xAB0, then UpdateIC(country, 0) at 0x4D633D).\n\n**The two Lua calls** (read 2026-10-12, reversing/findings/FINDINGS-luahost.md; VAs). Both take the main thread's state from GetThreadLuaState and sit in try blocks whose only handler is `catch (luabind::error&)` (FuncInfo 0x16C98D8: states 22-23 handler 0x4D7324, state 25 handler 0x4D73CF), and each handler only calls ReportLuaError (0xAA8050, `LUA Error:` in the log) and resumes after the call. **The relation**: [ebp-0x20] is set to 25 at 0x4D7173 before the call and is the result only if the call returns, so **a missing function or a Lua error leaves 25**; the result is `lua_tointeger` of a value that must be a number - `fld`/`fistp` in the Lua DLL, so **rounded to nearest, ties to even**, not truncated - and anything else (nil, a string, a boolean) throws `luabind::cast_failed`, which is **not** a `luabind::error` (its ThrowInfo 0x164B1E4 lists only cast_failed and std::exception) and so escapes this function and CInGameIdler::Enter, which has no try block at all. The country goes in as a `CCountry*` (pushed as a pointer instance, nil if null) and B as a **fresh copy of its CCountryTag**. **`Laws(country)`**: built by PrepareLuaCall_Laws (0x510120) and made by LuaCallProxy_Country_CallVoid (0x50D3F0) with one argument and no result, **for every country this function runs for, with no test of who plays it** - so `script/ai_politics_minister.lua`'s `Laws(minister)` runs with the CCountry where it expects a minister, which works because CCountry also has GetCountryTag, and posts a CChangeLawCommand for each law group it wants moved. That is how the script runs before the first hour (the open question in FINDINGS-unitstart.md).",
+   "confidence": "confirmed",
+   "evidence": "Start save Germany1936_01_01_00.hoi3: home levels 5.0 for GER ENG SOV USA JAP FRA ITA, 3.0 for CHI, 2.0 for 70 others, 0.0 for 23 with no province; every home at 2 has a pool under 1 (largest 0.700, so a daily gain under 0.5), and pool + 1 = twice the daily gain for the eight - Germany 1.113, which the 8 January save's daily growth of exactly 1.113 confirms. Wrong if a country's home reaches 3 with a pool that says its gain is under half a spy."
+  }
+ ],
+ "structs": [
+  {
+   "name": "CChangeSpyPriority",
+   "size": "0x50",
+   "inherits": "CCommand",
+   "vftable_rva": "0x11C4174",
+   "comment": "A change of the priority one country gives its spies in another (or at home). Posted by the espionage view's priority buttons and the AI's Lua; saved as actor, target, priority. See reversing/findings/FINDINGS-espionage.md, section A.",
+   "evidence": "`push 0x50` before the clone's operator new at 0x558CAD and the Lua __init's at 0x989985; vftable 0x15C4174 from the RTTI export, written by both constructors and the clone."
+  },
+  {
+   "name": "CChangeSpyMission",
+   "size": "0x54",
+   "inherits": "CCommand",
+   "vftable_rva": "0x11C41B4",
+   "comment": "A change of one mission's priority in one spy presence; it also stamps the presence's spy_date. Posted by the espionage view's mission rows and the AI's Lua; saved as actor, target, id (the mission), priority. See reversing/findings/FINDINGS-espionage.md, section A.",
+   "evidence": "`push 0x54` before the clone's operator new at 0x5592FD; vftable 0x15C41B4 from the RTTI export, written by both constructors and the clone."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CChangeSpyPriority",
+   "offset": "0x3C",
+   "name": "actor_tag",
+   "type": "char[4]",
+   "comment": "The letters of the country whose spies these are (`actor`); the id half is +0x40.",
+   "evidence": "Both constructors store their first tag here; LoadKey's `actor` case writes +0x3C/+0x40; SaveContents writes `actor` from these letters."
+  },
+  {
+   "struct": "CChangeSpyPriority",
+   "offset": "0x40",
+   "name": "actor_id",
+   "type": "int",
+   "comment": "The actor's country id: Execute indexes the country database with it, IsValid refuses 0.",
+   "evidence": "Execute: `mov eax, [ecx+0x40]; mov eax, [edx+eax*4]` on countryDatabase +0x16C; CountryPairCommand_IsValid tests +0x40."
+  },
+  {
+   "struct": "CChangeSpyPriority",
+   "offset": "0x44",
+   "name": "target_tag",
+   "type": "char[4]",
+   "comment": "The letters of the country the presence is in (`target`) - the actor's own for its home presence; the id half is +0x48.",
+   "evidence": "Both constructors store their second tag here; LoadKey's `target` case writes +0x44/+0x48."
+  },
+  {
+   "struct": "CChangeSpyPriority",
+   "offset": "0x48",
+   "name": "target_id",
+   "type": "int",
+   "comment": "The target's id, which indexes the actor's presence vector (x 0xF8); IsValid refuses 0.",
+   "evidence": "Execute: `imul [ecx+0x48], 0xF8` added to the actor's +0x1160."
+  },
+  {
+   "struct": "CChangeSpyMission",
+   "offset": "0x3C",
+   "name": "actor_tag",
+   "type": "char[4]",
+   "comment": "The letters of the country whose spies these are (`actor`); the id half is +0x40.",
+   "evidence": "Both constructors store their first tag here; LoadKey's `actor` case writes +0x3C/+0x40; SaveContents writes `actor` from these letters."
+  },
+  {
+   "struct": "CChangeSpyMission",
+   "offset": "0x40",
+   "name": "actor_id",
+   "type": "int",
+   "comment": "The actor's country id: Execute indexes the country database with it, IsValid refuses 0.",
+   "evidence": "Execute: `mov eax, [ecx+0x40]; mov eax, [edx+eax*4]` on countryDatabase +0x16C; CountryPairCommand_IsValid tests +0x40."
+  },
+  {
+   "struct": "CChangeSpyMission",
+   "offset": "0x44",
+   "name": "target_tag",
+   "type": "char[4]",
+   "comment": "The letters of the country the presence is in (`target`) - the actor's own for its home presence; the id half is +0x48.",
+   "evidence": "Both constructors store their second tag here; LoadKey's `target` case writes +0x44/+0x48."
+  },
+  {
+   "struct": "CChangeSpyMission",
+   "offset": "0x48",
+   "name": "target_id",
+   "type": "int",
+   "comment": "The target's id, which indexes the actor's presence vector (x 0xF8); IsValid refuses 0.",
+   "evidence": "Execute: `imul [ecx+0x48], 0xF8` added to the actor's +0x1160."
+  },
+  {
+   "struct": "CChangeSpyPriority",
+   "offset": "0x4C",
+   "name": "priority",
+   "type": "int",
+   "comment": "The new priority, stored into CSpyPresence +0x04 unchecked. 0..3 from the screen and the AI. Saved as `priority`.",
+   "evidence": "Execute's single store `mov [eax+edx+4], ecx` from +0x4C; the constructor's last argument; LoadKey's `priority` case."
+  },
+  {
+   "struct": "CChangeSpyMission",
+   "offset": "0x4C",
+   "name": "mission",
+   "type": "int",
+   "comment": "The SpyMission, 0..8; Execute applies the change only under 9 (a signed test) but stamps the date anyway. Saved as `id`.",
+   "evidence": "Execute: `cmp ecx, 9; jge` on +0x4C, then pushed as SetMissionAllocation's index; LoadKey's `id` case; SaveContents writes `id` from it."
+  },
+  {
+   "struct": "CChangeSpyMission",
+   "offset": "0x50",
+   "name": "priority",
+   "type": "int",
+   "comment": "The mission's new priority, a weight (0..3 from the screen and the AI), handed to SetMissionAllocation in EAX. Saved as `priority`.",
+   "evidence": "Execute: `mov eax, [ecx+0x50]` before the call; LoadKey's `priority` case writes +0x50."
+  },
+  {
+   "struct": "CDistributeEspionage",
+   "offset": "0x28",
+   "name": "band0_cursor",
+   "type": "int",
+   "comment": "Initialised to 1 with the other three by CCountry::CCountry (0x4C9F93) and **never read or written again**: it is the cursor priority band 0 would have, and Distribute's band loop stops at 1.",
+   "evidence": "The four stores of ecx = 1 at 0x4C9F93-0x4C9F9C after `push 0x38; call new`; in Distribute the cursor pointer starts at this+0x34 and drops by 4 for bands 3, 2, 1 only (`test esi, esi; jg` at 0x51F15E)."
+  },
+  {
+   "struct": "CDistributeEspionage",
+   "offset": "0x2C",
+   "name": "band1_cursor",
+   "type": "int",
+   "revises": "The comment: it said the cursor 'wraps to 1 when it runs out'; the scan does not wrap within a day, and the reset happens only when a day's scan from the cursor places nothing or reaches the end.",
+   "comment": "Where priority band 1's scan of the country list starts, 1 to begin with (CCountry::CCountry, 0x4C9F96..0x4C9F9C) and not saved. Each placement sets it to the next country; a day's scan runs from it to the end of the list and **does not wrap**, and it goes back to 1 when that scan places nothing or the cursor has reached the end - so a presence before the cursor waits a day. A home presence that is a country's only one in the band therefore gets a spy every second day at most. The whole cursor rule is in CDistributeEspionage::Distribute's entry.",
+   "evidence": "Distribute 0x51EFFD-0x51F148: `mov ecx, [edi]` as the loop start, `mov [esi], edx` = i + 1 after a placement at 0x51F0EE, `mov [edi], 1` at 0x51F148 on the two reset paths. The start save's Germany, Britain and United States keep over one free spy after two days with one placement."
+  },
+  {
+   "struct": "CDistributeEspionage",
+   "offset": "0x30",
+   "name": "band2_cursor",
+   "type": "int",
+   "revises": "The comment: it said the cursor 'wraps to 1 when it runs out'; the scan does not wrap within a day, and the reset happens only when a day's scan from the cursor places nothing or reaches the end.",
+   "comment": "Where priority band 2's scan of the country list starts, 1 to begin with (CCountry::CCountry, 0x4C9F96..0x4C9F9C) and not saved. Each placement sets it to the next country; a day's scan runs from it to the end of the list and **does not wrap**, and it goes back to 1 when that scan places nothing or the cursor has reached the end - so a presence before the cursor waits a day. A home presence that is a country's only one in the band therefore gets a spy every second day at most.",
+   "evidence": "Distribute 0x51EFFD-0x51F148: `mov ecx, [edi]` as the loop start, `mov [esi], edx` = i + 1 after a placement at 0x51F0EE, `mov [edi], 1` at 0x51F148 on the two reset paths. The start save's Germany, Britain and United States keep over one free spy after two days with one placement."
+  },
+  {
+   "struct": "CDistributeEspionage",
+   "offset": "0x34",
+   "name": "band3_cursor",
+   "type": "int",
+   "revises": "The comment: it said the cursor 'wraps to 1 when it runs out'; the scan does not wrap within a day, and the reset happens only when a day's scan from the cursor places nothing or reaches the end.",
+   "comment": "Where priority band 3's scan of the country list starts, 1 to begin with (CCountry::CCountry, 0x4C9F96..0x4C9F9C) and not saved. Each placement sets it to the next country; a day's scan runs from it to the end of the list and **does not wrap**, and it goes back to 1 when that scan places nothing or the cursor has reached the end - so a presence before the cursor waits a day. A home presence that is a country's only one in the band therefore gets a spy every second day at most.",
+   "evidence": "Distribute 0x51EFFD-0x51F148: `mov ecx, [edi]` as the loop start, `mov [esi], edx` = i + 1 after a placement at 0x51F0EE, `mov [edi], 1` at 0x51F148 on the two reset paths. The start save's Germany, Britain and United States keep over one free spy after two days with one placement."
+  },
+  {
+   "struct": "CSpyPresence",
+   "offset": "0x0",
+   "name": "level",
+   "type": "int",
+   "revises": "The comment's list of writers was incomplete, and SetLevel's one caller is the loader, not modify_spies.",
+   "comment": "Spies present, **x1000** and always whole - one spy is 1000 - between 0 and g_MaxSpyLevel (10000). The save key is `spy_allocation`, written through the thousandths vector writer 0x4C8050; Lua's GetLevel. **Every writer** (a displacement sweep of +0x1160 over .text): the constructor and CSpyPresence::Reset (0); SetUpCountryForNewGame's first allocation (0x4D72C6); CCountry::LoadKey through CSpyPresence::SetLevel (0x4CE411, its only caller); CDistributeEspionage::Distribute's whole spies (0x51F0F9); CatchSpies' -1000 (0x52E74F); PerformCoup's 0 (0x4F7D0E); AnnexCountry's 0 for every presence in the annexed (0x4E8AC5); and modify_spies inline (0x9BE185). **It never decays.**",
+   "evidence": "A displacement sweep of .text for [reg+0x1160] gives 87 sites; following each one's register 40 instructions for a store at +0 finds the writers at 0x4D72C6, 0x4E8AC5, 0x4F7D0E, 0x52E755 and 0x9BE185 and two false hits (0x4E324B and 0x4E8B1B, where the register was reloaded from operator new); Distribute's store at 0x51F0F9 lies past the window and was read on the listing, as were the constructor, Reset and SetLevel. What would show it wrong: a store through a presence pointer kept in a stack slot, which the 40-instruction follow cannot see. The saves agree - no presence at priority 0 grows between saves of one game."
+  },
+  {
+   "struct": "CSpyPresence",
+   "offset": "0x4",
+   "name": "priority",
+   "type": "int",
+   "revises": "The comment: adds that the command does not clamp it and that a country's own presence starts at 1.",
+   "comment": "A plain integer, 0..3 from the screen and the AI (Lua's CSpyPresence.MAX_SPY_PRIORITY = 3) - the command stores whatever it is given. The save key `spy_priority` goes through the `%d` vector writer 0x4608D0. Writers: CChangeSpyPriority::Execute (0x5589D3), the loader, CSpyPresence::Reset (0) and, for a country's **own** presence only, InitCountryPerCountryArrays and CCountry_Reset (1) - so every country starts with priority 1 at home and 0 everywhere else. **Band 0 never receives a spy**: CDistributeEspionage::Distribute's band loop is `while (band > 0)`. A presence at 70% of MAX_NUMBER_OF_SPIES (7 spies in TFH) or more is treated as one band lower, so priority 1 stops at 7 and only 2 and 3 can go on to 10.",
+   "evidence": "The four writes; the start save has 1 at the own index for all 101 countries and 0 elsewhere; across the saves of one game no presence at priority 1 is above 7 and priorities 2 and 3 reach 7 and 10."
+  },
+  {
+   "struct": "CSpyPresence",
+   "offset": "0x8",
+   "name": "missions",
+   "type": "int[9]",
+   "revises": "The comment said 'how many spies are put on each'. They are priorities - weights - not spy counts.",
+   "comment": "One entry per `SpyMission`, in the order the nine localisation keys sit in .rdata from 0x15EC590 and the order CSpyPresence::RunDailyMissions tests them: 0 counter_espionage, 1 military, 2 tech, 3 boost_ruling_party, 4 boost_our_party, 5 lower_national_unity, 6 increase_threat, 7 raise_national_unity, 8 covert_ops. **Each is the mission's priority, a weight** - the command names it `priority`, Lua reads it with GetMissionPriority, the screen and the AI give 0..3 - and the spies are shared among the missions by mission_share = weight / sum of weights. Written only through CSpyPresence::SetMissionAllocation (and zeroed by Reset). The save writes nine `spy_mission` values per country; a country's own counter-espionage starts at 1.",
+   "evidence": "CChangeSpyMission +0x50 is the save key `priority` and is what Execute hands SetMissionAllocation; GetMissionPriority (0x4C8400) is `mov eax, [ecx+eax*4+8]`; the AI script sets 1, 2 or 3 per mission (ManageSpiesAtHome); every spy_mission value in the five saves is 0..3."
+  },
+  {
+   "struct": "CSpyPresence",
+   "offset": "0x50",
+   "name": "last_mission_change",
+   "type": "int",
+   "revises": "The comment: adds Reset as a writer, that Execute stamps it whatever the mission, and that the base game's (not TFH's) AI script reads it.",
+   "comment": "A game tick, the time of the last CChangeSpyMission executed on this presence; the save key is `spy_date` (a date with the hour, `1.1.1.0` for never) and the Lua accessor GetLastMissionChangeDate. The constructor and CSpyPresence::Reset set the epoch (0x170C2B8, 43800000); **CChangeSpyMission::Execute writes the current tick every time it runs** (0x558F87), even for an out-of-range mission and whether or not the priority changed; the loader reads it back. No C++ code reads it but the save writer: SPY_MISSION_CHANGE_DAYS has no reader, so there is no cooldown on changing a mission. The base game's script/ai_intelligence_minister.lua reads it to hold a mission for 60 days; Their Finest Hour's replaces that file and does not.",
+   "evidence": "The two writers and the loader (0x4CE4BD); grep of script/ and tfh/script/ for GetLastMissionChangeDate finds lines 202 and 233 of the base game's file only. The saves stamp each AI country's changes at one fixed hour of the day (France 9, Sweden 18, Hungary 5, the Soviet Union 6)."
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0x1170",
+   "name": "spy_pool",
+   "type": "int",
+   "revises": "The comment: adds that the pool has no ceiling, the reset, and the Lua getter; the arithmetic is unchanged.",
+   "comment": "Spies the espionage leadership slider has bought and not yet placed, x1000; the save key is `spies` (token 0x272). CDistributeEspionage::Distribute adds `basePercentage * factor * available * 1000 * LEADERSHIP_TO_SPIES / 1000` to it at 0x51EDC6 and takes whole spies off it at 0x51F112 as it hands them to presences, highest priority band first. **There is no ceiling**: a country whose presences are all at band 0 or full keeps adding - Germany's is 13.723 in the 20 April 1936 save. Zeroed by the constructor and CCountry_Reset (0x4D2EBA); Lua's GetNumberOfFreeSpies (0x5187E0) answers it in whole spies.",
+   "evidence": "disp.py over .text for 0x1170: the only writes are the constructor, LoadKey, CCountry_Reset and Distribute's add and subtract; the readers are the save writer, the Lua getter, the espionage view and the top bar."
+  }
+ ],
+ "vftable_slots": {
+  "CChangeSpyPriority": {
+   "2": "SaveContents",
+   "6": "Execute",
+   "7": "GetTypeId",
+   "13": "Clone"
+  },
+  "CChangeSpyMission": {
+   "2": "SaveContents",
+   "6": "Execute",
+   "7": "GetTypeId",
+   "13": "Clone"
+  },
+  "CDistributeEspionage": {
+   "0": "Distribute"
+  }
+ },
+ "frontier": [
+  "0xE21E0",
+  "0x44C60",
+  "0x1594D0",
+  "0x2E2230",
+  "0x2E638A",
+  "0xC8400"
+ ]
+}
