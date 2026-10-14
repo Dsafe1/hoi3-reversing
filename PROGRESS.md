@@ -379,7 +379,7 @@ Definitions out of `common/` and the rest of the mod. Their `LoadKey` is the gra
 | `CMinister` | `CReferenceObject` | 0x90 | 12 + 1 lua | 2/7 | 4 | CFaction.hpp | 6,257 | read | a person, from `common/countries/<Country>.txt` - **not** `minister_types.txt`, which is CMinisterType |
 | `CMinisterType` | `CModifier` |  | 2 lua |  | 2 | CMinister.hpp | 106 | keys | `minister_types.txt`, a CModifier |
 | `CMission` | `CPersistent` |  |  | 1/6 | 1 |  |  | placed |  |
-| `CModifier` | `CPersistent` | 0x2C | 3 | 1/2 | 4 | CModifier.hpp | 108 | placed | one loader shared by `CProvinceModifier`, `CStaticModifier`, `CFactionModifier` and two more - `static_modifiers.txt` and `event_modifiers.txt`, which reach everything |
+| `CModifier` | `CPersistent` | 0x2C | 4 | 1/2 | 4 | CModifier.hpp | 108 | placed | one loader shared by `CProvinceModifier`, `CStaticModifier`, `CFactionModifier` and two more - `static_modifiers.txt` and `event_modifiers.txt`, which reach everything |
 | `CNationalProvinceTigger` | `CValueTrigger` | 0x44 |  | 2/153 | 2 |  | 8 | RTTI |  |
 | `COccupationPolicy` | `CModifier` |  |  |  | 1 |  | 7 | keys |  |
 | `CProjectionType` | `C3dObjectType` |  |  | 7/10 | 1 |  | 3 | placed |  |
@@ -394,7 +394,7 @@ Definitions out of `common/` and the rest of the mod. Their `LoadKey` is the gra
 | `CSelectionGroupReader` | `CPersistent` |  |  |  | 1 |  |  | keys | plumbing |
 | `CSessionConfiguration` | `CPersistent` |  |  | 5/7 | 1 |  | 3 | placed |  |
 | `CSong` | `CPersistent` |  |  |  | 1 |  | 91 | keys |  |
-| `CStaticModifier` | `CModifier` | 0x48 | 1 | 1/2 | 1 |  | 31,318 | part |  |
+| `CStaticModifier` | `CModifier` | 0x48 | 1 | 1/2 | 2 |  | 31,318 | part |  |
 | `CStrategicResource` | `CModifier` | 0x50 | 3 | 1/2 |  |  | 337 | part |  |
 | `CSubUnitAmphibiousMult` | `CPersistent` |  |  |  | 1 |  | 60,489 | keys |  |
 | `CSubUnitDefinition` | `CPersistent` |  | 80 + 20 lua | 71/73 | 8 | CSubUnitDefinition.hpp | 60,485 | read | **the unit files**, and the most used class in the mod. The stat block is done; nine keys are still unplaced, most of them moved by technology |
@@ -543,7 +543,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CICCostComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CIcon` | `CButton` |  |  |  | 1 |  |  | RTTI |  |
 | `CIdler` |  |  |  |  |  |  |  | RTTI |  |
-| `CInGameIdler` | `CEU3Idler` `CLostDeviceInterface` `CReloadDispatcher` |  | 50 |  | 44 | CInGameIdler.hpp | 3 | read |  |
+| `CInGameIdler` | `CEU3Idler` `CLostDeviceInterface` `CReloadDispatcher` |  | 52 |  | 46 | CInGameIdler.hpp | 3 | read |  |
 | `CIngameSettingsScreen` | `CSettingsScreen` |  |  |  |  |  | 1 | RTTI |  |
 | `CLandOrdersView` | `COrdersView` |  |  |  |  |  |  | RTTI |  |
 | `CLawEntry` | `CStandardlistboxItem` | 0x88 | 4 |  | 3 |  | 16 | part |  |
@@ -1203,9 +1203,9 @@ One class per effect, trigger, command and decision the event scripts can use. E
 | `CTraitTrigger` | `CTrigger` | 0x44 | 1 | 2/153 | 3 |  | 512 | part |  |
 | `CTransferSubUnitCommand` | `CCommand` |  |  | 2/2 | 1 |  | 1 | placed |  |
 | `CTrigger` | `PAVCTrigger::__CList` `CPersistent` | 0x40 | 13 | 2/153 | 5 |  | 11,343 | read | **read**: 152 keywords, one class each - the whole trigger half of the event script language. See findings/FINDINGS-script.md |
-| `CTriggeredModifier` | `CStaticModifier` | 0xC8 | 2 |  | 2 |  | 1,693 | keys |  |
-| `CTriggeredModifierItem` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
-| `CTriggeredModifiersView` | `CReloadableInterface` |  |  |  |  |  | 1 | RTTI |  |
+| `CTriggeredModifier` | `CStaticModifier` | 0xC8 | 2 |  | 3 |  | 1,693 | keys |  |
+| `CTriggeredModifierItem` | `CStandardlistboxItem` |  |  |  | 1 |  |  | RTTI |  |
+| `CTriggeredModifiersView` | `CReloadableInterface` |  |  |  | 3 |  | 1 | RTTI |  |
 | `CTruceWithTrigger` | `CTagTrigger` | 0x48 |  | 2/153 | 2 |  |  | RTTI |  |
 | `CUndeclaredWarRegionEffect` | `CEffect` | 0x2C | 2 | 3/4 | 3 |  | 3 | placed |  |
 | `CUndeclaredWarWithTrigger` | `CTagTrigger` | 0x48 |  | 2/153 | 2 |  |  | RTTI |  |

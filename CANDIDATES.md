@@ -499,7 +499,10 @@ building:
    `espionage_bonus`, read off the target, **lowers** the home chance. **Read**: every reader of modifier 55
    (`+0x1B8`) and 42 (`+0x150`), the modifier tooltip's sign for both (`CModifierKinds` more-is-better), and
    whether the two were swapped somewhere between the definition and CatchSpies. A save pair with counter-espionage
-   laws changed would settle the direction.
+   laws changed would settle the direction. **A measure, 2026-10-14**: with triggered modifiers built in OpenHOI3, so
+   that the ninety countries in no faction carry `neutrality`'s +0.1 of each, its start-save check catches 22 spies
+   in the two days where it caught 18 without them and the save has 33 - so the reading's formula accounts for part
+   of the original's catches and not all of them.
 
 ## The planned next wave is in `WAVE.md`
 

@@ -314,7 +314,10 @@ It is nearly right about the mechanism and wrong about where it happens.
     (&modifier->trigger)->CountEvaluation(scope, &passed, &total)  ; slot 11, via [eax+0x2C]
     sprintf(buf, "%d / %d", passed, total)                         ; the string at VA 0x15D2D5C
 
-and the result goes into a gui element called `modifier_strip`. So the "n of m conditions met" figure
+and the result goes into a gui element - **`modifier_status`, not `modifier_strip`** (corrected 2026-10-14:
+the text is assigned to the row's `+0x30`, which `CTriggeredModifierItem`'s constructor fills with
+`modifier_status`; the strip gets the modifier's `icon` as its frame - `FINDINGS-countrymodifier.md`,
+section 3). So the "n of m conditions met" figure
 §6 inferred is real, and **the format string is literally `"%d / %d"`**, read out of the image.
 
 The receiver is `modifier + 0x88` taken by `lea`, i.e. a **by-value sub-object**.

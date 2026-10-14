@@ -156,6 +156,94 @@ A date in year 1 or earlier is how one with no end is stored.
 `trigger`; both must hold. So a triggered modifier is tested **once a day for every country** and is
 on or off from that day's rebuild. Country id 0 is skipped.
 
+**The list keeps the order things joined it**, not the file's: a new entry is appended at the tail
+(`+0x65C`) and a lost one unlinked where it stands. `RebuildStaticModifiers` adds the list in that
+order, so a modifier's sources name the triggered ones in the order they came on.
+
+### The two messages
+
+Added 2026-10-14, for OpenHOI3, read off the decompilation of `0x4D8070` whole. Both are raised only
+when the country is the player's (`g_CCurrentGameState->player`), and both start from
+`CCountry::BuildMessageVariables(country)`:
+
+| when | type | variables added, in order |
+| --- | --- | --- |
+| an entry joins the list | `TRIGMOD` | `MESSENGER` = `MESSAGE_HEAD_GOV` localised; `NAME` = the entry's name localised (slot 6); `EFFECT` = every value of its modifier (slot 7, `DescribeAllValues`); `EXPLANATION` = `desc_` + its key, localised (slot 13) |
+| an entry leaves it | `TRIGMODLOST` | `MESSENGER`, `NAME` and `EFFECT` as above - no `EXPLANATION` |
+
+Each is posted to the country with the first and second countries `---` and no province.
+`EXPLANATION` is rendered when it is added, so a `$COUNTRYNAME$` in a `desc_` text reaches the
+message as it is; English's `TRIGMOD_*` texts never ask for it (only Italian's and Hungarian's
+`TRIGMODLOST_2` do).
+
+Slot 13 of `CStaticModifier`, inherited by `CTriggeredModifier`, is `CStaticModifier::GetDescription`
+(`0x5A1B0`): `"desc_" + name`, through `GetText` and rendered with the game settings' colours.
+
+### The Strategic Effects window
+
+Added 2026-10-14. The window `modifier_window` of `interface/modifier_interface.gui` - its label is
+`MODIFIERS_ACHIEVMENTS`, "Strategic Effects" - is `CTriggeredModifiersView`, made in
+`CInGameIdler::CInGameIdler` (`0x2474A0`, at `0x249476`) and kept at **`CInGameIdler +0x1D4C`**.
+
+- **It is opened by `menubar_modifiers_button`**, the button by the minimap. `EnterGame_SetInGame`
+  binds the button (at `0x25DC17`) to the idler's command at `+0xBB8`, which the idler's constructor
+  had bound (at `0x247CA5`) to `CInGameIdler::ToggleTriggeredModifiers` (`0x249F20`): hidden, the
+  window is shown, raised, refreshed at once and its day set to -1 so the next frame refreshes it
+  again; **and the window at `+0x1D48` is hidden**. Shown, it is hidden. `menubar_goals_button` is
+  the same with the two windows swapped (`+0xB68`, `0x249F70`), so the two never stand together.
+  The button's tooltip is `STRATEGIC_EFFECT_BUTTON_TOOLTIP` alone (`CInGameIdler_NamedElementTooltip`
+  at `0x2C4DA9`).
+- **What it lists** (`CTriggeredModifiersView::Refresh`, `0x2D1930`): for the player's country, every
+  entry of `triggered_modifiers.txt` whose **`potential`** holds (`CTriggeredModifier::PotentialHolds`,
+  `0x5BB70`, the `potential` block alone in a country scope), **in file order**. The list's rows are
+  made again only when that count changes. It is refreshed once a game day while shown
+  (`RefreshTriggeredModifierPanel`, section 10 of `FINDINGS-triggereval.md`).
+- **Each row** (`BuildTriggeredModifierEntry`, `0x2D1130`, on a `CTriggeredModifierItem`):
+  - `modifier_name` the entry's name, localised; `modifier_effect` every value of its modifier;
+    `modifier_strip`'s frame the modifier's **`icon`** (`CModifier +0x28`, where `CModifier::LoadKey`
+    puts `icon`). These three only when the row shows another modifier than it did.
+  - **Drawn plain where the entry is on the country's list and greyed where it is not**: the row's
+    background (`modifier_entry_bg`) and the strip both get state 1 or 4 - the button states'
+    "up" and "disabled" - and the background is enabled or disabled to match.
+  - `modifier_status` is `"%d / %d"`, the `trigger` block's met and counted conditions
+    (`CountEvaluation`, slot 11), and `modifier_progress` met x 100 / counted - nought where nothing
+    is counted. **Corrected:** the record put the tally in `modifier_strip`; it is assigned to the
+    row's `+0x30`, which the row's constructor (`0x2D0F50`) fills with `modifier_status`, and the
+    function's receiver is the row, not the window.
+- **A row's tooltip** (`CTriggeredModifiersView_ElementTooltip`, `0x2D1DE0`, then
+  `CTriggeredModifierItem_Tooltip`, `0x2D14D0`): **the row's `modifier_info`, the "?", and nothing
+  else in it**, gives the **`trigger` block's account of itself**. The window hands the element to each
+  row's slot 22 of its second table (`CTriggeredModifierItem::IsInfoIcon`, `0x2D15F0`), which answers
+  only for the row's `+0x38`, `modifier_info`: `cmp edx, [ecx+0x1c]; sete al` with `ecx` the row's
+  `+0x1C`. **Corrected the same day**: this said any element of a row, which the maintainer's look at
+  the original contradicted ("It should only show on the '?' icon") and the bytes then bore out - the
+  first reading had taken slot 22 for "holds the element" without reading it. The text is the
+  `trigger` block's account - `CAndTrigger::GetBlockText` (slot 9) in the player's country scope with
+  `redWhen` false and depth 0, the same text a technology's `allow` block gives. Nothing where the
+  row holds no modifier or nobody is played.
+- `close_button` hides it.
+
+| rva | name | new or revised | confidence | one line |
+| --- | --- | --- | --- | --- |
+| `0x5A1B0` | `CStaticModifier::GetDescription` | new | confirmed | slot 13: `desc_` + the key, localised |
+| `0x5BB70` | `CTriggeredModifier::PotentialHolds` | new | confirmed | the `potential` block alone |
+| `0x249F20` | `CInGameIdler::ToggleTriggeredModifiers` | new | confirmed | `menubar_modifiers_button` |
+| `0x249F70` | `CInGameIdler::ToggleGoals` | new | inferred | `menubar_goals_button`; what the window is was not read |
+| `0x2D1610` | `CTriggeredModifiersView::CTriggeredModifiersView` | new | confirmed | |
+| `0x2D1800` | `CTriggeredModifiersView::Build` | new | confirmed | slot 0: finds `modifier_list` and `close_button` |
+| `0x2D1930` | `CTriggeredModifiersView::Refresh` | new | confirmed | the rows, for the player |
+| `0x2D14D0` | `CTriggeredModifierItem_Tooltip` | new | confirmed | the `trigger` block's text, for the "?" |
+| `0x2D15F0` | `CTriggeredModifierItem::IsInfoIcon` | new | confirmed | slot 22 at `+0x1C`: only `modifier_info` answers |
+| `0x2D1130` | `BuildTriggeredModifierEntry` | revised | confirmed | the greyed look and the progress; the tally is `modifier_status`; was `inferred` |
+| `0x2D1DE0` | `CTriggeredModifiersView_ElementTooltip` | revised | confirmed | was `IdlerWindow1D4C_ElementTooltip`, its window unknown |
+| `0xD8070` | `UpdateTriggeredModifiers` | revised | confirmed | the two messages and the list's order |
+
+| struct | offset | name | type | new or revised |
+| --- | --- | --- | --- | --- |
+| `CInGameIdler` | `+0x1D4C` | `triggered_modifiers_view` | `CTriggeredModifiersView*` | new |
+| `CInGameIdler` | `+0x1D48` | `goals_view` | `void*` | new |
+| `CModifier` | `+0x28` | `icon` | `int` | new |
+
 ## 4. Strategic resources
 
 ### The level
