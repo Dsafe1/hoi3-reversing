@@ -84,9 +84,15 @@ every entry leads back to the reasoning behind it.
   file records no `vftable_slots` for it - **the tables stay current**, or the next
   person reads `vf_32` on three tables that all point at something already named
 - a body the linker folded across many tables, which cannot be named for any one class
+- a virtual table slot recorded under another name, unless the same file revises the
+  function to the new name - and two files naming one slot differently
 
 An entry that repeats something already recorded, identically, is skipped rather than
-refused: two agents reaching the same answer is a good sign, not a conflict.
+refused: two agents reaching the same answer is a good sign, not a conflict. **A slot
+too**: one already recorded is left as it is when the file repeats it or gives only its
+bare name, and is replaced in place when the file gives a `{name, signature}` record for
+it. Until 2026-10-14 a repeated slot was written a second time, and `json.load` keeping
+the last copy hid the newer signature behind the older bare name in 14 places.
 
 **This is not the last check.** `buildFindings.py` validates every entry against the
 executable afterwards and the headless apply has to report `failed: 0`. Run both.
@@ -99,6 +105,7 @@ import json
 import os
 import re
 import sys
+from json.decoder import scanstring
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
 
@@ -471,6 +478,30 @@ def problems(document, files):
             elif field.get("revises"):
                 said.append("%s: revises nothing - no field is recorded there" % where)
 
+    # A slot already recorded under another name is a rename, and a rename needs the function
+    # renamed with it: the fragment has to revise an entry to that name. Two files naming one
+    # slot differently are refused as two files disagreeing on an address are.
+    recorded = document.get("vftable_slots", {})
+    named = {}
+    for path, incoming in files:
+        who = os.path.basename(path)
+        revised = {e.get("name", "").rsplit("::", 1)[-1] for e in incoming.get("addresses", [])
+                   if e.get("revises") or e.get("replaces")}
+        for klass, entries in incoming.get("vftable_slots", {}).items():
+            for slot, value in entries.items():
+                slot = str(slot)
+                name = slotName(value)
+                have = recorded.get(klass, {}).get(slot) if isinstance(
+                    recorded.get(klass), dict) else None
+                if have is not None and slotName(have) != name and name not in revised:
+                    said.append("%s: slot %s of %s is recorded as %s, and this file names it "
+                                "%s - revise the function to that name in the same file, or "
+                                "fix the slot by hand" % (who, slot, klass, slotName(have), name))
+                other = named.setdefault((klass, slot), (who, name))
+                if other[1] != name:
+                    said.append("%s: names slot %s of %s %s, and %s names it %s"
+                                % (who, slot, klass, name, other[0], other[1]))
+
     # A `Class@0xNN` key has to name a table that exists, or the record lands nowhere and
     # nothing says so.
     for path, incoming in files:
@@ -558,6 +589,98 @@ def related(names):
         if not common:
             return False
     return True
+
+
+def slotName(value):
+    """A slot is a bare name or a {name, signature} record."""
+    return value if isinstance(value, str) else (value or {}).get("name")
+
+
+_WHITE = re.compile(r"[ \t\r\n]*")
+_DECODER = json.JSONDecoder()
+
+
+def objectMembers(raw, at):
+    """(key, start of its line, start of the value, end of the value, value) for each member
+    of the JSON object whose `{` is raw[at] - a duplicated key as often as it is written,
+    which json.load would have collapsed to the last."""
+    assert raw[at] == "{"
+    i = _WHITE.match(raw, at + 1).end()
+    out = []
+    while raw[i] != "}":
+        keyAt = i
+        key, i = scanstring(raw, i + 1)
+        i = _WHITE.match(raw, i).end()
+        assert raw[i] == ":", "not a JSON object at %d" % i
+        i = _WHITE.match(raw, i + 1).end()
+        start = i
+        value, i = _DECODER.raw_decode(raw, i)
+        out.append((key, raw.rfind("\n", 0, keyAt) + 1, start, i, value))
+        i = _WHITE.match(raw, i).end()
+        if raw[i] == ",":
+            i = _WHITE.match(raw, i + 1).end()
+    return out
+
+
+def slotsObject(raw):
+    """where the `{` of the top-level vftable_slots object is"""
+    for key, _, start, _, _ in objectMembers(raw, _WHITE.match(raw, 0).end()):
+        if key == "vftable_slots":
+            return start
+    raise SystemExit("could not find the vftable_slots block")
+
+
+def landSlots(raw, klass, entries):
+    """\\p entries (slot -> value) written into \\p klass's block of vftable_slots
+
+    **Merged with what is there, never added beside it.** This used to put the incoming
+    slots at the top of the class's block whatever the block held, so a slot recorded twice
+    was written twice - 75 copies across 61 slots by 2026-10-14. json.load keeps the last of
+    a repeated key, and the older copy was the one below, so where a fragment had turned a
+    bare name into a {name, signature} record the signature never reached the apply.
+
+    A slot the block has already is left alone when the new value is the same or is only
+    the bare name of the record there, and is replaced in place otherwise - a signature
+    added or corrected; a rename was refused in problems() unless the fragment revises the
+    function to the new name."""
+    def line(slot, value, pad):
+        return '%s"%s": %s' % (pad, slot, json.dumps(value, ensure_ascii=True))
+
+    ordered = sorted(entries.items(), key=lambda kv: int(kv[0]))
+    at = slotsObject(raw)
+    classes = [m for m in objectMembers(raw, at) if m[0] == klass]
+    if len(classes) > 1:
+        raise SystemExit("vftable_slots names %s more than once - fix that by hand" % klass)
+    if not classes:
+        # The first slot recorded for this class: a new block at the top.
+        opening = raw.index("\n", at) + 1
+        block = '  "%s": {\n%s\n  },\n' % (klass, ",\n".join(line(s, v, "   ")
+                                                             for s, v in ordered))
+        return raw[:opening] + block + raw[opening:]
+
+    _, lineStart, start, end, _ = classes[0]
+    if raw[start] != "{" or raw[start + 1] != "\n":
+        raise SystemExit("%s's slots are not a block of lines - fix that by hand" % klass)
+    pad = " " * (len(raw[lineStart:start]) - len(raw[lineStart:start].lstrip(" ")) + 1)
+    have = {}
+    for member in objectMembers(raw, start):
+        have.setdefault(member[0], member)
+    edits, new = [], []
+    for slot, value in ordered:
+        old = have.get(slot)
+        if old is None:
+            new.append(line(slot, value, pad))
+        elif old[4] == value or (isinstance(value, str) and slotName(old[4]) == value):
+            continue
+        else:
+            edits.append((old[2], old[3], json.dumps(value, ensure_ascii=True)))
+    for first, last, text in sorted(edits, reverse=True):
+        raw = raw[:first] + text + raw[last:]
+    if new:
+        opening = start + 2
+        joined = ",\n".join(new)
+        raw = raw[:opening] + joined + (",\n" if have else "\n") + raw[opening:]
+    return raw
 
 
 def indent(entry, spaces):
@@ -655,35 +778,16 @@ def land(files):
         for klass, entries in incoming.get("vftable_slots", {}).items():
             slots.setdefault(klass, {}).update({str(k): v for k, v in entries.items()})
 
+    # A slot is either a bare name or the richer {name, signature} that CPersistent and
+    # CTrigger already use and that the apply script types the slot from. `"%s"` on the
+    # second once wrote a Python repr into the file as a string, which the apply then used
+    # verbatim as the field name - and since Ghidra turns the spaces in it into underscores,
+    # the name never compared equal to itself and the run re-placed it forever. landSlots
+    # spells both with json.dumps. A class with no block yet gets one rather than aborting
+    # the wave, which punished exactly the agent that checked its function against the
+    # tables.
     for klass, entries in slots.items():
-        anchor = '  "%s": {\n' % klass
-        if raw.count(anchor) > 1:
-            raise SystemExit("vftable_slots names %s more than once - fix that by hand"
-                             % klass)
-        # A slot is either a bare name or the richer {name, signature} that CPersistent
-        # and CTrigger already use and that the apply script types the slot from. `"%s"`
-        # on the second wrote a Python repr into the file as a string, which the apply
-        # then used verbatim as the field name - and since Ghidra turns the spaces in it
-        # into underscores, the name never compared equal to itself and the run re-placed
-        # it forever. json.dumps spells both correctly.
-        added = "".join('   "%s": %s,\n' % (slot, json.dumps(value, ensure_ascii=True))
-                        for slot, value in sorted(entries.items(),
-                                                  key=lambda kv: int(kv[0])))
-        if raw.count(anchor) == 1:
-            raw = raw.replace(anchor, anchor + added, 1)
-        else:
-            # First slot recorded for this class. Aborting the whole wave over a missing
-            # block, which is what this did, punishes exactly the agent that did the
-            # extra work of checking its function against the tables.
-            opening = ' "vftable_slots": {\n'
-            if raw.count(opening) != 1:
-                raise SystemExit("could not find the vftable_slots block")
-            # `added` ends in a comma, which is right when the block it joins already
-            # has entries under it and invalid JSON when it is the whole of a new one.
-            # That broke project.json on the first wave that recorded a slot for a class
-            # with no block, which is the case this branch exists to handle.
-            raw = raw.replace(opening,
-                              opening + anchor + added.rstrip(",\n") + "\n  },\n", 1)
+        raw = landSlots(raw, klass, entries)
 
     for name, entry in revisions:
         raw = replaceEntry(raw, name, indent(entry, 2))

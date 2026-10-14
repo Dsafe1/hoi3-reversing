@@ -701,7 +701,22 @@ def main():
         import_harvest(args.harvest, checker)
 
     lua = json.load(open(LUABIND))
-    project = json.load(open(PROJECT, encoding="utf-8"))
+    # A key written twice in one object is legal JSON and json.load keeps the last copy
+    # without a word - which is how 75 repeated vftable slots went unseen until
+    # 2026-10-14, 14 of them hiding a newer signature behind an older bare name.
+    repeated = []
+
+    def once(pairs):
+        keys = [k for k, _ in pairs]
+        repeated.extend(sorted({k for k in keys if keys.count(k) > 1}))
+        return dict(pairs)
+
+    project = json.load(open(PROJECT, encoding="utf-8"), object_pairs_hook=once)
+    if repeated:
+        raise SystemExit("project.json writes %d key%s twice in one object (%s) - only the "
+                         "last copy is read; remove the others by hand"
+                         % (len(repeated), "" if len(repeated) == 1 else "s",
+                            ", ".join(repeated[:10])))
 
     # project.json must never name one address twice. Two entries for one rva are merged by
     # add_function below - the second becomes an extra label on the first - which is right
