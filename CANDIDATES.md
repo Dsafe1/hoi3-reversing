@@ -479,14 +479,27 @@ building:
 3. **Two new games from one start differ in 27 priority-0 presences** (A.7): the 9 October saves' start and the 7
    October start save, each one higher, where nothing can raise a priority-0 presence after setup.
    `SetUpCountryForNewGame`'s allocation score is deterministic but for the Lua `AI_GenerateNonHistoricalRelation`;
-   why the two came out differently was not found.
+   why the two came out differently was not found. **Likely answered, 2026-10-14, by OpenHOI3's check**: the Lua
+   function is deterministic too, and counter-espionage at home rolls on the two days a new game runs, catching one
+   spy at a time in other presences each game - OpenHOI3's own new game differs from the start save in 47 presences,
+   each by one spy, all of them catches (`OpenHOI3/docs/mechanics/espionage.md`, section 14). Not checked against
+   the 9 October saves.
 4. **The covert-operations window** (B.14): what the province view shows of `common/covert_ops.txt`, in what
    order, and who asks a `CCovertOpsMission`'s `is_valid` (`+0x48`). Frontier `0x2E1DB0`, `0x2E2C10`,
    `0x2E1FF0`, `0x44B40`.
-5. **The coup's tooltip** `0x4F7EE0` (D.6, D.8), and who raises an alert named `intel` (D.1).
+5. ~~**The coup's tooltip** `0x4F7EE0` (D.6, D.8)~~ - read 2026-10-14, D.9 (`CoupTooltip`). Left: who raises an alert
+   named `intel` (D.1).
 6. **Readers through another holder** (C.1): `PEACE_OFFMAP_INTEL` and `OFFMAP_POLITICAL_INTEL` have no reader
    through a country's modifier values, so three minister types do nothing; a reader through another holder or a
    computed offset would have been missed.
+7. **What `counter_espionage` really does** - the maintainer's observation in play, 2026-10-14: it "works more as a
+   'Domestic Counterespionage Difficulty' modifier", with no effect on the player's missions abroad, and its tooltip
+   reads inverted in the original. The reading (`FINDINGS-espionage.md`, CatchSpies) has it **added to the base
+   chance in the home arm only** - which agrees that it does nothing abroad, and says it helps at home - while
+   `espionage_bonus`, read off the target, **lowers** the home chance. **Read**: every reader of modifier 55
+   (`+0x1B8`) and 42 (`+0x150`), the modifier tooltip's sign for both (`CModifierKinds` more-is-better), and
+   whether the two were swapped somewhere between the definition and CatchSpies. A save pair with counter-espionage
+   laws changed would settle the direction.
 
 ## The planned next wave is in `WAVE.md`
 

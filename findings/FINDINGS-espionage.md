@@ -1488,6 +1488,21 @@ pie's hit test and setter), `0x113980` (the `CSpyPresence` copy constructor), `0
 id's resolve), `0x21C840`, `0x22D640`, `0x22D6C0` and `0x22D740` (glue constructors), `0x22B240` (the row
 destructor's body).
 
+### D.9 The coup's tooltip (`CoupTooltip`, `0x4F7EE0`, rva `0xF7EE0`)
+
+*Read 2026-10-14 on the listing, for OpenHOI3's screen, after the maintainer's screenshot of the original showed the
+tooltip. Section D.6 and `FINDINGS-government.md` B.6 had it read for its keys only.*
+
+Two lines. **The first**: where the instigator's and the target's ruling ideologies are of one group, or the target's
+government is not fractured (`CCountry_HasFracturedGovernment`), `COUP_DESC_DISABLED` - "Their party position is too
+strong" - alone; otherwise `COUP_DESC` where the instigator's group holds a seat in the target's cabinet
+(`CoupCabinetSeats` above 0) and `COUP_NOT_ENOUGH_SUPPORT` where it holds none, each with `TARGET` the target's name.
+**Then a line break** (the one-character string at 0x15B57D0, `\n`) **and the cost**: `COV_OPS_COST` and the cost with
+no decimals where the instigator's covert-ops points about the target are at least `COUP_COVERT_OPS_COST`, else
+`COV_OPS_COST_LACKING` with `COST` the cost and `CURRENT` the points, both with no decimals. The reasons are
+`CanAttemptCoup`'s three tests; the spies are not asked. The maintainer's screenshot: "Their party position is too
+strong" / "Costs 20 covert ops points. We only have 0".
+
 ## E. The AI's spying
 
 *Read 2026-10-14. Addresses are VAs with the rva beside named functions.*
