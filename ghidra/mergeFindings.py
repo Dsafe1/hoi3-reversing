@@ -578,6 +578,10 @@ def replaceField(raw, struct, offset, text):
     end = raw.index("\n  },", start)
     marker = '     "offset": "%s",\n' % offset
     block = raw[start:end]
+    # A handful of older fields were recorded with lower-case hex digits; the check compares
+    # offsets as numbers, so the replacement has to find either spelling.
+    if block.count(marker) == 0:
+        marker = '     "offset": "0x%s",\n' % offset[2:].lower()
     assert block.count(marker) == 1, \
         "expected one field at %s of %s" % (offset, struct)
     at = start + block.index(marker)

@@ -1,0 +1,348 @@
+{
+ "agent": "politics wave, reader B (the parties over time)",
+ "question": "CIdeologyData and a country's popularity and organisation: where they come from, every writer, the monthly drift, the cabinet seats, GetLeading, the tally, the election schedule's open parts, and CPerformCoupCommand.",
+ "source": "reversing/findings/FINDINGS-government.md",
+ "addresses": [
+  {
+   "rva": "0x128300",
+   "kind": "function",
+   "name": "CIdeologyData::CIdeologyData",
+   "signature": "CIdeologyData* __stdcall CIdeologyData::CIdeologyData(CIdeologyData* this)",
+   "no_signature": null,
+   "comment": "**The constructor of the per-ideology figures.** Writes the vftable 0x15C1C00 and the CPersistent type id 0x18D, zeroes three vectors - values (+0x8..+0x10), tallies (+0x18..+0x20) and last_change (+0x28..+0x30) - and sizes each to the ideology count of g_ideologies (0x1A878BC, its vector at +0xC..+0x10): values and last_change to that many ints (0x4C4E80, vector in EDI, count in EAX), tallies to that many 16-byte entries (0x528C80) and then every entry, itself a vector<int>, to **5** ints. So each party has five tally slots. `ret 4`. Three callers: the two embedded copies in CCountry::CCountry (organisation +0x10BC at 0x4C9A2D, popularity +0x10F4 at 0x4C9A3D) and the scratch copy CCountry_HoldElection allocates (0x4FC140). Addresses here are VAs.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-government.md",
+   "evidence": "VAs. Listing 0x528300..0x52847B read whole: `mov [esi+4],0x18d; mov [esi],0x15c1c00`, the nine zero stores at +8/+0xC/+0x10/+0x18/+0x1C/+0x20/+0x28/+0x2C/+0x30, the three sizing calls with the ideology count `([g+0x10]-[g+0xC])>>2`, and the loop 0x528448..0x528466 calling 0x4C4E80 with EAX=5 on each 16-byte entry; `ret 4`. findRefs --callers 0x528300: 0x4C9A2D, 0x4C9A3D, 0x4FC140. Wrong if 0x4C4E80 were not a resize."
+  },
+  {
+   "rva": "0x1284A0",
+   "kind": "function",
+   "name": "CIdeologyData_SetValue",
+   "signature": "void __fastcall CIdeologyData_SetValue(CIdeology* ideology@ECX, CIdeologyData* data@EDX, int value@stack:4, int tallySlot@stack:8)",
+   "no_signature": null,
+   "comment": "**CIdeologyData's setter.** `if value < 0: nothing` (a `js` on the value - a negative figure is not applied, not floored); otherwise `tallies[ideology->index (+0x4C)][tallySlot] += value` - **the new figure, not the change** - and `values[index] = value`. No upper clamp, no renormalisation of the other parties, no seats. `ret 8`. Four direct callers, all in the history: COrganizationChange::Apply (0x5F0D3A, 0x5F0D6D) and CPopularityChange::Apply (0x5F0F6A, 0x5F0F9D), both passing tally slot 2. The effects (slot 1), the espionage missions (slot 3), the monthly drift (slot 4) and the election's scratch copy (slot 0) inline the same three instructions. Addresses here are VAs.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-government.md",
+   "evidence": "VAs. Listing 0x5284A0..0x5284CF: `mov esi,[ebp+8]; test esi,esi; js` -> exit; `mov eax,[ecx+0x4c]; mov edi,[edx+0x18]; add eax,eax; mov eax,[edi+eax*8]; mov edi,[ebp+0xc]; add [eax+edi*4],esi; ... mov edx,[edx+8]; mov [edx+ecx*4],eax`; `ret 8`. findRefs --callers: exactly the four sites named; at each ECX is the history entry's ideology (+0x10) and EDX the AccessIdeology* result, and `push 2` precedes."
+  },
+  {
+   "rva": "0x128520",
+   "kind": "function",
+   "name": "CIdeologyData::SaveContents",
+   "signature": "void __thiscall CIdeologyData::SaveContents(CIdeologyData* this, void* writer)",
+   "no_signature": null,
+   "comment": "Slot 2 of CIdeologyData: writes the values array (+0x8) under the key `data` (token 0x117) through 0x4C8050, the writer arriving in EDI. **Only the values are saved** - the tallies and last_change are not, so after a load the politics tooltip's breakdown is empty until the next month. `ret 4`. Its partner CIdeologyData::LoadKey (0x128540) reads the same one key.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-government.md",
+   "evidence": "VAs. vtable.py --all CIdeologyData: slot 2 is 0x528520, held by CIdeologyData alone. Listing 0x528520..0x528537: `mov edi,[ebp+8]; add ecx,8; push ecx; mov ecx,0x117; call 0x4c8050; ret 4`. The save shows `popularity = { data = { ... } }` and nothing else inside."
+  },
+  {
+   "rva": "0x128560",
+   "kind": "function",
+   "name": "CIdeologyData_NormaliseToOne",
+   "signature": null,
+   "no_signature": "the CIdeologyData arrives in ESI with no stack argument and the function ends in a bare ret; a register-only helper",
+   "comment": "**Scales a CIdeologyData so its parties sum to 1.000**: `sum = values[1] + ... + values[n-1]` (index 0, the null ideology, left out of the sum and of the scaling); if sum != 0, for i from 1: `values[i] = values[i] x 1000 / sum`, 64-bit, truncated toward zero. Two callers, both in CCountry_AllotCabinetSeats on its scratch copy (0x4F7331, 0x4F7586).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-government.md",
+   "evidence": "VAs. Listing 0x528560..0x5285DB: the sum loop from [esi+8]+4, `test eax,eax; je` out, then per i>=1 `__allmul(v,1000)` (0xB99AF0) and `__alldiv(.,sum)` (0xB99980) stored back; bare `ret`. findRefs --callers: 0x4F7331, 0x4F7586, both after `lea esi,[esp+0x40]`."
+  },
+  {
+   "rva": "0x1285E0",
+   "kind": "function",
+   "name": "CIdeologyData_NormaliseToHundred",
+   "signature": null,
+   "no_signature": "the CIdeologyData arrives in EDI with no stack argument and the function ends in a bare ret; a register-only helper",
+   "comment": "**Scales a CIdeologyData so its parties sum to 100.000**, in two truncating steps: for i from 1, `values[i] = values[i] x 1000 / sum`, then `values[i] = values[i] x 100000 / 1000` - so every figure comes out a whole multiple of 0.1 (100 thousandths) and the total is a little under 100. Index 0 (the null ideology) is neither summed nor scaled. Nothing when the sum is 0. Callers: CCountry::AfterLoad (both copies, 0x4D26E3/0x4D26EE), CCountry_UpdatePartyPopularity (both, 0x4F712A/0x4F7135) and CCountry_HoldElection (its scratch copy, 0x4FC398).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-government.md",
+   "evidence": "VAs. Listing 0x5285E0..0x52868E: sum over [edi+8]+4.., then per i `__allmul(v,1000)`/`__alldiv(.,sum)` stored, reloaded, `__allmul(v,0x186a0)`/`__alldiv(.,1000)` stored; bare `ret`. findRefs --callers gives the five sites. The saves agree: every popularity and organisation figure in all six saves of 1936 for parties 1..10 is a multiple of 0.100, and the start save's organisation is the history's put through this (orgcheck.py, 100 of 100 countries once or twice)."
+  },
+  {
+   "rva": "0x128690",
+   "kind": "function",
+   "name": "CIdeologyData::GetLeading",
+   "signature": "CIdeology* __thiscall CIdeologyData::GetLeading(CIdeologyData* this)",
+   "no_signature": null,
+   "comment": "**The party with the most, first of equals by index, index 0 never.** For i from 1 while i < count: the first entry is taken whatever its value (the `cmp ebx,edi; je take` when nothing is taken yet), each later one only when strictly greater (`cmp [ecx],esi; jle skip`). Nothing taken (fewer than two ideologies) answers null through the second exit at 0x528758; otherwise g_ideologies (0x1A878BC, built on demand) `->+0xC [best]`. The bare `ret` at 0x528757 is the ordinary exit and 0x52876A the null one: one function. One caller, CCountry_HoldElection (0x4FC3AC), on its scratch copy after CIdeologyData_NormaliseToHundred.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-government.md",
+   "revises": "0x128690",
+   "evidence": "VAs. Raised from inferred: listing 0x528690..0x52876A read whole on the disassembly - the loop 0x5286D0..0x5286E2 (`cmp ebx,edi; je 0x5286d8; cmp [ecx],esi; jle 0x5286dc; mov esi,[ecx]; mov ebx,edx`), the `cmp ebx,edi; je 0x528758` null exit with `xor eax,eax`, and `mov eax,[esi+0xc]; mov eax,[eax+ebx*4]`. findRefs --callers 0x528690: 0x4FC3AC only. The record's account was right in every step; added: the first entry is taken even when negative, and the null exit."
+  },
+  {
+   "rva": "0x128770",
+   "kind": "function",
+   "name": "CIdeologyData_ClearTallies",
+   "signature": null,
+   "no_signature": "the CIdeologyData arrives in EAX with no stack argument and the function ends in a bare ret; a register-only helper",
+   "comment": "Zeroes all five tally slots of every party (`tallies[i][0..4] = 0`). Called once a month, by CCountry::UpdateMonthly right after CCountry_UpdatePartyPopularity, on organisation (0x4DCD49) and then popularity (0x4DCD54): **so the tallies are the month's running account**, read only by CIdeologyData_BuildChangeTooltip.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-government.md",
+   "evidence": "VAs. Listing 0x528770..0x5287C5: per 16-byte entry of [eax+0x18]..[eax+0x1C], five stores of 0 at [entry.data]+0/4/8/0xC/0x10; bare `ret`. Callers by listing at 0x4DCD43..0x4DCD54 (`lea eax,[esi+0x10bc]; call 0x528770; lea eax,[esi+0x10f4]; call 0x528770`)."
+  },
+  {
+   "rva": "0x1287D0",
+   "kind": "function",
+   "name": "CIdeologyData_BuildChangeTooltip",
+   "signature": "void* __stdcall CIdeologyData_BuildChangeTooltip(CIdeologyData* data, void* out, CIdeology* ideology)",
+   "no_signature": null,
+   "comment": "**The only reader of the tallies: a party's change this month, by source.** Clears the output string, then up to three lines, each only where its figure is not 0: `POL_PARTY_POP_FACTORS` (\"Internal Factors: \") with last_change (+0x28)[party] - the monthly drift's total change; `POL_EVENTS` (\"Events: \") with tallies[party][1]; `POL_SPIES` (\"Spies: \") with tallies[party][3]. The first line is `§G+` above 0 (else `§R`), the figure, then `§W` and a line break; the Events and Spies lines are `§G` above 0 (else `§R`) with **no** `+` before the figure, then a literal `+` and a line break, with no colour reset (0x528A84..0x528ADF: strings 0x15B5C50, 0x15B5C58, 0x15C27D8 \"+\\n\"; checked by the collector against reader D). Tally slots 0 (the election's scratch), 2 (the history) and 4 (the drift's running total) are never shown. **Slots 1 and 3 hold the sum of the new figures the effects and the spies wrote, not of the changes**, so `Events:` shows e.g. +65 after an event moved a party from 63 to 65. Organisation's last_change is never written, so its first line never appears. Two callers in the politics view (0x6C01F6 for popularity, 0x6C0C00 for organisation), which print PO_NO_CHANGE (\"No changes this month\") when the string comes back empty. `ret 0xc`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-government.md",
+   "evidence": "VAs. Listing 0x5287D0..0x528C76 (`ret 0xc`): `mov edx,[edx+0x28]; ... mov eax,[eax]; cmp eax,edi; je` before 'POL_PARTY_POP_FACTORS' (0x15C27B4); `shl eax,4; add eax,[edx+0x18]; mov eax,[eax]; mov eax,[eax+4]` before 'POL_EVENTS' (0x15C27CC); the same with `[eax+0xc]` before 'POL_SPIES' (0x15C27DC); the colour strings 0x15B6B84 = '\\xa7G+', 0x15B5C58 = '\\xa7R', 0x15B6B88 = '\\xa7W\\n'. The value formatter (0xA5ABC0) was not read, so how many decimals is not settled."
+  },
+  {
+   "rva": "0xF6D00",
+   "kind": "function",
+   "name": "CCountry_UpdatePartyPopularity",
+   "signature": "void __stdcall CCountry_UpdatePartyPopularity(CCountry* country)",
+   "no_signature": null,
+   "comment": "**The monthly drift of a country's parties - the only thing outside script and spies that moves popularity, and nothing here moves organisation.** For every ideology i of g_ideologies, index 0 (the null ideology) included, in index order:\n\n    drift   = (organisation[i] - popularity[i]) x 1000 / PARTY_POP_CHANGE_RATE      64-bit, truncated\n    ruling  = i is the ruling ideology (+0x1140) ? floor((mod[RULING_PARTY_SUPPORT]/1000 + 0.0005) x 1000) : 0\n    random  = RandomThousandths() x POPULARITIY_RANDOMNESS / 1000 - POPULARITIY_RANDOMNESS x 1000 / 2000\n    penalty = n >= 2 ? (dissent (+0x10B4) x n x 1000 / 1000) x ELECTION_MINISTER_DISSENT_PENALTY / 1000 : 0\n              n = cabinet posts 1.. (+0x618) whose minister's ideology (+0x6C) is i\n    last_change[i] (+0x111C) = drift + ruling + random + penalty\n    new = popularity[i] + that;  if new >= 0: tally slot 4 += new, popularity[i] = new   (a negative result is not applied)\n\nThen CIdeologyData_NormaliseToHundred on popularity and on organisation, and CCountry_AllotCabinetSeats. With Their Finest Hour's defines (PARTY_POP_CHANGE_RATE 10, POPULARITIY_RANDOMNESS 10, ELECTION_MINISTER_DISSENT_PENALTY -0.1) a party closes a tenth of its gap to its organisation a month, moves by a draw from -5.000 to +4.990 in steps of 0.010, and loses dissent x n / 10 when it holds two posts or more. mod[RULING_PARTY_SUPPORT] is modifier 69 (`ruling_party_support`, [+0xDA8]+0x228). One caller, CCountry::UpdateMonthly (0x4DCD3E), for every country every month and so once as a new game is entered. `ret 4`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-government.md",
+   "evidence": "VAs. Listing 0x4F6D00..0x4F7152 read whole: the loop from [ebp-0x10]=0 over g_ideologies; `sub eax,[edx+ecx*4]` of +0x10C4 less +0x10FC; defines +0xCC block +0x5C, +0x58, +0x18; `cmp ebx,[eax+0x1140]` then `[eax+0xda8]` +0x228; `call 0xaa2fd0`; the minister loop 0x4F7050 (`cmp [ecx+0x6c],ebx`) and `cmp edi,1; jle`; `mov [esi+edi*4],ecx` into [+0x10F4+0x28]; `add eax,ecx; js 0x4f7111`; tally `[ecx+0x10]`; then 0x5285E0 on +0x10F4 and +0x10BC and `call 0x4f72f0`. Checked against the saves: the null party (index 0, never normalised) of every one of 101 countries moves from 1 Feb to 1 Mar 1936 exactly as old + trunc(-old/10) + (10k - 5000), or stays where a negative result was possible (101 of 101; with the rate set to 5 or 20 instead, 45 and 46 fail); the start save's 42 non-zero null parties are all multiples of 0.010, i.e. one drift from 0."
+  },
+  {
+   "rva": "0xF72F0",
+   "kind": "function",
+   "name": "CCountry_AllotCabinetSeats",
+   "signature": "void __stdcall CCountry_AllotCabinetSeats(CCountry* country)",
+   "no_signature": null,
+   "comment": "**Shares the changeable cabinet posts out by popularity, into `cabinet` (+0x112C).** On a copy of popularity (+0x10F4, copy-constructed by 0x4F7940): CIdeologyData_NormaliseToOne (parties 1.. sum to 1.000); seats = the government positions (0x1A87990, vector +0xC) whose slot 14 answers true and whose isChangeable (+0x50) is set - 8 in Their Finest Hour, head of state and of government being `changeable = no`; every party whose share is under PARTY_POPULARITY_CUTOFF (0.1, compared with the 1.000-scaled share) set to 0; NormaliseToOne again over the survivors; then for every ideology whose slot 17 answers true (all but the null one): `q = share x (seats x 1000) / 1000` (64-bit, truncated), `n = round-to-nearest(float(q) / 1000)` (fistp), a pair (ideology, n x 1000); the pairs sorted descending by n with StdSort_IdeologySeats (ten pairs, so its insertion sort, which keeps index order among equals); then in that order `cabinet[ideology->index] = min(n, seats left)`, seats left -= that. **Seats the rounding leaves over are given to nobody**, and a party below the cutoff is written 0. The cabinet is read by CCountry_HasFracturedGovernment, the coup's CoupCabinetSeats, the daily pass, the espionage view and the politics view. Callers: CCountry_UpdatePartyPopularity, CPopularityChange::Apply, CCountry::AfterLoad, SetUpCountryForNewGame (its tail), CCoupEffect::Execute, CCountry_HoldElection, and RunCountryDailyPass at 0x4DBCC7 whenever the ruling party holds no seat. `ret 4`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-government.md",
+   "revises": "0xF72F0",
+   "evidence": "VAs. Raised from inferred: listing 0x4F72F0..0x4F792E read whole - `add ecx,0x10f4; push eax; call 0x4f7940`; `call 0x528560`; the post loop 0x4F73E0 (`call [vft+0x38]; cmp byte [edi+0x50],0; inc [esp+0xc]`); `[defines+0xcc]+0x70`; the cutoff loop 0x4F7543..0x4F757D (`cmp [edx+esi*4],edi; jge; mov [edx+eax*4],ebx`); `call 0x528560`; the pair loop 0x4F75B0 with `call [vft+0x44]`, the (seats+0.0005)*1000 floor, `imul ecx; __alldiv(,1000)`, `cvtsi2ss; divsd 1000.0; fld; fistp; imul eax,1000`; `call 0x513680`; the hand-out 0x4F7855..0x4F7894 (`/1000` by 0x10624DD3, `cmp edi,eax; cmovl eax,edi; mov [edx+edi*4],eax; sub`). Corrected: the record said the parties under the cutoff are zeroed on the popularity copy before counting posts - the order is normalise, count, cut, normalise again. Checked: the cabinet this gives from each saved popularity equals the saved `cabinet` for 606 of 606 country-saves across all six saves of 1936."
+  },
+  {
+   "rva": "0x113680",
+   "kind": "function",
+   "name": "StdSort_IdeologySeats",
+   "signature": "void __cdecl StdSort_IdeologySeats(void* first, void* last, int ideal, uint8_t pred)",
+   "no_signature": null,
+   "comment": "The runtime's std::_Sort instantiated for 8-byte (CIdeology*, int) pairs ordered by the int, **greatest first** (the insertion sort 0x514F80 moves an element up while `cmp esi,[ebx+4]; jle` says it is greater): introsort above 32 elements through 0x514360 and itself, the insertion sort below. Its only outside caller is CCountry_AllotCabinetSeats (0x4F7843), whose ten pairs always take the insertion sort - stable, so equals stay in ideology order. Bare `ret`.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-government.md",
+   "evidence": "VAs. Listing 0x513680..0x513729 (the 0x20 threshold, the two recursive calls, `call 0x514f80`, bare `ret`) and 0x514F80..0x514FDD (the `> second` comparison on [x+4]). findRefs --callers: 0x4F7843 and its own two. Inferred only because the partition body 0x514360 was not read; the comparator is read in the insertion sort."
+  },
+  {
+   "rva": "0xF7A10",
+   "kind": "function",
+   "name": "CoupCabinetSeats",
+   "signature": "int __cdecl CoupCabinetSeats(CCountryTag* instigator@ECX, CCountryTag* target@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "**The seats in the target's cabinet held by the instigator's ideology group**: walks the list at the instigator's ruling ideology's group (+0x1140 ->+0x50 ->+0x8, nodes `{ideology, ?, next}`) and sums the target's `cabinet (+0x112C)[ideology->index]`. Both countries come out of their tags through 0x402610. Bare `ret`, the caller pops the tag (`add esp,4`). Callers: CanAttemptCoup, CoupChance and the coup tooltip.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-government.md",
+   "evidence": "VAs. Listing 0x4F7A10..0x4F7A55: `call 0x402610` on ECX, `[eax+0x1140]; [eax+0x50]; mov esi,[ecx+8]`, then `mov ecx,[ebp+8]; call 0x402610; mov eax,[eax+0x112c]` and the loop `add edi,[eax+ecx*4]` over `[esi+8]` links. Callers 0x4F7AB0, 0x4F7AFA, 0x4F7FA0, each `add esp,4` after."
+  },
+  {
+   "rva": "0xF7A60",
+   "kind": "function",
+   "name": "CanAttemptCoup",
+   "signature": null,
+   "no_signature": "takes the target's tag in ESI and the instigator CCountry in EDI with no stack argument and a bare ret",
+   "comment": "**Whether a coup may be attempted**: the target's ruling ideology group differs from the instigator's, CCountry_HasFracturedGovernment(target), and CoupCabinetSeats(instigator, target) > 0. One caller, the espionage view at 0x61F709, which shows `attempt_coup_button` only when the player's covert operations points about the target (+0xF4) are at least COUP_COVERT_OPS_COST and this answers true.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-government.md",
+   "evidence": "VAs. Listing 0x4F7A60..0x4F7AC7: `[edx+0x1140]+0x50` against `[edi+0x1140]+0x50`, `je` false; `push eax; call 0x4f7160; test al,al; je` false; `lea ecx,[edi+0xca4]; call 0x4f7a10; test eax,eax; jle` false; `mov al,1`. findRefs --callers: 0x61F709, after `cmp ecx,[eax+0x88]; jl` on COUP_COVERT_OPS_COST at 0x61F6E5."
+  },
+  {
+   "rva": "0xF7AD0",
+   "kind": "function",
+   "name": "CoupChance",
+   "signature": "int* __stdcall CoupChance(CCountryTag* target@EAX, CCountry* instigator@stack:4, int* out@stack:8) @EAX",
+   "no_signature": null,
+   "comment": "**A coup's chance, in thousandths**: `*out = (seats x 1000) x COUP_CHANCE_PER_POSITION / 1000 x (1000 - target.national_unity x 1000 / 100000) / 1000` - seats from CoupCabinetSeats, national unity (+0x10B8) as a share of 100 - so 0.2 per seat held by the instigator's group, times (1 - unity/100). Then, where the target is in a real faction (+0xD8 slot 7): **0 if the target leads it** (first member), otherwise the chance divided by 3. PerformCoup succeeds when RandomThousandths() (0..999) is below it. `ret 8`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-government.md",
+   "evidence": "VAs. Listing 0x4F7AD0..0x4F7C74: GetDefines `[+0xcc]+0x74`; `lea ecx,[ebp+8]+0xca4; push esi; call 0x4f7a10`; `[edx+0x10b8]` x1000 /100000 (0x14F8B589 magic and the 64-bit arm); the (seats+0.0005)*1000 floor; `imul; __alldiv(,1000); imul edi(1000-u); __alldiv(,1000)`; `[ebx+0xd8]` slot 7 at `[eax+0x1c]`; `cmp eax,[ecx+0xca8]; sete` -> `mov [edi],0`; else `__allmul(,1000)/__alldiv(,0xbb8)`. One caller, PerformCoup at 0x4F7D68."
+  },
+  {
+   "rva": "0x1F0EF0",
+   "kind": "function",
+   "name": "CPopularityChange::Apply",
+   "signature": "void __thiscall CPopularityChange::Apply(CPopularityChange* this, bool forward)",
+   "no_signature": null,
+   "comment": "Slot 7, a history `popularity = { <ideology> = N }` entry (country +0xC, ideology +0x10, the figure +0x14, the figure it replaced +0x18). Forward: keeps the party's current popularity at +0x18, then CIdeologyData_SetValue(ideology, popularity, +0x14, tally slot 2); backward: SetValue with the kept +0x18. **Then always CCountry_AllotCabinetSeats.** A negative figure is not applied (SetValue's test); a party the history does not mention keeps what it has - 0 on a new country; and nothing renormalises. `ret 4`. 0x5F0EF0..0x5F0FB7.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-government.md",
+   "evidence": "VAs. vtable.py --holding 0x5F0EF0: CPopularityChange slot 7 only. Listing read whole: `movzx eax,[ebp+8]; test; je` backward arm; forward `call 0x4c8830; call 0x528480` stored to [this+0x18], `push 2`, copy of +0x14, `call 0x4c8830; mov ecx,[this+0x10]; mov edx,eax; call 0x5284a0`; both arms join at `push [this+0xc]; call 0x4f72f0`; `ret 4`. Same shape as the recorded CAlignmentPosition::Apply."
+  },
+  {
+   "rva": "0x1F0CC0",
+   "kind": "function",
+   "name": "COrganizationChange::Apply",
+   "signature": "void __thiscall COrganizationChange::Apply(COrganizationChange* this, bool forward)",
+   "no_signature": null,
+   "comment": "Slot 7, a history `organization = { <ideology> = N }` entry - CPopularityChange::Apply's twin on organisation (+0x10BC) with tally slot 2, **without** the seats call. `ret 4`. 0x5F0CC0..0x5F0D75.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-government.md",
+   "evidence": "VAs. vtable.py --holding 0x5F0CC0: COrganizationChange slot 7 only. Listing: `call 0x4c8820` (AccessIdeologyOrganization) three times, `call 0x528480`, `push 2`, `call 0x5284a0` at 0x5F0D3A and 0x5F0D6D, `ret 4` at 0x5F0D75, no call to 0x4F72F0."
+  },
+  {
+   "rva": "0x154280",
+   "kind": "function",
+   "name": "CPerformCoupCommand::CPerformCoupCommand",
+   "signature": "CPerformCoupCommand* __stdcall CPerformCoupCommand::CPerformCoupCommand(CPerformCoupCommand* this, int fromTag, int fromId, int toTag, int toId)",
+   "no_signature": null,
+   "comment": "The constructor with its two countries: the CCommand base (type id 0x18D, +0x2C and +0x30 set to 0x7C1, an empty name), then `from` = (+0x3C tag, +0x40 id) and `to` = (+0x44, +0x48), and the class's vftable. `ret 0x14`. Two callers: its own Clone (0x5543F9) and the espionage view's coup button callback 0x629A30 (at 0x629B04), which passes the viewed country as `from` and the player (CCurrentGameState +0xC30) as `to` - **`from` is the target and `to` the instigator**.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-government.md",
+   "evidence": "VAs. Listing 0x554280..0x55431C (`ret 0x14`): stores param 2..5 at [this+0x3C],[+0x40],[+0x44],[+0x48] and the vftable. findRefs --callers: 0x5543F9, 0x629B04. The decompilation of 0x629A30 shows the window's +0x1F4/+0x1F8 and the player's tag/id passed in that order."
+  },
+  {
+   "rva": "0x1543A0",
+   "kind": "function",
+   "name": "CPerformCoupCommand::GetTypeId",
+   "signature": "int __thiscall CPerformCoupCommand::GetTypeId(CPerformCoupCommand* this)",
+   "no_signature": null,
+   "comment": "Slot 7: `mov eax,0x7C1; ret` - the save token `perform_coup`, the command's type in a stream.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-government.md",
+   "evidence": "VAs. vtable.py --holding 0x5543A0: CPerformCoupCommand slot 7 only. Bytes `mov eax,0x7c1; ret`. ghidra/saveTokens.json: 0x7C1 = perform_coup."
+  },
+  {
+   "rva": "0x1543B0",
+   "kind": "function",
+   "name": "CPerformCoupCommand::Clone",
+   "signature": "CCommand* __thiscall CPerformCoupCommand::Clone(CPerformCoupCommand* this, Hoi3CString arg)",
+   "no_signature": null,
+   "comment": "Slot 13: a new 0x4C-byte CPerformCoupCommand with the same four dwords +0x3C..+0x48 through the constructor; the string argument, passed by value, is freed. `ret 0x1c`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-government.md",
+   "evidence": "VAs. vtable.py --holding 0x5543B0: CPerformCoupCommand slot 13 only. Listing 0x5543B0..0x554426: `push 0x4c; call operator new`, pushes [esi+0x48],[esi+0x44],[esi+0x40],[esi+0x3c], `call 0x554280`, the string free, `ret 0x1c` - the same shape as the recorded CExecuteDecisionCommand::Clone."
+  },
+  {
+   "rva": "0x158D20",
+   "kind": "function",
+   "name": "CountryPairCommand_IsValid",
+   "signature": null,
+   "no_signature": "folded across three command classes' slot 14; the command arrives in ECX and the answer in EAX - recorded class-free (trap 4)",
+   "comment": "Slot 14 of CPerformCoupCommand, CChangeSpyMission and CChangeSpyPriority, one folded body: **true when both country ids, +0x40 and +0x48, are non-zero.** Nothing else is checked - not the coup's conditions, not the covert operations points.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-government.md",
+   "evidence": "VAs. vtable.py --holding 0x558D20: three tables, slot 14 of each. Bytes `cmp [ecx+0x40],0; je; cmp [ecx+0x48],0; je; mov eax,1; ret; xor eax,eax; ret`."
+  },
+  {
+   "rva": "0x17EA40C",
+   "kind": "global",
+   "name": "g_ForceElections",
+   "signature": null,
+   "no_signature": null,
+   "comment": "**The dword that would make every country with elections hold one each day, and nothing writes it.** Its one reference in the whole image is the read in RunCountryDailyPass's election phase (VA 0x4DBC7D, `cmp [0x1BEA40C],edi`): an election is held when it is due **or** this is non-zero. It lies in the zero-filled tail of .data, so it is 0 for the life of the process and an election is held exactly when it is due. The name is a guess at a compiled-out debug switch, like its neighbour g_UnlimitedDiploInfluence (0x17EA410), whose 28 references are likewise all reads.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-government.md",
+   "evidence": "VAs. A dword scan of every section of the image for the value 0x1BEA40C finds exactly one occurrence, inside the instruction at 0x4DBC7D. Positive control: the same scan for g_AiYesmen (0x1A8562F) finds its writer at 0x4419D9 and its seven readers. Wrong if something writes it through a computed pointer, which no reference to a neighbouring base address suggests (0x1BEA408's eight references are all loads in the Lua call proxies)."
+  },
+  {
+   "rva": "0x6A2FD0",
+   "kind": "function",
+   "name": "RandomThousandths",
+   "signature": null,
+   "no_signature": "the out pointer arrives in ESI and is returned in EAX; no stack argument, bare ret",
+   "comment": "0xAA2FD0, the global-generator form of MT19937NextThousandths: ensures [0x174DA90], bumps g_random_draws, draws r through MT19937Next, and answers **r % 1000, in 0..999**, written through ESI and returned: `edx = r % 1000` (signed idiv), `x 1000` (imul), `x 1000` (__allmul), `/ 1000000` (__alldiv). r is never negative, because MT19937Next's last tempering step `t ^= t sar 18` clears bit 31 (bit 31 of `t sar 18` is t's own bit 31), so the signed remainder is too. Eight call sites in six functions (0x4B5E99, 0x4F6F4C, 0x4F7D72, 0x52E718, 0x52EF1E, 0x530006, 0x593E70, 0x593F39).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-government.md",
+   "revises": "0x6A2FD0",
+   "evidence": "VAs. Corrected: the comment wrote the arithmetic as `(r % 1000) * 1000 / 1000000`, which is 0 for every r; listing 0xAA3004..0xAA303B has two multiplications by 1000 (`imul eax,eax,0x3e8` and `push ecx(0x3e8); call 0xb99af0`) before `__alldiv(,0xf4240)`. MT19937Next's tail 0xAA2BD5..0xAA2BDA `mov eax,ecx; sar eax,0x12; xor eax,ecx`. The saves bear out the 0..999 range: every month-on-month move of the null party from 1 Feb to 1 Mar 1936 is a whole draw of 10k - 5000 (CCountry_UpdatePartyPopularity's evidence)."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CIdeologyData",
+   "offset": "0x18",
+   "name": "tallies",
+   "type": "void*",
+   "comment": "Begin of a vector of 16-byte per-party entries, each itself a vector<int> of **five** tally slots (the constructor sizes them to 5): **the month's account of what set each figure, by source** - slot 0 the election's scratch copy, 1 the effects (`organisation`, `popularity`, an ideology's block), 2 the history (C*Change::Apply through CIdeologyData_SetValue), 3 the espionage missions BOOST_RULING_PARTY and BOOST_OUR_PARTY, 4 the monthly drift. Every writer adds the **new figure**, not the change. Cleared once a month (CIdeologyData_ClearTallies) just after the drift; read only by CIdeologyData_BuildChangeTooltip, which shows slots 1 and 3. Not saved.",
+   "source": "reversing/findings/FINDINGS-government.md",
+   "revises": "0x18",
+   "evidence": "VAs. Constructor 0x528437..0x528466 (each entry resized to 5); setter 0x5284BA; effects per the record; espionage 0x53016D/0x5301E8 `[edi+0xc]` (slot 3); drift 0x4F7105 `[ecx+0x10]` (slot 4); election 0x4FC384 `[ecx]` (slot 0); clear 0x528770; reader 0x5287D0 (`[eax+4]`, `[eax+0xc]`). Revised: the comment said nothing reading the tallies was found."
+  },
+  {
+   "struct": "CIdeologyData",
+   "offset": "0x1C",
+   "name": "tallies_end",
+   "type": "void*",
+   "comment": "End of the tallies vector; ClearTallies' bound.",
+   "source": "reversing/findings/FINDINGS-government.md",
+   "evidence": "VAs. 0x528770 `mov ecx,[eax+0x1c]; sub ecx,[eax+0x18]`; 0x528437 the same in the constructor."
+  },
+  {
+   "struct": "CIdeologyData",
+   "offset": "0x28",
+   "name": "last_change",
+   "type": "int*",
+   "comment": "One int per party: **the total change the last monthly drift made** (drift + ruling-party support + the draw + the ministers' dissent penalty), written by CCountry_UpdatePartyPopularity for popularity only - organisation's is never written - and shown by CIdeologyData_BuildChangeTooltip as POL_PARTY_POP_FACTORS. Written even when the change was not applied because the result was negative. Not cleared and not saved.",
+   "source": "reversing/findings/FINDINGS-government.md",
+   "evidence": "VAs. Constructor 0x5283E2..0x5283E8 sizes it; drift 0x4F70DC..0x4F70E7 `lea edx,[esi+0x10f4]; mov esi,[edx+0x28]; mov [esi+edi*4],ecx`; tooltip 0x528810 `mov edx,[edx+0x28]`. The displacement sweep finds +0x10E4 (organisation's copy) written by no CCountry code."
+  },
+  {
+   "struct": "CIdeologyData",
+   "offset": "0x2C",
+   "name": "last_change_end",
+   "type": "int*",
+   "comment": "End of last_change.",
+   "source": "reversing/findings/FINDINGS-government.md",
+   "evidence": "VAs. Constructor zeroes +0x2C at 0x52834A beside +0x28 and +0x30."
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0x112C",
+   "name": "cabinet",
+   "type": "int*",
+   "comment": "**Cabinet seats per party**, a vector<int> indexed by CIdeology +0x4C, whole seats (not thousandths), written only by CCountry_AllotCabinetSeats. Saved as `cabinet = { ... }` (token 0x7C3); CCountry_Reset empties it and sizes it to the ideology count, and the `cabinet` key in LoadKey (0x4CEB73, through 0x45F450) appears to append, which is why a game loaded from a save writes 22 figures where a new one writes 11 (inferred). Read by CCountry_HasFracturedGovernment, CoupCabinetSeats, RunCountryDailyPass (0x4DBCBB: no seat for the ruling party runs AllotCabinetSeats), CEspionageView's tooltip (0x6200F2) and the politics view (0x6C0444).",
+   "source": "reversing/findings/FINDINGS-government.md",
+   "evidence": "VAs. Writer 0x4F7884 `mov [edx+edi*4],eax` after `mov edx,[edx+0x112c]`; SaveContents 0x4D1F36..0x4D1F44 (`lea ecx,[esi+0x112c]; mov ecx,0x7c3; call 0x4608d0`); LoadKey 0x4CEB76; Reset 0x4D3F18/0x4D400B..0x4D4064; the displacement sweep of .text gives no other writer. 606 of 606 saved cabinets reproduced from the saved popularity."
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0x111C",
+   "name": "popularity_last_change",
+   "type": "int*",
+   "comment": "The popularity CIdeologyData's last_change (+0x10F4 + 0x28): each party's total change in the last monthly drift.",
+   "source": "reversing/findings/FINDINGS-government.md",
+   "evidence": "VAs. 0x4F70E2 `mov esi,[edx+0x28]` with edx = country + 0x10F4."
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0x113C",
+   "name": "election",
+   "type": "bool",
+   "comment": "Named from the key CCountry::SaveContents writes it under, `election`. LoadKey stores the **negation** of the parsed yes/no (0x4CE6EC `cmp byte [esi],0; sete dl; mov [esi],dl`), the constructor zeroes it, and **nothing else in the image reads or writes it**: it is not the has-elections flag, which is the government's (CGovernment +0x7C). Every country in the start save says `election = yes` whatever its government.",
+   "source": "reversing/findings/FINDINGS-government.md",
+   "revises": "0x113C",
+   "evidence": "VAs. The displacement sweep of .text for 0x113C finds four sites: 0x49AE86 (an esp-relative local, not a country), the constructor 0x4C9A5D, LoadKey 0x4CE6E0..0x4CE6F2 and SaveContents 0x4D04D9. Revised: the comment's account of what SaveContents writes is kept; added that LoadKey inverts and that nothing reads it."
+  }
+ ],
+ "vftable_slots": {
+  "CIdeologyData": {
+   "2": "SaveContents"
+  },
+  "CPopularityChange": {
+   "7": "Apply"
+  },
+  "COrganizationChange": {
+   "7": "Apply"
+  },
+  "CPerformCoupCommand": {
+   "7": "GetTypeId",
+   "13": "Clone"
+  }
+ },
+ "frontier": [
+  "0xF7EE0",
+  "0xF8490",
+  "0x21F490",
+  "0x229A30",
+  "0x14D970",
+  "0x1541D0",
+  "0xF7940",
+  "0x514360",
+  "0x45F450",
+  "0xA5ABC0",
+  "0x2BE790"
+ ],
+ "slots_noted": "CountryPairCommand_IsValid (0x158D20) is slot 14 of CPerformCoupCommand, CChangeSpyMission and CChangeSpyPriority, a fold recorded class-free; CPerformCoupCommand slot 2 (0x14D970) is a fold shared with CCreateVassalCommand and CLiberateCountryCommand and is left to brief E, which reads CLiberateCountryCommand."
+}

@@ -1,0 +1,410 @@
+{
+ "agent": "politics wave, reader A - a law or a minister changed",
+ "question": "CChangeLawCommand and CChangeMinisterCommand whole: who posts them, what is checked before and in Execute, everything a change sets off; which minister a post may take and the pool CCountry +0x160; CCountry_FillMinisterPosts and its callers; ministers over time.",
+ "source": "reversing/findings/FINDINGS-government.md",
+ "addresses": [
+  {
+   "rva": "0x14EF60",
+   "kind": "function",
+   "name": "CChangeLawCommand::Execute",
+   "signature": "void __thiscall CChangeLawCommand::Execute(CChangeLawCommand* this)",
+   "no_signature": null,
+   "comment": "Virtual slot 6, bare `ret` at 0x54F9F4, `this` in ecx; read end to end on the listing (FINDINGS-government.md A.2). **It checks nothing**: what is checked is IsValid (slot 14, 0x54FDF0), which the post and the drain ask before it runs. In order:\n\n1. `countries[this->country_id (+0x40)]->laws (+0x628)[ this->group (+0x48)->index (+0x50) ] = this->law (+0x44)` (0x54EF85-0x54EFB0). No test that the law belongs to that group, that it differs from the current one, or of its `allow`.\n2. **Only when `pay_cost` (+0x4C) is set**: `cost = CCountry_GetLawChangeCost(law, country)` (0xF0570) - which is 0 for a country nobody plays - is taken off **money** (`CGoodsPool +0x10`) of `pool_in_exile` (+0x9F8) for a government in exile, otherwise of the acting capital's pool (GetActingCapitalLocation +0x15C). A plain `add`: no test that the money is there, so it can go below nought.\n3. **Only when the country is the local player's** (`CCurrentGameState +0xC34 == country_id`) **and `post_message` (+0x4D) is set**: the message `LAW_APPOINTED` with LAWNAME (the law's slot 14: the text of `<law>_<TAG>` where localisation has one, else its slot 13 name), DESC (its slot 15, `<law>_desc`, with every `\\xA7b` turned into `\\xA7W`), EFFECT (its slot 7, the modifier lines), POSITION (Group_GetLocalisedName of the group); actor the country, target `---`; posted to the in-game screen through PostMessage_CEU3Idler.\n4. **Always, the tail from 0x54F7FD**: CCountry::RebuildStaticModifiers(country); slot 14 on every line of the build queue (+0xF40), so a change of law prices the whole queue again and leaves the work done alone; then every brigade of every unit (`units +0xBAC`) is held to what the new modifier allows - strength above its slot 12 maximum is cut to it, `excess * 1000 / max_strength (+0xEC) * build_cost_manpower (+0xFC) / 1000` men are given back to manpower (+0xBCC, floored at nought) and `strength_ceiling (+0x30)` restarted at the new strength; organisation above GetMaxOrganisation(brigade, 0, 0) is cut to it. See FINDINGS-organisation.md section 5 and FINDINGS-buildqueue.md section 2.\n\nNo history entry (CLawChange is made only by CCountryHistory::LoadEntry), no change to dissent, national unity, parties or neutrality, no cooldown and no test of war or peace. **Corrected 2026-10-14**: the record called the message LAWNAME; that is one of its variables, the message type is `LAW_APPOINTED`, and the message also needs the country to be the local player's.",
+   "confidence": "confirmed",
+   "evidence": "Disassembly 0x54EF60-0x54F9F4 read whole; the next byte run is eleven int3 and slot 7 (0x54FA00) is the following vftable entry, so the extent is the table's. Every direct call: 0x4F0570 (0x54EFD8), GetActingCapitalLocation (0x54F00C), the string builds, 0x527110 Group_GetLocalisedName (0x54F536), GetMessageHandler/FindType/CMessage::CMessage (0x54F6C0-0x54F6D5), PostMessage_CEU3Idler (0x54F77A), RebuildStaticModifiers (0x54F817), __alldiv/llmul (0x54F8F2-0x54F91C), GetMaxOrganisation (0x54F9A6/0x54F9B6); the slot calls are the law's +0x38 (slot 14), +0x3C (slot 15), +0x1C (slot 7), the build line's +0x38 (slot 14) and the brigade's +0x30 (slot 12). The gates are `cmp byte [esi+0x4C], bl; je` at 0x54EFB7 and `cmp [eax+0xC34], ecx; jne; cmp byte [esi+0x4D], bl; je` at 0x54F09D-0x54F0AC. The message key is the string at 0x15C3A90 (`LAW_APPOINTED`), pushed at 0x54F64C. Wrong if a jump leaves the body (none in a linear read) or if +0xC34 is not the player's id (record: CCurrentGameState +0xC30 player CCountryTag).",
+   "revises": "The comment called the message LAWNAME (a variable of LAW_APPOINTED) and did not say that it needs the local player's country, nor what Execute does not check, nor that the cost is nought for an unplayed country and is a plain subtraction that can go negative. Step order and the unit tail are unchanged and were re-read."
+  },
+  {
+   "rva": "0x14E2D0",
+   "kind": "function",
+   "name": "CChangeMinisterCommand::Execute",
+   "signature": "void __thiscall CChangeMinisterCommand::Execute(CChangeMinisterCommand* this)",
+   "no_signature": null,
+   "comment": "Virtual slot 6, bare `ret`, `this` in ecx; read end to end (FINDINGS-government.md A.3). **It checks nothing** - IsValid (slot 14, 0x54ED40) is what the post and the drain ask. Two steps:\n\n1. `countries[this->country_id (+0x40)]->ministers (+0x618)[ this->position (+0x48)->index (+0x4C) ] = this->minister (+0x44)` (0x54E2F6-0x54E31E). **+0x44 is a CMinister*, not an id**: LoadKey's `id` key is an object reference resolved through FindPersistentById, and every constructor caller passes the pointer.\n2. **Only when the country is the local player's** (`CCurrentGameState +0xC34 == country_id`): the message `MINISTER_APPOINTED` with MINISTERNAME (the minister's name, +0x30), PERSONALITY_DESC (slot 7 - DescribeAllValues - of CMinister::GetPersonality(minister, position), the minister type he holds in that post) and POSITION (the post's slot 6, its localised name); actor the country, target `---`; posted through PostMessage_CEU3Idler. There is no post_message flag on this command.\n\nNothing else: no test that he is in the country's pool, that he may take the post (CanTakePosition), that the post is changeable, of his ideology or his dates, or that he holds no other post - he can hold several. He is not taken out of the pool and the man he replaces stays in it. No history entry (CMinisterChange is made only by CCountryHistory::LoadEntry), no modifier rebuild: the new minister reaches the country's modifier at the next RebuildStaticModifiers, which RunCountryDailyPass calls every day (0x4DA5E3). **Corrected 2026-10-14**: the record called +0x44 an id and said the tail was 'a refresh'; it is the player's message.",
+   "confidence": "confirmed",
+   "evidence": "Disassembly 0x54E2D0-0x54EA1A read whole; the store at 0x54E31E, the player gate `cmp [eax+0xC34], ecx; jne 0x54EA1A` at 0x54E3A7, the three variable names at 0x15C3A44/0x15C3A54/0x15C3A68 and the type at 0x15C3A74 (`MINISTER_APPOINTED`, pushed at 0x54E81B, its only reference in the image). The minister's name is `[edi+0x44]` + 0x30 (0x54E3F8-0x54E405); GetPersonality is called at 0x54E524 with ecx = minister and the position pushed, its result's slot 7 (`[edx+0x1C]`) at 0x54E535; the position's slot 6 (`[edx+0x18]`) at 0x54E6B2. That +0x44 is a pointer: CChangeMinisterCommand::LoadKey's `id` case calls ParseObjectId then FindPersistentById and stores the result (0x54EB50), and IsValid calls slot 8 on it. Wrong if a jump leaves the body (none seen).",
+   "revises": "+0x44 is the CMinister*, not an id; the tail after the store is the MINISTER_APPOINTED message to the local player (variables named), not a refresh; and the list of what Execute does not check or touch."
+  },
+  {
+   "rva": "0xF06D0",
+   "kind": "function",
+   "name": "CCountry_FillMinisterPosts",
+   "signature": "void __stdcall CCountry_FillMinisterPosts(CCountry* country, bool refillAll, bool electedOnly)",
+   "no_signature": null,
+   "comment": "**Picks a minister for cabinet posts out of the country's pool.** 0x4F06D0 to the `ret 0xC` at 0x4F08E1, read whole on the listing (FINDINGS-government.md A.5). For each post index i from 1 to the end of `ministers (+0x618)` (index 0, the null post, is skipped), the post being `GetGovernmentPositions()->[i]`:\n\n- skip unless `refillAll`, or the post's holder is the null minister (CMinister slot 8 is ReturnTrue, CNullMinister's ReturnFalse - 'is a real minister', no dates);\n- with `electedOnly`, skip unless the post's bit (its +0x4C) is set in `government (+0xDFC)->elected_positions (+0x68)`;\n- walk `PossibleMinisters (+0x160)` in list order: a minister **of the ruling ideology** (+0x1140) who lists the post among his postings (+0x5C) is taken at once and the walk stops; otherwise a minister **of the ruling ideology's group** (ideology +0x50) who lists it becomes the candidate - **replacing any earlier candidate, so the last such in the pool wins**; otherwise one who lists it becomes the candidate only while there is none - **the first such wins**;\n- a candidate found is written to `ministers[post->index]`; none leaves the post as it was, `refillAll` or not.\n\nNot asked: his dates, whether he already holds another post (one man can fill several), whether the post is changeable, his loyalty. Both ideology tests dereference the ruling ideology with no null test, so a country with no ruling party and a non-empty pool faults (at 0x4F083B). **Reproduces the start save**: replaying it on the saved pool and ruling ideology gives all 220 posts of the 22 countries whose history names no minister (CRO, DDR, ICL, VIC and the rest), the 'last of the group' rule included (Iceland's head of government is 581006, the last of three liberals who list the post).\n\nCallers (args `refillAll, electedOnly`): SetUpCountryForNewGame 0x4D7538 (0, 0) - a new game, empty posts only; CCountry_HoldElection 0x4FC3C3 (1, 1); CCoupEffect::Execute 0x9A1721 (1, 0); CGovernmentEffect::Execute 0x9A10F7 (1, 0); MakeVassal 0x4DA3E4 (1, 0); CCreateVassalCommand::Execute 0x54C2EE (1, 0); CLiberateCountryCommand::Execute 0x54CED4 (1, 0); ReleaseProvinces 0x4C21D9 (1, 0); CReleaseVassalEffect::Execute 0x9AF145 (1, 0). Nothing calls it when a minister dies, when a law changes, daily or on a load.",
+   "confidence": "confirmed",
+   "evidence": "Disassembly 0x4F06D0-0x4F08E1 read whole: the IsValid test `call [edx+0x20]` at 0x4F0725 gated by `cmp byte [ebp+0xC], 0` at 0x4F0711; the bitset test 0x4F0794-0x4F07E7; the walk 0x4F07ED-0x4F0893 with the exact-ideology early exit `je 0x4F0898`, the group arm's unconditional `mov [ebp-0x10], ebx` at 0x4F085E and the anyone arm's `cmp dword [ebp-0x10], 0; jne` at 0x4F0861; the store at 0x4F08B0. Callers from findRefs --callers 0x4F06D0 (nine), the pushed flags read at each. The 220/220 replay is scratchpad/pol/A/fillcheck.py over Germany1936_01_01_00.hoi3 and the install's country files (tfh layer over base). Wrong if CMinisterPosting's position is not the node's first dword (record: CMinisterPosting +0x0 position).",
+   "revises": "Raised from inferred to confirmed off the listing. The record's preference order was incomplete: a group-mate does not merely come second - the **last** group-mate listing the post in the pool wins, while among the rest the **first** wins. Added the null-minister meaning of slot 8, the fault on a null ruling party, the nine callers with their flags, and the 220/220 check against the start save."
+  },
+  {
+   "rva": "0xF0510",
+   "kind": "function",
+   "name": "CCountry::GetLawByIndex",
+   "signature": "CLaw* __thiscall CCountry::GetLawByIndex(CCountry* this, int lawGroupIndex)",
+   "no_signature": null,
+   "comment": "Three instructions: return this->laws (+0x628)[lawGroupIndex], `ret 4`. No direct caller in .text; the Lua API registers it (CCountry:GetLawFromIndex). One of three abutting accessors on the laws array; see CCountry+0x628.",
+   "confidence": "confirmed",
+   "evidence": "0x4F0510-0x4F0520 read: `mov eax,[ecx+0x628]; mov ecx,[ebp+8]; mov eax,[eax+ecx*4]; ret 4`. findRefs --callers finds none (the registration is the user). Wrong only if the bytes differ.",
+   "revises": "likely -> confirmed off the bytes; noted that nothing in .text calls it."
+  },
+  {
+   "rva": "0xF0550",
+   "kind": "function",
+   "name": "CCountry::SetLaw",
+   "signature": "void __stdcall CCountry::SetLaw(CLaw* law@stack:4, CCountry* country@EDX, CLawGroup* group@EAX)",
+   "no_signature": null,
+   "comment": "Five instructions: country->laws (+0x628)[group->index (+0x50)] = law. The country arrives in edx and the group in eax, only the law is on the stack (`ret 4`). Its only callers are CLawChange's history Apply (0x5F03A8, 0x5F03C8); **the command does not use it** - CChangeLawCommand::Execute writes the array itself, with the same arithmetic.",
+   "confidence": "confirmed",
+   "evidence": "0x4F0550-0x4F0563 read; findRefs --callers 0x4F0550 gives the two history sites only. Wrong only if the bytes differ.",
+   "revises": "likely -> confirmed off the bytes; callers named and the command's own store noted. The signature now places the law on the stack (`@stack:4`) so every parameter has a home; the convention was written __fastcall with the law unplaced."
+  },
+  {
+   "rva": "0xF0570",
+   "kind": "function",
+   "name": "CCountry_GetLawChangeCost",
+   "signature": "int* __stdcall CCountry_GetLawChangeCost(int* out@stack:4, CLaw* law@stack:8, CCountry* country@EDI) @EAX",
+   "no_signature": null,
+   "comment": "**What a change of law costs, in money, thousandths.** 0x4F0570 to `ret 8`; the country in edi, the out pointer and the law on the stack, out returned in eax. `*out = 0`; **only when the country is played by a person** (`CCurrentGameState->played_countries_array (+0xBCC)[country id] != 0`): `*out = law->cost (+0x94) * CDistributeConsumerGoods::GetMoneyIncome(the country's second production setting, fraction 30000, MaxIC (+0x60C) * 1000) / 1000` - that is, the law's `cost` times thirty days' money from the country's whole MaxIC at IC_TO_MONEY and its money modifier, every division truncating. With the shipped `cost = 0.5` and IC_TO_MONEY 0.05: 0.75 money per point of MaxIC. An AI country's change is free. Four callers: CChangeLawCommand::Execute (0x54EFD8, which pays it), 0x6052CB, and two in the politics screen (0x6B972A, 0x6B9FF0), which show it.",
+   "confidence": "confirmed",
+   "evidence": "Disassembly 0x4F0570-0x4F068C read whole: `mov dword [ebx], 0` at 0x4F0595, the played test `cmp dword [edx+ecx*4], 0; je` at 0x4F062D with edx = [state+0xBCC], the three pushes (setting [[edi+0x5F4]+4], 30000 = 0x7530, MaxIC*1000) and the call at 0x4F065A, then `imul [law+0x94]` and __alldiv by 1000. GetMoneyIncome (0x518F00) re-read to its `ret 0xC`: ic*fraction/1000 floored at 0, *IC_TO_MONEY/1000, *(1000+modifier 31)/1000. Callers from findRefs --callers 0x4F0570. Wrong if [state+0xBCC] is not 'played by a person' (record: played_countries_array, non zero for a played country)."
+  },
+  {
+   "rva": "0xF06B0",
+   "kind": "function",
+   "name": "CCountry::SetMinister",
+   "signature": "void __stdcall CCountry::SetMinister(CMinister* minister@stack:4, CCountry* country@EDX, CGovernmentPosition* position@EAX)",
+   "no_signature": null,
+   "comment": "country->ministers (+0x618)[position->index (+0x4C)] = minister; the country in edx, the post in eax, only the minister on the stack (`ret 4`) - the same shape as CCountry::SetLaw. Its only callers are CMinisterChange's history Apply (0x5F0178, 0x5F0198); the command and the effects write the array themselves.",
+   "confidence": "confirmed",
+   "evidence": "0x4F06B0-0x4F06C3 read: `mov ecx,[eax+0x4c]; mov eax,[edx+0x618]; mov edx,[ebp+8]; mov [eax+ecx*4],edx; ret 4`. findRefs --callers gives the two history sites. In no vftable (vtable.py --holding). Wrong only if the bytes differ."
+  },
+  {
+   "rva": "0xF08F0",
+   "kind": "function",
+   "name": "CCountry_LoadPossibleMinisterIds",
+   "signature": "void __stdcall CCountry_LoadPossibleMinisterIds(CCountry* country, CParseContext* parse)",
+   "no_signature": null,
+   "comment": "**A save's `ministers = { id id ... }`: the pool, rebuilt.** CCountry::LoadKey's `ministers` case (token 0x439) calls it at 0x4CD74B when the country's HistoricalMinisters (+0x170) already holds someone (+0x178 != 0). Until the closing brace or the end of the file: each token is atoi'd, looked up as the persistent `{0x26, id}` (0xA9DA00 on the registry at 0x1A857F4) and, where found, appended to `PossibleMinisters (+0x160)` - no test that he is the country's, nor that he is not there already. `ret 8`. Its writing half is CCountry_SaveMinisterIds.",
+   "confidence": "confirmed",
+   "evidence": "Disassembly 0x4F08F0-0x4F09FC read whole; the end tests `cmp eax, 4` / `cmp eax, 0x13` at 0x4F093E/0x4F0947, atoi (0xB969F1) at 0x4F0961, the `{0x26, id}` pair built at 0x4F096F, the tail append 0x4F0992-0x4F09E1 onto +0x160/+0x164/+0x168. One caller (findRefs). The branch in LoadKey: `cmp dword [ebx+0x178], 0; jne 0x4CD746` at 0x4CD71C. Wrong if token type 4 is not the closing brace."
+  },
+  {
+   "rva": "0xF0A00",
+   "kind": "function",
+   "name": "CCountry_LoadHistoricalMinisters",
+   "signature": "void __stdcall CCountry_LoadHistoricalMinisters(CCountry* country, CParseContext* parse)",
+   "no_signature": null,
+   "comment": "**A country file's `ministers = { <id> = { ... } ... }`: every minister the country will ever have.** CCountry::LoadKey's `ministers` case calls it at 0x4CD72A while HistoricalMinisters (+0x170) is empty. Per block: the key text is atoi'd as the id (the largest seen is kept in the global 0x170AF50), a 0x90-byte CMinister is constructed (0x52C370 - start_date and death_date both g_NullDate until the block says otherwise), given the id pair `{0x26, id}` (slot 6) and loaded (slot 3, CMinister::LoadKey), and **appended to HistoricalMinisters in file order**. `ret 8`.",
+   "confidence": "confirmed",
+   "evidence": "Disassembly 0x4F0A00-0x4F0B61 read whole: atoi of parse+0x24 at 0x4F0A92, the max-id store at 0x4F0AA2, `push 0x90; call operator new; call 0x52C370`, slot 6 (`[edx+0x18]`) and slot 3 (`[eax+0xC]`), the tail append onto +0x170/+0x174/+0x178 (0x4F0AF0-0x4F0B39). The CMinister constructor's date stores at 0x52C3D2-0x52C3EB. One caller (findRefs). Wrong if slot 6 is not the id setter (CReferenceObject slot 6)."
+  },
+  {
+   "rva": "0xF0B70",
+   "kind": "function",
+   "name": "CCountry_SaveMinisterIds",
+   "signature": "void __stdcall CCountry_SaveMinisterIds(void* ministers@stack:4, CSaveWriter* writer@EDI)",
+   "no_signature": null,
+   "comment": "Writes `ministers = { <id> <id> ... }` - the key token 0x439, then each minister's id (+0xC) with \"%d\" in list order. CCountry::SaveContents calls it at 0x4D1711 with `&PossibleMinisters (+0x160)`, so **a save keeps the pool, in its order**, and CCountry_LoadPossibleMinisterIds reads it back. `ret 4`.",
+   "confidence": "confirmed",
+   "evidence": "Disassembly 0x4F0B70-0x4F0CB5 read whole (key 0x439 at 0x4F0BA7, the walk 0x4F0BC7-0x4F0C8A through node+0 / node+8, the closing tokens). The call site 0x4D1704-0x4D1711 (`add ecx, 0x160; push ecx; mov edi, ebx`). Wrong if the writer is not in edi at the call (it is the SaveContents writer register throughout)."
+  },
+  {
+   "rva": "0x14ED80",
+   "kind": "function",
+   "name": "CChangeLawCommand::CChangeLawCommand_default",
+   "signature": "CChangeLawCommand* __stdcall CChangeLawCommand::CChangeLawCommand_default(CChangeLawCommand* this)",
+   "no_signature": null,
+   "comment": "The prototype constructor RegisterCommandTypes uses (0x88612A, after `new 0x50`): type id 0x56B (`change_law`) at +0x2C/+0x30, country `---`/0, law and group null, and **`pay_cost` and `post_message` both 1** (`mov word [esi+0x4C], 0x101`). A command rebuilt from a stream starts from these and LoadKey overwrites them. `ret 4`.",
+   "confidence": "confirmed",
+   "evidence": "Disassembly 0x54ED80-0x54EE25 read whole; the one vftable write besides the full constructor's (findRefs --vftable CChangeLawCommand gives exactly these two); one caller, 0x88612A. Wrong only if the bytes differ."
+  },
+  {
+   "rva": "0x14E130",
+   "kind": "function",
+   "name": "CChangeMinisterCommand::CChangeMinisterCommand_default",
+   "signature": "CChangeMinisterCommand* __stdcall CChangeMinisterCommand::CChangeMinisterCommand_default(CChangeMinisterCommand* this)",
+   "no_signature": null,
+   "comment": "The prototype constructor RegisterCommandTypes uses (0x885F9B): type id 0x6C0 (`change_minister`), country `---`/0, minister and post null. `ret 4`.",
+   "confidence": "confirmed",
+   "evidence": "Disassembly 0x54E130-0x54E1CF read whole; one of exactly two vftable writers for the class (findRefs --vftable); one caller, 0x885F9B. Wrong only if the bytes differ."
+  },
+  {
+   "rva": "0x14FA00",
+   "kind": "function",
+   "name": "CChangeLawCommand::GetTypeId",
+   "signature": "int __thiscall CChangeLawCommand::GetTypeId(CChangeLawCommand* this)",
+   "no_signature": null,
+   "comment": "Slot 7: `mov eax, 0x56B; ret` - the save token `change_law`.",
+   "confidence": "confirmed",
+   "evidence": "Bytes at 0x54FA00; one table holds it (vtable.py --holding: CChangeLawCommand slot 7). Token 0x56B is `change_law` in ghidra/saveTokens.json."
+  },
+  {
+   "rva": "0x14EA30",
+   "kind": "function",
+   "name": "CChangeMinisterCommand::GetTypeId",
+   "signature": "int __thiscall CChangeMinisterCommand::GetTypeId(CChangeMinisterCommand* this)",
+   "no_signature": null,
+   "comment": "Slot 7: `mov eax, 0x6C0; ret` - the save token `change_minister`.",
+   "confidence": "confirmed",
+   "evidence": "Bytes at 0x54EA30; one table holds it (vtable.py --holding: CChangeMinisterCommand slot 7). Token 0x6C0 is `change_minister` in ghidra/saveTokens.json."
+  },
+  {
+   "rva": "0x14ECC0",
+   "kind": "function",
+   "name": "CChangeMinisterCommand::Clone",
+   "signature": "CCommand* __thiscall CChangeMinisterCommand::Clone(CChangeMinisterCommand* this, Hoi3CString arg)",
+   "no_signature": null,
+   "comment": "Slot 13, `ret 0x1C`: `new 0x4C` and the full constructor with this command's country, minister and post.",
+   "confidence": "confirmed",
+   "evidence": "Disassembly 0x54ECC0-0x54ED36 read whole (call 0x54E230 at 0x54ED09). One table holds it (slot 13)."
+  },
+  {
+   "rva": "0x14FDF0",
+   "kind": "function",
+   "name": "CChangeLawCommand::IsValid",
+   "signature": "bool __thiscall CChangeLawCommand::IsValid(CChangeLawCommand* this) @AL",
+   "no_signature": null,
+   "comment": "**The whole of what is checked before a change of law runs.** Slot 14, asked by the loopback post (which deletes the command on false) and again by the session drain immediately before Execute (FINDINGS-commands.md): true when the country id (+0x40) is not 0, the law (+0x44) is not null and its slot 16 answers true (CLaw ReturnTrue, CNullLaw ReturnFalse - a real law), and the group (+0x48) is not null and its slot 6 answers true (CLawGroup ReturnTrue, CNullLawGroup ReturnFalse). Not asked: the law's `allow`, whether the law is in that group, whether it is the current law, money, war.",
+   "confidence": "confirmed",
+   "evidence": "Disassembly 0x54FDF0-0x54FE28 read whole: `[esi+0x40]`, `[esi+0x44]` and `call [edx+0x40]`, `[esi+0x48]` and `call [edx+0x18]`. The slot bodies by vtable.py CLaw CNullLaw --all (slot 16: 0xA92590 / 0x592360) and CLawGroup CNullLawGroup (slot 6: 0xA92590 / 0x592360). One table holds it (slot 14)."
+  },
+  {
+   "rva": "0x14ED40",
+   "kind": "function",
+   "name": "CChangeMinisterCommand::IsValid",
+   "signature": "bool __thiscall CChangeMinisterCommand::IsValid(CChangeMinisterCommand* this) @AL",
+   "no_signature": null,
+   "comment": "**The whole of what is checked before a change of minister runs.** Slot 14, asked at the post and again at the drain: true when the country id (+0x40) is not 0, the minister (+0x44) is not null and his slot 8 answers true (a real minister - CMinister ReturnTrue, CNullMinister ReturnFalse; no dates), and the post (+0x48) is not null and its slot 14 answers true (CGovernmentPosition ReturnTrue, CNullGovernmentPosition ReturnFalse). Not asked: CanTakePosition, the pool, the post's `changeable`, his ideology or his country.",
+   "confidence": "confirmed",
+   "evidence": "Disassembly 0x54ED40-0x54ED78 read whole: `call [edx+0x20]` on +0x44 and `call [edx+0x38]` on +0x48. Slot bodies by vtable.py CMinister CNullMinister --all (slot 8: 0xA92590 / 0x592360) and CGovernmentPosition CNullGovernmentPosition (slot 14: 0xA92590 / 0x592360). One table holds it (slot 14)."
+  },
+  {
+   "rva": "0x14FBB0",
+   "kind": "function",
+   "name": "CChangeLawCommand::LoadKey",
+   "signature": "void __thiscall CChangeLawCommand::LoadKey(CChangeLawCommand* this, CParseContext* parse, SaveToken key)",
+   "no_signature": null,
+   "comment": "**Five keys, not three**: `law` (0x56A) - an index into the law database's law vector (`GetLawDataBase() +0x18`) - into +0x44; `position` (0x4B) - an index into its group vector (+0x28) - into +0x48; `country` (0x24D) into +0x3C/+0x40; and above the first compare, `is_law_change_costs` (0x7CA) into +0x4C and `postMessage` (0x7CB) into +0x4D, each `value.type == yes`. The last two are reached through a `sub ecx, 0x7CA; je` / `dec` pair that definitions.py's switch reading did not see. Anything else goes to CCommand::LoadKey. The keys are what CChangeLawCommand::SaveContents (slot 2) writes, so the two flags survive the loopback post's serialise-and-rebuild.",
+   "confidence": "confirmed",
+   "evidence": "Disassembly 0x54FBB0 onward: `cmp eax, 0x56A; jg 0x54FCE5` at 0x54FBD2, and at 0x54FCE7 `sub ecx, 0x7CA; je 0x54FD35` then the 0x7CB arm. Token names from ghidra/saveTokens.json. The decompiled SaveContents (0x54FA10) writes law, position, country, is_law_change_costs and postMessage.",
+   "revises": "The comment listed three keys from the switch tool; the loader has five - `is_law_change_costs` and `postMessage` sit in a `sub`/`dec` arm above the compare tree that the tool does not read."
+  },
+  {
+   "rva": "0x14EB50",
+   "kind": "function",
+   "name": "CChangeMinisterCommand::LoadKey",
+   "signature": "void __thiscall CChangeMinisterCommand::LoadKey(CChangeMinisterCommand* this, CParseContext* parse, SaveToken key)",
+   "no_signature": null,
+   "comment": "**The keys its switch names**, 3 of them, one case each: `country`, `id`, `position`. `id` is an object reference (ParseObjectId) resolved through FindPersistentById to the **CMinister*** stored at +0x44 - not a number; `position` is an index into GetGovernmentPositions(); `country` a tag looked up in the country database. Anything else goes to CCommand::LoadKey. A loader may resolve further keys as names out of a database - CGovernment and CMinister both do - but anything that is neither is dropped in silence.",
+   "confidence": "confirmed",
+   "evidence": "Decompilation of 0x54EB50 checked against the listing for the `id` arm: ParseObjectId, the high/low id table choice on 0x1269 and FindPersistentById, the result stored at +0x44. SaveContents (0x54EA40) writes `id` as an object reference.",
+   "revises": "Said what `id` resolves to: the minister object, which is what Execute stores."
+  },
+  {
+   "rva": "0xD57D0",
+   "kind": "function",
+   "name": "CCountry_RevertDisallowedLaws",
+   "signature": "void __stdcall CCountry_RevertDisallowedLaws(CCountry* country)",
+   "no_signature": null,
+   "comment": "**A country at peace drops every law its `allow` no longer permits.** VA 0x4D57D0 to the `ret 4` at 0x4D59BE, read whole. One caller, CCountry::OnDiplomacyChanged (0x4E7178), and only when `at_war (+0xACC)` is clear - so after any change of diplomacy (a peace among them) and never during a war. It builds one CEventScope: **country = this country, FROM = `---`, province 0, THIS = the scope itself, random state and seed 0**. Then for each law group by index from 1: the current law (`laws +0x628[i]`); if it is a real law (slot 16) and its `allow` (the CTrigger held at CLaw +0x54, slot 6) fails in that scope, the group's law list (+0xC) is walked in order and **the first law that is real, is not the current one and whose `allow` holds** is posted as `CChangeLawCommand(law, group, payCost 0, postMessage 1, country)` on the country's channel (interface_host +0xF1C, slot 18, +0x38, slot 6). None holding leaves the law. It runs for every country, the player's included, so a player sees LAW_APPOINTED for a law he did not choose, and pays nothing for it.",
+   "confidence": "confirmed",
+   "evidence": "Disassembly 0x4D57D0-0x4D59BE read whole: the scope built at [ebp-0x6C] (vftable 0x15B8AEC, country 0x4D5849/0x4D584C, `---` 0x4D57F9, this_scope = &scope at 0x4D5840, zeros), the loop bound GetLawDataBase +0x2C/+0x28, the slot 16 tests (`call [edx+0x40]`) at 0x4D58DC and 0x4D591C, the allow tests (`lea ecx,[ebx+0x54]; call [[ecx]+0x18]`) at 0x4D58F3 and 0x4D5933, the list walk via node+0/node+4, the pushes 0x4D596E-0x4D5978 (`push 1; push 0` = postMessage 1, payCost 0) and the post at 0x4D59A2. The CTrigger at +0x54: the CLaw constructor writes CTrigger's vftable 0x15C34DC there (0x528FE5) and CLaw::LoadKey's `allow` case loads into it. Wrong if CTrigger slot 6 is not Evaluate.",
+   "revises": "Raised from inferred to confirmed off the listing; the scope it asks `allow` in is now stated (THIS the scope itself, FROM `---`, province 0, random state 0), the list walk's order and the 'not the current law' test, and that the player's country is reverted too, with a message and no cost."
+  },
+  {
+   "rva": "0xD6230",
+   "kind": "function",
+   "name": "SetUpCountryForNewGame",
+   "signature": "void __stdcall SetUpCountryForNewGame(CCountry* country)",
+   "no_signature": null,
+   "comment": "**What a country starts a new game with**: the effects of the decisions its history says it has taken, its war exhaustion, its stockpile, its diplomatic influence, **its relation with every other country and its first spy allocation**, its manpower, **and its pool of ministers and any empty cabinet post**. One stack argument, `ret 4` at 0x4D757A. One caller, 0x65B4F2 in CInGameIdler::Enter, inside the block that gamestate->loaded_from_save (+0xD9C) == 0 guards, so it never runs on a load. **The function before it ends `ret 4` at 0x4D622D with no padding** - a walk back from inside this one answers 0x4D59D0, which is what fieldchain.py prints (trap 2). (Addresses in this comment are VAs.)\n\n**The decisions** (VA 0x4D6342-0x4D668A, read 2026-10-12): after UpdateIC(country, 0) at 0x4D633D it builds a CEventScope whose country is this one (CCountry +0xCA4), FROM `---`, province 0, and **random_state, its copy and seed all 0**, and walks the country's **taken list** (+0x128, next at node +0x20) - the names its history's `decision = <name>` entries put there, less any `remove_decision`, through CCountryDecisionChange::Apply. Each name is looked up **in the political table first and then the diplomatic** (the reverse of CExecuteDecisionCommand's order); not found, it logs `<TAG> has unknown decision '<name>'` under country.cpp; found, **its effect runs** - CEffect::Execute (slot 11) with (scope, 0) at 0x4D6658. Neither `potential` nor `allow` is asked, no message is raised and no history entry is filed. The scope's random state is never reset between decisions, so each draws on where the one before left it.\n\n**The pool of ministers** (VA 0x4D6741-0x4D683C, read 2026-10-14, FINDINGS-government.md A.6): for each minister of HistoricalMinisters (+0x170) in file order, **appended to PossibleMinisters (+0x160) when `start_date (+0x54) <= now < death_date (+0x58)`** - no test that he is there already. (The two Date-to-text calls inside the loop, 0x44C710, build strings that are thrown away.) A minister with no `death_date` keeps g_NullDate there, which no `now` is below - **but the start save has every such minister in the pool**: see FINDINGS-government.md A.6 for that open contradiction.\n\nRead from 0x4D69DF to 0x4D7108 and from 0x4D7346 to the end. Months are calendar months, year * 12 + month off the tick. At war (at_war, +0xACC): began = the earliest 0xA51D20(war) over the active wars (gamestate +0xC00) the country is an attacker or defender in, and war_exhaustion (+0xAD0) = min(months since * 0.05, 10). Otherwise war_exhaustion = max(3 - months since the latest 0xA51F40(war) over previous_war (+0xC20) * 0.05, 0). Then **days = 30 + 5 * max(12 - months at war, 2)** - 90 at peace, five fewer a month of war, never under 40 - and amount = MaxIC (+0x60C) * days, **held to 1000 for a subject (isSubject, +0xF34)**. Into the acting capital's pool, each an `add`: crude oil and metal `amount`, energy twice it, rare materials half; money, **only when the pool has none**, amount * IC_TO_MONEY * 0.05; supplies and fuel, `days` times the sum of CUnit::SupplyConsumption and CUnit::FuelConsumption over the country's units (+0xBAC). Then **diplo_influence (+0xA88) = MaxIC / 5 in whole points**. The 0.05 is g_OneTwentieth.\n\n**The dates** (0x4D6841 loop, read 2026-10-12): for every country of the database, a pair whose war_seen_tick (`last_war`, +0x54) is later than now is put back to g_NullDate.\n\n**The relations** (0x4D710E..0x4D733F, read 2026-10-12, FINDINGS-diplostate.md): skipped whole for REB and for a country that owns no province (+0xCF8). Otherwise for every country B of the database in order, REB and itself included: value = 25; when B is not REB and owns a province, value = the Lua global **`AI_GenerateNonHistoricalRelation(country, B)`** (script/ai_country.lua; the call is built by PrepareLuaCall_AI_GenerateNonHistoricalRelation, 0x5100D0, and run by 0x50D2F0 for an integer - see the Lua paragraph below), whole points. Then, **only when `diplomacy[B]->relation (+0x38)` is exactly 0**, it becomes clamp(value * 1000, -200000, 200000) with `changed (+0x59) = 1` - **this country's side only**. So a relation the history set is kept, a computed 0 is written as 0, and an existing country is left with 25 towards REB and towards every country that does not exist. In the same loop, for a B that exists and is not REB, the first spy allocation - entry +0 of the 0xF8-byte record B in the array at espionage (+0x1160) - is 1000 * score clamped to [0, g_MaxSpyLevel], score = [value < -100] + [value < 0] + neighbours[B] (+0xF58) + [same continent (+0x368 of each acting capital)] + 2 * [both factions valid and different] + [ruling_ideology (+0x1140) differs] + 2 * [diplomacy[B]->war] - 2 * [diplomacy[B]->alliance] + 3 * [B is this country], **halved toward zero when CCountry::IsMajor (0x4F8AB0) says no**. Against the start save the non-self entries of Germany's row agree; the self entries are 1 higher for the seven majors than this gives, which was not explained.\n\n**The tail is the manpower and the cabinet.** ReapplyAllTechnologies (0x4D7346), **the Lua global `Laws(country)`** (0x4D734B-0x4D7375, below), RebuildStaticModifiers (0x4D7380), UpdateMaxManpower (0x4D7386), and then **manpower (+0xBCC) = max_manpower (+0xBD0)**, a `mov` - so whatever `manpower` a country's history file gave is overwritten. If it owns a province (the count at +0xCF8 above 0) and is at war, it then loses year * (1000 + months at war * g_StartingManpowerLostPerMonthAtWar / 1000) / 1000, where year = max_manpower * 1000 / MAX_MANPOWER and the months are the same thousandths the war exhaustion used; floored at 0. Then **last_election (+0xAB0) = now where it holds a date before year 3** (0x4D7476-0x4D752F), **CCountry_FillMinisterPosts(country, 0, 0)** (0x4D7538 - empty posts only, from the pool above), CCountry_AllotCabinetSeats (0x4D753E), and **where `ruling_ideology (+0x1140)` is null or its slot 17 says no, the ruling ideology becomes the head of state's** (`ministers[1]->ideology (+0x6C)`, 0x4D7543-0x4D7564). The CChangeLawCommands `Laws(country)` posts are made before `in_game` is set, so their pay_cost and post_message are cleared: free and silent.\n\nNot read: VA 0x4D6230-0x4D6342 (a month count from the last election at +0xAB0, then UpdateIC(country, 0) at 0x4D633D).\n\n**The two Lua calls** (read 2026-10-12, reversing/findings/FINDINGS-luahost.md; VAs). Both take the main thread's state from GetThreadLuaState and sit in try blocks whose only handler is `catch (luabind::error&)` (FuncInfo 0x16C98D8: states 22-23 handler 0x4D7324, state 25 handler 0x4D73CF), and each handler only calls ReportLuaError (0xAA8050, `LUA Error:` in the log) and resumes after the call. **The relation**: [ebp-0x20] is set to 25 at 0x4D7173 before the call and is the result only if the call returns, so **a missing function or a Lua error leaves 25**; the result is `lua_tointeger` of a value that must be a number - `fld`/`fistp` in the Lua DLL, so **rounded to nearest, ties to even**, not truncated - and anything else (nil, a string, a boolean) throws `luabind::cast_failed`, which is **not** a `luabind::error` (its ThrowInfo 0x164B1E4 lists only cast_failed and std::exception) and so escapes this function and CInGameIdler::Enter, which has no try block at all. The country goes in as a `CCountry*` (pushed as a pointer instance, nil if null) and B as a **fresh copy of its CCountryTag**. **`Laws(country)`**: built by PrepareLuaCall_Laws (0x510120) and made by LuaCallProxy_Country_CallVoid (0x50D3F0) with one argument and no result, **for every country this function runs for, with no test of who plays it** - so `script/ai_politics_minister.lua`'s `Laws(minister)` runs with the CCountry where it expects a minister, which works because CCountry also has GetCountryTag, and posts a CChangeLawCommand for each law group it wants moved. That is how the script runs before the first hour (the open question in FINDINGS-unitstart.md).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-manpowergain.md",
+   "evidence": "The new paragraph: disassembly 0x4D6741-0x4D683C read (HistoricalMinisters head at 0x4D6744, now at 0x4D674A-0x4D6750, the two compares `cmp edx,[esi+0x54]; jl` / `cmp eax,[esi+0x58]; jge` at 0x4D67D6/0x4D67DD, the tail append onto +0x160/+0x164/+0x168 0x4D67E2-0x4D682E; decompilation agrees). The tail: 0x4D7470-0x4D757A read (the year-below-3 test at 0x4D74A6, FillMinisterPosts with `push ebx; push ebx` and ebx = 0, the ruling-ideology fallback). The rest of the comment is unchanged from the record.",
+   "revises": "Added the minister pool step (0x4D6741-0x4D683C) and the cabinet half of the tail - FillMinisterPosts(country, 0, 0) and the ruling ideology falling back to the head of state's - which the comment summed up as 'calls 0x4F06D0 and 0x4F72F0'; and that `Laws(country)`'s commands are free and silent because in_game is still clear. The dates loop's address is corrected from 0x4D668A (where the pool step's block begins) to 0x4D6841. Everything else is kept word for word."
+  },
+  {
+   "rva": "0x118F00",
+   "kind": "function",
+   "name": "CDistributeConsumerGoods::GetMoneyIncome",
+   "signature": "int* __stdcall CDistributeConsumerGoods::GetMoneyIncome(int* out@ESI, CDistributeConsumerGoods* setting@stack:4, int fraction@stack:8, int ic@stack:12) @EAX",
+   "no_signature": null,
+   "comment": "Money from industrial capacity, in thousandths: ic x fraction / 1000, floored at zero, then times the `economy` define IC_TO_MONEY (+0x8) over 1000, then times (1000 + MODIFIER_GLOBAL_MONEY, modifier 31, at modifier values +0xF8) over 1000. **out arrives in esi** and comes back in eax; three stack arguments, `ret 0xC`. Two callers: CDistributeConsumerGoods::Distribute at 0x518C9D, which passes a fraction of 1000 and MaxIC, and 0x4F065A in CCountry_GetLawChangeCost, which passes 30000 and MaxIC x 1000 - thirty days of money at the country's whole MaxIC, the base of a law's price. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-production.md",
+   "evidence": "0x518F00-0x518F74 re-read; the caller 0x4F065A is inside 0x4F0570-0x4F068C, a function of its own (eleven int3 before it, `ret 8` at its end), not the daily IC pass.",
+   "revises": "The second caller was described as 'the daily IC pass'; 0x4F065A is in CCountry_GetLawChangeCost (rva 0xF0570), the price of a change of law. The signature now places the three stack arguments explicitly."
+  },
+  {
+   "rva": "0x130C2B8",
+   "kind": "global",
+   "name": "g_NullDate",
+   "signature": "int g_NullDate",
+   "no_signature": null,
+   "comment": "**At run time 43808760 - 1 January of year 1, hour 0 - not the 43800000 the file holds.** A CRT initialiser, NullDate_Init (rva 0x8A8210, in the `.CRT$XCU` table at VA 0xD2BD78), runs `Date_SetFromString(&g_NullDate, \"1.1.1\")` at startup; the 43800000 in the image (= 0x29C55C0, the game's hour epoch) is only the value that call starts from, and it keeps its day of the year and hour (both 0). That is why a save prints every unset date as `1.1.1.0`. Used as the **'never' value for a date field**: TradeRouteSetInactive compares CTradeRoute +0x84 against it before stamping a tick (0xA4D585) and CEU3AI::HasTradeGoneStale refuses to call a route stale while +0x84 still equals it (0x89B672). **The history subsystem is the second independent confirmation**: it is the default date of every CHistoryEntry (the base constructor writes the immediate 0x29C55C0 at +8 and then this static over it, at 0x200AA9/0x200AB0 and in every inlined copy), the default date of every CHistoryContainer (0x1F45BA) and what CHistoryContainer::Reset puts back (0x1F4768); CHistoryEntry::DateIsUnset (0x1EC6E0) is `year(date) < 2`, which is true of it; and it is the fallback the leader part of RunCountryDailyPass uses when a leader's history has no `rank` entry - a date no live tick can equal, so such a leader is never activated. It is also the start and death date of a CMinister whose block gives none (0x52C3DA, 0x52C3E6). Of its 234 references in .text, the initialiser's `mov esi, 0x170C2B8` (VA 0xCA8216) is the one write; every other reads it. The next global, 0x130C2BC, is set the same way to `9999.1.1` (rva 0x8A8230) and is read nowhere else.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-history.md",
+   "evidence": "VA 0xCA8210: `push esi; push 0x15BB3F0 ('1.1.1'); mov esi, 0x170C2B8; call Date_SetFromString; pop esi; ret`, and its address is the third dword of the initialiser table at VA 0xD2BD70 (0xCA81D0, 0xCA81F0, 0xCA8210, 0xCA8230). Date_SetFromString's arithmetic (its record) gives 24 x 365 + 43800000 for year 1. Corroborated by the start save: 514 dates written `1.1.1.0` (last_surrender, last_mission_cancel, orders' start_date and death_date), none `0.1.1`. Wrong if the CRT does not run the .CRT$XCU table (it always does).",
+   "revises": "The comment said it holds 43800000 and that nothing writes it. A static initialiser sets it from the text \"1.1.1\" at startup, so its run-time value is year 1 (43808760); the meaning and every use stand."
+  },
+  {
+   "rva": "0x8A8210",
+   "kind": "function",
+   "name": "NullDate_Init",
+   "signature": "void __cdecl NullDate_Init(void)",
+   "no_signature": null,
+   "comment": "A `.CRT$XCU` static initialiser: `Date_SetFromString(&g_NullDate, \"1.1.1\")`. Bare `ret`. Its neighbour at rva 0x8A8230 does the same for the global after it with `9999.1.1`.",
+   "confidence": "confirmed",
+   "evidence": "VA 0xCA8210-0xCA8221 read; the pointer 0xCA8210 sits in the initialiser table at VA 0xD2BD78 (findValue in .rdata), and nothing calls it directly."
+  }
+ ],
+ "structs": [
+  {
+   "name": "CChangeLawCommand",
+   "size": "0x50",
+   "inherits": "CCommand",
+   "vftable_rva": "0x11C3D24",
+   "comment": "A change of one law group's law, posted by the politics screen, the AI's Lua, and CCountry_RevertDisallowedLaws. Saved and loaded as law (index), position (group index), country, is_law_change_costs, postMessage. See reversing/findings/FINDINGS-government.md, section A.",
+   "evidence": "Size from `new 0x50` at every construction site (0x4D5947, 0x54FD7C, 0x88610F, the Lua holder 0x989BF0). vftable 0x15C3D24 (VA) from findRefs --vftable; CCommand at offset 0 (the constructor calls the CCommand base inline and writes CCommand's table first)."
+  },
+  {
+   "name": "CChangeMinisterCommand",
+   "size": "0x4C",
+   "inherits": "CCommand",
+   "vftable_rva": "0x11C3C24",
+   "comment": "A minister put into one cabinet post, posted by the politics screen, the AI (Lua and the weekly filling of empty posts). Saved and loaded as id (an object reference to the minister), position (index), country. See reversing/findings/FINDINGS-government.md, section A.",
+   "evidence": "Size from `new 0x4C` in Clone (0x54ECDC), the AI site (0x8A1F1D), the screen (0x6C1A60) and the Lua holder (0x989CD0). vftable 0x15C3C24 (VA) from findRefs --vftable."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CChangeLawCommand",
+   "offset": "0x3C",
+   "name": "country_tag",
+   "type": "char[4]",
+   "comment": "The country the law changes for, its letters; the id half is +0x40.",
+   "evidence": "Stored from the constructor's tag argument at 0x54EEAF; LoadKey's `country` case writes the tag here and the id at +0x40."
+  },
+  {
+   "struct": "CChangeLawCommand",
+   "offset": "0x40",
+   "name": "country_id",
+   "type": "int",
+   "comment": "The country's id: Execute indexes the country database with it, IsValid refuses 0, and the message goes only where it equals CCurrentGameState +0xC34.",
+   "evidence": "0x54EF9F (Execute), 0x54FDF3 (IsValid), 0x54F09A (the player gate)."
+  },
+  {
+   "struct": "CChangeLawCommand",
+   "offset": "0x44",
+   "name": "law",
+   "type": "CLaw*",
+   "comment": "The law to put in. Saved as its index in the law database's law vector (`law` key).",
+   "evidence": "Stored at 0x54EEBE; written into laws[] at 0x54EFB0; LoadKey's `law` case indexes GetLawDataBase()+0x18; IsValid calls its slot 16."
+  },
+  {
+   "struct": "CChangeLawCommand",
+   "offset": "0x48",
+   "name": "group",
+   "type": "CLawGroup*",
+   "comment": "The law group whose slot is written - its +0x50 is the index. Nothing checks that the law at +0x44 belongs to it. Saved as `position`.",
+   "evidence": "Stored at 0x54EEC1; `mov edx,[esi+0x48]; mov edx,[edx+0x50]` at 0x54EF88; LoadKey's `position` case indexes GetLawDataBase()+0x28."
+  },
+  {
+   "struct": "CChangeLawCommand",
+   "offset": "0x4C",
+   "name": "pay_cost",
+   "type": "bool",
+   "comment": "Take CCountry_GetLawChangeCost off the country's money. Kept from the constructor only while in_game is set, else 0; 1 in the prototype; saved as `is_law_change_costs`.",
+   "evidence": "The gate `cmp byte [esi+0x4C], bl` at 0x54EFB7; the constructor's in_game arm 0x54EF2E-0x54EF44; LoadKey's 0x7CA arm."
+  },
+  {
+   "struct": "CChangeLawCommand",
+   "offset": "0x4D",
+   "name": "post_message",
+   "type": "bool",
+   "comment": "Raise LAW_APPOINTED when the country is the local player's. Same in_game rule as +0x4C; saved as `postMessage`.",
+   "evidence": "The gate `cmp byte [esi+0x4D], bl` at 0x54F0A9; the constructor 0x54EF3F; LoadKey's 0x7CB arm."
+  },
+  {
+   "struct": "CChangeMinisterCommand",
+   "offset": "0x3C",
+   "name": "country_tag",
+   "type": "char[4]",
+   "comment": "The country, its letters; the id half is +0x40.",
+   "evidence": "Stored at 0x54E29C from the constructor; LoadKey's `country` case."
+  },
+  {
+   "struct": "CChangeMinisterCommand",
+   "offset": "0x40",
+   "name": "country_id",
+   "type": "int",
+   "comment": "The country's id: Execute indexes the country database with it, IsValid refuses 0, the message goes only where it equals CCurrentGameState +0xC34.",
+   "evidence": "0x54E30C (Execute), 0x54ED43 (IsValid), 0x54E3A4 (the player gate)."
+  },
+  {
+   "struct": "CChangeMinisterCommand",
+   "offset": "0x44",
+   "name": "minister",
+   "type": "CMinister*",
+   "comment": "The minister to put in the post - a pointer, saved as an object reference under the key `id`.",
+   "evidence": "Stored at 0x54E2AF; written into ministers[] at 0x54E31E; LoadKey's `id` case resolves FindPersistentById; IsValid calls its slot 8."
+  },
+  {
+   "struct": "CChangeMinisterCommand",
+   "offset": "0x48",
+   "name": "position",
+   "type": "CGovernmentPosition*",
+   "comment": "The cabinet post - its +0x4C is the index. Saved as `position`, an index into GetGovernmentPositions().",
+   "evidence": "Stored at 0x54E2BB; `mov edx,[edi+0x48]; mov edx,[edx+0x4c]` at 0x54E312; IsValid calls its slot 14."
+  },
+  {
+   "struct": "CLaw",
+   "offset": "0x94",
+   "name": "cost",
+   "type": "int",
+   "comment": "The law's `cost`, thousandths (0.5 on every law the base game and Their Finest Hour ship). Multiplied into thirty days of money at full MaxIC by CCountry_GetLawChangeCost.",
+   "evidence": "CLaw::LoadKey's `cost` case parses into this+0x94 (0x5293B9); read at 0x4F0662 (`mov eax,[ecx+0x94]; imul`)."
+  },
+  {
+   "struct": "CLawGroup",
+   "offset": "0xC",
+   "name": "laws",
+   "type": "void*",
+   "comment": "Head of the group's list of its laws: a node is {CLaw*, next} with next at node+4. CCountry_RevertDisallowedLaws walks it in order and takes the first law whose allow holds, so this order is the order of preference there.",
+   "evidence": "RevertDisallowedLaws: `mov eax,[ebx+0x50]` (the law's group), `mov edi,[eax+0xc]`, then `mov esi,[edi]; mov edi,[edi+4]` (0x4D58FD-0x4D5917). The order it holds (file order is the likely one) was not read in CLawGroup::LoadKey."
+  },
+  {
+   "struct": "CInGameIdler",
+   "offset": "0x1318",
+   "name": "top_bar",
+   "type": "CTopBar*",
+   "comment": "The top bar, made in CInGameIdler::Enter after a new game's two first days have run. Idler slot 57 answers false while it is null - which gates the daily pass's adding of ministers on their start date and the one-shot AI kick.",
+   "evidence": "0x65D727 calls CTopBar::CTopBar on `new 0x384` and 0x65D73C stores the result here; the getter 0x643980 is `mov eax,[ecx+0x1318]; ret`; slot 57 (0x662FA0) opens `cmp dword [ecx+0x1318], 0`."
+  }
+ ],
+ "vftable_slots": {
+  "CChangeLawCommand": {
+   "6": "Execute",
+   "7": "GetTypeId",
+   "13": "Clone",
+   "14": "IsValid"
+  },
+  "CChangeMinisterCommand": {
+   "6": "Execute",
+   "7": "GetTypeId",
+   "13": "Clone",
+   "14": "IsValid"
+  }
+ },
+ "frontier": [
+  "0x129120",
+  "0x262FA0",
+  "0x2C1A60",
+  "0x2B9610",
+  "0x2B9D80",
+  "0x1F0130",
+  "0x1F0360",
+  "0x2052CB",
+  "0x8A8230"
+ ]
+}

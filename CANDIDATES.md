@@ -446,6 +446,25 @@ on every machine as now, or out of it into a host-side step that only posts comm
 kept off the shared generator. **For BiceLib** it decides whether a hook on an AI function fires on
 every peer or on the host alone, which the multiplayer-safe command framework has to know.
 
+## Two questions the politics wave left, both against the start save - 2026-10-14 `[both]`
+
+`findings/FINDINGS-government.md` read the politics whole and left two things the bytes and the start save
+(`Germany1936_01_01_00.hoi3`) disagree on. Each would be settled by a live read at a new game's first
+screen.
+
+1. **The minister pool at a new game** (section A.6). `SetUpCountryForNewGame` appends a historical minister
+   only where `start_date <= now < death_date` (`0x4D67D3`..`0x4D67E0`), and a minister with no death date
+   keeps the constructor's `g_NullDate`, 1.1.1 (`0x52C3E6`) - so the bytes leave out every minister with no
+   death date. The save pools all of them, in file order: 1,998 ids, Hitler among them. No other writer of
+   `CCountry +0x160` explains it (swept). **Read live**: a minister with no death date's `+0x58`, and a
+   country's pool count straight after `SetUpCountryForNewGame`.
+2. **What runs the AI's `Laws()` more than once** (section E.1). The only call of the `Laws` global is in
+   `SetUpCountryForNewGame`, once per country, but the start save holds the point that repeated passes reach
+   (Germany two laws up in two groups, Japan three in one), with the posted commands executed in between.
+   **Read live**: a hook on `PrepareLuaCall_Laws`, counting calls per country before the first hour.
+
+OpenHOI3 follows the save on both until they are settled.
+
 ## The planned next wave is in `WAVE.md`
 
 **It is not in this file any more.** `WAVE.md` holds the wave that is planned and has not launched,
@@ -966,7 +985,7 @@ of it.
 
 ## What has already been read
 
-156 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
+157 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
 header lives. This replaces the `Done` archive: the archive restated each file's headline and named
 only 40 of the 67 there were then, so it was both longer and less useful than a complete list.
 
@@ -1170,6 +1189,7 @@ the six it was missing were wave 15's.
 | `findings/FINDINGS-alignment.md` | **the alignment triangle**: a country starts at its history's point, unclamped, and **steps once on a new game's first day** - the start save 93 of 101 to the thousandth; the step every `ALIGNMENT_INTERVAL` + 1 days, not saved; the seven terms with the two floors (0.1, 0.25); **revanchism 5 x (1 - s)**, the clamp to the triangle with its sign slip; the acting capital, the distance and the day's order threat's spread needs |
 | `findings/FINDINGS-diplomacyview.md` | **the diplomacy screen element by element**: the five tabs and who each lists, one sort flag for nine buttons, a row with its threat and seven tinted icons and their tooltip, choosing a country; the chosen country's panel, its 19 kinds of status line, the relation list with its colours and the drift tooltip, the war goals, the influences, and every tooltip; the triangle's markers and where they stand, the faction boxes, a marker's drift tooltip sorted by faction, a faction's rules and modifier, the relation's breakdown and the war ceiling's lines |
 | `findings/FINDINGS-eventfire.md` | **an event firing, a decision taken, and the two windows**: `FireEvent` read whole - who answers, `immediate` first, the AI's option drawn on a wall-clock-seeded MT19937, a person's window answering itself with option 0 after four months - the option and decision commands, the already-fired registry, the on_actions (unweighted; the only way a province event fires), decisions (no taken-marker, `ai_will_do` never read, the AI's chance in Lua, only the diplomatic group offered), the event window by element and its `$VARIABLES$`, and the decision list |
+| `findings/FINDINGS-government.md` | **the politics wave**, five briefs. **A**: `CChangeLawCommand` and `CChangeMinisterCommand` whole - nothing checked in `Execute`, whoever posts is responsible; a law change charges `cost x 30 days of money at MaxIC` to a country a person plays, tells `LAW_APPOINTED`, rebuilds the modifier and cuts every brigade to its new ceiling; a minister change only writes the post and tells `MINISTER_APPOINTED`; `CCountry_FillMinisterPosts` (the **last** group-mate wins, 220/220 posts), the pool and the peace-time revert of disallowed laws; no minister ever dies. **B**: `CIdeologyData` and its five-slot tally; the **monthly** party drift (a tenth of the gap to organisation, `ruling_party_support`, a random 0..999 draw, the minister dissent penalty) - 101/101 null parties; `CCountry_AllotCabinetSeats` whole, 606/606 cabinets; the election's schedule (`g_NullDate` means "hold one now", elections never forced); the coup. **C**: dissent has no decay - consumer goods and script only; **national unity moves daily** by a thirtieth of a monthly figure, damped by the square root of the distance from 50, through `ChangeNationalUnity`'s three callers; strategic warfare's three lists; what both do elsewhere; the daily pass's unread helpers named. **D**: `CPoliticsView` element by element - the pie, the organisation bars, the legend, the elections line, the cabinet rows and the minister choice, the law rows, the cost and the confirmation, mobilisation, puppets and liberation, every tooltip, the top bar's button; the seven `C*Change` history classes, replayed at start and never in play. **E**: the AI's politics - `CAIPoliticsMinister` daily in hour `(id + 17) mod 24`, a C++ refill of empty posts on the 1st, 8th, 15th, 22nd and 29th, `PoliticsMinister_Tick`'s draws on the game state's own generator, `Laws()` run for every country (the player's too) while a new game is set up, free and silent, and the Lua API it reaches. Corrects `FINDINGS-politics.md` (phase 4's sentinel and forced election, `0x4F72F0`, `+0xBCC`'s call, the database names), `FINDINGS-luaapi.md` (`GetRulingIdeology`), `FINDINGS-ai.md` (the politics minister's constructor) and `RandomThousandths` |
 
 ## A method worth reusing
 

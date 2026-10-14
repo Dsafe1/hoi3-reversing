@@ -17,31 +17,33 @@ truth.
 
 ---
 
-## The faction wave - joining, leaving, and what a faction is worth
+## The politics wave - laws, ministers, parties, dissent and unity, the screen, and the AI's politics
 
-> **LANDED 2026-10-13.** Three briefs, merged (54 address entries, 35 of them new; 5 structs declared, 28 fields; apply 189/190 `failed: 0`, `struct fields: 0`); the write-up is `findings/FINDINGS-factionplay.md`, indexed in `CANDIDATES.md`.
+> **LANDED 2026-10-14.** Five briefs, merged (171 address entries; 16 structs declared, 81 fields; apply 193/194 `failed: 0`, `struct fields: 0`); the write-up is `findings/FINDINGS-government.md`, indexed in `CANDIDATES.md`. Two questions left open are queued there: the minister pool at a new game, and what runs the AI's `Laws()` more than once before the start save.
 
-Planned and launched 2026-10-13, for OpenHOI3, whose diplomacy the maintainer cut into "what two countries
-hold of each other; the diplomacy screen; Lua; the agreements; war and peace; factions". The first five are
-built; this is the last. Membership already exists there - a country's faction, the order members joined,
-leaving when owning nothing, a declaration putting the victim into the enemy's faction - but a country cannot
-join or leave one by diplomacy or script, a faction's progress is nought, and what membership gives beyond
-the triangle is unbuilt. Three briefs; the write-up is the new `findings/FINDINGS-factionplay.md`, sections A
-to C.
+Planned and launched 2026-10-14, for OpenHOI3, whose stage 4 lists "diplomacy, factions, politics, espionage,
+occupation, revolt"; diplomacy and factions are built. What OpenHOI3 has: a country's laws and ministers as
+the history gives them, its ruling party and government, dissent moved by consumer goods, national unity held
+at one; nothing changes a law or a minister, parties have no figures, and every condition and effect on the
+government, the parties and the ministers reports as unbuilt. Five briefs; the write-up is the new
+`findings/FINDINGS-government.md`, sections A to E.
 
-**What is known and is not to be redone:** `FINDINGS-faction.md` whole (`CFaction::AddCountry` and its war
-sweep, `AddMember`, leadership being positional, no alliance from a join, `CCountry::LeaveFaction`,
-`CFactionJoin`/`CFactionLeave`, `CJoinFactionEffect::Execute`, the six `AddCountry` callers, `0xE70A0` and
-`0xFBC10`); `FINDINGS-diploaction.md` (`CFactionAction::Apply`'s gate and its influence charge, its message
-keys, `CFactionAction::Create`); `FINDINGS-agreements.md` section B (the join and invite rows' slots 11 and
-13, B.9's swapped neutrality limits); `FINDINGS-diplomacyview.md` (the faction boxes, `victory_progress` and
-`CFaction_BuildProgressTooltip`, `CFaction_DescribeRulesAndModifier`); `FINDINGS-politics.md`
-(`IsWithinFactionJoinDistance`); `FINDINGS-alignment.md`; `FINDINGS-triggerleaves.md`
-(`CFactionProgressTrigger::Evaluate`); `FINDINGS-effectrun.md` (`leave_faction`); `FINDINGS-surrender.md`
-(`FactionLeaderPromotion`, the exile and a faction).
+**What is known and is not to be redone:** `FINDINGS-politics.md` (the country's daily pass and its order,
+phase 4's schedule of elections, `CCountry +0x618` ministers and `+0x628` laws, the three law accessors);
+`FINDINGS-effectrun.md` sections 1.4 and 1.5 (`organisation` and `popularity`, `coup_by`, `do_election` and
+`CCountry_HoldElection`'s scoring, a government position `= id`, `remove_minister`); `FINDINGS-triggerleaves.md`
+(`minister_alive`, the government position, `government`, `has_removable_minister`, `ideology`,
+`ideology_group`); `FINDINGS-numtriggers.md` (`dissent`, `national_unity`, `popularity` and `organisation` as
+conditions); `FINDINGS-distribute.md` (consumer goods' dissent, `CDistributeConsumerGoods::GetDissentChange`);
+`FINDINGS-topbar.md` and `FINDINGS-topbartooltip.md` (what the top bar shows of dissent and national unity);
+`FINDINGS-espionage.md` (`CSpyPresence::ApplyUnityModifiers`, the coup mission); `FINDINGS-ai.md` (when the AI's
+ministers tick); `FINDINGS-luaapi.md` and `FINDINGS-luahost.md` (the Lua API read so far and the state);
+`FINDINGS-fieldmap.md` (the history keys); `FINDINGS-alignment.md`; `FINDINGS-revolt.md`.
 
 | brief | what | fragment |
 | --- | --- | --- |
-| A | **joining and inviting**: `CFactionAction` whole on the listing - which of actor and recipient joins in each direction, `IsValid`, `IsSelectable` and `GetDescription` exactly, `Apply` past its gate (both arms of `AddCountry`'s call, the messages and who is told), `GetAIAcceptance` and the Lua it asks, `AskPlayer` and `CAskFaction`; and `CJoinFactionGoalAction` with `GetJoinFactionGoalScoreFromLua` - what it is, who makes one and what it does | `faction-join.json` |
-| B | **leaving, and what membership gives**: the player's leave from the screen (`CDiplomacyView::OnCgmLeaveFaction`, `Cgm_IsLeavingFaction`, `Cgm_GetFactionJoining`, `CCgmLeaveFactionCommand` and its execution) and whether a leave waits; `CFaction::RemoveMember` to `confirmed`; who reads `IsWithinFactionStratBonusDistance` and what that bonus is; who reads the rules `0xFBC10` builds (`CCountry +0xDBC`) and what each rule does; anything else a member gets from its faction that OpenHOI3 would miss | `faction-leave.json` |
-| C | **a faction's progress and the victory conditions**: `CFaction::GetVictoryPointShare` whole (which provinces' points - owned, held, cores, by whom - over what total, rounding, caps), `faction_progress` set against it, the victory conditions (what they are, where they are defined or chosen - `CChooseVictoryConditionsCommand` - `VictoryConditions_CountForFaction` / `CountMetForFaction`), and what, if anything, a faction meeting them or the end date does to the game | `faction-progress.json` |
+| A | **a law or a minister changed**: `CChangeLawCommand` and `CChangeMinisterCommand` whole - who may post one, what is checked before and in `Execute`, and everything a change sets off at once or later (a law's `allow`, the cost or delay if any, dissent, the modifier, the brigades, history, messages); which ministers a post may take - `CMinister::CanTakePosition`, `IsValid` (slot 8), ideology against the ruling party, dates, the pool `+0x160` and how it is made; `CCountry_FillMinisterPosts` (inferred) whole and **who calls it when**, the start of a game included; ministers dying or retiring as the days pass | `politics-change.json` |
+| B | **the parties over time**: `CIdeologyData` and the country's two of them (popularity, organisation): where they come from (the history), **every writer** - what moves popularity and organisation day by day or month by month, by laws, ministers, events or drift - with the defines; `CCountry_AllotCabinetSeats` (inferred) whole and who reads the seats; `CIdeologyData::GetLeading` (inferred) to confirmed; the tally at `+0x18`; the forced election and the "never" sentinel left open in `FINDINGS-politics.md` phase 4; `CPerformCoupCommand` (`from`, `to`) - who posts one and what it does | `politics-parties.json` |
+| C | **dissent and national unity**: every writer of dissent (`CCountry +0x10B4`) besides consumer goods and the rebels' zeroing - its daily decay or drift, ministers and laws - and of national unity through `CCountry::ChangeNationalUnity` (every caller and why: war, occupation, events, espionage); what dissent and national unity **do** elsewhere (a surrender level, IC, revolts - say where and stop: revolts are a later wave); and the unread helpers of the country's daily pass (`FINDINGS-politics.md`, "The rest of the pass") - name each one and say which touch politics | `politics-unity.json` |
+| D | **the politics screen**: `CPoliticsView` whole - every element it finds by name in `interface/` and what it writes there, the parties' figures, the cabinet with `CMinisterItem`, the laws with `CLawEntry`, `CPossibleLawEntry` and `CLawChangeConfirmDialog`, what each button posts, every tooltip with its keys and variables; the `C*Change` history classes (`CLawChange`, `CMinisterChange`, `CIdeologyChange`, `CGovernmentChange`, `CPopularityChange`, `CDissentChange`, `CNationalUnityChange`) - who writes and who **reads** them; and the top bar's politics button | `politics-view.json` |
+| E | **the AI's politics**: `CAIPoliticsMinister::DoWork` and `Lua_PoliticsMinister_Tick` - for which countries and when (the player's excluded or not; whether it runs in a new game's first days, which is how the original's first screen has other laws than the history); every method the install's `tfh/script/ai_politics_minister.lua` reaches that `FINDINGS-luaapi.md` has not read - `CLawDataBase`, `CLaw:ValidFor`/`GetGroup`/`GetIndex`, `CCountry:GetLaw`/`GetMinister`/`GetPossibleMinisters`/`GetRulingIdeology`, `CGovernmentPositionDataBase`, `CMinister:CanTakePosition`, `CChangeLawCommand(...)`, `CChangeMinisterCommand(...)`, `ai:Post`/`CCurrentGameState.Post`, `CCurrentGameState.GetAIRand` (which generator) and the rest - on the listing, as `FINDINGS-luaapi.md` did; and what `CToggleMobilizationCommand` and `CLiberateCountryCommand` do when the AI posts them | `politics-ai.json` |

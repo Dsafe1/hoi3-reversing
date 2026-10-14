@@ -1,0 +1,299 @@
+{
+ "agent": "politics wave, reader C (dissent and national unity)",
+ "question": "Every writer of dissent (CCountry +0x10B4) and of national unity (+0x10B8, every caller of CCountry::ChangeNationalUnity), with the defines; what the two do elsewhere; and the unread helpers of the country's daily pass.",
+ "source": "reversing/findings/FINDINGS-government.md",
+ "addresses": [
+  {
+   "rva": "0xF8B80",
+   "kind": "function",
+   "name": "CCountry::ChangeNationalUnity",
+   "signature": "void __fastcall CCountry::ChangeNationalUnity(CCountry* this@ESI, int delta@stack:4)",
+   "no_signature": null,
+   "comment": "**The one adder of national unity (`CCountry +0x10B8`).** 0xF8B80 to the `ret 4` at 0xF8BD5, eight int3 after. `this->+0x10B8 += delta * (1000 + values[MODIFIER_NATIONAL_UNITY_EFFECT, id 68, +0x220]) / 1000` - a signed `imul` into edx:eax and __alldiv, so truncated toward zero - then held to at most 100000 and at least 1000: **national unity lives in thousandths between 1.0 and 100.0**, and every change made through here is scaled by the country's national_unity_effect (press laws, minister types). The country arrives in ESI and the delta on the stack, like CCountry::ChangeNeutrality (0xFBF80). **Exactly three callers** (an E8/E9 scan of .text): the daily drift in RunCountryDailyPass (rva 0xDA890, see RunCountryDailyPass_NationalUnityDrift), the nuclear bomb in CNukeMission::IsActive (rva 0x193D94, `-(NUKE_UNITY_IMPACT * factor / 1000)`), and CNationalUnityEffect::Execute (rva 0x5B1A04, the `national_unity` effect). Nothing else adds to national unity: war declared or received, provinces or capitals lost, occupation and surrender call none of these. Two other writers set it outright, both through CCountry::SetNationalUnity (0xF8B40): a history `national_unity` entry (CNationalUnityChange slot 7) and the `setnationalunity` console command; and CCountry::LoadKey reads it raw from a save. See reversing/findings/FINDINGS-government.md, section C.",
+   "confidence": "confirmed",
+   "evidence": "VAs. Listing 0x4F8B80-0x4F8BD5 read whole: `mov eax,[esi+0xda8]; mov eax,[eax+0x220]; add eax,0x3e8; imul dword [ebp+8]; push 0; push 0x3e8; push edx; push eax; call 0xb99980; add [esi+0x10b8],eax`, then the two clamps (cmp/jle 0x186a0, cmp/jge 0x3e8). The callers: a byte scan of every E8 and E9 rel32 in .text whose target is 0x4F8B80 answers 0x4DA890, 0x593D94, 0x9B1A04 and no jmp (the same scan answers the known three callers of 0x530600, its positive control); findRefs --address finds no pointer to it in code. Would be wrong if a caller reached it through a register call - nothing takes its address.",
+   "source": "reversing/findings/FINDINGS-government.md",
+   "revises": "Said 'The only writer of CCountry +0x10B8' and 'Its one caller found here is CNationalUnityEffect::Execute'. It has three callers - the daily drift and the nuke besides the effect - and it is not the only writer: CCountry::SetNationalUnity (0xF8B40) sets the field outright for history and the console, and the save loader reads it raw. The truncation toward zero of the scaling is now stated."
+  },
+  {
+   "rva": "0xF8B00",
+   "kind": "function",
+   "name": "CCountry::SetDissent",
+   "signature": "void __thiscall CCountry::SetDissent(CCountry* this, int value)",
+   "no_signature": null,
+   "comment": "**Sets dissent (`CCountry +0x10B4`) outright, floored at 0, no upper clamp.** 0xF8B00 to the `ret 4` at 0xF8B1B. Two callers, both in CDissentChange's slot 7 (rva 0x1F1C40, the history entry `dissent = N`: forward keeps the old figure at +0x14 and sets +0x10; backward puts the kept one back). Not registered with Lua - only the getter CCountry::GetDissent (0xF8AE0) is.",
+   "confidence": "confirmed",
+   "evidence": "VAs. Listing 0x4F8B00-0x4F8B1B: `mov eax,[ebp+8]; mov [ecx+0x10b4],eax; test eax,eax; jns; mov dword [ecx+0x10b4],0; ret 4`. Callers by an E8/E9 scan: 0x5F1C9D and 0x5F1CBF only, both inside 0x5F1C40, which vtable.py --holding gives as CDissentChange slot 7 alone. luabind.json names 0x4F8AE0 (GetDissent) and nothing at 0x4F8B00.",
+   "source": "reversing/findings/FINDINGS-government.md"
+  },
+  {
+   "rva": "0xF8B40",
+   "kind": "function",
+   "name": "CCountry::SetNationalUnity",
+   "signature": "void __fastcall CCountry::SetNationalUnity(CCountry* this@EAX, int value@stack:4)",
+   "no_signature": null,
+   "comment": "**Sets national unity (`CCountry +0x10B8`) outright, held to 1000..100000** - with no national_unity_effect scaling, unlike CCountry::ChangeNationalUnity. The country in EAX, the value on the stack, `ret 4` at 0xF8B72. Three callers: CNationalUnityChange's slot 7 twice (rva 0x1F1130, the history entry `national_unity = N`, forward and backward) and ConsoleCmd_SetNationalUnity (0x3F650). This is how a new game's national unity comes out of the country's history; a country whose history has none keeps the constructor's 0 until its first daily pass, whose CCountry::ChangeNationalUnity raises it to the 1.0 floor (REB is 1.000 in every save).",
+   "confidence": "confirmed",
+   "evidence": "VAs. Listing 0x4F8B40-0x4F8B72: `mov ecx,[ebp+8]; mov [eax+0x10b8],ecx; cmp ecx,0x186a0; jle; mov [eax+0x10b8],0x186a0; mov ecx,0x3e8; cmp [eax+0x10b8],ecx; jge; mov [eax+0x10b8],ecx; ret 4`. Callers by an E8/E9 scan: 0x43F84C, 0x5F118D, 0x5F11AF; at 0x43F83B-0x43F841 EAX is gamestate->+0xBBC[tag id], the country. CCountry::CCountry stores edi (0, from `xor edi,edi` at 0x4C8AF7 and never rewritten) to +0x10B8 at 0x4C9A27.",
+   "source": "reversing/findings/FINDINGS-government.md"
+  },
+  {
+   "rva": "0xDA727",
+   "kind": "instruction",
+   "name": "RunCountryDailyPass_NationalUnityDrift",
+   "signature": null,
+   "no_signature": null,
+   "comment": "**National unity's daily change**, 0xDA727-0xDA895 in RunCountryDailyPass, for every country the pass runs for, unconditionally (REB and provinceless countries included), after RebuildStaticModifiers and before the manpower gain. (1) StrategicWarfare_PruneList on the three lists of the embedded CStrategicWarfare (+0x1184): convoy (+0x119C), alliance (+0x11AC), ground bombing (+0x11BC), dropping entries dated more than 168 hours before now; (2) CStrategicWarfare::RecomputeImpacts: each impact = the sum of its list, held to -2.000..2.000; (3) `month = fp15(convoy + allies + bombing) + max(fp15(values[MODIFIER_NATIONAL_UNITY, id 44, +0x160]), -1.0)`, where fp15(x) = trunc(x * 32768 / 1000); `day = trunc(month / 30)`; (4) **only away from 50**: where unity < 49000 and day < 0, `day = trunc(day / IntegerSqrt(50 - trunc(unity / 1000)))`; where unity > 51000 and day > 0, `day = trunc(day / IntegerSqrt(trunc(unity / 1000) - 50))`; (5) `delta = floor(day * 1000 / 32768)` (an arithmetic shift, so any negative fraction is at least -0.001 and a positive one under 0.001 is nothing) and CCountry::ChangeNationalUnity(country, delta), which scales by national_unity_effect and clamps. So the figures every source of the `national_unity` modifier and the three strategic-warfare impacts carry are **per month**, which is what the top bar's tooltip calls them (STRMONTHLY_CHANGE). Measured: between the maintainer's saves of 4 and 8 January 1936 all 21 countries whose cabinet holds no party of another ideology group than the ruling one stood still (and 2 rose), and every country that fell has such a party - static `fractured_government` (national_unity -0.05), -2 a day before scaling; propaganda_press (-0.1) or state_press (-0.05) turns it into -1, free_press (+0.2) leaves -2.",
+   "confidence": "confirmed",
+   "evidence": "VAs. Listing 0x4DA727-0x4DA895 read whole: the three `lea esi,[edi+0x18/0x28/0x38]; call 0x530950` with edi = ebx+0x1184 and [ebp-0x28] = gamestate->tick; `call 0x530ca0`; the sum of [ebx+0x1194],[ebx+0x1190],[ebx+0x118c] shifted by 30 over 0x1F40000; [[ebx+0xda8]+0x160] the same, floored at 0xFFFF8000 (edx -1) at 0x4DA7B4-0x4DA7C7; the sum shifted by 15 over 0xF0000 (30 << 15) at 0x4DA7DE; the two gates `cmp ecx,0xbf68`/`cmp ecx,0xc738` with the sign tests (the `test esi,esi; jae` at 0x4DA7FC is always taken, so only a negative high dword damps downward); the magic-number divide by 1000 and `sub edi`/`lea edi,[edx+eax-0x32]`; IntegerSqrt (0x46C2E0, value in edi); __allmul by 0x1F40000 and `shrd/sar 0xf` twice at 0x4DA879-0x4DA88B; `call 0x4f8b80` with the delta as the one stack argument and esi = ebx. The save check is reversing/findings/FINDINGS-government.md section C.5; it would be wrong if a cabinet changed between the two saves for the countries counted.",
+   "source": "reversing/findings/FINDINGS-government.md"
+  },
+  {
+   "rva": "0x130950",
+   "kind": "function",
+   "name": "StrategicWarfare_PruneList",
+   "signature": "void __stdcall StrategicWarfare_PruneList(CList* list@ESI, int now@stack:4)",
+   "no_signature": null,
+   "comment": "Drops from the head of one of CStrategicWarfare's three lists every entry dated earlier than `now - 168` (hours, so a week): while the list has entries and the head's data (an 8-byte {date, value}) has `date < now - 168`, the node is unlinked and freed and the data freed. **It walks from the head and stops at the first young entry**, so it relies on the lists being in date order, which the adders keep by appending with the current hour. Where the list's own flag byte (+0xC) is set it only marks the node (+0xC = 1) and frees the data, and goes round again on the same node - a double free if ever reached; nothing in the image sets that flag on these lists as far as was looked. Called three times by RunCountryDailyPass at 0xDA734/0xDA740/0xDA74C. 0x130950 to the `ret 4` at 0x1309AB.",
+   "confidence": "confirmed",
+   "evidence": "VAs. Listing 0x530950-0x5309AB read whole: `sub dword [ebp+8],0xa8`; `cmp [esi+8],ebx; je`; head `[esi]`, data `[eax]`, `cmp [edi],ecx; jge` to the exit; the unlink of head through [eax+8] and [ecx+4]/[esi+4]; `dec [esi+8]`; `push edi; call 0xb95f9b` (free); `cmp [esi+8],ebx; jne 0x530963`, the loop the decompiler dropped. E8/E9 scan: three callers, 0x4DA734, 0x4DA740, 0x4DA74C.",
+   "source": "reversing/findings/FINDINGS-government.md"
+  },
+  {
+   "rva": "0x130CA0",
+   "kind": "function",
+   "name": "CStrategicWarfare::RecomputeImpacts",
+   "signature": "void __fastcall CStrategicWarfare::RecomputeImpacts(CStrategicWarfare* this@EDI)",
+   "no_signature": null,
+   "comment": "`ConvoyImpact (+0x8) = clamp(sum of the convoy list's values (+0x18), -K, K)`, `AlliesImpact (+0xC)` from the alliance list (+0x28), `BombingImpact (+0x10)` from the ground-bombing list (+0x38), K = the dword at VA 0x170D1F4, **2000 (2.0) in initialised data and never written** - not a define. Called every day by RunCountryDailyPass (0xDA751) and by CStrategicWarfare::AfterLoad (0x130C90). 0x130CA0 to the bare `ret`s at 0x130D32/0x130D36.",
+   "confidence": "confirmed",
+   "evidence": "VAs. Listing 0x530CA0-0x530D36 read whole: three loops `mov edx,[eax]; mov eax,[eax+8]; add ecx,[edx+4]` over [edi+0x18], [edi+0x28], [edi+0x38], each clamped with `mov esi,[0x170d1f4]; neg; cmovl; cmovg` and stored to [edi+8], [edi+0xc], [edi+0x10]. The global: image.read gives 0x7D0; its seven code references (0x530697, 0x530767, 0x530863, 0x530CBD, 0x530CEC, 0x530D1C, 0x530FAF) all decode as loads. Callers by E8/E9 scan: 0x4DA751 and 0x530C93.",
+   "source": "reversing/findings/FINDINGS-government.md"
+  },
+  {
+   "rva": "0x130C90",
+   "kind": "function",
+   "name": "CStrategicWarfare::AfterLoad",
+   "signature": "void __thiscall CStrategicWarfare::AfterLoad(CStrategicWarfare* this)",
+   "no_signature": null,
+   "comment": "CPersistent slot 5 for CStrategicWarfare: `push edi; mov edi,ecx; call CStrategicWarfare::RecomputeImpacts; pop edi; ret` - so the three impacts are rebuilt from the saved lists rather than trusted. One holder.",
+   "confidence": "confirmed",
+   "evidence": "VAs. Listing 0x530C90-0x530C99 whole; vtable.py --holding 0x530C90: CStrategicWarfare slot 5 only (table 0x15C1CD4); the RTTI export lists 0x530C90 as the slot 5 CStrategicWarfare introduces.",
+   "source": "reversing/findings/FINDINGS-government.md"
+  },
+  {
+   "rva": "0x130600",
+   "kind": "function",
+   "name": "CStrategicWarfare::AddConvoyImpact",
+   "signature": "void __fastcall CStrategicWarfare::AddConvoyImpact(CStrategicWarfare* this@EDI, int value@stack:4, int date@stack:8)",
+   "no_signature": null,
+   "comment": "`v = value * StrategicWarfare_GetICScale(this) / 1000` (truncated); appends {date, v} to the convoy list (+0x18, last +0x1C, count +0x20) and adds v to ConvoyImpact (+0x8), held to -2.0..2.0. Callers: ResolveConvoyRaid twice (a raid beaten off, a raid that sank ships) and CCombat::Tick in a naval battle's first hour (STRAT_RAIDER_FOUGHT_IMPACT to the attacker's first country where a defending unit is under convoy_raid 0x6E9 or patrol 0x42E). The date passed is gamestate +0xBDC, the current hour. `ret 8`.",
+   "confidence": "confirmed",
+   "evidence": "VAs. Listing 0x530600-0x5306C0 read whole: `push edi` doubles as the argument of 0x530890 (which ends `ret 4`; this function's epilogue pops only esi and ebx), `imul [ebp+8]; __alldiv 1000`; `new(8)` gets [ebp+0xc] and the value; `new(0x10)` linked at [edi+0x1c]/[edi+0x20]/[edi+0x18]; `add [edi+8],eax` and the clamp on [0x170d1f4]. Callers by E8/E9 scan: 0x56F089, 0x5D2001, 0x5D27CE; at each `lea edi,[country+0x1184]` precedes the call.",
+   "source": "reversing/findings/FINDINGS-government.md"
+  },
+  {
+   "rva": "0x1306D0",
+   "kind": "function",
+   "name": "CStrategicWarfare::AddAlliesImpact",
+   "signature": "void __fastcall CStrategicWarfare::AddAlliesImpact(CStrategicWarfare* this@EDI, int value@stack:4, int date@stack:8)",
+   "no_signature": null,
+   "comment": "CStrategicWarfare::AddConvoyImpact's twin on the alliance list (+0x28, last +0x2C, count +0x30) and AlliesImpact (+0xC). One caller, CLandCombatant::Attack at the turn of each day, for the country C that controls the battle's province (for an attacking side whose first unit's owner is a friend of the province's owner, the province that unit stands in): only where that province is in the area of C's acting capital, C is a friend of its owner, and C has strong allies at war; then for every unit of the side, owned by C: `regiments_count * STRAT_NO_ALLIES_HELP_PENALTY`, owned by one of those allies: `regiments_count * STRAT_ALLIES_HELP`. `ret 8`.",
+   "confidence": "confirmed",
+   "evidence": "VAs. Listing 0x5306D0-0x530790 read whole, the same shape as 0x530600 with +0x28/+0x2C/+0x30 and +0xC. The caller's block 0x56B5..-0x56B7A6: `(tick - 43800000) % 24 == 0`, CCountry::IsFriend twice, GetActingCapitalLocation's area against the province's, the strong_allies_at_war count, then per unit: owner id (`[unit+0x128]`) equal to C's (`cmp ecx,edx` at 0x56B587) -> `floor((regiments_count [unit+0x40] + 0.0005) * 1000)` times military +0x140 (STRAT_NO_ALLIES_HELP_PENALTY per definesMap.py) at 0x56B661; otherwise C's +0xFB8 list (strong_allies_at_war) is searched for the owner (0x56B67C-0x56B69C) and the same figure times military +0x144 (STRAT_ALLIES_HELP) at 0x56B771; both `__alldiv 1000` at 0x56B780; the receiver is countries[[esp+0x24]] = C at 0x56B79D. The gates before the loop were read in the decompiler.",
+   "source": "reversing/findings/FINDINGS-government.md"
+  },
+  {
+   "rva": "0x1307A0",
+   "kind": "function",
+   "name": "CStrategicWarfare::AddBombingImpact",
+   "signature": "void __fastcall CStrategicWarfare::AddBombingImpact(CStrategicWarfare* this@EDI, int value@stack:4, int date@stack:8)",
+   "no_signature": null,
+   "comment": "The ground-bombing list's adder (+0x38, last +0x3C, count +0x40; BombingImpact +0x10), with one step the other two lack: **a negative value is also multiplied by `(1000 + values[MODIFIER_SW_NATIONAL_UNITY_EFFECT, id 101, +0x328]) / 1000`** of the owner (the `sw_national_unity_effect` key; Their Finest Hour's `the_finest_hour` event modifier sets -0.5). Callers: CCombatManager::StartBombing when a strategic bombing (0x6F9) creates a bombing (STRAT_BOMBING_PENALTY on the target unit's owner, else the province's controller), and CCombat::Tick in an air battle's first hour (STRAT_BOMBER_FOUGHT_IMPACT for the attacker's first country where a defending unit is under strategic_bomb). It abuts StrategicWarfare_GetICScale with one int3 (trap 2). `ret 8` at 0x13088C.",
+   "confidence": "confirmed",
+   "evidence": "VAs. Listing 0x5307A0-0x53088C read whole: after the IC scale, `cmp ecx,esi; jge` then `mov eax,[edi+0x14]; mov edx,[eax+0xda8]; mov eax,[edx+0x328]; add eax,0x3e8; imul ecx; ... __alldiv 1000`; list at [edi+0x38/0x3c/0x40]; `add [edi+0x10]` and the clamp. 0x53088F is the single int3 before 0x530890. modifierIds.py: 0x65 = MODIFIER_SW_NATIONAL_UNITY_EFFECT. Callers by E8/E9 scan: 0x43066F, 0x56EF66.",
+   "source": "reversing/findings/FINDINGS-government.md"
+  },
+  {
+   "rva": "0x130890",
+   "kind": "function",
+   "name": "StrategicWarfare_GetICScale",
+   "signature": "int* __stdcall StrategicWarfare_GetICScale(CStrategicWarfare* warfare@stack:4, int* out@ESI) @EAX",
+   "no_signature": null,
+   "comment": "The scale every strategic-warfare entry is multiplied by: `*out = clamp(owner->TotalIC (+0x604, whole IC) * 1000 * 1000 / 100000, 100, 10000)` - **the owner's total IC over 100, held between 0.1 and 10.0** - where the owner is the CStrategicWarfare's +0x14 (CCountry::CCountry stores the country itself at +0x1198). The floor 100 is `floor(100.5f)` cached in a static on first use (VA 0x1BEB870, guard bit at 0x1BEB874). Returns out. Its three callers pass the CStrategicWarfare by pushing edi in their prologue, which this function's `ret 4` consumes.",
+   "confidence": "confirmed",
+   "evidence": "VAs. Listing 0x530890-0x53094A read whole: the guarded `floorf(0x160A684 = 100.5f)` into 0x1BEB870; `mov ecx,[eax+0x14]; mov eax,[ecx+0x604]; imul eax,eax,0x3e8; mov [esi],eax`; for a positive value `imul eax,eax,0x3e8` and the magic divide by 100000 (or __allmul/__alldiv 0x186A0 out of range); `cmp [esi],edi; jge; mov [esi],edi`; `cmp [esi],0x2710; jle; mov [esi],0x2710`; `mov eax,esi; ret 4`. +0x604 in whole IC per FINDINGS-ic.md.",
+   "source": "reversing/findings/FINDINGS-government.md"
+  },
+  {
+   "rva": "0xF7160",
+   "kind": "function",
+   "name": "CCountry_HasFracturedGovernment",
+   "signature": "bool __stdcall CCountry_HasFracturedGovernment(CCountry* country)",
+   "no_signature": null,
+   "comment": "**What puts the static `fractured_government` on a country** (national_unity -0.05 a month in the base game): true where some ideology passes its slot 17 (CIdeology's is ReturnTrue), is of another ideology group than the ruling party's (`ideology->+0x50 != ruling_ideology(+0x1140)->+0x50`) and has a seat in the cabinet (`CCountry +0x112C[ideology->+0x4C] > 0`, the per-ideology seat counts CCountry_AllotCabinetSeats writes). So a government is fractured exactly when a party of another group holds a post - not when the ruling party is weak. No null test on the ruling ideology. Callers: CCountry::RebuildStaticModifiers (step 22, rva 0xDF90A), and twice in the coup code (rva 0xF7AA0 inside 0xF7A10, and 0xF7F89 inside PerformCoup). 0xF7160 to the `ret 4`s at 0xF72CD/0xF72E2.",
+   "confidence": "confirmed",
+   "evidence": "VAs. Listing 0x4F7160-0x4F72E2 read whole: the lazy singleton at 0x1A878BC and its vector [eax+0xc]..[eax+0x10]; per element `call [vft+0x44]`; `mov ecx,[eax+0x1140]; mov edx,[esi+0x50]; cmp edx,[ecx+0x50]; je next`; `mov ecx,[esi+0x4c]; mov edx,[eax+0x112c]; cmp [edx+ecx*4],edi; jg` to `mov al,1`. Measured against the saves of 4 and 8 January 1936 (100 countries with a cabinet and a ruling party): none of the 23 without such a seat fell, and all 54 that fell have one.",
+   "source": "reversing/findings/FINDINGS-government.md"
+  },
+  {
+   "rva": "0xE6500",
+   "kind": "function",
+   "name": "GetPrideRedesignationDissent",
+   "signature": "int* __stdcall GetPrideRedesignationDissent(int* out@stack:4, CSubUnit* newPride@stack:8, CSubUnit* oldPride@EDI) @EAX",
+   "no_signature": null,
+   "comment": "The dissent CMakePrideCommand::Execute adds when a country moves its pride of the fleet: 0 where either ship is missing; else `d = PRIDE_BASE_REDESIGNATION_DISSENT` (military +0x6C, 1.0); where the new ship's `extra_consumption` (CSubUnit +0xCC, the sum of its technology levels) exceeds the old one's, `d = d * 1000 / ((difference + 1) * 1000)`; then where the new ship's definition `hull` (+0x58 -> +0x178) is greater than the old one's, `d = d * 1000 / 2000`. Truncated each time. **Always at least 0**, so redesignation never lowers dissent. PRIDE_SUNK_DISSENT_IMPACT is never read by the executable (FINDINGS-supply.md), so a pride sunk changes no dissent. `ret 8`.",
+   "confidence": "confirmed",
+   "evidence": "VAs. Listing 0x4E6500-0x4E65A3 read whole: `test edi,edi`/`test ebx,ebx` to `*out = 0`; GetDefines()->+0xAC->+0x6C; `mov ecx,[ebx+0xcc]; sub ecx,[edi+0xcc]; jle`; `lea esi,[ecx+1]; imul esi,esi,0x3e8`, __allmul 1000 and __alldiv esi; `[edi+0x58]->+0x178` against `[ebx+0x58]->+0x178`, jle, else /2000. The caller 0x5DB59F-0x5DB5AB: edi = the old pride from 0x4E64B0, `push esi` (the new ship), `push &out`.",
+   "source": "reversing/findings/FINDINGS-government.md"
+  },
+  {
+   "rva": "0xE64B0",
+   "kind": "function",
+   "name": "CCountry_FindPrideOfTheFleet",
+   "signature": "CSubUnit* __fastcall CCountry_FindPrideOfTheFleet(CCountry* country@EAX) @EAX",
+   "no_signature": null,
+   "comment": "The country's present pride of the fleet: the first ship with `pride` (CSubUnit +0xA5) set, walking the country's units (+0xBAC) in list order and, for each naval one (slot 16, IsNaval), its sub-units (+0x38); null where there is none. One caller, CMakePrideCommand::Execute. Bare `ret`.",
+   "confidence": "confirmed",
+   "evidence": "VAs. Listing 0x4E64B0-0x4E64FA whole: `mov edi,[eax+0xbac]`; `call [vft+0x40]` (CUnit slot 16 IsNaval in the record); `mov ecx,[esi+0x38]`; `cmp byte [eax+0xa5],0; jne` to the return of eax.",
+   "source": "reversing/findings/FINDINGS-government.md"
+  },
+  {
+   "rva": "0x3F650",
+   "kind": "function",
+   "name": "ConsoleCmd_SetNationalUnity",
+   "signature": "void* __cdecl ConsoleCmd_SetNationalUnity(void* result, void* arguments)",
+   "no_signature": null,
+   "comment": "**The `setnationalunity` console command** (\"Sets the national unity of the provided country to the given value\", arguments `country tag` and the value), registered in the static command table at VA 0x170B90C (name), 0x170B920 (description), 0x170B924 (this handler), so it has no call site. Looks the tag up (\"Invalid country tag.\" for none), turns the value into thousandths (atof, then floored in single precision with 0.0005 added) and calls CCountry::SetNationalUnity, so the 1..100 clamp applies and no national_unity_effect; answers \"National Unity of TAG changed to N.\". Bare `ret`s.",
+   "confidence": "confirmed",
+   "evidence": "VAs. dataref scan of every section for the dword 0x43F650: one hit, .data 0x170B924, preceded by the description string pointer 0x15B7230 and the name 'setnationalunity' at 0x15B7274 two entries before. The listing's call at 0x43F84C with EAX = gamestate->+0xBBC[tag id]; the strings are the decompiler's, checked present at the pushes. The exact float rounding of the argument was read in the decompiler only.",
+   "source": "reversing/findings/FINDINGS-government.md"
+  },
+  {
+   "rva": "0xEE860",
+   "kind": "function",
+   "name": "CCountry_UpdateActiveMission",
+   "signature": "void __stdcall CCountry_UpdateActiveMission(CCountry* country)",
+   "no_signature": null,
+   "comment": "The daily check of the country's active mission (the CActiveMission held by value at +0xE38, its definition at +0xE40), from RunCountryDailyPass at 0xDB7EE for countries that own provinces and are not REB. With no mission, or one no longer valid: tries for a new one (the previous one's text +0xEE4 kept for 0xAB18 = 43800 hours after +0xEE0), and where one starts tells the player NEWMISSIONUS (COUNTRY, HEADER, MISSION, DESC) and rebuilds the AI strategy. With one running: on failure MISSIONFAILEDUS to the player; on success runs its effect (definition +0x104, slot 11) and tells MISSIONDONEUS or, to others, MISSIONDONEOTHER; either way the mission is reset to the null one and the AI strategy rebuilt. **Touches no party, minister, law, dissent or unity.** Read in the decompiler; not taken to the listing.",
+   "confidence": "inferred",
+   "evidence": "VAs. Decompiled whole; rets.py: `ret 4` at 0x4EF2B7 and 0x4EF7AE, padding after 0x4EF7AE; one caller 0x4DB7EE (findRefs --callers). The message names are literal strings pushed in the body. Would be wrong in the details of when a new mission is chosen (FUN_009c7260 and 0x9C7510 not read).",
+   "source": "reversing/findings/FINDINGS-government.md"
+  },
+  {
+   "rva": "0x110160",
+   "kind": "function",
+   "name": "LuaProxy_BalanceProductionSliders",
+   "signature": null,
+   "no_signature": "luabind call-proxy builder with a register convention: the Lua state in EDI, the proxy object to fill in ESI, two values in EAX and ECX and eight dwords on the stack, bare ret (caller cleans). Pushes 'BalanceProductionSliders', looks it up in the globals table (LUA_GLOBALSINDEX 0xFFFFD8EE) and stores the arguments with luabind::detail::pcall at proxy +8 and the 'called' byte +0x34 cleared; the call itself happens in LuaProxy_BalanceProductionSliders_Call (0x10D570).",
+   "comment": "The AI's daily `BalanceProductionSliders(...)` Lua call is built here (RunCountryDailyPass 0xDC203 and 0xDC2EC, and two calls at VA 0x805BAA/0x805FBB). Not politics.",
+   "confidence": "inferred",
+   "evidence": "VAs. Listing 0x510160-0x5101B9: `push 0x15c0f98 ('BalanceProductionSliders'); push edi; call [0xd2b4e8]; push 0xffffd8ee; push edi; call [0xd2b45c]`, then the stores into [esi+0xc].. ; decompiled whole; bare ret at 0x510202; four callers (findRefs).",
+   "source": "reversing/findings/FINDINGS-government.md"
+  },
+  {
+   "rva": "0x10D570",
+   "kind": "function",
+   "name": "LuaProxy_BalanceProductionSliders_Call",
+   "signature": null,
+   "no_signature": "The proxy in ESI, bare ret. Where the proxy's 'called' byte (+0x34) is clear: sets it, pushes the arguments (0x5119D0 on +0xC), calls the stored pcall (+8) with 10 arguments and no results, throws luabind::error on a failure, and pops the stack back.",
+   "comment": "The invoke half of the `BalanceProductionSliders` Lua call built by LuaProxy_BalanceProductionSliders (0x110160); three callers, each straight after that builder. Not politics.",
+   "confidence": "inferred",
+   "evidence": "VAs. Listing 0x50D570-0x50D5FC: `cmp byte [esi+0x34],0`, `call 0x5119d0` with [esi+0xc], `push 0; push 0xa; push edi; call ecx` with ecx = [esi+8], the luabind::error vftable 0x15C1CF0 and _CxxThrowException; callers 0x4DC20B, 0x805BB2, 0x805FC3, each after a call of 0x510160.",
+   "source": "reversing/findings/FINDINGS-government.md"
+  }
+ ],
+ "structs": [
+  {
+   "name": "CStrategicWarfare",
+   "inherits": "CPersistent",
+   "vftable_rva": "0x11C1CD4",
+   "comment": "**The source of national unity's strategic-warfare change**, embedded in CCountry at +0x1184 (saved as `strategic_warfare = { alliance = { } convoy = { } ground_bombing = { } }`). Three week-long lists of {date in hours, value} entries - convoy, alliance, ground bombing - and the three impacts (+0x8 ConvoyImpact, +0xC AlliesImpact, +0x10 BombingImpact, named by the Lua API) that are their sums held to -2.0..2.0. Each entry is scaled at entry by the owner's total IC over 100 (0.1..10). Every day RunCountryDailyPass drops entries older than 168 hours, re-sums, and takes a thirtieth of the three impacts into national unity. Slots: 0 destructor, 2 SaveContents, 4 LoadKey, 5 AfterLoad (re-sums).",
+   "evidence": "RTTI export: CStrategicWarfare, base CPersistent at 0, one table VA 0x15C1CD4 (6 slots). CCountry::CCountry writes 0x15C1CD4 to [ebx+0x1184] at 0x4C9AE9 and stores ebx (the country) to [ebx+0x1198] at 0x4C9B10. Size omitted: the last list ends at +0x48 but nothing past it was checked.",
+   "source": "reversing/findings/FINDINGS-government.md"
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CStrategicWarfare",
+   "offset": "0x14",
+   "name": "owner",
+   "type": "CCountry*",
+   "comment": "The country the object belongs to (CCountry +0x1198 = the country itself). StrategicWarfare_GetICScale reads its TotalIC; CStrategicWarfare::AddBombingImpact its sw_national_unity_effect.",
+   "evidence": "VAs. CCountry::CCountry `mov [ebx+0x1198],ebx` at 0x4C9B10; 0x5308D2 `mov eax,[ebp+8]; mov ecx,[eax+0x14]; mov eax,[ecx+0x604]`; 0x5307CE `mov eax,[edi+0x14]; mov edx,[eax+0xda8]`.",
+   "source": "reversing/findings/FINDINGS-government.md"
+  },
+  {
+   "struct": "CStrategicWarfare",
+   "offset": "0x18",
+   "name": "convoy_entries",
+   "type": "CList",
+   "comment": "The convoy list: nodes of 0x10 bytes holding an 8-byte {date (hours), value (thousandths)}; last at +0x1C, count at +0x20, flag byte at +0x24. Appended by CStrategicWarfare::AddConvoyImpact, pruned to a week by StrategicWarfare_PruneList, summed into ConvoyImpact (+0x8). Saved under `convoy`.",
+   "evidence": "VAs. 0x530654-0x53068E (`mov ebx,[edi+0x1c]`, `mov [edi+0x1c],eax`, `mov [edi+0x20],edx`, `mov [edi+0x18],eax`); 0x530CA0 `mov eax,[edi+0x18]` and the sum of `[node]->+4`; RunCountryDailyPass `lea esi,[edi+0x18]` at 0x4DA731.",
+   "source": "reversing/findings/FINDINGS-government.md"
+  },
+  {
+   "struct": "CStrategicWarfare",
+   "offset": "0x28",
+   "name": "alliance_entries",
+   "type": "CList",
+   "comment": "The alliance list, the same shape (last +0x2C, count +0x30). Appended by CStrategicWarfare::AddAlliesImpact once a day per land battle; summed into AlliesImpact (+0xC). Saved under `alliance`.",
+   "evidence": "VAs. 0x530724-0x53075E on [edi+0x2c]/[edi+0x30]/[edi+0x28]; 0x530CD6 `mov eax,[edi+0x28]`; 0x4DA73D `lea esi,[edi+0x28]`.",
+   "source": "reversing/findings/FINDINGS-government.md"
+  },
+  {
+   "struct": "CStrategicWarfare",
+   "offset": "0x38",
+   "name": "bombing_entries",
+   "type": "CList",
+   "comment": "The ground-bombing list, the same shape (last +0x3C, count +0x40). Appended by CStrategicWarfare::AddBombingImpact; summed into BombingImpact (+0x10). Saved under `ground_bombing`.",
+   "evidence": "VAs. 0x5307A0's body on [edi+0x3c]/[edi+0x40]/[edi+0x38] (decompiled, the same shape as the other two read on the listing); 0x530D05 `mov eax,[edi+0x38]`; 0x4DA749 `lea esi,[edi+0x38]`.",
+   "source": "reversing/findings/FINDINGS-government.md"
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0x10B4",
+   "name": "dissent",
+   "type": "int",
+   "comment": "**Dissent, thousandths, at least 0 and with no upper bound.** Every writer (a displacement scan of .text, the CCountry sites read): the constructor and CCountry_Reset (0); CCountry::LoadKey (the save's `dissent`, raw); **the consumer goods share each day** (CDistributeConsumerGoods::Distribute: `+= GetConsumerGoodsNeeded - share + MODIFIER_DISSENT`, floored at 0 - laws and ministers act only through MODIFIER_DISSENT here, and there is no decay of any other kind); RunCountryDailyPass zeroing it for REB; the `dissent` effect (CDissentEffect::Execute, floored at 0); a history `dissent` entry through CCountry::SetDissent; and CMakePrideCommand::Execute (GetPrideRedesignationDissent, never negative). Nothing on war, occupation, a law or a minister change, or a pride sunk. Read by: the static `dissent` modifier scaled by it in RebuildStaticModifiers (base game: global_ic -0.01 a point); CCountry::GetSpareICIn (no spare consumer goods IC while there is any); every combatant's ApplyCombatModifiers and the AI's two estimates (COMBAT_DISSENT_IMPACT x dissent / 100); the monthly party drift 0xF6D00 (ELECTION_MINISTER_DISSENT_PENALTY x dissent x the party's posts where it holds two or more); the `dissent` trigger, the top bar, its tooltip, the intelligence screen (VA 0x625E68) and the AI's production Lua (GetDissent). **Not read by revolt risk or the revolt roll.** See reversing/findings/FINDINGS-government.md, section C.",
+   "evidence": "VAs. fieldchain.py --field 0x10B4 (a byte search for the disp32, which finds every encoding) lists 56 sites; the CCountry writes are 0x4C9A20, 0x4CEA29 (lea, LoadKey), 0x4D2EB4, 0x4DB691, 0x4F8B06/0x4F8B10, 0x518EC2/0x518ECA, 0x5DB5BA/0x5DB5C2, 0x9BA0F2/0x9BA0FA; the rest are reads or other classes' +0x10B4 (CBomberCombatant's building tally, CNavalCombatant's positioning), told apart by their functions. Positive control: the scan finds the two known writers, the effect and the consumer goods share.",
+   "source": "reversing/findings/FINDINGS-government.md",
+   "revises": "The comment said only that the REB zeroing writes it and 'That it is dissent is the reported identification, not established here'. Now every writer and reader is listed, the units and the floor are stated, and the identification is settled (the dissent effect, trigger and setter agree)."
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0x10B8",
+   "name": "national_unity",
+   "type": "int",
+   "comment": "**National unity, thousandths, held between 1000 and 100000** - 1.0 to 100.0. Written by: CCountry::CCountry (0); CCountry::LoadKey (the save's `national_unity`, raw); CCountry::SetNationalUnity (clamped, unscaled - a history `national_unity` entry, which is where a new game's figure comes from, and the `setnationalunity` console command); and CCountry::ChangeNationalUnity (scaled by national_unity_effect, clamped) from exactly three places - the daily drift (RunCountryDailyPass_NationalUnityDrift: a thirtieth of the month's MODIFIER_NATIONAL_UNITY and strategic-warfare impacts a day, slowed by the square root of the distance from 50 when moving away from it), the nuclear bomb (NUKE_UNITY_IMPACT) and the `national_unity` effect. CCountry_Reset does not touch it. Nothing writes it on war, occupation, a lost capital or surrender. Read by CCountry::GetSurrenderProgress (the surrender level is reached when the occupied share of the owned cores' victory points reaches unity), the coup chance (0xF7AD0: `x (1 - unity / 100)`), the `national_unity` trigger (the laws' `allow` blocks among others), the top bar, its tooltip, the surrender tooltip, the intelligence screen (VA 0x625FC9) and the AI's intelligence Lua.",
+   "evidence": "VAs. fieldchain.py --field 0x10B8: 28 sites; the CCountry writes are 0x4C9A27, 0x4CEA4E (lea, LoadKey), 0x4F8B46-0x4F8B6B (SetNationalUnity), 0x4F8BA5-0x4F8BCA (ChangeNationalUnity); 0x55E009, 0x57B7BF/0x57B805 and 0x57B978/0x57B9D8 are CBomberCombatant's and CNavalCombatant's own +0x10B8. The callers of the two setters by an E8/E9 scan of .text.",
+   "source": "reversing/findings/FINDINGS-government.md",
+   "revises": "The comment said 'Its only writer is CCountry::ChangeNationalUnity'. There are four: the constructor, the save loader, CCountry::SetNationalUnity (history and console) and ChangeNationalUnity; and ChangeNationalUnity's callers are three, not one."
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0x1184",
+   "name": "StrategicWarfare",
+   "type": "CStrategicWarfare",
+   "comment": "An embedded CStrategicWarfare (`CCountry::GetStrategicWarfare`, rva 0x2F280, is `lea eax,[ecx+0x1184]; ret`): three week-long lists of strategic-warfare events - convoys raided or defended, allied or lonely fighting in a land battle, bombing - whose sums, held to -2.0..2.0, are the impacts at +0x118C/+0x1190/+0x1194, and **a thirtieth of whose total moves national unity every day** (RunCountryDailyPass_NationalUnityDrift). The strategic-warfare screen draws the same lists. Written by ResolveConvoyRaid, CCombat::Tick, CLandCombatant::Attack and CCombatManager::StartBombing through the three adders; see reversing/findings/FINDINGS-government.md, section C.3.",
+   "evidence": "VAs. The constructor writes the CStrategicWarfare vftable 0x15C1CD4 to [ebx+0x1184] at 0x4C9AE9; the daily pass `lea edi,[ebx+0x1184]` at 0x4DA72A then the three prunes and RecomputeImpacts; the seven `lea edi,[country+0x1184]` before each adder call (0x430669, 0x56B7A0, 0x56EF60, 0x56F083, 0x5D1FFB, 0x5D27C8).",
+   "source": "reversing/findings/FINDINGS-government.md",
+   "revises": "The comment described a time series the screen draws and left 'whether a successful raid writes a different series' open. It is three lists, they feed national unity, a successful raid writes the same convoy list, and the five writers are named."
+  }
+ ],
+ "vftable_slots": {
+  "CStrategicWarfare": {
+   "5": "AfterLoad"
+  }
+ },
+ "frontier": [
+  "0xF6D00",
+  "0xF7A10",
+  "0xF7AD0",
+  "0x224970",
+  "0x5D6670",
+  "0x9C7260",
+  "0x9C7510",
+  "0x5119D0"
+ ]
+}
