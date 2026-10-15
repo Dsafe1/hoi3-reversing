@@ -568,6 +568,23 @@ end, the covert-operations panel and the allied-objectives panel with `CSetAllie
 6. **`CBuildingMember`'s size**, 0xA0, not in its struct record (a hand edit `mergeFindings.py` does not make).
 7. **The custom game's helpers** `0x4208B0`, `0x41B700`, `0x41B370`, `0x6E3D90`.
 
+## What the convoy-line wave left - 2026-10-15 `[both]`
+
+`findings/FINDINGS-convoylines.md` sections A and B (two readers; 12 address entries landed and 9 revised, 1 struct
+declared, 5 fields; apply `failed: 0`, `struct fields: 0`). It read the convoy line whole: the command with its amount in
+EDI, `Execute`, the four price getters, the line's slots (slot 14 empty, so a convoy line is never priced again),
+`Deliver` (ten ships an item), loading and saving, the Lua constructor; and the production screen's two buttons, the
+confirm dialog's convoy modes, the `(+N)` counts and the queue line. Corrected: `Deliver` is slot 9 and answers a `bool`;
+the command reserves `1 + 2 x amount` ids; `OnAccept` passes `serial` as the amount; `CBuildQueueEntry::Update` picks a
+category icon only for a unit line. What it left, none of it in the way of building:
+
+1. **Two screenshots**: the transports dialog (is `on_complete_icon` drawn?) and a queue with a convoy line beside a unit
+   line (which category background?); and a save with a part-built transport line loaded paused (share 0?).
+2. **`CInGameIdler` slot 60** (`0x274ED0`) and its callee `0x3C1D30`, which an order calls for the played country.
+3. **The per-ship prices** `0x1A9D0`, `0x1AA50`, `0x635B0`, and the AI's counters `0x4A24D0`, `0x4A25E0`.
+4. **The build-queue list sync** `0x406460` and its caller `0x3FCF60`, with its cap of 128 entries a call.
+5. **`counter_type`'s slot 73**, called on every queue line.
+
 ## The planned next wave is in `WAVE.md`
 
 **It is not in this file any more.** `WAVE.md` holds the wave that is planned and has not launched,
@@ -1088,7 +1105,7 @@ of it.
 
 ## What has already been read
 
-159 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
+160 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
 header lives. This replaces the `Done` archive: the archive restated each file's headline and named
 only 40 of the 67 there were then, so it was both longer and less useful than a complete list.
 
@@ -1213,6 +1230,7 @@ the six it was missing were wave 15's.
 | `findings/FINDINGS-occupation.md` | occupation, revolt risk, partisans and rebels; **the occupation and revolt wave (2026-10-14), sections A to F**: occupation policies set on a first capture keyed by the old controller and only by the player after, a province's whole modifier with nationalism, revolt risk's day with suppression over two edges settled against a save, the revolt map mode and tooltip, rebels made (one army of 1 to 4 brigades, equipped from the occupier) and their day and month (movement, hand-back, 15% independence; defection and demands dead), undergrounds whole, and `counter_espionage` settled |
 | `findings/FINDINGS-revolt.md` | what consumes revolt risk: the roll, the rebel type, the underground |
 | `findings/FINDINGS-convoys.md` | convoys and trade, and that the AI drives a route through the mod's Lua |
+| `findings/FINDINGS-convoylines.md` | **the convoy-line wave (2026-10-15)**: transports and escorts in the build queue - `CConstructConvoyCommand` with its amount, priced once by the four defines and technology fields and never again, an item of `CONVOY_CONSTRUCTION_SIZE` ships at a time, the history's and the save's lines; the production screen's `convoy` and `escort` buttons, the confirm dialog in modes 1 and 2, the `(+N)` counts and the line on the queue |
 | `findings/FINDINGS-espionage.md` | spies, intelligence, and what the espionage sliders buy; **the espionage wave (2026-10-14), sections A to E**: spies placed by priority bands and never decayed, what each mission does (a tech theft takes the target's whole level; covert ops a thirtieth of its define a day; province covert operations), what a country knows (the spies alone, less counter-intelligence) and of a province (the whole daily rebuild and hourly raise, radar), the intelligence screen with every estimate and tooltip, and the AI's spying in Lua, matching the saves pair for pair |
 | `findings/FINDINGS-events.md` | events, and why a loaded save fires none until the month turns |
 | `findings/FINDINGS-diploaction.md` | a diplomatic offer in flight: three stages, the lifecycle, the null singleton |

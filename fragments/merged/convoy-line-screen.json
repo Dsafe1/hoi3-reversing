@@ -1,0 +1,113 @@
+{
+ "agent": "convoy-line wave, reader B",
+ "question": "The production screen's side of a convoy line: the confirm dialog in modes 1 and 2, the convoy and escort buttons with their tooltips, and the build queue's line for a convoy.",
+ "source": "reversing/findings/FINDINGS-convoylines.md",
+ "slots_noted": "Three revised entries are virtual and their slots are already recorded in project.json's vftable_slots under the same names: CConfirmBuild slot 4 Update, _A0xbb459920::CBuildQueueEntry slot 8 Update, CProductionView slot 6 Update. These revisions change only the comments.",
+ "addresses": [
+  {
+   "rva": "0x4023F0",
+   "kind": "function",
+   "name": "CProductionView::OnConvoyButton",
+   "signature": "void __thiscall CProductionView::OnConvoyButton(CProductionView* this)",
+   "no_signature": null,
+   "comment": "**The production screen's `convoy` button** (tfh/interface/country_production.gui, `GFX_production_button_convoy`). AttachButtons attaches the element `convoy` to the observer at +0x224, whose handler the constructor sets at +0x22C to this function. Destroys any confirm dialog at +0x318 (its slot 1 with 1), makes a CConfirmBuild (0x14C bytes) on the window `confirm_build` for the screen at +0xB0 in **mode 1** with no building, keeps it at +0x318, and calls the view's slot 5. **Nothing ever enables or disables the `convoy` button**: its name is read only by AttachButtons and BuildTooltip (`CONVOYS`). Bare `ret`. See reversing/findings/FINDINGS-convoylines.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "AttachButtons 0x7FC068: push 'convoy', the window's slot 13 finds the element, its +0x48 observer list's slot 1 is handed &view+0x224 (decompile line `(**(code **)(*(int *)(iVar1 + 0x48) + 4))(&view->field_0x224)`, read beside the listing). The constructor 0x7FB499..0x7FB4A5: `mov [edi+0x224],eax; mov [edi+0x228],edi; mov [edi+0x22c],0x8023f0` - the same 0x2C-byte observer shape as the six beside it, where build_division_button's +0x174 has 0x8022F0 (CProductionView::OnBuildDivision, recorded). Body 0x8023F0..0x8024CE: `push 0; mov ebx,1; push ebx; lea eax,[ebp-0x30] ('confirm_build'); push eax; push [esi+0xb0]; push edi; call 0x7f1800`, stored `[esi+0x318]`, then `call [eax+0x14]` on the view. The string 'convoy' (0x15DE8BC, the only NUL-delimited copy in the image) has three references: AttachButtons, BuildTooltip (0x80126E) and 0xD02413, a save-token registration (token 0x4D8); positive control: 'escort' (0x15DE8C4) has its reference inside CProductionView::Update at 0x7FDDFF, where the escort button is enabled or disabled. Wrong if another copy of the string, or an element pointer cached elsewhere, disables the button.",
+   "revises": "Raised from inferred: the attachment of `convoy` to this handler is now read (observer +0x224, handler +0x22C), not inferred from the mode; and it adds that nothing ever disables the button.",
+   "source": "reversing/findings/FINDINGS-convoylines.md"
+  },
+  {
+   "rva": "0x4024E0",
+   "kind": "function",
+   "name": "CProductionView::OnEscortButton",
+   "signature": "void __thiscall CProductionView::OnEscortButton(CProductionView* this)",
+   "no_signature": null,
+   "comment": "**The production screen's `escort` button** (`GFX_production_button_escort`). AttachButtons attaches the element `escort` to the observer at +0x250, whose handler the constructor sets at +0x258 to this function. As OnConvoyButton, with a CConfirmBuild in **mode 2**. The button is disabled by CProductionView::Update unless the technology status's `allow_escorts` (+0x80) is set. Bare `ret`. See reversing/findings/FINDINGS-convoylines.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "AttachButtons 0x7FC0C5: push 'escort', its observer list handed &view+0x250. The constructor 0x7FB4DF..0x7FB4EB: `mov [edi+0x250],eax; mov [edi+0x254],edi; mov [edi+0x258],0x8024e0`. Body: the same as 0x8023F0 but `push 2` as the mode (decompile: CConfirmBuild::CConfirmBuild(this_00, view+0xb0, 'confirm_build', 2, 0)). Wrong if the observer at +0x250 is attached elsewhere as well.",
+   "revises": "Raised from inferred: the attachment of `escort` to this handler is read (observer +0x250, handler +0x258).",
+   "source": "reversing/findings/FINDINGS-convoylines.md"
+  },
+  {
+   "rva": "0x3F2490",
+   "kind": "function",
+   "name": "CConfirmBuild::Update",
+   "signature": "bool __thiscall CConfirmBuild::Update(CConfirmBuild* this)",
+   "no_signature": null,
+   "comment": "**Slot 4, every frame.** `paralell_value` (the file's spelling) and `serial_value` are the two counts as integers; either below 1 is set to 1; `parallel_minus` and `serial_minus` are disabled at 1, `parallell_plus` and `serial_plus` at 99 and above. The country is the screen's slot 23 tag. **By mode**: 0, `cost = CCountry::GetBuildCost(country, building)` and `time = CCountry_GetBuildingBuildDays(building, country) * 1000`; **1 (transports), `time = CCountry::GetConvoyBuildTime`, `cost = CCountry::GetConvoyBuildCost`; 2 (escorts), `CCountry::GetEscortBuildTime` and `CCountry::GetEscortBuildCost`** - each the define times (1000 + the technology status's field) / 1000, floored at 0.010. Then for every mode **`ic_cost_value` = parallel * cost** (64-bit, exact), FormatFixedPoint to two decimals, and **days = serial * time / 1000, truncated**; `build_time_value` is days + \" \" + the text of `DAYS` where days <= 365, else days / 30 (truncated) + \" \" + `MONTHS`. **The three icons `selected_brigade_red`, `_orange`, `_green` are all hidden and one shown**, in every mode: spare = the production share's IC (its share times factor times TotalIC) less the sum of every queued line's cost (+0x30); green where `spare - parallel * cost >= 0`, else orange where spare is above nought, else red. **Only where the dialog has a building (+0x140)** whose category answers slot 2: `on_complete_icon` takes the sprite `icon_` + the category's key (+8 of +0x88) where one exists, `on_complete_impact` the text `+` and `completion_size` (+0x8C) to one decimal, both are handed the category's key, and `on_complete_icon` is shown - so **in modes 1 and 2 neither is touched** and both stand as confirmbuild.gui has them. **`accept` is never disabled.** Returns the close byte (+0x28). Bare `ret`. See reversing/findings/FINDINGS-convoylines.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x7F294B..0x7F2A21: `mov eax,[ebx+0x2c]; sub eax,edi; je 0x7f29b6 (mode 0); dec eax; je 0x7f298a (mode 1); dec eax; jne 0x7f29ea`; mode 2 calls 0x4FD6E0 (GetEscortBuildTime, into [esp+0x2c]) then 0x4FD670 (GetEscortBuildCost, into esi); mode 1 calls 0x4FD600 then 0x4FD590 the same way; mode 0 calls 0x4DFDA0 into esi and 0x4DFE00 with `imul eax,eax,0x3e8` into [esp+0x2c]. Then `[ebx+0x13c]*1000*[esp+0x2c]` / 1000 (0xB99980) is the time and `[ebx+0x138]*1000*esi` / 1000 the cost, 'ic_cost_value' FormatFixedPoint(...,2); the time `imul 0x10624dd3; sar 6` (/1000, toward nought), `cmp eax,0x16d; jle` DAYS, else `* 0x88888889` (/30) MONTHS. The colour test 0x7F3277: `edx = spare - [esp+0x50]` where [esp+0x50] is the parallel*cost stored at 0x7F2A33; `js` to `test eax,eax; jle` red. 0x7F334A: `mov eax,[ebx+0x140]; test eax,eax; je 0x7f365e` skips the whole on_complete block. The four getters' bodies read 0x4FD590 and 0x4FD600 (define block +0x9C at +0x14 and +0x18, technology status +0x44 and +0x48, floor `floor(10.5f)` at 0x160A680). Wrong if the mode field +0x2C can hold anything but 0, 1 and 2 when Update runs.",
+   "revises": "'Modes 1 and 2 take the convoy's and escort's own figures' (not read) is replaced by what they take: the four CCountry convoy and escort getters, cost times parallel and time times serial as for a building, the same colour test, and no on_complete block (the building pointer is null).",
+   "source": "reversing/findings/FINDINGS-convoylines.md"
+  },
+  {
+   "rva": "0x3F3980",
+   "kind": "function",
+   "name": "CConfirmBuild::OnAccept",
+   "signature": "void __thiscall CConfirmBuild::OnAccept(CConfirmBuild* this)",
+   "no_signature": null,
+   "comment": "**`accept`, \"Start Production\": posts `parallel` (+0x138) commands**, each built fresh: mode 0 `CConstructBuildingCommand(building (+0x140), province 0, the screen's country, amount = serial (+0x13C) in EDI)`; mode 1 `CConstructConvoyCommand(escorts 0, the screen's country tag)` and mode 2 the same with escorts 1 (0x5496A0, 0x54 bytes), **each with serial (+0x13C) in EDI** - the convoy constructor's amount, which it keeps at +0x50. So parallel P and serial S make P commands, each of amount S, in every mode. Each goes to the session's channel (its +0x38, slot 6). Sets the close byte (+0x28) first. Bare `ret`. See reversing/findings/FINDINGS-convoylines.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Listing: mode 2 at 0x7F3AE5..0x7F3B04 `mov ecx,[eax+4]; mov edx,[eax]` (the tag from the screen's slot 23), `mov edi,[edi+0x13c]; push ecx; push edx; push 1; push esi; call 0x5496a0`, then `mov edi,[esp+0x10]` restores this; mode 1 at 0x7F3BA0..0x7F3BBE the same with `push ebx` (0). The constructor 0x5496A0 stores `[ebp+0xc]` (byte) at +0x4C, the tag at +0x3C/+0x40, and **EDI at +0x50** (`mov [esi+0x50],edi` at 0x54975B), and moves the persistent-id counter by `1 + 2*EDI` (`lea edx,[ecx+edi*2]`) - so EDI is an argument, not a callee-saved register it merely preserves. The mode 0 arm loads EDI the same way before 0x544E10, whose amount-in-EDI is recorded. The decompiler drops the EDI argument (CConstructConvoyCommand_2(puVar5,0,tag) with no amount). Wrong only if 0x5496A0 does not read EDI, which the store at 0x54975B rules out.",
+   "revises": "The record had mode 1 and 2 as `CConstructConvoyCommand(0 or 1, country)` with no amount: serial reaches the convoy command as its amount, in EDI, exactly as it reaches CConstructBuildingCommand.",
+   "source": "reversing/findings/FINDINGS-convoylines.md"
+  },
+  {
+   "rva": "0x3F4140",
+   "kind": "function",
+   "name": "CBuildQueueEntry::CBuildQueueEntry",
+   "signature": "CBuildQueueEntry* __stdcall CBuildQueueEntry::CBuildQueueEntry(CBuildQueueEntry* this@stack:4, void* screen@stack:8, CConstruction* line@stack:0xC) @EAX",
+   "no_signature": null,
+   "comment": "The constructor of the production screen's queue line: makes a `queue_entry` window, keeps the line's id at +0x78 and the screen at +0xA0, and attaches the five buttons - `cancel` to OnCancel, `max_prio`, `prio`, `non_prio`, `max_non_prio` to the four priority handlers. **`original_country`** shows the builder's flag where the builder's id (+0x54) is neither nought nor the country's (+0x4C), and is hidden otherwise - so on every building line, whose builder is `---`, and on every convoy line, none of which has a builder in any save. Then by the line's kind, asked in the order slot 17, slot 15, slot 16: **slot 17** (a unit) - `counter_type` the sprite `GFX_counter_` + the first brigade's type key where the line has items, and `unit_target` `=> ` + the target's name; **slot 15** (a convoy line) - `counter_type` the sprite `icon_build_convoy`, or `icon_build_escort` where the line's +0x58 (escorts) is set, where the sprite exists (both do in both installs), and nothing more: `unit_target` is not written and stays the file's empty text; **slot 16** (a building) - **`icon_build_` + the building's key (+0x1C of +0x58)** where such a sprite exists, and then a further call on `counter_type` (its slot 73, not read). Last, for every kind, **`unit_name` = the line's slot 13** - for a building \"name (province)\", for a convoy line `CC_CONVOY` \"Convoy\" or `CC_ESCORT` \"Escort\" - and Update. `ret 0xC`. See reversing/findings/FINDINGS-buildingqueue.md, section A.5, and FINDINGS-convoylines.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x7F47BA..0x7F4824: push 'icon_build_convoy'; `cmp byte ptr [ecx+0x58],bl; je` over push 'icon_build_escort'; the sprite looked up in the session's sprite table and, where found, `counter_type`'s slot 57 (+0xE4) given it; the arm then joins `unit_name` with no slot-73 (+0x124) call and no 'unit_target' (the string 'unit_target' 0x15CB964 is pushed only in the slot-17 arm). The line's slot 13 for CConvoyConstruction is 0x486860 (vtable.py), which pushes 'CC_ESCORT' where `[ecx+0x58]` is set and 'CC_CONVOY' otherwise and renders the key with no variables (0x48688E, 0x486933). Saves: none of the 73 to 107 convoy_construction blocks in the maintainer's saves of 4 January to 20 April 1936 has a `builder` key. Wrong if a convoy line can be made with a builder - CConvoyConstruction's constructor is reader A's.",
+   "revises": "Adds what the convoy arm leaves undone (no unit_target, no slot-73 call) and what unit_name says on a convoy line (CC_CONVOY / CC_ESCORT, slot 13), and that original_country is hidden on convoy lines.",
+   "source": "reversing/findings/FINDINGS-convoylines.md"
+  },
+  {
+   "rva": "0x3F4C90",
+   "kind": "function",
+   "name": "CBuildQueueEntry::Update",
+   "signature": "void __thiscall CBuildQueueEntry::Update(CBuildQueueEntry* this)",
+   "no_signature": null,
+   "comment": "**Slot 8 of the production screen's CBuildQueueEntry: fills one line of the build queue.** Bare `ret` at 0x7F5A36. The line by the id at +0x7C/+0x80, kept at +0x78; with none, nothing. Hides `production_queue_red`, `_orange`, `_green`. **Where the window is shown (its +0x5B)**: shows `counter_type` and calls its slot 73; shows `production_queue_green` where the line's status (+0x3C) is above floor(990.5f), `production_queue_orange` where it is above 0, `production_queue_red` otherwise; calls `counter_type`'s slot 73 and shows it again; where duration (+0x34) is above nought, hands `prodqueue_progress` (its slot 18) `progress * 1000 / duration` as a whole percentage; and **only for a unit line (slot 17)** hides `production_queue_naval`, `_division`, `_air` and `_buildings` and shows `_division`, `_naval` or `_air` by the first item's type (+0x2D, +0x2E, +0x2C, in that order). **For a building or a convoy line none of the four is touched**, so all four stand as the file has them, at one place - `production_queue_buildings` last. Then, always: `production_speed` as `status * 100` with no decimals and '%', `ic_cost` as the cost (+0x30) to two decimals followed by the text of the key 'IC', `eta_date` from CConstruction::GetEtaText, and `series_info` as '+' and `size - 1` where size (+0x40) is above 1, else empty. **One of the two readers of `status`.** There is a second class of the same name in another namespace (vftable slot 8 at 0x61DD40), which was not read. See reversing/findings/FINDINGS-buildqueue.md, section 8, and FINDINGS-convoylines.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x7F51B3..0x7F53E5: `mov eax,[esp+0x2c]` (the line), `call [edx+0x44]` (slot 17), `test al,al; je 0x7f53e5` - straight to 'production_speed' - and the four hides (slot 14, +0x38) at 0x7F51CA, 0x7F5228, 0x7F5286, 0x7F52E4 lie after it, followed by the item's type bytes +0x2D/+0x2E/+0x2C at 0x7F534C..0x7F5396 choosing the one shown (slot 13, +0x34). 'production_queue_buildings' (0x15CBA10) is referenced in this namespace only at 0x7F52E5, the hide (the other reference, 0x61E0C7, is the other namespace's class); positive control: 'production_queue_naval' has its show at 0x7F5377 as well as its hide. The window test `cmp byte ptr [edx+0x5b],bl; je 0x7f53e5` at 0x7F4E24. Wrong if the four icons are hidden somewhere else for a non-unit line (no other reference in this namespace).",
+   "revises": "'shows one of production_queue_naval, _division, _air and _buildings' was true only of a unit line: Update shows a category icon only through slot 17, and leaves all four as the file has them on a building or convoy line - production_queue_buildings is never shown by code, only hidden on unit lines.",
+   "source": "reversing/findings/FINDINGS-convoylines.md"
+  },
+  {
+   "rva": "0x3FD350",
+   "kind": "function",
+   "name": "CProductionView::Update",
+   "signature": "void __thiscall CProductionView::Update(CProductionView* this)",
+   "no_signature": null,
+   "comment": "**Slot 6 of CProductionView: fills the screen.** When the played country is not the one at +0x334 it rebuilds the trade list and the sliders first. Then: the seven resources through SetGoodsText - energy 5, metal 4, rm 6, oil 3, fuel 1, supplies 0, money 2; `nukes_value` from +0x90 with two decimals; `ic_value` as TotalIC, a plain integer; **`transports_value` and `escorts_value`** as the integers +0xB0 and +0xB4 followed by ' (+N)' when N is not nought, where N sums, over the country's Constructions (+0xF40) whose slot 15 answers yes, the line's size (+0x40) times `CONVOY_CONSTRUCTION_SIZE / 1000` (the define at [defines + 0x9C] + 0x34, divided first and truncated - 10 in Their Finest Hour), into escorts where the line's +0x58 is set and transports otherwise; the `escort` button disabled unless the technology status's +0x80 (`allow_escorts`) is set - **the `convoy` button is never touched**; **every building with `capital = yes` has a button looked up by the building's own key** and enabled or disabled by building_available; the six sliders kept adding up to TotalIC over up to ten rounds, with SendDistribution at most once a wall-clock second; and the four lists - build_queue, ai_need_queue, trade_list, convoy_queue - rebuilt when their length differs from the model's. See reversing/findings/FINDINGS-countryviews.md, section 4, and FINDINGS-convoylines.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x7FD908..0x7FD969: `mov eax,0x10624dd3; imul dword ptr [edx+0x34]; sar edx,6` (the define over 1000, before the loop), then for each node of +0xF40 the line's slot 15 (`call [edx+0x3c]`), `cmp byte ptr [edi+0x58],bl; mov edi,[edi+0x40]; imul edi,esi` added to one of two sums. The text, from the decompile read beside the listing: itoa of +0xB0 / +0xB4, then where the sum is not nought `\" (+\" + itoa(N) + \")\"` appended, assigned to `transports_value` and `escorts_value`. 'convoy' (0x15DE8BC) has no reference inside this function (references: 0x7FC068, 0x80126E, 0xD02413 only); 'escort' has one, at 0x7FDDFF. Wrong if CONVOY_CONSTRUCTION_SIZE is not the economy block's +0x34 (scripts/definesMap.py says it is).",
+   "revises": "Adds what N is - size times CONVOY_CONSTRUCTION_SIZE / 1000, the define divided first - and that the `convoy` button is never enabled or disabled.",
+   "source": "reversing/findings/FINDINGS-convoylines.md"
+  },
+  {
+   "rva": "0x3FBE20",
+   "kind": "function",
+   "name": "CProductionView::AttachButtons",
+   "signature": "void __stdcall CProductionView::AttachButtons(CProductionView* view@EDI)",
+   "no_signature": null,
+   "comment": "Finds ten elements of the production window by name and attaches one of the view's observers to each: auto_deployment_checkbox (+0xD0), theatres_calc_button (hidden instead), theatres_assign_button (+0x11C), build_division_button (+0x174), build_air_button (+0x1A0), build_ship_button (+0x1CC), **convoy (+0x224, handler CProductionView::OnConvoyButton)**, **escort (+0x250, handler CProductionView::OnEscortButton)**, brig_attach (+0x1F8), **convoy_button (+0x27C, handler 0x8024D0, which shows the dialog at +0x314 through its slot 2 - the convoy route window, not the building of convoys)**. Each observer is 0x2C bytes; the constructor writes these handlers at the observer's +8, and the building buttons' (which takes the element) at its +0x20. **Then every building of the database whose `capital` byte (+0x60) is set**, in the database's order: the window (+0xA8) is asked for an element named as the building's key (+0x1C), and where there is one the observer at +0x148 is attached to it - the one whose handler, set by the constructor at +0x168, is CProductionView::OnBuildingButton (0x8025C0). The name is ours.",
+   "confidence": "inferred",
+   "evidence": "Decompile of 0x7FBE20 read beside the constructor's listing 0x7FB33B..0x7FB5BD: each observer's three words (table, owner = the view, handler) - +0x174/0x8022F0, +0x1A0/0x802330, +0x1CC/0x8023B0, +0x1F8/0x802370, +0x224/0x8023F0, +0x250/0x8024E0, +0x27C/0x8024D0, and +0x148 with its handler at +0x168 = 0x8025C0. 0x8024D0 is `mov ecx,[ecx+0x314]; mov eax,[ecx]; mov edx,[eax+8]; jmp edx`. Inferred only because the name is ours; the attachments are read.",
+   "revises": "Adds the observer offsets and handlers for convoy, escort and convoy_button, and what 0x8024D0 does.",
+   "source": "reversing/findings/FINDINGS-convoylines.md"
+  }
+ ],
+ "structs": [],
+ "struct_fields": [],
+ "vftable_slots": {},
+ "frontier": [
+  "0x406460 - the build queue list's sync (cdecl, three arguments, called once at 0x7FD0EC): one CBuildQueueEntry per line of the list it is handed, matched by id, at most 128 appended a call; not read whole",
+  "0x4024D0 - convoy_button: the dialog at +0x314 (convoy_details or convoy_settings) slot 2",
+  "0x61DD40 / 0x61DF68 - the other namespace's CBuildQueueEntry update, which also shows the four category icons",
+  "0x406460's caller 0x3FCF60 - which list build_queue is handed"
+ ]
+}

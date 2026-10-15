@@ -25,8 +25,8 @@ how many objects a census found (taken 2026-09-20).
 
 | | classes |
 | --- | --- |
-| `read` | 121 |
-| `placed` | 149 |
+| `read` | 122 |
+| `placed` | 148 |
 | `keys` | 75 |
 | `part` | 134 |
 | `named` | 6 |
@@ -161,9 +161,9 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CCombatHistoryEntry` | `CPersistent` |  | 10 | 5/6 | 2 |  | 413 | read |  |
 | `CCombatManager` | `CPersistent` |  | 3 | 1/7 | 8 | CCombatManager.hpp | 1 | placed |  |
 | `CCombatant` | `CPersistent` |  | 23 | 4/6 | 20 | CCombat.hpp |  | read |  |
-| `CConstruction` | `CReferenceObject` |  | 13 + 2 lua |  | 4 | CConstruction.hpp |  | read |  |
+| `CConstruction` | `CReferenceObject` |  | 13 + 2 lua |  | 5 | CConstruction.hpp |  | read |  |
 | `CConvoy` | `CReferenceObject` |  | 22 + 3 lua | 6/13 | 18 | CConvoy.hpp | 839 | read |  |
-| `CConvoyConstruction` | `CConstruction` |  | 1 | 1/1 | 2 | CConstruction.hpp | 40 | placed |  |
+| `CConvoyConstruction` | `CConstruction` |  | 1 | 1/1 | 6 | CConstruction.hpp | 40 | placed |  |
 | `CConvoyEscortOrder` | `CNavalOrder` |  |  | 1/3 | 6 |  |  | placed |  |
 | `CConvoyRaid` | `CNavalOrder` |  |  | 1/1 | 5 |  | 62 | placed |  |
 | `CCountry` | `CPersistent` |  | 274 + 71 lua | 69/126 | 155 | CCountry.hpp | 108 | read |  |
@@ -880,7 +880,7 @@ One class per effect, trigger, command and decision the event scripts can use. E
 | `CConquerProvinceCommand` | `CCommand` |  |  | 2/2 | 1 |  | 1 | placed |  |
 | `CConsoleMemberOption` | `CStandardlistboxItem` |  |  |  |  |  | 2 | RTTI |  |
 | `CConstructBuildingCommand` | `CCommand` | 0x58 | 6 | 2/3 | 8 |  | 6 | read |  |
-| `CConstructConvoyCommand` | `CCommand` |  |  | 1/4 | 1 |  | 1 | placed |  |
+| `CConstructConvoyCommand` | `CCommand` | 0x54 | 5 | 1/4 | 7 |  | 1 | read |  |
 | `CConstructSingleUnitCommand` | `CCommand` |  |  | 2/7 | 3 |  | 1 | placed |  |
 | `CConstructUnitCommand` | `CCommand` |  |  | 3/9 | 2 |  | 1 | placed |  |
 | `CContextEffect` | `CEffect` | 0x130 | 1 | 3/91 | 4 |  | 10,686 | part |  |

@@ -1,0 +1,219 @@
+{
+ "agent": "convoy-line wave, reader A",
+ "question": "The convoy line: CConstructConvoyCommand whole (constructor, slots, Execute and the price it gives), CConvoyConstruction whole (constructor, slots, Deliver), the day's loop for a convoy line, the history and save loading, the Lua constructor, and the saves.",
+ "source": "reversing/findings/FINDINGS-convoylines.md",
+ "addresses": [
+  {
+   "rva": "0x1496A0",
+   "kind": "function",
+   "name": "CConstructConvoyCommand::CConstructConvoyCommand",
+   "signature": "CConstructConvoyCommand* __stdcall CConstructConvoyCommand::CConstructConvoyCommand(CConstructConvoyCommand* this@stack:4, bool escorts@stack:8, CCountryTag country@stack:0xC, int amount@EDI) @EAX",
+   "no_signature": null,
+   "comment": "**The constructor every poster uses**: the production screen's confirm dialog (CConfirmBuild::OnAccept, 0x7F3B04 escorts 1 and 0x7F3BBE escorts 0, **amount = the dialog's serial count, +0x13C**) and the Lua `CConstructConvoyCommand(tag, escort, amount)` (LuaConstruct_CConstructConvoyCommand, 0x98A0BD). `ret 0x10`; `this`, the escorts byte and the 8-byte tag on the stack, **`amount` in EDI** - so there is an amount, and it becomes the line's `size`. CCommand's base set up (class id 0x18D, type ids 0x4DF `construct_convoy` at +0x2C/+0x30, +0x34 = 0xFFFF), country tag -> +0x3C/+0x40, escorts -> +0x4C (byte), amount -> +0x50. **Mints the line's id** under the spin lock at 0x1B16714, as CConstructBuildingCommand does: type `0x1268 + word[0x1A857EC]` into +0x44 (4713 in every save), serial `[0x1A857F8] + 1` into +0x48, and the counter moves on by **`1 + 2 * amount`** (the building command's is 1 + 3 * amount). Nothing uses the 2 * amount numbers it passes over: CConvoyConstruction::Deliver makes no object.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x5496A0..0x54976C: `mov esi,[ebp+8]` (this), `mov eax,0x4df; mov [esi+0x2c],eax; mov [esi+0x30],eax`, `mov eax,[ebp+0x14]; mov edx,[ebp+0x10]; mov [esi+0x40],eax; mov [esi+0x3c],edx`, `call 0x67AEE0` with eax = 0x1B16714, `mov ecx,[0x1a857f8]; inc ecx; lea edx,[ecx+edi*2]; mov [0x1a857f8],edx`, `movzx edx,word [0x1a857ec]; add edx,0x1268; mov [esi+0x44],edx; mov [esi+0x48],ecx`, `mov al,[ebp+0xc]; mov [esi+0x4c],al`, `mov [esi+0x50],edi`, `ret 0x10`. findRefs --callers: 0x7F3B04, 0x7F3BBE, 0x98A0BD; both dialog sites load `edi,[edi+0x13c]` before the call. **Measured**: consecutive AI lines' ids step by 1 + 2 * size in the 4 January save (ENG 666 size 5 -> 677; JAP 1079, 1084, 1089, 1094, 1099 size 2 -> 1104; CUB 1538 size 1 -> 1541). Would be wrong if the saves' ids stepped by anything else between one country's consecutive lines.",
+   "source": "reversing/findings/FINDINGS-convoylines.md"
+  },
+  {
+   "rva": "0x1495F0",
+   "kind": "function",
+   "name": "CConstructConvoyCommand::CConstructConvoyCommand_Prototype",
+   "signature": "CConstructConvoyCommand* __stdcall CConstructConvoyCommand::CConstructConvoyCommand_Prototype(CConstructConvoyCommand* this@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "The empty constructor the command factory's prototype is made with (its one caller is RegisterCommandTypes, 0x8859CE): the CCommand base with type ids 0x4DF, country `---`, id pair 0, escorts 0, amount 0. Mints no id. `ret 4`. Named for its one use; the game's own name for it is a second CConstructConvoyCommand constructor.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x5495F0..0x549695: `mov eax,0x4df; mov [esi+0x2c],eax; mov [esi+0x30],eax`, `mov dword ptr [esi],0x15c37d4`, `mov [esi+0x3c],0x2d2d2d`-from-stack, `mov [esi+0x40],eax(0)`, `mov [esi+0x44],ebx; mov [esi+0x48],ebx; mov [esi+0x4c],bl; mov [esi+0x50],ebx`, `ret 4`; findRefs --callers 0x5495F0 gives the one call at 0x8859CE inside RegisterCommandTypes (0x885050-0x887F37).",
+   "source": "reversing/findings/FINDINGS-convoylines.md"
+  },
+  {
+   "rva": "0x149770",
+   "kind": "function",
+   "name": "CConstructConvoyCommand::Execute",
+   "signature": "void __thiscall CConstructConvoyCommand::Execute(CConstructConvoyCommand* this)",
+   "no_signature": null,
+   "comment": "**Slot 6: puts a convoy line on the build queue. It refuses nothing** - slot 14 (the validity test) is the folded ReturnTrue, and Execute asks nothing of the country, the amount or the technology: **escorts are queued and built without `allow_escorts`**. Bare `ret` at 0x549999. In order: country = countries[+0x40]; a CConvoyConstruction (0x5C bytes) is built in place, as its constructor 0x486630 builds it (status 1000, size 1, location null, country and builder `---`, escorts 0); it takes the command's id pair (+0x44) through slot 6 (CReferenceObject::SetId); country tag <- +0x3C/+0x40; escorts byte (+0x58) <- +0x4C; **size (+0x40) <- amount (+0x50), uncapped and unchecked**. **The price**: escorts - cost (+0x30) = CCountry::GetEscortBuildCost, duration = CCountry::GetEscortBuildTime; transports - GetConvoyBuildCost and GetConvoyBuildTime; each getter is `define * (1000 + technology status field) / 1000`, 64-bit, truncated, floored at 10 (`(int)floor(10.5f)`), with the economy block's CONVOY_BUILD_COST (+0x14), CONVOY_BUILD_TIME (+0x18), ESCORT_BUILD_COST (+0x1C), ESCORT_BUILD_TIME (+0x20) and CTechnologyStatus +0x44, +0x48, +0x4C, +0x50; **duration is then cut to whole days**, `days / 1000 * 1000` truncated. Cost first, then time. CCountry::EnqueueConstruction(line in EAX, country in EDI) **appends it at the tail** (and copies the country's own tag over +0x48 again). Then: where CCurrentGameState's played_countries_array (+0xBCC) has the country, the in-game screen's slot 60 (0x674ED0, which refreshes the window at +0x1CE0 if one is open - not read further); **CCountry::RebuildNeighbours(country) and CCountry_AfterDiplomacyChange(country)**, as a diplomatic change would; CDistributeProduction::UpdateNeeded on the country's production share (+0x5F4 -> +8). No IC, no message, no slot 14 (the line's is empty anyway).",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x549770..0x549999 read whole. `mov edi,[edx+eax*4]` with edx = [0x1A855A4]+0x16C and eax = [ebx+0x40]; `push 0x5c; call 0xb9602f` then the inline constructor ending `mov dword ptr [eax],0x15bdd04`; `call [edx+0x18]` with &[ebx+0x44]; `mov [esi+0x48],[ebx+0x3c]`, `mov [esi+0x4c],[ebx+0x40]`, `mov [esi+0x58],byte [ebx+0x4c]`, `mov [esi+0x40],[ebx+0x50]`; `cmp byte [ebx+0x4c],0; je` choosing 0x4FD670/0x4FD6E0 (escort) or 0x4FD590/0x4FD600; `mov [esi+0x30],eax` after the cost call; the time's `imul 0x10624dd3; sar edx,6; ... imul eax,eax,0x3e8; mov [esi+0x34],eax`; `mov eax,esi; call 0x4f5600`; `mov edx,[eax+0xbcc]; cmp [edx+ebx*4],0`, `call [edx+0xf0]` on [eax+0xbe8]; `push edi; call 0x4e21e0; push edi; call 0x4e39c0`; `mov esi,[ecx+8]` from [edi+0x5f4], `call 0x51a290`. The getters 0x4FD590..0x4FD743 read on the listing: `[eax+0x9c]` then `+0x14/+0x18/+0x1C/+0x20`, `[esi+0xdf8]` then `+0x44/+0x48/+0x4C/+0x50`, `add ecx,0x3e8; imul ecx`, `__alldiv(.,1000)`, `floorf(10.5)` (float at 0x160A680 = 10.5) through _ftol2_sse, `cmp; jge`. vtable.py: slot 14 of CConstructConvoyCommand is 0xA92590, `mov al,1; ret`. **Measured**: 36 countries without sea_lane_defence (the only technology with `allow_escorts` in either install) have escort lines in the 4 January save, and 36 on 20 April; every line in every save is 2.000/100.000 or 4.000/240.000 - no install file sets the four technology keys. Would be wrong if a line in a save had a size its order could not give, or a price other than the define times the technology.",
+   "source": "reversing/findings/FINDINGS-convoylines.md"
+  },
+  {
+   "rva": "0x1499A0",
+   "kind": "function",
+   "name": "CConstructConvoyCommand::GetTypeId",
+   "signature": "int __thiscall CConstructConvoyCommand::GetTypeId(CConstructConvoyCommand* this)",
+   "no_signature": null,
+   "comment": "Slot 7: `mov eax,0x4df; ret` - 1247, the save token `construct_convoy`.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x5499A0: `mov eax, 0x4df; ret`; ghidra/saveTokens.json 1247 = construct_convoy; vtable.py puts it at slot 7 of CConstructConvoyCommand only.",
+   "source": "reversing/findings/FINDINGS-convoylines.md"
+  },
+  {
+   "rva": "0x1499B0",
+   "kind": "function",
+   "name": "CConstructConvoyCommand::SaveContents",
+   "signature": "void __thiscall CConstructConvoyCommand::SaveContents(CConstructConvoyCommand* this, CSaveWriter* writer)",
+   "no_signature": null,
+   "comment": "Slot 2: CCommand's contents (0xA7BB80), then `country` (the tag at +0x3C as text), `id` (+0x44), `amount` (+0x50) and `status` - `yes` where the escorts byte (+0x4C) is set, else `no`. LoadKey (0x549B00) reads the same four. `ret 4`.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x5499B0..0x549AF8: tokens 0x24D (country) with the string from [edi+0x3c], 0xB (id) with 0xA789F0 on [edi+0x44], 0x25F (amount) with [edi+0x50] through sprintf, 0xCC (status) choosing 0x15C1914 'yes' or 0x15C1918 by `test bl,bl` on [edi+0x4c]; `ret 4`.",
+   "source": "reversing/findings/FINDINGS-convoylines.md"
+  },
+  {
+   "rva": "0x149C40",
+   "kind": "function",
+   "name": "CConstructConvoyCommand::Clone",
+   "signature": null,
+   "no_signature": "`ret 0x1C`: receiver in ECX plus an std::string passed by value, as for every command's slot 13.",
+   "comment": "Slot 13: a new 0x54-byte command with the CCommand base copied (0x40B530) and +0x3C..+0x50 copied field by field - the id pair included, so a clone does not mint a new id.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x549C40..0x549CD2: `push 0x54; call 0xb9602f`, `call 0x40b530`, `mov dword ptr [esi],0x15c37d4`, six copies [edi+0x3c..0x50] -> [esi+...], `ret 0x1c`.",
+   "source": "reversing/findings/FINDINGS-convoylines.md"
+  },
+  {
+   "rva": "0x58A050",
+   "kind": "function",
+   "name": "LuaConstruct_CConstructConvoyCommand",
+   "signature": null,
+   "no_signature": "luabind's construct thunk: `ret 0x14`, the luabind::argument at stack:4, then the bool, the int and the 8-byte tag in luabind's own layout - which is not the Lua call's order.",
+   "comment": "**Lua `CConstructConvoyCommand(tag, escort, amount)`** (luabind's `__init(argument, CCountryTag, bool, int)`): news 0x54 bytes and calls CConstructConvoyCommand::CConstructConvoyCommand(escort, tag) with amount in EDI, then wraps the instance in luabind's holder. Its one caller is the invoker at 0x984858, which reads the bool with lua_toboolean == 1. TFH's `BuildTransportOrEscort` (tfh/script/ai_production_minister.lua) calls it as `CConstructConvoyCommand(ministerTag, vbConvoyOrEscort, liSerial)`, true for escorts, and posts it without asking IsValid.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x98A050..0x98A123: `push 0x54; call 0xb9602f`; `mov ecx,[ebp+0x18]; mov edx,[ebp+0x14]; mov edi,[ebp+0x10]; push ecx; mov ecx,[ebp+0xc]; push edx; push ecx; push eax; call 0x5496a0`; `ret 0x14`. The invoker 0x984806..0x984858 pushes the tag's two dwords, the integer and the `sete dl` boolean before the argument. luabind.json: CConstructConvoyCommand, size 84, constructor `CCountryTag, bool, int`.",
+   "source": "reversing/findings/FINDINGS-convoylines.md"
+  },
+  {
+   "rva": "0x86630",
+   "kind": "function",
+   "name": "CConvoyConstruction::CConvoyConstruction",
+   "signature": "CConvoyConstruction* __fastcall CConvoyConstruction::CConvoyConstruction(CConvoyConstruction* this@EAX) @EAX",
+   "no_signature": null,
+   "comment": "The convoy line's constructor, 0x5C bytes: CConstruction's base (class id 0x18D, the null id pair from 0x1A8CC94, empty name), cost, duration and progress 0, **status (+0x3C) 1000, size (+0x40) 1**, location null, country and builder `---` with id 0, escorts byte (+0x58) 0. Bare `ret`, `this` in EAX. One caller: CCountry::LoadKey's `convoy_construction` arm (0x4CD6B8) - CConstructConvoyCommand::Execute builds the same object inline. **That arm loads the block first and enqueues after** (0x4CD6CE then CCountry::EnqueueConstruction at 0x4CD6D4), the reverse of the military line's arm (0x4CCFD2 then 0x4CCFE2), so a `country` key in a convoy block is always overwritten by the country the block is loaded for.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x486630..0x4866AF: `mov dword ptr [eax],0x15c3ae4` (CConstruction), `mov dword ptr [eax+4],0x18d`, `mov [eax+0x3c],0x3e8`, `mov [eax+0x40],1`, `mov [eax+0x48],0x2d2d2d`, `mov [eax+0x50],0x2d2d2d`, `mov dword ptr [eax],0x15bdd04`, `mov byte [eax+0x58],cl(0)`, bare `ret`. findRefs --address 0x15BDD04 gives this and Execute's inline copy; --callers 0x486630 the one call at 0x4CD6B8 after `push 0x5c; call 0xb9602f`. functionStart answers 0x486450 (trap 2) - 0x486630 follows `ret 4` at 0x48662D.",
+   "source": "reversing/findings/FINDINGS-convoylines.md"
+  },
+  {
+   "rva": "0x866F0",
+   "kind": "function",
+   "name": "CConvoyConstruction::SaveContents",
+   "signature": "void __thiscall CConvoyConstruction::SaveContents(CConvoyConstruction* this, CSaveWriter* writer)",
+   "no_signature": null,
+   "comment": "Slot 2: the shared CConstruction contents (0x4834A0: id, size, cost, duration, progress, status - the day's share) and then **a second `status`**, `yes` where the escorts byte (+0x58) is set and `no` where it is not. So every convoy line in a save has two `status` keys. On loading, CConvoyConstruction::LoadKey takes a `yes` for the byte and gives anything else to CConstruction::LoadKey, which parses `no` as a number - so **a transport line loaded from a save has its share (+0x3C) set to 0 by its own second `status`** until the next day's AddProgress. `ret 4`.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x4866F0..0x48675F: `push edi; call 0x4834a0`, `mov bl,[esi+0x58]`, token 0xCC, 0x15C1914 'yes' or 0x15C1918 by `test bl,bl`, `ret 4`. Every one of the 868 convoy lines across the eleven saves that have any has `status=<share>` and then `status=yes|no`. TokenToFixedPoint (0x669550, CConstruction::LoadKey's `status` arm at 0x4832B4) gives atoi('no') * 1000 = 0. The load-time zero is read, not seen in a running game.",
+   "source": "reversing/findings/FINDINGS-convoylines.md"
+  },
+  {
+   "rva": "0x86770",
+   "kind": "function",
+   "name": "CConvoyConstruction::Deliver",
+   "signature": "bool __thiscall CConvoyConstruction::Deliver(CConvoyConstruction* this)",
+   "no_signature": null,
+   "comment": "**Slot 9: a finished convoy line delivers one item of its series** - CONVOY_CONSTRUCTION_SIZE ships. Bare `ret`; CDistributeProduction::Distribute calls it when progress >= duration and removes the line when it answers 1. Read whole on the listing 2026-10-15. In order: (1) the country is countries[the line's +0x4C], with no test that it exists or owns anything; **escorts byte (+0x58) set - CCountry +0xB4 (`Escorts`) += CONVOY_CONSTRUCTION_SIZE ([defines + 0x9C] + 0x34) / 1000; clear - +0xB0 (`Transports`, saved as `convoys`) += the same**, truncated: 10 in Their Finest Hour. (2) `progress -= min(duration, progress)` - what was paid past the duration is kept for the next item. (3) `size -= 1`. (4) The custom-game bookkeeping a building's Deliver has (settings stage 2 with the country on its list: +0x6C = 1). (5) Answer `size <= 0`. **Nothing else**: no practical gained, no message to anybody, no re-pricing (its slot 14 is empty anyway), no test for a country that owns no province (the military and building lines have one). A line whose size was 0 or less still gives one item. **Revised 2026-10-15**: the name is now settled by slot 9 (it was `likely`, 'not reached from a vftable slot'), the return is a bool, and the rest of the body is read.",
+   "confidence": "confirmed",
+   "evidence": "vtable.py: 0x486770 is CConvoyConstruction's slot 9, where CBuildingConstruction holds CBuildingConstruction::Deliver (0x485BD0) and Distribute calls `[edx+0x24]` (0x51A1D0). Listing 0x486770..0x486847: `cmp byte [esi+0x58],0; je`, both arms `call 0x445d90; mov eax,[eax+0x9c]; ... mov ecx,[edx+ecx*4]` with ecx = [esi+0x4c]; `mov edx,[eax+0x34]; imul 0x10624dd3; sar edx,6; ...; add [ecx+0xb4],eax` / `add [ecx+0xb0],eax`; `mov eax,[esi+0x34]; mov ecx,[esi+0x38]; cmp; cmovg eax,ecx; sub [esi+0x38],eax; dec dword [esi+0x40]`; 0x41C4E0 / 0x41D470 / `mov byte [ebx+0x6c],1`; `cmp dword [esi+0x40],0; setle al; ret`. definesMap.py: economy +0x34 = CONVOY_CONSTRUCTION_SIZE; tfh/common/defines.lua 10. **Measured** between the saves of 1 April and 20 April 1936 (one session, ids stable): 47 transport lines at 81.4-90.0 of 100 on 1 April are gone (38) or one shorter (9) on 20 April; 19 countries whose only change was one such line gained exactly +10 `convoys`; JAP's five lines of size 2 at 90.000 are size 1 at 9.000 (90 + 19 days - 100), ITA's two likewise, ENG's 89.097 -> 8.097 and 87.702 -> 6.702. No escort line (240 days) was old enough to finish. Would be wrong if a delivery gave anything but 10 or reset progress to 0.",
+   "source": "reversing/findings/FINDINGS-convoylines.md",
+   "revises": "0x86770"
+  },
+  {
+   "rva": "0x86850",
+   "kind": "function",
+   "name": "CConvoyConstruction::GetSaveToken",
+   "signature": "int __thiscall CConvoyConstruction::GetSaveToken(CConvoyConstruction* this)",
+   "no_signature": null,
+   "comment": "Slot 10: `mov eax,0x4de; ret` - 1246, `convoy_construction`, the key the line is saved under.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x486850: `mov eax, 0x4de; ret`; saveTokens.json 1246 = convoy_construction; CBuildingConstruction's slot 10 (GetSaveToken, 0x486300) answers its own token the same way.",
+   "source": "reversing/findings/FINDINGS-convoylines.md"
+  },
+  {
+   "rva": "0x86860",
+   "kind": "function",
+   "name": "CConvoyConstruction::GetName",
+   "signature": "Hoi3CString* __thiscall CConvoyConstruction::GetName(CConvoyConstruction* this, Hoi3CString* out) @EAX",
+   "no_signature": null,
+   "comment": "Slot 13: the localised text of `CC_ESCORT` (\"Escort\") where the escorts byte (+0x58) is set, else `CC_CONVOY` (\"Convoy\") - GetText then CInternationalizedText::Render with the game settings' colours. **No count**: a line of five reads \"Convoy\" like a line of one. It is what the production screen's queue line writes in `unit_name`. `ret 4`.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x486860..0x4869E9: `cmp byte ptr [ecx+0x58],bl; je 0x486933`, 'CC_ESCORT' (0x15BDBE8) on one arm and 'CC_CONVOY' (0x15BDBF4) on the other, each `call 0xa82490` (GetText) then `call 0xa82e40` (Render) with ESI = [ebp+8]; `mov eax,esi; ret 4`. localisation and tfh/localisation: CC_ESCORT;Escort, CC_CONVOY;Convoy.",
+   "source": "reversing/findings/FINDINGS-convoylines.md"
+  },
+  {
+   "rva": "0x834A0",
+   "kind": "function",
+   "name": "CConstruction::SaveContents",
+   "signature": "void __thiscall CConstruction::SaveContents(CConstruction* this, CSaveWriter* writer)",
+   "no_signature": null,
+   "comment": "**The shared writer of the production queue**, beside CConstruction::LoadKey (and like it not a virtual: CConstruction has no table). In order: `id` (+8), `size` (+0x40), `cost` (+0x30), `duration` (+0x34), `progress` (+0x38), `status` (+0x3C), `location` (the province id, only where +0x44 is not null), `country` (only where its id half +0x4C is not 0) and `builder` (only where +0x54 is not 0) - which is why no convoy or building line in a save has a `builder`. `ret 4`. Callers: the three lines' slot 2 (0x48441E military, 0x485A92 building, 0x486702 convoy).",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x4834A0..0x4837BC: tokens in order 0xB (id), 0x2E (size), 0x204 (cost), 0x6C (duration), 0x49A (progress), 0xCC (status), 0x220 (location, behind `mov eax,[ebx+0x44]; test eax,eax; je`), 0x24D (country, behind `cmp [ebx+0x4c],0`), 0x57E (builder, behind `cmp [ebx+0x54],0`); `ret 4` at 0x4837BC, GetCost at 0x4837C0 after. findRefs --callers: 0x48441E, 0x485A92, 0x486702. The saves' convoy lines read id, size, cost, duration, progress, status, country, status in that order.",
+   "source": "reversing/findings/FINDINGS-convoylines.md"
+  }
+ ],
+ "structs": [
+  {
+   "name": "CConstructConvoyCommand",
+   "size": "0x54",
+   "inherits": "CCommand",
+   "vftable_rva": "0x11C37D4",
+   "comment": "Type id 0x4DF (`construct_convoy`). Orders a line of transports or escorts: `amount` of them in series, each CONVOY_CONSTRUCTION_SIZE ships. See reversing/findings/FINDINGS-convoylines.md, section A.",
+   "evidence": "operator new(0x54) at every construction site (0x7F3AC9, 0x7F3B84, 0x98A095) and in Clone; luabind's size 84; RTTI base CCommand at 0; vftable 0x15C37D4 written by both constructors and Clone."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CConstructConvoyCommand",
+   "offset": "0x3C",
+   "name": "country",
+   "type": "CCountryTag",
+   "comment": "Saved as `country`: whose queue the line goes on.",
+   "evidence": "Constructor `mov [esi+0x3c],edx; mov [esi+0x40],eax` from the 8-byte tag argument; Execute indexes the country database with +0x40 and copies +0x3C/+0x40 to the line's +0x48/+0x4C; SaveContents writes token 0x24D from +0x3C."
+  },
+  {
+   "struct": "CConstructConvoyCommand",
+   "offset": "0x44",
+   "name": "line_id_type",
+   "type": "int",
+   "comment": "Type half of the id the new line takes (Execute hands &+0x44 to the line's SetId): 0x1268 + word[0x1A857EC], 4713 in the maintainer's saves. Saved as `id`.",
+   "evidence": "Constructor `movzx edx,word [0x1a857ec]; add edx,0x1268; mov [esi+0x44],edx`; Execute `lea eax,[ebx+0x44]; push eax; call [edx+0x18]`; every convoy line in the saves has `type=4713`."
+  },
+  {
+   "struct": "CConstructConvoyCommand",
+   "offset": "0x48",
+   "name": "line_id",
+   "type": "int",
+   "comment": "Serial half of that id, minted from the counter at 0x1A857F8, which then moves on by 1 + 2 * amount.",
+   "evidence": "Constructor `mov ecx,[0x1a857f8]; inc ecx; lea edx,[ecx+edi*2]; mov [0x1a857f8],edx; ... mov [esi+0x48],ecx`."
+  },
+  {
+   "struct": "CConstructConvoyCommand",
+   "offset": "0x4C",
+   "name": "escorts",
+   "type": "bool",
+   "comment": "Saved as `status`, yes or no: escorts where set, transports where clear. The confirm dialog passes 1 in its mode 2 and 0 in mode 1; Lua passes its second argument. Copied to the line's +0x58.",
+   "evidence": "Constructor `mov al,[ebp+0xc]; mov [esi+0x4c],al`; Execute `mov al,[ebx+0x4c]; mov [esi+0x58],al` and `cmp byte [ebx+0x4c],0` choosing the escort getters; SaveContents' yes/no on it; OnAccept's `push 1` at 0x7F3B01 (mode 2) and `push ebx(0)` at 0x7F3BBC (mode 1)."
+  },
+  {
+   "struct": "CConstructConvoyCommand",
+   "offset": "0x50",
+   "name": "amount",
+   "type": "int",
+   "comment": "Saved as `amount`: how many in series - the new line's size, each item CONVOY_CONSTRUCTION_SIZE ships. The confirm dialog's serial count; the AI's 1 to 5. Not checked anywhere.",
+   "evidence": "Constructor `mov [esi+0x50],edi` (EDI = [dialog+0x13C] at both OnAccept sites, [ebp+0x10] in the Lua thunk); Execute `mov eax,[ebx+0x50]; mov [esi+0x40],eax`; SaveContents token 0x25F from +0x50."
+  }
+ ],
+ "vftable_slots": {
+  "CConvoyConstruction": {
+   "2": "SaveContents",
+   "9": "Deliver",
+   "10": "GetSaveToken",
+   "12": "CanStillBeBuilt",
+   "13": "GetName"
+  },
+  "CConstructConvoyCommand": {
+   "2": "SaveContents",
+   "6": "Execute",
+   "7": "GetTypeId",
+   "13": "Clone"
+  }
+ },
+ "frontier": ["0x274ED0", "0x3C1D30", "0x1A9D0", "0x1AA50", "0x635B0", "0x584800"]
+}
