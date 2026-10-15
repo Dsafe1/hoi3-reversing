@@ -1,0 +1,34 @@
+{
+  "agent": "main session, for OpenHOI3's rebels, 2026-10-15",
+  "question": "What releasing a country does, on the listing; and to whom a rebel unit's capture hands a province",
+  "source": "reversing/findings/FINDINGS-occupation.md",
+  "structs": [],
+  "addresses": [
+    {
+      "rva": "0xC1430",
+      "kind": "function",
+      "name": "ReleaseProvinces",
+      "signature": "void __stdcall ReleaseProvinces(void* provinces, char tag[4], int countryId)",
+      "no_signature": null,
+      "comment": "**release, release_vassal's sibling, and rebels' independence.** 0x4C1430 to the single `ret 0xC` at 0x4C21F9, read on the listing 2026-10-15 where the effectrun reading had only the decompiler. `provinces` is a CList of CMapProvince* (payload +0, next +8); empty does nothing. The oppressor is the first province's owner, taken before the loop. Per province, in list order: (1) once per distinct owner, `war_seen_tick (+0x54)` both ways between the released country and that owner set to now (+0xBDC) - 24; (2) **CMapProvince::ChangeOwner(p, tag, now, applyConsequences 1, rebuildAreas 0, peaceful 1)** (push 1; push 0; push 1 at 0x4C15EB); (3) a core for `tag` added (rva 0xA3B80, logHistory 1) where +0x344 has none of its id; (4) where the released country's history capital (its +0xCD8 history's entry of type 0x1F9, else its capital +0xE20) is this province (+0xD0) and its capital is not GetOriginalCapital's answer, CCountry_SetCapital(country, province, 0). Then DeleteAreaGroups, RebuildAreaGroups, DeleteSupplyGroups, RebuildSupplyGroups. Then **for every technology of the database in order, where the released country's level (+0xDF8 -> +0x218, by the technology's Index +0x244) is below the oppressor's, it becomes the oppressor's, capped at the technology's max_level (+0x2C4)**. Then, where the database's infantry brigade answers slot 9, **each released province whose values' MODIFIER_IC (+0x114 -> +0x78, id 15) is above 0 gets a CArmy of three CRegiment brigades of infantry** (the counter at 0x4C195E) for the released country: ids from g_unit_id (type 0x29), each brigade named by CCountry::MakeSubUnitName and registered, SetType, home the province, AddRegimentToUnit; the army named (0x4CB580) and registered, CCountry::AddUnit, EnterProvince before and after RebuildAvatar, the player's intelligence of it (9 for his own, his faction's or an ally's, else the province's figure), CCombatManager::CheckForCombat. Then the `INDEPENDANCE` message - MESSENGER from MESSAGE_HEAD_CHAN, ACTOR the released country's name, OPRESSOR the oppressor's, at the released country's capital, both country pairs the released - posted through PostMessage<CCountry> with 0x4D7FE0 as the click callback. Last, CCountry_FillMinisterPosts(released, 1, 0). Four call sites (VAs): CReleaseEffect::Execute, 0x9AEE7D (in release_vassal's Execute), RebelFaction_GrantIndependence (0x4BE689) and 0x54BF32. See reversing/findings/FINDINGS-occupation.md, section D.6, and reversing/findings/FINDINGS-effectrun.md, section 2.9.",
+      "confidence": "confirmed",
+      "evidence": "Listing 0x4C14F0-0x4C1A30: the owner list walked at 0x4C1534 against +0x330; +0x54 written both ways with now-0x18 at 0x4C1573/0x4C158D; ChangeOwner 0x4A36C0 called at 0x4C15FD with pushes 1, 0, 1, &now, &tag; the core walk +0x344 and AddCore 0x4A3B80 at 0x4C1625; +0xE20 against +0xD0 at 0x4C1669, GetOriginalCapital 0x4DDB30, SetCapital 0x4DD730; the technology loop 0x4C1720-0x4C179A comparing +0xDF8->+0x218[Index +0x244] of the two and capping at +0x2C4; `cmp [eax+0x78], ebx; jle` on the province's values (+0x114) at 0x4C18A1; `mov [ebp-0x1C], 3` at 0x4C195E counted down at 0x4C1A2D.",
+      "revises": "Raised from inferred to confirmed on the listing; the ChangeOwner flags spelled out (peaceful 1), the brigade count and the IC gate pinned to their instructions, the message's variables and the minister fill named."
+    },
+    {
+      "rva": "0x30960",
+      "kind": "function",
+      "name": "CCombatManager::CheckForCombat",
+      "signature": "char __thiscall CCombatManager::CheckForCombat(CCombatManager* this, CUnit* unit, CMapProvince* province)",
+      "no_signature": null,
+      "comment": "**Where every combat in the game starts.** ~34 callers, all of them 'this unit's situation changed'. For any unit JoinCombatInProvince and then CCombatManager::StartCombat; a land unit in no battle then takes the province. **And for an air unit whose order's slot 17 says yes of the province**: where the province has a bombing (+0x2FC), JoinBombingInProvince; and where the unit is then in none (+0x110), CCombatManager::StartBombing. `ret 8`, `this` in ecx. **Who takes the province** (read on the listing 2026-10-15, 0x430B5E-0x430CF5): where a land unit with no battle and no retreat stands in an owned land province with neither order field +0x300/+0x304 set, the taker starts as the unit's owner. A REB unit with a faction (FindRebelFactionByObjectId) changes it: to the faction's independence country (+0x44/+0x48) where the type's independence (+0x190) is **0** and that country owns a province; then to the province's controller as it stood where RebelFaction_IsFriendlyCountry holds of it; then to the province's **owner** where that holds - last, so it wins. Then, where no other land unit of another owner stands there not retreating, with neither order field set, and an enemy of the taker - its owner REB, the taker REB, or the taker's diplomacy towards it holding a war or an undeclared war covering the province - CMapProvince::TakeControl(province, taker) (0x430CF5). Where the controller changed and the old one was the player, `PROVINCELOST` is raised - PROV the province, COUNTRY the new controller's name, or the name of the rebel faction holding it where REB does. See reversing/findings/FINDINGS-bombing.md, section 5. The taker: reversing/findings/FINDINGS-occupation.md, section D.4.",
+      "confidence": "confirmed",
+      "evidence": "Listing 0x430B5E-0x430C00: FindRebelFactionByObjectId 0x686C10; `cmp [eax+0x190], ebx; jne` then the independence country's +0xCF8 > 0 writes +0x44/+0x48 into the taker [esp+0x18]/[esp+0x1C]; RebelFaction_IsFriendlyCountry 0x4B98D0 on the saved controller [esp+0x20]/[esp+0x24] and then on the province's +0x32C/+0x330, each writing the taker; the unit walk from +0x2B8 and TakeControl at 0x430CF5 with the taker.",
+      "revises": "Adds who takes a province a land unit captures, the rebel arms with it, and the PROVINCELOST message, which the entry did not say."
+    }
+  ],
+  "struct_fields": [],
+  "vftable_slots": {},
+  "slots_noted": "",
+  "frontier": []
+}

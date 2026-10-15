@@ -397,7 +397,7 @@ is the faction's leader, then `OnDiplomacyChanged` and `LeaveFaction(false)`, wh
 Only the rule for provinces and the candidates were checked on the listing; the rest is the
 decompiler's.
 
-### 2.9 `release`: `ReleaseProvinces` (`0xC1430`, inferred)
+### 2.9 `release`: `ReleaseProvinces` (`0xC1430`; read on the listing 2026-10-15, `FINDINGS-occupation.md` D.9)
 
 Each province collected changes owner to the released country, gets its core if missing, restores
 the capital where it is the original one, and has `war_seen_tick` set to 24 hours ago both ways with

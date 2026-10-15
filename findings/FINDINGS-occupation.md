@@ -1244,11 +1244,17 @@ Their Finest Hour's `movement_evaluation`: `units_in_province = 1` x0.1, `contro
 ### D.4 When rebels take a province
 
 **`REB` becomes the controller, never the owner** (`CMapProvince::SetOwner` refuses it). At a capture
-in `CCombatManager::CheckForCombat` (`0x430B5E`-`0x430BFC`, inferred - the choice of tag read, not its
-use): a `REB` unit with a faction makes the new controller `REB`; then the faction's independence
+in `CCombatManager::CheckForCombat` (`0x430B5E`-`0x430CF5`, read on the listing 2026-10-15): a `REB` unit
+with a faction makes the new controller `REB`; then the faction's independence
 country when the type's `independence` is **0** and that country owns land (the test reads inverted);
 then the current controller where it is friendly; then the **owner** where it is friendly, last and so
-winning - partisans that win in their owner's occupied land hand it straight back.
+winning - partisans that win in their owner's occupied land hand it straight back. That country is
+what `CMapProvince::TakeControl` is then called with (`0x430CF5`), once no other land unit stands there
+that is not retreating, has neither order field (`+0x300`, `+0x304`) set and is an enemy of it - its
+owner `REB`, the taker `REB`, or the taker at war with it or in an undeclared war covering the province.
+The same test, with the unit's owner as the taker, is every country's capture. Where the controller
+changed and the old one was the player, `PROVINCELOST` goes to him: PROV the province, COUNTRY the new
+controller's name, or the name of the rebel faction holding it where `REB` does.
 
 When `REB` does become controller of an owned province with units, `Province_SetController` makes the
 first `REB` unit's faction take it, `RebelFaction_TakeProvince` (`0x4BCBB0`, rva `0xBCBB0`) - **the
@@ -1284,7 +1290,7 @@ none, nothing. date = the earliest `REB` control date among them + `defect_delay
 ahead, nothing. chance = ratio * 100 * 0.15, ratio being the candidates over the same set counted again
 - always 1 - so **15% a month**, `Random() % 100` (`0x4BA9D4`). On success
 `RebelFaction_GrantIndependence(faction, ---)` (`0x4BE590`, rva `0xBE590`): `ReleaseProvinces`
-(owner changes, cores, technology, three-brigade armies, the `INDEPENDANCE` message - "$foreign_minister$
+(owner changes, cores, technology, three-brigade armies, the `INDEPENDANCE` message - D.9 - "$foreign_minister$
 reports that $ACTOR$ Has Declared Independence from their former masters of $OPRESSOR$ and are now
 enjoying freedom to oppress each other.", log "$ACTOR$ declared independence from $OPRESSOR$."); every
 unit of the faction transferred to the new country, leaders with them; the faction's government written
@@ -1324,8 +1330,51 @@ damage; the inverted-looking independence branch at capture; movement and the si
 with no country; `unit_transfer` is no key; a unit with nothing left to fight beside a friendly home is
 deleted.
 
+### D.9 Releasing a country: `ReleaseProvinces` (`0x4C1430`, rva `0xC1430`)
+
+Read on the listing on 2026-10-15, where `FINDINGS-effectrun.md` 2.9 had the decompiler only; the record
+is raised to confirmed. `(CList of CMapProvince*, tag, id)`, `ret 0xC`; an empty list does nothing. The
+**oppressor** is the first province's owner, taken before anything moves.
+
+1. **Each province, in list order:**
+   - once for each distinct owner, `war_seen_tick` both ways between the released country and that owner
+     set to an hour count 24 behind now;
+   - `CMapProvince::ChangeOwner(province, released, now, applyConsequences 1, rebuildAreas 0, peaceful 1)`;
+   - a core of the released country added where it has none;
+   - where the province is the released country's history capital (its history's capital entry, else its
+     capital) and its capital is not its original capital, the capital moves here.
+2. The area and supply groups, made again.
+3. **Technology**: for every technology in the database's order, where the released country's level is
+   below the oppressor's, it becomes the oppressor's, at most the technology's `max_level`.
+4. **Armies**, where the infantry brigade answers that it may be built: **each released province whose
+   IC modifier is above 0 gets an army of three infantry brigades** of the released country - ids, names
+   and registration as any unit's, the brigades' home the province, entered into it, the player's
+   intelligence of it set as for rebels (C.5), and a battle checked for.
+5. **`INDEPENDANCE`**: MESSENGER from `MESSAGE_HEAD_CHAN`, ACTOR the released country's name, OPRESSOR the
+   oppressor's, placed at the released country's capital, both of its country pairs the released.
+6. `CCountry_FillMinisterPosts(released, 1, 0)`.
+
+No vassal relation is made and nothing is declared: the wars of D.6 are `RebelFaction_GrantIndependence`'s.
+
+### D.10 `CCountry +0x44`, and the rebels' officers
+
+`+0x44` is a byte the hourly officer recount, the daily country pass and three other country loops skip a
+country on. A scan of every byte store to `[reg+0x44]` in `.text` (54, each stretch decoded from its own
+start) finds it set to 1 by `CCountry::CCountry` and `CCountry_Reset`, and cleared only by
+`CInGameIdler::Enter` (`0x65B1B9`), for a country whose id is not on the scenario's list (`+0x88`) when a
+scenario is set. It is recorded as `in_scenario`. **In a campaign every country holds it, `REB` among
+them** - which closes `FINDINGS-aisched.md`'s open item.
+
+So the rebels' officer ratio is recounted every hour like anyone's, and with no officers - their
+history file is empty, and nothing gives `REB` leadership - it is nought. A brigade's organisation
+ceiling is its figure times the ratio (`FINDINGS-organisation.md`, section 2), and the hourly regain holds
+it there: **a rebel brigade made at full organisation is at nought after its first hour**. That follows
+from the rules as read, and the maintainer confirms it of the running game (2026-10-15): rebels have no
+organisation.
+
 **Not settled:** the order of the history list `ProvinceHistory_LatestControllerDate` walks;
-`CheckForCombat`'s use of the tag it picks; `Province_Defect` read off the decompiler only.
+`Province_Defect` read off the decompiler only; the `REB` test in `CUnit::UpdateHourly` (`0x5B9F1D`,
+`FINDINGS-organisation.md`), which hands a rebel unit of under 0.1 strength in all to `0x684C80`.
 
 ---
 

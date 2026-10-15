@@ -309,9 +309,11 @@ The first half is true and the conclusion is wrong; `EDI` is its calling convent
   resets daily, and the value at `0x1A87818` it resets them to. Eight is suggestive given HoI3's
   six resources plus money and manpower, but that is a guess and is recorded here only so nobody
   mistakes it for a reading.
-- **`CCountry +0x44`**, the byte three separate country loops use to skip an entry
+- ~~**`CCountry +0x44`**, the byte three separate country loops use to skip an entry
   (`0x682D65`, `0x68F059`, `0x683EA9`). It is plainly "this slot is in use", but it is not
-  claimed here because `CCountry` fields are being written by several people at once.
+  claimed here because `CCountry` fields are being written by several people at once.~~ Read on
+  2026-10-15: `in_scenario`, set for every country and cleared only for one a scenario leaves out
+  (`FINDINGS-occupation.md`, section D.10).
 - The serial bodies of the four hourly functors - `0x5B9C50` (unit), `0x5004F0` (country),
   `0x67B160` (AI trade), `0x67B1C0` (province) - and the two intel ones, `0x688170` and
   `0x6883B0`. Named as callees only; none was read.
