@@ -1,0 +1,314 @@
+{
+ "agent": "province-view wave, reader C",
+ "question": "The province view's covert-operations window (open_cov_ops, cov_ops, cov_ops_points, cov_ops_mission_entry) and its allied-cooperation box (set_cooperation, cooperation_list, allied_coop_item, allied_cooperation): what each shows, when, what each posts, and every tooltip.",
+ "source": "reversing/findings/FINDINGS-provinceview.md",
+ "addresses": [
+  {
+   "rva": "0x2E1DB0",
+   "kind": "function",
+   "name": "_A0xb243b455::CCovOpsMissionEntry::CCovOpsMissionEntry",
+   "signature": "_A0xb243b455::CCovOpsMissionEntry* __stdcall _A0xb243b455::CCovOpsMissionEntry::CCovOpsMissionEntry(_A0xb243b455::CCovOpsMissionEntry* this@stack:4, CCovertOpsMission* mission@stack:8, int provinceId@stack:0xC, CInGameIdler* screen@ECX) @EAX",
+   "no_signature": null,
+   "comment": "**One row of the province view's covert-operations list** (window `cov_ops_mission_entry`, 0x80 bytes, operator new at 0x6E2F92). 0x6E1DB0 to the `ret 0xC` at 0x6E1FD4. The memory arrives on the stack and **ECX is the in-game screen**, not the row (trap 11): its slot 16 gives the parent and its slot 14 the GUI, whose slot 11 makes the window from the type name; the CStandardlistboxItem base is laid down and then this class's two tables (0x15D4044, 0x15D407C). A CButtonObserverGlue at +0x28 with the handler 0x6E2C10 (OnSelect); mission = +0x78, province id = +0x7C. `selectbutton`'s text is set through its slot 51 to LocaliseObjectKey(mission) - **the mission's key looked up in localisation** (`sabotage_strategic_resource` -> 'Sabotage strategic resource'), no cost; the glue is attached to `selectbutton`; and the row's window is tagged `province_view` (window +0x18, slot 30) so that the province view's tooltip answers its elements. One caller, ProvinceView_FillCovertOpsList (0x6E2FBD).",
+   "confidence": "confirmed",
+   "evidence": "Disassembly 0x6E1DB0-0x6E1FD4: `mov esi,[ebp+8]` (memory), `mov edi,ecx` then `[edi]+0x40`/`[edi]+0x38` calls, `mov [esi+0x78],[ebp+0xc]`, `mov [esi+0x7c],[ebp+0x10]`, `mov eax,0x6e2c10` before the glue constructor 0x6EAFA0, 'selectbutton' + call 0x57F2D0([ebp+0xc]) + `[edx+0xcc]`, 'province_view' + `[edx+0x78]` on `[esi+0x20]+0x18`. Call site 0x6E2FB6-0x6E2FBD pushes province id, mission (edi), memory and loads ECX from the screen local. Wrong if the call site's pushes were in another order - they are read directly."
+  },
+  {
+   "rva": "0x2E1FF0",
+   "kind": "function",
+   "name": "_A0xb243b455::CCovOpsMissionEntry::Update",
+   "signature": "void __thiscall _A0xb243b455::CCovOpsMissionEntry::Update(_A0xb243b455::CCovOpsMissionEntry* this)",
+   "no_signature": null,
+   "comment": "**Slot 8: whether a covert operation's button may be pressed**, the only slot the class introduces. 0x6E1FF0 to the bare `ret` at 0x6E2229. valid = false when the row's province id (+0x7C) is 0; else true when the mission's `is_valid` (+0x48) has no children (+0x58); else is_valid's Evaluate (slot 6) on a scope with FROM = the player (CCurrentGameState +0xC30/+0xC34) and province = +0x7C. Then CCovertOpsMission_CanSelect(mission, province, &player) - **always called** - and `selectbutton` is enabled (slot 46, +0xB8) when both hold and disabled (slot 47, +0xBC) otherwise. Never hidden. Called for every row at the end of ProvinceView_FillCovertOpsList and every frame from ProvinceView_Update while the `cov_ops` window is open.",
+   "confidence": "confirmed",
+   "evidence": "Disassembly 0x6E209A-0x6E21FF: `cmp edi,ebx` on [+0x7C] -> byte 0; `cmp [ecx+0x58],ebx` -> byte 1; else CEventScope 0x9C1610, [esi+0xc30]/[esi+0xc34] into the scope's from, `[ecx+0x48]` slot 6; `call 0x444c60`; `cmp byte [esp+0x13]` then `[edx+0xb8]` or `[edx+0xbc]`. vtable.py --holding 0x6E1FF0: one table, slot 8. Wrong if slot 46/47 were not enable/disable - FINDINGS-espionage.md D reads them so."
+  },
+  {
+   "rva": "0x2E2230",
+   "kind": "function",
+   "name": "_A0xb243b455::CCovOpsMissionEntry::BuildTooltip",
+   "signature": "GuiTooltipText* __stdcall _A0xb243b455::CCovOpsMissionEntry::BuildTooltip(_A0xb243b455::CCovOpsMissionEntry* this, GuiTooltipText* out)",
+   "no_signature": null,
+   "comment": "**A covert operation's tooltip.** 0x6E2230 to `ret 8` (two exits, 0x6E2BED and 0x6E2C02). Called from BuildProvinceViewTooltip (at 0x6E7BD6, in a block past that function's first `ret 0xC`) for the first row of `cov_ops_list` whose TListboxItem slot 22 claims the hovered element, only while `cov_ops_bg` is visible. **text** = CCovertOpsMission_GetDescription: `<key>_desc` ('Sabotage the strategic resource in this province to reduce its effect.'). **delayed**, in order: (1) points = trunc(player.espionage[controller id (CMapProvince +0x338) of province +0x7C].covert_ops_points / 1000); where cost (+0xC8) > points, COV_OPS_COST_LACKING ('Costs §R$COST$§! covert ops points. We only have §Y$CURRENT$§! ') with COST = itoa(cost), CURRENT = itoa(points); otherwise GetText(COV_OPS_COST) ('Covert ops cost: ') + '§Y' + itoa(cost) + '§!\\n'. (2) Where `selectbutton` is disabled (its slot 48) **and** is_selectable (+0x88) has children: is_selectable's GetBlockText(out, scope FROM = player / province, 0, 0) + '\\n'. (3) Where the effect (+0x28) has children (+0x38): GetText(COV_OPS_EXECUTE) ('\\n\\nEffect:\\n') and then the effect's GetBlockText(out, scope, 0, '', 0) + '\\n'. is_valid is never shown.",
+   "confidence": "confirmed",
+   "evidence": "Disassembly 0x6E2230-0x6E2C02: call 0x444B40 into +0; `[eax+0xb8c][+0x7c]` -> `+0x338` -> `*0xF8 + [country+0x1160]` -> `+0xF4`, /1000 by 0x10624DD3; `cmp ecx(cost),eax; jle 0x6e24d0`; 'COV_OPS_COST_LACKING' with 'COST'/'CURRENT' through 0x4735D0; else 'COV_OPS_COST' rendered + 0x15B5C54 ('§Y') + itoa + 0x15B5E18 ('§!\\n') through 0xA5B0D0 (left operand in ECX); `[edx+0xc0]` on selectbutton and `cmp [edx+0x98],ebx`; `[edx+0x24]` on +0x88 then + '\\n' (0x15B57D0); `cmp [edx+0x38],ebx`; 'COV_OPS_EXECUTE'; `[edx+0x20]` on +0x28 then + '\\n'. All appends go to `[edi+0x1c]` (delayed). Wrong if 0xA5B0D0 took its left operand from the stack - its use in the cost line, where the rendered text must come first, settles the order. That slot 48 means 'disabled' is FINDINGS-orderstooltips.md's and FINDINGS-productiontooltip.md's reading, not re-derived here."
+  },
+  {
+   "rva": "0x2E2C10",
+   "kind": "function",
+   "name": "_A0xb243b455::CCovOpsMissionEntry::OnSelect",
+   "signature": "void __thiscall _A0xb243b455::CCovOpsMissionEntry::OnSelect(_A0xb243b455::CCovOpsMissionEntry* this)",
+   "no_signature": null,
+   "comment": "**`selectbutton`: order the covert operation.** 0x6E2C10 to the bare `ret` at 0x6E2D9A. new 0x4C, CSendCovertOpsMission(actor = the player's tag and id from CCurrentGameState +0xC30/+0xC34, province = +0x7C, mission = +0x78), posted through CCurrentGameState +0xBE8's slot 18 -> +0x38 -> slot 6. **Nothing else**: no test, the window stays open and the list is not refilled - the rows' Update greys the buttons once the points have been spent.",
+   "confidence": "confirmed",
+   "evidence": "Disassembly 0x6E2CCB-0x6E2CE2: `push [esi+0x78]; push [esi+0x7c]; push [eax+0xc34]; push [eax+0xc30]; push edi; call 0x559430` against CSendCovertOpsMission's recorded (this, actorTag, actorId, provinceId, mission); then `[eax+0xbe8]`, `[edx+0x48]`, `[eax+0x38]`, `[edx+0x18]`. Bound as the glue's handler at 0x6E1E79. Wrong if any further call followed the post - none does before the epilogue."
+  },
+  {
+   "rva": "0x2E2DA0",
+   "kind": "function",
+   "name": "ProvinceView_FillCovertOpsList",
+   "signature": "void __stdcall ProvinceView_FillCovertOpsList(void* view, void* list)",
+   "no_signature": null,
+   "comment": "**`cov_ops_list` made again.** 0x6E2DA0 to the `ret 8` at 0x6E3021; one caller, CProvinceView::OnOpenCovertOps (0x6E1D85). Empties the list (slot 23); where the view has a province (+0x24) with an id (+0xD0), walks GetCovertOperations()'s vector (+0xC..+0x10) **in file order**, skipping null entries, and adds (slot 4, second argument 1) a CCovOpsMissionEntry(mission, province id) for each mission whose `is_valid` is empty or holds on a scope with FROM = the player and the province. Then slot 27 on the list and **every row's slot 8 (Update)**.",
+   "confidence": "confirmed",
+   "evidence": "Decompilation of 0x6E2DA0 checked on the listing: `[param_2+0x5c]`, GetCovertOperations, `piVar7 = db+0xc` to `db+0x10`, `cmp [iVar1+0x58]`, CEventScope with player from and province, `[+0x48]` slot 6, operator new 0x80 and the constructor call at 0x6E2FBD, `[param_2+0x10]` with 1, then `[+0x6c]` and the row walk calling `[+0x20]`. File order: LoadCovertOperations (0x444EE0) push_backs each mission into database +0xC as it is read. Wrong if a second filler existed - 0x6E1DB0 has one caller."
+  },
+  {
+   "rva": "0x2E1B40",
+   "kind": "function",
+   "name": "CProvinceView::OnOpenCovertOps",
+   "signature": "void __thiscall CProvinceView::OnOpenCovertOps(CProvinceView* this)",
+   "no_signature": null,
+   "comment": "**`open_cov_ops`: a toggle.** 0x6E1B40 to the bare `ret` at 0x6E1DA4 (an early `ret` at 0x6E1C23). Finds the child window `cov_ops`; **where its `cov_ops_bg` is visible (+0x43)** the window is hidden (window +0x18, slot 14) and nothing else happens. Otherwise: `coop_label`, `cooperation_list` and `cooperation_bg` are hidden (the allied-objectives panel shares the place), the `cov_ops` window hidden, `cov_ops_list` refilled (ProvinceView_FillCovertOpsList) and the window shown (slot 13). Bound to the glue at view +0x84 by the view's slot 0 (0x6E35C0).",
+   "confidence": "confirmed",
+   "evidence": "Disassembly 0x6E1B40-0x6E1DA4: 'cov_ops' through window slot 27 (+0x6C), 'cov_ops_bg' slot 17 then `mov al,[eax+0x43]`; `je 0x6e1c24`; the visible arm calls `[esi+0x18]`'s `+0x38` and returns; the other arm 'coop_label' +0x3C then +0x38, 'cooperation_list' +0x7C then +0x54, 'cooperation_bg' +0x44 then +0x38, `[esi+0x18]` +0x38, 'cov_ops_list', call 0x6E2DA0, `[esi+0x18]` +0x34. Wrong if +0x43 were not the visible byte - FINDINGS-guilive.md section 4 has it."
+  },
+  {
+   "rva": "0x2E3030",
+   "kind": "function",
+   "name": "CProvinceView::OnSetCooperation",
+   "signature": "void __thiscall CProvinceView::OnSetCooperation(CProvinceView* this)",
+   "no_signature": null,
+   "comment": "**`set_cooperation`: the allied-objectives panel, a toggle.** 0x6E3030 to the bare `ret` at 0x6E35BB. Where `cooperation_list` is shown (its +0x47), it, `cooperation_bg` and `coop_label` are hidden and nothing else happens. Otherwise: the `cov_ops` window is hidden; **the rows are the player's Allies (CCountry +0xF88), in that list's order**, keeping an ally that is in the scenario (+0x44) unless both the player's and the ally's factions (+0xD8) are real (slot 7) and differ; the list is grown with new CAlliedItem rows (0x70 bytes, slot 4) or trimmed (slot 24) to that count; each row is set (CAlliedItem::Set) with the view's province and **ticked where the player has already asked that ally to take this province** - the record for the province id in CGameState +0xBAC[player id] holding the ally's id. Then the list (slot 20), `cooperation_bg` and `coop_label` are shown.",
+   "confidence": "confirmed",
+   "evidence": "Disassembly 0x6E3030-0x6E35BB: `cmp byte [ecx+0x47],bl` on the list; the shown arm calls +0x54, +0x38, +0x38; the other arm 'cov_ops' +0x18 slot 14; `[eax+0xf88]` walk with `cmp byte [eax+0x44],bl`, `[eax+0xd8]` and its `[eax+0x1c]` twice, `cmp esi,[eax+0xd8]; jne skip`; list count `[eax+8]` against the kept count, `[edx+0x60]` to trim, `push 0x70; call 0x6dd190; [edx+0x10]` to grow; `[eax+0xbac]` + player id * 0x10, /0x14 records, `cmp [ecx],[province+0xd0]`; the byte array marked per matching id; `call 0x6dd380` per row with the byte; then +0x50, +0x34, +0x34. Wrong if +0x47 were not the list's shown byte (inferred from its use as the toggle's state, set by slots 20/21)."
+  },
+  {
+   "rva": "0x2E1790",
+   "kind": "function",
+   "name": "ProvinceView_FillAlliedObjectiveFlags",
+   "signature": "void __stdcall ProvinceView_FillAlliedObjectiveFlags(void* view)",
+   "no_signature": null,
+   "comment": "**The `allied_cooperation` box: whom the player has asked to take this province.** 0x6E1790 to the `ret 4` at 0x6E1B3A; one caller, ProvinceView_Update (0x6E7E59), when the count it works out differs from view +0xB0. Empties the overlapping-elements box (slot 48); finds the record for the view's province id in CGameState +0xBAC[player id] (the objectives indexed by who asked) and, **only where one is found**, stores its count in view +0xB0 and adds one `prov_claims_entry` window per asked country, in the order they were asked, its `flag` set to the country (slot 53); then slot 57 and show (slot 13). Not found: the box is left empty and +0xB0 keeps its old value.",
+   "confidence": "confirmed",
+   "evidence": "Disassembly 0x6E1790-0x6E1B3A: 'allied_cooperation' through window +0x9C, `[edx+0xc0]` on it; `[ecx+0xbac]` + `[ecx+0xc34]`<<4, records /0x14 (0x66666667, sar 3), `cmp [esi],[view+0x24]+0xd0`; the only store to `[reg+0xb0]` in 0x6DD8D0-0x6EB000 is 0x6E1989, inside the found arm; 'prov_claims_entry', 'flag', `[edx+0xd4]`, `[box+0xb4]`; then +0xE4 and +0x34. The positive control for the store scan: it finds the read at 0x6E7E50."
+  },
+  {
+   "rva": "0x2E7C00",
+   "kind": "function",
+   "name": "ProvinceView_Update",
+   "signature": "void __stdcall ProvinceView_Update(void* view)",
+   "no_signature": null,
+   "comment": "**The province view's frame update**, as far as read here (the building rows, the weather strip and the underground are brief A's and B's). 0x6E7C00 to the `ret 4` at 0x6E9157 - the next function after BuildProvinceViewTooltip, which abuts it (trap 2). Callers: CInGameIdler's frame work at 0x65097D (inside 0x650700, called from CInGameIdler::Update at 0x655E2E) when the view's window has its +0x5B set, and the view's refresh twice (0x6DF5D7, 0x6E140C). Read here: (1) every row of `buildings_left` and `buildings_right` gets its slot 8; (2) **the count of countries the player has asked to take this province** (CGameState +0xBAC[player], the record for the province id; 0 with none) is compared with view +0xB0 and ProvinceView_FillAlliedObjectiveFlags runs where they differ; (3) where `cov_ops_bg` is visible, every row of `cov_ops_list` gets its slot 8 (CCovOpsMissionEntry::Update); (4) **`cov_ops_points` = itoa(trunc(player.espionage[view +0xC0].covert_ops_points / 1000))** - +0xC0 is the controller id the refresh copies from CMapProvince +0x338 - every call, whatever else is shown.",
+   "confidence": "inferred",
+   "evidence": "Covert-ops and cooperation parts read on the listing: 0x6E7DD7-0x6E7E59 (the count and the call), 0x6E7F56-0x6E7F81 (the row walk), 0x6E7FCE-0x6E8054 (`[0x1a855a4]+0x16c`[player id], `[edi+0xc0]*0xF8 + [+0x1160]`, `+0xF4`, /1000, itoa 0xB9A0C4, 'cov_ops_points'). Inferred: that it runs every frame - from its caller in CInGameIdler::Update, whose gate (+0x5B on the view's window) was not read; and the parts of the body not listed here."
+  },
+  {
+   "rva": "0x2DD190",
+   "kind": "function",
+   "name": "CAlliedItem::CAlliedItem",
+   "signature": "CAlliedItem* __stdcall CAlliedItem::CAlliedItem(CAlliedItem* this)",
+   "no_signature": null,
+   "comment": "**One row of the allied-objectives list** (window `allied_coop_item`, 0x70 bytes). 0x6DD190 to the `ret 4` at 0x6DD372; one caller, CProvinceView::OnSetCooperation (0x6E33C6). Makes the window through the GUI's slot 11 with the in-game screen's slot 16 as parent; country = '---'/0 (+0x28/+0x2C), province 0 (+0x30); a CCheckBoxObserverGlue<CAlliedItem> at +0x38 whose checked handler (+0x48) is CAlliedItem::OnChecked and whose unchecked handler (+0x50) is CAlliedItem::OnUnchecked, attached to the `objective` checkbox (found through window slot 18 and kept at +0x34). **The row's window is not tagged** with a view's name.",
+   "confidence": "confirmed",
+   "evidence": "Decompilation checked on the listing: 'allied_coop_item', `[0x1a857d8]` slot 11, `mov [esi+0x28],0x2d2d2d`, `+0x48 = 0x6DD500`, `+0x50 = 0x6DD6A0`, glue vftable at +0x38 with owner +0x3C, 'objective' via `[+0x48]` stored at +0x34, `[+0x48]+4` attach; `ret 4`; ECX unused as this. The new 0x70 at 0x6E33B0. Which glue handler fires on check: the glue table 0x15D4024 slot 2 jumps to glue+0x10 and slot 3 to glue+0x18, and CCheckBox slot 1 (0xA81D10) notifies slot 2 (0xA80F20) on becoming checked and slot 3 (0xA80F40) on becoming unchecked."
+  },
+  {
+   "rva": "0x2DD380",
+   "kind": "function",
+   "name": "CAlliedItem::Set",
+   "signature": "void __fastcall CAlliedItem::Set(CAlliedItem* this@ECX, CMapProvince* province@EDX, bool asked@stack:4, int countryTag@stack:8, int countryId@stack:0xC)",
+   "no_signature": null,
+   "comment": "Fills a row: country = (tag, id) at +0x28/+0x2C, province at +0x30; `flag` gets the country (slot 53, the id); `country_name` the country's name (CountryNameOfTag). The `objective` checkbox (+0x34): asked - its +0x60 and +0x100 set to 1 (ticked); not asked - both set to 0, **unless** the checkbox's +0xD8 is set and +0x136 clear, when it is left as it is. 0x6DD380 to `ret 0xC`; one caller, CProvinceView::OnSetCooperation (0x6E3562).",
+   "confidence": "confirmed",
+   "evidence": "Disassembly 0x6DD380-0x6DD4F1: `mov [edi+0x2c],[ebp+0x10]`, `mov [edi+0x28],[ebp+0xc]`, `mov [edi+0x30],edx`; 'flag' slot 17 then `[+0xd4]`; 'country_name', 0x518730-style CountryNameOfTag, assign to text +0xD0; `cmp byte [ebp+8]`; `mov [edi+0x60],eax; mov [edi+0x100],eax`; `cmp byte [edi+0xd8]; cmp byte [edi+0x136]`. Call site 0x6E3553-0x6E3562: push id, tag, the byte, EDX = view +0x24, ECX = the row. What the checkbox's +0xD8 and +0x136 mean is not settled (CCheckBox slot 1 returns early with +0x136 clear and refuses to untick with +0xD8 set)."
+  },
+  {
+   "rva": "0x2DD500",
+   "kind": "function",
+   "name": "CAlliedItem::OnChecked",
+   "signature": "void __thiscall CAlliedItem::OnChecked(CAlliedItem* this)",
+   "no_signature": null,
+   "comment": "**Ticking `objective`: ask the ally to take this province.** new 0x54, CSetAlliedObjectiveCommand(country = the row's (+0x28, +0x2C), requester = the player (CCurrentGameState +0xC30/+0xC34), province = the row's province's id (+0x30 -> +0xD0), active = 1), posted through CCurrentGameState +0xBE8 slot 18 -> +0x38 -> slot 6. 0x6DD500 to the bare `ret` at 0x6DD69A.",
+   "confidence": "confirmed",
+   "evidence": "Disassembly 0x6DD5C8-0x6DD5E2: `push 1; push [province+0xd0]; push [eax+0xc34]; push [eax+0xc30]; push [edi+0x2c]; push [edi+0x28]; push ecx(memory); call 0x553b50`, matched against the constructor's stores (+0x3C <- [ebp+0xc], +0x40 <- [ebp+0x10], +0x44 <- [ebp+0x14], +0x48 <- [ebp+0x18], +0x4C <- [ebp+0x1c], +0x50 <- [ebp+0x20]). The checked/unchecked attribution: CAlliedItem::CAlliedItem's evidence."
+  },
+  {
+   "rva": "0x2DD6A0",
+   "kind": "function",
+   "name": "CAlliedItem::OnUnchecked",
+   "signature": "void __thiscall CAlliedItem::OnUnchecked(CAlliedItem* this)",
+   "no_signature": null,
+   "comment": "**Unticking `objective`: withdraw the request.** As CAlliedItem::OnChecked with active = 0. 0x6DD6A0 to the bare `ret` at 0x6DD839.",
+   "confidence": "confirmed",
+   "evidence": "Decompilation and listing: the same body as 0x6DD500 with the last pushed argument 0 (call 0x553B50 at 0x6DD781). The handler sits at the glue's +0x18, which glue slot 3 calls and CCheckBox notifies on becoming unchecked (0xA81E33 -> 0xA80F40 -> observer slot 3)."
+  },
+  {
+   "rva": "0x153B50",
+   "kind": "function",
+   "name": "CSetAlliedObjectiveCommand::CSetAlliedObjectiveCommand",
+   "signature": "CSetAlliedObjectiveCommand* __stdcall CSetAlliedObjectiveCommand::CSetAlliedObjectiveCommand(CSetAlliedObjectiveCommand* this, int countryTag, int countryId, int requesterTag, int requesterId, int province, bool active)",
+   "no_signature": null,
+   "comment": "The full constructor: the CCommand base (CPersistent token 0x18D, type id 0x757 `set_allied_objective` at +0x2C and +0x30, +0x34 = 0xFFFF, empty name), country = (+0x3C, +0x40), requester = (+0x44, +0x48), province = +0x4C, active = +0x50, vftable 0x15C3EE4. 0x553B50 to `ret 0x1C`. Three callers: CAlliedItem::OnChecked (0x6DD5E2), CAlliedItem::OnUnchecked (0x6DD781) and the command's Clone (0x554172). **The province view is the only place in the image that makes one from game state**; 0x553AA0 is the default constructor RegisterCommandTypes uses.",
+   "confidence": "confirmed",
+   "evidence": "Disassembly 0x553B50-0x553BF8: `mov [esi+0x40],[ebp+0x10]; mov [esi+0x44],[ebp+0x14]; mov [esi+0x3c],[ebp+0xc]; mov [esi+0x4c],[ebp+0x1c]; mov byte [esi+0x50],[ebp+0x20]; mov [esi+0x48],[ebp+0x18]`, `mov [esi],0x15c3ee4`, `ret 0x1c` (seven dwords). findRefs --callers 0x553B50: 3; --address 0x15C3EE4: only 0x553B07 (0x553AA0, one caller 0x8863DF in RegisterCommandTypes) and 0x553BE1."
+  },
+  {
+   "rva": "0x153D80",
+   "kind": "function",
+   "name": "CSetAlliedObjectiveCommand::GetTypeId",
+   "signature": "int __thiscall CSetAlliedObjectiveCommand::GetTypeId(CSetAlliedObjectiveCommand* this)",
+   "no_signature": null,
+   "comment": "Slot 7: `mov eax,0x757; ret` - the save token `set_allied_objective`. FINDINGS-aifields.md section 1 calls this 'slot 5'; the table holds it at slot 7, as CSendCovertOpsMission's GetTypeId.",
+   "confidence": "confirmed",
+   "evidence": "Bytes at 0x553D80: `mov eax,0x757; ret`. vtable.py --holding 0x553D80: one table, CSetAlliedObjectiveCommand slot 7; slot 5 of that table is 0xABF890, the shared stub."
+  },
+  {
+   "rva": "0x1541B0",
+   "kind": "function",
+   "name": "CSetAlliedObjectiveCommand::IsValid",
+   "signature": "bool __thiscall CSetAlliedObjectiveCommand::IsValid(CSetAlliedObjectiveCommand* this)",
+   "no_signature": null,
+   "comment": "Slot 14: true when province (+0x4C) >= 0, the requester's id (+0x48) and the country's id (+0x40) are non-zero - the same three tests Execute makes. Nothing about alliances, war or who owns the province.",
+   "confidence": "confirmed",
+   "evidence": "Bytes 0x5541B0-0x5541CA: `cmp [ecx+0x4c],0; jl; cmp [ecx+0x48],0; je; cmp [ecx+0x40],0; je; mov eax,1; ret` / `xor eax,eax; ret`. vtable.py --holding: CSetAlliedObjectiveCommand slot 14 only."
+  },
+  {
+   "rva": "0x17F2D0",
+   "kind": "function",
+   "name": "LocaliseObjectKey",
+   "signature": "Hoi3CString* __stdcall LocaliseObjectKey(void* object, Hoi3CString* out)",
+   "no_signature": null,
+   "comment": "GetText of the Hoi3CString at object +8, rendered with the game settings' colours (+0x6C..+0x7B) into out, the replacements released. 0x57F2D0 to `ret 8`. Two callers on two different classes, so class-free: the covert-operations row (0x6E1EDE, a CCovertOpsMission's key) and CDivisionDesigner::CDivisionDesigner (0x7E40E1).",
+   "confidence": "confirmed",
+   "evidence": "Disassembly 0x57F2D0-0x57F376: `mov eax,[ebp+8]; add eax,8; push eax; ... call 0xa82490` (GetText), `call 0x45ff30` then `[eax+0x6c]`/`[eax+0x74]` pushed by value and `call 0xa82e40` (Render) with ESI = [ebp+0xC], `call 0xa87020`, `mov eax,esi; ret 8`. findRefs --callers: 0x6E1EDE, 0x7E40E1."
+  },
+  {
+   "rva": "0x44B40",
+   "kind": "function",
+   "name": "CCovertOpsMission_GetDescription",
+   "signature": "Hoi3CString* __stdcall CCovertOpsMission_GetDescription(CCovertOpsMission* mission, Hoi3CString* out)",
+   "no_signature": null,
+   "comment": "The operation's description: GetText(key (+0x8) + '_desc'), rendered with the game settings' colours. 0x444B40 to `ret 8`; one caller, CCovOpsMissionEntry::BuildTooltip (0x6E229C), whose main line it is.",
+   "confidence": "confirmed",
+   "evidence": "Disassembly 0x444B40-0x444C51: '_desc' (0x15B57E4) assigned, `[ebp+8]+8` concatenated with it (0xA5B0D0), GetText 0xA82490, Render 0xA82E40 into [ebp+0xC], `ret 8`. findRefs --callers 0x444B40: one."
+  },
+  {
+   "rva": "0x159430",
+   "kind": "function",
+   "name": "CSendCovertOpsMission::CSendCovertOpsMission",
+   "signature": "CSendCovertOpsMission* __stdcall CSendCovertOpsMission::CSendCovertOpsMission(CSendCovertOpsMission* this, int actorTag, int actorId, int provinceId, CCovertOpsMission* mission)",
+   "no_signature": null,
+   "comment": "The constructor: the CCommand base (CPersistent token 0x18D, type id 0x7F6 `send_covert_ops_mission` at +0x2C and +0x30, empty name, +0x34 = 0xFFFF), then actor = (+0x3C, +0x40), province = +0x44, mission = +0x48, and the vftable 0x15C41F4. `ret 0x14`. **One caller, 0x6E2CE2**, in CCovOpsMissionEntry::OnSelect (0x6E2C10, the `cov_ops_mission_entry` row's `selectbutton`), which passes the player (CCurrentGameState +0xC30/+0xC34) as actor, the row's **province id (+0x7C) and mission (+0x78)**.",
+   "confidence": "confirmed",
+   "revises": "The comment said the row's province is at +0x78 and its mission at +0x7C. It is the other way round: the call site pushes [esi+0x78] first (the last argument, mission) and [esi+0x7C] second (provinceId), and the row's constructor stores its mission argument at +0x78 and the province id at +0x7C. The callback is now named.",
+   "evidence": "0x6E2CCB `mov ecx,[esi+0x78]`, 0x6E2CCE `mov edx,[esi+0x7c]`, 0x6E2CD1 `push ecx` (pushed first = last parameter, mission), 0x6E2CD8 `push edx` (provinceId); CCovOpsMissionEntry's constructor `mov [esi+0x78],[ebp+0xc]` with the fill passing the mission (edi) there and the province id (+0xD0) at [ebp+0x10]."
+  }
+ ],
+ "structs": [
+  {
+   "name": "_A0xb243b455::CCovOpsMissionEntry",
+   "size": "0x80",
+   "vftable_rva": "0x11D4044",
+   "comment": "A row of the province view's covert-operations list (`cov_ops_mission_entry`), a CStandardlistboxItem in an anonymous namespace: the button glue at +0x28, the mission at +0x78, the province id at +0x7C. See reversing/findings/FINDINGS-provinceview.md, section C.",
+   "source": "reversing/findings/FINDINGS-provinceview.md",
+   "evidence": "operator new 0x80 at 0x6E2F92 before the constructor; the primary table 0x15D4044 (RTTI export, 12 slots) written by the constructor at 0x6E1E84."
+  },
+  {
+   "name": "CAlliedItem",
+   "size": "0x70",
+   "vftable_rva": "0x11D3F8C",
+   "comment": "A row of the province view's allied-objectives list (`allied_coop_item`), a CStandardlistboxItem: the country at +0x28, the province at +0x30, the `objective` checkbox at +0x34, a CCheckBoxObserverGlue<CAlliedItem> at +0x38 whose checked handler is at +0x48 and unchecked handler at +0x50. See reversing/findings/FINDINGS-provinceview.md, section C.",
+   "source": "reversing/findings/FINDINGS-provinceview.md",
+   "evidence": "operator new 0x70 at 0x6E33B0 before the constructor; the primary table 0x15D3F8C (RTTI export, 12 slots) written at 0x6DD2A8."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "_A0xb243b455::CCovOpsMissionEntry",
+   "offset": "0x78",
+   "name": "mission",
+   "type": "CCovertOpsMission*",
+   "comment": "The covert operation the row orders. Its key names `selectbutton`, its description heads the tooltip, and OnSelect posts it.",
+   "evidence": "Constructor `mov [esi+0x78],[ebp+0xc]`, the fill passing the database entry there; Update and BuildTooltip read +0x58/+0x48/+0x88/+0xC8/+0x28 through it; OnSelect pushes it as the command's last argument."
+  },
+  {
+   "struct": "_A0xb243b455::CCovOpsMissionEntry",
+   "offset": "0x7C",
+   "name": "province_id",
+   "type": "int",
+   "comment": "The province the operation would be run in - the view's province id when the list was filled.",
+   "evidence": "Constructor `mov [esi+0x7c],[ebp+0x10]`, the fill passing `[view+0x24]+0xD0`; BuildTooltip indexes CCurrentGameState +0xB8C with it; Update tests it against 0."
+  },
+  {
+   "struct": "CAlliedItem",
+   "offset": "0x28",
+   "name": "country",
+   "type": "CCountryTag",
+   "comment": "The ally the row asks: tag at +0x28, id at +0x2C. '---'/0 from the constructor; set by CAlliedItem::Set.",
+   "evidence": "Constructor `mov [esi+0x28],0x2d2d2d` / +0x2C 0; Set `mov [edi+0x28],[ebp+0xc]; mov [edi+0x2c],[ebp+0x10]`; OnChecked pushes both as the command's country."
+  },
+  {
+   "struct": "CAlliedItem",
+   "offset": "0x30",
+   "name": "province",
+   "type": "CMapProvince*",
+   "comment": "The view's province when the panel was opened; its id (+0xD0) is the command's province.",
+   "evidence": "Set `mov [edi+0x30],edx` with EDX = view +0x24 at the call site; OnChecked/OnUnchecked read `[[+0x30]+0xd0]`."
+  },
+  {
+   "struct": "CAlliedItem",
+   "offset": "0x34",
+   "name": "objective_checkbox",
+   "type": "void*",
+   "comment": "The row's `objective` checkbox (a CCheckBox). Set ticks it by writing its +0x60 and +0x100.",
+   "evidence": "Constructor stores the result of the window's slot 18 lookup of 'objective' at +0x34 and attaches the glue to its +0x48; Set reads `[edi+0x34]` and writes +0x60/+0x100."
+  },
+  {
+   "struct": "CSetAlliedObjectiveCommand",
+   "offset": "0x3C",
+   "name": "country",
+   "type": "CCountryTag",
+   "comment": "The country asked to take the province - the objective is set **for** it (CGameState +0xB9C[country id]). Saved as `country`; FINDINGS-fieldmap.md placed the key. The province view puts the ally of the ticked row here.",
+   "evidence": "Constructor stores [ebp+0xc] at +0x3C and [ebp+0x10] at +0x40; Execute and IsValid test +0x40; CAlliedItem::OnChecked pushes the row's +0x28/+0x2C into those two arguments."
+  },
+  {
+   "struct": "CSetAlliedObjectiveCommand",
+   "offset": "0x44",
+   "name": "requester",
+   "type": "CCountryTag",
+   "comment": "The country that asks - the player in the province view. Saved as `requester`.",
+   "evidence": "Constructor stores [ebp+0x14] at +0x44 and [ebp+0x18] at +0x48; OnChecked pushes CCurrentGameState +0xC30/+0xC34 there; Execute and IsValid test +0x48."
+  },
+  {
+   "struct": "CSetAlliedObjectiveCommand",
+   "offset": "0x4C",
+   "name": "province",
+   "type": "int",
+   "comment": "The province id. Saved as `province`; Execute and IsValid refuse it below 0 (and only below 0).",
+   "evidence": "Constructor `mov [esi+0x4c],[ebp+0x1c]`; IsValid `cmp [ecx+0x4c],0; jl`; OnChecked pushes `[province+0xd0]`."
+  },
+  {
+   "struct": "CCovertOpsMission",
+   "offset": "0x48",
+   "name": "is_valid",
+   "type": "CAndTrigger",
+   "comment": "`is_valid`, a CAndTrigger held by value. **Asked by the province view**: ProvinceView_FillCovertOpsList lists only the operations whose is_valid is empty or holds (FROM = the player, province = the target), and CCovOpsMissionEntry::Update disables a listed row's button when it stops holding. It is never shown in a tooltip.",
+   "revises": "The comment said 'Which code asks it was not found here'. It is asked twice, both in the province view: 0x6E2F4A-0x6E2F83 in ProvinceView_FillCovertOpsList (`cmp [edi+0x58],0`, slot 6) and 0x6E20B4-0x6E20F6 in CCovOpsMissionEntry::Update.",
+   "evidence": "`cmp dword ptr [ecx+0x58],ebx` then `[ecx+0x48]`'s slot 6 (`[edx+0x18]`) at 0x6E20B4-0x6E20F6; the same shape in 0x6E2DA0's loop. +0x58 is +0x48 + 0x10, CTrigger's child count."
+  }
+ ],
+ "vftable_slots": {
+  "_A0xb243b455::CCovOpsMissionEntry": {
+   "8": "Update"
+  },
+  "CSetAlliedObjectiveCommand": {
+   "4": "LoadKey",
+   "6": "Execute",
+   "7": "GetTypeId",
+   "14": "IsValid"
+  }
+ },
+ "frontier": [
+  "0x154120",
+  "0x153D90",
+  "0x250700",
+  "0x2B5A40",
+  "0x2B68A0",
+  "0x2B69E0",
+  "0x2DE340",
+  "0x2E35C0",
+  "0x6C3620"
+ ],
+ "notes": "For reader A (CProvinceView), read here and **not** put in this fragment so as not to collide: the view's slot 0 (0x6E35C0) binds close_button to the glue at +0x2C (handler +0x34 = 0x6DE340, the in-game screen's ClearSelection), set_cooperation to +0x58 (0x6E3030), open_cov_ops to +0x84 (0x6E1B40), owner_flag and occupier_flag to +0xC4 (0x6EA010), spawn_partisan +0xF0 (0x6E1450), spawn_underground +0x11C (0x6E1460), underground_mission +0x148 (0x6EA380 and 0x6EA490), cgm_underground_build +0x178 (0x6DDCD0). Fields: +0x20 the window, +0x24 the province (CMapProvince*), +0xB0 the allied-objective count last shown (written only by ProvinceView_FillAlliedObjectiveFlags, and **never initialised** - the constructor zeroes +0xAC and +0xB8 but not +0xB0), +0xB4/+0xB8 owner and +0xBC/+0xC0 controller copied by the refresh from CMapProvince +0x32C..+0x338. 0x6E7C00 (ProvinceView_Update) is recorded here because cov_ops_points is set in it; reader A may also record it - if so, keep one name. Window slot 30 (0xAC3620 on the table at 0x1602058) recurses into a window's children, which is how a tag reaches the elements existing at the time of the call."
+}

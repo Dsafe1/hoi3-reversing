@@ -548,6 +548,26 @@ be placed, where each building may go and the placing map. What it left, none of
 6. **When a new building's picture appears** - the two callers of `ProvinceGraphics_UpdatePictures` (`0x63F56E`,
    `0x8558BC`).
 
+## What the province-view wave left - 2026-10-15 `[both]`
+
+`findings/FINDINGS-provinceview.md` sections A, B and C (three readers; 56 address entries landed and 3 revised, 4
+structs declared, 37 fields; apply 208 `failed: 0`, `struct fields: 0`). It read the view whole: it follows the
+selection (a listener on every province), its refresh and its every-frame update, each element with its figure, gate and
+tooltip, the weather strip, the building columns with their pips and keyboard shortcuts, the `underground` window to its
+end, the covert-operations panel and the allied-objectives panel with `CSetAlliedObjectiveCommand`. Corrected:
+`BuildProvinceViewTooltip`'s argument order, `CSendCovertOpsMission`'s row offsets, `FINDINGS-aifields.md`'s slot of
+`CSetAlliedObjectiveCommand::GetTypeId`. What it left, none of it in the way of building:
+
+1. **What a click picks** where a counter and a province overlap (`0x6416D0`), and the click-or-drag test (`0x64D850`).
+2. **Input slots 10, 11 and 12 of in-game-screen `+0x1C`** as Shift, Alt(?) and Ctrl - slot 10 = Shift is borrowed.
+3. **The glue's slot 1** as a left press (*inferred*).
+4. **What the asked ally sees of an allied objective**: `CAlliedObjectiveMember` (`0x2B5A40`, `0x2B68A0`, `0x2B69E0`),
+   alert 15 `alert_allied_objectives`, the `allied_objective` map object.
+5. **The `flag` tooltips** of the allied-objectives rows, which hang on the `province_view` group's recursion
+   (`0x6C3620`).
+6. **`CBuildingMember`'s size**, 0xA0, not in its struct record (a hand edit `mergeFindings.py` does not make).
+7. **The custom game's helpers** `0x4208B0`, `0x41B700`, `0x41B370`, `0x6E3D90`.
+
 ## The planned next wave is in `WAVE.md`
 
 **It is not in this file any more.** `WAVE.md` holds the wave that is planned and has not launched,
@@ -1068,7 +1088,7 @@ of it.
 
 ## What has already been read
 
-158 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
+159 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
 header lives. This replaces the `Done` archive: the archive restated each file's headline and named
 only 40 of the 67 there were then, so it was both longer and less useful than a complete list.
 
@@ -1228,6 +1248,7 @@ the six it was missing were wave 15's.
 | `findings/FINDINGS-messages.md` | the message system |
 | `findings/FINDINGS-effecttext.md` | how an event option's effect text is built |
 | `findings/FINDINGS-text.md` | how the game measures text |
+| `findings/FINDINGS-provinceview.md` | **the province-view wave (2026-10-15)**: the window a selected province opens - it follows the selection, its refresh and every-frame update, each element's figure, intelligence gate and tooltip, the weather strip, the `adj` list and the cores box; the building columns (`show_for_province`, split at the database's middle), the pips (working, damaged, queued), a row's shortcut letter and tooltip; the `underground` window and which mouse button steps its mission; the covert-operations panel and the allied-objectives panel with `CSetAlliedObjectiveCommand` |
 | `findings/FINDINGS-provincetooltip.md` | **the tooltip of a province**, `ProvinceTooltip_Build` read whole: a selected army's `UTM_*` line, the name and the owner, the terrain mode's flags, terrain and figures, the political mode's, the supply mode's lines put together with their colours and the line on infrastructure, the tail's distances; **the `@TAG` flag icon** in text, 23 by 11 below the line's top; `CArmy +0x300` the fleet carrying it |
 | `findings/FINDINGS-topbartooltip.md` | **the top bar's tooltips**, `CTopBar::BuildTooltip` read whole by element name: the goods ledger's lines and colours, IC, dissent, diplomacy, national unity, officers and manpower; **how a modifier lists its contributors** (`CModifier` slots 6 to 9), and each modifier kind's two flags, percent and more-is-better; **corrects `BuildModifierEffectsText`, which is the definitions' initialiser** |
 | `findings/FINDINGS-productiontooltip.md` | **the production screen's tooltips**, `CProductionView::BuildTooltip` read whole by element name: the resources' ledgers, a strategic resource's provinces by their infrastructure, the bombs, the escort, convoy, underground, theatre and building buttons; **what each of the ten shares' sliders says** at the slider's position (`CDistributionSetting` slot 5); a build queue line's; and **what `£name` draws in a text**, the middle of `GFX_counter_` + name. Corrects `BuildProductionPenaltyTooltip`, the whole line's tooltip with its arguments the other way round |
