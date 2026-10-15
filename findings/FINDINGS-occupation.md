@@ -777,6 +777,16 @@ paragraph said "and the screen" until then, and no caller is a screen):
   (`0x41E050`); and `CInGameIdler::Enter` four times (`0x65AFA8`, `0x65BF7A` before the new
   game's revolt pass, `0x65BFF1`, `0x65C00F`).
 
+**Entering a game makes every province again at least twice** (read on the listing 2026-10-15,
+from the function's start so the instructions are aligned; the decompiler times out on it). Two
+loops run over every province from index 0: the first (`0x65AE30`) on every entry, nothing
+before it able to skip it - the rebuild, then `0x4963F0` and the climate, and the province's
+`+0xC` byte cleared; the second (`0x65BD12`) rebuilds each province at the end of its turn, and
+in a new game - the state's `+0xD9C` byte clear - once before as well, ahead of
+`SpawnFullRevoltInProvince`. **`TakeControl` rebuilds only where the controller changed**: after
+`Province_SetController` it compares the province's controller with the one before and jumps past
+the rebuild when they agree (`0x4A20F8`-`0x4A20FE`).
+
 **`Province_SetController` is not among them.** A plain change of controller - the day's return
 of occupied land (B.1, step 9), an effect - leaves the province's modifier as it was until one of
 the above, so the occupation policy reaches a province taken in battle at once and one handed
