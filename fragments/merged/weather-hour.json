@@ -1,0 +1,261 @@
+{
+ "agent": "weather wave, reader A",
+ "question": "Weather's place in the hour and in a new game, its draws, and its save and load (WAVE.md brief A).",
+ "source": "reversing/findings/FINDINGS-weathersim.md",
+ "addresses": [
+  {
+   "rva": "0x282630",
+   "kind": "function",
+   "name": "RunHourlyPass",
+   "signature": "void __stdcall RunHourlyPass(CCurrentGameState* state)",
+   "no_signature": null,
+   "comment": "The simulation work that happens **every hour**. 0x282630 to 0x282C1D, `ret 4`. **It abuts RunDailyPass with no int3 between them** (trap 2). RunHourlyTick calls it after the date has been advanced (0x68155F) and before RunDailyPass, so the hour it simulates is the new one and a day's daily pass runs after that day's first hour. In order: 0x44DE20 on state+8 (not read); the hour of the day `(tick - 43800000) % 24` into g_CurrentHourOfDay (0x1685594) and the 0-based month (day of the year walked down MonthLengthTable) into g_CurrentMonth (0x1685590); CSupply::RebuildSupplyNetwork at 0x2826E8 when supply_network_dirty (+0x50) is set; **CWeatherManager::Tick at 0x2826F3** (fronts, high pressure, new lows); a reset of +0xAC on every ideology group's faction (or the null faction); 0x28A0A0(state) (per province, not read); RunCountryHourlyPass per country at 0x282833 (orders, movement and battle checks, serial); the unit fan-out (CUnit::UpdateHourly, workers) at 0x282887; the country fan-out at 0x2828D4; the AI-trade fan-out at 0x2829DC, skipped when a scenario is set (+0xD0C), then ai_pass_done; **the province weather fan-out at 0x282A3B** (UpdateProvinceWeatherRange on workers); RunHourlyProvincePass per simulated province (0x282A75); CCombatManager::Tick at 0x282A90; 0x28A0A0(state) again; the tutorial gate and the ai_pass_done clear. So every consumer before the province pass - movement, the unit and country hours - reads province weather as last hour's CWeather::Update left it, but with this hour's fronts, high pressure and new lows already spread into humidity, pressure, windspeed and temperature (unclamped); only combat, which is last, sees the whole of this hour. See reversing/findings/FINDINGS-weathersim.md, section A, and reversing/findings/FINDINGS-tick.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-weathersim.md",
+   "evidence": "Read the whole body 0x682630-0x682C1D on the disassembly: the hour/month stores at 0x682680 and 0x6826DE, the dirty test at 0x6826DA, the manager call at 0x6826F3 with edi = state+0xAEC, the g_ideologies loop 0x682731-0x6827BD writing [faction+0xAC] = 0, the calls at 0x6827C0, 0x682833, 0x682887, 0x6828D4, 0x6829DC (behind `cmp [ecx+0xD0C], ebx; jne` at 0x682963), 0x682A3B, 0x682A75, 0x682A90, 0x682A96, and the +0xD9D gate at 0x682B14. Wrong if a call listed here were reached in another order - every one is on the straight-line path, no back edge crosses them.",
+   "revises": "Comment rewritten: the whole order of the hour, where the two weather calls fall among the other steps, the hour and month globals it sets, and what consumers before the province pass read. The old comment named only the supply rebuild."
+  },
+  {
+   "rva": "0xB5A20",
+   "kind": "function",
+   "name": "CWeatherManager::Tick",
+   "signature": "void __stdcall CWeatherManager::Tick(CWeatherManager* manager@EDI)",
+   "no_signature": null,
+   "comment": "The global half of the weather, once an hour. `this` in EDI. **Three callers**: RunHourlyPass at 0x2826F3; the new game's weather pre-roll in CInGameIdler::Enter at 0x25C86A (INITIAL_SIMULATION_HOURS_AHEAD/1000 times); and the `weather` console command ConsoleCmd_Weather at 0x3DC89 (the old comment called that the new-game loop). In order: (1) if the zone cooldown vector +0x18 is empty, CWeatherManager::InitialiseWeatherState (0xB54F0), which also caches the weather defines - so the first Tick a process runs is where the defines take effect; then **every cooldown is decremented, with no floor**; (2) for each id on CMap +0x21C8 (default.map's high_pressure_zones, a list appended in file order) PropagateHighPressure on that province - before any front is made or moved; (3) **while** the live front count (+0x10) is below (number of low_pressure_zones) x trunc(MAXFROMEACHPRESSURE/1000) - 18 x 8 = 144 in Their Finest Hour - CreateFront, stopping at the first null; each new front is **appended at the tail** of the list, so in one hour every zone that qualifies gets a front, in zone file order, until the cap; (4) CProvince +0x14 zeroed on every province of the game state's vector; (5) each front ticked in list order (CWeatherFront::Tick), a new one last; one that answers false is unlinked (the first node holding it, searched from the head), **the cooldown of every low_pressure_zones entry whose id is the front's home is set to 0 - indexed by the zone's place in the full list, where CreateFront indexes by the place among zones its climate mask lets through** - and the front is deleted through slot 0, whose destructor zeroes +0x14 on every province still on its list. Because the markers were cleared in step 4 and a front re-stamps its own only when it ticks, a front earlier in the list sees a later front's provinces as free and may recruit them; the later front then overwrites or clears that marker. See reversing/findings/FINDINGS-weathersim.md, section A.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-weathersim.md",
+   "evidence": "Read 0x4B5A20-0x4B5D7C whole: `test eax,0xfffffffc; jne` then `push edi; call 0x4B54F0` at 0x4B5A46-0x4B5A4E, `dec dword ptr [eax+ecx*4]` at 0x4B5A65, the list walk over [map+0x21C8] with next at +8 and PropagateHighPressure at 0x4B5A9E, the cap `(end-begin) sar 3 x [0x170CAB4]/1000` at 0x4B5AA7-0x4B5ACE recomputed at 0x4B5B20-0x4B5B4A with `jl` back to the CreateFront call at 0x4B5AD4, the tail append at 0x4B5AF0-0x4B5B19 (node {front, prev = old tail, next 0}), the clear at 0x4B5C7C, the tick at 0x4B5CB2, the unlink at 0x4B5CC6-0x4B5D10, the zone loop at 0x4B5D20-0x4B5D51 (edx stepping 4 per 8-byte zone record, compare against front->home->+0xD0, store 0 at [edx+cooldowns]) and the slot-0 delete at 0x4B5D5F. Callers from findRefs --callers 0x4B5A20: 0x43DC89, 0x65C86A, 0x6826F3; 0x43DA80 is the console handler registered at 0x170B5E0 beside 'weather' and 'Runs weather test'. The list order of +0x21C8 from CMap::LoadKey's case 0x54C (0x4897EB) through 0x40A3C0, which appends each id at the tail. Wrong if CreateFront could return a front for a zone whose slot it had just put on cooldown - it cannot, the slot is set to 24..71 before it returns.",
+   "revises": "Callers corrected (0x3DC89 is the `weather` console command, the new-game pre-roll is 0x25C86A); added: no floor on the cooldowns, the CreateFront loop runs until the cap or a null, new fronts go on the tail and tick last, the dying front resets its home zone's cooldown by full-list index, and the destructor's unconditional marker clear."
+  },
+  {
+   "rva": "0x27B1C0",
+   "kind": "function",
+   "name": "UpdateProvinceWeatherRange",
+   "signature": null,
+   "no_signature": "the range in EAX (a tbb::blocked_range<int>: end at +0, begin at +4), the functor's pointer to the province vector on the stack, ret 4",
+   "comment": "The leaf of the hourly weather pass over provinces. For each index from the range's begin up to its end, in ascending order, the province whose CProvinceTemplate +0x13D (simulated) is set: (1) is_night (+0x2C) = IsNight(province, g_CurrentHourOfDay, g_CurrentMonth) - the globals RunHourlyPass set at its top; (2) CWeather::Update on +0x68; (3) GraphicName, and where the std::string pointer it answers is not the one in +0x98 the redraw flag +0x9C is set to 1 and +0x98 to the new name. **Nothing in it reads another province**: IsNight reads the province's template and the map width, CWeather::Update its own province, template, terrain, modifier array, +0x14 (only tested against 0, the front object is never read) and the global date, and GraphicName the defines - so the TBB split over workers cannot change a result. Reached only through ProcessProvinceFunctor_start_for::execute (0x28EEB0) from RunHourlyPass at 0x282A3B. The new game's 96-hour pre-roll does not come here: it calls CWeather::Update directly on every province, simulated or not, with no night and no picture. See reversing/findings/FINDINGS-weathersim.md, section A.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-weathersim.md",
+   "evidence": "Read 0x67B1C0-0x67B23B: ebx = [eax+4], [ebp-4] = [eax], `inc ebx; cmp ebx,[ebp-4]; jne` (TBB's blocked_range is {my_end, my_begin, grain}, and RunHourlyPass builds it {count, 0, grain} at 0x682A24-0x682A38); the +0x13D test at 0x67B1E3; IsNight with [0x1A85590] then [0x1A85594] pushed and edi = province at 0x67B1EC-0x67B1FC; the byte store at 0x67B204; Update at 0x67B207; GraphicName twice at 0x67B20E/0x67B224 with the +0x98 compare and the +0x9C store. The no-neighbour claim from a decompile of CWeather::Update whose every load is off EDI, [EDI+0x2C] and that province's +0xD4/+0x114 chains, and from IsNight (0xA7390) read whole. Wrong if Update dereferenced the front at +0x28 - it only compares it with 0.",
+   "revises": "Confidence stays confirmed; added the ascending order inside a range, which globals IsNight is handed, the pointer comparison of the picture, the proof that no province reads another, and that the new-game pre-roll bypasses this function."
+  },
+  {
+   "rva": "0xA7390",
+   "kind": "function",
+   "name": "IsNight",
+   "signature": "bool __stdcall IsNight(CMapProvince* province@EDI, int hour@stack:4, int month@stack:8) @AL",
+   "no_signature": null,
+   "comment": "Whether it is night in a province, read whole. `local = (template->position_x (+0x64) * 24 / map->width (CMap +0x2A74) + hour + 12) % 24` (signed int arithmetic, truncating); `m = month`, but `(month + 6) % 12` where CProvinceTemplate +0xA2 is clear (the southern half of the map); `q = trunc(trunc(latitude_north (+0x388) * g_DayLengthByMonth[m] / 1000) * 1000 / 2000) / 1000` (the first two through __alldiv/__allmul, the last /1000 by the 0x10624DD3 multiply, all truncating toward zero), table {-6000,-3000,0,3000,6000,12000,6000,3000,0,-3000,-6000,-12000}; **night when `local < 6 - q` or `local > 18 + q`**, day otherwise. So the map's middle column keeps the game's hour, day is 06..18 inclusive at the equator and wherever latitude_north is 0 (the whole south, FINDINGS-temperature.md section 4), and at latitude 950 June has q = 5 (night only at local hour 0) and December q = -5 (day only 11..13). Callers: UpdateProvinceWeatherRange (hourly), UpdateProvinceNightFlag (CInGameIdler::Enter), IsNightAtTick, and four in the interface. See reversing/findings/FINDINGS-weathersim.md, section A.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-weathersim.md",
+   "evidence": "Read 0x4A7390-0x4A744A: `[ecx+0x64]` x24 by lea/add at 0x4A739C-0x4A73A3, `idiv [map+0x2A74]`, `lea eax,[eax+edx+0xC]; idiv 0x18`, the +0xA2 test with `lea eax,[ebx+6]; idiv 0xC` on the clear arm, `imul [ebx*4+0x170C8B0]` of [edi+0x388], __alldiv by 1000, __allmul by 1000, __alldiv by 2000, the 0x10624DD3 divide, `lea eax,[edx+eax+6]`, `ecx = 12 - eax; cmp esi,ecx; jl night`, `add eax,0xC; cmp esi,eax; jg night`, `ret 8`. The table read with image.read at 0x170C8B0. Wrong if the two stack arguments were the other way round - UpdateProvinceWeatherRange pushes [0x1A85590] first and [0x1A85594] second, so [ebp+8] is the hour.",
+   "revises": "Raised from inferred to confirmed, with the whole formula and the night rule; the hour and month arguments identified as RunHourlyPass's globals."
+  },
+  {
+   "rva": "0xA7210",
+   "kind": "function",
+   "name": "UpdateProvinceNightFlag",
+   "signature": "void __fastcall UpdateProvinceNightFlag(CMapProvince* province@ECX)",
+   "no_signature": null,
+   "comment": "Sets one province's is_night (+0x2C) for the current date: works g_CurrentHourOfDay and g_CurrentMonth out of CCurrentGameState +0xBDC exactly as RunHourlyPass does, **stores both globals**, and writes IsNight's answer. One caller: CInGameIdler::Enter at 0x25BE93, in the per-province loop that runs for a new game and a loaded one alike - so every province has its night flag for the start (or saved) hour before anything else of weather runs. 0x4A7210 to the bare `ret` at 0x4A731A. See reversing/findings/FINDINGS-weathersim.md, section A.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-weathersim.md",
+   "evidence": "Read 0x4A7210-0x4A731A: `mov edi, ecx` at 0x4A7235, the date arithmetic from [state+0xBDC] at 0x4A729E-0x4A72F8 matching RunHourlyPass 0x682659-0x6826D8, the stores to [0x1A85594] and [0x1A85590], `call 0x4A7390` at 0x4A7302 and `mov [edi+0x2c], al` at 0x4A730A. findRefs --callers 0x4A7210: one call, 0x65BE93, with ecx = state->provinces[i] loaded at 0x65BE8C. Wrong if the caller passed something other than a province in ECX - it is the same element it then hands to BaseTemperature."
+  },
+  {
+   "rva": "0x1685594",
+   "kind": "global",
+   "name": "g_CurrentHourOfDay",
+   "signature": null,
+   "no_signature": "a global int, not a function",
+   "comment": "The hour of the day, 0..23, `(tick - 43800000) % 24`, written at the top of RunHourlyPass (0x282680) and by UpdateProvinceNightFlag; read by UpdateProvinceWeatherRange as IsNight's hour. Set from the already-advanced tick, so a game's first played hour is 01:00. See reversing/findings/FINDINGS-weathersim.md, section A.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-weathersim.md",
+   "evidence": "`mov dword ptr [0x1a85594], edx` at 0x682680 with edx the remainder of `(tick - 0x29C55C0) idiv 0x18`, and the same at 0x4A72E8; read at 0x67B1F2 and pushed as IsNight's [ebp+8]. Wrong if another writer stored something else - a findRefs over 0x1A85594 is the check, not run exhaustively here."
+  },
+  {
+   "rva": "0x1685590",
+   "kind": "global",
+   "name": "g_CurrentMonth",
+   "signature": null,
+   "no_signature": "a global int, not a function",
+   "comment": "The month, 0 = January, worked out from the day of the year (`days - (int)(float)((int)(days / 365.0) * 365.0)`) by subtracting MonthLengthTable entries until the remainder goes negative. Written at the top of RunHourlyPass (0x2826DE) and by UpdateProvinceNightFlag; read by UpdateProvinceWeatherRange as IsNight's month. See reversing/findings/FINDINGS-weathersim.md, section A.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-weathersim.md",
+   "evidence": "0x682686-0x6826DE: the /24 by 0x2AAAAAAB, the divsd/mulsd by 365.0 at [0x160A550], `sub eax,[0x1713294]; js` then `inc ecx; sub eax,[ecx*4+0x1713294]; jns`, `mov [0x1a85590], ecx`. MonthLengthTable read as {31,28,31,30,31,30,31,31,30,31,30,31}. Wrong if the walk were 1-based - ecx starts at 0 and a day in January leaves it 0."
+  },
+  {
+   "rva": "0x25C815",
+   "kind": "instruction",
+   "name": "CInGameIdler_Enter_WeatherPreRoll",
+   "signature": null,
+   "no_signature": null,
+   "comment": "**The new game's weather pre-roll**, inside CInGameIdler::Enter after the supply network is built (0x25C611) and after RebuildStrategicResourceProvinces (0x25C803); skipped for a session loaded from a save (`loaded_from_save` +0xD9C tested at 0x25C7FA) and in a tutorial (+0xD9D, 0x25C808). `hours = trunc(INITIAL_SIMULATION_HOURS_AHEAD / 1000)` read straight off the defines (GetDefines +0xEC +0xDC; 96 in Their Finest Hour), the province count taken once, then `hours` times: CWeatherManager::Tick, and CWeather::Update on every province of the vector in index order - **no simulated-flag test, no IsNight, no GraphicName, and the date never moves**, so all 96 hours see the night flag and climate of hour 0 of the start date. The first day's RunDailyPass (0x25CB2E) follows, and the two days' block ends with one RunHourlyPass, so a new game has run 97 weather hours before its first tick. See reversing/findings/FINDINGS-weathersim.md, section A.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-weathersim.md",
+   "evidence": "0x65C7F0-0x65C8A0: `test cl,cl; jne 0x65CC6E` on [esi+0xD9C], `call 0x68BB90`, `cmp [esi+0xD9D],0; jne 0x65C8A2`, GetDefines, `mov ecx,[eax+0xEC]; mov ecx,[ecx+0xDC]`, the 0x10624DD3 divide, `jle 0x65C8A2`, the outer loop `call 0x4B5A20` with edi = state+0xAEC at 0x65C86A and `dec [esp+0x50]; jne`, the inner `mov edi,[provinces+esi*4]; lea edi,[edi+0x68]; call 0x4B2590`. The log string ' processed weather <' at 0x65C915 follows it. Wrong if anything in the loop advanced CCurrentGameState +0xBDC - nothing in Tick or Update writes it."
+  },
+  {
+   "rva": "0x25BF63",
+   "kind": "instruction",
+   "name": "CInGameIdler_Enter_SeedTemperature",
+   "signature": null,
+   "no_signature": null,
+   "comment": "**A new game starts every province's temperature at its target.** In CInGameIdler::Enter's per-province loop (0x25BD12-0x25C01C, logged 'provinces initialised<'), after UpdateProvinceNightFlag and only where loaded_from_save (+0xD9C) is clear: `temperature (+0x7C, CWeather +0x14) = CWeather::BaseTemperature(&province->weather)` - with the night flag just set, the climate set by the earlier latitude and climate loop (0x25AFAD/0x25AFB3), and cloud, rain, frozen and wind at nought from CProvince_ResetState, so the cloud, cold-rain and wind-chill terms add nothing. Then RebuildProvinceModifierValues and 0x4A6C30. Happens before the 96-hour pre-roll. See reversing/findings/FINDINGS-weathersim.md, section A.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-weathersim.md",
+   "evidence": "0x65BF41-0x65BF77: `cmp byte ptr [ecx+0xd9c],0; jne 0x65C00A` (the loaded arm only rebuilds the modifiers), `lea edx,[edi+0x68]; push edx; lea esi,[esp+0x98]; call 0x4B22E0`, `mov eax,[esp+0x94]; mov [edi+0x7c], eax`. BaseTemperature is `ret 4` with the out pointer in ESI (FINDINGS-temperature.md section 1), so [esp+0x94] after the return is the out. Wrong if +0x7C were not the CWeather's temperature - the CWeather is at +0x68 and temperature at its +0x14."
+  },
+  {
+   "rva": "0xB54F0",
+   "kind": "function",
+   "name": "CWeatherManager::InitialiseWeatherState",
+   "signature": "void __stdcall CWeatherManager::InitialiseWeatherState(CWeatherManager* manager)",
+   "no_signature": null,
+   "comment": "**The one-time weather setup, and the reason a `GetDefines` scan finds no reader of the weather block at all.** Empties the zone cooldown vector (+0x18), then for each of CMap +0x21D8's low_pressure_zones pushes one 0 onto it and one 0 onto the heading vector (+0x28) - which it does not empty, so a second run would double it - and then copies 49 of the 56 `weather` defines into individual globals, one `mov ecx,[eax+0xEC]; mov edx,[ecx+N]; mov [global],edx` per define. One function from 0x4B54F0 to the `ret 4` at 0x4B59B9. Two callers: CWeatherManager::Tick, whenever +0x18 is empty - which is only the first hour a process ever simulates, because nothing but the manager's destructor empties it (CGameState::ResetSession does not) - and the `weather` console command (0x3DB7E), which calls it unconditionally. **So until a process's first weather tick, every weather global still holds the value the executable was built with**, not the define. See reversing/findings/FINDINGS-weathersim.md, section A, reversing/findings/FINDINGS-navaldetection.md and reversing/findings/FINDINGS-weather.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-weathersim.md",
+   "evidence": "Read 0x4B54F0-0x4B5645 and the tail to `ret 4` at 0x4B59B9: the erase of [esi+0x18..+0x1C) at 0x4B5510-0x4B5536, the loop over (map+0x21DC - map+0x21D8) sar 3 zones pushing [ebp-0x10] = 0 onto +0x18 and 0 onto +0x28 at 0x4B5563-0x4B563F, then the GetDefines singleton and the cache. `this` is [ebp+8]: Tick pushes edi at 0x4B5A4D and the console handler pushes state+0xAEC at 0x43DB7D. The file-initialised globals were read with image.read (g_PRESSUREDEFAULT 0x170CA9C holds 1013000, the MAXFROMEACHPRESSURE global 0x170CAB4 holds 2000). Wrong if another function emptied +0x18 - fieldchain --field 0xB04 finds only the CGameState constructor's store, and the only other code touching the vector through the manager is the destructor body 0x27D980.",
+   "revises": "Raised to confirmed; the signature's name (CacheWeatherDefinesToGlobals) brought into line with the entry and the convention written as the stack `this` it is; added that it empties only the cooldowns, its second caller, and that it runs once per process."
+  },
+  {
+   "rva": "0xB59C0",
+   "kind": "function",
+   "name": "CWeatherManager::ResetZoneState",
+   "signature": "void __stdcall CWeatherManager::ResetZoneState(CWeatherManager* manager@EAX)",
+   "no_signature": null,
+   "comment": "Sets every entry of the per-zone heading cache at +0x28 to [0x168701C] - a global nothing writes, so zero, meaning \"pick a fresh random heading\" - and every per-zone cooldown at +0x18 to 0. One caller, RebuildEventCandidatesAndDailyCaches (0x282510, at 0x28256B with EAX = state+0xAEC), and that is reached only from CReopenLobby::Execute (once per session, the first time a lobby is reopened) and from CInGameIdler::StartGame - the in-game screen's slot 67, called by CStartGame::Execute - **only where Session +0x236 (lobby_reopened) is set**. So in an ordinary single-player game it never runs: not on a new game, not on a load. See reversing/findings/FINDINGS-weathersim.md, section A.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-weathersim.md",
+   "evidence": "Read 0x4B59C0-0x4B5A18. The reachability: findRefs --callers 0x4B59C0 is one call (0x682571); --callers 0x682510 is 0x64C296 and 0x6D8658; 0x64C296 sits after `call [this->vf+0x48]` (CInGameIdler::GetSession) and `mov al,[eax+0x236]; cmp al,bl; je 0x64C29B` at 0x64C20C-0x64C214; 0x6D8658 sits behind `cmp [eax+0x236],bl; jne 0x6D86E4` at 0x6D8556 and is followed by `mov byte ptr [eax+0x236],1` at 0x6D86DD. slotcalls.py 67 --touches 0xBE8 finds exactly one dispatch of the in-game screen's slot 67, at 0x6D4AC8 in CStartGame slot 6. Wrong if Session +0x236 had a writer of 1 outside the reopen-lobby path - fieldchain --field 0x236 finds two writers of 1 (0x6D86DD in CReopenLobby::Execute, 0x6472A1 in the hot-join handler 0x6470D0 that posts a CReopenLobby) and two of 0 in the Session constructors.",
+   "revises": "Added when it can run at all: only once a multiplayer lobby has been reopened in the session, never in an ordinary game, a new one or a loaded one."
+  },
+  {
+   "rva": "0xB5F60",
+   "kind": "function",
+   "name": "CWeatherManager::SaveContents",
+   "signature": "void __thiscall CWeatherManager::SaveContents(CWeatherManager* this, void* writer)",
+   "no_signature": null,
+   "comment": "Vftable slot 2. **The fronts and nothing else**: for each node of the front list from the head, the key `front` (token 0x396) and the front's own slot 1 (CPersistent::Save, so `front={ direction rotation speed home provinces }`). The per-zone cooldowns (+0x18) and headings (+0x28) are **not saved**. Written under the game state's `weather` key (token 0x54A, CGameState's save at 0x27F7C9). CWeatherManager::LoadKey (0xB5FA0) reads each `front` into a new CWeatherFront and appends it at the tail, so the list order survives a save and load. Slot 5 (AfterLoad) is the do-nothing 0xABF890. See reversing/findings/FINDINGS-weathersim.md, section A.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-weathersim.md",
+   "evidence": "Read 0x4B5F60-0x4B5F92 (`ret 4`): `mov esi,[ecx+8]`, per node `push ebx; mov ecx,0x396; call SaveWriteKey (0xA7A1B0)` then `call [vf+4]` on the front. vtable.py --holding 0x4B5F60: CWeatherManager slot 2 only. LoadKey 0x4B5FA0 read alongside: `cmp [ebp+0xC],0x396`, new 0x28 with vftable 0x15C08B8, slot 3 Load, append with prev = old tail (+0xC). The save shows it: Germany1936_01_01_00.hoi3's weather block holds 21 `front=` and no other key, Germany1936_01_08_02.hoi3's 29. Wrong if a second key were written - the manager block's top-level keys counted in both saves are front, and inside fronts the five front keys only."
+  },
+  {
+   "rva": "0xB1FF0",
+   "kind": "function",
+   "name": "CWeather::SaveContents",
+   "signature": "void __thiscall CWeather::SaveContents(CWeather* this, void* writer)",
+   "no_signature": null,
+   "comment": "Vftable slot 2. A province's weather, **each key only where it is not nought - and pressure only where it is not PRESSUREDEFAULT**: humidity (token 0x544) +0x08, pressure (0x545) +0x0C unless equal to g_PRESSUREDEFAULT, windspeed (0x546) +0x10, temperature (0x547) +0x14, precipitation (0x548) +0x18, muddyness (0x549) +0x1C, frozen (0x54B) +0x20, cloud_coverage (0x54E) +0x24, each through the thousandths key writer 0xA78B70. +0x28 (the front cache) and +0x2C (the province) are not saved. A load fills only what the file names; the rest keeps what CProvince_ResetState gave it - 0, and PRESSUREDEFAULT for pressure - so the round trip is exact. See reversing/findings/FINDINGS-weathersim.md, section A.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-weathersim.md",
+   "evidence": "Read 0x4B1FF0-0x4B20B1 (`ret 4`): eight `test/je` or `cmp [0x170CA9C]/je` guards each skipping one `mov ecx, <token>; call 0xA78B70`. CWeather::LoadKey's jump table at 0x4B21D8 (base 0x544, eleven entries) maps the same tokens to the same offsets, 0x54A/0x54C/0x54D to the default. Against the saves: over the 14168 province weather blocks of Germany1936_01_01_00.hoi3 and of Germany1936_01_08_02.hoi3 no key carries 0.000 and no pressure reads 1013.000 (7519 and 9646 pressure keys written). Wrong if a zero-valued key ever appeared in a save."
+  },
+  {
+   "rva": "0x96480",
+   "kind": "function",
+   "name": "CProvince_ResetState",
+   "signature": "void __stdcall CProvince_ResetState(CMapProvince* province)",
+   "no_signature": null,
+   "comment": "Puts a province back to its empty state. Three callers: the CProvince constructor (0x94BEA) and CGameState::ResetSession twice (0x27BDCA, 0x27BE6A, over every province) - so it runs before every new game and every load. Of weather it zeroes climate (+0x30), the front marker (+0x14) and the whole CWeather (+0x70..+0x90), with **pressure set to g_PRESSUREDEFAULT** - the cached define once a process has run a weather tick, the executable's built-in 1013.000 before that. It does not touch is_night (+0x2C), the picture (+0x98/+0x9C), latitude_north (+0x388) or the pressure-walk scratch (+0x10). The rest of the function (0x96480 to the `ret 4` at 0x97398, about 650 instructions) was not read; the name is ours. See reversing/findings/FINDINGS-weathersim.md, section A.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-weathersim.md",
+   "evidence": "The weather stores read at 0x4964FC-0x496534: +0x30, +0x14, +0x70 zeroed, `mov eax,[0x170CA9C]; mov [ebx+0x74],eax`, +0x78..+0x90 zeroed. A scan of the whole body's decode for stores through ebx at +0x2C, +0x98, +0x9C, +0x388 and +0x10 found none (a linear decode of a large body - trap 9 - so that negative is weak). findRefs --callers 0x496480: 0x494BEA, 0x67BDCA, 0x67BE6A; the ResetSession loop at 0x67BDC0 pushes state->provinces[i]. `ret 4` at 0x497398, then int3 at 0x4973A5. Inferred for the name and the unread remainder; the weather stores are read."
+  },
+  {
+   "rva": "0x27D980",
+   "kind": "function",
+   "name": "CWeatherManager::~CWeatherManager",
+   "signature": null,
+   "no_signature": "this in ESI, no stack arguments, bare ret",
+   "comment": "The manager's destructor body: frees the heading (+0x28) and cooldown (+0x18) vectors and zeroes their three pointers, then frees every node of the front list and zeroes it - **without deleting the CWeatherFront objects the nodes hold**. Called by the scalar deleting destructor (slot 0, 0x27DB60) and from the CGameState teardown at 0x27E1A5. The only code outside the manager's own methods that empties the zone vectors; CGameState::ResetSession, which runs before every new game and load, deletes the fronts (0x27C003-0x27C03F, through each front's slot 0) and does not touch the vectors. See reversing/findings/FINDINGS-weathersim.md, section A.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-weathersim.md",
+   "evidence": "Read 0x67D980-0x67D9DD: free [esi+0x28] and zero +0x28/+0x2C/+0x30, free [esi+0x18] and zero +0x18/+0x1C/+0x20, the node walk `mov edi,[eax+8]; push eax; call free` and zero +8/+0xC/+0x10 - no call through a front's vftable. Callers 0x67DB66 (in 0x67DB60, CWeatherManager slot 0, which then frees `this` on flag 1) and 0x67E1A5 with esi = state+0xAEC. The ResetSession clear read at 0x67C003-0x67C03F: `mov ecx,[esi]; mov eax,[ecx]; push 1; call [eax]` per node, then +0xAF4/+0xAF8/+0xAFC zeroed; no other access to state+0xAEC..+0xB20 in 0x67BAF0-0x67CAA7 (grep of its decode for 0xAE?/0xAF?/0xB0?/0xB1? displacements). Wrong if ResetSession reached the vectors through a call - none of its callees takes state+0xAEC."
+  },
+  {
+   "rva": "0x3DA80",
+   "kind": "function",
+   "name": "ConsoleCmd_Weather",
+   "signature": "void* __cdecl ConsoleCmd_Weather(void* result, void* arguments)",
+   "no_signature": null,
+   "comment": "**The `weather <num>` console command** (\"Runs weather test\"), registered in the static command table - name 'weather' at 0x130B5C8, description at 0x130B5DC, this handler at 0x130B5E0, argument 'num' - so it has no call site. Without an argument: 'Please specify the amount testing hours.'. Otherwise: CWeatherManager::InitialiseWeatherState (re-caching the defines and appending another set of zeros to the heading vector), deletes every live front (CListOfOwned_ClearByPointer, 0xB6260, on the manager+0x8 list), then `num` times CWeatherManager::Tick and CWeather::Update on every province - the new game's pre-roll by hand, with no night and no picture - and answers 'Weather test completed.'. 0x43DA80 to the bare `ret` at 0x43DDD7. See reversing/findings/FINDINGS-weathersim.md, section A.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-weathersim.md",
+   "evidence": "image.findBytes(0x43DA80) answers one hit, 0x170B5E0, inside a table entry whose neighbours are pointers to 'weather' (0x15B74AC), 'Runs weather test' (0x15B7498) and 'num' (0x15B7844). The body: the argument count test and the message at 0x43DAE8, `push state+0xAEC; call 0x4B54F0` at 0x43DB7E, `push state+0xAF4; call 0x4B6260` at 0x43DBFD, the loop with `call 0x4B5A20` at 0x43DC89 and `call 0x4B2590` at 0x43DD97, the closing string at 0x43DDB8. Wrong if the table entry belonged to another command - the name, description and handler sit in one record as in ConsoleCmd_NoNeutrality's."
+  },
+  {
+   "rva": "0x2D4A30",
+   "kind": "function",
+   "name": "CStartGame::Execute",
+   "signature": "void __thiscall CStartGame::Execute(CStartGame* this)",
+   "no_signature": null,
+   "comment": "CCommand slot 6 of CStartGame: calls the in-game screen's (CCurrentGameState +0xBE8) slot 67, CInGameIdler::StartGame, and nothing else. The command is posted by the in-game lobby's start button (0x297440, registered by the CIngameLobby constructor 0x2913F0). See reversing/findings/FINDINGS-weathersim.md, section A.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-weathersim.md",
+   "evidence": "Read 0x6D4A30-0x6D4ADF: the get-or-create of the game state, `mov ecx,[esi+0xBE8]; mov edx,[eax+0x10C]; call edx`, bare ret. vtable.py --holding 0x6D4A30: CStartGame slot 6 only. findRefs --vftable CStartGame: two writers, 0x6D49A0 (the constructor, called by 0x697440 and by RegisterCommandTypes) and 0x6D4AF0 (slot 13, Clone). 0x697440 posts it through [this+0xF0]->+0x38 slot 6 and its only reference is 0x691703 inside 0x6913F0, which writes the CIngameLobby vftable 0x15CFBA4. Wrong if slot 6 were not Execute for CStartGame - CCommand's own slot 6 is recorded Execute."
+  },
+  {
+   "rva": "0x2D8430",
+   "kind": "function",
+   "name": "CReopenLobby::Execute",
+   "signature": "void __thiscall CReopenLobby::Execute(CReopenLobby* this)",
+   "no_signature": null,
+   "comment": "CCommand slot 6 of CReopenLobby. **Where Session +0x236 (lobby_reopened) is clear** it calls RebuildEventCandidatesAndDailyCaches (0x282510) - which rebuilds the event candidates and, through CWeatherManager::ResetZoneState, zeroes every weather zone's cooldown and heading - and then sets +0x236 to 1; otherwise it does neither. The rest of the body was not read. 0x6D8430 to the bare `ret` at 0x6D86F4. See reversing/findings/FINDINGS-weathersim.md, section A, and reversing/findings/FINDINGS-events.md.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-weathersim.md",
+   "evidence": "0x6D8554-0x6D86DD: the session through `call edx` at 0x6D8554, `cmp byte ptr [eax+0x236],bl; jne 0x6D86E4`, `call 0x682510` at 0x6D8658, the session again and `mov byte ptr [eax+0x236],1` at 0x6D86DD. vtable.py --holding 0x6D8430: CReopenLobby slot 6 only. Inferred because only the +0x236 arm was read."
+  },
+  {
+   "rva": "0x24C170",
+   "kind": "function",
+   "name": "CInGameIdler::StartGame",
+   "signature": "void __thiscall CInGameIdler::StartGame(CInGameIdler* this)",
+   "no_signature": null,
+   "comment": "CInGameIdler slot 67 - the other idlers leave it as the do-nothing 0xABF890 - called only by CStartGame::Execute. Where the session's lobby_reopened (+0x236) is set it calls RebuildEventCandidatesAndDailyCaches (0x282510, and through it CWeatherManager::ResetZoneState); it then runs ProcessAI over every country (FINDINGS-ai.md, path 4). In an ordinary game +0x236 is clear and the weather zone state is not touched. The name is ours, after its one caller. 0x64C170 to the bare `ret` at 0x64C361. See reversing/findings/FINDINGS-weathersim.md, section A.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-weathersim.md",
+   "evidence": "0x64C203-0x64C296: `call [vf+0x48]` (GetSession), `mov al,[eax+0x236]; cmp al,bl; je 0x64C29B`, `call 0x682510` at 0x64C296; the ProcessAI loop at 0x64C330-0x64C34E; bare ret at 0x64C361 before int3. vtable.py --holding 0x64C170: CInGameIdler slot 67 only. slotcalls.py 67 --touches 0xBE8: the one dispatch, in CStartGame::Execute. Inferred for the name and for the middle of the body, which was not read."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "Session",
+   "offset": "0x236",
+   "name": "lobby_reopened",
+   "type": "uint8_t",
+   "comment": "Set to 1 the first time a lobby is reopened in this session - CReopenLobby::Execute (0x6D86DD), and the hot-join handler 0x6470D0 that posts a CReopenLobby (0x6472A1) - and zeroed only by the Session constructors (0xA88400, 0xA88989). Gates CInGameIdler::StartGame's call of RebuildEventCandidatesAndDailyCaches (0x64C20C), so in an ordinary game the event candidates are first built by the first days' RunMonthlyPass and the weather zone state is never reset. Also read by the CIngameLobby constructor (three times), CSetCountryControllerCommand's Execute (0x6D3F8F), 0x695FD9, 0x70BE9F and 0x70EB97. The name is ours.",
+   "source": "reversing/findings/FINDINGS-weathersim.md",
+   "evidence": "fieldchain --field 0x236: 13 sites; the two stores of 1 and two of 0 are as listed, and the read at 0x64C20C is on the object CInGameIdler::GetSession answers (CEU3Application +0x12C, the Session). The value stored at 0x6472A1 is bl, set to 1 at 0x647211. Wrong if a store of 1 existed on an ordinary new-game path - none of the 13 sites is in one."
+  },
+  {
+   "struct": "CWeatherManager",
+   "offset": "0x18",
+   "name": "zone_cooldowns_begin",
+   "type": "int*",
+   "comment": "a vector of countdowns in hours, one per low pressure zone (end +0x1C, capacity +0x20). Decremented every hour at 0xB5A65 **with no floor**, filled with zeros by InitialiseWeatherState (0xB54F0) when empty, tested `> 0` by CreateFront (0xB5D80) and set there to 24 + Random()%48 - indexed by the zone's place among the zones its climate mask lets through - and set to 0 by CWeatherManager::Tick for a dying front's home zone, indexed by the zone's place in the whole list. **Not saved**; survives CGameState::ResetSession, so it is emptied only by the manager's destructor and refilled with zeros by the first Tick of a process; zeroed by ResetZoneState only after a multiplayer lobby is reopened.",
+   "source": "reversing/findings/FINDINGS-weathersim.md",
+   "evidence": "The decrement at 0x4B5A65, the dying-front store at 0x4B5D43, CreateFront's `cmp [ecx+eax*4],0; jg` at 0x4B5E1B and the store at 0x4B5EE8, CWeatherManager::SaveContents writing fronts only, ResetSession's front clear at 0x67C003 with no access to +0xB04, and fieldchain --field 0xB04 finding only the constructor's store. Wrong if a load or a new game emptied the vector - neither path calls the destructor body 0x27D980.",
+   "revises": "Comment only: the wrong CreateFront address (0xB5D40) corrected, and the floorless decrement, the two index spaces, the dying-front reset and the save/reset behaviour added."
+  },
+  {
+   "struct": "CWeatherManager",
+   "offset": "0x28",
+   "name": "zone_headings_begin",
+   "type": "int*",
+   "comment": "A second per-zone vector (end +0x2C, capacity +0x30), the zone's last front heading in thousandths of a turn, indexed like CreateFront's cooldown slot (the zone's place among the zones its climate mask lets through). Zero means \"draw a fresh RandomThousandths\"; otherwise CreateFront adds 1000000/MAXFROMEACHPRESSURE and subtracts 1000 above 1000. Pushed full of zeros by InitialiseWeatherState, which does not empty it first. **Not saved**, survives CGameState::ResetSession, and is zeroed only by ResetZoneState after a multiplayer lobby is reopened - so a load in a fresh process starts every zone at a fresh heading, and a second game in the same process inherits the first game's.",
+   "source": "reversing/findings/FINDINGS-weathersim.md",
+   "evidence": "CreateFront 0x4B5E85-0x4B5EC9 (`mov eax,[esi+0x28]; mov edi,[eax+ebx]`, the RandomThousandths call at 0x4B5E99 on zero, the 0xF4240 / MAXFROMEACHPRESSURE step and the 0x3E8 wrap, the store back), InitialiseWeatherState's push at 0x4B55BF-0x4B561B, ResetZoneState 0x4B59C0, and the same absence of any save key or reset as for +0x18. Wrong if fieldchain --field 0xB14 found a writer outside the manager - it is the same check as +0xB04.",
+   "revises": "Comment only: the index space, the save and reset behaviour and InitialiseWeatherState's not emptying it added."
+  }
+ ],
+ "vftable_slots": {
+  "CWeatherManager": {"2": "SaveContents", "4": "LoadKey"},
+  "CWeather": {"2": "SaveContents", "4": "LoadKey"},
+  "CStartGame": {"6": "Execute"},
+  "CReopenLobby": {"6": "Execute"},
+  "CInGameIdler": {"67": "StartGame"}
+ },
+ "frontier": ["0x4DE20", "0x28A0A0", "0x2470D0", "0x288000", "0xA6C30", "0x311EA0", "0x2D7AD0", "0x6A2BF0"]
+}

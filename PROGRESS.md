@@ -25,8 +25,8 @@ how many objects a census found (taken 2026-09-20).
 
 | | classes |
 | --- | --- |
-| `read` | 122 |
-| `placed` | 148 |
+| `read` | 123 |
+| `placed` | 147 |
 | `keys` | 75 |
 | `part` | 134 |
 | `named` | 6 |
@@ -274,7 +274,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CRegion` | `CPersistent` `H::__CArray` |  | 5 + 2 lua |  |  |  | 2,308 | read |  |
 | `CRelation` | `CPersistent` | 0x24 | 5 | 5/5 | 3 |  | 6,684 | read |  |
 | `CRemoveTraitEntry` | `CLeaderHistoryEntry` |  |  |  | 2 |  |  | RTTI |  |
-| `CReopenLobby` | `CCommand` |  |  |  |  |  | 1 | RTTI |  |
+| `CReopenLobby` | `CCommand` |  |  |  | 1 |  | 1 | RTTI |  |
 | `CRequestLendLeaseAction` | `CDiplomaticAction` |  |  | 5/6 | 7 |  | 1,753 | RTTI |  |
 | `CReserveOrder` | `CNavalOrder` |  |  |  | 5 |  |  | RTTI |  |
 | `CResetGame` | `CCommand` |  |  |  | 1 |  | 1 | keys |  |
@@ -292,7 +292,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CShareTechnologyAction` | `CDiplomaticAction` |  |  | 1/1 | 7 |  |  | placed |  |
 | `CShip` | `CSubUnit` |  | 1 | 1/1 | 1 |  | 3,305 | placed |  |
 | `CSoundConfigurator` | `CPersistent` |  |  |  |  |  |  | RTTI |  |
-| `CStartGame` | `CCommand` |  |  |  |  |  | 1 | RTTI |  |
+| `CStartGame` | `CCommand` |  |  |  | 1 |  | 1 | RTTI |  |
 | `CStrategicBombOrder` | `CAirOrder` |  |  |  | 6 |  | 1 | RTTI |  |
 | `CStrategicRedeploymentOrder` | `COrder` |  | 2 | 5/10 | 3 | CStrategicRedeploymentOrder.hpp | 1,197 | part |  |
 | `CStrategicWarfare` | `CPersistent` |  | 4 + 3 lua |  | 6 |  | 108 | keys |  |
@@ -321,9 +321,9 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CWarHistory` | `CHistoryContainer` |  |  |  | 2 |  | 18 | keys |  |
 | `CWarHistoryEntry` | `CHistoryEntry` |  |  |  |  |  |  | RTTI |  |
 | `CWarning` | `CRelation` |  |  | 5/5 | 1 |  |  | RTTI |  |
-| `CWeather` | `CPersistent` |  | 10 | 8/8 | 10 |  | 14,190 | read |  |
+| `CWeather` | `CPersistent` |  | 10 | 8/8 | 11 |  | 14,190 | read |  |
 | `CWeatherFront` | `CPersistent` |  | 7 | 5/7 | 6 |  | 157 | read | **read**: a weather system - where it is and where it is going |
-| `CWeatherManager` | `CPersistent` |  | 7 |  | 6 |  | 1 | read |  |
+| `CWeatherManager` | `CPersistent` |  | 7 |  | 8 |  | 1 | read |  |
 | `CWindowType` | `CGuiType` `CFactory` |  | 29 |  | 3 |  |  | read |  |
 | `CWing` | `CSubUnit` | 0xD8 |  | 8/13 |  |  | 2,298 | RTTI |  |
 | `SGraphStatisticsItem` | `CPersistent` |  |  |  | 1 |  | 114 | keys |  |
@@ -407,7 +407,7 @@ Definitions out of `common/` and the rest of the mod. Their `LoadKey` is the gra
 | `CTutorialChapter` | `CPersistent` |  |  | 9/11 | 1 |  |  | placed | the tutorial script; plumbing |
 | `CUnitAdjuster` | `CPersistent` | 0x18 | 5 | 4/4 | 3 | CUnitAdjuster.hpp | 3,012,281 | read |  |
 | `CVictoryCondition` | `CPersistent` | 0x6C | 6 |  | 1 |  | 87 | read |  |
-| `CWeatherBillboardType` | `CBillboardType` |  |  | 1/3 | 1 |  | 14 | placed |  |
+| `CWeatherBillboardType` | `CBillboardType` |  | 16 | 1/3 | 8 |  | 14 | read |  |
 
 ### Neither - live only (300)
 
@@ -543,7 +543,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CICCostComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CIcon` | `CButton` |  |  |  | 1 |  |  | RTTI |  |
 | `CIdler` |  |  |  |  |  |  |  | RTTI |  |
-| `CInGameIdler` | `CEU3Idler` `CLostDeviceInterface` `CReloadDispatcher` |  | 57 |  | 56 | CInGameIdler.hpp | 3 | read |  |
+| `CInGameIdler` | `CEU3Idler` `CLostDeviceInterface` `CReloadDispatcher` |  | 57 |  | 57 | CInGameIdler.hpp | 3 | read |  |
 | `CIngameSettingsScreen` | `CSettingsScreen` |  |  |  |  |  | 1 | RTTI |  |
 | `CLandOrdersView` | `COrdersView` |  |  |  |  |  |  | RTTI |  |
 | `CLawEntry` | `CStandardlistboxItem` | 0x88 | 4 |  | 3 |  | 16 | part |  |

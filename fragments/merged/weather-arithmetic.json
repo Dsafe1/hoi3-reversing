@@ -1,0 +1,199 @@
+{
+ "agent": "weather wave, reader B",
+ "question": "Weather's arithmetic whole and in order, for a reimplementation: CWeather::Update, BaseTemperature, Clamp, CWeatherFront::Tick, SpreadWeather, IsAngleWithinArc, CreateFront and the front's constructor, PropagateHighPressure, ComputeProvinceClimate, ComputeProvinceLatitude, and the edge bearing in MeasureEdges.",
+ "source": "reversing/findings/FINDINGS-weathersim.md",
+ "addresses": [
+  {
+   "rva": "0xB2590",
+   "kind": "function",
+   "name": "CWeather::Update",
+   "signature": "void __cdecl CWeather::Update(CWeather* this@EDI)",
+   "no_signature": null,
+   "comment": "One province's weather, one hour; `this` in EDI, no stack arguments, bare ret at 0xB2AD3. All arithmetic in thousandths, every product 64-bit (__allmul) and every division __alldiv, i.e. truncation toward zero. In instruction order: (0) land = template +0x22; front = CProvince +0x14 (live). No front: windspeed = windspeed x 750 / 1000 ([0x1686F3C] = floor(750.5)) and +0x28 = 0; else +0x28 = front. (1) Humidity: t = max(temperature, 0); land: cap = terrain.humidity (CTerrain +0x60) x 5000 / 1000; sea: cap = 5000 and t += 10000. If humidity >= 1000, t = t x 1000 / humidity. pNorm = (pressure - PRESSUREMIN) x 1000 / (PRESSUREMAX - PRESSUREMIN). humidity += ((1000 - pNorm) x t / 1000) x cap / 1000, the 1000 being [0x130CAEC], file-initialised. (2) Cloud: ratio = temperature > 0 ? (humidity x 1000 / temperature) x 10000 / 1000 : humidity; thr = 50000 - terrain.precipitation (CTerrain +0x64), less 30000 on land; if ratio >= thr and humidity > 0, cloud += front ? 100 : 200, else cloud -= 50. (3) precipitation = 0; thr = 500 at sea, on land 500 x 1000 / 2000 = 250 with a front and 0 without; if cloud > thr, precipitation = 2000 x (cloud - thr) / 1000. With no front: cloud -= precipitation x 200 / 1000, humidity -= 10000 x precipitation / 1000. Nothing is clamped yet, so cloud may be -50 or up to 1200 and precipitation up to 2400 from here to the end. (4) Land only (0xB280B): infra = modifiers[12] x (1000 + modifiers[13] + modifiers[14]) / 1000 (CProvince +0x114, +0x60/+0x68/+0x70), held to [10, 1000] (the floor is the static 10 at [0x17EA400]); if precipitation > 500, or frozen > 0 and temperature >= -5000: muddyness += (1000 - infra) x 50 / 1000; else muddyness -= max(infra x 5 / 1000, 2). Then if temperature > 15000 muddyness -= 5, else if temperature < -5000 muddyness = 0. Then frozen: if temperature < 0 and precipitation > 250 { if temperature < -5000, frozen += HOURLYFROZENINCREASE; otherwise nothing at all } else if temperature < -10000 and frozen < 500, frozen += 200 x HFI / 1000; else if temperature < -2000 and frozen < 250, frozen += 100 x HFI / 1000; else if temperature > 0, frozen -= HOURLYTHAW. The temperature tested throughout (4) is last hour's. (5) step = land ? 2 : 1; target = CWeather::BaseTemperature(this), which reads this hour's unclamped cloud, precipitation, frozen and decayed windspeed. If target > temperature + 10000, step x= 10; if target < temperature - 10000, step x= 10, else if target < temperature - 5000, step x= 5 (no x5 for warming). If TEMPERATURECHANGESPEED > 0 and climate (CProvince +0x30, computed if 0) == 3, step x= 10; if TEMPERATURECHANGESPEED < 0 and climate == 5, step x= 2. delta = step x 1000 x TEMPERATURECHANGESPEED / 1000; temperature > target ? temperature -= delta : temperature += delta - equal moves up, and nothing stops it at the target. (6) If pressure < PRESSUREDEFAULT and (land or CProvince +0x14 == 0): pressure += PRESSURESTEP, not held to PRESSUREDEFAULT. (7) CWeather::Clamp(this). Checked against two saves an hour apart (Germany1936_01_08_02/_03): windspeed 13313 of 13313 front-free provinces, frozen 10238 of 10238 front-free land provinces, and humidity, cloud and precipitation together 2950 of 2950 front-free sea provinces. See reversing/findings/FINDINGS-weathersim.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Read instruction by instruction 0x4B2590..0x4B2AD3 (bare ret, 12 int3 after). The inline statics checked at their CRT initialisers: [0x1A86F3C]=floor(750.5f), [0x1A86F5C]=floor(100.5f), [0x1A86FA0]=floor(200.5f), [0x1A86FE8]=floor(50.5f), [0x1A86F40]=floor(500.5f), [0x1A86F30]=floor(200.5f), [0x1A86F74]=floor(250.5f), [0x1BEA400]=floor(10.5f); inline floorf of 2000.5, 10000.5, 50.5, 5.5, 2.5000002, 200.5, 100.5. The define globals mapped by reading InitialiseWeatherState's copier: 0x170CA98=PRESSUREMIN, 0x170CA94=PRESSUREMAX, 0x170CA9C=PRESSUREDEFAULT, 0x170CAA0=PRESSURESTEP, 0x1A86FA4=HOURLYFROZENINCREASE, 0x1A8704C=HOURLYTHAW, 0x1A86FD8=TEMPERATURECHANGESPEED. Savegame checks (scratch seacheck.py, savecheck.py): the frozen rule as read fits 10238 of 10238, the older table (temperature < -5 and precipitation > 0.250 first, then the slow branches) 10208 - the 30 it misses are provinces between -5 and 0 C under rain, where the bytes do nothing. Wrong if a front-free province's later-hour frozen, windspeed or sea humidity/cloud/precipitation ever differs from this arithmetic.",
+   "revises": "The comment said windspeed decays by 0.980, that humidity is pulled towards the terrain's humidity and that the interpolation was not read; it is now the whole function in order, with the frozen branch corrected (between -5 and 0 C under precipitation over 0.250 nothing happens), the muddyness gate made exact (frozen > 0 and temperature >= -5.000), the unclamped intermediates noted, and a signature."
+  },
+  {
+   "rva": "0xB22E0",
+   "kind": "function",
+   "name": "CWeather::BaseTemperature",
+   "signature": "int* __stdcall CWeather::BaseTemperature(int* out@ESI, CWeather* this@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "The temperature CWeather::Update chases; out in ESI, the CWeather on the stack, ret 4, answers out. 0xB22E0 to the ret 4 at 0xB2580. out = template +0x8 (climate.bmp + terrain.temperature); climate (CProvince +0x30) computed first if 0. Climate 3: +5000, night (CProvince +0x2C) -2000. Climate 4 and 2: +1000, night -2000. Climate 1: -1000; latitude (+0x388) > 950: -1000; > 650: -1000; night -2000. Climate 5: -4000; latitude > 950: -2000; > 650: -4000; then if out < -3000 and frozen >= 1000: out -= 125 x windspeed / 1000 + 5000; night -5000. Any other climate adds nothing. Then, for every climate: if out > 10000 or the province is sea, out -= cloud_coverage x CLOUDCOVERAGETEMPERATUREDROP / 1000; then if out < 3000 and precipitation > 0, out -= 4000. All comparisons strict except frozen >= 1000. The 950, 650 and 125 are floorf(950.5f), floorf(650.5f) and floorf(125.49999f) statics; CLOUDCOVERAGETEMPERATUREDROP is the cached global 0x130CAC4. Its only caller, CWeather::Update, calls it after this hour's cloud, precipitation and frozen steps and before Clamp, so the cloud it reads can be -50 (a clear sky that lost 50 this hour) - which makes the cloud term warm the target by 0.400 - and frozen may be above 1000. See reversing/findings/FINDINGS-weathersim.md, section B, and reversing/findings/FINDINGS-temperature.md.",
+   "confidence": "confirmed",
+   "evidence": "Re-read 0x4B22E0..0x4B2580 in order; the climate switch tests 3, 4, 1, 2, 5; guard bits of 0x1BEBC1C initialise 0x1BEBC18/14/10/0C from 950.5f/650.5f; the float at 0x160A9E4 is 125.49999 so floor gives 125. Wrong if a province's target ever needs a term this list lacks - checkable only through the temperature step, whose sizes in the 01_08_02/03 saves (0.2, 2.0, 1.0 on land; 0.1, 1.0, 0.5, 5.0 at sea) all belong to the step set this function's caller allows.",
+   "revises": "Comment rewritten to the exact order and strictness, adding that the inputs are unclamped at the call; adds the signature."
+  },
+  {
+   "rva": "0xB2210",
+   "kind": "function",
+   "name": "CWeather::Clamp",
+   "signature": "void __cdecl CWeather::Clamp(CWeather* this@EAX)",
+   "no_signature": null,
+   "comment": "Clamps a CWeather, `this` in EAX, bare ret, in this order: windspeed to [0, 200000] (above first); temperature to [-50000, 50000]; humidity to [MINHUMIDITY, MAXHUMIDITY] (below first); muddyness, frozen and precipitation to [0, 1000]; pressure to [PRESSUREMIN, PRESSUREMAX]; cloud_coverage to [0, 1000]. Called at the end of CWeather::Update and by the CWeatherFront constructor on the home province; SpreadWeather and PropagateHighPressure do not call it.",
+   "confidence": "confirmed",
+   "evidence": "Read 0x4B2210..0x4B22DA. MINHUMIDITY is 0x1A86F7C and MAXHUMIDITY 0x170CAB0 by the define copier. Wrong if any field is found outside its range in a save.",
+   "revises": "Comment completed with precipitation, pressure and cloud and the order; adds the signature."
+  },
+  {
+   "rva": "0xB4620",
+   "kind": "function",
+   "name": "CWeatherFront::Tick",
+   "signature": "bool __stdcall CWeatherFront::Tick(CWeatherFront* this) @AL",
+   "no_signature": null,
+   "comment": "One front, one hour; the front on the stack, ret 4. --move_countdown (+0x24); if still > 0, every province on the list gets CProvince +0x14 = front and it answers true. Otherwise: n = count (+0x14) before anything changes; countdown = WEATHERMOVEMENTDELAY / 1000; arc = 200 ([0x1686F80]); n < 3: arc += 150; n > 30: arc = arc x 1000 / 2000; n > 100: again. direction (+0x08) += rotation (+0x20); rotation = rotation x 800 / 1000 (toward zero: 10, 8, 6, 4, 3, 2, 1, 0, so a front turns 34 thousandths in all). n < 1: false. n < 4 and CMap::DistanceBetweenProvinces(first province on the list, home) > 4000: false. The list is copied in order into a local list (each re-stamped with the front) and cleared. For each province p of the copy, in list order: if p.pressure >= PRESSUREDEFAULT, nothing (not even SpreadWeather). Else for each edge of p's template (+0x90, in vector order): n = the neighbour; skipped if n's CProvince +0x14 is this front or any front; skipped if n.pressure - PRESSURETHRESHOLD > p.pressure; skipped if the COPY's count (the front's size before this move) > 100 and p has already recruited one; skipped unless IsAngleWithinArc(direction, edge bearing (+0x10), arc) - the bearing is the centre and the direction the value. A recruit is appended to p's list (as &n->weather) and to the front's list, and stamped with the front. Then SpreadWeather(&p->weather, that list). After all: every province of the copy gets +0x14 = 0, and the answer is count > 0. See reversing/findings/FINDINGS-weathersim.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Read 0x4B4620..0x4B4A14 (ret 4, int3 after). The over-100 test at 0x4B489D reads [ebp-0x4C], the count of the local list built at 0x4B4776..0x4B47CF, not the front's +0x14; the IsAngleWithinArc arguments traced through the three pushes at 0x4B48B3..0x4B48CC (S3=direction is [ebp+8], S2=bearing is [ebp+0xC], S1=arc is [ebp+0x10]), agreeing with the decompiler's IsAngleWithinArc(front->direction, edge->+0x10, arc). Statics 200/150/800 at their initialisers (200.5f, 150.5f, 800.50006f). Wrong if the over-100 gate is found to use the growing count.",
+   "revises": "Comment completed: the over-100 rule counts the front before the move (FINDINGS-weatherfront.md had the growing count), the argument order of the arc test, the first-province distance test, the order of the walk; adds the signature."
+  },
+  {
+   "rva": "0xB42B0",
+   "kind": "function",
+   "name": "CWeatherFront::SpreadWeather",
+   "signature": "void __stdcall CWeatherFront::SpreadWeather(CWeather* from, CList<CWeather*>* to)",
+   "no_signature": null,
+   "comment": "What a front writes: `from` and `to` on the stack, ret 8, called once per province CWeatherFront::Tick leaves whose pressure is below PRESSUREDEFAULT, with the neighbours it recruited (possibly none). rain = from.humidity x 980 / 1000; from.humidity -= rain / 5 (as rain x 1000 / 5000, truncated) - once, even with no recruit. Then for each target in list order: humidity += rain; windDelta = (from.windspeed - t.windspeed) x 970 / 1000 (negative where the target is windier); dp = t.pressure - from.pressure; if dp > 0: t.pressure -= dp x 980 / 1000 and windDelta = max(dp x 250 / 1000, windDelta); t.windspeed += windDelta; t.temperature += clamp((from.temperature - t.temperature) x 950 / 1000, -10000, 10000). Every division truncates toward zero; nothing is clamped (Update's Clamp follows later in the hour). Constants are statics: 980 (980.50006f), 970 (970.50006f), 250 (250.5f), 950 (950.5f). See reversing/findings/FINDINGS-weathersim.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Read 0x4B42B0..0x4B43F6 (ret 8). The rain/5 is the FixedPoint division at 0x4B42D6..0x4B431E (magic 0x68DB8BAD >> 43 on rain x 1000, or __alldiv by 5000). Wrong if a recruited province's humidity in a save rises by other than 0.98 x its source's.",
+   "revises": "Comment rewritten with the truncation, the order, the source's loss when nothing is recruited and the signature."
+  },
+  {
+   "rva": "0xB4490",
+   "kind": "function",
+   "name": "IsAngleWithinArc",
+   "signature": "bool __cdecl IsAngleWithinArc(int value, int centre, int half) @AL",
+   "no_signature": null,
+   "comment": "hi = (centre + half) % 1000, lo = (centre - half) % 1000 (C remainder, sign of the dividend); if lo < hi the answer is lo <= value <= hi, otherwise value >= lo or value <= hi. Bare ret (cdecl). Its one caller, CWeatherFront::Tick, passes the front's direction as `value` and the edge's bearing (0..1000) as `centre`, so: a bearing below `half` gives a negative lo and no wrap - a direction just below 1000 is refused there; a bearing of 1000 wraps (lo = 1000 - half, hi = half) and a bearing of 0 does not; and the direction, which drifts by up to 34 out of [0, 1000], is compared raw and never reduced. The centre itself is never negative. See reversing/findings/FINDINGS-weathersim.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Read 0x4B4490..0x4B44D6: two idiv by 1000, jge on lo >= hi to the wrapped test. The caller's argument order is traced in CWeatherFront::Tick's entry. Wrong if Tick is found to push the bearing as the first argument.",
+   "revises": "The comment said the C % keeps the sign 'so a window straddling 0 produces a negative lower bound'; it now says which caller argument is which (centre = bearing, value = direction) and what follows, and has a signature. FINDINGS-temperature.md's 'the % on a negative centre' is corrected: the centre is a bearing and is never negative."
+  },
+  {
+   "rva": "0xB44E0",
+   "kind": "function",
+   "name": "CWeatherFront::CWeatherFront",
+   "signature": "CWeatherFront* __stdcall CWeatherFront::CWeatherFront(CWeatherFront* this, CMapProvince* home, int direction, int rotation) @EAX",
+   "no_signature": null,
+   "comment": "Constructor, everything on the stack, ret 0x10. Token 0x18D at +0x04, vftable 0x15C08B8, the CList at +0x0C..+0x18 and +0x20 zeroed; `home` appended to the list (count 1); +0x20 = rotation; +0x24 = 0, so the first Tick moves it; +0x08 = direction; +0x1C = home. Then home.pressure -= LOWPRESSUREBASE + 1000 x (Random() % (LOWPRESSUREOFFSET / 1000)) - Random() (0x6A2F80) is the game's shared MT19937, never negative; the idiv has no zero check, so LOWPRESSUREOFFSET below 1 divides by zero - and CWeather::Clamp(&home->weather). The one draw a front's birth makes after CreateFront's two. Only caller CWeatherManager::CreateFront (0xB5F2C).",
+   "confidence": "confirmed",
+   "evidence": "Read 0x4B44E0..0x4B45C2. LOWPRESSUREOFFSET is 0x170CAE8 and LOWPRESSUREBASE 0x170CAE4 by the define copier. Wrong if the depth is found to draw anything but Random().",
+   "revises": "Same reading as recorded; adds the signature and names the generator."
+  },
+  {
+   "rva": "0xB5D80",
+   "kind": "function",
+   "name": "CWeatherManager::CreateFront",
+   "signature": "CWeatherFront* __stdcall CWeatherManager::CreateFront(CWeatherManager* this) @EAX",
+   "no_signature": null,
+   "comment": "Makes at most one CWeatherFront; the manager on the stack, ret 4. i = 0; for each record {province id, mask} of CMap +0x21D8 in file order (a checked iterator: past the end answers null): p = the province; climate computed if 0; if !(mask & (1 << climate)) continue WITHOUT ++i; if p has a front over it (+0x14), ++i, continue; if cooldown[i] (+0x18 vector) > 0, ++i, continue; cooldown[i] = 0; if the live fronts (+0x08 list) whose home's id is this id number >= MAXFROMEACHPRESSURE / 1000, ++i, continue. Then: d = heading[i] (+0x28 vector); d == 0: d = RandomThousandths() (r % 1000, 0..999); else d += 1000000 / MAXFROMEACHPRESSURE (raw, so 125 at 8; -1 if the define is 0) and if d > 1000, d -= 1000 (1000 itself is kept). heading[i] = d; cooldown[i] = 24 + Random() % 48 (24..71 hours); rotation = 10 ([0x1686FC8]), negated where the province's template +0xA2 (the northern hemisphere) is set; operator new(0x28) and the constructor (home = p, d, rotation), which draws the depth. So the draws are, in order: RandomThousandths only where the cached heading is 0, Random for the cooldown, Random for the depth. The first eligible zone in file order wins. Neither vector is bounds-checked against i. Only caller CWeatherManager::Tick (0xB5AD3; the jl at 0xB5B4A loops back to that one call while the fronts are under the cap).",
+   "confidence": "confirmed",
+   "evidence": "Read 0x4B5D80..0x4B5F56 (ret 4 on both exits). The mask test at 0x4B5E01..0x4B5E0A jumps to 0x4B5DC0 (the loop head) without the inc at 0x4B5E63; the 1000000/MAXFROMEACHPRESSURE uses ecx still holding [0x170CAB4] from 0x4B5E45; constructor arguments traced through the pushes at 0x4B5F1A..0x4B5F2A. Wrong if a mask failure is found to advance the index.",
+   "revises": "Raised from inferred to confirmed with the whole body, the draw order and the signature; the comment said only that it picks a zone whose cooldown has run out."
+  },
+  {
+   "rva": "0xB6050",
+   "kind": "function",
+   "name": "CWeatherManager::PropagateHighPressure",
+   "signature": "void __fastcall CWeatherManager::PropagateHighPressure(CMapProvince* seed@ECX)",
+   "no_signature": null,
+   "comment": "One high pressure zone, one hour; the seed PROVINCE in ECX (not a manager), bare ret. Every province 0 .. CMap +0x21FC - 1 gets +0x10 = 99999; seed.pressure = PRESSUREMAX; seed +0x10 = 0; a FIFO queue (a CList, popped at the head, pushed at the tail) holds the seed. For each popped province c, for each edge of c's template in vector order: n = the neighbour; d = n's template +0x24 (size_class, 1..4) + c's +0x10; skip if n +0x10 <= d; target = PRESSUREMAX - (d x 1000) x PRESSUREREDUCTION / 1000; skip if target <= n.pressure; else n.pressure += PRESSUREPROPAGATION (one step, never to the target, and it may pass it), n +0x10 = d, and if target > 0, n is pushed. So a province may be raised and queued more than once in one propagation, whenever a cheaper way to it is found while it is still below that way's target; a province already at or above its target neither changes nor passes the walk on, and its +0x10 is not lowered. No clamp here.",
+   "confidence": "confirmed",
+   "evidence": "Read 0x4B6050..0x4B6252 (bare ret). Pop at 0x4B60E5..0x4B60FD (head = head->next, node freed); push at 0x4B619F..0x4B61DB (prev = tail, tail = node); relax test jle at 0x4B6167, target test jle at 0x4B618D, push test jle at 0x4B619D. Savegame 01_08_02 -> 03: 55 front-free provinces below PRESSUREDEFAULT rose by 15.000 (one propagation step and the hourly step) and one by 10.000. Wrong if a province is found raised by more than PRESSUREPROPAGATION per zone while every path to it costs the same.",
+   "revises": "Comment rewritten: the step is size_class, the target uses PRESSUREREDUCTION without a /1000, the queue is FIFO and a province can be queued and raised twice; adds the signature."
+  },
+  {
+   "rva": "0xA81A0",
+   "kind": "function",
+   "name": "ComputeProvinceClimate",
+   "signature": "void __stdcall ComputeProvinceClimate(CMapProvince* province)",
+   "no_signature": null,
+   "comment": "Writes CProvince +0x30, the season band 1..5; province on the stack, ret 4. climate = 3. Bands: template +0xA2 (the northern hemisphere) set: A=1 B=2 C=3 D=4 E=4 F=5; clear: A=4 B=4 C=5 D=1 E=2 F=3. lat = +0x388; lat <= 250 ([0x1686CA8] = floorf(250.5)): return (stays 3). a = (lat - 250) x 1000 / 750 ([0x1686D30]); L = (a x 183000 / 1000) / 1000 ([0x130C8E0] = 183000), so L = floor(a x 183 / 1000); W = 183 / 2 = 91; X = 365 - 2W - L = 183 - L. days = (clock at CCurrentGameState +0xBDC - 43800000) / 24; years = (int)(days / 365.0) and doy = days - (int)(float)(years x 365.0); d = doy - L / 2. F if d <= 0; A if 1 <= d <= 45; B if 46 <= d <= 91; C if 92 <= d <= 91 + X; D if 92 + X <= d <= 136 + X; E if 137 + X <= d <= 182 + X; F if d > 182 + X. So F (L days) is centred on 1 January, A 45, B 46, C 183 - L, D 45, E 46 days. Called daily by RunDailyProvincePass, on game entry by CInGameIdler::Enter, and lazily where +0x30 is 0 by BaseTemperature, Update and CreateFront. See reversing/findings/FINDINGS-weathersim.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Read 0x4A81A0..0x4A8460. Band boundaries off the compares: test ecx,ecx; jle at 0x4A83A3 (d <= 0 -> F), d - 91 against -45 with jge at 0x4A83BA (B from 46), d - 91 - X with jg at 0x4A83F9, d - 182 - X with jg at 0x4A8404 and against -45 with jge at 0x4A8411 (E from 137 + X). Statics at their CRT initialisers (250.5f, 750.5f); 0x130C8E0 has one reference, the read. Wrong if a province's band is seen to change a day off these boundaries.",
+   "revises": "Raised from inferred to confirmed; the comment said it runs once per province, which FINDINGS-temperature.md corrected; now the whole function with every boundary. Corrects FINDINGS-temperature.md's pseudo-code, whose D bound (d <= 2W + X - W/2) is one day long - the bytes end D at 136 + X, which its own table (D 45 days, E 46) already says."
+  },
+  {
+   "rva": "0x963F0",
+   "kind": "function",
+   "name": "ComputeProvinceLatitude",
+   "signature": "void __cdecl ComputeProvinceLatitude(CMapProvince* province@EDI)",
+   "no_signature": null,
+   "comment": "void ComputeProvinceLatitude(CMapProvince* province@EDI), bare ret, 0x963F0 to 0x96478. half = CMap height (+0x2A78) / 2; dy = template label_y (+0x60) - half; dy < 0 becomes 0 (0x96412, where an abs() was meant); CProvince +0x388 = dy x 1000 / half, truncated (computed as (dy x 1000) x 1000 / (half x 1000)); -1 if half is 0; the neg at 0x9646D is dead for any real map. label_y is the bounding-box centre y, bbox_y (+0x84) + bbox_height (+0x8C) / 2 with the height counting pixels, i.e. min + (max - min + 1) / 2, as copied from +0x30 by CMap::ComputeProvinceGeometry at 0x491827 (nothing later in that function changes it; positions.txt does not touch it). Province y grows northward, so this is the distance north of the equator in thousandths of half the map; zero in the whole southern hemisphere. One caller: CInGameIdler::Enter at 0x25AFAD, before ComputeProvinceClimate.",
+   "confidence": "confirmed",
+   "evidence": "Re-read 0x4963F0..0x496478; geometry pass 0x4917E0..0x491917 read for +0x5C/+0x60 (set from +0x2C/+0x30, set to 1 with them where either is 0, then only read). Wrong if another writer of template +0x60 is found.",
+   "revises": "Same reading as recorded, with the rounding and which y it is; adds the signature."
+  },
+  {
+   "rva": "0xA9E70",
+   "kind": "function",
+   "name": "CProvinceTemplate::MeasureEdges",
+   "signature": "void __cdecl CProvinceTemplate::MeasureEdges(CProvinceTemplate* this@EDI)",
+   "no_signature": null,
+   "comment": "**What fills `ProvinceEdge +0xC distance`, +0x10 `bearing` and kind 2.** For each edge: s = this province's unit point (+0x64/+0x68), t = the neighbour's; where this is land and the neighbour sea, s = this province's naval base position (building_positions +0x258, naval_base's index, floats at +8/+0xC, truncated), and where the neighbour is land and this sea, t = the neighbour's. **The bearing** (0xAA0F5..0xAA197): the x difference is 'wrapped' only if sx - tx exceeds the whole map width (CMap +0x2A74, not half of it), which never happens, so there is no wrap; y = (float)(sy - ty), x = (float)(tx - sx); a = (float)_CIatan2(y, x) (VA 0xC0BDBA, the CRT's x87 fpatan); then each step stored to float: b = a / 6.2831854820251465 (2pi as a float), c = b + 0.5, d = c + 0.0005000000237 (0.0005 as a float), e = d x 1000; bearing = (int)floorf(e). So east 500, north 250, south 750, due west 1000, 0 only just north of west. Reproduces all 83,596 bearings of Their Finest Hour's map/cache/adjacencies.bin, given that a land province with no naval_base in positions.txt has its naval base at its bounding-box centre (min + (max - min + 1) / 2) - not at its `unit` point. **The distance**: a walk from s to t one pixel at a time, x and y both stepping towards the target in the same turn and x the short way round the map; every pixel walked from adds the `movement_cost` (CTerrain +0x44) of the terrain painted on it in the terrain bitmap, found through CMap +0x2220; a pixel whose byte in the river bitmap (CMap +0x20E8) is under 0xFE turns an edge of kind 0 into kind 2. Called by CMap::LoadMapFiles for every province from 1 up, only when the map cache is rebuilt; otherwise the figures come from map/cache/adjacencies.bin. Checked against that file: the rewrite reproduces all 83,596 distances and kinds. See reversing/findings/FINDINGS-movement.md and reversing/findings/FINDINGS-weathersim.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Read 0x4AA0F5..0x4AA197: the width compare uses [esp+0x18] = [CMap+0x2A74] unhalved; fild/fisub then fstp dword at each step; constants 0x160A4F0 = 6.2831854820251465, 0x160A308 = 0.5, 0x160A460 = 0.0005000000237487257, 0x160A300 = 1000.0; floor through floorf (0x401FD0) and _ftol2_sse. Checked by scratch bearing.py against tfh/map/cache/adjacencies.bin, provinces.bmp, definition.csv, default.map's sea_starts and positions.txt: 56,858 land-land, 19,116 sea-sea and 7,622 land-sea bearings all exact. Positive controls: wrapping x the short way breaks 174 sea-sea edges across the map seam; taking the `unit` point as the default naval base breaks 118 land-sea edges of the 50 coastal provinces positions.txt gives no naval_base. Wrong if any edge of another map's cache differs.",
+   "revises": "The comment said the bearing formula was fitted and the call not read; now read, with the no-wrap, the float steps and the default naval base, and checked edge for edge."
+  },
+  {
+   "rva": "0x80BDBA",
+   "kind": "function",
+   "name": "_CIatan2",
+   "signature": null,
+   "no_signature": "MSVC CRT x87 intrinsic: y in ST(1), x in ST(0), the answer in ST(0); nothing on the stack. A 10-byte stub: `mov edx, 0x160E2A0; jmp 0xC0A740` - edx the CRT's descriptor for atan2 (the counted string '\\x05atan2' at 0x160E2A0) and 0xC0A740 its two-argument dispatcher.",
+   "comment": "The CRT's x87 atan2 intrinsic, called from CProvinceTemplate::MeasureEdges (VA 0x4AA137) for an edge's bearing. The dispatcher sets the x87 control word to 0x133F (64-bit precision, round to nearest) for the computation and restores it after; the descriptor's handler (VA 0xC0CCDC) is fabs on both, fpatan, then pi minus the result where x is negative and the sign flipped where y is negative; zero arguments go to separate handlers (0xC0CD35: pi or 0 by the signs). So the result is atan2 to extended precision; the caller rounds it to float.",
+   "confidence": "confirmed",
+   "evidence": "Read 0xC0BDBA (the stub), 0x160E2A0 (bytes 05 'atan2' 00), 0xC0A740 (fnstcw, call 0xC09157 which loads 0x133F unless the descriptor's byte +0xE is 5 - it is 2 here, fldcw restore in 0xC0A803) and 0xC0CCDC (fabs, fpatan, fldpi/fsubrp, fchs). Wrong if 0x160E2A0's descriptor is found to name another function."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "ProvinceEdge",
+   "offset": "0x10",
+   "name": "bearing",
+   "type": "int",
+   "comment": "The compass bearing from this province to the neighbour, in thousandths of a full turn, 0..1000: east 500, north 250, south 750, due west 1000 (776 edges of Their Finest Hour), 0 only just north of west (15). Written by CProvinceTemplate::MeasureEdges as (int)floorf(((float)atan2(sy - ty, tx - sx) / 2pi + 0.5 + 0.0005) x 1000) with a float rounding at every step and no wrap across the map's seam, from the unit points - or, between land and sea, the land province's naval base, which is its bounding-box centre where positions.txt gives none. Reproduces all 83,596 edges of tfh/map/cache/adjacencies.bin. One reader, CWeatherFront::Tick, as the centre of IsAngleWithinArc's window. See reversing/findings/FINDINGS-weathersim.md, section B.",
+   "evidence": "MeasureEdges read at 0x4AA0F5..0x4AA197 and checked edge for edge against the cache by scratch bearing.py.",
+   "revises": "The comment only: the call at 0xC0BDBA is read, the formula is the code's rather than a fit, and the no-wrap and the naval default are added."
+  },
+  {
+   "struct": "CProvinceTemplate",
+   "offset": "0xA2",
+   "name": "northern_hemisphere",
+   "type": "uint8_t",
+   "comment": "Set where the province's unit point y (+0x68) is at or past half the map height (CMap +0x2A78): **the northern hemisphere**, since y grows northward (province 1, at 71 N, has y 2106 of 2160; Murmansk, Reykjavik and Paris have it set, Cape Town, Hobart and Ushuaia clear - FINDINGS-mapbuild.md section 7). Written with the unit point by CMap::ComputeProvinceGeometry (0x4918DF, a setge), and again where positions.txt moves it (0x48FED8 for a sea zone's text_position, 0x4900B6 for unit). Two consumers: ComputeProvinceClimate (0xA81A0), set: bands A..F = 1 2 3 4 4 5, clear: 4 4 5 1 2 3; and CWeatherManager::CreateFront (0xB5EF4), which negates a new front's rotation where it is set. IsNight shifts the month by six where it is clear.",
+   "evidence": "The writer at 0x4918D9..0x4918DF read in this wave (cmp [esi+0x68], height/2; setge); the direction of y from FINDINGS-temperature.md section 3 and FINDINGS-mapbuild.md section 7 (live memory, six cities). Wrong if y is found to grow southward.",
+   "revises": "The name: southern_hemisphere -> northern_hemisphere, as FINDINGS-temperature.md and FINDINGS-mapbuild.md established and the record never took up; the comment's band tables said the opposite hemisphere."
+  },
+  {
+   "struct": "CProvince",
+   "offset": "0x30",
+   "name": "climate",
+   "type": "int",
+   "comment": "The season band 1..5 - not a climate zone - worked out by ComputeProvinceClimate (0xA81A0) from the day of the year, the latitude (+0x388) and the hemisphere byte (template +0xA2): north of 0.250 latitude, northern provinces run 5 (winter, L days about 1 January), 1, 2, 3 (summer, 183 - L days), 4, 4; southern ones 3, 4, 4, 5, 1, 2; at 0.250 or below, which is the whole southern hemisphere, it is always 3. Recomputed every game day by RunDailyProvincePass and on game entry; the lazy computes where it is 0 (BaseTemperature, CWeather::Update, CreateFront) are only a first-hour net. Read by BaseTemperature's switch, by CWeather::Update's two step multipliers and by CreateFront's zone mask (1 << climate). Not saved. See reversing/findings/FINDINGS-weathersim.md, section B.",
+   "evidence": "ComputeProvinceClimate read whole in this wave; the daily caller is FINDINGS-temperature.md section 5's.",
+   "revises": "The comment only: it said the field is filled lazily once and is a climate zone; it is a season, recomputed daily."
+  },
+  {
+   "struct": "CMapProvince",
+   "offset": "0x30",
+   "name": "climate",
+   "type": "int",
+   "comment": "The season band 1..5 - not a climate zone - worked out by ComputeProvinceClimate (0xA81A0) from the day of the year, the latitude (+0x388) and the hemisphere byte (template +0xA2): north of 0.250 latitude, northern provinces run 5 (winter, L days about 1 January), 1, 2, 3 (summer, 183 - L days), 4, 4; southern ones 3, 4, 4, 5, 1, 2; at 0.250 or below, which is the whole southern hemisphere, it is always 3. Recomputed every game day by RunDailyProvincePass and on game entry; the lazy computes where it is 0 (BaseTemperature, CWeather::Update, CreateFront) are only a first-hour net. Read by BaseTemperature's switch, by CWeather::Update's two step multipliers and by CreateFront's zone mask (1 << climate). Not saved. CMapProvince derives from CProvince and adds nothing at this offset. See reversing/findings/FINDINGS-weathersim.md, section B.",
+   "evidence": "ComputeProvinceClimate read whole in this wave; the daily caller is FINDINGS-temperature.md section 5's.",
+   "revises": "The comment only: it said the field is filled lazily once and is a climate zone; it is a season, recomputed daily."
+  },
+  {
+   "struct": "CWeather",
+   "offset": "0x8",
+   "name": "humidity",
+   "type": "int",
+   "comment": "save key `humidity`, thousandths. Each hour CWeather::Update adds ((1000 - pNorm) x t / 1000) x cap / 1000 - more under low pressure, more when warm, slower once above 1.000, cap = 5 x the terrain's `humidity` on land (negative for a desert, which dries it) and 5.000 at sea, where t is also 10 degrees warmer - and, with no front, takes 10 x the hour's precipitation away. A front's SpreadWeather adds 0.98 of the source's to each province it reaches and takes a fifth of that from the source. CWeather::Clamp holds it in [MINHUMIDITY, MAXHUMIDITY]. See reversing/findings/FINDINGS-weathersim.md, section B.",
+   "evidence": "CWeather::Update and SpreadWeather read in this wave; 2950 of 2950 front-free sea provinces in the 01_08_02/03 saves agree.",
+   "revises": "The comment only: it said Update pulls humidity towards the terrain's humidity, which is not the shape of the arithmetic."
+  }
+ ],
+ "vftable_slots": {},
+ "frontier": ["0x80A740", "0x80CCDC", "0x8FBB0"],
+ "notes": "IsNight (0xA7390), UpdateProvinceWeatherRange, CWeatherManager::Tick and the new-game loop are brief A's; GraphicName and the map mode brief C's."
+}
