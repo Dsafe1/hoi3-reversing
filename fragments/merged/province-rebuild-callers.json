@@ -1,0 +1,46 @@
+{
+  "agent": "main session, for OpenHOI3's occupation spec, 2026-10-14",
+  "question": "When a province's modifier is made again: every caller of RebuildProvinceModifierValues, and what the hourly province pass's tail does",
+  "source": "reversing/findings/FINDINGS-occupation.md",
+  "structs": [],
+  "addresses": [
+    {
+      "rva": "0x9F3E0",
+      "kind": "function",
+      "name": "RebuildProvinceModifierValues",
+      "signature": "void __stdcall RebuildProvinceModifierValues(CMapProvince* province)",
+      "no_signature": null,
+      "comment": "**A province's modifier, made again from nothing.** 0x49F3E0 to two `ret 4` in one frame, 0x4A0673 and 0x4A0689 (int3 from 0x4A068C), read whole on the listing 2026-10-14 (FINDINGS-occupation.md section A). The database is static_modifiers.txt's, g_static_modifiers ([0x1A86208]); the destination is the CProvinceModifier at +0xFC (values at +0x114), whose +8/+0xC vector is the list of contributors a tooltip reads. In order: (1) 0x4595C0 zeroes the values and empties the contributor vector; the province's list of scaled copies (+0x12C) is emptied (0x4B6260). (2) **Buildings** (+0x310..+0x314) whose level_max (+0x20) is above the fixed-point global at 0x1A870F4: effect (+0x10) = definition->effect_size (+8), then effect = level_current (+0x24) x effect / 1000 (64-bit, truncated), added at the id of the kind at +0x14 (its +0x24); `changed` (+0x28) cleared. **Not put on the contributor list.** (3) `overseas` and the `blockaded` nested in it (RebuildProvinceModifierValues_Overseas). (4) `non_core` (RebuildProvinceModifierValues_NonCore). (5) one of `coastal` / `non_coastal` / `coastal_sea` by the template (_CoastalFamily). (6) `no_adjacent_controlled` (_NoAdjacentControlled). (7) **the occupation policy** (_OccupationPolicy). (8) `blockaded` a second time where the port is blockaded (+0x36C, _BlockadedPort). (9) `land_province` or `sea_zone` (_LandOrSea). (10) `manpower` times the province's manpower (_Manpower). (11) `nationalism` times the province's nationalism (_Nationalism). (12) the province's dated modifiers, +0x13C, the expired ones removed (_EventModifiers). (13) the radar bookkeeping (_Radar). (14) `revolt_risk` times the effective revolt risk (read_static_modifier_revolt_risk; FINDINGS-occupation.md section B). Every static is added whole, id by id over ([0x1A86198]-[0x1A86194])/4 modifier kinds, and pushed onto the contributor vector; the three scaled ones (10, 11, 14) are fresh 0x48-byte CStaticModifier copies (source tag +0x40 = 0xF) scaled by CModifier_ScaleValues and kept on +0x12C until the next rebuild frees them. **Corrected 2026-10-14**: this entry said it ends at 0x4A0673 and folds in 'the province's own modifier list (+0x12C)'; the end is 0x4A068B, +0x12C is the list of scaled copies, and the dated modifiers are +0x13C. FINDINGS-revolt.md section 3's 'eight 0xB94936 / 0x4C0700 pairs - the timed and conditional province modifiers' are inlined vector push_back growth paths (0xB94936 throws length_error 'vector<T> too long', 0x4C0700 is the reserve) and not modifiers at all. **Its 15 callers** (findRefs.py --callers, 2026-10-14), so when a province's modifier is made again: RunMonthlyPass (0x683B9A, every province from index 1, before that month's nationalism decay); RunHourlyProvincePass (0x49EA97, where any of the province's buildings has its `changed` byte, +0x28, set - which a bombing, a fallen-back defender's damage and the day's repair set); RunDailyProvincePass (0x49EE0A, where the day's repair carried a building across a whole level); CMapProvince::TakeControl (0x4A215B, a battle's capture); CMapProvince::ChangeOwner (0x4A38E2); SetProvinceBuildingLevel (0x4A3B41); CProvince_AddTimedModifier (0x4A08F3); CChangeOccupationPolicyCommand::Execute (0x550FA7); CExecuteDecisionCommand::Execute (0xA09754); CCgmSetBuildingLevelCommand::Execute (0x42CC3F); ApplyCustomGameSettings (0x41E050); and CInGameIdler::Enter four times (0x65AFA8, 0x65BF7A before the new game's revolt pass, 0x65BFF1, 0x65C00F). **Province_SetController is not among them**: a plain change of controller - the day's return of occupied land, an effect - leaves the province's modifier as it was until one of these. The entry said 'and the screen' until 2026-10-14; no caller is a screen.",
+      "confidence": "confirmed",
+      "evidence": "findRefs.py --callers 0x49F3E0: 15 direct calls, each placed in its function by the record's extents; the hourly pass's tail and the console command's Execute read on the listing (0x49EA59-0x49EAAC, 0x42CB70-0x42CC7A). No call reaches it through a register: Province_SetController (0x4A2400-0x4A36AE) holds no call to it.",
+      "revises": "The caller list: 'and the screen' was not a caller; adds TakeControl, SetProvinceBuildingLevel, CProvince_AddTimedModifier, CExecuteDecisionCommand::Execute, CCgmSetBuildingLevelCommand::Execute, ApplyCustomGameSettings and the four in CInGameIdler::Enter, and the hourly pass's gate; says Province_SetController does not rebuild."
+    },
+    {
+      "rva": "0x9E600",
+      "kind": "function",
+      "name": "RunHourlyProvincePass",
+      "signature": "void __stdcall RunHourlyProvincePass(CMapProvince* province)",
+      "no_signature": null,
+      "comment": "**The province's hourly work, and the only thing that adds to a faction's Progress.** 0x49E600 to the `ret 4` at 0x49EAAC (a second `ret 4` at 0x49EA93 is an exit of the same frame); RunDailyProvincePass starts after one int3 at 0x49EAB0. One caller, RunHourlyPass at 0x682A75, in a loop over every province of the game state's vector whose template's `simulated` byte (+0xD4 -> +0x13D) is set; the function tests the byte again itself.\n\nIts head, read on the listing:\n\n    controller = CCountryTag::GetCountry(&province->controller (+0x334))\n    controller->faction (+0xD8)->Progress (+0xAC) += province->victory_points (+0x34) * 1000\n    controller->+0x11CC                         += province->victory_points * 1000\n\nSo Progress is the victory points of the provinces the faction's members **control** - not own, not cores - credited to whatever faction the controller is in at that hour; a controller in no faction credits the shared null faction. **Its tail, read on the listing 2026-10-14** (0x49EA59-0x49EAAC): it walks the province's buildings (+0x310..+0x314) and, at the first whose `changed` byte (+0x28) is set, calls RebuildProvinceModifierValues once and returns - which clears every building's byte (FINDINGS-occupation.md section A.7). So a province one of whose buildings a bombing, a fallen-back defender's damage or the day's repair moved has its modifier made again within the hour. The middle of the body (from 0x49E664: owned provinces in no real area walk their neighbours and may be handed to another controller through Province_SetController(..., 1, 1, 1) at 0x49EA3D) was seen in the decompiler only and is **not read**.",
+      "confidence": "inferred",
+      "evidence": "Listing 0x49EA59-0x49EAAC: `mov ebx,[ebp+8]; mov edx,[ebx+0x310]; mov eax,[ebx+0x314]; sub eax,edx; sar eax,2` and a loop `cmp byte [esi+0x28],0; jne 0x49EA96` over the vector, falling through to the `ret 4` at 0x49EA93; at 0x49EA96 `push ebx; call 0x49F3E0`, then the `ret 4` at 0x49EAAC.",
+      "revises": "The tail was 'seen in the decompiler only and not read'; it is read on the listing now: the first changed building makes the province's modifier again, once. The middle stays unread, so the entry stays inferred."
+    },
+    {
+      "rva": "0x2CB70",
+      "kind": "function",
+      "name": "CCgmSetBuildingLevelCommand::Execute",
+      "signature": "void __thiscall CCgmSetBuildingLevelCommand::Execute(CCgmSetBuildingLevelCommand* this)",
+      "no_signature": null,
+      "comment": "**The console's command that sets a province's building to a level**, slot 6 of CCgmSetBuildingLevelCommand's table. 0x42CB70 to the bare `ret` at 0x42CC7A. Makes the game state if there is none (0x1A89790), then: province = the state's provinces (+0xB8C)[this +0x44, its `location`]; the building = province->buildings (+0x310)[definition (this +0x3C) +0x54, its index]; level_max (+0x20) and level_current (+0x24) both = this +0x40, its `level`, times 1000; CProvinceBuilding_OnLevelChanged (0x4B7FA0) on the building; RebuildProvinceModifierValues on the province; then GetCustomGameSettings()+0x6C = 1 and slot 0x164/4 of the object at the state's +0xBE8. The keys are its LoadKey's (`building`, `level`, `location`, 0x2CD90). One of RebuildProvinceModifierValues's 15 callers (FINDINGS-occupation.md section A.7).",
+      "confidence": "confirmed",
+      "evidence": "vtable.py --holding 0x42CB70: CCgmSetBuildingLevelCommand slot 6 (table 0x15B6374, object offset 0). Listing 0x42CB99 `mov ebx, ecx`; 0x42CC0E-0x42CC3F: `mov eax,[ebx+0x44]; mov ecx,[esi+0xb8c]; mov edi,[ecx+eax*4]; mov edx,[ebx+0x3c]; mov eax,[edx+0x54]; mov ecx,[edi+0x310]; mov ecx,[ecx+eax*4]; mov eax,[ebx+0x40]; imul eax,eax,0x3e8; mov [ecx+0x20],eax; mov [ecx+0x24],eax; call 0x4B7FA0; push edi; call 0x49F3E0`."
+    }
+  ],
+  "struct_fields": [],
+  "vftable_slots": {
+    "CCgmSetBuildingLevelCommand": {"6": "Execute"}
+  },
+  "slots_noted": "",
+  "frontier": []
+}

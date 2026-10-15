@@ -759,9 +759,36 @@ The scaled copies (10, 11, 14) are fresh `CStaticModifier`s with source tag `+0x
 whenever the old owner is a real country (`FINDINGS-surrender.md`). `RunMonthlyPass` rebuilds every
 province from index 1 and then takes 83 off it, floored at 0 (`0x683B9A`, `0x683BA5`).
 
-**When the rebuild runs**: monthly, every province; daily only where the day's repair carried a
-building across a whole level (B.1, step 2); after the policy command, `add_province_modifier`, a
-change of owner, the new-game revolt pass and the screen.
+**When the rebuild runs**, from its 15 callers (`findRefs.py --callers 0x49F3E0`, 2026-10-14; this
+paragraph said "and the screen" until then, and no caller is a screen):
+
+- `RunMonthlyPass` (`0x683B9A`): every province from index 1, before the month's nationalism decay;
+- `RunHourlyProvincePass` (`0x49EA97`): **every hour, where any of the province's buildings has its
+  `changed` byte (`+0x28`) set** - which a bombing, a fallen-back defender's damage and the day's
+  repair set. Its tail, read on the listing: the first building with the byte calls the rebuild
+  once, which clears them all;
+- `RunDailyProvincePass` (`0x49EE0A`): where the day's repair carried a building across a whole
+  level (B.1, step 2) - so in practice at once, rather than within the hour;
+- `CMapProvince::TakeControl` (`0x4A215B`), a battle's capture; `CMapProvince::ChangeOwner`
+  (`0x4A38E2`); `SetProvinceBuildingLevel` (`0x4A3B41`); `CProvince_AddTimedModifier`
+  (`0x4A08F3`), `add_province_modifier`; `CChangeOccupationPolicyCommand::Execute` (`0x550FA7`);
+  `CExecuteDecisionCommand::Execute` (`0xA09754`); `CCgmSetBuildingLevelCommand::Execute`
+  (`0x42CC3F`, the console's command, slot 6 at `0x42CB70`); `ApplyCustomGameSettings`
+  (`0x41E050`); and `CInGameIdler::Enter` four times (`0x65AFA8`, `0x65BF7A` before the new
+  game's revolt pass, `0x65BFF1`, `0x65C00F`).
+
+**`Province_SetController` is not among them.** A plain change of controller - the day's return
+of occupied land (B.1, step 9), an effect - leaves the province's modifier as it was until one of
+the above, so the occupation policy reaches a province taken in battle at once and one handed
+back within the hour at best and the month at worst.
+
+**Nationalism from the history.** Their Finest Hour has five provinces with two history files
+that each set an owner - two files of one name in two of `tfh/history/provinces`' folders (3948,
+3949, 4592, 4647), or a base and a `tfh` file of two names (4905) - and those five, and no other
+province, hold nationalism 19.917 in the start save (A.8): twenty years less the month a new game
+runs. No province history sets an owner in a dated entry on or before 1 January 1936, so nothing
+else could have. So an `owner` line where the province already has an owner counts as a change of
+owner (*inferred* from the save; how the history applies an `owner` line was not read).
 
 ### A.8 Against the saves
 

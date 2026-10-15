@@ -836,7 +836,7 @@ One class per effect, trigger, command and decision the event scripts can use. E
 | `CCgmOnPlayerDisconnectCommand` | `CCommand` |  |  |  | 1 |  | 1 | keys |  |
 | `CCgmPrompt` | `CEU3Dialog` |  |  |  |  |  |  | RTTI |  |
 | `CCgmResetCurrentStageCommand` | `CCommand` |  |  | 1/1 |  |  | 1 | RTTI |  |
-| `CCgmSetBuildingLevelCommand` | `CCommand` |  |  | 1/3 | 1 |  | 1 | placed |  |
+| `CCgmSetBuildingLevelCommand` | `CCommand` |  |  | 1/3 | 2 |  | 1 | placed |  |
 | `CCgmSetConvoyEscortCommand` | `CCommand` |  |  | 1/2 | 1 |  | 1 | placed |  |
 | `CCgmSetStageCommand` | `CCommand` |  |  | 2/2 | 1 |  | 1 | placed |  |
 | `CCgmSetUndergroundCommand` | `CCommand` |  |  | 1/2 | 2 |  | 1 | placed |  |
