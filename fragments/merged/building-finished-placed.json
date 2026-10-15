@@ -1,0 +1,317 @@
+{
+ "agent": "building-queue wave, reader B",
+ "question": "A building finished and placed: CBuildingConstruction::Deliver, CBuildingDeployment (constructor, DeployAt, CanDeployIn), the deploy menu and the map for a building, the message, and the saves.",
+ "source": "reversing/findings/FINDINGS-buildingqueue.md",
+ "addresses": [
+  {
+   "rva": "0x85BD0",
+   "kind": "function",
+   "name": "CBuildingConstruction::Deliver",
+   "signature": "bool __thiscall CBuildingConstruction::Deliver(CBuildingConstruction* this)",
+   "no_signature": null,
+   "comment": "**Slot 9: a finished building line delivers one building.** Bare `ret`; CDistributeProduction::Distribute calls it when progress >= duration and removes the line when it answers 1. Read whole on the listing 2026-10-15. In order: (1) a country (+0x48/+0x4C) that is not REB and owns no province (+0xCF8 <= 0) - answer 1 and nothing else. (2) **The practical**: where the building's category (CBuilding +0x88) answers its slot 2 - both CTechnologyCategory and the null category hold `mov al,1; ret` there - CCountry::GainTechAbility(country, category, completion_size (+0x8C)), **in full: no practical_factor**, unlike a unit's. (3) **Where the building is `capital = yes` (+0x60) and the line has no province (+0x44 null)**: a CBuildingDeployment (0x3C bytes, CBuildingDeployment::CBuildingDeployment with the line's country), its id set through slot 6 to (the line's id type +8, the line's id +0xC + count (+0x5C) + 1), its building (+0x38) = the line's, appended to the country's deployments (CCountry_AddDeployment, +0x688), count += 1. **No message.** (4) **Otherwise, where there is a province**: the province's building of that index (+0x310[CBuilding +0x54]) has level_max (+0x20) += 1000, capped at max_level*1000 and floored at 0 - **level_current (+0x24) is not touched**, so the new level works only as the day's repair fills it - then CProvinceBuilding_OnLevelChanged (which does nothing but for infrastructure). For the underground (g_CBuildingDataBase +0x28): level_current += Underground_GetInitialStrength(province, country), capped at level_max, `changed` (+0x28) = whether it moved, underground_owner (+0x38C/+0x390) = the line's country, CCountry_AddUnderground, the template's +0x20 = 1. Then **BUILDING_DONE** where the local player (CCurrentGameState +0xC34) is the province's **controller** (+0x338): variables NAME (the building's slot 6, its name string at +0x38) and PROV (the province's GetName), both shield countries the province's **owner**, and the callback thunk 0x522400 (CInGameIdler slot 78) for its Goto. A non-capital building with no province gets the practical and nothing else. Nothing here refreshes the area's ports and air bases (COwnerArea::RefreshBases is not called), rebuilds the province's modifier, or touches radar. (5) progress -= min(duration, progress); size (+0x40) -= 1; in a custom game at stage 2 (GetCustomGameSettings: byte +0 set, +0x18 == 2) whose list holds the country (CustomGameSettings_HasCountry) the settings' +0x6C = 1; where size is still above 0, slot 14 prices the line again. Answers size <= 0. **Every line priced again** is not here: Distribute does that, with CCountry::RebuildStaticModifiers, on any day a Deliver answered 1 - a unit's line as much as a building's. See reversing/findings/FINDINGS-buildingqueue.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x485BD0-0x4862F0: `cmp byte [edi+0x48],0x52`.. `cmp dword [eax+0xcf8],ebx; jg`, `mov al,1; ret`; `mov ecx,[eax+0x88]; mov eax,[edx+8]; call eax; test al,al; je` then `push [ecx+0x8c]; push [edx+0x88]; push country; call 0x4e02f0` (no +0xA0 read anywhere in the body); `cmp byte [eax+0x60],bl; je; cmp [edi+0x44],ebx; jne`; `lea eax,[ecx+edx+1]` from +0xC and +0x5C; `push 0x3c; call new; push [edi+0x4c]; push [edi+0x48]; call 0x482a80`; `call [eax+0x18]`; `mov [esi+0x38],eax`; `call 0x4f56c0`; `inc dword [edi+0x5c]`; `add dword [eax+0x20],0x3e8`, `imul ecx,[edx+0x68],0x3e8`, `jle`, `jge`; `call 0x4b7fa0`; `cmp [edi+0x58],[db+0x28]`; the message gate `cmp [ecx+0xc34],[province+0x338]; jne 0x48628d`; 'NAME', 'PROV', 'BUILDING_DONE'; the four pushes of +0x330/+0x32C twice; `mov esi,0x522400`; tail `cmovg; sub [edi+0x38]; dec [edi+0x40]; call 0x41c4e0 ... call 0x41d470; mov byte [esi+0x6c],1; setle; call [eax+0x38]`. Distribute 0x51A1CE-0x51A261: slot 9, `cmp al,1; jne`, `mov [esp+0xf],al`, unlink, delete; after the loop `push country; call 0x4ddd80` and slot 14 on every line. Wrong if a path through 0x485D46 reached RefreshBases or 0x49F3E0 - no call to either is in the body.",
+   "source": "reversing/findings/FINDINGS-buildingqueue.md",
+   "revises": "Was `inferred`, with the tech gain, count and requeue read only by decompile. Now read whole: the practical has no practical_factor; `count` numbers the deployments; the deployment path sends no message; level_current is not raised; nothing refreshes the area's bases, the province's modifier or radar; the repricing of every line is Distribute's, on any finished line."
+  },
+  {
+   "rva": "0x17E640",
+   "kind": "function",
+   "name": "CBuildingDeployment::DeployAt",
+   "signature": "void __thiscall CBuildingDeployment::DeployAt(CBuildingDeployment* this, CMapProvince* province)",
+   "no_signature": null,
+   "comment": "**Slot 9: a finished capital building waiting in the deploy menu is put in a province.** `ret 4`. Read whole on the listing 2026-10-15. Notes first whether the province had a working port - owned (+0x330), a CPort (+0x354) and a naval base (+0x300) with level_max above 0 - and whether its underground (+0x30C) had a level_max above 0. Then the building of that index: level_max += 1000, capped at max_level*1000 and floored at 0 (**level_current untouched**, as in CBuildingConstruction::Deliver), CProvinceBuilding_OnLevelChanged. **Where there was no working port and there is one now, COwnerArea::RefreshBases on the province's area** (+0x2B4) - a naval base; an air base appearing refreshes nothing. Where the underground went from no level to a level: level_current += Underground_GetInitialStrength(province, the deployment's country +0x30/+0x34), capped, `changed`, underground_owner = that country, CCountry_AddUnderground, the template's +0x20 = 1. Then **BUILDING_DONE** (NAME = the building's name string, PROV = the province's name) where the local player is the province's controller (+0x338), with the **controller** as the first shield country and the **owner** as the second, and the callback thunk 0x522400. Nothing is asked of the province: CanDeployIn is the caller's business, and CDeployUnitCommand::Execute does not ask it. See reversing/findings/FINDINGS-buildingqueue.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x57E640-0x57ED7x: `cmp [edi+0x330],ebx`, `cmp [edi+0x354],ebx`, `mov eax,[edi+0x300]; cmp [eax+0x20],ebx; setg [esp+0x13]`; `mov eax,[edi+0x30c]; cmp [eax+0x20],ebx; ... setg [esp+0x1b]`; `add dword [eax+0x20],0x3e8` with the max_level cap; `call 0x4b7fa0`; `cmp byte [esp+0x13],bl; jne` then the same three tests and `mov edi,[edi+0x2b4]; call 0x47e6d0`; `cmp byte [esp+0x1b],bl; jne` and `cmp [eax+0x20],ebx; jle` before `call 0x509230` and `call 0x50a030`; `cmp [eax+0xc34],[edi+0x338]; jne 0x57ed64`; pushes +0x330, +0x32C, +0x338, +0x334 before CMessage::CMessage at 0x57EC37; `mov esi,0x522400`. Wrong if the RefreshBases arm tested +0x304: it reads +0x300 both times.",
+   "source": "reversing/findings/FINDINGS-buildingqueue.md",
+   "revises": "Was `inferred` and said the area's bases are refreshed 'where an air base appears'. It is where a naval base makes a port that was not there (+0x300 and the CPort at +0x354); a new air base refreshes nothing. Read whole; the shields are controller and owner."
+  },
+  {
+   "rva": "0x17E480",
+   "kind": "function",
+   "name": "CBuildingDeployment::CanDeployIn",
+   "signature": "bool __thiscall CBuildingDeployment::CanDeployIn(CBuildingDeployment* this, CMapProvince* province)",
+   "no_signature": null,
+   "comment": "**Slot 10: whether a finished building waiting in the deploy menu may be put in a province.** `ret 4`, two exits 0x57E5B7 (false) and 0x57E61F (true). The country is the deployment's (+0x30/+0x34). False, in order: (1) the province has no CPort (+0x354) and the building is `port = yes` (+0x61); (2) CCountry::IsBuildingAllowed(country, building, province) refuses - the call BiceLib hooks at 0x57E4E5 (Hook_PlaceBuildingCheck). Then **the underground** (g_CBuildingDataBase +0x28): false where the province's underground has a level_max above 0; true where the province's controller is at war with the country (CCountry::IsEnemyTag, REB counting), the country is a friend of the province's owner (CCountry::IsFriend with military access), and the country is a major (+0x15C) or has MaxIC (+0x60C) above 100 or owns the province. **Any other building**: false unless the province's controller (+0x338) is the country; a naval base (db +0x20) only where the province's naval base (+0x300) has level_max 0; an air base (db +0x1C) only where its air base (+0x304) has level_max under one whole level; anything else true. So **a deployment can only make a new naval base or air base, never add a level to one**; anti-air, radar, a reactor or a rocket site may go on top of what is there up to max_level. `capital`, `onmap`, `orientation`, `show_for_province`, the owner (but for the underground) and the terrain are not asked. It also colours the map while a deployment is being placed (MapMode_Deployment_Colour) and gates the left click that places it (CInGameIdler_HandleInput). See reversing/findings/FINDINGS-buildingqueue.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x57E480-0x57E632: `cmp dword [ebx+0x354],0; jne` / `cmp byte [eax+0x61],0; jne 0x57e5b7`; `push ebx; push ecx; mov ecx,esi; call 0x4dffc0; test al,al; je 0x57e5b7`; `cmp edx,[eax+0x28]; jne 0x57e5cd`; `mov ecx,[ebx+0x30c]; cmp [ecx+0x20],0; jg`; `call 0x42f1b0` and `push 1; lea edx,[ebx+0x32c]; call 0x4ef7c0`; `cmp byte [esi+0x15c],0`, `cmp [esi+0x60c],0x64; jg`, `cmp [ebx+0x330],[esi+0xca8]`; at 0x57E5CD `cmp [ebx+0x338],eax; jne`; `cmp ecx,[eax+0x20]` and `cmp [edx+0x20],0; jne` on +0x300; `cmp ecx,[eax+0x1c]` and the divide by 1000 of +0x304's +0x20 (`imul 0x10624dd3; sar edx,6`) then `jne 0x57e5b7`. vtable.py --holding: slot 10 of CBuildingDeployment only. Wrong if the false exit at 0x57E5B7 were reachable from the naval-base test with a non-zero level - it is the `jne` there.",
+   "source": "reversing/findings/FINDINGS-buildingqueue.md"
+  },
+  {
+   "rva": "0x82A80",
+   "kind": "function",
+   "name": "CBuildingDeployment::CBuildingDeployment",
+   "signature": "CBuildingDeployment* __stdcall CBuildingDeployment::CBuildingDeployment(CBuildingDeployment* this@EAX, int countryTag@stack:4, int countryId@stack:8) @EAX",
+   "no_signature": null,
+   "comment": "**Constructor**, `this` in EAX, the country's tag and id by value on the stack, `ret 8`. Writes CReferenceObject's vftable and its +4 = 0x18D, the default id (+8/+0xC from 0x1A8CC94/0x1A8CC98), an empty string at +0x14 (its byte +0x10), the country at +0x30/+0x34, and CBuildingDeployment's vftable (0x15BDF14). The building (+0x38) is set by the caller. 0x3C bytes, as both callers allocate. Two callers: CBuildingConstruction::Deliver (0x485CCD) and CCountry::LoadKey's `building_deployment` arm (0x4CD950), which passes the loading country.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x482A80-0x482AC7: `mov dword [eax],0x15c3ae4; mov dword [eax+4],0x18d; ... mov [eax+0x30],[ebp+8]; mov [eax+0x34],[ebp+0xc]; mov dword [eax],0x15bdf14; ret 8`. findRefs --vftable CBuildingDeployment: the one write at 0x482AC2. Both callers `push 0x3c; call 0xb9602f` first. Wrong if a third construction site existed - findRefs --callers 0x482A80 gives two.",
+   "source": "reversing/findings/FINDINGS-buildingqueue.md"
+  },
+  {
+   "rva": "0x82AD0",
+   "kind": "function",
+   "name": "CBuildingDeployment::GetType",
+   "signature": "int __thiscall CBuildingDeployment::GetType(CBuildingDeployment* this)",
+   "no_signature": null,
+   "comment": "Slot 8: `mov eax, 0x4B7; ret` - the save token `building_deployment`, where CUnitDeployment's slot 8 answers 0x4B4, `unit_deployment`. The deploy menu, CDeployUnitCommand::Execute and MapMode_Deployment_Colour tell the two kinds apart by it.",
+   "confidence": "confirmed",
+   "evidence": "The two instructions at 0x482AD0. vtable.py --holding: slot 8 of CBuildingDeployment alone. saveTokens.py (the running game's table): 0x4B7 = building_deployment, 0x4B4 = unit_deployment.",
+   "source": "reversing/findings/FINDINGS-buildingqueue.md"
+  },
+  {
+   "rva": "0x17ED80",
+   "kind": "function",
+   "name": "CBuildingDeployment::GetName",
+   "signature": "Hoi3CString* __thiscall CBuildingDeployment::GetName(CBuildingDeployment* this, Hoi3CString* out)",
+   "no_signature": null,
+   "comment": "Slot 11: the building's own slot 6 into `out` - CBuilding +0x38, the name string - which is what the deploy menu writes in the line's `name`.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x57ED80-0x57EDA0: `mov ecx,[ecx+0x38]; mov edx,[eax+0x18]; push out; call edx; mov eax,esi; ret 4`. CBuilding slot 6 (0x4B6730) copies +0x38 into its argument. vtable.py --holding: slot 11 of CBuildingDeployment alone.",
+   "source": "reversing/findings/FINDINGS-buildingqueue.md"
+  },
+  {
+   "rva": "0xF56C0",
+   "kind": "function",
+   "name": "CCountry_AddDeployment",
+   "signature": "void __stdcall CCountry_AddDeployment(CCountry* country@ESI, void* deployment@stack:4)",
+   "no_signature": null,
+   "comment": "Appends a deployment to the back of country->deployments (+0x688, tail +0x68C, count +0x690), a 0x10-byte node {data, prev, next, byte}. `ret 4`. Three callers: CMilitaryConstruction::Deliver (0x485038), CBuildingConstruction::Deliver (0x485CF1) and CCountry::LoadKey (0x4CD918). So the deploy menu lists deployments in the order they were finished. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x4F56C0-0x4F570C: `mov edi,[esi+0x68c]; push 0x10; call new; mov [eax],[ebp+8]; mov [eax+4],edi; mov [eax+8],0; mov byte [eax+0xc],0`; `inc [esi+0x690]`; `mov [esi+0x68c],eax`; `mov [edi+8],eax` or `mov [esi+0x688],eax`; `ret 4`. findRefs --callers: three.",
+   "source": "reversing/findings/FINDINGS-buildingqueue.md"
+  },
+  {
+   "rva": "0xDFFC0",
+   "kind": "function",
+   "name": "CCountry::IsBuildingAllowed",
+   "signature": "bool __thiscall CCountry::IsBuildingAllowed(CCountry* this, CBuilding* building, CProvince* province)",
+   "no_signature": null,
+   "comment": "**Whether a country may have one more of a building in a province** - the Lua API's CCountry:IsBuildingAllowed. `ret 8`. False, in order: (1) the building is not available to the country - TechnologyStatus (+0xDF8)->building_available (+0x28C)[building index], set by a researched technology's `activate_building`; (2) for any building but the underground, the country is not the province's controller (+0x338); (3) **the province's whole levels built (level_max / 1000, truncated) plus the `size` (+0x40) of every line in the country's queue (+0xF40) that is a building line (slot 16) for this province and this building reach max_level (+0x68)**; (4) the province has no CPort (+0x354) and the building is `port = yes`; (5) any building of the resolved not_if_x_exists list (+0xBC) has a level_max above g_FixedZero in the province; (6) any building of the resolved prerequisites list (+0x9C) has none. True otherwise. The owner is not asked, nor `capital`, `onmap`, `orientation` or `show_for_province`. Callers: CBuildingDeployment::CanDeployIn (0x57E4E0), CConstructBuildingCommand::IsValid (slot 14, 0x54562D), CBuildingMember::OnClick (0x6DC0F0, the province view's building button) and that button's update 0x6DC380 twice (0x6DC558, 0x6DC66C). See reversing/findings/FINDINGS-buildingqueue.md, sections A and B.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x4DFFC0-0x4E0161: `mov ecx,[edi+0xdf8]; mov edx,[ecx+0x28c]; cmp byte [eax+edx],0; jne`; `cmp ebx,[eax+0x28]; je` / `cmp [edi+0xca8],[edx+0x338]; jne`; `mov ecx,[eax+0x20]; imul 0x10624dd3; sar edx,6` and the loop over +0xF40 `call [edx+0x40]; ... cmp [ebx+0x44],province; cmp [ebx+0x58],building; add esi,[ebx+0x40]`, then `cmp esi,[ebp-0x10]` (max_level from +0x68) `jge false`; `cmp [eax+0x354],0; jne; cmp byte [ebx+0x61],0; jne false`; the +0xBC walk `cmp [ecx+0x20],edi; jg false` and the +0x9C walk `cmp [edx+0x20],edi; jle false` with edi = [0x1A870F4]. Slot 16 is `mov al,1` (0xA92590) on CBuildingConstruction and `xor al,al` (0x592360) on the military and convoy lines. luabind.json names the address. Wrong if (3) counted lines elsewhere: the location and building compares are both there.",
+   "source": "reversing/findings/FINDINGS-buildingqueue.md"
+  },
+  {
+   "rva": "0xB6EF0",
+   "kind": "function",
+   "name": "CBuilding_ResolveBuildingLists",
+   "signature": "void __stdcall CBuilding_ResolveBuildingLists(CBuilding* building)",
+   "no_signature": null,
+   "comment": "**Turns a building's `prerequisites` and `not_if_x_exists` names into buildings**, once each, after buildings.txt is read (its one caller is the loop at 0x4B793F in LoadBuildings, over every building). For each name of the string list at +0xAC: the building of that name (StringHashFind_At1C on the database) is appended to the list at +0x9C; an unknown name is logged \"Unknown building '...' referred to in prerequisited list.\", the building itself \"Building '...' defined as its own prerequisit.\"; then the string list is freed (0x4B8C10). The same for +0xCC into +0xBC. So the string lists are always empty in a running game, and the resolved lists are what CCountry::IsBuildingAllowed reads. `ret 4` at 0x4B7500. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x4B6EF0-0x4B7500: `mov eax,[edi+0xac]` loop with `call 0x4b8b60`, the 0x10-byte node appended through +0xA0/+0xA4 and `mov [edi+0x9c],eax`; the strings at 0x15C0924/0x15C08FC and 0x15C095C/0x15C0938; `lea eax,[edi+0xac]; push eax; call 0x4b8c10`; the second loop on +0xCC into +0xBC/+0xC0/+0xC4; `call 0x4b8c10` at 0x4B74E4; `ret 4` at 0x4B7500. retsBefore(0x4B6EF0, 0x4B7500) is that one ret. findRefs --callers: 0x4B793F only.",
+   "source": "reversing/findings/FINDINGS-buildingqueue.md"
+  },
+  {
+   "rva": "0x267DB0",
+   "kind": "function",
+   "name": "CInGameIdler::SetDeploymentBeingPlaced",
+   "signature": "void __thiscall CInGameIdler::SetDeploymentBeingPlaced(CInGameIdler* this, void* deployment)",
+   "no_signature": null,
+   "comment": "**Slot 30: a finished thing from the deploy menu is being put on the map, or no longer is.** `ret 4`. With null: the id at +0x158/+0x15C cleared and slot 99 (PopMapMode) - the map goes back to the mode it was in. With a deployment: slot 98 (PushMapMode) keeps the current mode; the deployment's id goes to +0x158/+0x15C; leaving the air (18) or naval (19) mode takes their icons down; the idler's mode (+0xD34) and the map's (+0x2A90) = **14**; the settings' +0xE7 = 0, layer mask +0xF0 = 0xFFBA and map style +0xF4 = 11; the graphics owner's +0x60F8 = 0; HideProvinceObjects98; **MapMode_Deployment_Colour**; Map_RefreshColourTextures(0); +0x60DC = 1. The same for a unit's deployment as for a building's. Callers: CDeploymentEntry::OnSelect (the deployment), CSideMenuDeploy::Hide and CDeploymentTargetEntry::OnSelect (null), and CInGameIdler_HandleInput (null, after a placing click). See reversing/findings/FINDINGS-buildingqueue.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x667DB0-0x667ECF: `test esi,esi; jne`; `mov [ebx+0x158],0; ... call [eax+0x18c]`; `call [eax+0x188]`; `mov [ebx+0x158],[esi+8]; mov [ebx+0x15c],[esi+0xc]`; `cmp [ebx+0xd34],0x12` / `0x13`; `mov eax,0xe; mov [ebx+0xd34],eax; mov [ecx+0x2a90],eax`; `call 0x45ff30` three times with +0xE7, +0xF0 = 0xFFBA, +0xF4 = 0xB; `call 0x863ec0`; `push edi; call 0x867a00`; `call 0x880d90`; `mov byte [eax+0x60dc],1`. vtable.py --holding: slot 30 of CInGameIdler.",
+   "source": "reversing/findings/FINDINGS-buildingqueue.md",
+   "revises": "Was `inferred`, named from its callers with the body not read. Read whole: it switches the map to mode 14 and paints where the deployment may go."
+  },
+  {
+   "rva": "0x267D60",
+   "kind": "function",
+   "name": "CInGameIdler::GetDeploymentBeingPlaced",
+   "signature": "void* __thiscall CInGameIdler::GetDeploymentBeingPlaced(CInGameIdler* this)",
+   "no_signature": null,
+   "comment": "Slot 31: the deployment whose id is at +0x158/+0x15C, through FindPersistentById, or null. Bare `ret`.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x667D60-0x667DA4: `mov eax,[ecx+0x158]; mov ecx,[ecx+0x15c]`; the 0x1268 split between 0x1A857F0 and 0x1A857F4; `call 0xa9da00`; `xor eax,eax` where there is no table. vtable.py --holding: slot 31 of CInGameIdler.",
+   "source": "reversing/findings/FINDINGS-buildingqueue.md"
+  },
+  {
+   "rva": "0x256CD0",
+   "kind": "function",
+   "name": "CInGameIdler::ClearSelection",
+   "signature": "void __thiscall CInGameIdler::ClearSelection(CInGameIdler* this)",
+   "no_signature": null,
+   "comment": "Slot 46: empties the selection (+0x1304, through 0x4AD6F0, with the guard byte +0x1CC8 held at 1 meanwhile), CInGameIdler::CloseOrdersView, and selection_changed (+0x1D3C) = 1. Bare `ret`. Called by CDeploymentEntry::OnSelect for a deployment that is not a unit's, and by the input handler for Escape with something selected. The name is ours.",
+   "confidence": "inferred",
+   "evidence": "Listing 0x656CD0-0x656D04, read whole. vtable.py --holding: slot 46 of CInGameIdler. The Escape arm at 0x65385D (`cmp [esi],0x1b; cmp [esi+4],0x100`) calls `[edx+0xb8]` where the selection count +0x130C is above 0. The name rests on the body; other callers of slot 46 were not looked for.",
+   "source": "reversing/findings/FINDINGS-buildingqueue.md"
+  },
+  {
+   "rva": "0x275320",
+   "kind": "function",
+   "name": "CInGameIdler::PushMapMode",
+   "signature": "void __thiscall CInGameIdler::PushMapMode(CInGameIdler* this)",
+   "no_signature": null,
+   "comment": "Slot 98: pushes the current map mode (+0xD34) on the front of the list at +0xAB8 (tail +0xABC, count +0xAC0). Bare `ret`. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x675320-0x675379, read whole: `mov edi,[esi+0xd34]; mov ebx,[esi+0xab8]; push 0x10; call new; mov [eax],edi; mov [eax+4],0; mov [eax+8],ebx`; `mov [esi+0xab8],eax; inc count +0xAC0`; `mov [ebx+4],eax` or `mov [esi+0xabc],eax`. vtable.py --holding: slot 98 of CInGameIdler.",
+   "source": "reversing/findings/FINDINGS-buildingqueue.md"
+  },
+  {
+   "rva": "0x275380",
+   "kind": "function",
+   "name": "CInGameIdler::PopMapMode",
+   "signature": "void __thiscall CInGameIdler::PopMapMode(CInGameIdler* this)",
+   "no_signature": null,
+   "comment": "Slot 99: where the list at +0xAB8 is not empty, takes its first mode off and tail-jumps to that mode's setter through a 20-entry table at 0x67545C - 1 political, 2 diplomatic, 18 MapMode_Air_Set, 19 0x6680E0 and the rest; 0, 14, 15 and 16 all go to 0x666020. So a mode 14 popped sets the map to what 0 sets. Bare `ret` where the list is empty. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x675380-0x675459: `cmp [edi+0xac0],0; je ret`; `mov eax,[edi+0xab8]; mov ebx,[eax]; ... call 0x5d49d0`; `cmp ebx,0x13; ja 0x6753b6; jmp [ebx*4+0x67545c]`; the table read off the image: entries 0, 14, 15, 16 = 0x6753B6 (`jmp 0x666020`), 18 = 0x675442 (`jmp 0x667ee0`), 19 = 0x67544C (`jmp 0x6680e0`). vtable.py --holding: slot 99 of CInGameIdler.",
+   "source": "reversing/findings/FINDINGS-buildingqueue.md"
+  },
+  {
+   "rva": "0x467A00",
+   "kind": "function",
+   "name": "MapMode_Deployment_Colour",
+   "signature": "void __stdcall MapMode_Deployment_Colour(void* provinceObjects)",
+   "no_signature": null,
+   "comment": "**The map's colours while a finished unit or building is being placed** (mode 14). `ret 4`; one caller, CInGameIdler::SetDeploymentBeingPlaced, so the colours are made once when a line is chosen and not again. Nothing where no deployment is being placed (slot 31). For every province object from index 1 (the vector at +0x2C, each with its province at +0xC): grey (0.5, 0.5, 0.5); where the deployment's slot 10 (CanDeployIn) answers yes, (0.5, 0.9, 0.5); and where the deployment is a building's (slot 8 = 0x4B7) and its building is the underground, green = initial / UNDERGOUND_INITIAL_STRENGTH * 0.3 + 0.6 with red and blue 0.5, initial being Underground_GetInitialStrength for the **player's** country - in single precision through doubles. Alpha 1.0 throughout. Written to both words of each province's colour pair. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x867A00-0x867D7F: `mov eax,[eax+0xbe8]; call [edx+0x7c]; je end`; `mov edx,[ecx+0x28]` from the building database; the player's country from +0xC30/+0xC34; GetDefines military +0x254; the loop from esi = 1 over [param+0x2C]..[+0x30]; floats 0.5 at 0x15AB304, 0.9 at 0x160A678, 1.0 at 0x171DBAC; `call [edx+0x28]` (slot 10) and `call [edx+0x20]; cmp eax,0x4b7`, `cmp [edi+0x38],eax`; `call 0x509230`, `divsd [0x160a300]` (1000.0) twice, `mulsd [0x160a3e8]` (0.3), `addsd [0x160a560]` (0.6); `mov [ecx],edi; ... mov [eax+4],edi`. findRefs --callers: 0x667E96 only; vtable.py: in no table.",
+   "source": "reversing/findings/FINDINGS-buildingqueue.md"
+  },
+  {
+   "rva": "0x148FF0",
+   "kind": "function",
+   "name": "CDeployUnitCommand::CDeployUnitCommand",
+   "signature": "CDeployUnitCommand* __stdcall CDeployUnitCommand::CDeployUnitCommand(CDeployUnitCommand* this, int province, int countryTag, int countryId, int deploymentType, int deploymentId, int targetType, int targetId) @EAX",
+   "no_signature": null,
+   "comment": "Constructor, `ret 0x20`: the base command (its +0x2C/+0x30 = 0x4B5, +0x34 = 0xFFFF, an empty string at +8) and then the province id at +0x54, the country at +0x3C/+0x40, the deployment's id at +0x44/+0x48 and the target unit's id at +0x4C/+0x50. Six callers: the in-game input handler's placing click (0x65393B, with no target), CDropAndAssignUnitDeploymentCallback::Call (0x8261BF), CDeploymentTargetEntry::OnSelect (0x826C04), and three in the AI (0x88B7EA, 0x88B98D, 0x88BBF8).",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x548FF0-0x5490CC: `mov esi,[ebp+8]`; `mov eax,0x4b5; mov [esi+0x2c],eax; mov [esi+0x30],eax`; `mov [esi+0x3c],[ebp+0x10]; mov [esi+0x40],[ebp+0x14]; mov [esi+0x44],[ebp+0x18]; mov [esi+0x48],[ebp+0x1c]; mov [esi+0x4c],[ebp+0x20]; mov [esi+0x50],[ebp+0x24]; mov [esi+0x54],[ebp+0xc]`; `mov dword [esi],0x15c3794`; `mov eax,esi; ret 0x20`. findRefs --callers: six.",
+   "source": "reversing/findings/FINDINGS-buildingqueue.md"
+  },
+  {
+   "rva": "0x1490D0",
+   "kind": "function",
+   "name": "CDeployUnitCommand::Execute",
+   "signature": "void __thiscall CDeployUnitCommand::Execute(CDeployUnitCommand* this)",
+   "no_signature": null,
+   "comment": "**Slot 6: puts a finished unit or building somewhere.** Bare `ret`. The deployment by the id at +0x44/+0x48; none, nothing. **Where no target unit is found** by the id at +0x4C/+0x50: the deployment's slot 9 (DeployAt) with provinces[+0x54], then it is unlinked from the deployments (+0x688) of the country whose id is at +0x40 and freed through its slot 0. **Where a target is found**: only a unit's deployment (slot 8 answering 0x4B4) is joined to it (CUnitDeployment::JoinUnit, the flag 0); **any other is left where it is**. Nothing asks CanDeployIn, the controller or the owner: the click that posts it is the only check, and the command's slot 14 (0x5495A0) asks only that the deployment exists. See reversing/findings/FINDINGS-buildqueue.md, section 7, and reversing/findings/FINDINGS-buildingqueue.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x5490D0-0x5492B4: the two FindPersistentById calls; `lea edi,[eax-8]; test edi,edi; jne 0x54926e`; at 0x549201 `mov ecx,[esi+0x54]; mov ecx,[eax+0xb8c][ecx*4]; push ecx; call [edx+0x24]`; `add esi,0x688` on countries[+0x40]; `call 0x5d49d0`; `push 1; call [edx]`; at 0x54926E `call [edx+0x20]; cmp eax,0x4b4; jne 0x5492a2` (the exit) and `push 0; push edi; push country; call 0x5067d0`.",
+   "source": "reversing/findings/FINDINGS-buildingqueue.md",
+   "revises": "Comment extended: a found target with a building's deployment does nothing and leaves it; DeployAt gets the province out of the game state's vector; nothing in the command checks where."
+  },
+  {
+   "rva": "0x252540",
+   "kind": "function",
+   "name": "CInGameIdler_HandleInput",
+   "signature": "void __stdcall CInGameIdler_HandleInput(CInGameIdler* idler)",
+   "no_signature": null,
+   "comment": "**The in-game screen's handler for the mouse and keys over the map**, called once from CInGameIdler::Update (0x656471), `ret 4`. Read only in part. Known arms: the H key (0x6537D2, render_hierarchy, FINDINGS-hierarchy.md); a right click on a province (0x6534E4, FINDINGS-airorders.md section 6); Escape (0x65385D: with something selected, ClearSelection, else 0x66BD10(0)); and **the left button's release over the map with nothing dragged** (0x652B8F: event +0x14 == 1 and the down byte +0x12E0 set; 0x64D850 false): where a deployment is being placed (slot 31) and there is a province under the pointer (+0x1DD0), the deployment's slot 10 (CanDeployIn) for that province; **yes - a CDeployUnitCommand(province, the player, the deployment, no target) is posted and SetDeploymentBeingPlaced(0)**; no - the click goes on as an ordinary click (0x6532AE), with no message, and the deployment stays chosen. The name is ours.",
+   "confidence": "inferred",
+   "evidence": "Listing 0x652B8F-0x652BD2 (`cmp [esi+0x14],1; jne`, `cmp byte [ebx+0x12e0],al; jne`, `call 0x64d850; test al,al; je 0x653256`); 0x653256-0x6532A8 (`call [edx+0x7c]; test eax,eax; je`, `mov eax,[ebx+0x1dd0]`, `mov eax,[eax+0x1df0][esi*4]`, `mov esi,[eax+0xc]`, `call [edx+0x28]; test al,al; jne 0x6538c8`); 0x6538C8-0x653984 (`push 0x58; call new`, the null target 0x1A8CC94/98, +0x158/+0x15C, `call [edx+0x5c]` for the player, `call 0x548ff0`, `call [edx+0x48]` and its +0x38's slot 6 to post, `push 0; call [edx+0x78]`). Inferred: that +0x14 == 1 is the left button rests on FINDINGS-airorders.md's 2 for the right; the rest of the function was not read.",
+   "source": "reversing/findings/FINDINGS-buildingqueue.md"
+  },
+  {
+   "rva": "0x1D470",
+   "kind": "function",
+   "name": "CustomGameSettings_HasCountry",
+   "signature": "bool __stdcall CustomGameSettings_HasCountry(void* settings, CCountryTag* country)",
+   "no_signature": null,
+   "comment": "False where the custom game settings' first byte is clear; otherwise whether the list at CCurrentGameState +0x60 (entries with a country id at +0x24, next at +0x54) holds the country's id. `ret 8`. Used by both Deliver bodies' tails to set the settings' +0x6C byte. What the list is was not read. The name is ours.",
+   "confidence": "inferred",
+   "evidence": "Listing 0x41D470-0x41D55B: `mov eax,[ebp+8]; cmp byte [eax],bl; je false`; `mov eax,[esi+0x60]`; loop `cmp [ecx+0x24],[country+4]; je true; mov eax,[eax+0x54]`; `ret 8`. The caller in CBuildingConstruction::Deliver pushes &line.country (+0x48) and the settings and cleans nothing.",
+   "source": "reversing/findings/FINDINGS-buildingqueue.md"
+  },
+  {
+   "rva": "0xB7FA0",
+   "kind": "function",
+   "name": "CProvinceBuilding_OnLevelChanged",
+   "signature": "void __stdcall CProvinceBuilding_OnLevelChanged(CProvinceBuilding* building)",
+   "no_signature": null,
+   "comment": "0x4B7FA0-0x4B8296, `ret 4`, `this` on the stack. Runs after a province building's level_max has moved - CBuildingConstruction::Deliver (0x485D41), CBuildingDeployment::DeployAt (0x57E6E2), 0x42CC39 and 0x50BF03. **It does nothing at all unless the building's modifier is MODIFIER_INFRASTRUCTURE** (`definition_ptr(+0x18)->effect(+0xC)->id(+0x24) == 12`, 0x4B7FC4, `jne` to the exit): no other building's level reaches the province's modifier, the area or radar through it. For infrastructure: the province's MaxInfrastructure (+0x5C) = level_max * 1000 / 10000 - the 0.1 of `infrastructure = 0.1` **hardcoded**, where CProvince::LoadKey and SetProvinceBuildingLevel read CBuilding +0x8 effect_size, so a mod changing it on `infra` makes the writers disagree. Where that crosses g_InfraThreshold0_100 (100) or g_InfraThreshold0_200 (200): **UpdateOwnerAreaOfProvince** with the controller (or `---` where it has fallen to 100 or less) - the call the record had as 'a message through 0x47F540' - then DeleteAreaGroups, RebuildAreaGroups, DeleteSupplyGroups and RebuildSupplyGroups; then every distinct owner of a neighbouring province in a real area, and the controller, has its CCountry +0x580 (theatres_dirty) set; and CProvince::UpdateSupplyDepot. The name is from the body.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x4B7FBB-0x4B7FCB: `mov eax,[ecx+0x18]; mov eax,[eax+0xc]; cmp dword [eax+0x24],0xc; ... jne 0x4b8286`. 0x4B7FEA-0x4B8024 `imul eax,eax,0x3e8` then the divide by 10000 (0x68DB8BAD, sar 0xC) into [esi+0x5c]; 0x4B8027-0x4B8063 the threshold compares against [0x1A87098] and [0x1A870B4], `mov dword [ebp-0x24],0x2d2d2d`; `call 0x47f540; add esp,0x14` then 0x47FFF0, 0x47FEB0, 0x4807F0, 0x480690. The neighbour walk's list of 0x14-byte nodes of owner tags, the controller first (0x4B80CA); `call 0x402610; mov byte [eax+0x580],1` at 0x4B8263-0x4B8268 for each; `call 0x4a70c0` (CProvince::UpdateSupplyDepot) at 0x4B8279.",
+   "source": "reversing/findings/FINDINGS-buildingqueue.md",
+   "revises": "Was `likely`. Confirmed on the listing that it does nothing for any building but infrastructure; 0x47F540 is UpdateOwnerAreaOfProvince, not a message; the theatre flags and UpdateSupplyDepot added."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CBuildingDeployment",
+   "offset": "0x30",
+   "name": "country",
+   "type": "CCountryTag",
+   "comment": "Whose it is: the tag at +0x30 and the id at +0x34, set by the constructor from the finished line's country (or the loading country). CanDeployIn asks this country's IsBuildingAllowed, and DeployAt makes it the underground's owner.",
+   "evidence": "CBuildingDeployment::CBuildingDeployment `mov [eax+0x30],[ebp+8]; mov [eax+0x34],[ebp+0xc]`; CanDeployIn `mov eax,[edi+0x34]; mov esi,[edx+eax*4]` and `cmp [ebx+0x338],[edi+0x34]`; DeployAt `mov eax,[esi+0x30]; mov esi,[esi+0x34]; mov [edi+0x38c],eax; mov [edi+0x390],esi`."
+  },
+  {
+   "struct": "CBuilding",
+   "offset": "0x9C",
+   "name": "prerequisite_buildings",
+   "type": "CList<CBuilding*>",
+   "comment": "**The resolved `prerequisites`**: one node a building (tail +0xA0, count +0xA4, byte +0xA8), made from the names at +0xAC by CBuilding_ResolveBuildingLists after buildings.txt is read. CCountry::IsBuildingAllowed refuses a province where any of them has no built level. Empty in both installs, whose buildings.txt has no `prerequisites`.",
+   "evidence": "CBuilding_ResolveBuildingLists appends through `mov [edi+0xa0],eax; mov [edi+0xa4],edx; ... mov [edi+0x9c],eax`; IsBuildingAllowed `mov eax,[ebx+0x9c]` then `mov edx,[eax]; mov edx,[edx+0x54]; ... cmp [edx+0x20],edi; jle false`. The constructor zeroes +0x9C/+0xA0/+0xA4 and the byte +0xA8."
+  },
+  {
+   "struct": "CBuilding",
+   "offset": "0xBC",
+   "name": "excluding_buildings",
+   "type": "CList<CBuilding*>",
+   "comment": "**The resolved `not_if_x_exists`**: one node a building (tail +0xC0, count +0xC4, byte +0xC8), made from the names at +0xCC by CBuilding_ResolveBuildingLists. CCountry::IsBuildingAllowed refuses a province where any of them has a built level above zero. Empty in both installs.",
+   "evidence": "CBuilding_ResolveBuildingLists `mov esi,[edi+0xc0]` ... `mov [edi+0xc0],eax` ... `mov [edi+0xbc],eax`; IsBuildingAllowed `mov edx,[ebx+0xbc]` and `cmp [ecx+0x20],edi; jg false`."
+  },
+  {
+   "struct": "CBuilding",
+   "offset": "0xAC",
+   "name": "prerequisites",
+   "type": "void*",
+   "comment": "buildings.txt `prerequisites`: a `{ ... }` block whose every word becomes a std::string on a list (tail at +0xb0, count at +0xb4). **Read once and emptied**: CBuilding_ResolveBuildingLists (0x4B6EF0) turns each name into the building of that name on the list at +0x9C - logging an unknown name or the building itself - and frees these strings (0x4B8C10). So it is empty in a running game whatever the file says, and what the game uses is +0x9C.",
+   "evidence": "CBuilding_ResolveBuildingLists `mov eax,[edi+0xac]` loop with `call 0x4b8b60`, then `lea eax,[edi+0xac]; push eax; call 0x4b8c10`, which frees each string node.",
+   "revises": "said nothing reads it; the resolver reads it, makes +0x9C of it and frees it"
+  },
+  {
+   "struct": "CBuilding",
+   "offset": "0xCC",
+   "name": "not_if_x_exists",
+   "type": "void*",
+   "comment": "buildings.txt `not_if_x_exists`: a `{ ... }` block whose every word becomes a std::string on a list (tail at +0xd0, count at +0xd4). **Read once and emptied**: CBuilding_ResolveBuildingLists (0x4B6EF0) turns each name into the building of that name on the list at +0xBC and frees these strings. So it is empty in a running game, and what CCountry::IsBuildingAllowed reads is +0xBC.",
+   "evidence": "CBuilding_ResolveBuildingLists `mov eax,[edi+0xcc]; lea ecx,[edi+0xcc]` loop with `call 0x4b8b60`, then `call 0x4b8c10` at 0x4B74E4.",
+   "revises": "said nothing reads it; the resolver reads it, makes +0xBC of it and frees it"
+  },
+  {
+   "struct": "CBuildingConstruction",
+   "offset": "0x5C",
+   "name": "count",
+   "type": "int",
+   "comment": "saved as `count`: **how many CBuildingDeployments the line has made** - CBuildingConstruction::Deliver gives each deployment the id (line id type, line id + count + 1) and then adds one. Only a capital building's line with no province makes them, so it stays 0 on every line that has a location. **Read live**: zero on all 89.",
+   "evidence": "Deliver 0x485CA2-0x485CF6: `mov ecx,[edi+0xc]; mov edx,[edi+0x5c]; lea eax,[ecx+edx+1]` into the id handed to the deployment's slot 6, and `inc dword ptr [edi+0x5c]` after CCountry_AddDeployment.",
+   "revises": "the comment gave only the key and the live zero; what it counts is new"
+  },
+  {
+   "struct": "CInGameIdler",
+   "offset": "0x158",
+   "name": "placing_deployment_type",
+   "type": "int",
+   "comment": "Type half of the id of the deployment being placed from the deploy menu; the serial half at +0x15C. Set and cleared by SetDeploymentBeingPlaced, read by GetDeploymentBeingPlaced and by the input handler's placing click, which posts it in the CDeployUnitCommand.",
+   "evidence": "SetDeploymentBeingPlaced `mov [ebx+0x158],[esi+8]` and `mov [ebx+0x158],0`; GetDeploymentBeingPlaced `mov eax,[ecx+0x158]`; CInGameIdler_HandleInput `mov ecx,[ebx+0x158]` at 0x6538FD."
+  },
+  {
+   "struct": "CInGameIdler",
+   "offset": "0x15C",
+   "name": "placing_deployment_id",
+   "type": "int",
+   "comment": "Serial half of the id of the deployment being placed; the type half at +0x158.",
+   "evidence": "SetDeploymentBeingPlaced `mov [ebx+0x15c],esi` (the deployment's +0xC); GetDeploymentBeingPlaced `mov ecx,[ecx+0x15c]`; CInGameIdler_HandleInput `mov edx,[ebx+0x15c]`."
+  },
+  {
+   "struct": "CInGameIdler",
+   "offset": "0xAB8",
+   "name": "map_mode_stack",
+   "type": "CList",
+   "comment": "The map modes to go back to: PushMapMode puts the current one (+0xD34) on the front (tail +0xABC, count +0xAC0), PopMapMode takes the front one off and sets it. Placing a deployment pushes and pops it.",
+   "evidence": "PushMapMode `mov ebx,[esi+0xab8]` ... `mov [esi+0xab8],eax`, `[esi+0xac0]`, `[esi+0xabc]`; PopMapMode `cmp [edi+0xac0],0`, `mov eax,[edi+0xab8]; mov ebx,[eax]`."
+  }
+ ],
+ "vftable_slots": {
+  "CBuildingDeployment": {"8": "GetType", "9": "DeployAt", "10": "CanDeployIn", "11": "GetName"},
+  "CBuildingConstruction": {"9": "Deliver"},
+  "CInGameIdler": {"30": "SetDeploymentBeingPlaced", "31": "GetDeploymentBeingPlaced", "46": "ClearSelection", "98": "PushMapMode", "99": "PopMapMode"},
+  "CDeployUnitCommand": {"6": "Execute"}
+ },
+ "frontier": ["0x864C0", "0x2DBE40", "0x23F56E", "0x4558BC", "0x24AB10", "0x266020", "0x2680E0", "0xAD6F0", "0x24D850", "0x9E600"],
+ "notes": "Two possible collisions with reader A: CCountry::IsBuildingAllowed (0xDFFC0), which CConstructBuildingCommand's slot 14 (0x545540) also calls, and CBuildingConstruction +0x5C `count`. CBuildingConstruction's slot 12 is its own body 0x4864C0, not CConstruction::CanStillBeBuilt (0x4831C0) - a lead for A, not read here."
+}

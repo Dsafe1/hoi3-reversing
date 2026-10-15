@@ -25,12 +25,12 @@ how many objects a census found (taken 2026-09-20).
 
 | | classes |
 | --- | --- |
-| `read` | 117 |
-| `placed` | 150 |
+| `read` | 119 |
+| `placed` | 149 |
 | `keys` | 75 |
-| `part` | 132 |
+| `part` | 133 |
 | `named` | 6 |
-| `RTTI` | 661 |
+| `RTTI` | 659 |
 | **all** | **1141** |
 
 ## What to read next
@@ -142,8 +142,8 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CBombing` | `CCombat` |  |  |  |  |  |  | RTTI |  |
 | `CBookmark` | `CPersistent` |  |  | 3/7 | 1 |  | 4 | placed | **read**: `bookmarks.txt`, 7 keys |
 | `CBrigadeConstructionDefinition` | `CPersistent` |  | 8 + 1 lua | 5/7 | 4 | CConstruction.hpp | 4,192 | read |  |
-| `CBuildingConstruction` | `CConstruction` |  | 2 | 2/2 | 2 | CConstruction.hpp | 154 | placed |  |
-| `CBuildingDeployment` | `CDeployment` |  | 1 | 1/2 | 2 |  |  | placed |  |
+| `CBuildingConstruction` | `CConstruction` |  | 2 | 2/2 | 9 | CConstruction.hpp | 154 | placed |  |
+| `CBuildingDeployment` | `CDeployment` |  | 2 | 1/2 | 6 |  |  | placed |  |
 | `CCallAllyAction` | `CDiplomaticAction` |  | 1 lua | 1/1 | 15 |  | 10 | placed |  |
 | `CCarrierProtection` | `CAirOrder` |  |  |  | 4 |  | 59 | RTTI |  |
 | `CCasusBelli` | `CRelation` |  | 1 | 1/1 | 7 |  | 7 | placed |  |
@@ -166,7 +166,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CConvoyConstruction` | `CConstruction` |  | 1 | 1/1 | 2 | CConstruction.hpp | 40 | placed |  |
 | `CConvoyEscortOrder` | `CNavalOrder` |  |  | 1/3 | 6 |  |  | placed |  |
 | `CConvoyRaid` | `CNavalOrder` |  |  | 1/1 | 5 |  | 62 | placed |  |
-| `CCountry` | `CPersistent` |  | 274 + 71 lua | 69/126 | 153 | CCountry.hpp | 108 | read |  |
+| `CCountry` | `CPersistent` |  | 274 + 71 lua | 69/126 | 155 | CCountry.hpp | 108 | read |  |
 | `CCountryDate` | `CPersistent` |  |  | 1/2 | 1 |  |  | placed |  |
 | `CCountryHistory` | `CHistoryContainer` |  |  |  | 1 | CCountryHistory.hpp | 108 | keys | **read**: `history/countries`, where a date is a key. See GameClasses/CCountryHistory.hpp |
 | `CCountryValue` | `CPersistent` | 0x14 | 2 | 1/2 | 1 |  | 9,078 | placed |  |
@@ -337,7 +337,7 @@ Definitions out of `common/` and the rest of the mod. Their `LoadKey` is the gra
 | class | derives from | size | fields | placed | fn | doc | live | state | notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `CAIMTTHChance` | `CMeanTimeToHappen` | 0x20 | 1 |  | 1 |  | 15,362 | keys |  |
-| `CBuilding` | `CModifierEntry` `CPersistent` |  | 26 + 1 lua | 9/18 | 2 | CProvinceBuilding.hpp | 59 | read | `buildings.txt`, the worked example the method came from |
+| `CBuilding` | `CModifierEntry` `CPersistent` |  | 28 + 1 lua | 9/18 | 2 | CProvinceBuilding.hpp | 59 | read | `buildings.txt`, the worked example the method came from |
 | `CCGExtraPracticeDecay` | `CPersistent` |  |  |  | 1 |  | 1 | keys |  |
 | `CCasusBelliType` | `CPersistent` |  | 26 | 19/28 | 3 | CWar.hpp | 24 | read | **read**: `cb_types.txt`, 28 keys - the `po_*` peace options among them |
 | `CColor` | `CPersistent` |  | 4 |  | 2 |  | 319,186 | part |  |
@@ -460,7 +460,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CBrigadeView` | `CUpdateable` |  |  |  |  |  |  | RTTI |  |
 | `CBrowserItem` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
 | `CBuildTimeComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
-| `CBuildingMember` | `CStandardlistboxItem` |  |  |  |  |  | 102 | RTTI |  |
+| `CBuildingMember` | `CStandardlistboxItem` |  | 1 |  | 1 |  | 102 | part |  |
 | `CBuyConfirm` | `CEU3Dialog` |  |  |  |  |  |  | RTTI |  |
 | `CCancelLLPrompt` | `CEU3Dialog` | 0x74 | 2 |  | 2 |  |  | part |  |
 | `CCategoryItem` | `CStandardlistboxItem` | 0x70 | 4 |  | 3 |  |  | part |  |
@@ -472,7 +472,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CCombatMember` | `COutLinerMember` |  |  |  | 1 |  |  | RTTI |  |
 | `CCombatWidthComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CConfigMember` | `CStandardlistboxItem` |  |  |  |  |  | 18 | RTTI |  |
-| `CConfirmBuild` | `CReloadableInterface` |  |  |  |  |  |  | RTTI |  |
+| `CConfirmBuild` | `CReloadableInterface` | 0x14C | 9 |  | 11 |  |  | read |  |
 | `CConfirmDeletePlan` | `CEU3Dialog` |  |  |  |  |  |  | RTTI |  |
 | `CConfirmDisband` | `CEU3Dialog` |  |  |  |  |  |  | RTTI |  |
 | `CConfirmDisbandAll` | `CEU3Dialog` |  |  |  |  |  |  | RTTI |  |
@@ -543,7 +543,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CICCostComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CIcon` | `CButton` |  |  |  | 1 |  |  | RTTI |  |
 | `CIdler` |  |  |  |  |  |  |  | RTTI |  |
-| `CInGameIdler` | `CEU3Idler` `CLostDeviceInterface` `CReloadDispatcher` |  | 52 |  | 46 | CInGameIdler.hpp | 3 | read |  |
+| `CInGameIdler` | `CEU3Idler` `CLostDeviceInterface` `CReloadDispatcher` |  | 55 |  | 50 | CInGameIdler.hpp | 3 | read |  |
 | `CIngameSettingsScreen` | `CSettingsScreen` |  |  |  |  |  | 1 | RTTI |  |
 | `CLandOrdersView` | `COrdersView` |  |  |  |  |  |  | RTTI |  |
 | `CLawEntry` | `CStandardlistboxItem` | 0x88 | 4 |  | 3 |  | 16 | part |  |
@@ -609,7 +609,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CPossibleSingleBrigadeEntry` | `CStandardlistboxItem` |  |  |  | 1 |  |  | RTTI |  |
 | `CPowerRatioEntry` | `CUnitViewBaseEntry` |  |  |  |  |  |  | RTTI |  |
 | `CPrioComparator` | `CBrigadeSortInterface` |  |  |  | 1 |  | 2 | RTTI |  |
-| `CProductionView` | `CCountryView` |  | 8 |  | 20 |  | 1 | read |  |
+| `CProductionView` | `CCountryView` |  | 9 |  | 23 |  | 1 | read |  |
 | `CProjectionObject` | `C3dVisibleObject` |  |  |  |  |  |  | RTTI |  |
 | `CProvinceCollisionObject` | `C3dVisibleObject` |  |  |  |  |  |  | RTTI |  |
 | `CProvinceManager` | `CLostDeviceInterface` |  |  |  |  |  | 1 | RTTI |  |
@@ -879,7 +879,7 @@ One class per effect, trigger, command and decision the event scripts can use. E
 | `CCommand` | `CPersistent` |  | 7 | 1/3 | 4 |  | 26,074 | read |  |
 | `CConquerProvinceCommand` | `CCommand` |  |  | 2/2 | 1 |  | 1 | placed |  |
 | `CConsoleMemberOption` | `CStandardlistboxItem` |  |  |  |  |  | 2 | RTTI |  |
-| `CConstructBuildingCommand` | `CCommand` |  |  | 2/3 | 1 |  | 6 | placed |  |
+| `CConstructBuildingCommand` | `CCommand` | 0x58 | 6 | 2/3 | 8 |  | 6 | read |  |
 | `CConstructConvoyCommand` | `CCommand` |  |  | 1/4 | 1 |  | 1 | placed |  |
 | `CConstructSingleUnitCommand` | `CCommand` |  |  | 2/7 | 3 |  | 1 | placed |  |
 | `CConstructUnitCommand` | `CCommand` |  |  | 3/9 | 2 |  | 1 | placed |  |
@@ -912,7 +912,7 @@ One class per effect, trigger, command and decision the event scripts can use. E
 | `CDecision` | `CPersistent` | 0xE4 | 5 + 1 lua | 1/5 | 2 |  | 3,428 | read |  |
 | `CDecisionEntry` | `CStandardlistboxItem` | 0xC8 | 5 |  | 5 |  | 74 | read |  |
 | `CDecreaseGameSpeedCommand` | `CCommand` |  |  | 1/3 |  |  | 1 | RTTI |  |
-| `CDeployUnitCommand` | `CCommand` |  |  | 2/4 | 3 |  | 1 | placed |  |
+| `CDeployUnitCommand` | `CCommand` |  |  | 2/4 | 4 |  | 1 | placed |  |
 | `CDetachUnitCommand` | `CCommand` |  |  | 1/1 |  |  | 1 | RTTI |  |
 | `CDiplomaticActionCommand` | `CCommand` |  |  |  | 3 |  | 6 | keys |  |
 | `CDiplomaticEffect` | `CEffect` |  | 1 |  |  |  |  | part |  |

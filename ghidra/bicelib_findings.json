@@ -14977,6 +14977,36 @@
    ]
   },
   {
+   "name": "CList<CBuilding*>",
+   "size": 16,
+   "fields": [
+    {
+     "offset": 0,
+     "name": "first",
+     "type": "CListNode<CBuilding*>*",
+     "comment": "first node (BiceLib/HoiDataStructures.hpp:53)"
+    },
+    {
+     "offset": 4,
+     "name": "last",
+     "type": "CListNode<CBuilding*>*",
+     "comment": "last node (BiceLib/HoiDataStructures.hpp:54)"
+    },
+    {
+     "offset": 8,
+     "name": "count",
+     "type": "int",
+     "comment": "how many nodes (BiceLib/HoiDataStructures.hpp:55)"
+    },
+    {
+     "offset": 12,
+     "name": "no_unlink",
+     "type": "unsigned char",
+     "comment": "**The list's fourth member: a deferred-deletion lock.** While it is set, code that would remove a node from this list instead **marks the node and leaves it linked**, so nothing is unlinked while something is walking it; the node carries the matching mark at its own +0xC. Read with those semantics by CWeatherManager::Tick at 0x4B5CD7 - `cmp byte ptr [edi+0x14], 0` on a list at +0x8, i.e. this member - which on the set branch does `mov byte ptr [eax+0xc], 1` on the spent node and skips the unlink, and on the clear branch relinks prev/next and fixes `first` and `last`. That same unlink confirms the head layout from the other side.\n\n**The head really is 0x10 and this really is part of it.** CEffect's inlined base constructor writes `+8 = +0xC = +0x10 = 0` and then `byte +0x14 = 0` - three dwords and a byte, which is this head being zeroed rather than a triple followed by a holder's own field. CCountry's thirteen CCountryLists sit at a 0x10 stride, each with its byte; CFaction's head at +0x28 ends here at +0x34 with `members_changed` a separate field at +0x38; and CWeatherFront's hand-decomposed `provinces` triple put its byte at +0x18, which is this offset exactly.\n\n**Three field records were each describing this one member from their holder's side, and all three were folded away** - a field inside a larger typed one never reaches the apply - so they disagreed in silence and none of them was visible in Ghidra. Deleted 2026-10-07 and preserved here: `CEffect +0x14 unused`, \"a byte every effect carries, zeroed when it is built and touched by nothing else in the image\"; `CWeatherFront +0x18 provinces_flag`, \"the byte that follows the game's CList triple; zeroed by the constructor and never read in this class\"; and `CWeatherManager +0x14 freeze_fronts`, \"while set, CWeatherManager::Tick marks a spent front's node at +0xC instead of unlinking it, so no front is ever removed\" - which is the one that had the semantics right and only mistook them for weather. Each is consistent with this reading: an effect never iterates-and-deletes its children, so its copy stays clear.\n\n**One record still does not fit.** `CNavy +0x2F0 at_sea` is written as a *dword* by CNavy::LoadKey's save-token-0x3FC handler, at what is this offset inside `CUnit +0x2E4 carrying`. Both offsets are instruction-anchored, so either a fleet loaded at sea leaves its carrying list permanently locked, or one of the two is misread - see CANDIDATES.md. (reversing/findings/FINDINGS-factbase.md)"
+    }
+   ]
+  },
+  {
    "name": "CBuilding",
    "size": null,
    "fields": [
@@ -15077,12 +15107,6 @@
      "comment": "buildings.txt `show_for_province`; true unless the file says otherwise (BiceLib/GameClasses/CProvinceBuilding.hpp:113)"
     },
     {
-     "offset": 172,
-     "name": "prerequisites",
-     "type": "void*",
-     "comment": "buildings.txt `prerequisites`: a `{ ... }` block whose every word becomes a std::string on a list (tail at +0xb0, count at +0xb4). **Nothing reads it** - inside CBuilding's own code the only references are the branch that fills it and the two that empty it, and none of the 44 places that fetch the building database goes on to read it. Neither buildings.txt uses the key, and read live all 61 buildings have it empty (BiceLib/GameClasses/CProvinceBuilding.hpp:129)"
-    },
-    {
      "offset": 176,
      "name": "prerequisites_last",
      "type": "void*",
@@ -15093,12 +15117,6 @@
      "name": "prerequisites_count",
      "type": "int",
      "comment": "how many prerequisites there are; always zero in practice (BiceLib/GameClasses/CProvinceBuilding.hpp:131)"
-    },
-    {
-     "offset": 204,
-     "name": "not_if_x_exists",
-     "type": "void*",
-     "comment": "buildings.txt `not_if_x_exists`: a `{ ... }` block whose every word becomes a std::string on a list (tail at +0xd0, count at +0xd4). **Nothing reads it** - inside CBuilding's own code the only references are the branch that fills it and the two that empty it, and none of the 44 places that fetch the building database goes on to read it. Neither buildings.txt uses the key, and read live all 61 buildings have it empty (BiceLib/GameClasses/CProvinceBuilding.hpp:132)"
     },
     {
      "offset": 208,
@@ -15135,6 +15153,30 @@
      "name": "max_allowed_level",
      "type": "int",
      "comment": "maximum allowed level, whole levels (BiceLib/Hooks/HookedPatches.cpp:92)"
+    },
+    {
+     "offset": 156,
+     "name": "prerequisite_buildings",
+     "type": "CList<CBuilding*>",
+     "comment": "**The resolved `prerequisites`**: one node a building (tail +0xA0, count +0xA4, byte +0xA8), made from the names at +0xAC by CBuilding_ResolveBuildingLists after buildings.txt is read. CCountry::IsBuildingAllowed refuses a province where any of them has no built level. Empty in both installs, whose buildings.txt has no `prerequisites`. (reversing/findings/FINDINGS-buildingqueue.md)"
+    },
+    {
+     "offset": 172,
+     "name": "prerequisites",
+     "type": "void*",
+     "comment": "buildings.txt `prerequisites`: a `{ ... }` block whose every word becomes a std::string on a list (tail at +0xb0, count at +0xb4). **Read once and emptied**: CBuilding_ResolveBuildingLists (0x4B6EF0) turns each name into the building of that name on the list at +0x9C - logging an unknown name or the building itself - and frees these strings (0x4B8C10). So it is empty in a running game whatever the file says, and what the game uses is +0x9C. (reversing/findings/FINDINGS-buildingqueue.md)"
+    },
+    {
+     "offset": 188,
+     "name": "excluding_buildings",
+     "type": "CList<CBuilding*>",
+     "comment": "**The resolved `not_if_x_exists`**: one node a building (tail +0xC0, count +0xC4, byte +0xC8), made from the names at +0xCC by CBuilding_ResolveBuildingLists. CCountry::IsBuildingAllowed refuses a province where any of them has a built level above zero. Empty in both installs. (reversing/findings/FINDINGS-buildingqueue.md)"
+    },
+    {
+     "offset": 204,
+     "name": "not_if_x_exists",
+     "type": "void*",
+     "comment": "buildings.txt `not_if_x_exists`: a `{ ... }` block whose every word becomes a std::string on a list (tail at +0xd0, count at +0xd4). **Read once and emptied**: CBuilding_ResolveBuildingLists (0x4B6EF0) turns each name into the building of that name on the list at +0xBC and frees these strings. So it is empty in a running game, and what CCountry::IsBuildingAllowed reads is +0xBC. (reversing/findings/FINDINGS-buildingqueue.md)"
     }
    ]
   },
@@ -15217,7 +15259,7 @@
      "offset": 92,
      "name": "count",
      "type": "int",
-     "comment": "saved as `count`. **Read live**: zero on all 89 (BiceLib/GameClasses/CConstruction.hpp:136)"
+     "comment": "saved as `count`: **how many CBuildingDeployments the line has made** - CBuildingConstruction::Deliver gives each deployment the id (line id type, line id + count + 1) and then adds one. Only a capital building's line with no province makes them, so it stays 0 on every line that has a location. **Read live**: zero on all 89. (reversing/findings/FINDINGS-buildingqueue.md)"
     },
     {
      "offset": 124,
@@ -15243,6 +15285,12 @@
    "name": "CBuildingDeployment",
    "size": null,
    "fields": [
+    {
+     "offset": 48,
+     "name": "country",
+     "type": "CCountryTag",
+     "comment": "Whose it is: the tag at +0x30 and the id at +0x34, set by the constructor from the finished line's country (or the loading country). CanDeployIn asks this country's IsBuildingAllowed, and DeployAt makes it the underground's owner. (reversing/findings/FINDINGS-buildingqueue.md)"
+    },
     {
      "offset": 56,
      "name": "building",
@@ -15296,6 +15344,18 @@
      "name": "building",
      "type": "CBuilding*",
      "comment": "The building the key named. (reversing/findings/FINDINGS-effectgrammar.md)"
+    }
+   ]
+  },
+  {
+   "name": "CBuildingMember",
+   "size": null,
+   "fields": [
+    {
+     "offset": 40,
+     "name": "building",
+     "type": "CBuilding*",
+     "comment": "The building this province-view button orders. (reversing/findings/FINDINGS-buildingqueue.md)"
     }
    ]
   },
@@ -17400,9 +17460,148 @@
    ]
   },
   {
+   "name": "CConfirmBuild",
+   "size": 332,
+   "fields": [
+    {
+     "offset": 32,
+     "name": "window",
+     "type": "void*",
+     "comment": "The `confirm_build` window. (reversing/findings/FINDINGS-buildingqueue.md)"
+    },
+    {
+     "offset": 36,
+     "name": "screen",
+     "type": "void*",
+     "comment": "The screen the dialog was opened from (the production view's +0xB0); its slot 23 gives the country tag the commands are posted for. (reversing/findings/FINDINGS-buildingqueue.md)"
+    },
+    {
+     "offset": 40,
+     "name": "close_requested",
+     "type": "unsigned char",
+     "comment": "Set by accept and cancel; Update returns it. (reversing/findings/FINDINGS-buildingqueue.md)"
+    },
+    {
+     "offset": 44,
+     "name": "mode",
+     "type": "int",
+     "comment": "0 a building, 1 transports, 2 escorts. (reversing/findings/FINDINGS-buildingqueue.md)"
+    },
+    {
+     "offset": 312,
+     "name": "parallel",
+     "type": "int",
+     "comment": "How many commands accept posts. Starts at 1, held at 1 or more by Update. (reversing/findings/FINDINGS-buildingqueue.md)"
+    },
+    {
+     "offset": 316,
+     "name": "serial",
+     "type": "int",
+     "comment": "The amount of each command: buildings one after another on one line. Starts at 1. (reversing/findings/FINDINGS-buildingqueue.md)"
+    },
+    {
+     "offset": 320,
+     "name": "building",
+     "type": "CBuilding*",
+     "comment": "The building in mode 0; null otherwise. (reversing/findings/FINDINGS-buildingqueue.md)"
+    },
+    {
+     "offset": 324,
+     "name": "repeat_timer",
+     "type": "void*",
+     "comment": "The timer a held stepper repeats by (CConfirmBuild_RepeatTick). (reversing/findings/FINDINGS-buildingqueue.md)"
+    },
+    {
+     "offset": 328,
+     "name": "repeat_first",
+     "type": "unsigned char",
+     "comment": "Set when a stepper is pressed; the first repeat waits 0.3 s while it is set, later ones 0.1 s. (reversing/findings/FINDINGS-buildingqueue.md)"
+    }
+   ]
+  },
+  {
    "name": "CConstructBuildingCommand",
    "size": 88,
-   "fields": []
+   "fields": [
+    {
+     "offset": 4,
+     "name": "class_id",
+     "type": "int",
+     "comment": "0x18D for CHourlyTickCommand. Distinct from the type id at +0x2C/+0x30. (reversing/findings/FINDINGS-commands.md), inherited from CCommand"
+    },
+    {
+     "offset": 8,
+     "name": "name",
+     "type": "Hoi3CString",
+     "comment": "Empty at construction in CHourlyTickCommand. (reversing/findings/FINDINGS-commands.md), inherited from CCommand"
+    },
+    {
+     "offset": 44,
+     "name": "type_id",
+     "type": "int",
+     "comment": "The value virtual slot 7 returns; CHourlyTickCommand's constructor writes 0x28D here and at +0x30. (reversing/findings/FINDINGS-commands.md), inherited from CCommand"
+    },
+    {
+     "offset": 48,
+     "name": "type_id_2",
+     "type": "int",
+     "comment": "Written with the same value as +0x2C by the constructor. Why there are two has not been established. (reversing/findings/FINDINGS-commands.md), inherited from CCommand"
+    },
+    {
+     "offset": 52,
+     "name": "issued_turn",
+     "type": "unsigned short",
+     "comment": "WORD, not a byte. 0xFFFF until posted; the post writes the session's turn counter (session+0x54, zeroed if above 0x7FFF) here. Session::PumpCommands reads it at rva 0x689CD7 and can reject the command with 'Atempted to execute invalid order with stamp '. (reversing/findings/FINDINGS-commands.md), inherited from CCommand"
+    },
+    {
+     "offset": 54,
+     "name": "targeted_async",
+     "type": "unsigned short",
+     "comment": "WORD, 0 for an ordinary command. When non-zero the post skips the serial and takes the 'Sending targeted asynchronous command: ' path instead of the queue. (reversing/findings/FINDINGS-commands.md), inherited from CCommand"
+    },
+    {
+     "offset": 56,
+     "name": "serial",
+     "type": "int",
+     "comment": "A per-channel monotonic serial, taken with lock xadd on channel+0x88 (loopback) or channel+0xA8 (server) at post time, carried across the pump's clone by hand, and appended after Execute to the 100-entry history at session+0x220 that 'Command double! Skipping.' is decided against. (reversing/findings/FINDINGS-commands.md), inherited from CCommand"
+    },
+    {
+     "offset": 60,
+     "name": "building",
+     "type": "CBuilding*",
+     "comment": "Saved as `building`, by the building's index. (reversing/findings/FINDINGS-buildingqueue.md)"
+    },
+    {
+     "offset": 64,
+     "name": "province",
+     "type": "int",
+     "comment": "Saved as `province`: the province id, **0 for a line to be placed later** (the production screen's), -1 in the empty prototype. (reversing/findings/FINDINGS-buildingqueue.md)"
+    },
+    {
+     "offset": 68,
+     "name": "line_id_type",
+     "type": "int",
+     "comment": "Type half of the id the new line takes (Execute hands &+0x44 to the line's slot 6): 0x1268 + word[0x1A857EC], 4713 in the maintainer's saves. Saved as `id`. (reversing/findings/FINDINGS-buildingqueue.md)"
+    },
+    {
+     "offset": 72,
+     "name": "line_id",
+     "type": "int",
+     "comment": "Serial half of that id, minted from the counter at 0x1A857F8, which then moves on by 1 + 3 * amount. (reversing/findings/FINDINGS-buildingqueue.md)"
+    },
+    {
+     "offset": 76,
+     "name": "amount",
+     "type": "int",
+     "comment": "Saved as `amount`: how many of the building; a new line's size, or what is added to a line already queued in the province (capped at the room left under max_allowed_level). (reversing/findings/FINDINGS-buildingqueue.md)"
+    },
+    {
+     "offset": 80,
+     "name": "country",
+     "type": "CCountryTag",
+     "comment": "Saved as `country`: whose queue the line goes on and whose IsBuildingAllowed IsValid asks. (reversing/findings/FINDINGS-buildingqueue.md)"
+    }
+   ]
   },
   {
    "name": "CConstructConvoyCommand",
@@ -29780,6 +29979,18 @@
      "comment": "Count of the list at +0xA0. (reversing/findings/FINDINGS-eventfire.md)"
     },
     {
+     "offset": 344,
+     "name": "placing_deployment_type",
+     "type": "int",
+     "comment": "Type half of the id of the deployment being placed from the deploy menu; the serial half at +0x15C. Set and cleared by SetDeploymentBeingPlaced, read by GetDeploymentBeingPlaced and by the input handler's placing click, which posts it in the CDeployUnitCommand. (reversing/findings/FINDINGS-buildingqueue.md)"
+    },
+    {
+     "offset": 348,
+     "name": "placing_deployment_id",
+     "type": "int",
+     "comment": "Serial half of the id of the deployment being placed; the type half at +0x158. (reversing/findings/FINDINGS-buildingqueue.md)"
+    },
+    {
      "offset": 352,
      "name": "orders_view",
      "type": "void*",
@@ -29814,6 +30025,12 @@
      "name": "message_log_row_limit",
      "type": "int",
      "comment": "100: the list box is trimmed to it (a row at a time) and a rebuild stops past it. (reversing/findings/FINDINGS-messageshow.md)"
+    },
+    {
+     "offset": 2744,
+     "name": "map_mode_stack",
+     "type": "CList",
+     "comment": "The map modes to go back to: PushMapMode puts the current one (+0xD34) on the front (tail +0xABC, count +0xAC0), PopMapMode takes the front one off and sets it. Placing a deployment pushes and pops it. (reversing/findings/FINDINGS-buildingqueue.md)"
     },
     {
      "offset": 3324,
@@ -33149,6 +33366,36 @@
      "offset": 8,
      "name": "next",
      "type": "CListNode<CBrigadeConstructionDefinition*>*",
+     "comment": "the next node"
+    },
+    {
+     "offset": 12,
+     "name": "flag",
+     "type": "unsigned char",
+     "comment": "a byte the node is made with cleared, like CList's own"
+    }
+   ]
+  },
+  {
+   "name": "CListNode<CBuilding*>",
+   "size": 16,
+   "fields": [
+    {
+     "offset": 0,
+     "name": "data",
+     "type": "CBuilding*",
+     "comment": "what the node holds (BiceLib/HoiDataStructures.hpp:53)"
+    },
+    {
+     "offset": 4,
+     "name": "prev",
+     "type": "CListNode<CBuilding*>*",
+     "comment": "the previous node"
+    },
+    {
+     "offset": 8,
+     "name": "next",
+     "type": "CListNode<CBuilding*>*",
      "comment": "the next node"
     },
     {
@@ -40572,6 +40819,12 @@
      "name": "editing",
      "type": "unsigned char",
      "comment": "While set, Show does nothing but clear it when a dialog is open, and PlaceSliders leaves the sliders' values alone. Likely \"a dialog was opened from here\". (reversing/findings/FINDINGS-countryviews.md)"
+    },
+    {
+     "offset": 792,
+     "name": "confirm_build",
+     "type": "CConfirmBuild*",
+     "comment": "The open confirm dialog, made by OnBuildingButton, OnConvoyButton and OnEscortButton (the previous one destroyed first); BuildTooltip asks it first (FINDINGS-productiontooltip.md section 1). (reversing/findings/FINDINGS-buildingqueue.md)"
     },
     {
      "offset": 796,
@@ -55452,6 +55705,29 @@
    "labels": []
   },
   {
+   "rva": 119920,
+   "namespace": "",
+   "name": "CustomGameSettings_HasCountry",
+   "confidence": "TENTATIVE",
+   "evidence": "False where the custom game settings' first byte is clear; otherwise whether the list at CCurrentGameState +0x60 (entries with a country id at +0x24, next at +0x54) holds the country's id. `ret 8`. Used by both Deliver bodies' tails to set the settings' +0x6C byte. What the list is was not read. The name is ours.\n(reversing/findings/FINDINGS-buildingqueue.md)",
+   "signature": {
+    "convention": "__stdcall",
+    "return": "bool",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "settings",
+      "type": "void*"
+     },
+     {
+      "name": "country",
+      "type": "CCountryTag*"
+     }
+    ]
+   },
+   "labels": []
+  },
+  {
    "rva": 120160,
    "namespace": "",
    "name": "ApplyCustomGameSettings",
@@ -62888,6 +63164,56 @@
    "labels": []
   },
   {
+   "rva": 535168,
+   "namespace": "CBuildingDeployment",
+   "name": "CBuildingDeployment",
+   "confidence": "CERTAIN",
+   "evidence": "**Constructor**, `this` in EAX, the country's tag and id by value on the stack, `ret 8`. Writes CReferenceObject's vftable and its +4 = 0x18D, the default id (+8/+0xC from 0x1A8CC94/0x1A8CC98), an empty string at +0x14 (its byte +0x10), the country at +0x30/+0x34, and CBuildingDeployment's vftable (0x15BDF14). The building (+0x38) is set by the caller. 0x3C bytes, as both callers allocate. Two callers: CBuildingConstruction::Deliver (0x485CCD) and CCountry::LoadKey's `building_deployment` arm (0x4CD950), which passes the loading country.\n(reversing/findings/FINDINGS-buildingqueue.md)",
+   "signature": {
+    "convention": "__stdcall",
+    "return": "CBuildingDeployment*",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "this",
+      "type": "CBuildingDeployment*",
+      "storage": "EAX"
+     },
+     {
+      "name": "countryTag",
+      "type": "int",
+      "storage": "stack:4"
+     },
+     {
+      "name": "countryId",
+      "type": "int",
+      "storage": "stack:8"
+     }
+    ],
+    "returnStorage": "EAX"
+   },
+   "labels": []
+  },
+  {
+   "rva": 535248,
+   "namespace": "CBuildingDeployment",
+   "name": "GetType",
+   "confidence": "CERTAIN",
+   "evidence": "Slot 8: `mov eax, 0x4B7; ret` - the save token `building_deployment`, where CUnitDeployment's slot 8 answers 0x4B4, `unit_deployment`. The deploy menu, CDeployUnitCommand::Execute and MapMode_Deployment_Colour tell the two kinds apart by it.\n(reversing/findings/FINDINGS-buildingqueue.md)",
+   "signature": {
+    "convention": "__thiscall",
+    "return": "int",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "this",
+      "type": "CBuildingDeployment*"
+     }
+    ]
+   },
+   "labels": []
+  },
+  {
    "rva": 535264,
    "namespace": "CBrigadeConstructionDefinition",
    "name": "CBrigadeConstructionDefinition",
@@ -63011,7 +63337,7 @@
    "namespace": "CConstruction",
    "name": "CanStillBeBuilt",
    "confidence": "CERTAIN",
-   "evidence": "**Slot 12**, called on every queue item at the top of the production pass (0x519DE1) with &CCountry +0xCA4. True when location (+0x44) is null, or when [[+0x44] + 0x338] equals the tag's id half (+4 of the argument), or when slot 11 ([vftable+0x2C]) answers true; false otherwise, and a false answer makes CDistributeProduction::Distribute unlink, free and destruct the item. location is null on every military and convoy item and a province on building items, so in practice this cancels building projects in provinces the country has lost and never touches unit builds. `this` in ecx, one stack argument, `ret 4`, with two `sete al` tails. The name is ours.\n(reversing/findings/FINDINGS-production.md)",
+   "evidence": "**Slot 12 of the military and the convoy line - not of the building line, which has its own (CBuildingConstruction::CanStillBeBuilt, 0x4864C0).** Called on every queue item at the top of the production pass (0x519DE1) with &CCountry +0xCA4. True when location (+0x44) is null, or when [[+0x44] + 0x338] equals the tag's id half (+4 of the argument), or when slot 11 ([vftable+0x2C]) answers true; false otherwise, and a false answer makes CDistributeProduction::Distribute unlink, free and destruct the item. Its two holders always have a null location (EnqueueConstruction zeroes it), so **this body never cancels anything**; the cancelling of a building line in a province the country no longer controls, and the underground's own rules, are CBuildingConstruction's slot 12. `this` in ecx, one stack argument, `ret 4`, with two `sete al` tails. The name is ours.\n(reversing/findings/FINDINGS-buildingqueue.md)",
    "signature": {
     "convention": "__thiscall",
     "return": "bool",
@@ -63425,6 +63751,27 @@
    "labels": []
   },
   {
+   "rva": 547056,
+   "namespace": "CBuildingConstruction",
+   "name": "CBuildingConstruction",
+   "confidence": "CERTAIN",
+   "evidence": "The constructor, `this` in EAX, bare `ret`: id null (0x1A8CC94/98), the name string empty, cost, duration and progress 0, **status 1000**, **size 1**, location null, country and builder `---`, building null, count 0. One caller, CCountry::LoadKey (0x4CCF7A), for a `building_construction` block - which then enqueues the line (CCountry::EnqueueConstruction) before its block is read, as a unit line is. CConstructBuildingCommand::Execute builds the same object inline.\n(reversing/findings/FINDINGS-buildingqueue.md)",
+   "signature": {
+    "convention": "__fastcall",
+    "return": "CBuildingConstruction*",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "this",
+      "type": "CBuildingConstruction*",
+      "storage": "EAX"
+     }
+    ],
+    "returnStorage": "EAX"
+   },
+   "labels": []
+  },
+  {
    "rva": 547200,
    "namespace": "CBuildingConstruction",
    "name": "LoadKey",
@@ -63456,7 +63803,7 @@
    "namespace": "CBuildingConstruction",
    "name": "SaveContents",
    "confidence": "CERTAIN",
-   "evidence": "Slot 2 of CPersistent, this class's own: the RTTI export says CBuildingConstruction introduced the implementation at this address. See GameClasses/CPersistent.hpp for what the five do.",
+   "evidence": "Slot 2: the shared CConstruction contents (0x4834A0), then `building` = the building's index (+0x54 of +0x58), then `count` (+0x5C) **only where it is not nought** - which is why no save of the maintainer's has a `count` key.\n(reversing/findings/FINDINGS-buildingqueue.md)\n\nSlot 2 of CPersistent, this class's own: the RTTI export says CBuildingConstruction introduced the implementation at this address. See GameClasses/CPersistent.hpp for what the five do.",
    "signature": {
     "convention": "__thiscall",
     "return": "void",
@@ -63475,11 +63822,30 @@
    "labels": []
   },
   {
+   "rva": 547632,
+   "namespace": "CBuildingConstruction",
+   "name": "RecalculateCost",
+   "confidence": "CERTAIN",
+   "evidence": "**Slot 14, a building line's price.** Bare `ret`. country = countries[+0x4C]; building = +0x58. `cost = building.cost (+0x58)`; where the building's category (+0x88) answers its slot 2 (IsValid - the folded `mov al,1`, true for every category including the null one), `cost = cost * (1000 - GetCategoryBuildDiscount(country, category)) / 1000`, 64-bit, truncated. `+0x30 = cost`; `+0x34 = CCountry_GetBuildingBuildDays(building, country) * 1000`. **That is all**: one building's cost a day and one building's days, whatever the line's size; the same discount on both; no levels term, no by-type term, no build-speed modifier, no reserves, no floor but GetCategoryBuildDiscount's own cap of 990, and **no practical_factor** (that field is CMilitaryConstruction's). The cost is CCountry::GetBuildCost's arithmetic inlined. Called by Execute when a line is made, by CDistributeProduction::Distribute on every remaining line when a line has been finished and removed (0x51A253), by CInGameIdler::Enter on every line of a new game, and on a change of law (CChangeLawCommand::Execute) - the queue-wide callers of slot 14. Measured: 159 of 171 lines in seven saves of 1936 to the thousandth from the save's own practical, law and ic_efficiency level; the other twelve are a head of state's industrial_efficiency and a price older than the save.\n(reversing/findings/FINDINGS-buildingqueue.md)",
+   "signature": {
+    "convention": "__thiscall",
+    "return": "void",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "this",
+      "type": "CBuildingConstruction*"
+     }
+    ]
+   },
+   "labels": []
+  },
+  {
    "rva": 547792,
    "namespace": "CBuildingConstruction",
    "name": "Deliver",
-   "confidence": "TENTATIVE",
-   "evidence": "Slot 9: a finished building line delivers one building. Without a target province (+0x44) and with a deployable definition (+0x60) it makes a CBuildingDeployment instead. With a province: level_max += 1000 capped at max_allowed_level*1000, CProvinceBuilding_OnLevelChanged; **for the underground** (definition == g_CBuildingDataBase +0x28) level_current += Underground_GetInitialStrength(province, builder), capped, underground_owner = the builder (+0x48/+0x4C), CCountry_AddUnderground, template byte +0x20 = 1. Then BUILDING_DONE (NAME, PROV) goes to the player **only where the player controls the province** (+0x338) - for an underground, the occupier. The rest of the body (the tech gain at the top, the count and the requeue at the end) was read only by decompile.\n(reversing/findings/FINDINGS-occupation.md)",
+   "confidence": "CERTAIN",
+   "evidence": "**Slot 9: a finished building line delivers one building.** Bare `ret`; CDistributeProduction::Distribute calls it when progress >= duration and removes the line when it answers 1. Read whole on the listing 2026-10-15. In order: (1) a country (+0x48/+0x4C) that is not REB and owns no province (+0xCF8 <= 0) - answer 1 and nothing else. (2) **The practical**: where the building's category (CBuilding +0x88) answers its slot 2 - both CTechnologyCategory and the null category hold `mov al,1; ret` there - CCountry::GainTechAbility(country, category, completion_size (+0x8C)), **in full: no practical_factor**, unlike a unit's. (3) **Where the building is `capital = yes` (+0x60) and the line has no province (+0x44 null)**: a CBuildingDeployment (0x3C bytes, CBuildingDeployment::CBuildingDeployment with the line's country), its id set through slot 6 to (the line's id type +8, the line's id +0xC + count (+0x5C) + 1), its building (+0x38) = the line's, appended to the country's deployments (CCountry_AddDeployment, +0x688), count += 1. **No message.** (4) **Otherwise, where there is a province**: the province's building of that index (+0x310[CBuilding +0x54]) has level_max (+0x20) += 1000, capped at max_level*1000 and floored at 0 - **level_current (+0x24) is not touched**, so the new level works only as the day's repair fills it - then CProvinceBuilding_OnLevelChanged (which does nothing but for infrastructure). For the underground (g_CBuildingDataBase +0x28): level_current += Underground_GetInitialStrength(province, country), capped at level_max, `changed` (+0x28) = whether it moved, underground_owner (+0x38C/+0x390) = the line's country, CCountry_AddUnderground, the template's +0x20 = 1. Then **BUILDING_DONE** where the local player (CCurrentGameState +0xC34) is the province's **controller** (+0x338): variables NAME (the building's slot 6, its name string at +0x38) and PROV (the province's GetName), both shield countries the province's **owner**, and the callback thunk 0x522400 (CInGameIdler slot 78) for its Goto. A non-capital building with no province gets the practical and nothing else. Nothing here refreshes the area's ports and air bases (COwnerArea::RefreshBases is not called), rebuilds the province's modifier, or touches radar. (5) progress -= min(duration, progress); size (+0x40) -= 1; in a custom game at stage 2 (GetCustomGameSettings: byte +0 set, +0x18 == 2) whose list holds the country (CustomGameSettings_HasCountry) the settings' +0x6C = 1; where size is still above 0, slot 14 prices the line again. Answers size <= 0. **Every line priced again** is not here: Distribute does that, with CCountry::RebuildStaticModifiers, on any day a Deliver answered 1 - a unit's line as much as a building's. See reversing/findings/FINDINGS-buildingqueue.md, section B.\n(reversing/findings/FINDINGS-buildingqueue.md)",
    "signature": {
     "convention": "__thiscall",
     "return": "bool",
@@ -63488,6 +63854,90 @@
      {
       "name": "this",
       "type": "CBuildingConstruction*"
+     }
+    ]
+   },
+   "labels": []
+  },
+  {
+   "rva": 549632,
+   "namespace": "CBuildingConstruction",
+   "name": "GetSaveToken",
+   "confidence": "CERTAIN",
+   "evidence": "Slot 10: `mov eax, 0x27C; ret` - token 636, `building_construction`, the key the queue writes the line under.\n(reversing/findings/FINDINGS-buildingqueue.md)",
+   "signature": {
+    "convention": "__thiscall",
+    "return": "int",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "this",
+      "type": "CBuildingConstruction*"
+     }
+    ]
+   },
+   "labels": []
+  },
+  {
+   "rva": 549648,
+   "namespace": "CBuildingConstruction",
+   "name": "GetName",
+   "confidence": "CERTAIN",
+   "evidence": "Slot 13: the building's name (its slot 6) and, where the line has a location, `\" (\"` + the province's name + `\")\"` - \"Anti-Aircraft Guns (Praha)\". It is what the production screen's queue line writes in `unit_name`. `ret 4`.\n(reversing/findings/FINDINGS-buildingqueue.md)",
+   "signature": {
+    "convention": "__thiscall",
+    "return": "void*",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "this",
+      "type": "CBuildingConstruction*"
+     },
+     {
+      "name": "out",
+      "type": "void*"
+     }
+    ]
+   },
+   "labels": []
+  },
+  {
+   "rva": 549968,
+   "namespace": "CBuildingConstruction",
+   "name": "IsUnderground",
+   "confidence": "CERTAIN",
+   "evidence": "Slot 11: the line's building (+0x58) is the building database's +0x28 entry, the building carrying `local_underground` (FINDINGS-occupation.md E.1). The other two kinds of line hold the folded `xor al,al` here.\n(reversing/findings/FINDINGS-buildingqueue.md)",
+   "signature": {
+    "convention": "__thiscall",
+    "return": "bool",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "this",
+      "type": "CBuildingConstruction*"
+     }
+    ]
+   },
+   "labels": []
+  },
+  {
+   "rva": 550080,
+   "namespace": "CBuildingConstruction",
+   "name": "CanStillBeBuilt",
+   "confidence": "CERTAIN",
+   "evidence": "**Slot 12 of a building line - its own, not CConstruction's 0x4831C0.** Asked of every line at the top of the production pass (0x519DE1); false unlinks and frees the line. False where the line has a location whose controller (+0x338) is not the country (`tag` +4) and the line is not an underground. Otherwise true for any building but the underground. **For an underground**: with no location, CCountry_CanTrainUnderground(country) - so an underground ordered from the production screen is cancelled the first day its country is no longer at war, or is in exile, or has nowhere to put one; with a location, false where the province already has an underground (`level_max` of +0x30C above nought), else Underground_CanPlaceIn's test inlined - the controller at war with the country and the country a friend of the owner, and, for a country neither major nor above 100 MaxIC, the owner the country itself. `ret 4`.\n(reversing/findings/FINDINGS-buildingqueue.md)",
+   "signature": {
+    "convention": "__thiscall",
+    "return": "bool",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "this",
+      "type": "CBuildingConstruction*"
+     },
+     {
+      "name": "tag",
+      "type": "CCountryTag*"
      }
     ]
    },
@@ -67423,6 +67873,25 @@
    "labels": []
   },
   {
+   "rva": 749296,
+   "namespace": "",
+   "name": "CBuilding_ResolveBuildingLists",
+   "confidence": "CERTAIN",
+   "evidence": "**Turns a building's `prerequisites` and `not_if_x_exists` names into buildings**, once each, after buildings.txt is read (its one caller is the loop at 0x4B793F in LoadBuildings, over every building). For each name of the string list at +0xAC: the building of that name (StringHashFind_At1C on the database) is appended to the list at +0x9C; an unknown name is logged \"Unknown building '...' referred to in prerequisited list.\", the building itself \"Building '...' defined as its own prerequisit.\"; then the string list is freed (0x4B8C10). The same for +0xCC into +0xBC. So the string lists are always empty in a running game, and the resolved lists are what CCountry::IsBuildingAllowed reads. `ret 4` at 0x4B7500. The name is ours.\n(reversing/findings/FINDINGS-buildingqueue.md)",
+   "signature": {
+    "convention": "__stdcall",
+    "return": "void",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "building",
+      "type": "CBuilding*"
+     }
+    ]
+   },
+   "labels": []
+  },
+  {
    "rva": 750976,
    "namespace": "",
    "name": "GetBuildingDataBase",
@@ -67463,8 +67932,8 @@
    "rva": 753568,
    "namespace": "",
    "name": "CProvinceBuilding_OnLevelChanged",
-   "confidence": "TENTATIVE",
-   "evidence": "0x4B7FA0-0x4B8296, `ret 4`, `this` on the stack. Runs after a province building's level has moved, and it is the **live** maintainer of the province's infrastructure field. Gated at 0x4B7FC4 on `this->definition_ptr(+0x18)->effect(+0xC)->id(+0x24) == 12`, MODIFIER_INFRASTRUCTURE, it reads the old value out of `this->province(+0x1C)->+0x5C` into edi and writes the new one as `this->level_max(+0x20) / 10` - the 0.1 of `infrastructure = 0.1` is **hardcoded here as a divide by 10000 after a multiply by 1000**, where CProvince::LoadKey and SetProvinceBuildingLevel both read it out of `CBuilding +0x8 effect_size`. A mod that changed that value on `infra` would therefore make the three writers disagree. It then compares old and new against g_InfraThreshold0_200 (200) and g_InfraThreshold0_100 (100) and, on a crossing in either direction, raises a message through 0x47F540 with the province's controller and invalidates four path or supply caches (0x47FFF0, 0x47FEB0, 0x4807F0, 0x480690) - which is the mechanism behind the `impassable_infra` province flag a savegame carries, and a third independent reason to read `+0x5C` as infrastructure: the two thresholds are infra levels 1 and 2. Four callers: 0x42CC39, 0x485D41, 0x50BF03, 0x57E6E2. The name is from the body.\n(reversing/findings/FINDINGS-aifields.md)",
+   "confidence": "CERTAIN",
+   "evidence": "0x4B7FA0-0x4B8296, `ret 4`, `this` on the stack. Runs after a province building's level_max has moved - CBuildingConstruction::Deliver (0x485D41), CBuildingDeployment::DeployAt (0x57E6E2), 0x42CC39 and 0x50BF03. **It does nothing at all unless the building's modifier is MODIFIER_INFRASTRUCTURE** (`definition_ptr(+0x18)->effect(+0xC)->id(+0x24) == 12`, 0x4B7FC4, `jne` to the exit): no other building's level reaches the province's modifier, the area or radar through it. For infrastructure: the province's MaxInfrastructure (+0x5C) = level_max * 1000 / 10000 - the 0.1 of `infrastructure = 0.1` **hardcoded**, where CProvince::LoadKey and SetProvinceBuildingLevel read CBuilding +0x8 effect_size, so a mod changing it on `infra` makes the writers disagree. Where that crosses g_InfraThreshold0_100 (100) or g_InfraThreshold0_200 (200): **UpdateOwnerAreaOfProvince** with the controller (or `---` where it has fallen to 100 or less) - the call the record had as 'a message through 0x47F540' - then DeleteAreaGroups, RebuildAreaGroups, DeleteSupplyGroups and RebuildSupplyGroups; then every distinct owner of a neighbouring province in a real area, and the controller, has its CCountry +0x580 (theatres_dirty) set; and CProvince::UpdateSupplyDepot. The name is from the body.\n(reversing/findings/FINDINGS-buildingqueue.md)",
    "signature": {
     "convention": "__stdcall",
     "return": "void",
@@ -71070,11 +71539,64 @@
    "labels": []
   },
   {
+   "rva": 916992,
+   "namespace": "",
+   "name": "CCountry_GetBuildingBuildDays",
+   "confidence": "CERTAIN",
+   "evidence": "**How many whole days a country takes to build one of a building.** `ret 4`, the building in EAX. `t = building.time (+0x5C) * 1000`; where the category (+0x88) answers its slot 2 (always), `t = t * (1000 - GetCategoryBuildDiscount(country, category)) / 1000`, 64-bit, truncated; returns `t / 1000`, truncated. So the days are `floor(time * (1 - discount))` with the same discount as the cost, and nothing else: no build-speed modifier, no floor. Callers: CBuildingConstruction::RecalculateCost (0x485BAF), CConfirmBuild::Update (0x7F29DB) and 0x41B3E2 (the custom game's setup).\n(reversing/findings/FINDINGS-buildingqueue.md)",
+   "signature": {
+    "convention": "__stdcall",
+    "return": "int",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "building",
+      "type": "CBuilding*",
+      "storage": "EAX"
+     },
+     {
+      "name": "country",
+      "type": "CCountry*",
+      "storage": "stack:4"
+     }
+    ],
+    "returnStorage": "EAX"
+   },
+   "labels": []
+  },
+  {
+   "rva": 917104,
+   "namespace": "CCountry",
+   "name": "IsBuildingAllowedIgnoringLevel",
+   "confidence": "TENTATIVE",
+   "evidence": "IsBuildingAllowed with the level test replaced by `max_allowed_level >= 0` and nothing counted from the queue: availability, underground or controller, port, the two building lists. `ret 8`. Used by the province view's building button and its update where the custom game's settings say the setup is running (0x6DC085, 0x6DC549, 0x6DC656), where the button sets a level instead of ordering one. The name is ours.\n(reversing/findings/FINDINGS-buildingqueue.md)",
+   "signature": {
+    "convention": "__thiscall",
+    "return": "bool",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "this",
+      "type": "CCountry*"
+     },
+     {
+      "name": "building",
+      "type": "CBuilding*"
+     },
+     {
+      "name": "province",
+      "type": "CProvince*"
+     }
+    ]
+   },
+   "labels": []
+  },
+  {
    "rva": 917440,
    "namespace": "CCountry",
    "name": "IsBuildingAllowed",
    "confidence": "CERTAIN",
-   "evidence": "Lua: CCountry:IsBuildingAllowed   (script/LUA API.txt, CCountry::IsBuildingAllowed)\nRegistered as: luabind::detail::memfun_registration<CCountry,bool (__thiscall CCountry::*)(CBuilding *,CProvince const *)const ,luabind::detail::null_type>\nluabind signature: bool IsBuildingAllowed(CCountry const&,CBuilding*,CProvince const*)\nRecovered by emulating SetupAI (0x8EAE30): the registration object luabind builds for this def holds this address.",
+   "evidence": "Lua: CCountry:IsBuildingAllowed   (script/LUA API.txt, CCountry::IsBuildingAllowed)\nRegistered as: luabind::detail::memfun_registration<CCountry,bool (__thiscall CCountry::*)(CBuilding *,CProvince const *)const ,luabind::detail::null_type>\nluabind signature: bool IsBuildingAllowed(CCountry const&,CBuilding*,CProvince const*)\nRecovered by emulating SetupAI (0x8EAE30): the registration object luabind builds for this def holds this address.\n\n**Whether a country may have one more of a building in a province** - the Lua API's CCountry:IsBuildingAllowed. `ret 8`. False, in order: (1) the building is not available to the country - TechnologyStatus (+0xDF8)->building_available (+0x28C)[building index], set by a researched technology's `activate_building`; (2) for any building but the underground, the country is not the province's controller (+0x338); (3) **the province's whole levels built (level_max / 1000, truncated) plus the `size` (+0x40) of every line in the country's queue (+0xF40) that is a building line (slot 16) for this province and this building reach max_level (+0x68)**; (4) the province has no CPort (+0x354) and the building is `port = yes`; (5) any building of the resolved not_if_x_exists list (+0xBC) has a level_max above g_FixedZero in the province; (6) any building of the resolved prerequisites list (+0x9C) has none. True otherwise. The owner is not asked, nor `capital`, `onmap`, `orientation` or `show_for_province`. Callers: CBuildingDeployment::CanDeployIn (0x57E4E0), CConstructBuildingCommand::IsValid (slot 14, 0x54562D), CBuildingMember::OnClick (0x6DC0F0, the province view's building button) and that button's update 0x6DC380 twice (0x6DC558, 0x6DC66C). See reversing/findings/FINDINGS-buildingqueue.md, sections A and B.\n(reversing/findings/FINDINGS-buildingqueue.md)",
    "signature": {
     "convention": "__thiscall",
     "return": "bool",
@@ -73823,6 +74345,31 @@
     "return": "CList<CConstruction *> const &",
     "hiddenReturn": false,
     "params": []
+   },
+   "labels": []
+  },
+  {
+   "rva": 1005248,
+   "namespace": "",
+   "name": "CCountry_AddDeployment",
+   "confidence": "CERTAIN",
+   "evidence": "Appends a deployment to the back of country->deployments (+0x688, tail +0x68C, count +0x690), a 0x10-byte node {data, prev, next, byte}. `ret 4`. Three callers: CMilitaryConstruction::Deliver (0x485038), CBuildingConstruction::Deliver (0x485CF1) and CCountry::LoadKey (0x4CD918). So the deploy menu lists deployments in the order they were finished. The name is ours.\n(reversing/findings/FINDINGS-buildingqueue.md)",
+   "signature": {
+    "convention": "__stdcall",
+    "return": "void",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "country",
+      "type": "CCountry*",
+      "storage": "ESI"
+     },
+     {
+      "name": "deployment",
+      "type": "void*",
+      "storage": "stack:4"
+     }
+    ]
    },
    "labels": []
   },
@@ -82468,11 +83015,111 @@
    "labels": []
   },
   {
+   "rva": 1330528,
+   "namespace": "CConstructBuildingCommand",
+   "name": "CConstructBuildingCommand_Prototype",
+   "confidence": "CERTAIN",
+   "evidence": "The empty constructor the command factory's prototype is made with (its one caller is RegisterCommandTypes, 0x885716): the CCommand base with type ids 0x1C3, building null, province -1, id pair 0, amount 0, country `---`. `ret 4`. Named for its one use; the game's own name for it is a second CConstructBuildingCommand constructor.\n(reversing/findings/FINDINGS-buildingqueue.md)",
+   "signature": {
+    "convention": "__stdcall",
+    "return": "CConstructBuildingCommand*",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "this",
+      "type": "CConstructBuildingCommand*",
+      "storage": "stack:4"
+     }
+    ],
+    "returnStorage": "EAX"
+   },
+   "labels": []
+  },
+  {
+   "rva": 1330704,
+   "namespace": "CConstructBuildingCommand",
+   "name": "CConstructBuildingCommand",
+   "confidence": "CERTAIN",
+   "evidence": "**The constructor every poster uses** (the production screen's confirm dialog, the province view's building button, the Lua `CConstructBuildingCommand(tag, building, province, amount)`). `ret 0x14`; `this` on the stack, **`amount` in EDI**. CCommand's base set up (class id 0x18D, type ids 0x1C3 at +0x2C/+0x30, +0x34 = 0xFFFF), then building -> +0x3C, province id -> +0x40 (0 for none), country tag -> +0x50/+0x54, amount -> +0x4C. **Mints the line's id** under the spin lock at 0x1B16714: type `0x1268 + word[0x1A857EC]` into +0x44 (4713 in the maintainer's saves), serial `[0x1A857F8] + 1` into +0x48, and the counter moves on by `1 + 3 * amount` - so a command reserves three numbers for each building beyond the line's own (what for is CBuildingConstruction::Deliver's business). Callers: CConfirmBuild::OnAccept (0x7F3A08, province 0, amount = serial), CBuildingMember::OnClick (0x6DC13E, the province, amount 1) and the luabind constructor (0x9898D1).\n(reversing/findings/FINDINGS-buildingqueue.md)",
+   "signature": {
+    "convention": "__stdcall",
+    "return": "CConstructBuildingCommand*",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "this",
+      "type": "CConstructBuildingCommand*",
+      "storage": "stack:4"
+     },
+     {
+      "name": "building",
+      "type": "CBuilding*",
+      "storage": "stack:8"
+     },
+     {
+      "name": "province",
+      "type": "int",
+      "storage": "stack:0xC"
+     },
+     {
+      "name": "country",
+      "type": "CCountryTag",
+      "storage": "stack:0x10"
+     },
+     {
+      "name": "amount",
+      "type": "int",
+      "storage": "EDI"
+     }
+    ],
+    "returnStorage": "EAX"
+   },
+   "labels": []
+  },
+  {
+   "rva": 1330928,
+   "namespace": "CConstructBuildingCommand",
+   "name": "Execute",
+   "confidence": "CERTAIN",
+   "evidence": "**Slot 6: puts a building on the build queue.** Bare `ret` at 0x545169. country = countries[+0x54]; province = provinces[+0x40] (CCurrentGameState +0xB8C). `level = province.buildings[building.index]->level_max / 1000` (truncated). **Where the command names a province (+0x40 != 0) and the queue is not empty**, it walks the queue: every line whose slot 16 says it is a building line (the folded `mov al,1` on CBuildingConstruction, `xor al,al` on the other two) with the same location (+0x44) and the same building (+0x58) adds its size (+0x40) to `level`, and the **last** such line is remembered. **Found: no new line** - `found.size += amount`, but where `amount + level > max_allowed_level` (+0x68) only `max_allowed_level - level` is added (which is nought or less when the province is already full). **Not found, or no province**: a CBuildingConstruction (0x60 bytes) is built in place - status 1000, size 1, location null, builder `---` - takes the command's id pair (+0x44) through slot 6, the country's tag, the building, and **size = amount, uncapped**; CCountry::EnqueueConstruction **appends it at the tail of the queue** (0x545109); slot 14 prices it (0x545115). Then, either way, where the command names a province the line's location is set to it (EnqueueConstruction had zeroed it) and slot 8 is called - the folded `mov al,1; ret` on a building line, so nothing. Last, CDistributeProduction::UpdateNeeded (0x545153). **Nothing is charged, nothing is refused and nothing is said**: no AddProgress (so FINDINGS-oob.md's 'both build commands call it when an item is queued' is wrong for this one), no IC, no message. A merged line is not priced again. Who refuses is IsValid (slot 14), asked by the post and again by the pump before this runs.\n(reversing/findings/FINDINGS-buildingqueue.md)",
+   "signature": {
+    "convention": "__thiscall",
+    "return": "void",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "this",
+      "type": "CConstructBuildingCommand*"
+     }
+    ]
+   },
+   "labels": []
+  },
+  {
+   "rva": 1331568,
+   "namespace": "CConstructBuildingCommand",
+   "name": "GetTypeId",
+   "confidence": "CERTAIN",
+   "evidence": "Slot 7: `mov eax, 0x1C3; ret`.\n(reversing/findings/FINDINGS-buildingqueue.md)",
+   "signature": {
+    "convention": "__thiscall",
+    "return": "int",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "this",
+      "type": "CConstructBuildingCommand*"
+     }
+    ]
+   },
+   "labels": []
+  },
+  {
    "rva": 1331584,
    "namespace": "CConstructBuildingCommand",
    "name": "SaveContents",
    "confidence": "CERTAIN",
-   "evidence": "Slot 2 of CPersistent, this class's own: the RTTI export says CConstructBuildingCommand introduced the implementation at this address. See GameClasses/CPersistent.hpp for what the five do.",
+   "evidence": "Slot 2: CCommand's contents, then `country` (+0x50, quoted), `building` (the building's index, +0x54 of +0x3C), `id` (+0x44 pair), `amount` (+0x4C) and `province` (+0x40). `ret 4`. So the command's own grammar is `country=\"TAG\" building=N id={...} amount=N province=N` - which is what LoadKey reads back.\n(reversing/findings/FINDINGS-buildingqueue.md)\n\nSlot 2 of CPersistent, this class's own: the RTTI export says CConstructBuildingCommand introduced the implementation at this address. See GameClasses/CPersistent.hpp for what the five do.",
    "signature": {
     "convention": "__thiscall",
     "return": "void",
@@ -82495,7 +83142,7 @@
    "namespace": "CConstructBuildingCommand",
    "name": "LoadKey",
    "confidence": "CERTAIN",
-   "evidence": "**The keys its switch names**, 3 of them, one case each: `building`, `id`, `province`. Read from the switch by reversing/scripts/definitions.py. A loader may resolve further keys as names out of a database - CGovernment and CMinister both do - but anything that is neither is dropped in silence.\n(reversing/findings/FINDINGS-definitions.md)\n\nSlot 4 of CPersistent, this class's own: the RTTI export says CConstructBuildingCommand introduced the implementation at this address. See GameClasses/CPersistent.hpp for what the five do.",
+   "evidence": "**Five keys, not three**: `building` (0x1FE, an index looked up in the building database's array at +0xC, into +0x3C), `id` (0xB, ParseObjectId into +0x44), `province` (0x1EE, ParseInt into +0x40), and - in the arm above 0x1FE, which is two `sub`s and not a switch, so the switch reading missed it - `country` (0x24D, CCountryDataBase::GetTag into +0x50/+0x54) and `amount` (0x25F, sscanf into +0x4C). Anything else goes to CCommand::LoadKey. The same five SaveContents writes.\n(reversing/findings/FINDINGS-buildingqueue.md)\n\nSlot 4 of CPersistent, this class's own: the RTTI export says CConstructBuildingCommand introduced the implementation at this address. See GameClasses/CPersistent.hpp for what the five do.",
    "signature": {
     "convention": "__thiscall",
     "return": "void",
@@ -82512,6 +83159,34 @@
      {
       "name": "key",
       "type": "SaveToken"
+     }
+    ]
+   },
+   "labels": []
+  },
+  {
+   "rva": 1332384,
+   "namespace": "CConstructBuildingCommand",
+   "name": "Clone",
+   "confidence": "CERTAIN",
+   "evidence": "Slot 13: operator new(0x58), CCommand's copy constructor (0x40B530), vftable 0x15C3614, +0x3C..+0x54 copied.\n(reversing/findings/FINDINGS-buildingqueue.md)",
+   "signature": null,
+   "labels": []
+  },
+  {
+   "rva": 1332544,
+   "namespace": "CConstructBuildingCommand",
+   "name": "IsValid",
+   "confidence": "CERTAIN",
+   "evidence": "**Slot 14, the only refusal a building order meets**: false where the building (+0x3C) is null or the province id (+0x40) is below nought; **true where it is nought** - a line placed later, as the production screen orders one, is never refused here; otherwise CCountry::IsBuildingAllowed(countries[+0x54], building, provinces[+0x40]). Asked by the channel's post and by the session's pump before Execute (FINDINGS-commands.md), and by the AI's Lua before it posts (`loCommand:IsValid()`). A refused command is deleted silently.\n(reversing/findings/FINDINGS-buildingqueue.md)",
+   "signature": {
+    "convention": "__thiscall",
+    "return": "bool",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "this",
+      "type": "CConstructBuildingCommand*"
      }
     ]
    },
@@ -82956,11 +83631,59 @@
    "labels": []
   },
   {
+   "rva": 1347568,
+   "namespace": "CDeployUnitCommand",
+   "name": "CDeployUnitCommand",
+   "confidence": "CERTAIN",
+   "evidence": "Constructor, `ret 0x20`: the base command (its +0x2C/+0x30 = 0x4B5, +0x34 = 0xFFFF, an empty string at +8) and then the province id at +0x54, the country at +0x3C/+0x40, the deployment's id at +0x44/+0x48 and the target unit's id at +0x4C/+0x50. Six callers: the in-game input handler's placing click (0x65393B, with no target), CDropAndAssignUnitDeploymentCallback::Call (0x8261BF), CDeploymentTargetEntry::OnSelect (0x826C04), and three in the AI (0x88B7EA, 0x88B98D, 0x88BBF8).\n(reversing/findings/FINDINGS-buildingqueue.md)",
+   "signature": {
+    "convention": "__stdcall",
+    "return": "CDeployUnitCommand*",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "this",
+      "type": "CDeployUnitCommand*"
+     },
+     {
+      "name": "province",
+      "type": "int"
+     },
+     {
+      "name": "countryTag",
+      "type": "int"
+     },
+     {
+      "name": "countryId",
+      "type": "int"
+     },
+     {
+      "name": "deploymentType",
+      "type": "int"
+     },
+     {
+      "name": "deploymentId",
+      "type": "int"
+     },
+     {
+      "name": "targetType",
+      "type": "int"
+     },
+     {
+      "name": "targetId",
+      "type": "int"
+     }
+    ],
+    "returnStorage": "EAX"
+   },
+   "labels": []
+  },
+  {
    "rva": 1347792,
    "namespace": "CDeployUnitCommand",
    "name": "Execute",
    "confidence": "CERTAIN",
-   "evidence": "**Slot 6: puts a finished unit somewhere.** Bare `ret`. The deployment by the id at +0x44/+0x48. Where the target at +0x4C/+0x50 is a unit: only if the deployment's slot 8 answers 0x4B4 (`unit_deployment`), it is joined to that unit (0x5067D0). Otherwise the deployment's slot 9 is called with the province (+0x54) and the deployment is unlinked from the country's list (+0x688) and freed. The command's slot 14 (0x5495A0) asks only that the deployment exists. See reversing/findings/FINDINGS-buildqueue.md, section 7.\n(reversing/findings/FINDINGS-buildqueue.md)",
+   "evidence": "**Slot 6: puts a finished unit or building somewhere.** Bare `ret`. The deployment by the id at +0x44/+0x48; none, nothing. **Where no target unit is found** by the id at +0x4C/+0x50: the deployment's slot 9 (DeployAt) with provinces[+0x54], then it is unlinked from the deployments (+0x688) of the country whose id is at +0x40 and freed through its slot 0. **Where a target is found**: only a unit's deployment (slot 8 answering 0x4B4) is joined to it (CUnitDeployment::JoinUnit, the flag 0); **any other is left where it is**. Nothing asks CanDeployIn, the controller or the owner: the click that posts it is the only check, and the command's slot 14 (0x5495A0) asks only that the deployment exists. See reversing/findings/FINDINGS-buildqueue.md, section 7, and reversing/findings/FINDINGS-buildingqueue.md, section B.\n(reversing/findings/FINDINGS-buildingqueue.md)",
    "signature": {
     "convention": "__thiscall",
     "return": "void",
@@ -89423,11 +90146,34 @@
    "labels": []
   },
   {
+   "rva": 1565824,
+   "namespace": "CBuildingDeployment",
+   "name": "CanDeployIn",
+   "confidence": "CERTAIN",
+   "evidence": "**Slot 10: whether a finished building waiting in the deploy menu may be put in a province.** `ret 4`, two exits 0x57E5B7 (false) and 0x57E61F (true). The country is the deployment's (+0x30/+0x34). False, in order: (1) the province has no CPort (+0x354) and the building is `port = yes` (+0x61); (2) CCountry::IsBuildingAllowed(country, building, province) refuses - the call BiceLib hooks at 0x57E4E5 (Hook_PlaceBuildingCheck). Then **the underground** (g_CBuildingDataBase +0x28): false where the province's underground has a level_max above 0; true where the province's controller is at war with the country (CCountry::IsEnemyTag, REB counting), the country is a friend of the province's owner (CCountry::IsFriend with military access), and the country is a major (+0x15C) or has MaxIC (+0x60C) above 100 or owns the province. **Any other building**: false unless the province's controller (+0x338) is the country; a naval base (db +0x20) only where the province's naval base (+0x300) has level_max 0; an air base (db +0x1C) only where its air base (+0x304) has level_max under one whole level; anything else true. So **a deployment can only make a new naval base or air base, never add a level to one**; anti-air, radar, a reactor or a rocket site may go on top of what is there up to max_level. `capital`, `onmap`, `orientation`, `show_for_province`, the owner (but for the underground) and the terrain are not asked. It also colours the map while a deployment is being placed (MapMode_Deployment_Colour) and gates the left click that places it (CInGameIdler_HandleInput). See reversing/findings/FINDINGS-buildingqueue.md, section B.\n(reversing/findings/FINDINGS-buildingqueue.md)",
+   "signature": {
+    "convention": "__thiscall",
+    "return": "bool",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "this",
+      "type": "CBuildingDeployment*"
+     },
+     {
+      "name": "province",
+      "type": "CMapProvince*"
+     }
+    ]
+   },
+   "labels": []
+  },
+  {
    "rva": 1566272,
    "namespace": "CBuildingDeployment",
    "name": "DeployAt",
-   "confidence": "TENTATIVE",
-   "evidence": "Slot 9: a building waiting to be placed is put in a province. level_max += 1000 (capped), CProvinceBuilding_OnLevelChanged, the area's bases refreshed where an air base appears; **where the province's underground was below level 1 and is now above 0** - an underground placed - level_current += Underground_GetInitialStrength(province, the deployment's country +0x30/+0x34), owner, CCountry_AddUnderground, template byte +0x20. BUILDING_DONE goes to the player where he controls the province.\n(reversing/findings/FINDINGS-occupation.md)",
+   "confidence": "CERTAIN",
+   "evidence": "**Slot 9: a finished capital building waiting in the deploy menu is put in a province.** `ret 4`. Read whole on the listing 2026-10-15. Notes first whether the province had a working port - owned (+0x330), a CPort (+0x354) and a naval base (+0x300) with level_max above 0 - and whether its underground (+0x30C) had a level_max above 0. Then the building of that index: level_max += 1000, capped at max_level*1000 and floored at 0 (**level_current untouched**, as in CBuildingConstruction::Deliver), CProvinceBuilding_OnLevelChanged. **Where there was no working port and there is one now, COwnerArea::RefreshBases on the province's area** (+0x2B4) - a naval base; an air base appearing refreshes nothing. Where the underground went from no level to a level: level_current += Underground_GetInitialStrength(province, the deployment's country +0x30/+0x34), capped, `changed`, underground_owner = that country, CCountry_AddUnderground, the template's +0x20 = 1. Then **BUILDING_DONE** (NAME = the building's name string, PROV = the province's name) where the local player is the province's controller (+0x338), with the **controller** as the first shield country and the **owner** as the second, and the callback thunk 0x522400. Nothing is asked of the province: CanDeployIn is the caller's business, and CDeployUnitCommand::Execute does not ask it. See reversing/findings/FINDINGS-buildingqueue.md, section B.\n(reversing/findings/FINDINGS-buildingqueue.md)",
    "signature": {
     "convention": "__thiscall",
     "return": "void",
@@ -89440,6 +90186,29 @@
      {
       "name": "province",
       "type": "CMapProvince*"
+     }
+    ]
+   },
+   "labels": []
+  },
+  {
+   "rva": 1568128,
+   "namespace": "CBuildingDeployment",
+   "name": "GetName",
+   "confidence": "CERTAIN",
+   "evidence": "Slot 11: the building's own slot 6 into `out` - CBuilding +0x38, the name string - which is what the deploy menu writes in the line's `name`.\n(reversing/findings/FINDINGS-buildingqueue.md)",
+   "signature": {
+    "convention": "__thiscall",
+    "return": "Hoi3CString*",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "this",
+      "type": "CBuildingDeployment*"
+     },
+     {
+      "name": "out",
+      "type": "Hoi3CString*"
      }
     ]
    },
@@ -111559,6 +112328,25 @@
    "labels": []
   },
   {
+   "rva": 2434368,
+   "namespace": "",
+   "name": "CInGameIdler_HandleInput",
+   "confidence": "TENTATIVE",
+   "evidence": "**The in-game screen's handler for the mouse and keys over the map**, called once from CInGameIdler::Update (0x656471), `ret 4`. Read only in part. Known arms: the H key (0x6537D2, render_hierarchy, FINDINGS-hierarchy.md); a right click on a province (0x6534E4, FINDINGS-airorders.md section 6); Escape (0x65385D: with something selected, ClearSelection, else 0x66BD10(0)); and **the left button's release over the map with nothing dragged** (0x652B8F: event +0x14 == 1 and the down byte +0x12E0 set; 0x64D850 false): where a deployment is being placed (slot 31) and there is a province under the pointer (+0x1DD0), the deployment's slot 10 (CanDeployIn) for that province; **yes - a CDeployUnitCommand(province, the player, the deployment, no target) is posted and SetDeploymentBeingPlaced(0)**; no - the click goes on as an ordinary click (0x6532AE), with no message, and the deployment stays chosen. The name is ours.\n(reversing/findings/FINDINGS-buildingqueue.md)",
+   "signature": {
+    "convention": "__stdcall",
+    "return": "void",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "idler",
+      "type": "CInGameIdler*"
+     }
+    ]
+   },
+   "labels": []
+  },
+  {
    "rva": 2441904,
    "namespace": "",
    "name": "ProcessSessionEndRequests",
@@ -111595,6 +112383,25 @@
      {
       "name": "unused",
       "type": "int"
+     }
+    ]
+   },
+   "labels": []
+  },
+  {
+   "rva": 2452688,
+   "namespace": "CInGameIdler",
+   "name": "ClearSelection",
+   "confidence": "TENTATIVE",
+   "evidence": "Slot 46: empties the selection (+0x1304, through 0x4AD6F0, with the guard byte +0x1CC8 held at 1 meanwhile), CInGameIdler::CloseOrdersView, and selection_changed (+0x1D3C) = 1. Bare `ret`. Called by CDeploymentEntry::OnSelect for a deployment that is not a unit's, and by the input handler for Escape with something selected. The name is ours.\n(reversing/findings/FINDINGS-buildingqueue.md)",
+   "signature": {
+    "convention": "__thiscall",
+    "return": "void",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "this",
+      "type": "CInGameIdler*"
      }
     ]
    },
@@ -111955,11 +112762,30 @@
    "labels": []
   },
   {
+   "rva": 2522464,
+   "namespace": "CInGameIdler",
+   "name": "GetDeploymentBeingPlaced",
+   "confidence": "CERTAIN",
+   "evidence": "Slot 31: the deployment whose id is at +0x158/+0x15C, through FindPersistentById, or null. Bare `ret`.\n(reversing/findings/FINDINGS-buildingqueue.md)",
+   "signature": {
+    "convention": "__thiscall",
+    "return": "void*",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "this",
+      "type": "CInGameIdler*"
+     }
+    ]
+   },
+   "labels": []
+  },
+  {
    "rva": 2522544,
    "namespace": "CInGameIdler",
    "name": "SetDeploymentBeingPlaced",
-   "confidence": "TENTATIVE",
-   "evidence": "Slot 30. Called with the deployment when a line of the deploy menu is chosen and with 0 when the menu closes or a target is picked. The name is from those three calls; the body was not read. See reversing/findings/FINDINGS-deploymenu.md.\n(reversing/findings/FINDINGS-deploymenu.md)",
+   "confidence": "CERTAIN",
+   "evidence": "**Slot 30: a finished thing from the deploy menu is being put on the map, or no longer is.** `ret 4`. With null: the id at +0x158/+0x15C cleared and slot 99 (PopMapMode) - the map goes back to the mode it was in. With a deployment: slot 98 (PushMapMode) keeps the current mode; the deployment's id goes to +0x158/+0x15C; leaving the air (18) or naval (19) mode takes their icons down; the idler's mode (+0xD34) and the map's (+0x2A90) = **14**; the settings' +0xE7 = 0, layer mask +0xF0 = 0xFFBA and map style +0xF4 = 11; the graphics owner's +0x60F8 = 0; HideProvinceObjects98; **MapMode_Deployment_Colour**; Map_RefreshColourTextures(0); +0x60DC = 1. The same for a unit's deployment as for a building's. Callers: CDeploymentEntry::OnSelect (the deployment), CSideMenuDeploy::Hide and CDeploymentTargetEntry::OnSelect (null), and CInGameIdler_HandleInput (null, after a placing click). See reversing/findings/FINDINGS-buildingqueue.md, section B.\n(reversing/findings/FINDINGS-buildingqueue.md)",
    "signature": {
     "convention": "__thiscall",
     "return": "void",
@@ -112364,6 +113190,44 @@
      {
       "name": "event",
       "type": "CEvent*"
+     }
+    ]
+   },
+   "labels": []
+  },
+  {
+   "rva": 2577184,
+   "namespace": "CInGameIdler",
+   "name": "PushMapMode",
+   "confidence": "CERTAIN",
+   "evidence": "Slot 98: pushes the current map mode (+0xD34) on the front of the list at +0xAB8 (tail +0xABC, count +0xAC0). Bare `ret`. The name is ours.\n(reversing/findings/FINDINGS-buildingqueue.md)",
+   "signature": {
+    "convention": "__thiscall",
+    "return": "void",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "this",
+      "type": "CInGameIdler*"
+     }
+    ]
+   },
+   "labels": []
+  },
+  {
+   "rva": 2577280,
+   "namespace": "CInGameIdler",
+   "name": "PopMapMode",
+   "confidence": "CERTAIN",
+   "evidence": "Slot 99: where the list at +0xAB8 is not empty, takes its first mode off and tail-jumps to that mode's setter through a 20-entry table at 0x67545C - 1 political, 2 diplomatic, 18 MapMode_Air_Set, 19 0x6680E0 and the rest; 0, 14, 15 and 16 all go to 0x666020. So a mode 14 popped sets the map to what 0 sets. Bare `ret` where the list is empty. The name is ours.\n(reversing/findings/FINDINGS-buildingqueue.md)",
+   "signature": {
+    "convention": "__thiscall",
+    "return": "void",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "this",
+      "type": "CInGameIdler*"
      }
     ]
    },
@@ -117840,6 +118704,25 @@
      {
       "name": "key",
       "type": "SaveToken"
+     }
+    ]
+   },
+   "labels": []
+  },
+  {
+   "rva": 2997824,
+   "namespace": "CBuildingMember",
+   "name": "OnClick",
+   "confidence": "CERTAIN",
+   "evidence": "**The province view's building button** (`building_member` / `building_icon`, province_interface.gui; the building is +0x28). For every object selected on the in-game screen that is a province (its slot 1 answers 3) **controlled by the player** (+0x338): outside a custom game's setup, where CCountry::IsBuildingAllowed(player, building, province) holds, it posts **CConstructBuildingCommand(building, the province's id (+0xD0), the province's controller tag (+0x334/+0x338), amount 1)** - one level per click per selected province, merged by Execute into a line already queued there. In a custom game's setup it posts CCgmSetBuildingLevelCommand instead, behind CCountry::IsBuildingAllowedIgnoringLevel. Bare `ret`.\n(reversing/findings/FINDINGS-buildingqueue.md)",
+   "signature": {
+    "convention": "__thiscall",
+    "return": "void",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "this",
+      "type": "CBuildingMember*"
      }
     ]
    },
@@ -124975,12 +125858,285 @@
    ]
   },
   {
+   "rva": 4134912,
+   "namespace": "CConfirmBuild",
+   "name": "CConfirmBuild",
+   "confidence": "CERTAIN",
+   "evidence": "**The production screen's confirm dialog** for a building (mode 0), transports (1) or escorts (2), on `confirm_build` (interface/confirmbuild.gui). Makes the window and attaches six buttons: `accept` (OnAccept), `cancel` (OnCancel), `serial_plus`, `parallell_plus` (the file's spelling), `serial_minus`, `parallel_minus`; **parallel (+0x138) and serial (+0x13C) start at 1**. Mode 0: `photo` takes the sprite `picture_` + the building's key where one exists, `label` the building's name (slot 6). Mode 1: `picture_convoy` and the text of `CONVOYS`; mode 2: `picture_escort` and `ESCORTS`. `ret 0x14`.\n(reversing/findings/FINDINGS-buildingqueue.md)",
+   "signature": {
+    "convention": "__stdcall",
+    "return": "CConfirmBuild*",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "this",
+      "type": "CConfirmBuild*",
+      "storage": "stack:4"
+     },
+     {
+      "name": "screen",
+      "type": "void*",
+      "storage": "stack:8"
+     },
+     {
+      "name": "windowName",
+      "type": "void*",
+      "storage": "stack:0xC"
+     },
+     {
+      "name": "mode",
+      "type": "int",
+      "storage": "stack:0x10"
+     },
+     {
+      "name": "building",
+      "type": "CBuilding*",
+      "storage": "stack:0x14"
+     }
+    ],
+    "returnStorage": "EAX"
+   },
+   "labels": []
+  },
+  {
+   "rva": 4138112,
+   "namespace": "CConfirmBuild",
+   "name": "Show",
+   "confidence": "CERTAIN",
+   "evidence": "Slot 2: shows the window (+0x20) through its slot 13.\n(reversing/findings/FINDINGS-buildingqueue.md)",
+   "signature": null,
+   "labels": []
+  },
+  {
+   "rva": 4138128,
+   "namespace": "CConfirmBuild",
+   "name": "Update",
+   "confidence": "CERTAIN",
+   "evidence": "**Slot 4, every frame.** `paralell_value` (the file's spelling) and `serial_value` are the two counts as integers; either below 1 is set to 1; `parallel_minus` and `serial_minus` are disabled at 1, `parallell_plus` and `serial_plus` at 99 and above. For mode 0: `cost = CCountry::GetBuildCost(country, building)` and `days = CCountry_GetBuildingBuildDays(building, country)`; **`ic_cost_value` is `parallel * cost`, two decimals; `build_time_value` is `serial * days`** - as `N` + \" \" + the text of `DAYS` where that is 365 or less, else `N / 30` (truncated) + \" \" + `MONTHS`. (Modes 1 and 2 take the convoy's and escort's own figures.) **The three icons `selected_brigade_red`, `_orange`, `_green` are all hidden and one shown**: spare = the production share's IC (its share times factor times TotalIC) less the sum of every queued line's cost (+0x30); green where `spare - parallel * cost >= 0`, else orange where spare is above nought, else red. Where the building's category answers slot 2: `on_complete_icon` takes the sprite `icon_` + the category's key (+8 of +0x88) where one exists, `on_complete_impact` the text `+` and `completion_size` (+0x8C) to one decimal, and both are handed the category's key. **`accept` is never disabled.** Returns the close byte (+0x28). Bare `ret`.\n(reversing/findings/FINDINGS-buildingqueue.md)",
+   "signature": {
+    "convention": "__thiscall",
+    "return": "bool",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "this",
+      "type": "CConfirmBuild*"
+     }
+    ]
+   },
+   "labels": []
+  },
+  {
+   "rva": 4142720,
+   "namespace": "CConfirmBuild",
+   "name": "Rebuild",
+   "confidence": "TENTATIVE",
+   "evidence": "Slot 0: makes the window again from its name and re-attaches `accept` and `cancel` (the four steppers are not re-attached). Answers 1. Bare `ret`.\n(reversing/findings/FINDINGS-buildingqueue.md)",
+   "signature": {
+    "convention": "__thiscall",
+    "return": "bool",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "this",
+      "type": "CConfirmBuild*"
+     }
+    ]
+   },
+   "labels": []
+  },
+  {
+   "rva": 4143024,
+   "namespace": "CConfirmBuild",
+   "name": "BuildTooltip",
+   "confidence": "CERTAIN",
+   "evidence": "Slot 6: for `parallel_minus`, `parallell_plus`, `serial_minus` and `serial_plus`, the text of `BUILD_ADD_REM_BUNDLE` (\"Ctrl + LMB to add or remove $NUM$\") with NUM = 10; every other element, nothing. `ret 8`.\n(reversing/findings/FINDINGS-buildingqueue.md)",
+   "signature": {
+    "convention": "__thiscall",
+    "return": "GuiTooltipText*",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "this",
+      "type": "CConfirmBuild*"
+     },
+     {
+      "name": "out",
+      "type": "GuiTooltipText*"
+     },
+     {
+      "name": "element",
+      "type": "CGuiObject*"
+     }
+    ],
+    "returnStorage": "EAX"
+   },
+   "labels": []
+  },
+  {
+   "rva": 4143488,
+   "namespace": "CConfirmBuild",
+   "name": "OnAccept",
+   "confidence": "CERTAIN",
+   "evidence": "**`accept`, \"Start Production\": posts `parallel` (+0x138) commands**, each built fresh: mode 0 `CConstructBuildingCommand(building (+0x140), province 0, the screen's country, amount = serial (+0x13C))`; mode 1 `CConstructConvoyCommand(0, country)`, mode 2 `CConstructConvoyCommand(1, country)` (0x5496A0). Each goes to the session's channel (its +0x38, slot 6). Sets the close byte (+0x28) first. Bare `ret`.\n(reversing/findings/FINDINGS-buildingqueue.md)",
+   "signature": {
+    "convention": "__thiscall",
+    "return": "void",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "this",
+      "type": "CConfirmBuild*"
+     }
+    ]
+   },
+   "labels": []
+  },
+  {
+   "rva": 4144320,
+   "namespace": "",
+   "name": "CConfirmBuild_RepeatTick",
+   "confidence": "TENTATIVE",
+   "evidence": "Whether a held stepper acts this frame. The timer is +0x144; the press handler (0x7F3CA0) sets +0x148 and starts it. Where the timer is not running, it is started and the answer is yes. Where it is, the answer is yes only once its time is past 0.3 s (while +0x148 is set - the first repeat) or 0.1 s (after), and the timer is then restarted and +0x148 cleared. Bare `ret`. The name is ours.\n(reversing/findings/FINDINGS-buildingqueue.md)",
+   "signature": {
+    "convention": "__stdcall",
+    "return": "bool",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "dialog",
+      "type": "CConfirmBuild*",
+      "storage": "ESI"
+     }
+    ],
+    "returnStorage": "AL"
+   },
+   "labels": []
+  },
+  {
+   "rva": 4144464,
+   "namespace": "CConfirmBuild",
+   "name": "OnCancel",
+   "confidence": "CERTAIN",
+   "evidence": "`cancel` (\"Close\"): `mov byte ptr [ecx+0x28], 1; ret` - the close byte Update answers with; nothing is posted.\n(reversing/findings/FINDINGS-buildingqueue.md)",
+   "signature": {
+    "convention": "__thiscall",
+    "return": "void",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "this",
+      "type": "CConfirmBuild*"
+     }
+    ]
+   },
+   "labels": []
+  },
+  {
+   "rva": 4144480,
+   "namespace": "CConfirmBuild",
+   "name": "OnSerialPlus",
+   "confidence": "CERTAIN",
+   "evidence": "`serial_plus`: where CConfirmBuild_RepeatTick lets it act, serial (+0x13C) += 10 with the key the in-game screen's +0x1C slot 12 answers for held (Ctrl, by BUILD_ADD_REM_BUNDLE), else += 1. No upper cap here; Update disables the button at 99. Bare `ret`.\n(reversing/findings/FINDINGS-buildingqueue.md)",
+   "signature": {
+    "convention": "__thiscall",
+    "return": "void",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "this",
+      "type": "CConfirmBuild*"
+     }
+    ]
+   },
+   "labels": []
+  },
+  {
+   "rva": 4144720,
+   "namespace": "CConfirmBuild",
+   "name": "OnParallelPlus",
+   "confidence": "CERTAIN",
+   "evidence": "`parallell_plus`: parallel (+0x138) += 10 with Ctrl, else += 1, as OnSerialPlus. Bare `ret`.\n(reversing/findings/FINDINGS-buildingqueue.md)",
+   "signature": {
+    "convention": "__thiscall",
+    "return": "void",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "this",
+      "type": "CConfirmBuild*"
+     }
+    ]
+   },
+   "labels": []
+  },
+  {
+   "rva": 4144960,
+   "namespace": "CConfirmBuild",
+   "name": "OnSerialMinus",
+   "confidence": "CERTAIN",
+   "evidence": "`serial_minus`: serial -= 10 with Ctrl, held to its floor, else -= 1. Bare `ret`.\n(reversing/findings/FINDINGS-buildingqueue.md)",
+   "signature": {
+    "convention": "__thiscall",
+    "return": "void",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "this",
+      "type": "CConfirmBuild*"
+     }
+    ]
+   },
+   "labels": []
+  },
+  {
+   "rva": 4145216,
+   "namespace": "CConfirmBuild",
+   "name": "OnParallelMinus",
+   "confidence": "CERTAIN",
+   "evidence": "`parallel_minus`: parallel -= 10 with Ctrl, held to its floor, else -= 1. Bare `ret`.\n(reversing/findings/FINDINGS-buildingqueue.md)",
+   "signature": {
+    "convention": "__thiscall",
+    "return": "void",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "this",
+      "type": "CConfirmBuild*"
+     }
+    ]
+   },
+   "labels": []
+  },
+  {
    "rva": 4145472,
    "namespace": "CBuildQueueEntry",
    "name": "CBuildQueueEntry",
-   "confidence": "TENTATIVE",
-   "evidence": "The constructor of the production screen's queue line: makes a `queue_entry` window and finds `cancel`, `max_prio`, `prio`, `non_prio`, `max_non_prio` and `original_country`; gives `counter_type` the sprite named 'GFX_counter_' followed by the first brigade's type key (the definition's Type +8), or 'icon_build_convoy', 'icon_build_escort' or 'icon_build_' and a building's key for the other kinds of line; writes `unit_target` as '=> ' and a name; and `unit_name`.\n(reversing/findings/FINDINGS-buildqueue.md)",
-   "signature": null,
+   "confidence": "CERTAIN",
+   "evidence": "The constructor of the production screen's queue line: makes a `queue_entry` window, keeps the line's id at +0x78 and the screen at +0xA0, and attaches the five buttons - `cancel` to OnCancel, `max_prio`, `prio`, `non_prio`, `max_non_prio` to the four priority handlers. **`original_country`** shows the builder's flag where the builder's id (+0x54) is neither nought nor the country's (+0x4C), and is hidden otherwise - so on every building line, whose builder is `---`. Then by the line's kind: **slot 17** (a unit) - `counter_type` the sprite `GFX_counter_` + the first brigade's type key, and `unit_target` `=> ` + the target's name; **slot 15** (a convoy) - `icon_build_convoy`, or `icon_build_escort` where +0x58 is set; **slot 16** (a building) - **`icon_build_` + the building's key (+0x1C of +0x58)** where such a sprite exists, and then a further call on `counter_type` (its slot 73, not read). Last, for every kind, **`unit_name` = the line's slot 13** - for a building \"name (province)\" - and Update. `ret 0xC`.\n(reversing/findings/FINDINGS-buildingqueue.md)",
+   "signature": {
+    "convention": "__stdcall",
+    "return": "CBuildQueueEntry*",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "this",
+      "type": "CBuildQueueEntry*",
+      "storage": "stack:4"
+     },
+     {
+      "name": "screen",
+      "type": "void*",
+      "storage": "stack:8"
+     },
+     {
+      "name": "line",
+      "type": "CConstruction*",
+      "storage": "stack:0xC"
+     }
+    ],
+    "returnStorage": "EAX"
+   },
    "labels": []
   },
   {
@@ -125030,6 +126186,101 @@
      }
     ],
     "returnStorage": "EAX"
+   },
+   "labels": []
+  },
+  {
+   "rva": 4155056,
+   "namespace": "CBuildQueueEntry",
+   "name": "OnCancel",
+   "confidence": "CERTAIN",
+   "evidence": "**`cancel` on a queue line.** Without Ctrl (the in-game screen's +0x1C slot 12): a CStandardPostConfirm dialog, `CONFIRM_CANCEL_CONSTRUCTION_TITLE` / `_DESC` (\"Cancel Construction?\" / \"Are you sure you wish to cancel this construction?\"), carrying a CCancelUnitConstructionCommand(country, the line's id) that is posted on yes. **With Ctrl**: every line of the player's queue with **no more progress (+0x38) than this one** and of the same kind (slots 15, 16, 17 answering alike) and, for a building line, **the same building** (by index), for a convoy line the same escort byte (+0x58), for a unit line the same brigade types in the same order, is collected; two or more open a CMultiCancelPrompt over them, one falls back to the single confirm. Bare `ret`.\n(reversing/findings/FINDINGS-buildingqueue.md)",
+   "signature": {
+    "convention": "__thiscall",
+    "return": "void",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "this",
+      "type": "CBuildQueueEntry*"
+     }
+    ]
+   },
+   "labels": []
+  },
+  {
+   "rva": 4157328,
+   "namespace": "CBuildQueueEntry",
+   "name": "OnPrio",
+   "confidence": "CERTAIN",
+   "evidence": "`prio` (\"Increase Priority\"): posts CChangePriorityCommand(country, the line's id, -1) - one place forward (FINDINGS-buildqueue.md section 6). Bare `ret`.\n(reversing/findings/FINDINGS-buildingqueue.md)",
+   "signature": {
+    "convention": "__thiscall",
+    "return": "void",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "this",
+      "type": "CBuildQueueEntry*"
+     }
+    ]
+   },
+   "labels": []
+  },
+  {
+   "rva": 4157504,
+   "namespace": "CBuildQueueEntry",
+   "name": "OnMaxPrio",
+   "confidence": "CERTAIN",
+   "evidence": "`max_prio` (\"Set this at maximum priority.\"): CChangePriorityCommand(..., -2) - to the front. Bare `ret`.\n(reversing/findings/FINDINGS-buildingqueue.md)",
+   "signature": {
+    "convention": "__thiscall",
+    "return": "void",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "this",
+      "type": "CBuildQueueEntry*"
+     }
+    ]
+   },
+   "labels": []
+  },
+  {
+   "rva": 4157680,
+   "namespace": "CBuildQueueEntry",
+   "name": "OnNonPrio",
+   "confidence": "CERTAIN",
+   "evidence": "`non_prio` (\"Decrease Priority\"): CChangePriorityCommand(..., 1) - one place back. Bare `ret`.\n(reversing/findings/FINDINGS-buildingqueue.md)",
+   "signature": {
+    "convention": "__thiscall",
+    "return": "void",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "this",
+      "type": "CBuildQueueEntry*"
+     }
+    ]
+   },
+   "labels": []
+  },
+  {
+   "rva": 4157856,
+   "namespace": "CBuildQueueEntry",
+   "name": "OnMaxNonPrio",
+   "confidence": "CERTAIN",
+   "evidence": "`max_non_prio` (\"Set at lowest priority\"): CChangePriorityCommand(..., 2) - to the back. Bare `ret`.\n(reversing/findings/FINDINGS-buildingqueue.md)",
+   "signature": {
+    "convention": "__thiscall",
+    "return": "void",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "this",
+      "type": "CBuildQueueEntry*"
+     }
+    ]
    },
    "labels": []
   },
@@ -125089,7 +126340,7 @@
    "namespace": "CProductionView",
    "name": "AttachButtons",
    "confidence": "TENTATIVE",
-   "evidence": "Finds ten elements of the production window by name and attaches the view's observer to each: auto_deployment_checkbox, theatres_calc_button, theatres_assign_button, build_division_button, build_air_button, build_ship_button, convoy, escort, brig_attach, convoy_button. What the observer does was not read. The name is ours.\n(reversing/findings/FINDINGS-countryviews.md)",
+   "evidence": "Finds ten elements of the production window by name and attaches the view's observer to each: auto_deployment_checkbox, theatres_calc_button, theatres_assign_button, build_division_button, build_air_button, build_ship_button, convoy, escort, brig_attach, convoy_button. **Then every building of the database whose `capital` byte (+0x60) is set**, in the database's order: the window (+0xA8) is asked for an element named as the building's key (+0x1C), and where there is one the observer at +0x148 is attached to it - the one whose handler, set by the constructor at +0x168, is CProductionView::OnBuildingButton (0x8025C0). The name is ours.\n(reversing/findings/FINDINGS-buildingqueue.md)",
    "signature": {
     "convention": "__stdcall",
     "return": "void",
@@ -125393,6 +126644,67 @@
      {
       "name": "this",
       "type": "CProductionView*"
+     }
+    ]
+   },
+   "labels": []
+  },
+  {
+   "rva": 4203504,
+   "namespace": "CProductionView",
+   "name": "OnConvoyButton",
+   "confidence": "TENTATIVE",
+   "evidence": "The same as OnBuildingButton for transports: a CConfirmBuild in mode 1, no building, at +0x318. Bare `ret`. Which button it is attached to (`convoy` among AttachButtons' names) is inferred from the mode, which posts CConstructConvoyCommand(0, ...).\n(reversing/findings/FINDINGS-buildingqueue.md)",
+   "signature": {
+    "convention": "__thiscall",
+    "return": "void",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "this",
+      "type": "CProductionView*"
+     }
+    ]
+   },
+   "labels": []
+  },
+  {
+   "rva": 4203744,
+   "namespace": "CProductionView",
+   "name": "OnEscortButton",
+   "confidence": "TENTATIVE",
+   "evidence": "As OnConvoyButton, for escorts: a CConfirmBuild in mode 2. Bare `ret`. The button (`escort`) is inferred from the mode, which posts CConstructConvoyCommand(1, ...).\n(reversing/findings/FINDINGS-buildingqueue.md)",
+   "signature": {
+    "convention": "__thiscall",
+    "return": "void",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "this",
+      "type": "CProductionView*"
+     }
+    ]
+   },
+   "labels": []
+  },
+  {
+   "rva": 4203968,
+   "namespace": "CProductionView",
+   "name": "OnBuildingButton",
+   "confidence": "CERTAIN",
+   "evidence": "**What pressing a production-screen building button does**: the building is looked up by the element's name (slot 17) in the building database (0x4B8B60); with none, nothing. Otherwise the open confirm dialog (+0x318) is destroyed, and a new CConfirmBuild is made on the `confirm_build` window in mode 0 for that building and kept at +0x318. Then the view's slot 5. **No province is asked for, and the button opens a dialog rather than ordering.** `ret 4`.\n(reversing/findings/FINDINGS-buildingqueue.md)",
+   "signature": {
+    "convention": "__thiscall",
+    "return": "void",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "this",
+      "type": "CProductionView*"
+     },
+     {
+      "name": "element",
+      "type": "CGuiObject*"
      }
     ]
    },
@@ -127652,6 +128964,25 @@
    "name": "MapMode_Air_Colour",
    "confidence": "CERTAIN",
    "evidence": "**The air map mode's colours.** Both colours of every province from 1 to 0x80808080; then for every unit of the map's country (CMap +0x2A88) whose order's slot 16 is 0x718 (air_intercept) or 0x6FA (air_superiority), every province of the order's list (+0x44) that the order's slot 38 passes (in range) is coloured: an intercept writes 0x8058FF58 to the first colour and to the second where it is still grey, an air superiority 0x80FF5858 to the second and to the first where it is still grey. So green, red, or striped under both. Called by MapMode_Air_Set, and where the in-game idler's map mode is 18 and the order's unit (+0x8) is the player's (+0x128 against the game state's player id) by CAirInterceptOrder::Start, CAirPatrol::Start and the two orders' destructors - never daily. The name is ours. See reversing/findings/FINDINGS-airmap.md, section 1.\n(reversing/findings/FINDINGS-airmap.md)",
+   "signature": {
+    "convention": "__stdcall",
+    "return": "void",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "provinceObjects",
+      "type": "void*"
+     }
+    ]
+   },
+   "labels": []
+  },
+  {
+   "rva": 4618752,
+   "namespace": "",
+   "name": "MapMode_Deployment_Colour",
+   "confidence": "CERTAIN",
+   "evidence": "**The map's colours while a finished unit or building is being placed** (mode 14). `ret 4`; one caller, CInGameIdler::SetDeploymentBeingPlaced, so the colours are made once when a line is chosen and not again. Nothing where no deployment is being placed (slot 31). For every province object from index 1 (the vector at +0x2C, each with its province at +0xC): grey (0.5, 0.5, 0.5); where the deployment's slot 10 (CanDeployIn) answers yes, (0.5, 0.9, 0.5); and where the deployment is a building's (slot 8 = 0x4B7) and its building is the underground, green = initial / UNDERGOUND_INITIAL_STRENGTH * 0.3 + 0.6 with red and blue 0.5, initial being Underground_GetInitialStrength for the **player's** country - in single precision through doubles. Alpha 1.0 throughout. Written to both words of each province's colour pair. The name is ours.\n(reversing/findings/FINDINGS-buildingqueue.md)",
    "signature": {
     "convention": "__stdcall",
     "return": "void",
@@ -192100,47 +193431,47 @@
     {
      "slot": 10,
      "rva": 549632,
-     "name": "vf_10",
-     "named": false,
-     "typed": false,
+     "name": "GetSaveToken",
+     "named": true,
+     "typed": true,
      "own": true,
-     "comment": "slot 10, 00486300"
+     "comment": "slot 10, 00486300 - named by BiceLib"
     },
     {
      "slot": 11,
      "rva": 549968,
-     "name": "vf_11",
-     "named": false,
-     "typed": false,
+     "name": "IsUnderground",
+     "named": true,
+     "typed": true,
      "own": true,
-     "comment": "slot 11, 00486450"
+     "comment": "slot 11, 00486450 - named by BiceLib"
     },
     {
      "slot": 12,
      "rva": 550080,
-     "name": "vf_12",
-     "named": false,
-     "typed": false,
+     "name": "CanStillBeBuilt",
+     "named": true,
+     "typed": true,
      "own": true,
-     "comment": "slot 12, 004864C0"
+     "comment": "slot 12, 004864C0 - named by BiceLib"
     },
     {
      "slot": 13,
      "rva": 549648,
-     "name": "vf_13",
-     "named": false,
-     "typed": false,
+     "name": "GetName",
+     "named": true,
+     "typed": true,
      "own": true,
-     "comment": "slot 13, 00486310"
+     "comment": "slot 13, 00486310 - named by BiceLib"
     },
     {
      "slot": 14,
      "rva": 547632,
-     "name": "vf_14",
-     "named": false,
-     "typed": false,
+     "name": "RecalculateCost",
+     "named": true,
+     "typed": true,
      "own": true,
-     "comment": "slot 14, 00485B30"
+     "comment": "slot 14, 00485B30 - named by BiceLib"
     },
     {
      "slot": 15,
@@ -192290,11 +193621,11 @@
     {
      "slot": 8,
      "rva": 535248,
-     "name": "vf_8",
-     "named": false,
-     "typed": false,
+     "name": "GetType",
+     "named": true,
+     "typed": true,
      "own": true,
-     "comment": "slot 8, 00482AD0"
+     "comment": "slot 8, 00482AD0 - named by BiceLib"
     },
     {
      "slot": 9,
@@ -192308,20 +193639,20 @@
     {
      "slot": 10,
      "rva": 1565824,
-     "name": "vf_10",
-     "named": false,
-     "typed": false,
+     "name": "CanDeployIn",
+     "named": true,
+     "typed": true,
      "own": true,
-     "comment": "slot 10, 0057E480"
+     "comment": "slot 10, 0057E480 - named by BiceLib"
     },
     {
      "slot": 11,
      "rva": 1568128,
-     "name": "vf_11",
-     "named": false,
-     "typed": false,
+     "name": "GetName",
+     "named": true,
+     "typed": true,
      "own": true,
-     "comment": "slot 11, 0057ED80"
+     "comment": "slot 11, 0057ED80 - named by BiceLib"
     },
     {
      "slot": 12,
@@ -192547,6 +193878,337 @@
      "typed": true,
      "own": false,
      "comment": "slot 12, 0099D4F0"
+    }
+   ]
+  },
+  {
+   "name": "CBuildingMember_vftable",
+   "class": "CBuildingMember",
+   "rva": 18693688,
+   "objectOffset": 0,
+   "slots": [
+    {
+     "slot": 0,
+     "rva": 3001120,
+     "name": "vf_0",
+     "named": false,
+     "typed": false,
+     "own": true,
+     "comment": "slot 0, 006DCB20"
+    },
+    {
+     "slot": 1,
+     "rva": 84512,
+     "name": "vf_1",
+     "named": false,
+     "typed": false,
+     "own": false,
+     "comment": "slot 1, 00414A20"
+    },
+    {
+     "slot": 2,
+     "rva": 84608,
+     "name": "vf_2",
+     "named": false,
+     "typed": false,
+     "own": false,
+     "comment": "slot 2, 00414A80"
+    },
+    {
+     "slot": 3,
+     "rva": 84672,
+     "name": "vf_3",
+     "named": false,
+     "typed": false,
+     "own": false,
+     "comment": "slot 3, 00414AC0"
+    },
+    {
+     "slot": 4,
+     "rva": 6813616,
+     "name": "vf_4",
+     "named": false,
+     "typed": false,
+     "own": false,
+     "comment": "slot 4, 00A7F7B0"
+    },
+    {
+     "slot": 5,
+     "rva": 6813664,
+     "name": "vf_5",
+     "named": false,
+     "typed": false,
+     "own": false,
+     "comment": "slot 5, 00A7F7E0"
+    },
+    {
+     "slot": 6,
+     "rva": 6813712,
+     "name": "vf_6",
+     "named": false,
+     "typed": false,
+     "own": false,
+     "comment": "slot 6, 00A7F810"
+    },
+    {
+     "slot": 7,
+     "rva": 6813728,
+     "name": "vf_7",
+     "named": false,
+     "typed": false,
+     "own": false,
+     "comment": "slot 7, 00A7F820"
+    },
+    {
+     "slot": 8,
+     "rva": 2999168,
+     "name": "vf_8",
+     "named": false,
+     "typed": false,
+     "own": true,
+     "comment": "slot 8, 006DC380"
+    },
+    {
+     "slot": 9,
+     "rva": 6864416,
+     "name": "vf_9",
+     "named": false,
+     "typed": false,
+     "own": false,
+     "comment": "slot 9, 00A8BE20"
+    },
+    {
+     "slot": 10,
+     "rva": 1647456,
+     "name": "vf_10",
+     "named": false,
+     "typed": false,
+     "own": false,
+     "comment": "slot 10, 00592360 - a body shared with ReturnFalse, so not named here"
+    },
+    {
+     "slot": 11,
+     "rva": 7075984,
+     "name": "vf_11",
+     "named": false,
+     "typed": false,
+     "own": false,
+     "comment": "slot 11, 00ABF890"
+    }
+   ]
+  },
+  {
+   "name": "CBuildingMember_vftable_at1C",
+   "class": "CBuildingMember",
+   "rva": 18693740,
+   "objectOffset": 28,
+   "slots": [
+    {
+     "slot": 0,
+     "rva": 3059760,
+     "name": "vf_0",
+     "named": false,
+     "typed": false,
+     "own": true,
+     "comment": "slot 0, 006EB030"
+    },
+    {
+     "slot": 1,
+     "rva": 7600688,
+     "name": "vf_1",
+     "named": false,
+     "typed": false,
+     "own": false,
+     "comment": "slot 1, 00B3FA30"
+    },
+    {
+     "slot": 2,
+     "rva": 6864128,
+     "name": "vf_2",
+     "named": false,
+     "typed": false,
+     "own": false,
+     "comment": "slot 2, 00A8BD00"
+    },
+    {
+     "slot": 3,
+     "rva": 2149712,
+     "name": "vf_3",
+     "named": false,
+     "typed": false,
+     "own": false,
+     "comment": "slot 3, 0060CD50"
+    },
+    {
+     "slot": 4,
+     "rva": 6864160,
+     "name": "vf_4",
+     "named": false,
+     "typed": false,
+     "own": false,
+     "comment": "slot 4, 00A8BD20"
+    },
+    {
+     "slot": 5,
+     "rva": 6864192,
+     "name": "vf_5",
+     "named": false,
+     "typed": false,
+     "own": false,
+     "comment": "slot 5, 00A8BD40"
+    },
+    {
+     "slot": 6,
+     "rva": 2149712,
+     "name": "vf_6",
+     "named": false,
+     "typed": false,
+     "own": false,
+     "comment": "slot 6, 0060CD50"
+    },
+    {
+     "slot": 7,
+     "rva": 6817488,
+     "name": "vf_7",
+     "named": false,
+     "typed": false,
+     "own": false,
+     "comment": "slot 7, 00A806D0 - a body shared with SharedEmptyStub_A806D0, so not named here"
+    },
+    {
+     "slot": 8,
+     "rva": 2149712,
+     "name": "vf_8",
+     "named": false,
+     "typed": false,
+     "own": false,
+     "comment": "slot 8, 0060CD50"
+    },
+    {
+     "slot": 9,
+     "rva": 7075984,
+     "name": "vf_9",
+     "named": false,
+     "typed": false,
+     "own": false,
+     "comment": "slot 9, 00ABF890"
+    },
+    {
+     "slot": 10,
+     "rva": 6864288,
+     "name": "vf_10",
+     "named": false,
+     "typed": false,
+     "own": false,
+     "comment": "slot 10, 00A8BDA0"
+    },
+    {
+     "slot": 11,
+     "rva": 6864352,
+     "name": "vf_11",
+     "named": false,
+     "typed": false,
+     "own": false,
+     "comment": "slot 11, 00A8BDE0"
+    },
+    {
+     "slot": 12,
+     "rva": 6864320,
+     "name": "vf_12",
+     "named": false,
+     "typed": false,
+     "own": false,
+     "comment": "slot 12, 00A8BDC0"
+    },
+    {
+     "slot": 13,
+     "rva": 6864384,
+     "name": "vf_13",
+     "named": false,
+     "typed": false,
+     "own": false,
+     "comment": "slot 13, 00A8BE00"
+    },
+    {
+     "slot": 14,
+     "rva": 7343552,
+     "name": "vf_14",
+     "named": false,
+     "typed": false,
+     "own": false,
+     "comment": "slot 14, 00B00DC0"
+    },
+    {
+     "slot": 15,
+     "rva": 6864240,
+     "name": "vf_15",
+     "named": false,
+     "typed": false,
+     "own": false,
+     "comment": "slot 15, 00A8BD70"
+    },
+    {
+     "slot": 16,
+     "rva": 6864240,
+     "name": "vf_16",
+     "named": false,
+     "typed": false,
+     "own": false,
+     "comment": "slot 16, 00A8BD70"
+    },
+    {
+     "slot": 17,
+     "rva": 6864064,
+     "name": "vf_17",
+     "named": false,
+     "typed": false,
+     "own": false,
+     "comment": "slot 17, 00A8BCC0"
+    },
+    {
+     "slot": 18,
+     "rva": 7075984,
+     "name": "vf_18",
+     "named": false,
+     "typed": false,
+     "own": false,
+     "comment": "slot 18, 00ABF890"
+    },
+    {
+     "slot": 19,
+     "rva": 6864096,
+     "name": "vf_19",
+     "named": false,
+     "typed": false,
+     "own": false,
+     "comment": "slot 19, 00A8BCE0"
+    },
+    {
+     "slot": 20,
+     "rva": 6864448,
+     "name": "vf_20",
+     "named": false,
+     "typed": false,
+     "own": false,
+     "comment": "slot 20, 00A8BE40"
+    },
+    {
+     "slot": 21,
+     "rva": 7075984,
+     "name": "vf_21",
+     "named": false,
+     "typed": false,
+     "own": false,
+     "comment": "slot 21, 00ABF890"
+    },
+    {
+     "slot": 22,
+     "rva": 50368,
+     "name": "vf_22",
+     "named": false,
+     "typed": false,
+     "own": false,
+     "comment": "slot 22, 0040C4C0"
     }
    ]
   },
@@ -198920,6 +200582,97 @@
    ]
   },
   {
+   "name": "CConfirmBuild_vftable",
+   "class": "CConfirmBuild",
+   "rva": 18738392,
+   "objectOffset": 0,
+   "slots": [
+    {
+     "slot": 0,
+     "rva": 4142720,
+     "name": "Rebuild",
+     "named": true,
+     "typed": true,
+     "own": true,
+     "comment": "slot 0, 007F3680 - named by BiceLib"
+    },
+    {
+     "slot": 1,
+     "rva": 4137872,
+     "name": "vf_1",
+     "named": false,
+     "typed": false,
+     "own": true,
+     "comment": "slot 1, 007F2390"
+    },
+    {
+     "slot": 2,
+     "rva": 4138112,
+     "name": "Show",
+     "named": true,
+     "typed": true,
+     "own": true,
+     "comment": "slot 2, 007F2480 - named by BiceLib"
+    },
+    {
+     "slot": 3,
+     "rva": 4032352,
+     "name": "vf_3",
+     "named": false,
+     "typed": false,
+     "own": false,
+     "comment": "slot 3, 007D8760"
+    },
+    {
+     "slot": 4,
+     "rva": 4138128,
+     "name": "Update",
+     "named": true,
+     "typed": true,
+     "own": true,
+     "comment": "slot 4, 007F2490 - named by BiceLib"
+    },
+    {
+     "slot": 5,
+     "rva": 4080992,
+     "name": "vf_5",
+     "named": false,
+     "typed": false,
+     "own": false,
+     "comment": "slot 5, 007E4560"
+    },
+    {
+     "slot": 6,
+     "rva": 4143024,
+     "name": "BuildTooltip",
+     "named": true,
+     "typed": true,
+     "own": true,
+     "comment": "slot 6, 007F37B0 - named by BiceLib, typed from the findings",
+     "signature": {
+      "convention": "__thiscall",
+      "return": "GuiTooltipText*",
+      "hiddenReturn": false,
+      "params": [
+       {
+        "name": "this",
+        "type": "CConfirmBuild*"
+       },
+       {
+        "name": "out",
+        "type": "GuiTooltipText*"
+       },
+       {
+        "name": "element",
+        "type": "CGuiObject*"
+       }
+      ],
+      "returnStorage": "EAX"
+     }
+    }
+   ]
+  },
+  {
    "name": "CConstructBuildingCommand_vftable",
    "class": "CConstructBuildingCommand",
    "rva": 18626068,
@@ -198950,7 +200703,7 @@
      "named": true,
      "typed": true,
      "own": true,
-     "comment": "slot 2, 00545180"
+     "comment": "slot 2, 00545180 - named by BiceLib"
     },
     {
      "slot": 3,
@@ -198995,29 +200748,18 @@
      "rva": 1330928,
      "name": "Execute",
      "named": true,
-     "typed": false,
+     "typed": true,
      "own": true,
-     "comment": "slot 6, 00544EF0 - CCommand's slot, named by BiceLib, typed from the findings",
-     "signature": {
-      "convention": "__thiscall",
-      "return": "void",
-      "hiddenReturn": false,
-      "params": [
-       {
-        "name": "this",
-        "type": "CCommand*"
-       }
-      ]
-     }
+     "comment": "slot 6, 00544EF0 - named by BiceLib"
     },
     {
      "slot": 7,
      "rva": 1331568,
-     "name": "vf_7",
-     "named": false,
-     "typed": false,
+     "name": "GetTypeId",
+     "named": true,
+     "typed": true,
      "own": true,
-     "comment": "slot 7, 00545170"
+     "comment": "slot 7, 00545170 - named by BiceLib"
     },
     {
      "slot": 8,
@@ -199067,20 +200809,20 @@
     {
      "slot": 13,
      "rva": 1332384,
-     "name": "vf_13",
-     "named": false,
-     "typed": false,
+     "name": "Clone",
+     "named": true,
+     "typed": true,
      "own": true,
-     "comment": "slot 13, 005454A0"
+     "comment": "slot 13, 005454A0 - named by BiceLib"
     },
     {
      "slot": 14,
      "rva": 1332544,
-     "name": "vf_14",
-     "named": false,
-     "typed": false,
+     "name": "IsValid",
+     "named": true,
+     "typed": true,
      "own": true,
-     "comment": "slot 14, 00545540"
+     "comment": "slot 14, 00545540 - named by BiceLib"
     }
    ]
   },
@@ -200850,7 +202592,7 @@
      "named": true,
      "typed": true,
      "own": false,
-     "comment": "slot 12, 004831C0"
+     "comment": "slot 12, 004831C0 - named by BiceLib"
     },
     {
      "slot": 13,
@@ -222121,16 +223863,16 @@
      "named": true,
      "typed": true,
      "own": true,
-     "comment": "slot 30, 00667DB0"
+     "comment": "slot 30, 00667DB0 - named by BiceLib"
     },
     {
      "slot": 31,
      "rva": 2522464,
-     "name": "vf_31",
-     "named": false,
-     "typed": false,
+     "name": "GetDeploymentBeingPlaced",
+     "named": true,
+     "typed": true,
      "own": true,
-     "comment": "slot 31, 00667D60"
+     "comment": "slot 31, 00667D60 - named by BiceLib"
     },
     {
      "slot": 32,
@@ -222261,11 +224003,11 @@
     {
      "slot": 46,
      "rva": 2452688,
-     "name": "vf_46",
-     "named": false,
-     "typed": false,
+     "name": "ClearSelection",
+     "named": true,
+     "typed": true,
      "own": true,
-     "comment": "slot 46, 00656CD0"
+     "comment": "slot 46, 00656CD0 - named by BiceLib"
     },
     {
      "slot": 47,
@@ -222755,20 +224497,20 @@
     {
      "slot": 98,
      "rva": 2577184,
-     "name": "vf_98",
-     "named": false,
-     "typed": false,
+     "name": "PushMapMode",
+     "named": true,
+     "typed": true,
      "own": true,
-     "comment": "slot 98, 00675320"
+     "comment": "slot 98, 00675320 - named by BiceLib"
     },
     {
      "slot": 99,
      "rva": 2577280,
-     "name": "vf_99",
-     "named": false,
-     "typed": false,
+     "name": "PopMapMode",
+     "named": true,
+     "typed": true,
      "own": true,
-     "comment": "slot 99, 00675380"
+     "comment": "slot 99, 00675380 - named by BiceLib"
     },
     {
      "slot": 100,
@@ -233832,7 +235574,7 @@
      "named": true,
      "typed": true,
      "own": false,
-     "comment": "slot 12, 004831C0"
+     "comment": "slot 12, 004831C0 - named by BiceLib"
     },
     {
      "slot": 13,
@@ -255263,7 +257005,7 @@
      "name": "vf_3",
      "named": false,
      "typed": false,
-     "own": true,
+     "own": false,
      "comment": "slot 3, 007D8760"
     },
     {

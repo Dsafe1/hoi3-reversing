@@ -520,12 +520,33 @@ What it left, none of it in the way of building:
    builds them.
 2. **The province view's refresh** (`0x6DE5F0`) and its `underground` window's gate (`0x6EA920`), read in part;
    which mouse button steps `underground_mission` which way (`0x6EA380`, `0x6EA490`).
-3. **`CheckForCombat`'s rebel capture** (D.4, inferred): what it does with the tag it picks after `0x430BFC`, and
-   whether the independence branch that reads inverted is ever live.
+3. ~~**`CheckForCombat`'s rebel capture** (D.4, inferred): what it does with the tag it picks after `0x430BFC`, and
+   whether the independence branch that reads inverted is ever live.~~ Read on the listing 2026-10-15: the tag is what
+   `TakeControl` is called with once no enemy of it stands there (D.4).
 4. **The two AI readers of the effective revolt risk**, `0x8B9D46` and `0x8E1AA6` (B).
 5. **`ProvinceHistory_LatestControllerDate`'s order** (D.5): "latest" assumes the history list is in date order.
 6. **The four lower Ethiopian revolt risks of 20 April** (B.2) cannot be reproduced without saves between January and
    April; a save of the next game with an occupation in progress would check the step day by day.
+
+## What the building-queue wave left - 2026-10-15 `[both]`
+
+`findings/FINDINGS-buildingqueue.md` sections A and B (two readers; 52 address entries landed and 9 revised, 3 structs
+declared, 26 fields; apply 206). It read a building line whole - the command and who posts it (the production
+screen's confirm dialog, the province view, the AI's Lua), the price (`cost` and `time` scaled by one category
+discount, 159 of 171 lines in seven saves to the thousandth and the rest explained), the day's work and the line's own
+cancel test, the line on the screen, the delivery (a built level that the day's repair fills), the building waiting to
+be placed, where each building may go and the placing map. What it left, none of it in the way of building:
+
+1. **The province view's building button** - `CBuildingMember`'s update and enabling (`0x6DC380`), its constructor
+   (`0x6DB560`), and which buildings get a member.
+2. **`CCountry::GetRandomUnderGroundTarget`** (`0x509920`), where the AI's production minister puts an underground.
+3. **A building at nought working level after it is finished**, and the repair that fills it, against a running game:
+   no save catches one part built.
+4. **The confirm dialog's small things**: the Ctrl key's slot, the steppers' repeat and their floor, how a close byte
+   destroys the dialog.
+5. **The in-game screen's slot 78** (`0x64AB10`), a province message's Goto, and the rest of `CInGameIdler_HandleInput`.
+6. **When a new building's picture appears** - the two callers of `ProvinceGraphics_UpdatePictures` (`0x63F56E`,
+   `0x8558BC`).
 
 ## The planned next wave is in `WAVE.md`
 
@@ -1047,7 +1068,7 @@ of it.
 
 ## What has already been read
 
-157 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
+158 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
 header lives. This replaces the `Done` archive: the archive restated each file's headline and named
 only 40 of the 67 there were then, so it was both longer and less useful than a complete list.
 
@@ -1160,6 +1181,7 @@ the six it was missing were wave 15's.
 | `findings/FINDINGS-ic.md` | how a country's IC is worked out |
 | `findings/FINDINGS-production.md` | the build queue, and how IC and leadership are split |
 | `findings/FINDINGS-buildqueue.md` | what `FINDINGS-production.md` left of the queue: a unit of several brigades' cost and days, the hundredth a level a queued brigade costs more, `CMilitaryConstruction::Deliver`, the order, cancel, move and place commands, how a new game turns an order of battle's `duration` into work done, and that a change of law prices the queue again - with all thirty starting lines' cost and days, and Germany's queue over four months, reproduced from savegames |
+| `findings/FINDINGS-buildingqueue.md` | **the building-queue wave (2026-10-15)**: a building line ordered (`CConstructBuildingCommand`, the production screen's confirm dialog with its parallel and serial, the province view's one level a click, the AI's Lua), priced (`cost` and `time` by one category discount, 159 of 171 saved lines), worked and cancelled by its own slot 12, shown in the queue; finished as a built level the day's repair fills, or as a building waiting to be placed; where each building may go (`IsBuildingAllowed`, `CBuildingDeployment::CanDeployIn`), the placing map mode 14 and its click |
 | `findings/FINDINGS-buildertooltips.md` | **the four builder windows' tooltips**, each window's slot 6 read whole: every column header's short name and description, the step buttons' "Ctrl + LMB" line, the designer's combined arms icons and **terrain summary** - its brigades' terrain, river, night, fort and landing adjusters averaged with the terrain's own figures and the defines' penalties - and **the practical icon's discount** from the in-game screen's own arm. Corrects `BuildBuilderSortColumnLabel`, which is the ledger's and has no builder caller |
 | `findings/FINDINGS-builders.md` | the four windows a unit is ordered from - the division designer and its brigade picker, the ship, air and brigade builders: which types each lists and what rations an elite brigade, every column and total with its decimals, the order panel they share (serial and parallel, the three cost figures, the traffic light), what disables `accept`, the choice of a level for each of a ship's technologies, `CConstructSingleUnitCommand`, and how a new unit is named |
 | `findings/FINDINGS-distribute.md` | the daily loop over the IC shares, the army term of consumer goods demand, the supply share, and crude oil into fuel |
