@@ -1,0 +1,60 @@
+{
+ "agent": "selection wave, follow-up (the maintainer's screenshot of the children ribbon, 2026-10-16)",
+ "question": "What a click on the unit panel's children ribbon (select_all_childunits) does, and what the 'setting of the screen' is that lets a row's click and a battle row's click call CUnit::SelectSubordinates.",
+ "source": "reversing/findings/FINDINGS-selection.md",
+ "vftable_slots": {
+  "CParentUnitEntry": {"4": "SelectUnit"},
+  "CChildUnitEntry": {"4": "SelectUnit"},
+  "CLoadedUnitEntry": {"4": "SelectUnit"},
+  "CCombatEntry": {"4": "OnClick"}
+ },
+ "addresses": [
+  {
+   "rva": "0x3558D0",
+   "kind": "function",
+   "name": "CWindowForChildUnitsEntry::OnSelectAllChildUnits",
+   "signature": "void __fastcall CWindowForChildUnitsEntry::OnSelectAllChildUnits(CWindowForChildUnitsEntry* this@ECX)",
+   "no_signature": null,
+   "comment": "**The children ribbon's click**: `mov ecx, [ecx+0x28]; jmp CUnit::SelectSubordinates` - every land unit under the panel's unit, at every depth, each followed by its own command, joins the selection; **nothing is cleared first**, so the panel's unit stays selected and the multi-unit panel comes up. Registered by the constructor (0x755760) as the ordinary click of the glue at +0x30 on `select_all_childunits`, which the update enables for a land unit only. See reversing/findings/FINDINGS-selection.md, section A.12.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-selection.md",
+   "evidence": "Listing 0x7558D0..0x7558D3: `mov ecx,[ecx+0x28]` then `jmp 0x5D36A0`, int3 padding after. The constructor pushes 0x7558D0 at 0x75583A as the glue's handler (built by 0x76FA20 at +0x30) and registers that glue on the element named 'select_all_childunits' (string 0x15D7B04, pushed at 0x75585F; the gui's slot 13 lookup and the element's slot 1 at 0x755889/0x755894). That +0x28 is the panel's unit is inferred from the entry family (CUnitView +0x28 is its unit, FINDINGS-selection.md B); wrong if +0x28 is another unit than the one the panel shows."
+  },
+  {
+   "rva": "0x34D8A0",
+   "kind": "function",
+   "name": "CParentUnitEntry::SelectUnit",
+   "signature": "void __fastcall CParentUnitEntry::SelectUnit(CParentUnitEntry* entry@ECX)",
+   "no_signature": null,
+   "comment": "**What a click on a parent's or a subordinate's row does**: clears the selection (the screen's slot 43 with null), selects the row's unit (slot 44), centres the map on its province (slot 48 with the unit's +0x130) and, **with Ctrl held** (the screen's keyboard +0x1C, slot 12) and the unit a land unit (slot 15), CUnit::SelectSubordinates - so a Ctrl-click on a row selects that unit and its whole command. Slot 4 of CParentUnitEntry's, CChildUnitEntry's and CLoadedUnitEntry's tables - a fleet's passenger row too; every row's button is registered with the one handler 0x67A310, which only calls the entry's slot 4. See reversing/findings/FINDINGS-unitpanel.md, section 3, and FINDINGS-selection.md, section A.12.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-selection.md",
+   "revises": "'a setting of the screen' is the keyboard's slot 12, Ctrl: `mov ecx,[eax+0xBE8]; mov ecx,[ecx+0x1C]; call [edx+0x30]` at 0x74DB38..0x74DB46, the same object and slot FINDINGS-selection.md A.1 reads as VK_CONTROL.",
+   "evidence": "Listing 0x74DB38..0x74DB5B: the in-game screen (+0xBE8 of the game state) +0x1C, slot 12 (0x30), tested; then the unit's slot 15 (0x3C, IsLand); then `call 0x5D36A0` with the unit in ECX. Slot 43/44/48 calls at 0x74D994, 0x74DA23, 0x74DAB8. Wrong if the screen's +0x1C were not the keyboard - FINDINGS-selection.md A.1 has its table at 0x1608494, slot 12 the VK_CONTROL byte."
+  },
+  {
+   "rva": "0x357020",
+   "kind": "function",
+   "name": "CCombatEntry::OnClick",
+   "signature": "void __fastcall CCombatEntry::OnClick(CCombatEntry* entry@ECX)",
+   "no_signature": null,
+   "comment": "**A click on the unit panel's battle row**, under the same two conditions as its Update: clears the selection (the screen's slot 43 with 0), selects the battle (slot 38, with its CSelectable) - which brings the battle's window up - and centres the map on the battle's province; then, **with Ctrl held** (keyboard slot 12) and the panel's unit (+0x2C) a land unit, CUnit::SelectSubordinates on it - so the battle and the unit's land units under it are selected together, no kind test stopping the mix. Slot 4. The name is ours. See reversing/findings/FINDINGS-combatview.md, section 8, and FINDINGS-selection.md, section A.12.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-combatview.md",
+   "revises": "The Ctrl arm at its end was not in the record: 0x7572A3..0x7572C8.",
+   "evidence": "Listing 0x7572A3..0x7572C8: the screen's +0x1C slot 12 tested (`call [edx+0x30]`, `test al,al; je`), the entry's +0x2C slot 15 (`call [edx+0x3C]`) tested, `mov ecx,[edi+0x2C]; call 0x5D36A0`. Wrong if +0x2C is not the panel's unit; the battle is the entry's other field."
+  },
+  {
+   "rva": "0x1D36A0",
+   "kind": "function",
+   "name": "CUnit::SelectSubordinates",
+   "signature": "void __thiscall CUnit::SelectSubordinates(CUnit* this)",
+   "no_signature": null,
+   "comment": "**Every land unit under a unit joins the selection, each followed by its own command.** For each unit directly under this one (+0x1E4), in that list's order, whose IsLand (slot 15) matches this one's: selected through the in-game screen's slot 38 (CInGameIdler::Select, no kind test) where its selected byte (+4) is clear, and **then the same for it before the next** - a depth-first walk, each unit before those under it. Nothing is cleared. Four callers: CInGameIdler_HandleInput for a Ctrl-click on an army once that army is selected; the children ribbon's click (CWindowForChildUnitsEntry::OnSelectAllChildUnits, 0x7558D3); a Ctrl-click on a parent's or a subordinate's row (CParentUnitEntry::SelectUnit, 0x74DB5B); a Ctrl-click on the panel's battle row (CCombatEntry::OnClick, 0x7572C8). Bare `ret`. The name is ours. See reversing/findings/FINDINGS-selection.md, sections A.4 and A.12.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-selection.md",
+   "revises": "The comment named 0x74DB5B and 0x7572C8 without saying what they are; they are now named, with the ribbon's caller, and the order is spelt out: a unit's command is walked before its next sibling.",
+   "evidence": "Listing 0x5D36A0..0x5D37B6: the walk of the list at +0x1E4 (node +0, next +8); slot 15 of the child and of this compared at 0x5D36F6; `cmp byte [ebx+4],0; jne 0x5D37A2` skips the select (slot 38, `call [eax+0x98]` at 0x5D37A0) but not the recursion `call 0x5D36A0` at 0x5D37A4, which comes before `test edi,edi; jne` takes the next node at 0x5D37A9. findRefs --callers: four direct calls - 0x5D37A4 (itself), 0x65344A (HandleInput), 0x74DB5B, 0x7572C8 - and the tail jump at 0x7558D3, which a call search does not count."
+  }
+ ]
+}

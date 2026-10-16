@@ -638,6 +638,27 @@ landing's scales), `CAir::ReleaseCarried` (combat checked on every release), `CU
 8. **The AI's notifications** (`CAIUnit` slots 69 and 70) and the AI posters of the load and unload commands - the AI
    wave's.
 
+## What the selection wave left - 2026-10-16 `[both]`
+
+`findings/FINDINGS-selection.md` sections A and B (two readers; 74 address entries, 70 landed; 3 structs declared, 40
+fields). The click, the drag box, the keys, the right click with several selected, the rings, selection groups, and the
+multi-unit panel with its rows and buttons. Corrected: `FINDINGS-provinceview.md` A.1's box line (input slot 11 is Alt
+and **cancels** the box; Shift with unit rows keeps the selection), `CInGameIdler +0x1DD4` (any selectable under the
+pointer, not the province), `ProvinceGraphics_HitTest`'s cleanup (`ret 0x10`), `CCurrentGameState +0xD40`'s indexing,
+`FINDINGS-unitpanel.md` section 4's row handlers, `+0x1DE4` (the Shift-kept rows, not a waiting selection) and
+`CSubUnitDataBase +0xB0` (the upgrade targets, not an unused list). The input object's slots: 10 Shift, 11 Alt, 12
+Ctrl, off the bytes. What it left, none of it in the way of building:
+
+1. **Whether Alt is ever seen** - the bytes say slot 11 reads VK_LMENU/VK_RMENU, which nothing sets. A try: hold Alt
+   through a drag.
+2. **CMap `0x492850`**, taken to be the screen-to-ground pick from its use.
+3. **The stack cycle's vector** (`CMapProvince +0x2C8`, `+0x2E8`): what fills it and in what order.
+4. **Who calls `CInGameIdler::ShowSelection` (ring 2) with several selected.**
+5. **The reorganise window** (`0x7646D0`, `0x764960`, `0x764B90`) and the Execute bodies of merge, disband and detach,
+   read from the decompilation only.
+6. **`CInGameIdler +0x1360`** (answers `theatre_forces_button`) and the side-menu offset of the rows.
+7. **Air units' `oob_level`** - whether two air groups may merge.
+
 ## The planned next wave is in `WAVE.md`
 
 **It is not in this file any more.** `WAVE.md` holds the wave that is planned and has not launched,
@@ -1158,7 +1179,7 @@ of it.
 
 ## What has already been read
 
-162 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
+163 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
 header lives. This replaces the `Done` archive: the archive restated each file's headline and named
 only 40 of the 67 there were then, so it was both longer and less useful than a complete list.
 
@@ -1321,6 +1342,7 @@ the six it was missing were wave 15's.
 | `findings/FINDINGS-messages.md` | the message system |
 | `findings/FINDINGS-effecttext.md` | how an event option's effect text is built |
 | `findings/FINDINGS-text.md` | how the game measures text |
+| `findings/FINDINGS-selection.md` | **the selection wave (2026-10-16)**: the left button over the map - a drag at 2.0 map units, the white ground outline, the box taking the player's land units, else fleets, else air units, cleared first unless Shift with units selected; the input object's slots (10 Shift, 11 Alt, 12 Ctrl); a click and a Shift-click on a counter, a stack (the cycle), a port, an air base, a battle, a province; Ctrl taking an army's whole command; the right click sent to every selected unit in order, and several fleets or air units opening the window for the first only; the rings; selection groups on the digits; and the multi-unit panel - a row per unit in selection order, its layout and scroll, a row's deselect and select-this with Ctrl and Shift, the three checkboxes, upgrade-all, detach, higher command, reorganise, merge, disband and close |
 | `findings/FINDINGS-provinceview.md` | **the province-view wave (2026-10-15)**: the window a selected province opens - it follows the selection, its refresh and every-frame update, each element's figure, intelligence gate and tooltip, the weather strip, the `adj` list and the cores box; the building columns (`show_for_province`, split at the database's middle), the pips (working, damaged, queued), a row's shortcut letter and tooltip; the `underground` window and which mouse button steps its mission; the covert-operations panel and the allied-objectives panel with `CSetAlliedObjectiveCommand` |
 | `findings/FINDINGS-provincetooltip.md` | **the tooltip of a province**, `ProvinceTooltip_Build` read whole: a selected army's `UTM_*` line, the name and the owner, the terrain mode's flags, terrain and figures, the political mode's, the supply mode's lines put together with their colours and the line on infrastructure, the tail's distances; **the `@TAG` flag icon** in text, 23 by 11 below the line's top; `CArmy +0x300` the fleet carrying it |
 | `findings/FINDINGS-topbartooltip.md` | **the top bar's tooltips**, `CTopBar::BuildTooltip` read whole by element name: the goods ledger's lines and colours, IC, dissent, diplomacy, national unity, officers and manpower; **how a modifier lists its contributors** (`CModifier` slots 6 to 9), and each modifier kind's two flags, percent and more-is-better; **corrects `BuildModifierEffectsText`, which is the definitions' initialiser** |

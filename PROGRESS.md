@@ -25,12 +25,12 @@ how many objects a census found (taken 2026-09-20).
 
 | | classes |
 | --- | --- |
-| `read` | 124 |
+| `read` | 125 |
 | `placed` | 146 |
 | `keys` | 75 |
-| `part` | 135 |
+| `part` | 137 |
 | `named` | 6 |
-| `RTTI` | 655 |
+| `RTTI` | 652 |
 | **all** | **1141** |
 
 ## What to read next
@@ -227,7 +227,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CLobbyStartGame` | `CCommand` |  |  |  |  |  | 1 | RTTI |  |
 | `CLoginHandler` | `TLoginInterface` `CLoginObservable` |  |  |  |  |  |  | RTTI |  |
 | `CMapPoint` | `CPersistent` | 0x10 | 2 |  | 2 |  | 879,780 | keys |  |
-| `CMapProvince` | `CProvince` |  | 84 | 14/26 | 14 | CMapProvince.hpp | 28,380 | read |  |
+| `CMapProvince` | `CProvince` |  | 87 | 14/26 | 14 | CMapProvince.hpp | 28,380 | read |  |
 | `CMapRenderingOptions` | `CPersistent` |  |  | 2/9 | 1 |  | 1 | placed |  |
 | `CMessageHandlerInterface` | `CReferenceObject` |  |  |  |  |  |  | RTTI |  |
 | `CMessageType` | `CPersistent` | 0x38 | 9 | 1/7 | 2 |  | 185 | read |  |
@@ -308,7 +308,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CTraitGainTracker` | `CPersistent` |  | 4 |  | 6 | CTrait.hpp | 24,137 | keys |  |
 | `CTransportSuppliesOrder` | `CAirOrder` |  | 2 | 2/2 | 9 |  |  | placed |  |
 | `CUndeclaredWar` | `CPersistent` |  | 9 |  | 3 | CWar.hpp | 1 | read | **read**: the save's record of a war nobody declared |
-| `CUnit` | `PAVCSubUnit::__CList` `CSelectable` `CReferenceObject` |  | 104 + 1 lua |  | 107 | CUnit.hpp |  | read |  |
+| `CUnit` | `PAVCSubUnit::__CList` `CSelectable` `CReferenceObject` |  | 104 + 1 lua |  | 108 | CUnit.hpp |  | read |  |
 | `CUnitDeployment` | `CDeployment` |  |  | 3/4 | 4 |  | 49 | placed |  |
 | `CUnitPlan` | `CPersistent` | 0x90 | 15 | 10/16 | 13 |  | 8,827 | read | **read**: a battle plan as the save keeps it |
 | `CVariables` | `_0A::anon::PAUCVariable::__CTernary` `CPersistent` |  | 1 |  | 3 | CFlags.hpp | 216 | part |  |
@@ -475,7 +475,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CConfirmBuild` | `CReloadableInterface` | 0x14C | 9 |  | 11 |  |  | read |  |
 | `CConfirmDeletePlan` | `CEU3Dialog` |  |  |  |  |  |  | RTTI |  |
 | `CConfirmDisband` | `CEU3Dialog` |  |  |  |  |  |  | RTTI |  |
-| `CConfirmDisbandAll` | `CEU3Dialog` |  |  |  |  |  |  | RTTI |  |
+| `CConfirmDisbandAll` | `CEU3Dialog` |  | 2 |  | 3 |  |  | part |  |
 | `CConfirmMakePride` | `CEU3Dialog` |  |  |  |  |  |  | RTTI |  |
 | `CConfirmRemoveAll` | `CEU3Dialog` |  |  |  | 2 |  |  | RTTI |  |
 | `CConfirmSave` | `CEU3Dialog` |  |  |  |  |  |  | RTTI |  |
@@ -543,7 +543,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CICCostComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CIcon` | `CButton` |  |  |  | 1 |  |  | RTTI |  |
 | `CIdler` |  |  |  |  |  |  |  | RTTI |  |
-| `CInGameIdler` | `CEU3Idler` `CLostDeviceInterface` `CReloadDispatcher` |  | 58 |  | 60 | CInGameIdler.hpp | 3 | read |  |
+| `CInGameIdler` | `CEU3Idler` `CLostDeviceInterface` `CReloadDispatcher` |  | 81 |  | 81 | CInGameIdler.hpp | 3 | read |  |
 | `CIngameSettingsScreen` | `CSettingsScreen` |  |  |  |  |  | 1 | RTTI |  |
 | `CLandOrdersView` | `COrdersView` |  |  |  |  |  |  | RTTI |  |
 | `CLawEntry` | `CStandardlistboxItem` | 0x88 | 4 |  | 3 |  | 16 | part |  |
@@ -634,7 +634,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CSavegameItem` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
 | `CScenarioEntry` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
 | `CScrollbarObserver` |  |  |  |  |  |  | 26 | RTTI |  |
-| `CSelectUpgradeAllEntry` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
+| `CSelectUpgradeAllEntry` | `CStandardlistboxItem` |  | 2 |  | 2 |  |  | part |  |
 | `CSelectUpgradeEntry` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
 | `CSelectVictoryConditionItem` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
 | `CSelectVictoryConditionsView` | `CReloadableInterface` |  |  |  | 1 |  |  | RTTI |  |
@@ -699,14 +699,14 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CUnitNavalStanceEntry` | `CUnitViewBaseEntry` |  |  |  |  |  |  | RTTI |  |
 | `CUnitStanceEntry` | `CUnitViewBaseEntry` |  |  |  |  |  |  | RTTI |  |
 | `CUnitStatusEntry` | `CUnitViewBaseEntry` |  |  |  | 4 |  |  | RTTI |  |
-| `CUnitView` | `CUnitViewBaseEntry` |  |  |  | 4 |  |  | RTTI |  |
+| `CUnitView` | `CUnitViewBaseEntry` |  | 7 |  | 7 |  |  | read |  |
 | `CUnitViewBaseEntry` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
 | `CUpdateable` |  |  |  |  |  |  | 1 | RTTI |  |
 | `CVerySafePathFind` | `CPathFind` |  |  |  | 1 |  |  | RTTI |  |
 | `CVictoryConditionItem` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
 | `CVictoryConditionsView` | `CReloadableInterface` |  |  |  |  |  | 1 | RTTI |  |
 | `CViewsTextureManager` | `CLostDeviceInterface` |  |  |  |  |  | 1 | RTTI |  |
-| `CWindowForChildUnitsEntry` | `CUnitViewBaseEntry` |  |  |  | 3 |  |  | RTTI |  |
+| `CWindowForChildUnitsEntry` | `CUnitViewBaseEntry` |  |  |  | 4 |  |  | RTTI |  |
 | `CWindowForLoadedUnitsEntry` | `CUnitViewBaseEntry` |  |  |  | 6 |  |  | RTTI |  |
 | `CWindowForSubUnitsEntry` | `CUnitViewBaseEntry` |  |  |  | 4 |  |  | RTTI |  |
 | `CWindowObservable` | `VCWindowClassObservable::anon::VCWindowObserver::__CObservable` |  |  |  |  |  |  | RTTI |  |
@@ -913,10 +913,10 @@ One class per effect, trigger, command and decision the event scripts can use. E
 | `CDecisionEntry` | `CStandardlistboxItem` | 0xC8 | 5 |  | 5 |  | 74 | read |  |
 | `CDecreaseGameSpeedCommand` | `CCommand` |  |  | 1/3 |  |  | 1 | RTTI |  |
 | `CDeployUnitCommand` | `CCommand` |  |  | 2/4 | 4 |  | 1 | placed |  |
-| `CDetachUnitCommand` | `CCommand` |  |  | 1/1 |  |  | 1 | RTTI |  |
+| `CDetachUnitCommand` | `CCommand` |  |  | 1/1 | 1 |  | 1 | RTTI |  |
 | `CDiplomaticActionCommand` | `CCommand` |  |  |  | 3 |  | 6 | keys |  |
 | `CDiplomaticEffect` | `CEffect` |  | 1 |  |  |  |  | part |  |
-| `CDisbandCommand` | `CCommand` |  |  | 1/1 | 1 |  | 1 | placed |  |
+| `CDisbandCommand` | `CCommand` |  |  | 1/1 | 2 |  | 1 | placed |  |
 | `CDisbandRegimentCommand` | `CCommand` |  |  | 1/1 |  |  | 1 | RTTI |  |
 | `CDissentChange` | `CCountryHistoryEntry` |  | 2 |  | 3 |  |  | part |  |
 | `CDissentEffect` | `CValueEffect` |  |  | 3/91 | 2 |  | 638 | RTTI |  |
@@ -1020,7 +1020,7 @@ One class per effect, trigger, command and decision the event scripts can use. E
 | `CManpowerTrigger` | `CValueTrigger` | 0x44 |  | 2/153 | 2 |  | 201 | RTTI |  |
 | `CMaxManpowerGreaterThanTrigger` | `CValueTrigger` | 0x44 |  | 2/153 | 1 |  |  | RTTI |  |
 | `CMaxManpowerTrigger` | `CValueTrigger` | 0x44 |  | 2/153 | 2 |  | 28 | RTTI |  |
-| `CMergeCommand` | `CCommand` |  |  | 1/1 | 1 |  | 1 | placed |  |
+| `CMergeCommand` | `CCommand` |  |  | 1/1 | 2 |  | 1 | placed |  |
 | `CMetalPoolEffect` | `CIntEffect` |  |  | 3/91 | 2 |  | 1,378 | RTTI |  |
 | `CMetalTrigger` | `CValueTrigger` | 0x44 |  | 2/153 | 2 |  | 1,037 | RTTI |  |
 | `CMinisterChange` | `CCountryHistoryEntry` | 0x1C | 3 |  | 3 |  |  | part |  |
@@ -1125,7 +1125,7 @@ One class per effect, trigger, command and decision the event scripts can use. E
 | `CRulingPopularityTrigger` | `CValueTrigger` | 0x44 |  | 2/153 | 2 |  | 23 | RTTI |  |
 | `CSecedeProvinceEffect` | `CDiplomaticEffect` | 0x2C |  | 3/91 | 2 |  | 664 | RTTI |  |
 | `CSelectEventOptionCommand` | `CCommand` | 0xB0 | 5 | 2/3 | 4 |  | 1 | read |  |
-| `CSelectionGroupCommand` | `CCommand` |  |  | 1/3 | 1 |  | 1 | placed |  |
+| `CSelectionGroupCommand` | `CCommand` |  |  | 1/3 | 3 |  | 1 | placed |  |
 | `CSendExpeditionCommand` | `CCommand` |  |  | 1/2 | 3 |  | 1 | placed |  |
 | `CSetAIParamCommand` | `CCommand` |  |  | 1/3 | 3 |  | 2 | placed |  |
 | `CSetAlliedObjectiveCommand` | `CCommand` |  | 4 | 3/4 | 5 |  | 1 | placed |  |
@@ -1186,10 +1186,10 @@ One class per effect, trigger, command and decision the event scripts can use. E
 | `CToggleAutoSupplyConvoysCommand` | `CCommand` |  |  | 1/1 |  |  | 1 | RTTI |  |
 | `CToggleMobilizationCommand` | `CCommand` |  |  | 1/2 | 3 |  | 1 | placed |  |
 | `CTogglePlanObjectiveCommand` | `CCommand` |  |  | 1/2 | 2 |  | 1 | placed |  |
-| `CTogglePrioritizeCommand` | `CCommand` |  |  | 1/1 |  |  | 1 | RTTI |  |
-| `CToggleReinforceCommand` | `CCommand` |  |  | 1/1 |  |  | 1 | RTTI |  |
+| `CTogglePrioritizeCommand` | `CCommand` |  |  | 1/1 | 1 |  | 1 | RTTI |  |
+| `CToggleReinforceCommand` | `CCommand` |  |  | 1/1 | 1 |  | 1 | RTTI |  |
 | `CToggleUnitAggressionCommand` | `CCommand` |  |  | 1/2 | 1 |  | 1 | placed |  |
-| `CToggleUpgradeCommand` | `CCommand` |  |  | 1/1 |  |  | 1 | RTTI |  |
+| `CToggleUpgradeCommand` | `CCommand` |  |  | 1/1 | 1 |  | 1 | RTTI |  |
 | `CTotalAmountOfPlanesTrigger` | `CValueTrigger` | 0x44 |  | 2/153 | 2 |  | 83 | RTTI |  |
 | `CTotalAmountOfShipsTrigger` | `CValueTrigger` | 0x44 |  | 2/153 | 2 |  | 84 | RTTI |  |
 | `CTotalDefensivesTrigger` | `CValueTrigger` | 0x44 |  | 2/153 | 2 |  | 2 | RTTI |  |

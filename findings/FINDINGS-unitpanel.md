@@ -91,7 +91,9 @@ that is aboard a carrier (its `home_base_ptr`'s slot 1).
 It has no update: the name is set once. Its click (slot 4, `CUnitViewBaseEntry::SelectUnit`,
 `0x74D8A0`, shared with `CChildUnitEntry`) clears the selection, selects the unit, centres the
 map on its province and, for a land unit where a setting of the screen allows, calls
-`0x5D36A0`. Tooltip: `SELECT_PARENT_UNIT`.
+`0x5D36A0`. Tooltip: `SELECT_PARENT_UNIT`. *The setting is Ctrl* (the screen's keyboard, slot 12), and `0x5D36A0` is
+`CUnit::SelectSubordinates`: a Ctrl-click on a row selects the unit and its whole command (`FINDINGS-selection.md`
+A.12, 2026-10-16).
 
 ## 4. The header: `CUnitView`
 
@@ -176,6 +178,11 @@ read. **Added 2026-10-11**: the listing at `0x769A73`..`0x769C1A` shows three gl
 `+0xD8` (`0x76DE30`, given to `only_unit_from_selection_button`) and `+0x128`, given to
 `leader_button` and `leader_photo` with **`CUnitView::OnLeaderButton` (`0x76E2E0`)** as its
 ordinary click and `0x76E3F0` as another event - `FINDINGS-leaderwindow.md`, section 1.
+**Settled 2026-10-16** (`FINDINGS-selection.md` B.2 and B.7): `0x76DD70` is `remove_unit_from_selection_button`'s
+handler (`CUnitView::OnRemoveFromSelection`) and `0x76DE30` is `only_unit_from_selection_button`'s
+(`CUnitView::OnSelectOnlyThis`; with Ctrl it keeps the unit's whole command, with Shift it marks the row to keep);
+`0x76DC00` (glue `+0x38`, `CUnitView::SelectCarried`) is registered on no element. And slot 43 with a null is not "clear
+the selection" but "queue every selected thing for deselection at the end of the panel pass".
 
 ## 5. The status: `CUnitStatusEntry`
 
@@ -301,7 +308,9 @@ slot 4 is `CSubUnitEntry::BuildStatsTooltip`, already recorded.
 `CWindowForChildUnitsEntry` (constructor `0x755760`, update `0x7558E0`, fill `0x755DD0`): `str`
 is `FormatMen` of the strength of every land unit under this one, at any depth
 (`CUnitList::TotalLandStrength`, `0x5D63C0`), and `select_all_childunits` is enabled - or, for
-a unit that is not a land unit, `str` is empty and the button disabled. The list is filled
+a unit that is not a land unit, `str` is empty and the button disabled. **A click on that button - the ribbon -
+adds every land unit under the unit to the selection**, the unit staying selected (`0x7558D0`, a tail jump into
+`CUnit::SelectSubordinates`; `FINDINGS-selection.md` A.12, 2026-10-16). The list is filled
 again when `CUnit::CountChildrenShown` no longer matches its rows, and each row is updated.
 
 The fill makes a `CChildUnitEntry` for each unit `CountChildrenShown` counts and writes

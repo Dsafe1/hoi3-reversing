@@ -60,8 +60,10 @@ province, or after a removal the first one still selected.
   thing** (0 army, 1 fleet, 2 air, 3 province): provinces join only provinces, and shift-clicking a province while units
   are selected does nothing. **Shift-clicking a sea zone while provinces are selected clears everything**, through
   `OnSelected`.
-- **A drag box** selects only the player's own units inside it - land units over land, fleets, air units - clearing first
-  unless a modifier (input slot 11) is held. **No province is ever box-selected.**
+- **A drag box** selects only the player's own units inside it - land units over land, fleets, air units - ~~clearing
+  first unless a modifier (input slot 11) is held~~. **No province is ever box-selected.** *Corrected 2026-10-16*
+  (`FINDINGS-selection.md` A.5): input slot 11 is Alt and **cancels** the box; the old selection is kept only where
+  **Shift** is held and units are selected, and the box takes land units if there are any, else fleets, else air units.
 - **Escape** with anything selected runs `ClearSelection`, so it closes the view.
 - **`close_button`**, in the view and in `underground`, is `CProvinceView::OnClose` (`0x6DE340`) =
   `CInGameIdler::ClearSelection` (slot 46).

@@ -17,66 +17,51 @@ truth.
 
 ---
 
-## The transport wave - carrying land units by sea and by air, the landing, and the carrier
+## The selection wave - the drag box, Shift and several units selected
 
-> **LANDED 2026-10-15.** Four briefs, merged (104 address entries, 15 of them revisions; 6 structs declared, 36 fields;
-> apply `failed: 0`, `struct fields: 0`); the write-up is `findings/FINDINGS-transport.md` sections A to D, indexed in
-> `CANDIDATES.md`, where eight things it left are queued. Two corrections to this plan: the "carried-by fields"
-> `+0x1C8/+0x2E4/+0x2E8` below are a land unit's dig-in, `staging_province` and `target`, and `+0x144`'s key is
-> `transport_capability`.
+> **LANDED 2026-10-16.** Two briefs, merged (74 address entries, 70 landed; 3 structs declared, 40 fields; apply
+> `failed: 0`, `struct fields: 0`); the write-up is `findings/FINDINGS-selection.md` sections A and B, indexed in
+> `CANDIDATES.md`, where seven things it left are queued. Input slot 11 is Alt, not the box's keep-modifier: that is
+> Shift.
 
-Planned 2026-10-15, for OpenHOI3, on the maintainer's word that day ("Ok. Please continue with the next step"):
-transport and invasion is the fourth of six pieces in his order ("3 - 2 - 1 - 5 - 4 - 6": the province view, convoys
-in the build queue, weather, transport and invasion, the headless run, the AI). OpenHOI3 has fleets, their missions but
-these two, the land march, the land and sea battles, supply and a carrier's air groups read off the order of battle -
-and **no land unit ever boards a ship**. Four briefs; the write-up is **a new `findings/FINDINGS-transport.md`**,
-sections A to D. **The AI's side is not this wave**: where it lands (`FINDINGS-invasion.md`), `CAIInvasion`'s stages
-(`FINDINGS-theatre2.md`, `FINDINGS-aitheatre.md`) and its planning (`FINDINGS-aiplans.md`) belong to the AI piece;
-cite them where they name a call, do not read them further.
+Planned 2026-10-16, for OpenHOI3, on the maintainer's word that day: before the headless run, "some useability
+improvements - implement the drag-box-selection; implement the shift-multiselect for units (combines with the drag
+box)". OpenHOI3 selects one unit at a time, or several provinces with Shift; it has the single unit panel, the
+counters with their ring, the right click that orders the selected unit, and the province view. Two briefs; the
+write-up is **a new `findings/FINDINGS-selection.md`**, sections A and B.
 
 **What is known and is not to be redone** - cite it; re-read on the listing only to settle what follows, to raise an
 `inferred` record or to correct one:
 
-- `FINDINGS-manpower.md`, "What an overloaded fleet does to its cargo": `CheckTransportOverload` (rva `0x1CFBD0`), the
-  last of `CUnit::UpdateDaily` for a fleet - put ashore where the province's info byte `+0x22` allows, otherwise take
-  a regiment apart until the load fits; `SumTransportWeight` (`0x1D6690`); `RemoveFromTransport` (`0x1CF120`, one
-  write read). Which way round `+0x22` is was not settled.
-- `FINDINGS-supplypass.md` section 5: `CNavy::UnloadCarried` (`0x1CFE10`) and `CAir::ReleaseCarried` (`0x1D0990`), and
-  what a carried unit draws (the fleet's supplies; `PARASUPPLYPOOL_DAYS` for a dropped one). `CArmy +0x300`
-  `carried_by`, `CUnit +0x2E4` the fleet's list of passengers, `+0x304` carried by air.
-- `FINDINGS-movement.md` sections 5.1 and 5.2: a land unit at sea landing on the next province moves at
-  `AMPHIBIOUS_INVADE_SPEED_BASE` + the fleet's `amphibious_invasion_speed` over `AMPHIBIOUS_INVADE_MOVEMENT_COST`.
-- `FINDINGS-combatmods.md`: `BM_AMPH_PENALTY` (VA `0x569A63`) with `AMPHIBIOUS_LANDING_PENALTY` and
-  `AMPHIBIOUS_INVADE_LANDING_PENALTY_DECREASE` (its `+0x218`/`+0x21C`/`+0x18C` unidentified); `FINDINGS-combat.md`:
-  `CLandCombatant` slot 19 (rva `0x169B50`) interpolating `AMPHIBIOUS_INVADE_ATTACK_LOW`/`_HIGH` and
-  `AMPHIBIOUS_INVADE_DEFEND_HIGH` "for a unit landing over water" - not read to the formula.
-- `FINDINGS-seabattle.md` section 5: `CNavy::SendCarrierAircraft` (`0x1C7C70`). `FINDINGS-bombing.md` section 10:
-  `CCarrierProtection` (slots 14, 17, 34) and a carrier's aircraft bombing. `FINDINGS-seaair.md`: the naval orders'
-  frame and `CRebaseToCarrierMission`'s row. `FINDINGS-navalmissions.md`: the frame every naval order shares
-  (`CNavalOrder::IsActive`, `IsTooWorn`, `HeadForNearestBase`, the return-to-base byte). `FINDINGS-airorders.md` and
-  OpenHOI3's fleets-and-air spec: the orders window, where `Transport`, `Invasion`, `Paradrop`, `Rebase to
-  carrier` and `Air Supply` are listed.
-- `CSubUnitDefinition`: `is_transport` `+0x30`, `amphibious` adjuster `+0xAC`, `weight` (`transport_weight`) `+0x10C`,
-  `transport_capacity` `+0x144`, `amphibious_invasion_speed` `+0x188` (the mean over brigades declaring one),
-  `amphibious_invasion_defence` `+0x18C` (a plain sum), `carrier_size` `+0x190` (`IsCarrier` is it above nought).
-
-**The savegames hold carried units**: a fleet's block holds each land unit it carries as a `division` block of its own,
-with the passenger's `location` the fleet's. In the maintainer's game (`C:\Users\David\Documents\Paradox
-Interactive\Hearts of Iron III\save games\`, plain text, Latin-1, read only) France's *Flotte expeditionnaire de
-transport* - three `transport_ship` flotillas - carries the *Division de Tonkin* under a `transport` mission to province
-6610 in `Germany1936_01_07_22`, `_01_08_02`, `_03`, `_06` and `_07` (at sea, `movement_progress` 7.5 to 45 over five
-hours); in `Germany1936_04_20_03` a British and an Italian fleet carry divisions under `transport`. **No save holds an
-invasion or a paradrop.**
+- `FINDINGS-provinceview.md` section A.1: the selection's listener, `CSelectable_Select` (rva `0xAD620`),
+  `Selection_CanAdd` (`0xAD6B0`, one kind: 0 army, 1 fleet, 2 air, 3 province), `Selection_Remove` (`0xAD680`),
+  `Selection_Clear` (`0xAD6F0`), `CInGameIdler::ClearSelection`, `CInGameIdler::Select` (slot 38); the plain click and
+  the Shift-click (input slot 10) **on a province**; and one line on the box: "selects only the player's own units
+  inside it - land units over land, fleets, air units - clearing first unless a modifier (input slot 11) is held. No
+  province is ever box-selected." - **not read to the rule**.
+- `FINDINGS-buildingqueue.md` (end): `CInGameIdler_HandleInput` (rva `0x252540`) read in part - the release of the left
+  button with nothing dragged while a deployment is placed.
+- `FINDINGS-movement.md` section 1: `CUnit::OrderToProvince` (slot 6, rva `0x1C1AD0`), "what a right click on the map
+  reaches for each selected unit", `append` the Shift key; the caller that loops over the selection not looked for.
+- `FINDINGS-scrollbar.md`: input slot 10 Shift by the maintainer's word, slot 12 Ctrl `likely`; the key codes behind
+  the slots not traced.
+- `FINDINGS-counters.md`: a counter's `selection` word (`+0x1B0`, 0 none, 1 white, 2 `color1`, 3 `color2`), its slot 23
+  that sets it, the hit test, only the top counter of a stack clickable; `FINDINGS-seaair.md` section 6: a click on a
+  port or an air base cycles the player's units there.
+- `FINDINGS-transport.md` section C.3: `multi_unitpanel` (`CInGameIdler +0x1368`) and its three carrying buttons -
+  `load_multiunit`, `load_on_air_multiunit`, `unmount_multiunit` - with their finders, clicks and tooltips;
+  `CInGameIdler_UpdatePanels` (rva `0x250700`) read in part: "a selection waiting at +0x1DE4 replaces the current one,
+  keeping only units of the first one's kind", one row - the single panel; two or more - the multi panel.
+- `FINDINGS-unitpanel.md`: the header row of the single panel is the same `unitpanel` window, of the same class, as a
+  row of the list of several selected units; `CInGameIdler` slot 34 (VA `0x6639E0`) adds a row to the selection list;
+  `FINDINGS-guilive.md` and `FINDINGS-gui.md`: `unitlist_start` (0, 144) and `unitlist_offset` (16, 40).
 
 **What OpenHOI3 needs that is not settled**, by brief:
 
 | brief | what it settles | starting points |
 | --- | --- | --- |
-| **A. Carrying by sea** | **Boarding**: `CLoadArmyCommand` - its `Execute` (slot 6) and validity test (slot 14) whole, the call at VA `0x5E3B94` into rva `0x1CF040`; what may board what (a land unit, its children? a headquarters?), where (in port only? the same province, a naval base of what level, at war?), which fleet when several could (`MUL_LOAD_ONTO`), what it costs (time, organisation), and the carried unit's state after (its location, path, orders, `CArmy +0x300` and the other three carried-by fields, its counter). **Capacity**: the sum of `transport_weight` against `transport_capacity` - summed over which ships (transports only?), at boarding and daily (`CheckTransportOverload` re-read: which way round `+0x22` is). **Leaving the ship**: `CUnloadArmyCommand` (slots 6 and 14), `RemoveFromTransport` and `CNavy::UnloadCarried` whole - where a unit may get off (`UW_UNLOAD_NOT_VALID`: in a port), what it costs, which province it stands in after. **At sea**: what a carried unit is - does it lose organisation, draw supplies, suffer attrition, reinforce, upgrade, count for intelligence, move with the fleet's hour (who moves its `location`); the fleet's speed and its other orders while carrying; **a sea battle with passengers** (are they hit? a transport sunk - what of the units it carried, and how is a passenger tied to one ship or to the fleet?) and a fleet destroyed, merged, split or disbanded with passengers. **The transport mission**: `CNavalTransportOrder` (`MayBeGiven` slot 11, `IsActive` slot 14, its save and load) - "Transport land units on board the fleet to the friendly land province, then return to base" (`ORDER_TRANSPORT_DESC`): the path, what happens at the province (unload: all? when?), the return. **Save and load**: the `division` block inside a fleet's, and what a load makes again | rvas `0x1E3AD0`, `0x1E4090`, `0x1CF040`, `0x1E3600`, `0x1E3740`, `0x1CF120`, `0x1CFE10`, `0x1CFBD0`, `0x1D6690`, `0x1A0640`, `0x1A0690`, `0x1A0780`; `CArmy +0x300`, `CUnit +0x2E4`/`+0x2E8`/`+0x1C8`; the `CNavy` save slots; `FINDINGS-manpower.md`, `FINDINGS-supplypass.md` section 5 |
-| **B. The landing** | **The invasion**: `CNavalInvasionOrder` whole - `MayBeGiven` (slot 11, `0x1A0790`), `Start` (slot 13, `0x1A0810`), `IsActive` (slot 14, `0x1A0990`), its keys `transport` and `message` (`0x1A1030`, save `0x1A1160`): "Land troops, carried on the fleet, in the selected province" (`ORDER_INVADE_DESC`). **A land unit landing from the sea**, given by the player directly as well as by the mission: which provinces may be landed on (beside the fleet's sea province only? any coast? one held by the enemy, by nobody, by a friend? a port or not?), how the order is made, what the march is (`CUnit::MovementSpeed` and `MovementDistance`'s landing branches re-read - which fleet's `amphibious_invasion_speed`, the passenger still aboard during the march?), **the invasion's progress** (`AMPH_INVASION_PROGRESS` "Amphibious invasion progress: $PERC$%" - what it is a share of), when the unit leaves the ship, and what if the fleet moves, is attacked or sinks during it. **The battle at a landing**: `CLandCombatant` slot 19's amphibious arm read to the formula - `AMPHIBIOUS_INVADE_ATTACK_LOW`/`_HIGH`, `_DEFEND_LOW`/`_HIGH`, by what figure interpolated (the progress?), `amphibious_invasion_defence` ("its defence improved by the transports' armour", `AMPH_INVASION_COMBAT_PROGRESS_DESC`), `AMPH_INVASION_ATTACK_SCALE`/`_DEFEND_SCALE`; `BM_AMPH_PENALTY` confirmed with its unidentified `+0x218`/`+0x21C`/`+0x18C` named (they look like the landing-craft technologies `amphibious_invasion_technology`, `amphibious_assault_units`); what a beaten landing does (back aboard? destroyed?) and a won one (the province taken - by the capture already read). **The message** `INVADEDUS` ("$ENEMY$ is storming our beach in $PROV$.") - who raises it, when, with what variables | rvas `0x1A0790`, `0x1A0810`, `0x1A0990`, `0x1A1030`, `0x1A1160`, `0x1C9140`, `0x1C9340`, `0x169B50`, VA `0x569A63`; the defines `AMPHIBIOUS_*`; `FINDINGS-movement.md` 5.1-5.2, `FINDINGS-combatmods.md`, `FINDINGS-combat.md` |
-| **C. Carrying on screen** | **The unit panel**: the load and unload buttons and their tooltips (`UW_LOAD_IS_VALID`, `UW_LOAD_NO_FLEET_FOUND`, `UW_UNLOAD_VALID`, `UW_UNLOAD_NOT_VALID`, and the plane ones as far as their buttons go), which element each is and what it posts; a fleet's list of what it carries (`CWindowForLoadedUnitsEntry`, `CLoadedUnitEntry`: their elements, what each row shows, what a click does), `LOAD_CAPACITY_LABEL` "Can carry $NUM$ weight.", `TOTAL_LOAD_WILL_BE`, `TRANSPORT_WEIGHT`, `TRANSPORT_CAPABILITY`. **Several units at once**: `MUL_LOAD_ONTO` "Load these units onto", `NO_MULTILOAD`, `UNMOUNT_MULTILOAD` "Unmount $NUM$ units from air and naval transports." - where these are (the multiple-selection panel?) and what they post. **The map**: the right click with a land unit selected on a fleet, on a sea province, on a coast from aboard a fleet - what order each makes and what the province tooltip's warning lines say (`UTM_*`); what a carried unit's counter is (hidden? drawn on the fleet's?), an invasion's marker if any. **The orders window**: the `Transport` and `Invasion` rows - when each can be ticked, what the window sends. Anything else on screen about carrying | `CWindowForLoadedUnitsEntry` (slot 13 VA `0x758DE0`), `CLoadedUnitEntry` (slots 0, 4, 13: VA `0x74CE60`, `0x74D8A0`, `0x74C2A0`), `FINDINGS-unitpanel.md`, `FINDINGS-guilive.md`, `FINDINGS-provincetooltip.md`, OpenHOI3's fleets-and-air spec, `interface/` and `tfh/interface/` `.gui` files |
-| **D. The carrier and carrying by air** | **A carrier as an air base**: `CRebaseToCarrierMission` (slots 11, 13, 14, 15 - VA `0x593050`, `0x5930B0`, `0x593290`, `0x593330`; its key `carrier_target`) - which air units may go aboard (`carrier_air_group`s only?), how many (`carrier_size` against what of the air unit), where the carrier must be; what an air unit aboard is (its base, its `CarriedBy`, does it move with the ship's hour, repair, refuel, reinforce, upgrade); what happens to it when its carrier sinks, is in a battle, is in port; which air missions it may fly from the carrier and from where (range from the ship). `CNavy::SendCarrierAircraft` and `CCarrierProtection` are read - cite, do not redo. **Carrying by air**: `CLoadOnPlaneCommand` (Execute slot 6 VA `0x5E4750`, slot 14 `0x5E4BF0`; keys `air`, `unit`) and `CUnloadFromPlaneCommand` (`0x5E4300`, `0x5E4450`) - who may board (`UW_LOAD_PLANE_FAIL_LOW_ORG`: paratroops at 95% of their organisation), onto which air units (`transport_capability`), where (`UW_UNLOAD_PLANE_BASE_ONLY`: an air base); **the paradrop**: `CParadropMission` (slots 11, 13, 14, 15 - VA `0x590900`, `0x590920`, `0x590C60`, `0x5913D0`) - where it may drop, the drop itself (`CAir::ReleaseCarried`, the `+0x97` byte `BM_PARATROOP_PENALTY` reads), what the dropped unit is after; **the air supply** `CTransportSuppliesOrder` as far as it carries anything (slots 11, 13, 14 and its own 37 and 39) | VA `0x593050`, `0x5930B0`, `0x593290`, `0x593330`, `0x5E4750`, `0x5E4BF0`, `0x5E4300`, `0x5E4450`, `0x590900`, `0x590920`, `0x590C60`, `0x5913D0`, `0x595300`, `0x595480`, `0x595490`, `0x595BF0`, `0x595C40`; rva `0x1D0990`, `0x1C7C70`; `FINDINGS-bombing.md` section 10, `FINDINGS-seabattle.md` section 5, `FINDINGS-supplypass.md` section 5 |
+| **A. Selecting** | **The left button over the map, whole**: `CInGameIdler_HandleInput`'s press, move and release arms - when a press becomes a drag (a distance in pixels? a time?), what is drawn while it is held (a rectangle? the `Selection` mesh, `selection_projection`? its colour and line), and on release **which units the box takes**: tested how (each counter's screen rectangle, the unit's map point projected, the province's point?), whose (the player's only?), which (land units only over land? a fleet in port, an air unit at its base, a unit aboard a ship or a plane, a unit in a battle, the units under a stack's top counter, headquarters and their children), in what order they join, and how the one-kind rule applies (the waiting selection at `+0x1DE4` keeping the first one's kind - which is "first": the box's order, a preference for land?), and what of the province view and the deploy menu. **The keys**: which keys input slots 10, 11 and 12 are (trace the input object's slots to key codes), what slot 11 does to the box (adds to the selection? toggles?). **A click on a unit's counter** with Shift and without: toggling a unit already selected, adding one of another kind, a Shift-click on a stack's top counter (does it cycle, add the stack, add the top?), on a port or an air base, a click on a counter with several selected; a double click if any. **The right click with several selected**: the loop that calls `CUnit::OrderToProvince` for each - in which order, one sound or one per unit, what of a mix the one-kind rule forbids, the air units' and fleets' right click with several (`FINDINGS-airorders.md` section 6 has one air unit), and the province tooltip's warning and distance lines with several. **The counters**: which `selection` word each selected counter gets (all 1? the first another?) and the stack's top. Any keyboard shortcut on the selection (select all? Ctrl and a number to keep a group?) | VA `0x652540` (rva `0x252540`), `0x6416D0` (the hovered thing), `0x64D850`, `0x650700` (the `+0x1DE4` arm), `0x4AD620`, `0x4AD6B0`, `0x4AD680`, `0x4AD6F0`, `0x5C1AD0`; `CInGameIdler +0x1304` (the selection), `+0x12E0` (the down byte), `+0x1DE4`; `FINDINGS-provinceview.md` A.1, `FINDINGS-movement.md` 1, `FINDINGS-counters.md`, `FINDINGS-scrollbar.md`, `FINDINGS-camera.md` |
+| **B. Several on screen** | **The multi-unit panel**, `multi_unitpanel` in `tfh/interface/unitpanel.gui`: when it shows and where (`unitlist_start`, `unitlist_offset`), its `desc` text (key and variables), **the list of rows** - `CInGameIdler` slot 34 (VA `0x6639E0`) and whatever builds, orders, scrolls (`multiunit_slider`: how many rows show, the step) and refreshes them; what each row shows (the `unitpanel` header row - cite `FINDINGS-unitpanel.md`, read only what differs for a row of the list); **a click on a row** (left, right, with Shift: select that unit alone? take it out?), its tooltip. **Every button and checkbox of `multi_unitpanel`** but the three carrying ones (cite C.3): `upgrade_all`, `prio_checkbox`, `reinf_checkbox`, `upgrade_checkbox`, `detach_multiunit`, `highercomm_multiunit`, `reorganizebutton`, `mergebutton`, `disband_multiunit`, `close_multiunit` and any other in it - when each shows, when it is enabled, its tooltip (`CInGameIdler::GetElementTooltip`) and what it posts or does, for which of the selected units; what a checkbox shows when the selected units disagree. **The other windows with several selected**: the orders window for several fleets or air units (does a mission go to every one? `FINDINGS-airorders.md`, `FINDINGS-seaair.md`), the hierarchy's lines on the map, the leader button, the battle rows. **What changes the list**: a selected unit destroyed, merged, gone aboard, out of the player's hands - taken out of the selection where? | VA `0x650700` (rva `0x250700`), `0x6639E0`, `CInGameIdler +0x1368`, `+0xD28` (the rows), `CInGameIdler::GetElementTooltip`; `FINDINGS-transport.md` C.3, `FINDINGS-unitpanel.md`, `FINDINGS-unitpaneltooltips.md`, `FINDINGS-reorganise.md`, `FINDINGS-guilive.md`, `FINDINGS-airorders.md` |
 
-**Measurable afterwards, by OpenHOI3**: the French fleet's five saves - an hour of a carrying fleet's march, and the
-passenger's location following it - and the April save's three carrying fleets, loaded from the save. Nothing measures
-a landing, a paradrop or a carrier's air group taking off; a trial will have to stand for them, as for the battles.
+**Measurable afterwards, by OpenHOI3**: nothing a save keeps; `--click` with a drag (`d560,140>760,340`) and Shift, and
+the maintainer's eye.
