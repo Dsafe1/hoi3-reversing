@@ -111,6 +111,13 @@ the ministries it has delegated.** `CGameState::LoadKey` (already recorded) read
 record, which lines up with flags 0, 1 and 2; that pairing is inference, the branch order is
 not.
 
+**Corrected 2026-10-16 (`FINDINGS-ministers.md` B.2 and A.1): the pairing is wrong.** The three
+`automate_*` keys are fields of their own of the local player's record, `CHuman` (`+0x34`,
+`+0x2C`, `+0x30`); the flags are the save's `ai = { ... }`, and there are **seven** of them - 0
+foreign, 1 production, 2 technology, 3 politics, 4 intelligence, 6 automatic deployment, 5 not
+read. And the player's tech minister is made on `+0x30 != 0`, the four-way
+`automate_tech_sliders`, not on flags[2] (`cmp [eax+0x30]` at `0x888C6F`).
+
 **`0x888F30` (rva `0x488F30`)** is the same decision re-run for the player alone. It takes
 **`this` in `EDI`** with a bare `ret` - confirmed at its call site `0x6EC109`, `mov edi,
 [country+0x1D8]` where the country is `g_CCountryDataBase[+0x16C][gamestate->player_id]` - and
@@ -154,7 +161,11 @@ stubs in every minister except two:
 - **`CAITechMinister` slot 47 (`0x4AE9B0`), `ret 8`**, taking `(CCountry*, int)`. It returns
   immediately unless `country->id == this->id`, then news `0x48` bytes and builds an object
   with `0x557E00(obj, this->tag, this->id, arg2)` - a command, on the shape of the object -
-  before touching the game state. What the notification is, is not established.
+  before touching the game state. What the notification is, is not established. **Settled
+  2026-10-16** (`FINDINGS-ministers.md` A.3): it is told that a level of a technology of several
+  levels was researched, and `0x557E00` is `CStopResearchCommand(own tag, technology)`, which
+  takes that technology off the country's queue; the slot is
+  `CAITechMinister::OnTechnologyLevelResearched`.
 
 ## The driver
 
@@ -270,13 +281,19 @@ day-of-month arithmetic:
 - **Tech** (`0x4AEAD0`): before the hour gate, if either of its two vectors (`+0x60..+0x64`,
   `+0x70..+0x74`) is empty **or** `this[+0x58] > dayOfMonth` - which is only true when the
   month has just rolled over - it calls `0x8AECA0(this)` then `0x8AEF40(this)` and stores
-  `dayOfMonth` in `+0x58`. So its plan is rebuilt **monthly**, and executed daily.
+  `dayOfMonth` in `+0x58`. So its plan is rebuilt **monthly**, and executed daily. *(2026-10-16,
+  `FINDINGS-ministers.md` A.2: the re-plan's two arrays are read by nothing in the exe, and only
+  by two Lua getters no Their Finest Hour script calls.)*
 - **Production** (`0x4A22E0`): after the hour gate it calls `0x899770(this->OwnerAI)`, then
   runs the main block only if `this[+0x5C] < 0.0f` **or** `dayOfMonth % 14 == 0` - so on the
   1st and the 15th of the month, or whenever `+0x5C` is negative. The constructor seeds `+0x5C`
   from the `-1.0f` at `0x170AC0C`, so the first pass always runs. When it does run it sets
   `+0x5C = (float)*0x4EE560(country) / 1000.0` - a thousandths value cached as a float, of
-  which the meaning is not established.
+  which the meaning is not established. **Corrected 2026-10-16** (`FINDINGS-ministers.md` B.1
+  and C.1): the gate covers only the cache - `ProductionMinister_Tick` runs **every day** in the
+  hour (the `jne` at `0x8A2452` lands on the Lua call); the day of the month counts from 0, so the
+  cache is made again on the 1st, the 15th and the 29th; `0x4EE560` is
+  `CCountry::CalcDesperation`; and `0x899770` is `CEU3AI::UpdateSubUnitCounts`.
 - **Politics** (`0x4A1A40`): inside the hour gate, `0x44C5C0()` is divided by 7 with the
   `0x92492493` magic and `0x8A1D40(this)` runs only when the remainder is zero - a **weekly**
   sub-task on top of the daily one.
@@ -384,14 +401,13 @@ minister. Which class owns the cache object is not established.
   `0x89E010`.
 - `CCountry +0x48C`, `+0x5D4`, `+0xE28` and `+0xF1C`, all of which the Foreign minister reads,
   and `+0xCF8` / `+0x95` on the country-database record the driver tests.
-- Which of the five `GetLocalPlayer()[+0x38]` flags is which save key. The branch order is
-  read; the pairing with `automate_trade` / `automate_sliders` / `automate_tech_sliders` is
-  inference, and flags 3 and 4 have no save key named here at all.
-- What `CAITechMinister` slot 47's second argument is, and what event calls it. Same for what
-  invokes `CInGameIdler` slot 67.
-- The Tech minister's `0x8AECA0` / `0x8AEF40` (the monthly re-plan) and its two bytes
-  `+0x5C`/`+0x5D`; the Politics minister's weekly `0x8A1D40`; the Production minister's
-  `0x899770` and the thousandths value `0x4EE560` returns.
+- ~~Which of the five `GetLocalPlayer()[+0x38]` flags is which save key.~~ Settled 2026-10-16:
+  seven flags, the save's `ai = { ... }` (`FINDINGS-ministers.md` B.2).
+- ~~What `CAITechMinister` slot 47's second argument is, and what event calls it.~~ Settled
+  2026-10-16 (`FINDINGS-ministers.md` A.3). What invokes `CInGameIdler` slot 67 is still open.
+- ~~The Tech minister's `0x8AECA0` / `0x8AEF40` and its two bytes; the Production minister's
+  `0x899770` and `0x4EE560`~~ - settled 2026-10-16, `FINDINGS-ministers.md` A.1, A.2, B.1. The
+  Politics minister's weekly `0x8A1D40` is still open.
 - `CAIInvasion` and `CAIUnit` - both are `CAIAgent` subclasses with their own slot 10
   (`0x49FB10`, `0x4B0710`) and `CAIUnit` has 17 extra slots of its own. Neither body was read.
   Neither constructor has a direct caller, so how those agents come into being is unknown.

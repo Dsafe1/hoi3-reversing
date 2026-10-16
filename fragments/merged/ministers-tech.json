@@ -1,0 +1,634 @@
+{
+ "agent": "ministers wave, reader A: the tech minister (OpenHOI3 stage 5, 2026-10-16)",
+ "question": "What CAITechMinister does on the exe's side (the monthly re-plan, the two bytes, slot 47), what every engine method TechMinister_Tick reaches answers, what CStartResearchCommand and CChangeLeadershipCommand do when they run, and which rand math.random is.",
+ "source": "reversing/findings/FINDINGS-ministers.md",
+ "vftable_slots": {
+  "CAITechMinister": {
+   "0": "ScalarDeletingDestructor",
+   "10": "DoWork",
+   "47": "OnTechnologyLevelResearched",
+   "49": "DisableAndDisband",
+   "52": "Enable"
+  },
+  "CStartResearchCommand": {
+   "6": "Execute",
+   "14": "IsValid"
+  },
+  "CStopResearchCommand": {
+   "6": "Execute",
+   "14": "IsValid"
+  },
+  "CChangeLeadershipCommand": {
+   "6": "Execute"
+  }
+ },
+ "addresses": [
+  {
+   "rva": "0x4AEAD0",
+   "kind": "function",
+   "name": "CAITechMinister::DoWork",
+   "signature": "void __thiscall CAITechMinister::DoWork(CAITechMinister* this)",
+   "no_signature": null,
+   "comment": "**Virtual slot 10 - the tech minister's tick, entered every AI pass (hourly) because it first sets countdown +0x30 = 1.** (1) The day of the month, counted from 0: days = (tick - 43800000) / 24; dayOfYear = days - (int)((float)(int)(days / 365.0) * 365.0); the month lengths at 0x1713294 are subtracted in turn. (2) **The re-plan**: when FolderModifers (+0x70..+0x74) or TechModifers (+0x60..+0x64) is empty, or last_day_of_month (+0x58, -1 from the constructor) > today's day of the month - true only on the first pass after a month turns - it calls CAITechMinister::RebuildTechModifiers (0x4AECA0, `push this`) then CAITechMinister::RebuildFolderModifiers (0x4AEF40, this in ECX); then +0x58 = today's day. (3) When `(country_id (+0x38) + 3) % 24 == (tick - 43800000) % 24`: GetThreadLuaState, Lua_TechMinister_Tick (the minister, &+0x5C, &+0x5D) and LuaCallProxy_TechMinister_CallVoid - **TechMinister_Tick(minister, vbSliders = byte +0x5C, vbResearch = byte +0x5D)**, inside a try that catches luabind::error and hands it to ReportLuaError (handler 0x8AEC7E, VA). Nothing in the exe reads the two vectors the re-plan fills (see RebuildTechModifiers). See reversing/findings/FINDINGS-ministers.md section A and reversing/findings/FINDINGS-ai.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-ministers.md",
+   "revises": "Names the two re-plan callees and the Lua call's two helpers, says which byte is which Lua argument (+0x5C is vbSliders, +0x5D vbResearch, off the pusher 0x4AF2E0's push order), and records the luabind::error catch. No earlier claim changed.",
+   "evidence": "Listing 0x8AEAD0..0x8AEC95 (VA): `mov [esi+0x30],1` at 0x8AEAF7; the empty tests `test edx,0xfffffffc` on +0x74-+0x70 (0x8AEBEB) and +0x64-+0x60 (0x8AEBF9), `cmp [esi+0x58],edi; jle` at 0x8AEC00; `push esi; call 0x8aeca0` then `mov ecx,esi; call 0x8aef40`; `lea ecx,[esi+0x5c]` / `lea eax,[esi+0x5d]; push eax` into 0x8AF280, whose frame stores ECX at +0x10 and the stack pointer at +0x14, and 0x8AF2E0 pushes byte [args+4] then byte [args+8] through lua_pushboolean (import 0xD2B534). ehcatches.py 0x8AEAD0: one try, .?AVerror@luabind@@. Would be wrong if 0x8AF2E0 pushed the stack argument first - it reads [ebx+4] before [ebx+8]."
+  },
+  {
+   "rva": "0x4AECA0",
+   "kind": "function",
+   "name": "CAITechMinister::RebuildTechModifiers",
+   "signature": "void __stdcall CAITechMinister::RebuildTechModifiers(CAITechMinister* this)",
+   "no_signature": null,
+   "comment": "**The first half of the monthly re-plan: TechModifers (+0x60), one float per technology, from the units the country fields.** Resizes the array to (number of technologies + 1) and zeroes it; then for every unit on the owner country's units list (+0xBAC) and every regiment on the unit's list (+0x38), with d = the regiment's definition (+0x58): `size = max((float)(d->completion_size (+0xE4) / 1000.0), 1.0f)`, and for each technology T bearing on d (d->technologies +0x44..+0x48) **that CTechnology::CanResearch(T, this country, -1) allows**: `mods[T->Index] += (T->canUpgrade (+0x314) ? 1.0f : 0.3f) * size`, each sum done in double and stored as a float. Then the total (summed the same way): if total < 0.01 and total > -0.01 every entry is set to **0**; otherwise every entry is divided by the total (double, stored float), so they sum to 1. `this` is the one stack argument (`ret 4`). One caller, CAITechMinister::DoWork. **Nothing in the exe reads the result**: the two registered Lua getters GetTechModifers (0x4E90B0) and GetFolderModifers (0x4E90C0) are the only readers, and Their Finest Hour's scripts call neither. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-ministers.md",
+   "evidence": "Listing 0x8AECA0..0x8AEF3F (VA), `ret 4` at 0x8AEEF5 and 0x8AEF3C, `mov ebx,[ebp+8]` the minister. Constants read from the image: 0x171DBAC = 1.0f (floor and canUpgrade weight), 0x15C05EC = 0.3f, 0x160A300 = 1000.0, 0x160A378 = 0.01f, 0x160A788 = -0.01. The CanResearch call is `push -1; push [ebx+0x38]; push [ebx+0x34]; mov ecx,edi; call 0x535760` at 0x8AEDF8. Reader scan: every `reg <- [base+0x6C]` (the CEU3AI's tech minister) in a resumed sweep of .text followed within 12 instructions by `[reg+D]` - D = 0x60/0x64/0x70/0x74 give **0** hits while the positive control D = 0x5C/0x5D gives the 14 delegation writes in CreateMinisters and ApplyPlayerDelegation; findRefs finds no callers of the two getters and one registration reference each. The install's Lua: grep for 'Modifers' finds only BlackICE's files. Would be wrong if a CAITechMinister* reached the vectors through a path other than CEU3AI +0x6C or its own `this`."
+  },
+  {
+   "rva": "0x4AEF40",
+   "kind": "function",
+   "name": "CAITechMinister::RebuildFolderModifiers",
+   "signature": "void __thiscall CAITechMinister::RebuildFolderModifiers(CAITechMinister* this)",
+   "no_signature": null,
+   "comment": "**The second half of the monthly re-plan: FolderModifers (+0x70), one float per technology folder.** Resized to (number of folders, technology database +0x3C..+0x40, + 1) and zeroed; then over the same units and regiments as RebuildTechModifiers, with the same `size = max(completion_size / 1000, 1.0f)`: for **every** technology T bearing on the regiment's definition - no CanResearch test here - `mods[T->Folder (+0x290)->Index (+0x5C)] += (T->canUpgrade ? 1.0f : 0.2f) * size`. Total under 0.01 (and over -0.01): every entry set to **1.0** (not 0, as the technology array is); otherwise each divided by the total. Bare `ret`, `this` in ECX. One caller, CAITechMinister::DoWork. Read by nothing in the exe (see RebuildTechModifiers). The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-ministers.md",
+   "evidence": "Listing 0x8AEF40..0x8AF18F (VA): `mov edi,ecx` at 0x8AEF66, `lea esi,[edi+0x70]`; the size array from [db+0x40]-[db+0x3C] at 0x8AEFA3; the weight `movss xmm3,[0x171618c]` (fAiCommitmentFactor_0_2, 0.2f) against 1.0f on canUpgrade (0x8AF06F); the folder index `[edx+0x290]` then `[edx+0x5c]` at 0x8AF080; the small-total arm stores xmm2 = 1.0f (0x8AF120); bare `ret` at 0x8AF145 and 0x8AF18C. Would be wrong if [edx+0x290] were not the technology's folder - it is the luabind-named Folder field."
+  },
+  {
+   "rva": "0x4AE9B0",
+   "kind": "function",
+   "name": "CAITechMinister::OnTechnologyLevelResearched",
+   "signature": "void __thiscall CAITechMinister::OnTechnologyLevelResearched(CAITechMinister* this, CCountry* country, CTechnology* technology)",
+   "no_signature": null,
+   "comment": "**Virtual slot 47: a technology with more levels has just finished one, so the country's own tech minister takes it off the research queue.** Called only through AISubscribers_NotifyTechnologyResearched (0x4A3040) from the end of CDistributeResearch::Distribute, once for each finished technology whose additional_offset is not 0 - after Distribute has put it back at the end of CurrentResearch when its next level is allowed. If `country->id (+0xCA8) != this->country_id (+0x38)` it returns; otherwise it news 0x48 bytes, builds **CStopResearchCommand(this country, technology)** (0x157E00) and posts it on the session: in_game_screen slot 18, then its +0x38 channel's slot 6. The posted command removes the technology (CStopResearchCommand::Execute), so **an AI country, or a player who delegates research, never keeps a multi-level technology queued past a finished level** - its minister chooses again at its hour. Where the technology was not put back (its next level not allowed) the command fails IsValid and does nothing. Only the tech minister subscribes to that channel. `ret 8`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-ministers.md",
+   "revises": "Was OnCountryEvent (likely) with the notification and its second argument not established. The notification is the end of a finished level in CDistributeResearch::Distribute, the argument is the CTechnology (EDI at 0x520E10 is the finished list's element), and the object 0x557E00 builds is a CStopResearchCommand, posted at once.",
+   "evidence": "Listing 0x8AE9B0: `cmp [ecx+0xca8],eax` with eax = this[+0x38], new(0x48), `call 0x557e00` whose body writes vftable 0x15C40F4 (RTTI CStopResearchCommand) at 0x557E7F and +0x3C/+0x40/+0x44 from its three arguments; post through [gamestate+0xBE8] slot 18 (+0x48) then [session+0x38] slot 6 (+0x18). Caller chain: 0x8A3040 is the only code holding the channel 0x1B14FE0 besides Enable/Disable (findRefs: 5 references, all in those three); it calls VcallThunk_Slot47 (0x522410, `mov eax,[ecx]; jmp [eax+0xBC]`) with `push edi; push ebx`, ebx = its stack argument; its one caller is 0x520E9D in CDistributeResearch::Distribute (slot 0, 0x51F620), where edi = [node] of the finished list (0x520E17) and the pushed argument = [frame+0x1C]+0x18, the country. Would be wrong if another code path called slot 47 directly: slotcalls.py 47 lists 240 sites, but every CAIAgent class holds the stub 0xA806D0 there except this one, and the channel is reached only by 0x8A3040."
+  },
+  {
+   "rva": "0x4AE880",
+   "kind": "function",
+   "name": "CAITechMinister::Enable",
+   "signature": "void __thiscall CAITechMinister::Enable(CAITechMinister* this)",
+   "no_signature": null,
+   "comment": "**Slot 52, the tech minister's own Enable.** `enabled (+0x3C) = 1`; appends a 0x10-byte node {this, prev, next, 0} to the CAISubscriber channel at 0x1B14FE0 (VA; head, tail 0x1B14FE4, count 0x1B14FE8) - the channel AISubscribers_NotifyTechnologyResearched walks, so this is what makes slot 47 fire; then `countdown (+0x30) = MT19937Next(&gamestate->+0x124) % 3 + 1` - one draw on the AI's generator, the same as CAIPoliticsMinister::Enable. Called through [vftable+0xD0] by CEU3AI::CreateMinisters and CEU3AI::ApplyPlayerDelegation right after construction. Bare `ret`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-ministers.md",
+   "evidence": "Listing 0x8AE880..0x8AE97C (VA): `mov byte [edi+0x3c],1`; the node build and `[0x1b14fe4]`/`[0x1b14fe8]`/`[0x1b14fe0]` stores; `lea eax,[esi+0x124]; call 0xaa2b90; cdq; idiv 3; inc edx; mov [edi+0x30],edx`. vtable.py --holding 0x8AE880: CAITechMinister slot 52 only. Would be wrong if 0xAA2B90 were not MT19937Next - it is recorded so."
+  },
+  {
+   "rva": "0x4AE980",
+   "kind": "function",
+   "name": "CAITechMinister::DisableAndDisband",
+   "signature": "void __thiscall CAITechMinister::DisableAndDisband(CAITechMinister* this)",
+   "no_signature": null,
+   "comment": "Slot 49: finds this minister's node on the channel at 0x1B14FE0 (VA) and sets its target to null - the notifier unlinks such a node on its next walk - then tail-jumps to CAIAgent::DisableAndDisband (0x49C8A0). So a disabled tech minister hears no more finished technologies.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-ministers.md",
+   "evidence": "Listing 0x8AE980..0x8AE9AA (VA): the walk `cmp [eax],ecx; ... mov eax,[eax+8]` from [0x1b14fe0], `mov dword [eax],0`, `jmp 0x89c8a0` on both paths. vtable.py --holding: CAITechMinister slot 49 only. Ends in a jmp, so there is no ret of its own to check."
+  },
+  {
+   "rva": "0x4AE820",
+   "kind": "function",
+   "name": "CAITechMinister::ScalarDeletingDestructor",
+   "signature": "CAITechMinister* __thiscall CAITechMinister::ScalarDeletingDestructor(CAITechMinister* this, int flags)",
+   "no_signature": null,
+   "comment": "Slot 0: writes the vftable back, frees FolderModifers (+0x70) and TechModifers (+0x60) and zeroes their three words each, runs the CAIAgent destructor 0x49C7C0, and frees the object when `flags & 1`. `ret 4`. The only other code that touches the two arrays besides the re-plan and the Lua getters.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-ministers.md",
+   "evidence": "Listing 0x8AE820..0x8AE87C (VA): `mov [esi],0x15ebf5c`, free [esi+0x70] and [esi+0x60], `call 0x89c7c0`, `test byte [ebp+8],1`, `ret 4`. vtable.py --holding: CAITechMinister slot 0 only."
+  },
+  {
+   "rva": "0x4AF190",
+   "kind": "function",
+   "name": "CAITechMinister::CanResearch",
+   "signature": "bool __thiscall CAITechMinister::CanResearch(CAITechMinister* this, CTechnology* technology)",
+   "no_signature": null,
+   "comment": "**Lua `minister:CanResearch(tech)`: may the country start this technology now.** True when (1) the technology's slot 9 answers true - CTechnology's is `mov al,1`, CNullTechnology's (`notech`, the database's first entry) `xor al,al`; (2) CTechnology::CanResearch(technology, the minister's country, -1) - the next level is a real level (a single-level technology, additional_offset 0, only level 1) not above max_level, and the technology's `allow` block holds for the country (and, in a custom game only, the custom settings' figure); and (3) the technology is **not already on the country's CurrentResearch** (+0x638), compared by pointer. Nothing else - not the number of slots, not the year. `ret 4`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-ministers.md",
+   "evidence": "Listing 0x8AF190..0x8AF1F5 (VA): `call [eax+0x24]` on the technology, `push -1; push [esi+0x38]; push [esi+0x34]; call 0x535760`, then the walk of [country+0x638] comparing `[eax]` with the technology and answering false on a match. vtable.py CTechnology CNullTechnology: slot 9 0xA92590 (`mov al,1`) and 0x592360. Registered as CAITechMinister:CanResearch (luabind.json)."
+  },
+  {
+   "rva": "0x4AF200",
+   "kind": "function",
+   "name": "LuaCallProxy_TechMinister_CallVoid",
+   "signature": "void __cdecl LuaCallProxy_TechMinister_CallVoid(void* proxy@ESI)",
+   "no_signature": null,
+   "comment": "Makes the TechMinister_Tick call once its frame is built (the called flag at +0x18): pushes the three arguments through LuaPushArgs_TechMinister, `pcall(L, 3, 0)` through the frame's +8 (luabind::detail::pcall), throws luabind::error on a non-zero status, and restores the stack. The twin of LuaCallProxy_PoliticsMinister_CallVoid with three arguments. Bare `ret`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-ministers.md",
+   "evidence": "Listing 0x8AF200..0x8AF27A (VA): `cmp byte [esi+0x18],0`, `push eax(&frame+0xC); call 0x8af2e0`, `push 0; push 3; push edi; call [esi+8]`, the `0x15c1cf0` exception object and `call 0xb9894b` (_CxxThrowException) on failure, lua_settop. Called once, from DoWork at 0x8AEC68."
+  },
+  {
+   "rva": "0x4AF280",
+   "kind": "function",
+   "name": "Lua_TechMinister_Tick",
+   "signature": "LuaCallFrame* __cdecl Lua_TechMinister_Tick(bool* vbResearch@stack:4, CAITechMinister** minister@EAX, bool* vbSliders@ECX, lua_State* L@EDI, LuaCallFrame* out@ESI) @EAX",
+   "no_signature": null,
+   "comment": "Pushes the name `TechMinister_Tick` and fetches it from the Lua globals table, then fills the call frame: [0] L, [4] 1, [8] luabind::detail::pcall (0xB7E9D0), [0xC] the slot holding the minister (EAX), [0x10] &vbSliders (ECX, the minister's +0x5C), [0x14] &vbResearch (the stack argument, +0x5D), [0x18] called = 0. Called from CAITechMinister::DoWork at 0x8AEC60. **So the script receives (minister, +0x5C, +0x5D) as (minister, vbSliders, vbResearch).** The mod defines it in script/ai_tech_minister.lua.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-ministers.md",
+   "revises": "The signature had one stack argument and no register inputs; EAX (the minister's slot) and ECX (&+0x5C) are inputs too, stored at [ebp-0xC]/[ebp-8] and copied to frame +0xC/+0x10. The comment now says which byte is which argument.",
+   "evidence": "Listing 0x8AF280..0x8AF2D0 (VA): `mov [ebp-0xc],eax; mov [ebp-8],ecx` before the push of 0x15EBF44 ('TechMinister_Tick'), `movq xmm0,[ebp-0xc]; movq [esi+0xc],xmm0`, `mov edx,[ebp+8]; mov [esi+0x14],edx`, bare `ret`. DoWork sets eax = &local(minister), ecx = &[esi+0x5c] and pushes &[esi+0x5d]."
+  },
+  {
+   "rva": "0x4AF2E0",
+   "kind": "function",
+   "name": "LuaPushArgs_TechMinister",
+   "signature": "void __cdecl LuaPushArgs_TechMinister(void** args@stack:4, lua_State* L@EDI)",
+   "no_signature": null,
+   "comment": "Pushes TechMinister_Tick's three arguments in order: the minister as an instance of its most derived class (nil if null), then `lua_pushboolean(*args[1])` - the byte at minister +0x5C, vbSliders - then `lua_pushboolean(*args[2])` - +0x5D, vbResearch. Bare `ret`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-ministers.md",
+   "evidence": "Listing 0x8AF2E0..0x8AF349 (VA): `mov eax,[ebx]; mov esi,[eax]`, lua_pushnil (import 0xD2B4C4) when null, else `__RTDynamicCast` (0xB97799) and the instance push; then `mov ecx,[ebx+4]; movzx edx,byte [ecx]; call [0xd2b534]` and `mov eax,[ebx+8]; movzx ecx,byte [eax]; call esi` - import 0xD2B534 is lua51.dll's lua_pushboolean."
+  },
+  {
+   "rva": "0x4A3040",
+   "kind": "function",
+   "name": "AISubscribers_NotifyTechnologyResearched",
+   "signature": "void __cdecl AISubscribers_NotifyTechnologyResearched(CCountry* country@stack:4, CTechnology* technology@EDI)",
+   "no_signature": null,
+   "comment": "VA 0x8A3040 to the bare `ret` at 0x8A30C1. Walks the CAISubscriber channel at 0x1B14FE0 (g_AISubscriberList_TechResearched) and calls each subscriber's slot 47 (through VcallThunk_Slot47) with (country, technology); a node whose subscriber is null is unlinked and freed, or only marked (+0xC = 1) while [0x1B14FEC] is set. One caller, CDistributeResearch::Distribute at 0x520E9D, once per finished technology with more levels. Only CAITechMinister subscribes (its Enable), and only it overrides slot 47. The twin of AISubscribers_NotifyControllerChanged. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-ministers.md",
+   "evidence": "Listing 0x8A3040..0x8A30C1: `mov ebx,[ebp+8]`, `mov esi,[0x1b14fe0]`, `push edi; push ebx; call 0x522410`; edi is never written in the body, and the caller at 0x520E17 loads it with the finished technology. findRefs --callers 0x8A3040: one call, 0x520E9D, followed by `add esp,4`."
+  },
+  {
+   "rva": "0x122410",
+   "kind": "function",
+   "name": "VcallThunk_Slot47",
+   "signature": "void __fastcall VcallThunk_Slot47(void* this@ECX)",
+   "no_signature": null,
+   "comment": "MSVC's vcall thunk for slot 47 - `mov eax,[ecx]; jmp dword ptr [eax+0xBC]` - so the effective convention is the callee's (slot 47 of the CAISubscriber family, `ret 8`). Named class-free on purpose (trap 4). Called from AISubscribers_NotifyTechnologyResearched at 0x8A305A, the one call in .text.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-ministers.md",
+   "evidence": "image.findBytes(8B 01 FF A0 BC 00 00 00) answers 0x522410 alone (VA); vtable.py --holding: in no table; the call at 0x8A305A. Ends in a jmp, so there is no ret to check."
+  },
+  {
+   "rva": "0x1714FE0",
+   "kind": "global",
+   "name": "g_AISubscriberList_TechResearched",
+   "signature": null,
+   "no_signature": null,
+   "comment": "CAISubscriber channel 0x22 of the table at VA 0x1B14DC0: a {head, tail (0x1B14FE4), count (0x1B14FE8)} list of 0x10-byte nodes {subscriber, prev, next, dead}, with the iterating byte at 0x1B14FEC. CAITechMinister::Enable appends to it, CAITechMinister::DisableAndDisband nulls its node, and AISubscribers_NotifyTechnologyResearched walks it - five references in the image, all in those three.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-ministers.md",
+   "evidence": "findRefs.py --address 0x1B14FE0: five references, at 0x8A304A, 0x8A3091, 0x8A3099 (the notifier), 0x8AE8E5 (Enable) and 0x8AE981 (slot 49). (0x1B14FE0 - 0x1B14DC0) / 16 = 0x22."
+  },
+  {
+   "rva": "0x4888C0",
+   "kind": "function",
+   "name": "CEU3AI::CreateMinisters",
+   "signature": "void __thiscall CEU3AI::CreateMinisters(CEU3AI* this)",
+   "no_signature": null,
+   "comment": "**Creates or destroys the five ministers, and the whole AI-delegation rule is here.** Bare `ret`, one caller: the tail of CEU3AI::CEU3AI at 0x888566. For each ministry: return outright when `gamestate[+0xD0C] != 0`; create unconditionally when this is not the played country (`this[+0x24] != gamestate[+0xC34]`); and when it is, create only when the local player delegates it, else destroy. So **an AI country always has all five, and the human's country has only the ones delegated**. The player's tests: foreign `GetLocalPlayer()[+0x38][0] == 1` (+0x60), production `[1]` (+0x64), espionage `[4]` (+0x68), politics `[3]` (+0x70) - **but the tech minister (+0x6C) is made when `GetLocalPlayer()[+0x30] != 0`**, the four-way value the save calls `automate_tech_sliders`, and for the player only its two bytes are then set from it: 1 gives vbSliders and vbResearch, 2 research only, 3 sliders only, anything else neither. **A country nobody plays keeps the constructor's 1 and 1.** Each new minister is enabled through slot 52 at once. See reversing/findings/FINDINGS-ai.md and reversing/findings/FINDINGS-ministers.md section A.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-ministers.md",
+   "revises": "The record had flags[2] as the player's tech test here. That is ApplyPlayerDelegation's test (0x889296, `cmp [ecx+8],1`); CreateMinisters tests +0x30 (0x888C6F) and then writes the two bytes from the same value, for the player only (the switch at 0x888D65 is reached only through the isPlayer arm at 0x888CE5).",
+   "evidence": "The five calls of GetLocalPlayer (0x685F00) in 0x8888C0..0x888F2F, each followed by its test: `cmp [edx],1` (0x888988), `cmp [ecx+4],1` (0x888A80), `cmp [ecx+0x10],1` (0x888B79), `cmp [eax+0x30],ebx; je` (0x888C6F), `cmp [ecx+0xc],1` (0x888E27); the switch 0x888D6B..0x888DA3 stores into [[esi+0x6C]+0x5C]/[+0x5D]. The save Germany1936_04_20_03.hoi3 holds `automate_tech_sliders=1` as a number, not yes/no. Would be wrong if +0x30 and flags[2] were kept equal by whatever writes them - not read."
+  },
+  {
+   "rva": "0x157920",
+   "kind": "function",
+   "name": "CStartResearchCommand::CStartResearchCommand",
+   "signature": "CStartResearchCommand* __stdcall CStartResearchCommand::CStartResearchCommand(CStartResearchCommand* this, CCountryTag tag, CTechnology* technology)",
+   "no_signature": null,
+   "comment": "The object on the stack, `ret 0x10`. CCommand base (+4 = 0x18D, type token 0x4A2 at +0x2C/+0x30), vftable 0x15C40B4, country tag +0x3C/+0x40, technology +0x44. Nothing checked. Callers: the technology screen (0x81AE04, 0x8236B5) and the Lua constructor LuaConstruct_CStartResearchCommand (0x989B7B).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-ministers.md",
+   "evidence": "Listing 0x557920..0x5579B6 (VA): `mov [esi+0x40],[ebp+0x10]`, `mov [esi+0x44],[ebp+0x14]`, `mov [esi],0x15c40b4`, `mov [esi+0x3c],[ebp+0xc]`, `ret 0x10`. findRefs --vftable CStartResearchCommand: this, the prototype constructor 0x557880 and Clone 0x557C80."
+  },
+  {
+   "rva": "0x1579C0",
+   "kind": "function",
+   "name": "CStartResearchCommand::Execute",
+   "signature": "void __thiscall CStartResearchCommand::Execute(CStartResearchCommand* this)",
+   "no_signature": null,
+   "comment": "**Puts the technology at the end of the country's research queue, and checks nothing.** country = the country database's countries[+0x40]; CCountry_AppendCurrentResearch(country, technology) - a new node at the tail of CurrentResearch (+0x638/+0x63C, count +0x640). Not CanResearch, not the number of slots, not a duplicate: the only refusal is IsValid (slot 14, already queued), which the post and the session's command loop ask before Execute. Then, the count being at least 1, LeadershipDistribution[3] slot 4 - CDistributeResearch::ShareAmongProjects - so the projects' shares of leadership are worked out again at once. Nothing is told to the player. Bare `ret`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-ministers.md",
+   "evidence": "Listing 0x5579C0..0x557A25 (VA): `mov esi,[[0x1a855a4]+0x16c][id*4]`, `push [edi+0x44]; call 0x4e0200`; `cmp [eax+0x640],0; jle`; `mov edx,[eax+0x5e4]; mov ecx,[edx+0xc]; call [[ecx]+0x10]`. vtable.py: CDistributeResearch slot 4 is 0x51F4D0, CDistributeResearch::ShareAmongProjects. Would be wrong if LeadershipDistribution[3] were not the research share - FINDINGS-leadership.md section 2 and the save's `leadership=` order say it is."
+  },
+  {
+   "rva": "0x157D10",
+   "kind": "function",
+   "name": "CStartResearchCommand::IsValid",
+   "signature": "bool __thiscall CStartResearchCommand::IsValid(CStartResearchCommand* this)",
+   "no_signature": null,
+   "comment": "Slot 14: **false when the technology is already on the country's CurrentResearch** (compared by pointer), true otherwise. The loopback post deletes a command whose slot 14 is false, and the session's command loop skips one, so two starts of one technology in a day queue it once. Bare `ret`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-ministers.md",
+   "evidence": "Listing 0x557D10..0x557D56 (VA): the walk of [country+0x638] `cmp [eax],ecx; je -> xor al,al`, else `mov al,1`. FINDINGS-commands.md: slot 14 is asked at 0xB3C0D7 (the post) and 0xA89844 (the loop)."
+  },
+  {
+   "rva": "0xE0200",
+   "kind": "function",
+   "name": "CCountry_AppendCurrentResearch",
+   "signature": "void __stdcall CCountry_AppendCurrentResearch(CCountry* country@ESI, CTechnology* technology@stack:4)",
+   "no_signature": null,
+   "comment": "Appends a 0x10-byte node {technology, prev, next, 0} at the tail of the country's CurrentResearch list (+0x638 head, +0x63C tail, +0x640 count). The country arrives in ESI. Two callers: CStartResearchCommand::Execute (0x5579EA) and 0x4CDAC5 in 0x4CCDA0 (not read). `ret 4`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-ministers.md",
+   "evidence": "Listing 0x4E0200..0x4E0257: `mov edi,[esi+0x63c]`, new(0x10), `inc [esi+0x640]`, `mov [esi+0x63c],eax`, `mov [edi+8],eax` or `mov [esi+0x638],eax` for the first, `ret 4` twice. findRefs --callers: 0x4CDAC5 and 0x5579EA."
+  },
+  {
+   "rva": "0x157E00",
+   "kind": "function",
+   "name": "CStopResearchCommand::CStopResearchCommand",
+   "signature": "CStopResearchCommand* __stdcall CStopResearchCommand::CStopResearchCommand(CStopResearchCommand* this, CCountryTag tag, CTechnology* technology)",
+   "no_signature": null,
+   "comment": "The object on the stack, `ret 0x10`, the same layout as CStartResearchCommand: vftable 0x15C40F4, tag +0x3C/+0x40, technology +0x44. Built by CAITechMinister::OnTechnologyLevelResearched with the minister's own tag; not registered with Lua.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-ministers.md",
+   "evidence": "Listing 0x557E58..0x557E96 (VA): `mov [esi+0x40],[ebp+0x10]`, `mov [esi+0x44],[ebp+0x14]`, `mov [esi],0x15c40f4`, `mov [esi+0x3c],[ebp+0xc]`, `ret 0x10`. luabind.json has no CStopResearchCommand class."
+  },
+  {
+   "rva": "0x157EA0",
+   "kind": "function",
+   "name": "CStopResearchCommand::Execute",
+   "signature": "void __thiscall CStopResearchCommand::Execute(CStopResearchCommand* this)",
+   "no_signature": null,
+   "comment": "Takes the technology's node off the country's CurrentResearch (CList_RemoveNode, the list in ESI; a missing node is refused there), then, while the queue still holds anything, LeadershipDistribution[3] slot 4 - CDistributeResearch::ShareAmongProjects. The progress already made is not touched. Bare `ret`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-ministers.md",
+   "evidence": "Listing 0x557EA0..0x557F28 (VA): the walk of [country+0x638] for [node] == [this+0x44], `call 0x5d49d0` with esi = country+0x638, then the same `cmp [eax+0x640],0; jle` and `[[eax+0x5e4]+0xc]` slot 4 call as the start command."
+  },
+  {
+   "rva": "0x157FD0",
+   "kind": "function",
+   "name": "CStopResearchCommand::IsValid",
+   "signature": "bool __thiscall CStopResearchCommand::IsValid(CStopResearchCommand* this)",
+   "no_signature": null,
+   "comment": "Slot 14: **true only when the technology is on the country's CurrentResearch.** So a stop for a technology Distribute did not put back is deleted at the post. Bare `ret`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-ministers.md",
+   "evidence": "Listing 0x557FD0..0x558016 (VA): the same walk, `je -> mov al,1`, fall-through `xor al,al`."
+  },
+  {
+   "rva": "0x157330",
+   "kind": "function",
+   "name": "CChangeLeadershipCommand::CChangeLeadershipCommand",
+   "signature": "CChangeLeadershipCommand* __stdcall CChangeLeadershipCommand::CChangeLeadershipCommand(CChangeLeadershipCommand* this, float officers, float diplomacy, float espionage, float research, CCountryTag tag)",
+   "no_signature": null,
+   "comment": "**The four leadership shares from four floats - the Lua constructor's path.** Type token 0x4A0, vftable 0x15C4074, tag +0x3C/+0x40, an empty vector of 64-bit shares at +0x44/+0x48/+0x4C. Each float below 0 (or NaN) becomes 0. `sum = (float)((double)officers + diplomacy + espionage + research)`. Then for each in that order: `q = (float)((double)x / sum)`; **share = (__int64)(q * 32768.0 + (q >= 0 ? 0.5 : -0.5))**, truncated by _ftol2 - fixed 15 rounded half away from zero - pushed onto the vector. Nothing else is clamped; four shares that came from fractions summing to 1 sum to 32768 give or take a unit of rounding. A sum of 0 gives 0/0. `ret 0x1C`. One caller, LuaConstruct_CChangeLeadershipCommand.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-ministers.md",
+   "evidence": "Listing 0x557330..0x5575A7 (VA): the four `comiss x,0; ja` clamps at 0x5573D1..0x557405, the double sum and `cvtpd2ps` at 0x55742A, per share `divsd` then `cvtpd2ps`, the 0.5 / -0.5 choice (0x160A308 = 0.5, 0x160A350 = -0.5 read from the image), `fmul [0x160a348]` (32768.0), `fadd`, `call 0xc088a6` (_ftol2), `call 0x422690` the push; `ret 0x1c`. Measured: the 20 April 1936 save has ENG at `0.20001 0.07999 0.03000 0.69000`, which is 6554, 2621, 983 and 22610 over 32768 - exactly 0.2, 0.08, 0.03 and 0.69 (the script's answer for ENG) through this rounding."
+  },
+  {
+   "rva": "0x157000",
+   "kind": "function",
+   "name": "CChangeLeadershipCommand::CChangeLeadershipCommand_FromSliders",
+   "signature": "CChangeLeadershipCommand* __stdcall CChangeLeadershipCommand::CChangeLeadershipCommand_FromSliders(CChangeLeadershipCommand* this, void* values, CCountryTag tag)",
+   "no_signature": null,
+   "comment": "The technology screen's path: `values` is a vector of four 64-bit fixed-15 slider values. `sum` = their 64-bit total, and each share is `(value << 15) / sum` by __alldiv - **truncated**, so the four shares sum to 32768 or a little less. Reads entries 0 to 3 whatever the vector's length. `ret 0x10`. One caller, CTechnologyView::SendDistribution (0x81D3A9), which builds the values from the sliders' positions (each rounded half away from zero to fixed 15 and the running total held to 0x320000) and sends nothing while the player's automate_tech_sliders value is 1 or 3.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-ministers.md",
+   "evidence": "Listing 0x557000..0x557325 (VA): the add/adc sum over `sar eax,3` elements, then four `shld edx,ecx,0xf; shl ecx,0xf; push sum; call 0xb99980` (__alldiv) each followed by the vector push; `ret 0x10`. SendDistribution 0x81D150: GetLocalPlayer()[+0x30] `dec eax; je` and `sub eax,2; je` to the exit at 0x81D3E2, the 0x320000 caps at 0x81D30B/0x81D339. The division of the slider position by the view's +0xCC was not followed further."
+  },
+  {
+   "rva": "0x1575B0",
+   "kind": "function",
+   "name": "CChangeLeadershipCommand::Execute",
+   "signature": "void __thiscall CChangeLeadershipCommand::Execute(CChangeLeadershipCommand* this)",
+   "no_signature": null,
+   "comment": "**Share i goes to LeadershipDistribution[i]**: for i over the vector (+0x44..+0x48), the country's distribution setting i gets `base_percentage (+8, 64-bit) = shares[i]`, and when that changed its slot 4 runs (CDistributeResearch::ShareAmongProjects for the research share; the shared empty stub for officers, diplomacy and espionage). Order officers, diplomacy, espionage, research - so Lua's (nco, diplomacy, espionage, research). No test of anything, and IsValid (slot 14) is the shared `mov al,1`. Last, for the local player's country only (gamestate +0xC34), in_game_screen slot 94 (+0x178) with 0 - a refresh of the screen. Bare `ret`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-ministers.md",
+   "evidence": "Listing 0x5575B0..0x5576F6 (VA): `mov ecx,[country+0x5e4]; lea ecx,[ecx+edi*4]; mov ecx,[ecx]`, the 64-bit compare of [ecx+8]/[ecx+0xc] against the new value and `call [[ecx]+0x10]` only on a difference; `cmp [esi+0x40],[gs+0xc34]` then `call [[gs+0xbe8]+0x178]`. vtable.py CChangeLeadershipCommand: slot 14 is 0xA92590. Measured: the April save's four `leadership=` values for ENG, GER, HOL, SWE and ITA each follow BalanceLeadershipSliders' (nco, diplomacy, espionage, research) in that order."
+  },
+  {
+   "rva": "0x41D150",
+   "kind": "function",
+   "name": "CTechnologyView::SendDistribution",
+   "signature": "void __stdcall CTechnologyView::SendDistribution(CTechnologyView* this)",
+   "no_signature": null,
+   "comment": "The technology screen's counterpart of CProductionView::SendDistribution: called from Update at most once a wall-clock second when a slider changed. **It sends nothing while the local player's automate_tech_sliders value (GetLocalPlayer +0x30) is 1 or 3** - the tech minister then owns the sliders. Otherwise, for each slider entry on the view's list (+0xBC), in order: the position of its `actual_slider` element as a float, divided by the view's +0xCC, rounded half away from zero to fixed 15 (`q * 32768 +- 0.5`, _ftol2), and cut so the running total never passes 0x320000 (100.0 in fixed 15); the four values go into CChangeLeadershipCommand::CChangeLeadershipCommand_FromSliders with the tag from the view's +0x180 slot 23, posted through that object's slot 18 session channel (slot 6). `ret 4`, the view on the stack. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-ministers.md",
+   "revises": "Was 'not read' with no signature: the view is the one stack argument (`ret 4` at 0x81D3F3, VA), and the body is read from the delegation gate to the post. What +0xCC holds was not followed.",
+   "evidence": "Listing 0x81D150..0x81D3F3 (VA): `call 0x685f00; mov eax,[eax+0x30]; dec eax; je 0x81d3e2; sub eax,2; je 0x81d3e2`; the 'actual_slider' lookup (string 0x15BB590) and `fstp` of the knob's slot-4 answer; `divsd` by the float [view+0xcc]; the 0.5/-0.5 and 32768.0 constants and _ftol2 (0xC088A6); the 0x320000 caps at 0x81D30B and 0x81D339; new(0x54), `call 0x557000`; `[[view+0x180]+0x48]()` then its +0x38 slot 6 with the command. Caller 0x81D140 pushes the view."
+  },
+  {
+   "rva": "0x5896B0",
+   "kind": "function",
+   "name": "LuaConstruct_CChangeLeadershipCommand",
+   "signature": null,
+   "no_signature": "luabind's construct thunk: `ret 0x1C`, the luabind::argument at stack:4, the four floats next in Lua order, then the 8-byte tag - not the Lua call's order, which has the tag first.",
+   "comment": "**Lua `CChangeLeadershipCommand(tag, nco, diplomacy, espionage, research)`**: news 0x54 bytes and calls CChangeLeadershipCommand::CChangeLeadershipCommand(nco, diplomacy, espionage, research, tag) - each Lua number turned into a float by lua_tonumber and `fstp dword` (rounded to nearest) in LuabindInvoke_CChangeLeadershipCommand - then wraps it in a luabind pointer holder.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-ministers.md",
+   "evidence": "Listing 0x9896B0..0x9897AC (VA): `push 0x54; call 0xb9602f`, the thunk's [ebp+0xC]..[ebp+0x18] copied to the constructor's first four float slots in order and [ebp+0x1C]/[ebp+0x20] pushed last, `call 0x557330`; `ret 0x1c`. Which Lua index reaches which slot is settled in LuabindInvoke_CChangeLeadershipCommand."
+  },
+  {
+   "rva": "0x57EFA0",
+   "kind": "function",
+   "name": "LuabindInvoke_CChangeLeadershipCommand",
+   "signature": null,
+   "no_signature": "luabind's invoke for the constructor overload (argument, CCountryTag, float x4): the lua_State in EAX, the function object and the invoke context on the stack, bare `ret` (the caller cleans) - a template body, no source-level signature.",
+   "comment": "Scores the overload (arity 6 against lua_gettop; lua_type == 3 for indices 3 to 6; the tag converter for index 2) and, when chosen, converts and calls: **Lua index 3 -> the constructor's first float (officers), 4 -> diplomacy, 5 -> espionage, 6 -> research**, index 2 -> the tag. The four lua_tonumber calls run in the order 6, 5, 4, 3, which changes nothing. This settles, for this class, the 'which Lua argument reaches which slot' question FINDINGS-government.md E.9 left open for the luabind thunks.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-ministers.md",
+   "evidence": "Listing 0x97EFA0..0x97F1F1 (VA): consumed-argument counts from 0xBF9B90 (`mov eax,1; ret`) give index locals 2 ([S+0x2C]), 3 ([S+0x10]), 4 ([S+0x24]), 5 ([S+0x20]), 6 ([S+0x18]); lua_tonumber (import 0xD2B4DC) on [S+0x18], [S+0x20], [S+0x24], [S+0x10] stored to [S+0x2C], [S+0x28], [S+0x24], [S+0x20]; then the thunk's float slots are filled [esp] <- [S+0x20] (index 3), [esp+4] <- [S+0x24] (4), [esp+8] <- [S+0x28] (5), [esp+0xC] <- [S+0x2C] (6). 0x98C560 `ret 4` and 0x98C7D0 `ret 8` keep the frame arithmetic. Measured: the save's shares come out in Lua's order, NCO first."
+  },
+  {
+   "rva": "0x589B10",
+   "kind": "function",
+   "name": "LuaConstruct_CStartResearchCommand",
+   "signature": null,
+   "no_signature": "luabind's construct thunk: `ret 0x10`, the luabind::argument at stack:4, the technology pointer next, then the 8-byte tag.",
+   "comment": "**Lua `CStartResearchCommand(tag, tech)`**: news 0x48 bytes and calls CStartResearchCommand::CStartResearchCommand(tag, technology), then wraps it in a luabind pointer holder. The two arguments differ in type, so the mapping is not in doubt.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-ministers.md",
+   "evidence": "Listing 0x989B10..0x989BE2 (VA): `push 0x48; call 0xb9602f`, `push [ebp+0xc]; push [ebp+0x14]; push [ebp+0x10]; push eax; call 0x557920`, `ret 0x10`."
+  },
+  {
+   "rva": "0xFBEA0",
+   "kind": "function",
+   "name": "CCountry::GetInfluencedCountryCount",
+   "signature": "int __fastcall CCountry::GetInfluencedCountryCount(CCountry* this@ECX) @EAX",
+   "no_signature": null,
+   "comment": "**Lua `CCountry:CalculateNumberOfActiveInfluences()` - how many countries this one is influencing now.** No stack arguments, plain `ret`, the country in ecx. Walks every country o of the database (+0x168 count, +0x16C array, in id order) and counts those whose o->+0xE28[this->+0xCA8] has influence_running (+0x2C) set - the CInfluence a running influence leaves on the influenced country's side - the same flag the daily influence upkeep charges for. The tech minister's BalanceLeadershipSliders sets a major's diplomacy share to this count over its total leadership when it holds more than 50 influence. Abuts CCountry::ChangeNeutrality, which starts at 0x4FBF80 after eight int3. (First recorded at rva 0xFBF00, which is inside this function rather than its start - 0xFBF80 is CCountry::ChangeNeutrality, so 0xFBF00 could not begin anything. The start is 0xFBEA0, preceded by int3 padding, `push ebp; mov ebp, esp; and esp, -8`. buildFindings.py dropped the entry until this was corrected.)",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-ministers.md",
+   "revises": "likely -> confirmed: the body read whole and the direction settled - CDiplomacyStatus +0x2C is carried on the influenced side (influenced->diplomacy[influencer]), so o->+0xE28[this] counts the countries this one influences. It is the registered CCountry:CalculateNumberOfActiveInfluences (luabind.json). Name kept.",
+   "evidence": "Listing 0x4FBEA0..0x4FBF64 (VA): `mov ecx,[ebx+0xca8]` scaled by 4, per country `mov eax,[edi+[eax+0xca8]*4]; mov eax,[eax+0xe28]; mov eax,[eax+ecx]; cmp [eax+0x2c],0; je; inc count`. The CDiplomacyStatus +0x2C record (writer CInfluence::Activate) gives the side."
+  },
+  {
+   "rva": "0x133380",
+   "kind": "function",
+   "name": "CTechnologyStatus::GetYear",
+   "signature": "int __thiscall CTechnologyStatus::GetYear(CTechnologyStatus* this, CTechnology* technology, int level)",
+   "no_signature": null,
+   "comment": "**Lua `status:GetYear(tech, level)`: the year that level of the technology is due** - `start_year (+0x2B4)` for a level of 1 or less, `first_offset (+0x2B8)` for 2, `first_offset + (level - 2) * additional_offset (+0x2C0)` above. Whole years, no rounding, and `this` is never read: the country's own level does not enter. The same arithmetic as CTechnology_YearPenalty's due year. `ret 8`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-ministers.md",
+   "evidence": "Listing 0x533380..0x5333B3 (VA): `cmp ecx,1; jg`, `mov eax,[eax+0x2b4]`, else `mov eax,[edx+0x2b8]; cmp ecx,2; jle; add ecx,-2; imul ecx,[edx+0x2c0]; add eax,ecx`, `ret 8` twice. Registered as CTechnologyStatus:GetYear."
+  },
+  {
+   "rva": "0x133950",
+   "kind": "function",
+   "name": "CTechnologyStatus::CanResearch",
+   "signature": "bool __thiscall CTechnologyStatus::CanResearch(CTechnologyStatus* this, CTechnology* technology, int level)",
+   "no_signature": null,
+   "comment": "Lua `status:CanResearch(tech, level)`: only the level arithmetic of CTechnology::CanResearch - a level of -1 means this status's level + 1; a single-level technology (additional_offset 0) passes only levels 0 and 1; and the level must not exceed max_level. **No `allow` block, no custom-game ceiling, no queue.** Their Finest Hour's tech script does not call it. `ret 8`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-ministers.md",
+   "evidence": "Listing 0x533950..0x533990 (VA), decompiled and checked: level_by_technology (+0x218)[Index] + 1 for -1, the additional_offset (+0x2C0) test, `<= max_level (+0x2C4)`; `ret 8` twice."
+  },
+  {
+   "rva": "0x133130",
+   "kind": "function",
+   "name": "CTechnologyStatus::GetLevel",
+   "signature": "int __thiscall CTechnologyStatus::GetLevel(CTechnologyStatus* this, CTechnology* technology)",
+   "no_signature": null,
+   "comment": "Lua `status:GetLevel(tech)`: the country's researched level of the technology, `level_by_technology (+0x218)[technology->Index (+0x244)]` - a whole number, 0 for none. A nil technology is dereferenced. `ret 4`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-ministers.md",
+   "evidence": "Listing 0x533130..0x533146 (VA), the whole body. vtable.py --holding: in no table; one luabind registration."
+  },
+  {
+   "rva": "0x133110",
+   "kind": "function",
+   "name": "CTechnologyStatus::IsBuildingAvailable",
+   "signature": "bool __thiscall CTechnologyStatus::IsBuildingAvailable(CTechnologyStatus* this, CBuilding* building)",
+   "no_signature": null,
+   "comment": "Lua `status:IsBuildingAvailable(building)`: `building_available (+0x28C)[building->index (+0x54)] != 0` - set by ApplyTechnologyEffects from a technology's activate_building. A nil building (an unknown name from CBuildingDataBase.GetBuilding) is dereferenced, not refused. `ret 4`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-ministers.md",
+   "evidence": "Listing 0x533110..0x533128 (VA), the whole body. vtable.py --holding: in no table."
+  },
+  {
+   "rva": "0x4EA1D0",
+   "kind": "function",
+   "name": "CTechnologyDataBase_GetTechnology",
+   "signature": "CTechnology* __cdecl CTechnologyDataBase_GetTechnology(const char* name)",
+   "no_signature": null,
+   "comment": "Lua `CTechnologyDataBase.GetTechnology(name)`: the technology of that key from the database's name hash (+0x10, StringHashFind_At20C) - **exact and case-sensitive; an unknown name answers null, which Lua receives as nil**. Builds the database on demand. Bare `ret`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-ministers.md",
+   "evidence": "Listing 0x8EA1D0..0x8EA280 (VA): the name copied into a string, `mov eax,[0x1a87b78]; add eax,0x10; call 0x542cd0`, whose end at 0x542D64 is `xor eax,eax` when no node matches."
+  },
+  {
+   "rva": "0x4EA290",
+   "kind": "function",
+   "name": "CTechnologyDataBase_GetLatestTechYear",
+   "signature": "int __cdecl CTechnologyDataBase_GetLatestTechYear(void)",
+   "no_signature": null,
+   "comment": "Lua `CTechnologyDataBase.GetLatestTechYear()`: the database's +0x38, set once at the end of CTechnologyDataBase::LoadTechnologies: **the larger of end_date's calendar year (defines +0xC) and every technology's due year at its max_level** (GetYear's arithmetic). Bare `ret`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-ministers.md",
+   "evidence": "Listing 0x8EA290..0x8EA2EF (VA): `mov eax,[eax+0x38]`. The writer: 0x5419C3..0x541A48 inside LoadTechnologies (0x540E90), `mov ecx,[defines+0xc]` (the singleton 0x1A86040 got inline - trap 8 case 1), `(ecx - 0x29c55c0) / 24 / 365.0` truncated stored to [esi+0x38], then for each technology the due year at max_level (+0x2C4) compared `jle` and stored when larger."
+  }
+ ],
+ "structs": [
+  {
+   "name": "CAITechMinister",
+   "size": "0x80",
+   "inherits": "CAIAgent",
+   "vftable_rva": "0x11EBF5C",
+   "comment": "The tech minister, one per country that has one (CEU3AI +0x6C): 0x80 bytes, built by CAITechMinister::CAITechMinister. Its Lua-named fields - OwnerAI +0x54, TechModifers +0x60 and FolderModifers +0x70, each a CArray<float> - come from luabind. See reversing/findings/FINDINGS-ministers.md section A.",
+   "evidence": "CreateMinisters and ApplyPlayerDelegation both `push 0x80` before `call 0x8ae7d0`; RTTI: CAITechMinister single inheritance from CAIAgent, table 0x15EBF5C (VA)."
+  },
+  {
+   "name": "CStartResearchCommand",
+   "size": "0x48",
+   "inherits": "CCommand",
+   "vftable_rva": "0x11C40B4",
+   "comment": "A technology put on a country's research queue - by the technology screen or the AI's Lua. Execute appends it to the end of CurrentResearch; IsValid refuses one already queued. See reversing/findings/FINDINGS-ministers.md section A.",
+   "evidence": "LuaConstruct_CStartResearchCommand news 0x48; the constructor writes up to +0x44; RTTI base CCommand at offset 0."
+  },
+  {
+   "name": "CStopResearchCommand",
+   "size": "0x48",
+   "inherits": "CCommand",
+   "vftable_rva": "0x11C40F4",
+   "comment": "A technology taken off a country's research queue - posted by the technology screen and by the tech minister when a level finishes. See reversing/findings/FINDINGS-ministers.md section A.",
+   "evidence": "CAITechMinister::OnTechnologyLevelResearched news 0x48 for it; RTTI base CCommand at offset 0."
+  },
+  {
+   "name": "CChangeLeadershipCommand",
+   "size": "0x54",
+   "inherits": "CCommand",
+   "vftable_rva": "0x11C4074",
+   "comment": "The four leadership shares set at once, in the order officers, diplomacy, espionage, research. See reversing/findings/FINDINGS-ministers.md section A.",
+   "evidence": "Both LuaConstruct_CChangeLeadershipCommand and CTechnologyView::SendDistribution news 0x54; RTTI base CCommand at offset 0."
+  },
+  {
+   "name": "CTechnologyDataBase",
+   "size": "0x58",
+   "comment": "The technology database, g_CTechnologyDataBase: the technologies vector at +0 (notech first, then each file's technologies in file order, the files by name in byte order), name hashes at +0x10 (technologies) and +0x4C (folders), the latest technology year at +0x38 and the folders vector at +0x3C. See reversing/findings/FINDINGS-ministers.md section A.",
+   "evidence": "GetTechnologyDataBase news 0x58; the fields from LoadTechnologies (0x540E90), GetTechnology (+0x10), GetFolderIndex (+0x4C) and the tech minister's re-plan (+0x3C..+0x40)."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CAITechMinister",
+   "offset": "0x58",
+   "name": "last_day_of_month",
+   "type": "int",
+   "comment": "The day of the month (from 0) DoWork last saw; -1 from the constructor. A value above today's day is how DoWork knows the month has turned and re-plans.",
+   "evidence": "Constructor `+0x58 = -1`; DoWork `cmp [esi+0x58],edi; jle` and `mov [esi+0x58],edi` at 0x8AEC00/0x8AEC20 (VA)."
+  },
+  {
+   "struct": "CAITechMinister",
+   "offset": "0x5C",
+   "name": "do_sliders",
+   "type": "bool",
+   "comment": "TechMinister_Tick's vbSliders: the script balances and posts the four leadership shares. 1 from the constructor and never changed for a country nobody plays; for the player, 1 when automate_tech_sliders (GetLocalPlayer +0x30) is 1 or 3.",
+   "evidence": "Constructor writes the word +0x5C = 0x0101; LuaPushArgs_TechMinister pushes [args+4] = &+0x5C as the second Lua argument; the switches at 0x888D6B and 0x889319 (VA)."
+  },
+  {
+   "struct": "CAITechMinister",
+   "offset": "0x5D",
+   "name": "do_research",
+   "type": "bool",
+   "comment": "TechMinister_Tick's vbResearch: the script fills the free research slots. 1 for a country nobody plays; for the player, 1 when automate_tech_sliders is 1 or 2.",
+   "evidence": "As +0x5C; [args+8] = &+0x5D is the third Lua argument."
+  },
+  {
+   "struct": "CStartResearchCommand",
+   "offset": "0x3C",
+   "name": "country_tag",
+   "type": "char[4]",
+   "comment": "The country whose queue it is, its letters; the id half is +0x40.",
+   "evidence": "Constructor `mov [esi+0x3c],[ebp+0xc]`; Execute and IsValid index the country database with +0x40."
+  },
+  {
+   "struct": "CStartResearchCommand",
+   "offset": "0x40",
+   "name": "country_id",
+   "type": "int",
+   "comment": "The country's id: Execute and IsValid index the country database with it.",
+   "evidence": "`mov eax,[edi+0x40]; mov esi,[ecx+eax*4]` at 0x5579DD (VA)."
+  },
+  {
+   "struct": "CStartResearchCommand",
+   "offset": "0x44",
+   "name": "technology",
+   "type": "CTechnology*",
+   "comment": "The technology put at the end of the queue.",
+   "evidence": "Execute pushes [edi+0x44] into CCountry_AppendCurrentResearch; IsValid compares it with each queued technology."
+  },
+  {
+   "struct": "CStopResearchCommand",
+   "offset": "0x3C",
+   "name": "country_tag",
+   "type": "char[4]",
+   "comment": "The country whose queue it is, its letters; the id half is +0x40.",
+   "evidence": "Constructor `mov [esi+0x3c],[ebp+0xc]` at 0x557E85 (VA)."
+  },
+  {
+   "struct": "CStopResearchCommand",
+   "offset": "0x40",
+   "name": "country_id",
+   "type": "int",
+   "comment": "The country's id.",
+   "evidence": "Execute `mov eax,[edi+0x40]; mov esi,[ecx+eax*4]` at 0x557EC3 (VA)."
+  },
+  {
+   "struct": "CStopResearchCommand",
+   "offset": "0x44",
+   "name": "technology",
+   "type": "CTechnology*",
+   "comment": "The technology taken off the queue.",
+   "evidence": "Execute compares [edi+0x44] with each queued technology and removes that node."
+  },
+  {
+   "struct": "CChangeLeadershipCommand",
+   "offset": "0x3C",
+   "name": "country_tag",
+   "type": "char[4]",
+   "comment": "The country, its letters; the id half is +0x40.",
+   "evidence": "Both constructors store their tag argument's first word here."
+  },
+  {
+   "struct": "CChangeLeadershipCommand",
+   "offset": "0x40",
+   "name": "country_id",
+   "type": "int",
+   "comment": "The country's id: Execute indexes the country database with it, and refreshes the screen when it is the local player's (gamestate +0xC34).",
+   "evidence": "Execute `mov ecx,[esi+0x40]; mov ecx,[ebx+ecx*4]` and `cmp [esi+0x40],ecx` (0x5576CD, VA)."
+  },
+  {
+   "struct": "CChangeLeadershipCommand",
+   "offset": "0x44",
+   "name": "shares",
+   "type": "__int64*",
+   "comment": "Begin of the vector of shares in fixed 15 (1.0 = 32768), in the order officers, diplomacy, espionage, research; +0x48 is its end and +0x4C its capacity. Execute writes share i into LeadershipDistribution[i]'s base_percentage.",
+   "evidence": "Execute `mov eax,[esi+0x44]; mov edx,[eax+edi*8]` (0x5575FF, VA), count `([esi+0x48]-[esi+0x44]) >> 3`."
+  },
+  {
+   "struct": "CChangeLeadershipCommand",
+   "offset": "0x48",
+   "name": "shares_end",
+   "type": "__int64*",
+   "comment": "One past the last share.",
+   "evidence": "Execute's count and both constructors' push_back (`add [edi+0x48],8`)."
+  },
+  {
+   "struct": "CChangeLeadershipCommand",
+   "offset": "0x4C",
+   "name": "shares_capacity",
+   "type": "__int64*",
+   "comment": "The vector's capacity end; the push grows it (0x7C62C0) when +0x48 reaches it.",
+   "evidence": "`cmp eax,[edi+0x4c]; jne` before `call 0x7c62c0` in the constructor 0x557000 (VA)."
+  },
+  {
+   "struct": "CTechnologyDataBase",
+   "offset": "0x0",
+   "name": "technologies",
+   "type": "CTechnology**",
+   "comment": "Begin of the technology vector - what Lua's CTechnologyDataBase.GetTechnologies() walks. Index 0 is notech (CNullTechnology); then the technologies of every file in technologies/ in file order, the files taken in byte order of their names (PhysFS's sorted enumeration); of the two search directories, the files of the one at CDirectorySettings +0x1B4 whose names the one at +0x358 lacks come first, then all of +0x358's (which directory is the base game's was not settled; in Their Finest Hour every name is in both, so only one list counts). +4 is its end.",
+   "evidence": "LoadTechnologies pushes the CNullTechnology singleton (0x1A855D0, `notech`) onto [db] at 0x541424..0x54147B before the per-file loop; the file list is ListFilesWithExtension -> PHYSFS_enumerateFiles (export name at 0xB85900) whose callback 0xB83740 inserts by binary search. Measured: the start save's technology block begins notech, single_engine_aircraft_design, twin_engine_aircraft_design ... - `Aircraft Technology.txt` first."
+  },
+  {
+   "struct": "CTechnologyDataBase",
+   "offset": "0x4",
+   "name": "technologies_end",
+   "type": "CTechnology**",
+   "comment": "One past the last technology.",
+   "evidence": "RebuildTechModifiers sizes TechModifers from ([db+4] - [db]) / 4 + 1."
+  },
+  {
+   "struct": "CTechnologyDataBase",
+   "offset": "0x38",
+   "name": "latest_tech_year",
+   "type": "int",
+   "comment": "What Lua's GetLatestTechYear answers: the larger of end_date's year and every technology's due year at its max_level, worked out once at load.",
+   "evidence": "Written at 0x5419F9 and 0x541A48 in LoadTechnologies; read by 0x8EA2E2 (VA)."
+  },
+  {
+   "struct": "CTechnologyDataBase",
+   "offset": "0x3C",
+   "name": "folders",
+   "type": "CTechnologyFolder**",
+   "comment": "Begin of the technology folders vector, indexed by a folder's Index (+0x5C); +0x40 is its end. Inferred from the tech minister sizing FolderModifers by it and indexing that by folder index.",
+   "evidence": "RebuildFolderModifiers: `mov ecx,[eax+0x40]; sub ecx,[eax+0x3c]; sar ecx,2; inc ecx` then indexes by [T+0x290]+0x5C (0x8AEFA3, 0x8AF080, VA). The loader's writes were not read."
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0x105C",
+   "name": "num_of_ports",
+   "type": "int",
+   "comment": "**Ports in the acting capital's area.** CCountry::RebuildNeighbours walks OwnedProvinces (+0xCF0) and counts a province that has a real owner (+0x330 not 0), a map port (+0x354) and a naval base built (naval_base +0x300 -> level_max +0x20 > 0) into total_num_of_ports (+0x1060), and into this one too when its area (+0x2B4) is the acting capital's. What GetNumOfPorts answers and the `num_of_ports` condition reads.",
+   "evidence": "Listing 0x4E2A6D..0x4E2AC0: `cmp [edi+0x330],0`, `cmp [edi+0x354],0`, `mov eax,[edi+0x300]; cmp [eax+0x20],0; jle`, `inc [ebx+0x1060]`, `call 0x42f100` (GetActingCapitalLocation) and `cmp [province+0x2b4],[capital+0x2b4]; jne`, `inc [ebx+0x105c]`; the walk is over [ebx+0xCF0] (0x4E29B9).",
+   "revises": "Was 'Likely the country's own ports'; it is the owned ports in the acting capital's area only, and the condition for a port is spelt out."
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0x1060",
+   "name": "total_num_of_ports",
+   "type": "int",
+   "comment": "**Every owned province with a map port and a naval base built**, whatever its area - the larger count of the pair; num_of_ports (+0x105C) is the same in the acting capital's area. Rebuilt by CCountry::RebuildNeighbours. The `total_num_of_ports` condition reads it.",
+   "evidence": "Listing 0x4E2A97: `inc [ebx+0x1060]` before the area test, inside the OwnedProvinces walk.",
+   "revises": "Was 'Likely ports including those of subjects or faction partners'; it counts the country's own provinces only, with no area test."
+  }
+ ],
+ "frontier": ["0x44AFB0", "0x49C7C0", "0x4CCDA0", "0x423400", "0x406700", "0x5826F0", "0x4836B0"]
+}

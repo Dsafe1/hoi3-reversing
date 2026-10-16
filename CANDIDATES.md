@@ -682,6 +682,31 @@ answers -1, the engine's fixed-point division by nought inlined (`FINDINGS-suppl
    as units moved "under unknown circumstances", is read: `FINDINGS-effectrun.md` 1.12,
    `fragments/merged/split-troops-march-back.json`.
 
+## What the ministers wave left - 2026-10-16 `[game]`
+
+`findings/FINDINGS-ministers.md` sections A to D (four readers and one entry by the collecting session; 106 address entries, 92 landed; 8 structs declared, 59
+fields; apply `failed: 0`, `struct fields: 0`). The tech and production ministers for OpenHOI3's stage 5: when the engine
+calls `TechMinister_Tick`, `ProductionMinister_Tick` and `BalanceProductionSliders`, with what, and what every engine
+method and command the two scripts reach answers or does. Corrected: `ProductionMinister_Tick` runs **every day** (the
+14-day gate is the desperation cache's alone); the `automate_*` keys are fields of `CHuman`, not delegation flags 0 to 2,
+and there are **seven** flags; the player's tech minister is gated on `automate_tech_sliders`, not flags[2]; only one of
+`LuaProxy_BalanceProductionSliders`' four sites is the AI's; slot 47 is `OnTechnologyLevelResearched`;
+`HasHostileLandNeighbour` is `CProvince::IsFrontProvince`; `CountMaxUnitsStillBuildable` raised to confirmed;
+`CCountry +0x105C`/`+0x1060` (ports) narrower than recorded. `ghidra/buildFindings.py` now takes a note on an address a
+luabind registration has proven without the start heuristic (`CountTransportsUnderConstruction` follows `DoWork`'s tail
+jump with no padding). What it left, none of it in the way of building:
+
+1. **Where a `CStopResearchCommand` posted in the daily pass runs** beside that hour's AI pass - if after, the minister
+   sees the technology still queued that day.
+2. **That the session runs posted commands in the order posted** (`PrioritizeBuildQueue`'s reverse order rests on it).
+3. **The `auto_deployment_checkbox`'s handler** (that it sets `automation[6]`), what reads `automation[5]` and `CHuman
+   +0x48`; `0x490DB0`, called before the AI's deploying, and `0x4B09D0`, the theatre's headquarters for the player's attach.
+4. **The units loader's `type_index` order** (`GetSubUnitList`'s order) and the technology database's `+0x3C` folders.
+5. **`GetControlledProvinces`' order at a new game**, and whether a removal keeps it; `0xCA740`, the third writer of
+   `CCountry +0x1038`.
+6. **In multiplayer**, whether another person's country gets the AI's production shares.
+7. Whether the TBB workers inherit the 24-bit x87 control word.
+
 ## The planned next wave is in `WAVE.md`
 
 **It is not in this file any more.** `WAVE.md` holds the wave that is planned and has not launched,
@@ -1202,7 +1227,7 @@ of it.
 
 ## What has already been read
 
-163 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
+164 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
 header lives. This replaces the `Done` archive: the archive restated each file's headline and named
 only 40 of the 67 there were then, so it was both longer and less useful than a complete list.
 
@@ -1365,6 +1390,7 @@ the six it was missing were wave 15's.
 | `findings/FINDINGS-messages.md` | the message system |
 | `findings/FINDINGS-effecttext.md` | how an event option's effect text is built |
 | `findings/FINDINGS-text.md` | how the game measures text |
+| `findings/FINDINGS-ministers.md` | **the ministers wave (2026-10-16)**: the tech and production ministers as the install's Lua runs them - the tech minister's day, its two arguments, the monthly re-plan that feeds nothing, a finished level taking a technology off an AI's queue, `CStartResearchCommand`, `CChangeLeadershipCommand` and their rounding, `math.random` as MSVCR80's per-thread `rand`; the production minister's day, desperation, the daily `BalanceProductionSliders` and its arguments, `FastNormalizeByPriority` and its priority table, `CChangeInvestmentCommand`, `PrioritizeBuildQueue`, an AI's finished unit placed by `DeployFinishedUnits`; and every engine method the two scripts reach - the counts by type, the queue, IC and spare manpower, unit types, buildings, provinces, the front, the underground target that is not random, and the unit, building and convoy orders |
 | `findings/FINDINGS-selection.md` | **the selection wave (2026-10-16)**: the left button over the map - a drag at 2.0 map units, the white ground outline, the box taking the player's land units, else fleets, else air units, cleared first unless Shift with units selected; the input object's slots (10 Shift, 11 Alt, 12 Ctrl); a click and a Shift-click on a counter, a stack (the cycle), a port, an air base, a battle, a province; Ctrl taking an army's whole command; the right click sent to every selected unit in order, and several fleets or air units opening the window for the first only; the rings; selection groups on the digits; and the multi-unit panel - a row per unit in selection order, its layout and scroll, a row's deselect and select-this with Ctrl and Shift, the three checkboxes, upgrade-all, detach, higher command, reorganise, merge, disband and close |
 | `findings/FINDINGS-provinceview.md` | **the province-view wave (2026-10-15)**: the window a selected province opens - it follows the selection, its refresh and every-frame update, each element's figure, intelligence gate and tooltip, the weather strip, the `adj` list and the cores box; the building columns (`show_for_province`, split at the database's middle), the pips (working, damaged, queued), a row's shortcut letter and tooltip; the `underground` window and which mouse button steps its mission; the covert-operations panel and the allied-objectives panel with `CSetAlliedObjectiveCommand` |
 | `findings/FINDINGS-provincetooltip.md` | **the tooltip of a province**, `ProvinceTooltip_Build` read whole: a selected army's `UTM_*` line, the name and the owner, the terrain mode's flags, terrain and figures, the political mode's, the supply mode's lines put together with their colours and the line on infrastructure, the tail's distances; **the `@TAG` flag icon** in text, 23 by 11 below the line's top; `CArmy +0x300` the fleet carrying it |

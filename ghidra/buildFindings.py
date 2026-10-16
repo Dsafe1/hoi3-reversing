@@ -787,8 +787,11 @@ def main():
                      proven=False, variables=()):
         va = rva + IMAGE_BASE
         # A luabind registration proves its target is an entry point; the start heuristic
-        # is only for addresses that come from notes.
-        if not checker.image.is_code(va) or (not proven and not checker.starts_function(va)):
+        # is only for addresses that come from notes - and a note on an address a
+        # registration has already proven needs no heuristic either (a body straight after
+        # its neighbour's tail jump, with no ret or padding between, fails it).
+        if not checker.image.is_code(va) or (not proven and rva not in functions
+                                             and not checker.starts_function(va)):
             problems.append("not a function start, left out: %08X %s::%s" % (va, namespace, name))
             return
         if rva in functions:

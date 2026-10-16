@@ -1,0 +1,292 @@
+{
+ "agent": "ministers wave, reader C (the production script's units and constructions), 2026-10-16",
+ "question": "What each engine method TFH's ai_production_minister.lua and Support.CreateUnit reach about unit types, the build queue and the country answers - which field, filled where and when, counted how - and what CConstructUnitCommand does with each Lua argument",
+ "source": "reversing/findings/FINDINGS-ministers.md",
+ "addresses": [
+  {
+   "rva": "0x499770",
+   "kind": "function",
+   "name": "CEU3AI::UpdateSubUnitCounts",
+   "signature": "void __stdcall CEU3AI::UpdateSubUnitCounts(CEU3AI* ai)",
+   "no_signature": null,
+   "comment": "**Fills the three per-type count arrays the production script reads, and nothing else fills them.** `ai` on the stack, `ret 4` at 0x899A04. Its one caller is CAIProductionMinister::DoWork (0x8A2424), which calls it every day in the minister's hour (`(id + 5) % 24`), before the desperation cache and the Lua `ProductionMinister_Tick`. In order: (1) zeroes every entry of DeployedSubUnitCounts (+0xE8), ProductionSubUnitCounts (+0xF8) and TheatreSubUnitNeedCounts (+0x108), as many as the database has types; (2) **production**: for every line of the country's queue (CCountry +0xF40) whose slot 17 (IsMilitary) answers true, for every brigade definition of the line (+0x7C), `production[definition->Type->type_index] += line->Size (+0x40)` - so a line counts each of its brigades once for every unit of its series still to come, building and convoy lines nothing; (3) **deployed**: for every entry of the country's deployments (+0x688) whose slot 8 answers 0x4B4 (a CUnitDeployment; a CBuildingDeployment answers 0x4B7), every brigade of the waiting unit (deployment +0x38, its regiments at +0x38) adds 1 at its definition's (+0x58) type_index; then every brigade of every unit in CCountry +0xBAC adds 1 the same way - one count per brigade, wherever the unit is and whatever it is doing; (4) **theatre**: for every unit agent (+0x40) whose slot 74 answers a unit, that unit's plan_subunit_group_difference (CUnit +0x6C) is added entry by entry, each entry floored at 0 after each addition, the transport_ship type (database +0x88) skipped when every COwnerArea of the country (+0xD30) is landlocked (+0x68 set); (5) hasFilledProdQueue (+0xAA) = 1. The name is ours. See reversing/findings/FINDINGS-ministers.md, section C.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x899770-0x899A04: the zeroing loop 0x8997F0-0x89981A over (db+0x20 - db+0x1C)/4; the queue walk 0x899826-0x89986F with `call [vftable+0x44]` and `add [ecx], [esi+0x40]` into [ebx+0xF8]; the deployment walk 0x899874-0x8998CD with `cmp eax,0x4B4` after `call [vftable+0x20]` and `inc [edx+ecx*4]` into [ebx+0xE8]; the units walk 0x8998D2-0x899913 over [esi+0xBAC]; the agent walk 0x899943-0x8999E7 through [vftable+0x128]; `mov byte [ebx+0xAA],1` at 0x8999F1. findRefs --callers: one call, 0x8A2424. A triple scan for disp32 0xE8 and 0xF8 found no other CEU3AI-region writer than the constructor 0x888020 and destructor 0x8885C0 (positive control: it found the two Lua getters at 0x8E8180/0x8E8190). Wrong if a second writer reaches the arrays through a pointer the scan cannot see. **Reader B also has this address as a starting point (0x499770(OwnerAI) in DoWork); the collector should reconcile the name.**"
+  },
+  {
+   "rva": "0x1ADF70",
+   "kind": "function",
+   "name": "SubUnitTypeGroup",
+   "signature": "int __cdecl SubUnitTypeGroup(int typeIndex@ESI, CSubUnitDataBase* database@EDX) @EAX",
+   "no_signature": null,
+   "comment": "**Folds a unit type onto the representative type of its group**, answering a type_index. Both arguments in registers, bare `ret`. For definition = database->definitions_begin[typeIndex]: a **ship** (is_ship +0x2E): carrier_size (+0x190) above 0 - the `carrier` type; the heavy_cruiser itself - itself; is_capital (+0x2F) - `battleship`; is_transport (+0x30) or is_sub (+0x31) - itself; otherwise `destroyer`. **Not a ship**: not is_land (+0x2D), or a combat_width (+0xE8) of 0 or less, or the `hq_brigade` - itself; softness (+0x124) under g_AiAirNavalPowerBase - `armor_brigade`; canParadrop (+0x38) set, or the `bergsjaeger_brigade` or `marine_brigade` - itself; otherwise `infantry_brigade`. So an aircraft is always its own group. Callers: CCountry::CountMaxUnitsStillBuildable (twice, the type and each brigade) and CUnit::UpdatePlanForceNeeds (the `GenericType` its record describes). The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x5ADF70-0x5AE004 read whole: `mov eax,[edx+0x1c]; mov ecx,[eax+esi*4]`, then the tests on +0x2E, +0x190, the db's +0xA0/+0x98/+0xA8/+0xAC (heavy_cruiser, battleship, destroyer, carrier), +0x2F, +0x30, +0x31, +0x2D, +0xE8, db+0x78 (hq_brigade), +0x124 against [0x1A886AC] (g_AiAirNavalPowerBase), +0x38, db+0x40/+0x44 (bergsjaeger, marine), db+0x2C (armor) and db+0x34 (infantry), each answered as `mov eax,[x+0x24]; ret`. The callers set ESI to a type_index and EDX to CSubUnitDataBase::GetInstance() at 0x4E145F-0x4E146C and 0x4E14A8-0x4E14B2. Wrong if a caller passes something else in ESI."
+  },
+  {
+   "rva": "0xE13A0",
+   "kind": "function",
+   "name": "CCountry::CountMaxUnitsStillBuildable",
+   "signature": "int __thiscall CCountry::CountMaxUnitsStillBuildable(CCountry* this, CSubUnitDefinition* definition)",
+   "no_signature": null,
+   "comment": "**How many more brigades of a unit type the country may have.** The game's own name, out of the Lua API; `ret 4`. Answers **0** when technology_status->unit_available (+0x27C) has the type clear, when SubUnitDefinitionIsUsableBy(the technology status's country's tag, definition) says no, or when the type has an available_trigger (+0x1D0 set) that is false for an event scope of the country. Answers **1,000,000** when minimum_of_type (+0x1B8, a plain count) and max_percentage_of_type (+0x1BC, thousandths) are both under 1 - every type with no cap. Otherwise, with group = SubUnitTypeGroup(type): `all` = the brigades of the country's units (+0xBAC) whose own type folds to the same group; `have` = the brigades of exactly this type in those units, **plus line->Size for every brigade of this type in every military line of the queue** (a line of two such brigades and a series of 3 adds 6), plus each brigade of this type in a unit waiting to be placed (a CUnitDeployment, slot 8 = 0x4B4). Answer `max(minimum_of_type - have, all * max_percentage_of_type / 1000 - have)` (the second truncated, through `all*1000*pct/1000` then `/1000`), and 0 where that is 0 or less. **`all` counts the map only**: the queue and the units waiting add to `have` but not to `all`. Callers: the four builder lists, CanBuildDivision, CBrigadeBuilder::Update and the Lua `GetEliteUnitBuildCount`. See reversing/findings/FINDINGS-builders.md, section 2, and FINDINGS-ministers.md, section C.",
+   "confidence": "confirmed",
+   "revises": "Raised from inferred: read whole on the listing. Adds that `all` counts only units on the map, that a queued line counts every brigade of the type times its Size, what groups the types (SubUnitTypeGroup, 0x1ADF70), the scales of the two keys (minimum_of_type a count by atoi, max_percentage_of_type thousandths by TokenToFixedPoint) and the truncation.",
+   "evidence": "Listing 0x4E13A0-0x4E15D7: unit_available `cmp byte [ecx+edx],0` at 0x4E13C0; SubUnitDefinitionIsUsableBy at 0x4E13D8 with ecx = [[edi+0xDF8]+0x248]+0xCA4; the trigger at 0x4E142A; `mov eax,0xF4240` at 0x4E144C after both caps tested `jg`; the units walk 0x4E148D-0x4E14D6 adding 1 to [esp+0x1C] (all) when SubUnitTypeGroup matches and to [esp+0x10] (have) when the index also matches; the queue walk 0x4E14F0-0x4E152A `add edi,[esi+0x40]` per matching brigade; the deployment walk 0x4E1540-0x4E1588 `inc edi`; the arithmetic 0x4E158A-0x4E15D2. The loader stores +0x1B8 from atoi (0x5A4C3B) and +0x1BC from TokenToFixedPoint (0x5A4C5D). Wrong if the unit list at +0xBAC is not every unit the country owns."
+  },
+  {
+   "rva": "0xDCD70",
+   "kind": "function",
+   "name": "CCountry::UpdateManpowerAfterMobilising",
+   "signature": "void __stdcall CCountry::UpdateManpowerAfterMobilising(CCountry* country)",
+   "no_signature": null,
+   "comment": "**Works out CCountry +0x158, the manpower the country has to spare once every brigade is refilled - which is what the Lua `HasExtraManpowerLeft` tests above 0.** `country` on the stack, `ret 4` at 0x4DD057. In order, all thousandths and every divide truncating: `+0x158 = manpower (+0xBCC)`; then `+= max_manpower (+0xBD0) * 1000 / (1000 + values[GLOBAL_MANPOWER] (modifier 6, +0x30) + floor(technology_status->manpower_gain (+0x8C) rounded to thousandths through a float)) * 1000 / MAX_MANPOWER * 1000 / 2000` - half a year's manpower before its multipliers; then for every unit of +0xBAC with reinforcements_active (+0xA6), every brigade: `short = (max_strength - strength) * 1000 / max_strength` (-1 where max_strength is 0), `-= (short + 250) * build_cost_manpower (+0xFC) / 1000` - the men it lacks **plus a quarter of what it takes to build**, 250 being g at 0x1A87470, floor(250.5f) set by a static initialiser; then for every military line with is_reserve (+0x8C), every brigade definition once (not times the line's Size): `-= ((1000 + RESERVES_PENALTY_SIZE (+0x268)) * max_strength / 1000) * build_cost_manpower / 1000 * 1000 / max_strength` - the men of the strength a reserve brigade is built at. Five callers: **RunCountryDailyPass at 0x4DBEA3, every day for every country**, CConstructUnitCommand::Execute (0x5461B7), CConstructSingleUnitCommand::Execute (0x547229), the upgrade command at 0x5DA7C0 (0x5DAE81) and CInGameIdler::Enter (0x65B7CA). See reversing/findings/FINDINGS-ministers.md, section C.",
+   "confidence": "confirmed",
+   "revises": "Read whole (the record had it read in part, with no signature and its `ret` not reached): adds the signature, the half-year term's arithmetic, the quarter-brigade headroom constant, the reserve-line term (the built strength's men, once per brigade) and the daily caller in RunCountryDailyPass, which the record's caller list lacked.",
+   "evidence": "Listing 0x4DCD70-0x4DD057: `mov eax,[ebx+0xBCC]; mov [ebx+0x158],eax`; the float round of [ecx+0x8C] through 0x160A300 (1000.0) and 0x160A460 (0.0005) and 0x401FD0/0xC08870; esi = [[ebx+0xDA8]+0x30] + 1000 + that; the four 64-bit steps with GetDefines()->[+0xAC]->[0] and the immediates 0x3E8 and 0x7D0; the unit walk 0x4DCE68-0x4DCF38 with `add eax,[0x1A87470]`; the queue walk 0x4DCF3E-0x4DD04B testing `[vftable+0x44]` and byte [esi+0x8C]. 0x1A87470 is written only by the initialiser 0xCB6710 (`floor(250.5f)`, the float at 0x160A688). findRefs --callers gives the five call sites. Wrong if MAX_MANPOWER is not the first dword of the military block."
+  },
+  {
+   "rva": "0x4E81E0",
+   "kind": "function",
+   "name": "CCountry::HasExtraManpowerLeft",
+   "signature": "bool __thiscall CCountry::HasExtraManpowerLeft(CCountry* this)",
+   "no_signature": null,
+   "comment": "The Lua `HasExtraManpowerLeft`: `+0x158 > 0`, signed. +0x158 is what CCountry::UpdateManpowerAfterMobilising (0xDCD70) leaves there - the pool plus half a year's manpower less what refilling every brigade (and a quarter of each brigade's build manpower) and the reserve lines would take - refreshed daily in RunCountryDailyPass and after an order. So the production script builds nothing for a country whose units are short of men, however full its pool. See reversing/findings/FINDINGS-ministers.md, section C.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x8E81E0: `cmp dword ptr [ecx+0x158],0; setg al; ret`. One luabind registration (CCountry::HasExtraManpowerLeft) and in no virtual table (vtable.py --holding). Wrong only if another registration claims the body."
+  },
+  {
+   "rva": "0x103D10",
+   "kind": "function",
+   "name": "CCountry::GetICPart",
+   "signature": "CFixedPoint* __thiscall CCountry::GetICPart(CCountry* this, CFixedPoint* out, int category)",
+   "no_signature": null,
+   "comment": "**The IC one production share has, in thousandths.** `setting = ProductionDistribution[category]` (the vector at +0x5F4, in ProductionCategory order: 0 lend-lease, 1 consumer goods, 2 production, 3 supply, 4 reinforcement, 5 upgrade - no bounds check); then in 48.15 fixed point `((TotalIC << 15) * base_percentage >> 15) * factor >> 15`, and that times `1000 << 15` shifted right 30. TotalIC (+0x604) is **whole IC**, so the answer is `TotalIC * base_percentage * factor` in thousandths, each shift flooring. It is the share's slider times the whole IC, not what the share was paid or needs. `ret 8`. See reversing/findings/FINDINGS-ministers.md, section C.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x503D10-0x503D7E: `mov eax,[ecx+0x5F4]; mov esi,[eax+edx*4]`; `mov eax,[ecx+0x604]; cdq; shld edx,eax,0xF; shl eax,0xF`; __allmul with [esi+8]/[esi+0xC], `shrd 0xF`; __allmul with [esi+0x10]/[esi+0x14], `shrd 0xF`; __allmul with 0x1F40000, `shrd 0x1E`; `ret 8`. TotalIC in whole IC per FINDINGS-ic.md's table. The same arithmetic opens CDistributeProduction slot 2 (0x51A440). Wrong if base_percentage or factor is not fixed 15."
+  },
+  {
+   "rva": "0xF4B60",
+   "kind": "function",
+   "name": "CCountry::GetUsedIC",
+   "signature": "CFixedPoint* __thiscall CCountry::GetUsedIC(CCountry* this, CFixedPoint* out)",
+   "no_signature": null,
+   "comment": "**The sum of `cost` (+0x30) over every line of the queue** (+0xF40) - military, building and convoy alike, paid or not: what the whole queue asks a day, in thousandths. Not what was spent. The production screen's traffic light and the Lua's `icAvailable = GetICPart(production) - GetUsedIC()` both read it. `ret 4`. See reversing/findings/FINDINGS-ministers.md, section C.",
+   "confidence": "confirmed",
+   "evidence": "Decompilation and listing of 0x4F4B60: out zeroed, then for each node of [this+0xF40] `out += node->data->+0x30`, no test of the line's kind. One luabind registration, no vftable. Wrong if a line's +0x30 were not its day's cost (FINDINGS-buildqueue.md section 2 has it as that)."
+  },
+  {
+   "rva": "0x1089A0",
+   "kind": "function",
+   "name": "CCountry::HasActiveLendLeaseToAnyone",
+   "signature": "bool __thiscall CCountry::HasActiveLendLeaseToAnyone(CCountry* this)",
+   "no_signature": null,
+   "comment": "`(lendlease_distributions_end (+0x6BC) - lendlease_distributions (+0x6B8)) & ~0xF > 0`: the country has at least one 16-byte receiver entry. **No test of the entry's weight or effectiveness, nor of the lend-lease share**, so a receiver with a weight of 0 counts. See reversing/findings/FINDINGS-ministers.md, section C.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x5089A0-0x5089B9: `mov eax,[ecx+0x6BC]; sub eax,[ecx+0x6B8]; test eax,0xFFFFFFF0; mov eax,0; setg al; ret`. One luabind registration, no vftable. Wrong if the vector at +0x6B8 held anything but receivers."
+  },
+  {
+   "rva": "0x837C0",
+   "kind": "function",
+   "name": "CConstruction::GetCost",
+   "signature": "CFixedPoint* __thiscall CConstruction::GetCost(CConstruction* this, CFixedPoint* out)",
+   "no_signature": null,
+   "comment": "A line's `cost` (+0x30): **what one unit of the line costs a day**, thousandths of IC - for a unit of several brigades the summed IC-days over its slowest brigade's days (CMilitaryConstruction::RecalculateCost), never times the series' Size. It is set when the line is queued and at the six re-pricings FINDINGS-buildqueue.md lists, not daily. `ret 4`.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x4837C0-0x4837CC: `mov ecx,[ecx+0x30]; mov eax,[ebp+8]; mov [eax],ecx; ret 4`. One luabind registration, no vftable. The April 1936 save's AI lines of four brigades and size 4 carry costs of 2.6 to 16 - one division's day, not four. Wrong if another registration claims the body."
+  },
+  {
+   "rva": "0x84840",
+   "kind": "function",
+   "name": "CMilitaryConstruction::IsLand",
+   "signature": "bool __thiscall CMilitaryConstruction::IsLand(CMilitaryConstruction* this)",
+   "no_signature": null,
+   "comment": "**The first brigade's type's is_land (+0x2D)**, false where the line has no brigade (+0x84 <= 0). Nothing else of the line is asked: a line is land, air or naval by its first brigade alone. Bare `ret`.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x484840-0x484857: `cmp [ecx+0x84],0; jle; mov eax,[ecx+0x7C]; mov ecx,[eax]; mov edx,[ecx+0x34]; mov al,[edx+0x2D]; ret`. One luabind registration, no vftable. Wrong if +0x7C's first node were not the first brigade."
+  },
+  {
+   "rva": "0x84860",
+   "kind": "function",
+   "name": "CMilitaryConstruction::IsAir",
+   "signature": "bool __thiscall CMilitaryConstruction::IsAir(CMilitaryConstruction* this)",
+   "no_signature": null,
+   "comment": "The first brigade's type's is_air (+0x2C), false where the line has no brigade. Bare `ret`.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x484860-0x484877, the IsLand shape with `mov al,[edx+0x2C]`. One luabind registration, no vftable."
+  },
+  {
+   "rva": "0x84880",
+   "kind": "function",
+   "name": "CMilitaryConstruction::IsNaval",
+   "signature": "bool __thiscall CMilitaryConstruction::IsNaval(CMilitaryConstruction* this)",
+   "no_signature": null,
+   "comment": "The first brigade's type's is_ship (+0x2E), false where the line has no brigade. Bare `ret`.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x484880-0x484897, the IsLand shape with `mov al,[edx+0x2E]`. One luabind registration, no vftable."
+  },
+  {
+   "rva": "0x4A3150",
+   "kind": "function",
+   "name": "VirtualThunkSlot18",
+   "signature": null,
+   "no_signature": "A pointer-to-virtual-member thunk: `mov eax,[ecx]; jmp [eax+0x48]` - it has the signature of whatever slot 18 of the receiver's table is, which differs between its claimants.",
+   "comment": "`mov eax,[ecx]; jmp dword ptr [eax+0x48]` - the slot 18 sibling of VirtualThunkSlot17 (0x4A3120). Recorded class-free (trap 4): luabind registers it as both `CConstruction::GetMilitary` and `CGovernment::IsValid`, and code references it five times. For a construction, slot 18 is ReturnThis in CMilitaryConstruction's table and ReturnZero in CBuildingConstruction's and CConvoyConstruction's - so the Lua `GetMilitary` answers the line itself or nil.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x8A3150-0x8A3152. luabind.json gives the pointer 0x8A3150 to CConstruction::GetMilitary and CGovernment::IsValid. vtable.py on the three construction classes: slot 18 = 0x5B4EC0 (ReturnThis), 0xA80690, 0xA80690 (ReturnZero). findRefs --address: 5 references in code."
+  },
+  {
+   "rva": "0x145760",
+   "kind": "function",
+   "name": "CConstructUnitCommand::CConstructUnitCommand",
+   "signature": "CConstructUnitCommand* __stdcall CConstructUnitCommand::CConstructUnitCommand(CConstructUnitCommand* this, void* brigades, int province, int amount, bool reserve, bool buildNow, CCountryTag country, CCountryTag builder, CID target) @EAX",
+   "no_signature": null,
+   "comment": "**The constructor every poster uses** - the four builder windows, the licence action, the production screen and the Lua `CConstructUnitCommand(...)`. Everything on the stack, `this` first, `ret 0x30`. CCommand's base (class id 0x18D, type ids 0x2D7 `buildunit`, +0x34 = 0xFFFF); country -> +0x3C/+0x40, builder -> +0x44/+0x48, province -> +0x4C, amount -> +0x70, reserve -> +0x74 (byte), target -> +0x78/+0x7C, buildNow -> +0x80 (byte). **Mints three kinds of number** under the spin lock at 0x1B16714, as the building and convoy commands do: the line's id (type `0x1268 + word[0x1A857EC]`, serial counter + 1) into +0x50/+0x54; the unit's into +0x58/+0x5C, the counter then moving on by `1 + 2 * amount`; and for each brigade of the list (`brigades`, a CList<CSubUnitDefinition const*>, in its order) a new CBrigadeConstructionDefinition (0x54 bytes: the command's country at +8, its own id with the counter moving by `1 + amount`, the type at +0x34) appended to +0x60, whose model list (+0x44) is given, for each technology of the type in the type's order (+0x44..+0x48), **the builder's level of it** - the country's where the builder's id is 0 - and, where the builder is the country itself and is a government in exile, the higher of that and its faction's first member's level. Nothing is refused or tested here. See reversing/findings/FINDINGS-ministers.md, section C.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x545760-0x545ADF: `mov edi,[ebp+8]` (this), stores of [ebp+0x20]/[ebp+0x24] to +0x3C/+0x40, [ebp+0x28]/[ebp+0x2C] to +0x44/+0x48, [ebp+0x10] to +0x4C, [ebp+0x14] to +0x70, byte [ebp+0x18] to +0x74, [ebp+0x30]/[ebp+0x34] to +0x78/+0x7C, byte [ebp+0x1C] to +0x80; the id mints after `call 0x67AEE0`; the brigade loop with `push 0x54; call new` and the technology-level loop through level_by_technology; `ret 0x30` at 0x545ADF. 18 callers (findRefs). The licence action's recorded use agrees (country, builder, no target)."
+  },
+  {
+   "rva": "0x146AE0",
+   "kind": "function",
+   "name": "CConstructUnitCommand::IsValid",
+   "signature": "bool __thiscall CConstructUnitCommand::IsValid(CConstructUnitCommand* this)",
+   "no_signature": null,
+   "comment": "**Slot 14, the only refusal a unit order meets: its list of brigades is not empty** (+0x68, the count of the list at +0x60). Nothing about the country's men, IC, technology, the type's caps, the province or the amount - an amount of 0 or less passes. Asked by the command channel before Execute (FINDINGS-commands.md); a refused command is dropped silently. Bare `ret`. See reversing/findings/FINDINGS-ministers.md, section C.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x546AE0: `cmp dword ptr [ecx+0x68],0; setne al; ret`. vtable.py --holding 0x546AE0: one table, CConstructUnitCommand slot 14 (0x15C3654), and slot 14 is IsValid in CConstructBuildingCommand's and CChangeLawCommand's records. No luabind registration. Wrong if the channel did not ask slot 14 for this class."
+  },
+  {
+   "rva": "0x588E90",
+   "kind": "function",
+   "name": "LuaConstruct_CConstructUnitCommand",
+   "signature": "void __stdcall LuaConstruct_CConstructUnitCommand(void* self_argument, void* brigades, int province, int amount, bool reserve, CCountryTag country, CCountryTag builder, CID target)",
+   "no_signature": null,
+   "comment": "**Lua `CConstructUnitCommand(tag, list, province, count, reserve, builder, target)`** (luabind's `__init(argument, CCountryTag, CList<const CSubUnitDefinition*>&, int, int, bool, CCountryTag, CID)`; luabind's layout puts the plain arguments first and the by-value classes after, in their order): news 0x84 bytes and calls CConstructUnitCommand::CConstructUnitCommand(list, province, count, reserve, **buildNow 0**, the first tag as the country, the second as the builder, the CID as the target), then wraps it in a luabind pointer holder (vftable 0x15F21DC). So a script's order is always queued, never built at once. **Constructing it mints the line's, the unit's and the brigades' numbers** whether or not the script posts it. `ret 0x2C`. One caller, the invoker 0x97C9D0. See reversing/findings/FINDINGS-ministers.md, section C.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x988E90-0x988F91: `push 0x84; call new`; pushes [ebp+0x2C]/[ebp+0x30] (copied), [ebp+0x28], [ebp+0x24], [ebp+0x20], [ebp+0x1C], ebx = 0, [ebp+0x18], [ebp+0x14], [ebp+0x10], [ebp+0xC], the object; `call 0x545760`; holder vftable 0x15F21DC at 0x988F57; `ret 0x2C`. That the first tag is the country is borne out by the April 1936 save: every AI line (id type 4713) is in its own country's queue with country = its own tag and builder = its own tag (the null tag's id 0 falling back to the country), none with a target."
+  },
+  {
+   "rva": "0x57C9D0",
+   "kind": "function",
+   "name": "LuabindInvoke_CConstructUnitCommand_Init",
+   "signature": "int __cdecl LuabindInvoke_CConstructUnitCommand_Init(void* function@stack:4, void* context@stack:8, lua_State* L@EAX) @EAX",
+   "no_signature": null,
+   "comment": "luabind's overload test and call for `CConstructUnitCommand.__init`. Seven arguments after the class table, matched against `lua_gettop`: the two tags through the tag converter 0x98C7D0, the list through the class lookup 0xB7E650 (a SubUnitList object, by reference), the province and the count each `lua_type == LUA_TNUMBER`, the reserve `lua_type == LUA_TBOOLEAN`, the CID through 0x98CF60. When it wins alone it reads the reserve as `lua_toboolean == 1` and the province and count with `lua_tointeger` - Lua 5.1's conversion, to the nearest - and calls LuaConstruct_CConstructUnitCommand (0x988E90). A wrong type for any of them is a luabind 'no matching overload' error in the script, not a refused command. Bare `ret`, the callers clean. See reversing/findings/FINDINGS-ministers.md, section C.",
+   "confidence": "inferred",
+   "evidence": "Likely: listing 0x97C9D0-0x97CCE3 read for its calls, not argument index by argument index - five arity calls (0xBF9B90) and `lua_gettop` compared at 0x97CA7E; 0x98C7D0 at 0x97CABB and 0x97CB6C; 0xB7E650 at 0x97CACA; `lua_type` (import 0xD2B4D0) three times with `sub eax,3` twice and `dec eax` once; 0x98CF60 at 0x97CB92; `lua_toboolean` (0xD2B508) with `cmp eax,1; sete`, `lua_tointeger` (0xD2B4D4) twice; the call at 0x97CCB7. The shape is the recorded LuabindInvoke_CChangeSpyPriority_Init's. Which Lua index each converter takes was not traced, so the mapping rests on the registration's declared order."
+  },
+  {
+   "rva": "0x588010",
+   "kind": "function",
+   "name": "LuaConstruct_CNullTag",
+   "signature": null,
+   "no_signature": "luabind's construct thunk for a class with no arguments: the luabind::argument arrives in EAX (`mov esi,[eax]` - the lua_State and the index), nothing on the stack, bare `ret`.",
+   "comment": "**Lua `CNullTag()`**: news 8 bytes holding the tag `---` (0x2D2D2D) and the id **0**, and wraps it in a luabind holder (vftable 0x15F160C) of the class id CNullTag registers (0x1BEC200, registered at 0x8F3910 with CCountryTag as its base). Passed as a builder, its id of 0 is what makes CConstructUnitCommand::Execute take the country as the builder. One caller, 0x968729. See reversing/findings/FINDINGS-ministers.md, section C.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x988010-0x9880AF: `push 8; call new`, `mov dword [eax],0x2D2D2D; mov dword [eax+4],0`, holder vftable 0x15F160C and class id [0x1BEC200]; bare `ret` at 0x9880AF. 0x8F3910 pushes [0x1BEC200] beside the type descriptors of .?AVCNullTag@@ (0x17477C0) and .?AVCCountryTag@@ (0x1714834). Wrong if [0x1BEC200] were another class's id."
+  },
+  {
+   "rva": "0x587590",
+   "kind": "function",
+   "name": "LuaConstruct_CID",
+   "signature": null,
+   "no_signature": "luabind's construct thunk for a class with no arguments: the luabind::argument arrives in EAX, nothing on the stack, bare `ret`.",
+   "comment": "**Lua `CID()`**: news 8 bytes, **both words 0** (a null object id: type 0, id 0), and wraps it in a luabind holder (vftable 0x15F09AC) of the class id CID registers (0x1BEC274, at 0x8F1360). As a CConstructUnitCommand's target it gives the line no target, so a finished unit waits to be placed. One caller, 0x9622B9. See reversing/findings/FINDINGS-ministers.md, section C.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x987590-0x98762F: `push 8; call new`, two zero stores, holder vftable 0x15F09AC with [0x1BEC274]; bare `ret` at 0x98762F. 0x8F1360 registers the class name 'CID' (0x15EC714) and pushes [0x1BEC274] with the descriptor .?AVCID@@ (0x1747668). The April 1936 save: no AI line carries a target."
+  },
+  {
+   "rva": "0x589340",
+   "kind": "function",
+   "name": "LuaConstruct_SubUnitList",
+   "signature": null,
+   "no_signature": "luabind's construct thunk for a class with no arguments: the luabind::argument arrives in EAX, nothing on the stack, bare `ret`.",
+   "comment": "**Lua `SubUnitList()`**: news a 0x10-byte CList<CSubUnitDefinition const*> - first, last and count zero, the byte zero - and wraps it in a luabind holder (vftable 0x15F222C). An empty list; `SubUnitList.Append` fills it. One caller, 0x97DF49. See reversing/findings/FINDINGS-ministers.md, section C.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x989340-0x9893C4: `push 0x10; call new`, stores of 0 to +0, +4, +8 and the byte +0xC, holder vftable 0x15F222C; bare `ret`. luabind.json gives SubUnitList's one constructor as `__init(argument)` with size 16."
+  },
+  {
+   "rva": "0x4EAC10",
+   "kind": "function",
+   "name": "AppendSubUnit",
+   "signature": "void __cdecl AppendSubUnit(void* list, CSubUnitDefinition* definition)",
+   "no_signature": null,
+   "comment": "The Lua `SubUnitList.Append(list, type)`: appends a 0x10-byte node {definition, prev, next, byte} at the list's tail and adds 1 to its count. **No test of the definition**: a nil (an unknown name from GetSubUnit) goes in as a null node, which the command's constructor would read through. Bare `ret`. See reversing/findings/FINDINGS-ministers.md, section C.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x8EAC10-0x8EAC5C: `push 0x10; call new`, the node filled from [ebp+0xC] and the old tail [esi+4], `inc` of [esi+8], the head set when the count was 0, otherwise the old tail's +8. No compare of [ebp+0xC]. One luabind registration (the name is the same)."
+  },
+  {
+   "rva": "0x4F1330",
+   "kind": "function",
+   "name": "CArray4_GetAt",
+   "signature": "void* __stdcall CArray4_GetAt(void* array@ECX, unsigned int index@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "`&data[index]` for an array of four-byte elements: `[ecx] + index * 4`, **no bounds check**, index from 0. Registered as GetAt of CArray<int>, CArray<CFixedPoint> and CArray<float>, so it is recorded class-free (trap 4). An index past the end reads whatever lies there. `ret 4`.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x8F1330-0x8F133C: `mov eax,[ecx]; mov ecx,[ebp+8]; lea eax,[eax+ecx*4]; ret 4`. luabind.json: three registrations, no vftable."
+  },
+  {
+   "rva": "0x21320",
+   "kind": "function",
+   "name": "CArray4_GetSize",
+   "signature": "int __stdcall CArray4_GetSize(void* array@ECX) @EAX",
+   "no_signature": null,
+   "comment": "`(end - begin) >> 2`: the count of a four-byte-element array whose begin is at +0 and end at +4. Registered as GetSize of CArray<int>, CArray<CFixedPoint> and CArray<float>, so recorded class-free. Bare `ret`.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x421320-0x421328: `mov eax,[ecx+4]; sub eax,[ecx]; sar eax,2; ret`. luabind.json: three registrations, no vftable."
+  },
+  {
+   "rva": "0x4F12F0",
+   "kind": "function",
+   "name": "CArrayInt_SetAt",
+   "signature": "void __stdcall CArrayInt_SetAt(void* array@ECX, unsigned int index@stack:4, int* value@stack:8)",
+   "no_signature": null,
+   "comment": "The Lua `CArrayInt:SetAt(i, v)`: `data[index] = *value`, no bounds check, index from 0. `ret 8`.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x8F12F0-0x8F1301: `mov eax,[ecx]; mov ecx,[ebp+0xC]; mov edx,[ecx]; mov ecx,[ebp+8]; mov [eax+ecx*4],edx; ret 8`. One luabind registration (CArray<int>::SetAt), no vftable."
+  }
+ ],
+ "structs": [
+  {
+   "name": "CConstructUnitCommand",
+   "size": "0x84",
+   "inherits": "CCommand",
+   "vftable_rva": "0x11C3654",
+   "comment": "The order for a unit line. Made by CConstructUnitCommand::CConstructUnitCommand (0x145760); Execute is slot 6, IsValid slot 14. Allocated 0x84 bytes by every poster (the Lua constructor 0x988E90, the builder windows, the licence action).",
+   "evidence": "`push 0x84` before the constructor at 0x988ED5 and in the licence action; the constructor writes vftable 0x15C3654 (rva 0x11C3654), which vtable.py lists as CConstructUnitCommand's table at object offset 0; the constructor writes the CCommand base fields (+0x4 class id 0x18D, +0x2C/+0x30 type ids, +0x34) at the offsets CCommand's record has."
+  }
+ ],
+ "struct_fields": [
+  {"struct": "CConstructUnitCommand", "offset": "0x3C", "name": "country", "type": "CCountryTag", "comment": "Whose queue the line goes into: Execute takes the country as countries[+0x40]. The Lua constructor's first tag.", "evidence": "Constructor 0x5457DB-0x5457E7 from [ebp+0x20]/[ebp+0x24]; Execute's `countries_first[this+0x40]`."},
+  {"struct": "CConstructUnitCommand", "offset": "0x44", "name": "builder", "type": "CCountryTag", "comment": "Who builds it. Where its id (+0x48) is 0 - the Lua CNullTag() - Execute and the constructor use the country instead. Saved as `builder`. A licence sets the seller here.", "evidence": "Constructor 0x5457DE/0x5457FB-0x5457FE from [ebp+0x28]/[ebp+0x2C]; the `cmp eax,ebx; jne` on +0x48 at 0x54586E; Execute's `if (this+0x48 == 0)` fallback. fieldmap: the save key `builder` lands at +0x44/+0x48."},
+  {"struct": "CConstructUnitCommand", "offset": "0x4C", "name": "province", "type": "int", "comment": "A province id. **Execute only copies provinces[id] into the line's location, which CCountry::EnqueueConstruction then zeroes** - so on the ordinary path it is never used, nothing tests it against the country, and an id of 0 or one the country does not hold changes nothing. Only the build-now path (never from Lua) keeps it.", "evidence": "Constructor `mov [edi+0x4C],eax` from [ebp+0x10]; Execute's `provinces_begin[this+0x4C]` stored to location; EnqueueConstruction's record (zeroes +0x44). The April 1936 save: no military line has a location."},
+  {"struct": "CConstructUnitCommand", "offset": "0x50", "name": "line_id_type", "type": "int", "comment": "Type half of the line's id, `0x1268 + word[0x1A857EC]` (4713 in the maintainer's saves); Execute gives it to the line through SetId.", "evidence": "Constructor 0x545806-0x545820."},
+  {"struct": "CConstructUnitCommand", "offset": "0x54", "name": "line_id", "type": "int", "comment": "The line's serial, the counter at 0x1A857F8 plus 1.", "evidence": "Constructor 0x54580D-0x545823."},
+  {"struct": "CConstructUnitCommand", "offset": "0x58", "name": "unit_id_type", "type": "int", "comment": "Type half of the number the unit will take; the line's unit_type.", "evidence": "Constructor's second mint; Execute copies it to CMilitaryConstruction +0x58."},
+  {"struct": "CConstructUnitCommand", "offset": "0x5C", "name": "unit_id", "type": "int", "comment": "The number the unit will take; the counter then moves on by 1 + 2 x amount.", "evidence": "Constructor's second mint (`counter + 1 + amount * 2`); Execute copies it to CMilitaryConstruction +0x5C."},
+  {"struct": "CConstructUnitCommand", "offset": "0x60", "name": "brigades", "type": "CList<CBrigadeConstructionDefinition*>", "comment": "One CBrigadeConstructionDefinition for each entry of the list the poster gave, in its order, each with the builder's technology levels as its model. The count (+0x68) is what IsValid asks; Execute gives each to the line with CMilitaryConstruction::AddBrigade and names the unit only where there is more than one.", "evidence": "Constructor's append loop (head +0x60, tail +0x64, count +0x68, byte +0x6C zeroed at 0x54582B-0x54583A); IsValid `cmp [ecx+0x68],0`; Execute's `if (1 < this+0x68)` around MakeUnitName."},
+  {"struct": "CConstructUnitCommand", "offset": "0x70", "name": "amount", "type": "int", "comment": "The line's Size: how many units of it are built **one after another** - a series, not lines side by side. Execute takes every unit's men at once (amount x each brigade's men). Not tested: 0 makes a line that still builds one unit, takes no men and counts nothing in ProductionSubUnitCounts.", "evidence": "Constructor from [ebp+0x14]; Execute `pCVar9->Size = this+0x70` and the men `floor((amount + 0.0005) * 1000) * men / 1000`; CMilitaryConstruction::Deliver's `size -= 1; return size <= 0`. The April 1936 save: AI lines of size 1 to 4."},
+  {"struct": "CConstructUnitCommand", "offset": "0x74", "name": "is_reserve", "type": "bool", "comment": "Copied to the line's is_reserve, which gives it reserves_factor (slot 8) and charges RESERVES_PENALTY_SIZE on its IC and men.", "evidence": "Constructor `mov [edi+0x74],al` from byte [ebp+0x18]; Execute's `is_reserve = this+0x74` and the reserve term of the men."},
+  {"struct": "CConstructUnitCommand", "offset": "0x78", "name": "target_type", "type": "int", "comment": "Type half of the object the line is aimed at; 0 from the Lua CID().", "evidence": "Constructor from [ebp+0x30]; Execute copies to CMilitaryConstruction +0x90."},
+  {"struct": "CConstructUnitCommand", "offset": "0x7C", "name": "target_id", "type": "int", "comment": "The object the line is aimed at; 0 for none, and then the finished unit waits to be placed.", "evidence": "Constructor from [ebp+0x34]; Execute copies to CMilitaryConstruction +0x94."},
+  {"struct": "CConstructUnitCommand", "offset": "0x80", "name": "build_now", "type": "bool", "comment": "Build it at once instead of queueing it (FINDINGS-production.md). Always 0 from Lua.", "evidence": "Constructor `mov [edi+0x80],al` from byte [ebp+0x1C]; the Lua constructor pushes 0 for it (0x988F1A)."},
+  {"struct": "CEU3AI", "offset": "0xE8", "name": "DeployedSubUnitCounts", "type": "CArray<int>", "comment": "The game's own name for it, out of the Lua API (`GetDeployedSubUnitCounts`, rva 0x4E8180, `lea eax,[ecx+0xE8]`). **Per type_index, the country's brigades of that type**: one for every brigade of every unit in CCountry +0xBAC and of every unit waiting to be placed. Sized to the number of unit types by the constructor and filled only by CEU3AI::UpdateSubUnitCounts (0x499770), every day at the production minister's hour, just before ProductionMinister_Tick.", "revises": "Adds what it counts and who fills it, when.", "evidence": "CEU3AI::UpdateSubUnitCounts 0x899874-0x899913; the constructor 0x888020 grows it to (db+0x20-db+0x1C)/4 zeroed entries; no other writer found by a disp32 scan."},
+  {"struct": "CEU3AI", "offset": "0xF8", "name": "ProductionSubUnitCounts", "type": "CArray<int>", "comment": "The game's own name for it, out of the Lua API (`GetProductionSubUnitCounts`, rva 0x4E8190, `lea eax,[ecx+0xF8]`). **Per type_index, the brigades of that type still to come out of the queue**: each brigade of each military line counted times the line's Size (the units of its series not yet delivered). Filled only by CEU3AI::UpdateSubUnitCounts (0x499770), daily at the production minister's hour.", "revises": "Adds what it counts and who fills it, when.", "evidence": "CEU3AI::UpdateSubUnitCounts 0x899826-0x89986F: `add [edx+ecx*4], [esi+0x40]` per brigade of each line whose slot 17 answers true."},
+  {"struct": "CEU3AI", "offset": "0x108", "name": "TheatreSubUnitNeedCounts", "type": "CArray<int>", "comment": "The game's own name for it, out of the Lua API (`GetTheatreSubUnitNeedCounts`, rva 0x3918C0). Per type_index, the sum over the AI's unit agents of their unit's plan_subunit_group_difference (CUnit +0x6C), floored at 0 after each agent; the transport_ship type left out where all the country's areas are landlocked. Filled by CEU3AI::UpdateSubUnitCounts (0x499770). TFH's production script has its read commented out.", "revises": "Adds what it counts and who fills it.", "evidence": "CEU3AI::UpdateSubUnitCounts 0x899937-0x8999E7, slot 74 of the agent (ReturnDwordAt0x64, the agent's CUnit) and its +0x6C/+0x70 vector."},
+  {"struct": "CEU3AI", "offset": "0xAA", "name": "hasFilledProdQueue", "type": "bool", "comment": "The game's own name for it, out of the Lua API (`HasFilledProdQueue`, rva 0x4E8170). Set to 1 by CEU3AI::UpdateSubUnitCounts (0x499770) as it finishes - so it means the counts have been worked out at least once.", "revises": "Adds its writer.", "evidence": "`mov byte ptr [ebx+0xAA],1` at 0x8999F1."},
+  {"struct": "CCountry", "offset": "0xB4", "name": "Escorts", "type": "int", "comment": "The game's own name for it, out of the Lua API (`GetEscorts`, rva 0x17C30). **The escorts on no convoy**, saved as `escorts`: a finished escort line adds CONVOY_CONSTRUCTION_SIZE here (CConvoyConstruction::Deliver) and CCountry::DistributeConvoyShips hands them out and takes them back each day. Escorts sitting on convoys are not counted - at war, those a convoy was given; at peace none are wanted and all come back here.", "revises": "Adds that it is the free pool only, and its writers.", "evidence": "DistributeConvoyShips 0x4FD7BC (escortsOwned starts from it), 0x4FDE59-0x4FDE9D (escorts given back added to it); CConvoyConstruction::Deliver's record."},
+  {"struct": "CCountry", "offset": "0xBC", "name": "TotalConvoyTransports", "type": "int", "comment": "The game's own name for it, out of the Lua API (`GetTotalConvoyTransports`, rva 0x4E8200). **Every transport the country has**: the free ones (+0xB0, `Transports`) plus each convoy's (CConvoy +0x98), worked out by CCountry::DistributeConvoyShips at the start of its pass - so it is as of the day's sharing out, before anything a later convoy order adds.", "revises": "Adds what it sums and its one writer in play.", "evidence": "DistributeConvoyShips 0x4FD76F-0x4FD77F (`[+0xBC] = [+0xB0]`) and 0x4FD7DE-0x4FD7E4 (`add [ebx+0xBC], [edi+0x98]` per convoy)."},
+  {"struct": "CCountry", "offset": "0xC0", "name": "TotalNeededConvoyTransports", "type": "int", "comment": "The game's own name for it, out of the Lua API (`GetTotalNeededConvoyTransports`, rva 0x4E8210). **The transports already on convoys, as they stood before the day's sharing, plus TotalNeededTransports (+0xB8)** - the transports_wanted of every convoy that is not idle. Worked out by CCountry::DistributeConvoyShips. So `needed - total` is `wanted - free`: the script's `liNeeded - liCurrent` is the shortfall of the free pool against what the convoys want, not the convoys' own shortfall.", "revises": "Adds what it sums, and that it counts the convoys' transports as well as their wants.", "evidence": "DistributeConvoyShips 0x4FD785 (zeroed), 0x4FD7EA-0x4FD7F0 (`add [ebx+0xC0], [edi+0x98]` per convoy, beside the +0xBC sum) and 0x4FDEB5-0x4FDEBB (`add [ebx+0xC0], [ebx+0xB8]`) after steps 5 and 6 summed the wants into +0xB8 (FINDINGS-supplyconvoys.md section 7)."},
+  {"struct": "CCountry", "offset": "0x158", "name": "starting_manpower", "type": "CFixedPoint", "comment": "LoadKey copies Manpower into this the moment it has read the `manpower` key. **Its real meaning is the second writer's, and the name does not fit it**: CCountry::UpdateManpowerAfterMobilising (0xDCD70), run every day in RunCountryDailyPass and after every unit order, sets it to the manpower pool plus half a year's manpower before its multipliers, less the men every reinforcing brigade lacks plus a quarter of each one's build manpower, less the built-strength men of each brigade of a reserve line. Its reader is the Lua `HasExtraManpowerLeft` (rva 0x4E81E0, `> 0`). The name is kept because BiceLib's CCountry.hpp uses it; `spare_manpower` is what it is.", "revises": "Adds the full arithmetic, the daily writer, and its reader; name and type unchanged.", "evidence": "CCountry::UpdateManpowerAfterMobilising read whole (0x4DCD70-0x4DD057); HasExtraManpowerLeft 0x8E81E0 `cmp [ecx+0x158],0; setg al`; findRefs --callers 0x4DCD70 includes 0x4DBEA3 in RunCountryDailyPass."},
+  {"struct": "CSubUnitDefinition", "offset": "0x2D", "name": "is_land", "type": "bool", "comment": "**`type = land`** in the type's file. The Lua `IsRegiment` (rva 0x62D10, `mov al,[ecx+0x2D]`) answers this byte - so to the script every land type is a 'regiment', and TFH's CreateUnit builds every land type as reserves in peacetime. CMilitaryConstruction::IsLand asks it of a line's first brigade.", "revises": "Raised from a name inferred off one consumer to the loader's own store; adds the Lua IsRegiment reading it.", "evidence": "CSubUnitDefinition::LoadKey: key token 0xD9 (`type`) with value 0x442 (`land`) - `mov byte ptr [edi+0x2D],1` at 0x5A3DAE; 0x443 (`naval`) at 0x5A3DD0 to +0x2E; 0x440 (`air`) at 0x5A3DF6 to +0x2C (token names from saveTokens.py)."},
+  {"struct": "CSubUnitDefinition", "offset": "0x2E", "name": "is_ship", "type": "bool", "comment": "**`type = naval`** in the type's file. CMilitaryConstruction::IsNaval asks it of a line's first brigade; SubUnitTypeGroup folds ships on it.", "revises": "The record said `unknown`: adds the key that sets it.", "evidence": "CSubUnitDefinition::LoadKey 0x5A3DC9-0x5A3DD0: `cmp eax,0x443` (`naval`) then `mov byte ptr [edi+0x2E],1`."},
+  {"struct": "CSubUnitDefinition", "offset": "0x32", "name": "is_cag", "type": "bool", "comment": "**`is_cag = yes`** in the type's file (TFH: `cag` alone). The Lua `IsCag` (rva 0xC8350) answers it; the production script counts an air line whose first brigade has it as naval IC.", "revises": "Raised from inferred-by-position to the loader's store.", "evidence": "fieldmap.py CSubUnitDefinition: `is_cag 0x521 +0x32 byte`; LoadKey 0x5A4492-0x5A44A5 tests the value against 0x1F6 (`yes`) and stores 1; IsCag 0x4C8350 `mov al,[ecx+0x32]`."},
+  {"struct": "CSubUnitDefinition", "offset": "0x1B8", "name": "minimum_of_type", "type": "int", "comment": "The `minimum_of_type` key, **a plain count** (atoi, not thousandths): TFH gives 6 to its five elite brigades. Read by CCountry::CountMaxUnitsStillBuildable, which lets the country have at least this many brigades of the type.", "revises": "Adds its scale and its consumer.", "evidence": "LoadKey 0x5A4C31-0x5A4C40: `call 0xB969F1` (atoi) on the token, stored to +0x1B8; CountMaxUnitsStillBuildable 0x4E1430 and 0x4E15A6."},
+  {"struct": "CSubUnitDefinition", "offset": "0x1BC", "name": "max_percentage_of_type", "type": "int", "comment": "The `max_percentage_of_type` key, **thousandths** (TokenToFixedPoint: 0.04 is 40). Read by CCountry::CountMaxUnitsStillBuildable: the type may make up this share of the country's brigades of its group on the map.", "revises": "Adds its scale and its consumer.", "evidence": "LoadKey 0x5A4C4B-0x5A4C64: TokenToFixedPoint (0xA69550) on parse+0x228, stored to +0x1BC; CountMaxUnitsStillBuildable 0x4E1436 and 0x4E1594."}
+ ],
+ "vftable_slots": {
+  "CConstructUnitCommand": {"14": "IsValid"}
+ },
+ "frontier": ["0x58C7D0", "0x58CF60", "0x77E650", "0x58C560", "0xEE560"],
+ "slots_noted": "Slots 17 and 18 of the three construction classes, which the Lua IsMilitary and GetMilitary reach through VirtualThunkSlot17/18, hold compiler-folded bodies - ReturnTrue/ReturnFalse at 17 and ReturnThis/ReturnZero at 18 (CMilitaryConstruction first) - already recorded class-free, so no slot name is written for them here (trap 4)."
+}
