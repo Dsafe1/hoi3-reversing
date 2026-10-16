@@ -923,6 +923,26 @@ returns below `CAG_DUTY_MINIMUM_ORG_LIMIT` and keeps its province at the carrier
 In a sea battle, `CNavy::SendCarrierAircraft` sends idle groups under that order into combat (`FINDINGS-seabattle.md`
 section 5).
 
+**Carrier protection, read through on 2026-10-16** (decompiled from a scratch copy with the record applied):
+
+- **Its hour** (`IsActive`, 0x5901F0): no base, done. The unit's **plain average organisation** - slot 20,
+  `CUnit::GetAverageOrganisation`, the wings' organisation over their count, not a share of a maximum - under
+  `CAG_DUTY_MINIMUM_ORG_LIMIT` (0.2): told to return to base. In no battle, no bombing and with no path: away from its
+  base's province, told to return to base; and the order's province becomes the base's province - the carrier's.
+  Always still going.
+- **Whether it fights in the air** (slot 34, `WillEngage`, 0x5901A0): the same plain average at least
+  `CAG_DUTY_MINIMUM_ORG_LIMIT`, and **an ordinary battle going on in the order's province** - `CMapProvince +0x2F4` is
+  the count of its combat list. So a carrier's aircraft are taken into an air battle only where their carrier's
+  province has a battle in it - a sea battle the carrier is in, or any other.
+- **Where it bombs** (slot 17, 0x590730): the order's province alone; **it goes for ships** (slot 27). A carrier's
+  aircraft bomb the enemy's fleets where their carrier is.
+- **Given unasked**: `CUnit::CheckOrderAndCombat`, step 3, gives it to an air unit based on a carrier whose order is
+  the null order (slot 24 false), for the province it is in.
+- **Into the sea battle** (`CNavy::SendCarrierAircraft`, 0x5C7C70, decompiled): in the fleet's own hour while it is in
+  a battle or a bombing, for each ship with `carrier_size` above nought, each air unit on its list under this order, in
+  the fleet's province, in no bombing and no battle, with no path, and able to fight (slot 33) goes to `CheckForCombat`
+  there.
+
 **When the carrier sinks.** `CUnit::RemoveSpentSubUnits` hands the ship to `CGameState::DisposeSubUnit` (0x684CE0, rva
 0x284CE0). For a ship, each air group based on it is taken off the list and has its base cleared, gets a fresh null
 order, runs `CAir::CheckBase` - which gives it **the nearest of its country's air bases in a straight line** - and is
@@ -989,12 +1009,14 @@ range.**
 
 **Taking off: `TakeOff`** (0x590930), from slot 13 and again every hour the unit is not over its target:
 
-1. With no fuel, or unfit to fly (`CAirOrder::IsFitToFly`), it returns to base.
+1. With no fuel, or unfit to fly (`CAirOrder::IsFitToFly`), it is told to return to base and nothing more happens that
+   hour (decompiled 2026-10-16). Before its start hour a unit is never fit to fly, so it is told so every hour it waits.
 2. Before the start hour, nothing happens.
 3. Then, with `hostile` = the target's controller at war with the plane's owner, the plane **waits** while either
    holds: `hostile` is true and any passenger's attack delay is running; any passenger brigade is under 95%
    organisation.
-4. Otherwise it is given the way to the target, with the day/night arrival test as above.
+4. Otherwise it is given the way to the target, with the day/night arrival test as above - **only where a way was
+   found** (decompiled 2026-10-16).
 
 **Over the target: `IsActive`** (0x590C60). The hour the plane stands in the target with no path and no battle, from
 its start hour on:
@@ -1009,8 +1031,9 @@ its start hour on:
 2. Every transport wing's organisation is multiplied by `PARATROOP_DROP_ORG_MULT_PLANE`: **1% is left**, floored at
    nought.
 3. The plane is told to return to base.
-4. The first time only (`+0x80`, saved as `message`), where **the target's controller is the player** and the plane's
-   owner is at war with the player, the message `PARATROOPEDUS` is raised with `ENEMY` (the owner's name) and `PROV`
+4. The first time only (`+0x80`, saved as `message`, **set before anything is asked**, decompiled 2026-10-16), where
+   **the target's controller after the drop is the player** and the plane's owner is at war with the player - so an
+   undefended province the drop has just taken tells nobody - the message `PARATROOPEDUS` is raised with `ENEMY` (the owner's name) and `PROV`
    (the province's name): "$ENEMY$ is dropping paratroopers / in $PROV$." The log reads "$ENEMY$ dropped paratroopers
    in $PROV$." and the setup line is "When enemy drops paratroops on our territory."
 
@@ -1071,6 +1094,12 @@ troops needing them."
    read by combat width, the attack delay and two battle modifiers, not only by the organisation step.
 3. **`CUnit_IsAtOwnBase`**: its third clause means the carrier's fleet is in no battle or bombing, and the carrier
    base's slot 0 is the fleet's current province.
+4. **`CCarrierProtection::IsActive`** and **`WillEngage`** (2026-10-16) compare the plain average organisation with
+   `CAG_DUTY_MINIMUM_ORG_LIMIT`; the record said "as a share". `WillEngage`'s `+0x2F4` is the count of the province's
+   ordinary battles, which the record had left unnamed.
+5. **`CGameState::RemoveUnit`** (2026-10-16): its third flag removes **an air unit's** passengers with it as well as a
+   fleet's, and lets them go otherwise; its first, clear, takes the unit's officers off its owner's pool. The record
+   had the flags unestablished.
 
 ### D.6 What looks wrong but is what the bytes do
 
@@ -1081,7 +1110,8 @@ troops needing them."
 - A paratrooper's 7 days of supplies come from the province it last walked out of where that is land, not from the
   stockpile.
 - Transport planes are left at 1% organisation after **every** drop, hostile or not.
-- `PARATROOPEDUS` goes only to the player who **controls** the target at the moment of the drop, and once per order.
+- `PARATROOPEDUS` goes only to the player who **controls** the target once the drop is over, and once per order - so a
+  player whose undefended province the paratroopers took is never told.
 - Neither a paradrop nor a rebase to carrier measures range after the order is given.
 - Air supply raises the base province's `drawn` by the load before capping it by the pool. It picks the *last* short
   province of the area, not the neediest, and delivers whether or not the target is still friendly.
@@ -1091,9 +1121,11 @@ troops needing them."
 
 ### D.7 Not settled
 
-- **A transport plane destroyed with passengers aboard.** The read part of `CGameState::RemoveUnit` releases only a
-  **fleet's** passengers (its test at 0x684F7C is slot 16, IsNaval); no air branch was found there. A trial or a
-  screenshot of a loaded transport shot down would show whether the paratroopers vanish, stay or are released.
+- ~~**A transport plane destroyed with passengers aboard.**~~ **Settled 2026-10-16**: `CGameState::RemoveUnit` has an
+  air branch after the fleet's, read whole on a decompile - with its third flag set each passenger is removed with the
+  plane, and otherwise let go where it stands. The hourly removal drain, capitulation and annexation pass the flag set
+  and the exile's clean-up passes it clear (the record's callers; `CCountry_Reset`'s not read), so
+  **the paratroopers are lost with the plane**. The maintainer did not know (2026-10-15).
 - **A land unit loaded while it has a path.** `MayLoad` does not test the land unit's path, and
   `CUnit::AdvanceMovement`'s carried test reads only `+0x300`. Whether a passenger keeps walking depends on whether the
   screen allows such a load (section C).

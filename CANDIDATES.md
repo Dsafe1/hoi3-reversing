@@ -624,14 +624,15 @@ landing's scales), `CAir::ReleaseCarried` (combat checked on every release), `CU
 1. **A hand edit the merge cannot make**: `CUnit +0x2E4 carrying` belongs on `CNavy` (and `CAir`); a `CArmy`'s own
    `+0x2E4` is `staging_province`. `mergeFindings.py` cannot remove a field, so it needs either that capability or a
    by-hand move.
-2. **A loaded transport plane shot down**: what becomes of its paratroopers? The maintainer does not know (2026-10-15);
-   `CGameState::RemoveUnit`'s air branch, if it has one, is where to read. His screenshots the same day settled the
-   other three: the stale passenger list, "Can carry 0 weight." and the landing tooltip to the hundredth
-   (`FINDINGS-transport.md` B.9, C.8).
+2. ~~**A loaded transport plane shot down**~~ - **read 2026-10-16**: `CGameState::RemoveUnit` has an air branch, and with
+   its third flag set - the hourly drain's, a capitulation's - the paratroopers go with the plane. His
+   screenshots of 2026-10-15 settled the other three: the stale passenger list, "Can carry 0 weight." and the landing
+   tooltip to the hundredth (`FINDINGS-transport.md` B.9, C.8, D.7).
 3. **A save under an Invasion order**: which sea province `Start` picks (`transport=` in the mission block).
 4. **Whether anything draws on a sea zone's supply pool** - landings and arrivals leave 15 days there.
-5. **`RemoveUnit`'s flag** from the hourly removal drain, `CCountry_Reset` and `SetGovernmentInExile`: do passengers
-   go free or die with the fleet?
+5. **`RemoveUnit`'s flag** - what it does was read 2026-10-16 (set, passengers die with the carrier; clear, they are let go
+   where they stand), and the record has the hourly drain, capitulation and annexation passing it set and the exile's clean-up
+   clear; **`CCountry_Reset`'s call is still to read**.
 6. **The fleet's landing marker** `0x1CB630` (`+0x190`'s `+0x15C`), and `0x1CB980`.
 7. **`paradrop_mission` and `transport_supplies_mission`**: no reader of either efficiency was found.
 8. **The AI's notifications** (`CAIUnit` slots 69 and 70) and the AI posters of the load and unload commands - the AI
