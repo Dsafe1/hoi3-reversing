@@ -230,9 +230,9 @@ by putting the slot-7 record beside the rebuild's listing.
 - Which way `remove_fow`'s sight runs (the reader of `+0xAB8` was not read).
 - Where a province's modifiers expire.
 - Whether a province's new name survives a save.
-- In `split_troops`: what `+0x300`, `+0x304` and `+0x2EC` are, and the helpers `0x1B9A30`,
-  `0x3A680`, `0xE0830`, `0xE06F0` and `0x1BAC50`; and what the session flag behind its order back
-  means.
+- In `split_troops`: ~~what `+0x300`, `+0x304` and `+0x2EC` are, and the helpers `0x1B9A30`~~
+  ~~and `0xE06F0`~~ (section 1.12); the helpers `0x3A680` and `0xE0830`, and what the
+  session flag behind its order back means.
 - `FillMinisterPosts`' order of preference and `AllotCabinetSeats`' arithmetic (decompiler only).
 - What reads the `CIdeologyData` tallies.
 - What counts down a unit's intelligence grants, and in what unit.
@@ -242,6 +242,52 @@ by putting the slot-7 record beside the rebuild's listing.
 **Frontier:** `0x1284A0`, `0xDFB90`, `0x5F5E0`, `0x1FDE60`, `0x1FDFB0`, `0x1FE2D0`, `0x1FE270`,
 `0x468400`, `0x455BA0`, `0x1B9A30`, `0x3A680`, `0xE0830`, `0xE06F0`, `0x1BAC50`, `0x113680`,
 `0x12C1B0`, `0x111E50`, `0x1EE0DB`, `0x1F07C0`, and the reader of `CCountry +0xAB8`.
+
+### 1.12 Three answers for OpenHOI3's headless run (2026-10-16)
+
+OpenHOI3's 1936-1948 run with nobody playing met four things not built; three wanted a reading.
+
+**`lost_national`'s figure, `CCountry +0x115C`**, has one writer besides the constructor's zero (a scan of every
+`[reg + 0x115C]` in `.text`): `CCountry::RebuildNeighbours` (rva `0xE21E0`), the country's day. It zeroes the figure
+(`0x4E3872`), walks `CoreProvinces` (`+0xD10`), and for each core whose owner id (`+0x330`) is the country's
+(`+0xCA8`) adds 1000 to a total and, where the core's controller id (`+0x338`) is another, 1000 to the figure
+(`0x4E393C`); then, with a total above nought, `figure = figure x 1000 / total` (`0x4E3981`). So **`lost_national` is
+the share of the country's own cores that it owns and does not hold**, in thousandths, made once a day: a core
+somebody else owns counts in neither, and with none owned it is nought. The condition compares it `>=` its value.
+
+**The Lua's `province:GetNumberOfUnits()`** is `CProvince::GetNumberOfUnits` (`0x8E81D0`, rva `0x4E81D0`, from
+`luabind.json`): `mov eax, [ecx+0x2C0]; ret` - the count of the province's own unit list at `+0x2B8`, **every unit
+standing there, whoever owns it**. The base game's `FIN.lua` (line 38) and `JAP.lua` (line 490) sum it over border
+provinces.
+
+**`split_troops`' eligibility** (section 1.8): the fields the reading left open are known by name since - a land unit
+is skipped where `CArmy +0x300 carried_by` or `+0x304 carried_by_air` is set, so **a unit aboard anything stays**; a
+fleet or air unit where `+0x2EC`, the count of its `carrying` list at `+0x2E4`, is above nought, so **one with anything
+aboard stays** (*inferred* for the count from a `CList`'s head, tail, count). `0x1B9A30` is `CUnit_LeaveParent` and
+`0xE06F0` `CCountry::AddUnit`. **The step a handed-over land unit takes captures nothing**: after its
+`CUnit::EnterProvince` (VA `0x9BB809`) comes `0x1BAC50` with 0 (`0x9BB810`), which only works out the unit's
+intelligence level again (`CUnit_RefreshIntelLevel`, *inferred* for the name) - no battle is looked for. So where the
+giver's units stand in land the effect's event has just seceded, a `war` declared before it (as the Spanish Civil War's
+event 2001 does) lets each of them take its province at once (`FINDINGS-war.md`, the declaration's
+`OnDiplomacyChanged`), and the units handed over do not take it back.
+
+**The march back, and the "session flag"** (read the same day, after the maintainer asked whether the step was
+certain; the BlackICE docs record units moved "into a random adjacent province under unknown circumstances"). After
+the step, the in-game screen's slot 18 answers **the session** (`FINDINGS-commands.md`), and its byte `+0x34` is **"this
+machine may post commands"** - set in single player and on a multiplayer host. Where it is set and **the province the
+unit left still holds units** (`+0x2C0`), a `CMoveCommand(unit, that province, clear 0, safe 0, very safe 0)` is posted
+through the session (VA `0x9BB8BA`..`0x9BB920`): **the unit marches straight back**. Where that province is empty, the
+unit stays in the neighbour - which is the move the BlackICE docs saw. The step itself is gated only on the unit being
+a land unit and on a neighbour qualifying: in the province's edge order, kind 3 skipped, the first that the giver or
+the receiver controls and where no unit of another owner stands (VA `0x9BB6A7`..`0x9BB810`); with none it does not
+step. So the "unknown circumstances" are whether anyone is left behind in the province - and whether a neighbour
+qualifies at all.
+
+**The brigade a unit type's name gives has every technology at 0** - the maintainer's word, 2026-10-16, from the game:
+"The original spawns it with 0 techs." Not read on the listing; `CAddSubUnitEffect::Execute` (section 3.6) sets no
+level.
+
+`country_event` and the unit-type effect needed nothing new: their records (section 3.6) are whole enough to build.
 
 ## 2. Countries among each other, and land changing hands
 

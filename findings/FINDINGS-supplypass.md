@@ -215,6 +215,7 @@ Then, with `holder` the controller of the province drawn on, for supplies:
                      the depot holder's TradedFor += amount;  its unit_demand += amount
         have = province.pool
         if have < need:  have = have x (asked x 1000 / need) / 1000        its share of what there is
+                         (need nought: the share is -1, so have = -have / 1000 - see below)
         if have < asked: received = have < 1 ? 0 : have x 1000 / asked;  taken = have
         else:            received = 1000;  taken = asked
         where the unit stands in holder's acting capital:  holder.usage += taken
@@ -224,6 +225,14 @@ Fuel is the same, with one difference: **the pool is only lessened, and `usage` 
 for a unit that is moving** (`movement_order_remaining_provinces_count > 0`) **or a fleet not at
 its own base**. A unit standing still is told how much it would have got and burns none. Its
 `unit_demand` is counted either way, and so is a friend's payment.
+
+**A need of nought** (added 2026-10-16, after OpenHOI3's 1936-1948 run met it as a division by zero on 29 April
+1938): the share's division is the engine's fixed-point division inlined, and a nought divisor gives **-1**
+(`test ecx,ecx; jne; or ecx,-1` at `0x5BC0AA`; the same answer as `0x9039A0` in `FINDINGS-luaapi.md`). `have < need`
+with `need` nought means the pool is below nought - a capital's pool is its country's stockpile, charged whatever it
+holds during the day - so `have` becomes the pool's size over a thousand, truncated: nearly nothing, and no fault. The
+received figure's `have x 1000 / asked` is guarded alike at `0x5BC10F` (-1 where nought was asked), and the fuel arm
+repeats both from `0x5BC2B6`. The need is `[ebp-0x20]`, the province's `+0x24C`, loaded at `0x5BBD20`.
 
 So `unit_demand` - the supply share's need - belongs to **whoever holds the ground**, and a unit
 drawing on a friend's depot is its own country's `TradedAway` and the friend's `TradedFor` and

@@ -659,6 +659,29 @@ Ctrl, off the bytes. What it left, none of it in the way of building:
 6. **`CInGameIdler +0x1360`** (answers `theatre_forces_button`) and the side-menu offset of the rows.
 7. **Air units' `oob_level`** - whether two air groups may merge.
 
+## What OpenHOI3's headless run asks for - 2026-10-16 `[game]`
+
+OpenHOI3's stage 2 run, a new game with nobody playing from 1936 to 1948 (its `docs/mechanics/headless.md`), met what
+follows. One was read the same day: **a unit's draw where the province's need is nought** - the share's division
+answers -1, the engine's fixed-point division by nought inlined (`FINDINGS-supplypass.md` section 4,
+`fragments/merged/supply-draw-nought-need.json`). The rest wait for a reading, in the order they cost the run:
+
+1. ~~**`country_event` as an effect**~~ - the record had it whole (`CCountryEventEffect::Execute`); built by OpenHOI3
+   2026-10-16.
+2. ~~**`split_troops`**~~ - `FINDINGS-effectrun.md` 1.8 had it; its open fields and the step a unit takes read
+   2026-10-16 (1.12, `fragments/merged/headless-four-fixes.json`, `split-troops-step.json`). Left: `0x3A680` (the
+   officers' move), `0xE0830`, and the session flag behind the march back.
+3. ~~**A province's `GetNumberOfUnits`**~~ - read 2026-10-16: the count of the province's unit list, every owner's.
+4. ~~**`lost_national`**~~ - read 2026-10-16: `CCountry +0x115C`, the share of owned cores not held, made in
+   `CCountry::RebuildNeighbours`.
+5. ~~**The unit-giving effects**~~ - the record had `CAddSubUnitEffect` (inferred); the new brigade's technologies are
+   all nought, by the maintainer's word from the game (2026-10-16; not read on the listing).
+6. ~~**The Spanish Civil War ending on its first day**~~ - answered by the maintainer, 2026-10-16: in the original the
+   AI has moved the Republic's units to the Portuguese border by the time event 2001 fires, so the Nationalists' victory
+   points stand empty. Nothing to read; it waits for an AI. And `split_troops`' march back, which the BlackICE docs saw
+   as units moved "under unknown circumstances", is read: `FINDINGS-effectrun.md` 1.12,
+   `fragments/merged/split-troops-march-back.json`.
+
 ## The planned next wave is in `WAVE.md`
 
 **It is not in this file any more.** `WAVE.md` holds the wave that is planned and has not launched,

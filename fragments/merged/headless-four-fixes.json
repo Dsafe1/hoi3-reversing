@@ -1,0 +1,46 @@
+{
+ "agent": "the headless run's four fixes (OpenHOI3, 2026-10-16): lost_national's figure, the Lua's GetNumberOfUnits, split_troops' eligibility fields",
+ "question": "What writes CCountry +0x115C, which `lost_national` compares; what CProvince::GetNumberOfUnits answers the Lua; what split_troops' eligibility fields +0x300, +0x304 and +0x2EC are.",
+ "source": "reversing/findings/FINDINGS-effectrun.md",
+ "addresses": [
+  {
+   "rva": "0x4E81D0",
+   "kind": "function",
+   "name": "CProvince::GetNumberOfUnits",
+   "signature": "int __thiscall CProvince::GetNumberOfUnits(CProvince* this)",
+   "no_signature": null,
+   "comment": "**The Lua's `province:GetNumberOfUnits()`**: `mov eax, [ecx+0x2C0]; ret` - the count of the province's own unit list (`units`, the CUnitList at +0x2B8): every unit standing in the province, whoever owns it and of whatever kind. Registered for CProvince as `int const GetNumberOfUnits() const` (luabind.json, memfun_registration). The base game's FIN.lua and JAP.lua sum it over border provinces. See reversing/findings/FINDINGS-effectrun.md, section 1.12.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-effectrun.md",
+   "evidence": "Listing 0x8E81D0..0x8E81D6: `mov eax,dword ptr [ecx+0x2c0]` then `ret`, int3 after. luabind.json functions[261]: lua_name GetNumberOfUnits, cpp CProvince::GetNumberOfUnits, address 9339344 = 0x8E81D0. +0x2C0 is the count of the CList at +0x2B8 by the record (CMapProvince +0x2C0 units_count). Wrong if the province's list leaves out a kind of unit - what CMapProvince::AddUnit adds was read in FINDINGS-seaair.md."
+  },
+  {
+   "rva": "0x5BB3A0",
+   "kind": "function",
+   "name": "CSplitTroopsEffect::Execute",
+   "signature": "void __thiscall CSplitTroopsEffect::Execute(CSplitTroopsEffect* this, CEventScope* scope, int unused)",
+   "no_signature": null,
+   "comment": "**`split_troops = F`: the THIS country (this_scope +0x38) hands units and a share F of its manpower to the scope country.** F is thousandths (0.5 = 500); `pct = F*100/1000`, whole. Two budgets: `B = sum of regiments_count (+0x40) over the source's units (+0xBAC) * F` and `L = CUnitList::GetTotalNumOfRegiments(units) * F`, both in thousandths of a regiment. For each of the source's units in list order, **eligible** when: a land unit's slot-9 object (CArmy) has `carried_by` (+0x300) and `carried_by_air` (+0x304) both null - **aboard nothing**; a naval unit has no children (+0x1EC); an air unit's slot-13 object and a naval unit's slot-11 object have +0x2EC <= 0 - **the count of the `carrying` list at +0x2E4, so carrying nothing** (inferred: a CList is head, tail, count); not in combat (+0x110 null, combats_count +0x11C <= 0); oob_level (+0x1F4) not 0, so no theatre; not on loan (expeditionary_owner_id +0x290 == 0). Before rolling, **B <= 0, or L <= 0 for a land unit, ends the loop for good**. Roll: the scope's LCG (0x6A2E90 on scope +8) `% 100 < pct`. A unit that passes: its children each get CUnit_LeaveParent(child, 1); its regiments' officers (definition +0x58 -> +0x118) times the source's OfficerRatio (+0xD4) / 1000 move from source to recipient through 0x3A680; B -= 1000 per regiment, and for a land unit L -= 1000 x regiments_count; its leader is taken off (SetLeader null, no hit); CUnit_LeaveParent(unit, 1); 0xE0830 takes it off the source's list and CCountry::AddUnit (0xE06F0) puts it on the recipient's. A land unit then steps into the first neighbour (template edges +0x90, 0x14 each, kind 3 skipped) controlled by the source or the recipient and holding no unit of another owner; and when the session's flag (+0x34 of in-game-screen slot 18's answer) is set and the province it left still has units, a CMoveCommand back to that province is posted. After the loop, always: `m = source->manpower * F / 1000`; recipient += m and source -= m, each floored at 0; an intel refresh of every province is requested (a -1 node on state +0xCF8). 0x5BB3A0 to two `ret 8` (0x5BBA64, 0x5BBA7E). See reversing/findings/FINDINGS-effectrun.md, sections 1.8 and 1.12.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-effectrun.md",
+   "revises": "The eligibility fields were 'not read what they are': +0x300 and +0x304 are CArmy's carried_by and carried_by_air (named since by the transport wave), +0x2EC on a fleet or air unit the count of its carrying list (+0x2E4); and the helpers 0x1B9A30 and 0xE06F0 are CUnit_LeaveParent and CCountry::AddUnit by the record.",
+   "evidence": "The field names are the record's: CArmy +0x300 carried_by, +0x304 carried_by_air (FINDINGS-transport.md A, D), CUnit +0x2E4 carrying with a CList's count two words on; the helper names are the record's entries at those rvas. Nothing in the body was re-read beyond FINDINGS-effectrun.md 1.8's reading; wrong if +0x2EC on CAir is not the same list's count."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CCountry",
+   "offset": "0x115C",
+   "name": "lost_national_provinces",
+   "type": "int",
+   "revises": "Was 'likely' the lost_national figure with no writer found. Its writer is CCountry::RebuildNeighbours: the share of the country's owned cores it does not control.",
+   "comment": "**The share, in thousandths, of the country's owned cores that it does not control** - what `lost_national` compares (`>=`, CNationalProvinceTigger::Evaluate). Made in CCountry::RebuildNeighbours (the country's day): zeroed, then for each province id of CoreProvinces (+0xD10) whose owner id (+0x330) is the country's (+0xCA8) a total gains 1000 and, where its controller id (+0x338) is not, this gains 1000; then, where the total is above 0, this = this x 1000 / total. So a core somebody else owns counts in neither, and with no owned core it is 0. Zeroed by CCountry::CCountry.",
+   "evidence": "Listing 0x4E3866..0x4E3981 in CCountry::RebuildNeighbours: `mov [ebx+0x115c],esi` (0) at 0x4E3872; the walk of [ebx+0xD10] (node +0, next +8); `cmp [eax+0x330],ecx` (ecx = [ebx+0xCA8]) then `add [esp+0x24],0x3e8`; `cmp [eax+0x338],ecx; je` then `add [ebx+0x115c],0x3e8` at 0x4E393C; `test esi,esi; jle` and __allmul/__alldiv of [ebx+0x115c] x 1000 / total stored at 0x4E3981. The only other writer is the constructor's zeroing at 0x4C9AB9 (a scan of every [reg+0x115C] in .text)."
+  }
+ ],
+ "vftable_slots": {
+  "CSplitTroopsEffect": {
+   "11": "Execute"
+  }
+ }
+}

@@ -259,7 +259,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CPeaceAction` | `CDiplomaticAction` |  |  | 5/6 | 11 |  |  | RTTI |  |
 | `CPlayerConnected` | `CCommand` |  |  | 1/4 | 1 |  | 1 | placed |  |
 | `CPortStrikeOrder` | `CAirOrder` |  |  |  | 7 |  |  | RTTI |  |
-| `CProvince` | `CPersistent` `CSelectable` |  | 71 + 9 lua | 14/26 | 14 |  |  | read |  |
+| `CProvince` | `CPersistent` `CSelectable` |  | 71 + 9 lua | 14/26 | 15 |  |  | read |  |
 | `CProvinceBuilding` | `CSelectable` `CModifierEntry` `CPersistent` |  | 7 + 2 lua |  |  | CProvinceBuilding.hpp | 1,702,800 | read |  |
 | `CProvinceFloat` | `CPersistent` |  |  |  | 1 |  | 36,084 | keys |  |
 | `CProvinceHistory` | `CHistoryContainer` |  |  |  | 1 | CCountryHistory.hpp | 14,190 | keys | **read**: `history/provinces`, the same date-block shape as CCountryHistory. Its handler names four keys; the rest are buildings |
