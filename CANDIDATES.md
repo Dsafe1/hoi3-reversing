@@ -363,6 +363,11 @@ and the duplicates predate the check that would have refused them.
 
 ## A live check: does `at_sea` lock a fleet's `carrying` list? - 2026-10-07 `[both]`
 
+> **Closed 2026-10-15, statically: there is no collision.** `CNavy::LoadKey`'s and `CNavy::SaveContents`' `this` is
+> the fleet **+ 8**, so the `at_sea` write at `[ebx + 0x2F0]` lands on the fleet's `+0x2F8`, the post-battle wait, and
+> `+0x2F0` stays the list's lock (`findings/FINDINGS-transport.md` A.7 and A.8). The record now has `CNavy +0x2F0
+> carrying_no_unlink` and `+0x2F8 combat_cooldown`. Nothing below needs a live session any more.
+
 **This would be a real bug if it holds, and it is cheap to test in a session.** It came out of
 settling what `CList +0xC` means (`findings/FINDINGS-factbase.md`).
 
@@ -604,6 +609,33 @@ the **northern** hemisphere, the new-game caller (`0x3DC89` is the console comma
 5. **`CMapProvince +0xC`**, which decides the style-0 texture's green; the clock's slot 5 units; the `+0x64` map object
    group.
 6. **`PropagateHighPressure`'s record name**: `this` is the seed province, not the manager.
+
+## What the transport wave left - 2026-10-15 `[both]`
+
+`findings/FINDINGS-transport.md` sections A to D (four readers; 104 address entries, 15 of them revisions, 89 landed; 6
+structs declared, 36 fields; apply `failed: 0`, `struct fields: 0`). Carrying by sea and by air, the landing, the
+screen, the carrier as a base, the paradrop and the air supply. Corrected: `CLoadArmyCommand`'s keys (`navy` and
+`unit` - the poster names the fleet), the `at_sea` collision (none), `CArmy +0x2E4`/`+0x2E8` (`staging_province`,
+`target`), `+0x144`'s key (`transport_capability`, for ships too), `CheckTransportOverload`'s schedule (hourly and after
+every battle round), `BM_AMPH_PENALTY`'s `+0x300` (the carrying fleet, not a naval base), `CUnit +0xF4/+0xF8` (the
+landing's scales), `CAir::ReleaseCarried` (combat checked on every release), `CUnit +0x97` (`was_paradropped`), and
+`CProvinceTemplate_AddUnitCounter`'s moving-stack test. What it left, none of it in the way of building:
+
+1. **A hand edit the merge cannot make**: `CUnit +0x2E4 carrying` belongs on `CNavy` (and `CAir`); a `CArmy`'s own
+   `+0x2E4` is `staging_province`. `mergeFindings.py` cannot remove a field, so it needs either that capability or a
+   by-hand move.
+2. **A loaded transport plane shot down**: what becomes of its paratroopers? The maintainer does not know (2026-10-15);
+   `CGameState::RemoveUnit`'s air branch, if it has one, is where to read. His screenshots the same day settled the
+   other three: the stale passenger list, "Can carry 0 weight." and the landing tooltip to the hundredth
+   (`FINDINGS-transport.md` B.9, C.8).
+3. **A save under an Invasion order**: which sea province `Start` picks (`transport=` in the mission block).
+4. **Whether anything draws on a sea zone's supply pool** - landings and arrivals leave 15 days there.
+5. **`RemoveUnit`'s flag** from the hourly removal drain, `CCountry_Reset` and `SetGovernmentInExile`: do passengers
+   go free or die with the fleet?
+6. **The fleet's landing marker** `0x1CB630` (`+0x190`'s `+0x15C`), and `0x1CB980`.
+7. **`paradrop_mission` and `transport_supplies_mission`**: no reader of either efficiency was found.
+8. **The AI's notifications** (`CAIUnit` slots 69 and 70) and the AI posters of the load and unload commands - the AI
+   wave's.
 
 ## The planned next wave is in `WAVE.md`
 
@@ -1125,7 +1157,7 @@ of it.
 
 ## What has already been read
 
-161 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
+162 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
 header lives. This replaces the `Done` archive: the archive restated each file's headline and named
 only 40 of the 67 there were then, so it was both longer and less useful than a complete list.
 
@@ -1251,6 +1283,7 @@ the six it was missing were wave 15's.
 | `findings/FINDINGS-revolt.md` | what consumes revolt risk: the roll, the rebel type, the underground |
 | `findings/FINDINGS-convoys.md` | convoys and trade, and that the AI drives a route through the mod's Lua |
 | `findings/FINDINGS-weathersim.md` | **the weather wave (2026-10-15)**: weather whole for a reimplementation - where it falls in the hour, a new game's 96 hours with the clock stopped and its temperature seed, the three draws on the shared generator, what a save keeps; every formula of the province hour, the fronts, the high pressure, the season and the edge bearing in instruction order (the bearing reproduces all 83,596 of the base game's cache); the weather map mode, its tooltip, and the cloud, rain and snow pictures on the map |
+| `findings/FINDINGS-transport.md` | **the transport wave (2026-10-15)**: carrying land units by sea - the load and unload commands, `CanCarry`'s weight against `transport_capability`, boarding by marching into a fleet's sea province, getting off in port, a passenger's hour and day at sea, the transports' damage laid on passengers and the overload test that destroys them brigade by brigade at sea, the transport mission, and the save's `division` inside a fleet; the landing - the invasion mission with its landing sea and flanks, the 24-point march at the fleet's invasion speed, the progress and its attack and defence scales, `BM_AMPH_PENALTY` read whole, the outcome and the `INVADEDUS` warning; the screen - the panel's four buttons, a fleet's list of passengers, the multi-unit load, the right click, counters and the orders window's two rows; the carrier as an air base, carrying by air, the paradrop and the air supply |
 | `findings/FINDINGS-convoylines.md` | **the convoy-line wave (2026-10-15)**: transports and escorts in the build queue - `CConstructConvoyCommand` with its amount, priced once by the four defines and technology fields and never again, an item of `CONVOY_CONSTRUCTION_SIZE` ships at a time, the history's and the save's lines; the production screen's `convoy` and `escort` buttons, the confirm dialog in modes 1 and 2, the `(+N)` counts and the line on the queue |
 | `findings/FINDINGS-espionage.md` | spies, intelligence, and what the espionage sliders buy; **the espionage wave (2026-10-14), sections A to E**: spies placed by priority bands and never decayed, what each mission does (a tech theft takes the target's whole level; covert ops a thirtieth of its define a day; province covert operations), what a country knows (the spies alone, less counter-intelligence) and of a province (the whole daily rebuild and hourly raise, radar), the intelligence screen with every estimate and tooltip, and the AI's spying in Lua, matching the saves pair for pair |
 | `findings/FINDINGS-events.md` | events, and why a loaded save fires none until the month turns |

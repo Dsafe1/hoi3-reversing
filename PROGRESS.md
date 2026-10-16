@@ -25,12 +25,12 @@ how many objects a census found (taken 2026-09-20).
 
 | | classes |
 | --- | --- |
-| `read` | 123 |
-| `placed` | 147 |
+| `read` | 124 |
+| `placed` | 146 |
 | `keys` | 75 |
-| `part` | 134 |
+| `part` | 135 |
 | `named` | 6 |
-| `RTTI` | 656 |
+| `RTTI` | 655 |
 | **all** | **1141** |
 
 ## What to read next
@@ -114,7 +114,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CAddPlayer` | `CCommand` |  |  |  | 1 |  | 1 | keys |  |
 | `CAddTraitEntry` | `CLeaderHistoryEntry` |  |  |  | 2 |  |  | RTTI |  |
 | `CAddWarGoalAction` | `CWarGoalBaseAction` |  |  |  | 5 |  |  | RTTI |  |
-| `CAir` | `CUnit` |  |  |  | 9 |  | 2,052 | keys |  |
+| `CAir` | `CUnit` |  |  |  | 12 |  | 2,052 | keys |  |
 | `CAirCombat` | `CCombat` |  |  | 4/6 | 4 |  | 4 | RTTI |  |
 | `CAirCombatant` | `CCombatant` | 0x10B4 | 2 |  | 7 |  | 28 | keys |  |
 | `CAirConvoyRaid` | `CAirOrder` |  |  |  | 3 |  |  | RTTI |  |
@@ -130,7 +130,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CAllianceAction` | `CDiplomaticAction` |  |  | 5/6 | 9 |  | 83 | RTTI |  |
 | `CApplication` | `CPersistent` `CApplicationObservable` |  |  |  |  |  |  | RTTI |  |
 | `CAreaBorder` | `PAVCProvince::__CArray` `CPersistent` |  | 4 | 1/4 | 1 |  | 2,595 | placed |  |
-| `CArmy` | `CUnit` |  | 7 |  | 7 |  | 13,590 | read |  |
+| `CArmy` | `CUnit` |  | 8 |  | 8 |  | 13,590 | read |  |
 | `CAutosave` | `CCommand` |  |  |  | 1 |  | 1 | keys |  |
 | `CBillboardType` | `C3dObjectType` |  |  |  | 3 |  |  | keys |  |
 | `CBitmapFont` | `CFont` `CLostDeviceInterface` |  |  |  |  |  |  | RTTI |  |
@@ -171,7 +171,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CCountryHistory` | `CHistoryContainer` |  |  |  | 1 | CCountryHistory.hpp | 108 | keys | **read**: `history/countries`, where a date is a key. See GameClasses/CCountryHistory.hpp |
 | `CCountryValue` | `CPersistent` | 0x14 | 2 | 1/2 | 1 |  | 9,078 | placed |  |
 | `CCountryWarTargetValue` | `CPersistent` | 0x20 | 5 | 2/5 | 1 |  | 1 | read |  |
-| `CCurrentGameState` | `CGameState` | 0xDA8 | 89 | 14/33 | 4 | CCurrentGameState.hpp | 1 | read |  |
+| `CCurrentGameState` | `CGameState` | 0xDA8 | 92 | 14/33 | 4 | CCurrentGameState.hpp | 1 | read |  |
 | `CDebtAction` | `CDiplomaticAction` |  |  | 5/6 | 8 |  | 1,759 | RTTI |  |
 | `CDeclareWarAction` | `CWarGoalBaseAction` | 0x74 | 3 |  | 7 |  | 1 | part |  |
 | `CDependency` | `CRelation` |  |  | 5/5 | 2 |  |  | RTTI |  |
@@ -196,7 +196,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CGameList` | `CGameHandlerInterface` `VCStandardlistboxItem::__CChoiceObserver` |  |  |  |  |  |  | RTTI |  |
 | `CGamePlaySettings` | `CPersistent` |  |  |  | 1 |  | 1 | keys |  |
 | `CGameSetup` | `CFrontEndView` `CSessionInfoObserver` `CLobbyInterface` `CLargefileHandlerInterface` `CReloadableInterface` |  |  |  |  |  |  | RTTI |  |
-| `CGameState` | `CPersistent` |  | 69 | 14/33 | 13 |  |  | read |  |
+| `CGameState` | `CPersistent` |  | 69 | 14/33 | 14 |  |  | read |  |
 | `CGoodsPool` | `CPersistent` |  | 8 | 7/7 | 5 | CGoodsPool.hpp | 132,054 | read |  |
 | `CGraphStatistics` | `CPersistent` |  |  |  | 1 |  | 3 | keys |  |
 | `CGraphics` | `CFactory` `CPersistent` |  | 7 |  | 2 |  |  | read |  |
@@ -240,20 +240,20 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CNavalCombat` | `CCombat` |  |  | 4/6 | 7 |  |  | RTTI |  |
 | `CNavalCombatant` | `CCombatant` |  | 2 | 1/1 | 7 |  | 4 | placed |  |
 | `CNavalInterceptOrder` | `CNavalOrder` |  |  | 1/1 | 4 |  | 2 | RTTI |  |
-| `CNavalInvasionOrder` | `CNavalOrder` |  |  | 1/2 | 2 |  | 1 | placed |  |
+| `CNavalInvasionOrder` | `CNavalOrder` | 0x4C | 1 | 1/2 | 6 |  | 1 | placed |  |
 | `CNavalOrder` | `COrder` |  | 5 | 1/5 | 7 | COrder.hpp |  | read |  |
 | `CNavalSortieOrder` | `CNavalOrder` |  |  | 2/3 | 5 |  |  | placed |  |
 | `CNavalStrikeOrder` | `CAirOrder` |  |  |  | 5 |  | 1 | RTTI |  |
 | `CNavalTargetCombatant` | `CBombTargetCombatant` |  |  | 4/6 | 1 |  | 2 | RTTI |  |
-| `CNavalTransportOrder` | `CNavalOrder` |  |  |  | 1 |  | 3 | RTTI |  |
-| `CNavy` | `CUnit` |  | 3 |  | 10 |  | 1,738 | keys |  |
+| `CNavalTransportOrder` | `CNavalOrder` |  |  |  | 3 |  | 3 | RTTI |  |
+| `CNavy` | `CUnit` |  | 3 |  | 15 |  | 1,738 | keys |  |
 | `CNukeMission` | `CAirOrder` |  |  |  | 3 |  |  | keys |  |
 | `CObjectType` | `CPersistent` |  | 1 |  |  |  |  | part |  |
 | `CObjective` | `CPersistent` |  | 8 | 1/4 | 1 |  | 9,637 | read |  |
 | `COfferLendLeaseAction` | `CDiplomaticAction` |  |  | 5/6 | 8 |  | 1 | RTTI |  |
 | `COfferMilitaryAccessAction` | `CDiplomaticAction` |  |  | 5/6 | 9 |  | 1 | RTTI |  |
 | `COrder` | `CPersistent` |  | 11 | 5/10 | 8 | COrder.hpp |  | read |  |
-| `CParadropMission` | `CAirOrder` |  |  |  | 2 |  |  | keys |  |
+| `CParadropMission` | `CAirOrder` |  | 1 |  | 8 |  |  | keys |  |
 | `CPatrolOrder` | `CNavalOrder` |  |  | 1/1 | 7 |  | 286 | placed |  |
 | `CPauseGame` | `CCommand` |  |  |  | 1 |  | 2 | keys |  |
 | `CPeaceAction` | `CDiplomaticAction` |  |  | 5/6 | 11 |  |  | RTTI |  |
@@ -267,7 +267,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CQuit` | `CCommand` |  |  |  |  |  | 1 | RTTI |  |
 | `CRebaseAirOrder` | `CAirOrder` |  |  |  | 7 |  | 1 | RTTI |  |
 | `CRebaseOrder` | `CNavalOrder` |  |  |  | 6 |  | 63 | keys |  |
-| `CRebaseToCarrierMission` | `CAirOrder` |  |  | 1/1 | 2 |  |  | placed |  |
+| `CRebaseToCarrierMission` | `CAirOrder` |  | 3 | 1/1 | 8 |  |  | placed |  |
 | `CRebelFaction` | `CReferenceObject` | 0xA4 | 21 | 8/10 | 3 | CRebelFaction.hpp | 1 | read |  |
 | `CReferenceObject` | `CPersistent` |  |  |  | 3 |  | 4,725 | keys |  |
 | `CRegiment` | `CSubUnit` | 0xD8 | 1 | 8/13 | 4 | CRegiment.hpp | 27,277 | part |  |
@@ -306,9 +306,9 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CTradeAction` | `CDiplomaticAction` |  | 1 + 1 lua |  | 18 |  | 2,354 | keys |  |
 | `CTradeRoute` | `CRelation` |  | 15 + 4 lua | 2/5 | 16 |  | 3,707 | read |  |
 | `CTraitGainTracker` | `CPersistent` |  | 4 |  | 6 | CTrait.hpp | 24,137 | keys |  |
-| `CTransportSuppliesOrder` | `CAirOrder` |  |  | 2/2 | 2 |  |  | placed |  |
+| `CTransportSuppliesOrder` | `CAirOrder` |  | 2 | 2/2 | 9 |  |  | placed |  |
 | `CUndeclaredWar` | `CPersistent` |  | 9 |  | 3 | CWar.hpp | 1 | read | **read**: the save's record of a war nobody declared |
-| `CUnit` | `PAVCSubUnit::__CList` `CSelectable` `CReferenceObject` |  | 103 + 1 lua |  | 105 | CUnit.hpp |  | read |  |
+| `CUnit` | `PAVCSubUnit::__CList` `CSelectable` `CReferenceObject` |  | 104 + 1 lua |  | 107 | CUnit.hpp |  | read |  |
 | `CUnitDeployment` | `CDeployment` |  |  | 3/4 | 4 |  | 49 | placed |  |
 | `CUnitPlan` | `CPersistent` | 0x90 | 15 | 10/16 | 13 |  | 8,827 | read | **read**: a battle plan as the save keeps it |
 | `CVariables` | `_0A::anon::PAUCVariable::__CTernary` `CPersistent` |  | 1 |  | 3 | CFlags.hpp | 216 | part |  |
@@ -397,7 +397,7 @@ Definitions out of `common/` and the rest of the mod. Their `LoadKey` is the gra
 | `CStaticModifier` | `CModifier` | 0x48 | 1 | 1/2 | 2 |  | 31,318 | part |  |
 | `CStrategicResource` | `CModifier` | 0x50 | 3 | 1/2 |  |  | 337 | part |  |
 | `CSubUnitAmphibiousMult` | `CPersistent` |  |  |  | 1 |  | 60,489 | keys |  |
-| `CSubUnitDefinition` | `CPersistent` |  | 80 + 20 lua | 71/73 | 8 | CSubUnitDefinition.hpp | 60,485 | read | **the unit files**, and the most used class in the mod. The stat block is done; nine keys are still unplaced, most of them moved by technology |
+| `CSubUnitDefinition` | `CPersistent` |  | 81 + 20 lua | 71/73 | 8 | CSubUnitDefinition.hpp | 60,485 | read | **the unit files**, and the most used class in the mod. The stat block is done; nine keys are still unplaced, most of them moved by technology |
 | `CTechStatistics` | `CPersistent` |  | 55 | 46/50 | 3 | CCountryHistory.hpp |  | read | **read**: the 47 country-wide effects a technology can have, one case each. See GameClasses/CCountryHistory.hpp |
 | `CTechnology` | `CTechStatistics` |  | 23 + 7 lua | 13/21 | 2 | CTechnology.hpp | 1,175 | read | the technology files: a dozen keys of its own, and every other key read as a unit type's name, which is how an effect is written |
 | `CTerrain` | `CPersistent` |  | 16 | 9/12 | 3 | CTerrain.hpp | 45 | read | mostly done; `movement_cost`, `temperature` and `precipitation` went in last |
@@ -543,7 +543,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CICCostComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CIcon` | `CButton` |  |  |  | 1 |  |  | RTTI |  |
 | `CIdler` |  |  |  |  |  |  |  | RTTI |  |
-| `CInGameIdler` | `CEU3Idler` `CLostDeviceInterface` `CReloadDispatcher` |  | 57 |  | 57 | CInGameIdler.hpp | 3 | read |  |
+| `CInGameIdler` | `CEU3Idler` `CLostDeviceInterface` `CReloadDispatcher` |  | 58 |  | 60 | CInGameIdler.hpp | 3 | read |  |
 | `CIngameSettingsScreen` | `CSettingsScreen` |  |  |  |  |  | 1 | RTTI |  |
 | `CLandOrdersView` | `COrdersView` |  |  |  |  |  |  | RTTI |  |
 | `CLawEntry` | `CStandardlistboxItem` | 0x88 | 4 |  | 3 |  | 16 | part |  |
@@ -552,7 +552,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CLendLeaseItem` | `CStandardlistboxItem` | 0x30 | 2 |  | 1 |  |  | part |  |
 | `CLiberateCreationDialogDialogue` | `CEU3Dialog` |  |  |  |  |  | 1 | RTTI |  |
 | `CLiberateEntry` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
-| `CLoadedUnitEntry` | `CUnitViewBaseEntry` |  |  |  |  |  |  | RTTI |  |
+| `CLoadedUnitEntry` | `CUnitViewBaseEntry` |  |  |  | 2 |  |  | RTTI |  |
 | `CLobbyHumanItem` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
 | `CLoginObservable` | `VCLoginClassObservable::anon::VCLoginObserver::__CObservable` |  |  |  |  |  |  | RTTI |  |
 | `CLoginObserver` |  |  |  |  |  |  | 1 | RTTI |  |
@@ -707,7 +707,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CVictoryConditionsView` | `CReloadableInterface` |  |  |  |  |  | 1 | RTTI |  |
 | `CViewsTextureManager` | `CLostDeviceInterface` |  |  |  |  |  | 1 | RTTI |  |
 | `CWindowForChildUnitsEntry` | `CUnitViewBaseEntry` |  |  |  | 3 |  |  | RTTI |  |
-| `CWindowForLoadedUnitsEntry` | `CUnitViewBaseEntry` |  |  |  |  |  |  | RTTI |  |
+| `CWindowForLoadedUnitsEntry` | `CUnitViewBaseEntry` |  |  |  | 6 |  |  | RTTI |  |
 | `CWindowForSubUnitsEntry` | `CUnitViewBaseEntry` |  |  |  | 4 |  |  | RTTI |  |
 | `CWindowObservable` | `VCWindowClassObservable::anon::VCWindowObserver::__CObservable` |  |  |  |  |  |  | RTTI |  |
 | `TCollisionObserver` |  |  |  |  |  |  |  | RTTI |  |
@@ -1008,9 +1008,9 @@ One class per effect, trigger, command and decision the event scripts can use. E
 | `CLeaveAllianceEffect` | `CCountryTargetEffect` | 0x28 |  | 3/91 | 2 |  | 39 | RTTI |  |
 | `CLeaveFactionEffect` | `CEffect` | 0x24 | 1 | 3/91 | 3 |  | 41 | part |  |
 | `CLiberateCountryCommand` | `CCommand` |  |  | 2/2 | 2 |  | 1 | RTTI |  |
-| `CLoadArmyCommand` | `CCommand` |  |  | 1/1 | 1 |  | 1 | placed |  |
+| `CLoadArmyCommand` | `CCommand` |  |  | 1/1 | 7 |  | 1 | placed |  |
 | `CLoadOOBEffect` | `CStringEffect` |  |  | 3/91 | 2 |  | 4,828 | RTTI |  |
-| `CLoadOnPlaneCommand` | `CCommand` |  |  | 2/2 | 1 |  | 1 | placed |  |
+| `CLoadOnPlaneCommand` | `CCommand` | 0x8C | 6 | 2/2 | 5 |  | 1 | read |  |
 | `CLostICTrigger` | `CValueTrigger` | 0x44 |  | 2/153 | 2 |  |  | RTTI |  |
 | `CLoyaltyChange` | `CLeaderHistoryEntry` |  |  |  | 2 |  |  | RTTI |  |
 | `CMakePrideCommand` | `CCommand` |  |  | 1/1 | 2 |  | 1 | placed |  |
@@ -1215,8 +1215,8 @@ One class per effect, trigger, command and decision the event scripts can use. E
 | `CUnitPlanCommand` | `CCommand` |  |  | 1/2 | 1 |  | 1 | placed |  |
 | `CUnitSplitCommand` | `CCommand` |  |  | 1/1 | 1 |  | 1 | placed |  |
 | `CUnitsInProvinceTrigger` | `CIntTrigger` | 0x44 |  | 2/153 | 2 |  | 94 | RTTI |  |
-| `CUnloadArmyCommand` | `CCommand` |  |  | 1/1 |  |  | 1 | RTTI |  |
-| `CUnloadFromPlaneCommand` | `CCommand` |  |  | 1/1 |  |  | 1 | RTTI |  |
+| `CUnloadArmyCommand` | `CCommand` |  |  | 1/1 | 5 |  | 1 | RTTI |  |
+| `CUnloadFromPlaneCommand` | `CCommand` | 0x64 | 3 | 1/1 | 4 |  | 1 | part |  |
 | `CUpdateTheatreCommand` | `CCommand` |  |  |  | 1 |  | 1 | keys |  |
 | `CUpgradeRegimentCommand` | `CCommand` |  |  | 1/2 | 1 |  | 1 | placed |  |
 | `CUserSelectionOption` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
@@ -1263,7 +1263,7 @@ Windows, pages, sprites and the map's own drawing.
 | `CQuitDialog` | `CEU3Dialog` |  |  |  |  |  |  | RTTI |  |
 | `CRadioButtonGroupObserver` |  |  |  |  |  |  | 1 | RTTI |  |
 | `CShareTechnologyDialog` | `CEU3Dialog` | 0x78 | 4 |  | 7 |  |  | part |  |
-| `CSingleUnitButtons` | `CUnitViewBaseEntry` |  |  |  | 3 |  |  | RTTI |  |
+| `CSingleUnitButtons` | `CUnitViewBaseEntry` |  |  |  | 7 |  |  | RTTI |  |
 | `CSprite` | `C2dVisibleObject` |  |  |  |  |  |  | RTTI |  |
 | `CSpriteType` | `C2dObjectType` |  |  |  |  |  |  | RTTI |  |
 | `CStratWarfareWindow` | `CReloadableInterface` |  |  |  | 1 |  | 1 | RTTI |  |

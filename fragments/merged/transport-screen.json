@@ -1,0 +1,289 @@
+{
+ "agent": "transport wave, reader C",
+ "question": "Carrying on screen: the unit panel's load and unload buttons, a fleet's list of what it carries, the multiple-selection load and unmount buttons, the map's right click and counters for carried units, the orders window's Transport and Invasion rows",
+ "source": "reversing/findings/FINDINGS-transport.md",
+ "addresses": [
+  {
+   "rva": "0x35E510",
+   "kind": "function",
+   "name": "CSingleUnitButtons_FindFleetToBoard",
+   "signature": "CUnit* __stdcall CSingleUnitButtons_FindFleetToBoard(CSingleUnitButtons* entry)",
+   "no_signature": null,
+   "comment": "**The fleet the panel's `load_button` would put its land unit on, or null.** The unit is the entry's +0x28. Null unless: the unit is a land unit (slot 15); the province it stands in (+0x130) is land (its template's is_land, +0xD4 -> +0x22); it is in no battle (combats_count +0x11C not above 0); and the province's naval base has been built (naval_base +0x300, level_max +0x20 above 0 - the built level, not the working one). Then the fleets lying in the province's port (CMapProvince +0x354, its list at +8) are walked in list order and **the first** that is naval (slot 16) and that CNavy::CanCarry (0x5CEFB0) accepts (the fleet's AsNavy in ECX, the land unit in EAX: same owner, not in a battle, not moving, not retreating, and its passengers' weight plus this unit's within its transport_capability - reader A's) is answered. The port pointer is not tested for null. Callers: CSingleUnitButtons::Update (enables `load_button`), CSingleUnitButtons::OnLoadButton (the fleet the command names) and CSingleUnitButtons::BuildTooltip (UW_LOAD_IS_VALID / UW_LOAD_NO_FLEET_FOUND). See reversing/findings/FINDINGS-transport.md, section C.1.",
+   "confidence": "confirmed",
+   "evidence": "Off the listing 0x75E510-0x75E5A1: `mov ebx,[ebp+8]` then `mov ecx,[ebx+0x28]` and the slot-15 call; `mov eax,[ecx+0x130]; mov edx,[eax+0xd4]; cmp byte [edx+0x22],0; je fail`; `cmp dword [ecx+0x11c],0; jg fail`; `mov ecx,[eax+0x300]; cmp dword [ecx+0x20],0; jle fail`; `mov edx,[eax+0x354]; mov edi,[edx+8]` and the loop calling slot 16 (+0x40), slot 11 (+0x2C) and `call 0x5cefb0` with ECX = the AsNavy result and EAX = [ebx+0x28]; returns the list node's unit (esi), `ret 4` at 0x75E5A1 and 0x75E598. Shown wrong if a caller passed the entry in a register: the three callers all `push` it (0x75E0EF push esi; call 0x75e510)."
+  },
+  {
+   "rva": "0x35E5B0",
+   "kind": "function",
+   "name": "CSingleUnitButtons_FindPlanesToBoard",
+   "signature": "CUnit* __stdcall CSingleUnitButtons_FindPlanesToBoard(CSingleUnitButtons* entry)",
+   "no_signature": null,
+   "comment": "**The air unit the panel's `load_plane_button` would put its land unit on, or null** - the air twin of CSingleUnitButtons_FindFleetToBoard. Null unless the unit (+0x28) is a land unit standing in a land province, in no battle, where an air base has been built (air_base +0x304, level_max +0x20 above 0). Then the units stationed at the province's base object (CMapProvince +0x54, its CList at +4) are walked and **the first** air unit (slot 17) that is CUnit_IsAtOwnBase and that CAir::MayLoad (0x5D07F0) accepts (the air unit's AsAir and the land unit on the stack - reader D's: same owner, every brigade can paradrop and has the organisation, the weight fits) is answered. See reversing/findings/FINDINGS-transport.md, section C.1.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled and checked in the listing from 0x75E5B0: `mov ebx,[ebp+8]`, the land test, `[+0x130]->[+0xd4]->[+0x22]`, `[+0x11c] < 1`, `[[prov+0x304]+0x20] > 0`, `mov ..,[prov+0x54]` then `[+4]` as the list head, slot 17 (+0x44), `call 0x5cdc30` (CUnit_IsAtOwnBase), slot 13 (+0x34) and `call 0x5d07f0`; `ret 4` at 0x75E63C. Shown wrong if +0x54's list were not the base's units: CMapProvince +0x54 is recorded as the base object whose +4 list CAIUnit_ManageAirUnits walks as the units stationed there."
+  },
+  {
+   "rva": "0x35E0B0",
+   "kind": "function",
+   "name": "CSingleUnitButtons::OnLoadButton",
+   "signature": "void __thiscall CSingleUnitButtons::OnLoadButton(CSingleUnitButtons* this, void* unused)",
+   "no_signature": null,
+   "comment": "**`load_button`'s click.** Nothing in a custom game whose local player 0x4208B0 marks (the same lock that greys the rest of the strip). Otherwise CSingleUnitButtons_FindFleetToBoard again, and where it finds a fleet, **`CLoadArmyCommand(the unit, that fleet)`** (0x8C bytes, constructor 0x5E3A20) posted to the session (the in-game screen's GetSession, its +0x38 channel, slot 6). Registered by CSingleUnitButtons' constructor through the glue at +0x1D0. See reversing/findings/FINDINGS-transport.md, section C.1.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x75E0B0-0x75E1CD: `mov esi,ecx`, GetCustomGameSettings (0x41C4E0) and 0x4208B0, `push esi; call 0x75e510`, `push 0x8c; call operator new`, `push edi(fleet); push [esi+0x28](unit); push eax; call 0x5e3a20`, then the session post; `ret 4`. Which button: the constructor's `load_button` lookup hands `param_1 + 0x74` dwords (+0x1D0) to the button, and the glue built at `lea eax,[esi+0x1d0]` (0x75D126) carries 0x75E0B0. Wrong if the glue order were mis-paired: each `lea eax,[esi+N]` sits beside its own `mov ecx,<handler>`."
+  },
+  {
+   "rva": "0x35E400",
+   "kind": "function",
+   "name": "CSingleUnitButtons::OnUnloadButton",
+   "signature": "void __thiscall CSingleUnitButtons::OnUnloadButton(CSingleUnitButtons* this, void* unused)",
+   "no_signature": null,
+   "comment": "**`unload_button`'s click.** Nothing under the custom-game lock (0x4208B0); otherwise **`CUnloadArmyCommand(the unit)`** (100 bytes, constructor 0x5E3560) posted to the session - **no test of its own**: the button is only enabled where the unit's province is land (CSingleUnitButtons::Update). Glue at +0x220. See reversing/findings/FINDINGS-transport.md, section C.1.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x75E400-0x75E509: the custom-game test, `push 0x64; call operator new`, `push [esi+0x28]; push eax; call 0x5e3560`, the post; `ret 4` at 0x75E509. Pairing: `unload_button` gets `param_1 + 0x88` dwords (+0x220) and the glue at `lea eax,[esi+0x220]` (0x75D15E) carries 0x75E400."
+  },
+  {
+   "rva": "0x35E1D0",
+   "kind": "function",
+   "name": "CSingleUnitButtons::OnLoadPlaneButton",
+   "signature": "void __thiscall CSingleUnitButtons::OnLoadPlaneButton(CSingleUnitButtons* this, void* unused)",
+   "no_signature": null,
+   "comment": "**`load_plane_button`'s click.** Under the custom-game lock nothing; otherwise CSingleUnitButtons_FindPlanesToBoard, and where it finds an air unit, **`CLoadOnPlaneCommand(the unit, that air unit)`** (0x8C bytes, constructor 0x5E46A0) posted. Glue at +0x270. See reversing/findings/FINDINGS-transport.md, section C.1.",
+   "confidence": "confirmed",
+   "evidence": "Calls in order at 0x75E1EE..0x75E23C: 0x41C4E0, 0x41C4E0, 0x4208B0, 0x75E5B0, operator new(0x8C), 0x5E46A0; `ret 4` at 0x75E2ED. Pairing: `load_plane_button` gets +0x270 and the glue at `lea eax,[esi+0x270]` (0x75D18B) carries 0x75E1D0."
+  },
+  {
+   "rva": "0x35E2F0",
+   "kind": "function",
+   "name": "CSingleUnitButtons::OnUnloadPlaneButton",
+   "signature": "void __thiscall CSingleUnitButtons::OnUnloadPlaneButton(CSingleUnitButtons* this, void* unused)",
+   "no_signature": null,
+   "comment": "**`unload_plane_button`'s click.** Under the custom-game lock nothing; otherwise **`CUnloadFromPlaneCommand(the unit)`** (100 bytes, constructor 0x5E4260) posted, with no test of its own - the button is enabled only where the carrying air unit is CUnit_IsAtOwnBase. Glue at +0x2C0. See reversing/findings/FINDINGS-transport.md, section C.1.",
+   "confidence": "confirmed",
+   "evidence": "Calls at 0x75E30E..0x75E348: 0x41C4E0 twice, 0x4208B0, operator new(100), 0x5E4260; `ret 4` at 0x75E3F9. Pairing: `unload_plane_button` gets +0x2C0 and the glue at `lea eax,[esi+0x2c0]` (0x75D1AD) carries 0x75E2F0."
+  },
+  {
+   "rva": "0x35EC40",
+   "kind": "function",
+   "name": "CSingleUnitButtons::Update",
+   "signature": "void __fastcall CSingleUnitButtons::Update(void* observer@ECX)",
+   "no_signature": null,
+   "comment": "The strip of buttons, every frame; **read whole**. Opens by setting a lock where a custom game's local player is marked (0x4208B0). Shows one of `create_corps`, `create_army`, `create_armygroup`, `create_theatre`, `edit_theatre` by oob_level (4, 3, 2, 1, 0) and disables the four create buttons together where the unit has a parent no more than one level up, a custom game forbids it (0x420EB0) or manpower is short; `attach_button` for a unit with none above and `detach_button` for one with; the three checkboxes from +0xA4, +0xA6 and +0xA5. **Load and unload**: a land unit aboard a fleet (AsArmy +0x300) shows `unload_button`, hides `load_button`, and enables the unload where the province it is in is land (its template's is_land, +0xD4 -> +0x22) - **a fleet in port** - else disables it; a land unit aboard nothing shows `load_button` enabled where CSingleUnitButtons_FindFleetToBoard finds a fleet; anything else (not a land unit, or a land unit aboard an air unit) hides both. The plane pair the same way: aboard an air unit (+0x304) `unload_plane_button` shown and enabled where CUnit_IsAtOwnBase(that air unit); aboard nothing `load_plane_button` enabled where CSingleUnitButtons_FindPlanesToBoard finds one; otherwise both hidden. Then, under the lock, the checkboxes are locked and `disbandbutton` and `newunitbutton` disabled; otherwise `disbandbutton` is disabled for a land unit aboard a ship or a plane, a theatre with something at 0x5D2A00's +0x68, a unit with an AI agent (+0x198), one with +0x290 set or one in a battle; `newunitbutton` is disabled, among other things, for a land unit aboard a ship or a plane and for a fleet or an air unit carrying anything (+0x2EC above 0). The tail (a unit id waiting at +0x394/+0x398, a CAttachUnitCommand) was not followed. See reversing/findings/FINDINGS-unitpanel.md, section 9, and reversing/findings/FINDINGS-transport.md, section C.1.",
+   "confidence": "confirmed",
+   "revises": "The record was `inferred` and 'read for the first half of its 0x1B00 bytes', and said only that `load_button` or `unload_button` is shown by whether a land unit is aboard. Read whole now: the enable tests of all four load and unload buttons (unload only in a land province, load where the finder finds a fleet), the plane pair, the custom-game lock, and the transport-related disables of `disbandbutton` and `newunitbutton`.",
+   "evidence": "Decompiled whole (Ghidra copy with the record applied) and the load blocks checked in the listing: the lock byte [esp+0x12] set at 0x75EC7C from 0x4208B0 and tested at 0x75EF0D, 0x75F2C9 and 0x75FDAE; slot 15 and slot 9's +0x300/+0x304 tests before `unload_button`/`load_button`; `mov eax,[[unit's AsArmy]+0x130]` -> `+0xD4` -> `cmp byte [..+0x22],0` choosing +0xB8 (enable) or +0xBC (disable) on `unload_button`; `call 0x75e510` before enabling `load_button`; CUnit_IsAtOwnBase on +0x304 for `unload_plane_button`; `call 0x75e5b0` for `load_plane_button`; the newunit reads of +0x2EC at 0x76025D and 0x760298. Shown wrong if the lock byte were tested after the load block: it is tested at 0x75FDAE, after it."
+  },
+  {
+   "rva": "0x3575C0",
+   "kind": "function",
+   "name": "CWindowForLoadedUnitsEntry::CWindowForLoadedUnitsEntry",
+   "signature": null,
+   "no_signature": "a constructor whose receiver in ECX is the in-game screen (its slots 16 and 14 give the GUI factory), with the 0xD0-byte object and the unit on the stack; `ret 8`",
+   "comment": "**The panel row that lists what a fleet or an air unit carries**: the window `sup_loaded` of single_unitpanel.gui, made by CSingleUnitPanel::Rebuild for a fleet (slot 16) and again for an air unit (slot 17). Wires two glues - 0x758940 (CWindowForLoadedUnitsEntry::OnSelectAir) on `select_air` and 0x758B00 (OnSelectLand) on `select_land` - and fills the list once (CWindowForLoadedUnitsEntry_Fill). See reversing/findings/FINDINGS-transport.md, section C.2.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled: 'sup_loaded' through the screen's factory, the vftables written, two glues with 0x758940 and 0x758B00, `call 0x757cb0`, `select_air` given the glue at +0x30 and `select_land` the one at +0x80 (`lea edi,[esi+0x30]` beside `mov eax,0x758940` at 0x75769A). Call sites 0x762D35/0x762D7B in Rebuild: `push unit; push object; mov ecx,edi; call` after a 0xD0-byte operator new; `ret 8` at 0x7577A1."
+  },
+  {
+   "rva": "0x357CB0",
+   "kind": "function",
+   "name": "CWindowForLoadedUnitsEntry_Fill",
+   "signature": "void __stdcall CWindowForLoadedUnitsEntry_Fill(CWindowForLoadedUnitsEntry* entry)",
+   "no_signature": null,
+   "comment": "**Fills the `sup_loaded` row.** Empties `list`; writes `header` as LOAD_CAPACITY_LABEL ('Can carry $NUM$ weight.') with NUM = trunc(transport_capability / 1000) of the unit's own definition (+0xC8, +0x144 - the sum over its ships or wings) where it carries nothing (+0x2EC 0), else NUM = (that - SumTransportWeight(its passengers)) + ' (' + that + ')' - what is left, then the whole; then one CLoadedUnitEntry per passenger in the carrying list (+0x2E4), in list order. **A fleet then adds a row for every air unit aboard each of its carriers**: for each ship (the unit's +0x38 list) whose definition's carrier_size (+0x190) is above 0, every unit of the ship's own list at CSubUnit +0xDC. An air unit lists only its passengers. Called by the constructor and by CWindowForLoadedUnitsEntry::Update. See reversing/findings/FINDINGS-transport.md, section C.2.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled and the header joins read in the listing: GetText('LOAD_CAPACITY_LABEL') at 0x757E14 and 0x7583F2; `[[unit+0xC8]+0x144] / 1000` through IntToString; `SumTransportWeight` after AsNavy (+0x2C) or AsAir (+0x34) `+0x2E4`; the strings ' (' and ')' joined by operator+ around the whole; `header` set through the window's slot 14; the rows' constructor 0x74CB30 called at 0x7582E9 (passengers), 0x758372 and 0x7588BC; the carrier loop reads `[[ship+0x58]+0x190] > 0` and walks `[ship+0xDC]`. `ret 4` at 0x758930; both callers push the entry (0x7576E6 with the object, 0x757868 with observer - 0x1C)."
+  },
+  {
+   "rva": "0x3577B0",
+   "kind": "function",
+   "name": "CWindowForLoadedUnitsEntry::Update",
+   "signature": "void __fastcall CWindowForLoadedUnitsEntry::Update(void* observer@ECX)",
+   "no_signature": null,
+   "comment": "Slot 9 of the observer table (+0x1C): every frame. **Only for an air unit** is the list filled again (CWindowForLoadedUnitsEntry_Fill) when its row count differs from the air unit's passenger count (+0x2EC); for a fleet - and for an air unit whose count matches - only each row's own update runs (the list's slot 31). Then for a fleet: `select_land` enabled where it carries anything, `select_air` enabled where any of its ships with carrier_size above 0 has a non-empty aircraft list (CSubUnit +0xE4 above 0); for an air unit `select_air` hidden and `select_land` enabled where it carries anything. See reversing/findings/FINDINGS-transport.md, section C.2.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x7577B0-0x757B42: slot 17 (+0x44) first, and only on its yes `list` (+0x7C) is fetched, AsAir (+0x34) +0x2EC compared with the list's count (slot 10, +0x28), setting [ebp-0xD]; on 0 the list's +0x7C slot, on 1 `call 0x757cb0` with observer - 0x1C; then the slot-16/slot-17 branches with `select_land`/`select_air` given +0xB8 or +0xBC. Bare `ret` at 0x757B42. Shown wrong if a fleet were refilled elsewhere every frame: CSingleUnitPanel_RefreshIfChanged does not look at passengers either."
+  },
+  {
+   "rva": "0x357B50",
+   "kind": "function",
+   "name": "CWindowForLoadedUnitsEntry::GetSize",
+   "signature": "short* __fastcall CWindowForLoadedUnitsEntry::GetSize(void* observer@ECX, short* out@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "Slot 5 of the observer table: the row's size for a list of entries of their own heights - the window's width, and the height of `bg_loadedunits` plus min(rows x a row's height, the window's height - that icon's height), as CWindowForSubUnitsEntry's and CWindowForChildUnitsEntry's do. See reversing/findings/FINDINGS-transport.md, section C.2.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled: the window's size (its slot 0x60/4), `bg_loadedunits`' size (its +0xF4), the list's count and its first row's height (slot 5 of the row's +0x1C table), the min against window height - icon height; `ret 4` at 0x757CAC. Wrong if the row height came from another row: it is read from the list's first node."
+  },
+  {
+   "rva": "0x358DE0",
+   "kind": "function",
+   "name": "CWindowForLoadedUnitsEntry::BuildTooltip",
+   "signature": "GuiTooltipText* __thiscall CWindowForLoadedUnitsEntry::BuildTooltip(CWindowForLoadedUnitsEntry* this, GuiTooltipText* out, CGuiObject* element) @EAX",
+   "no_signature": null,
+   "comment": "Slot 13. `select_air` says UW_SELECT_AIR ('Select all CAG's attached to this fleet.'), `select_land` UW_SELECT_LAND ('Select all attached land units.'); `header` and anything else go to the row of `list` whose observer slot 22 owns the element, and that row's slot 13 answers (CChildUnitEntry::BuildTooltip, which CLoadedUnitEntry shares); an element no row owns has an empty tooltip. See reversing/findings/FINDINGS-transport.md, section C.2.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled: the name compared with 'header' (straight to the row walk), 'select_air' -> GetText('UW_SELECT_AIR') at 0x758EF0, 'select_land' -> 'UW_SELECT_LAND' at 0x759001; the walk over `list` asking each row's +0x1C table slot 22 (+0x58) and calling the row's slot 13 (+0x34). `ret 8` at 0x759188. Single holder (vtable.py --holding: CWindowForLoadedUnitsEntry slot 13 only)."
+  },
+  {
+   "rva": "0x358940",
+   "kind": "function",
+   "name": "CWindowForLoadedUnitsEntry::OnSelectAir",
+   "signature": "void __thiscall CWindowForLoadedUnitsEntry::OnSelectAir(CWindowForLoadedUnitsEntry* this)",
+   "no_signature": null,
+   "comment": "`select_air`'s click, a fleet only: the selection is emptied (the screen's slot 43 with null) and every air unit aboard every carrier of the fleet - each ship whose definition's carrier_size is above 0, its CSubUnit +0xDC list - is selected (the screen's Select). Shortcut ',' in the .gui. See reversing/findings/FINDINGS-transport.md, section C.2.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled: slot 16 test on the unit (+0x28), vf_43(0), the brigade list +0x38, `[[ship+0x58]+400] > 0`, the walk of `[ship+0xDC]` calling Select. Bare `ret` at 0x758AF4. The glue pairing is the constructor's (`mov eax,0x758940` beside `lea edi,[esi+0x30]`, the glue `select_air` receives)."
+  },
+  {
+   "rva": "0x358B00",
+   "kind": "function",
+   "name": "CWindowForLoadedUnitsEntry::OnSelectLand",
+   "signature": "void __thiscall CWindowForLoadedUnitsEntry::OnSelectLand(CWindowForLoadedUnitsEntry* this)",
+   "no_signature": null,
+   "comment": "`select_land`'s click: for a fleet or an air unit, the selection emptied and every unit of its carrying list (+0x2E4) selected. Shortcut '.' in the .gui. See reversing/findings/FINDINGS-transport.md, section C.2.",
+   "confidence": "confirmed",
+   "evidence": "Listing from 0x758B00: `mov edi,ecx; mov ecx,[edi+0x28]` and slot 16, else slot 17; vf_43(0), AsNavy (+0x2C) or AsAir (+0x34) +0x2E4 walked with Select. Bare `ret` at 0x758C7B."
+  },
+  {
+   "rva": "0x356990",
+   "kind": "function",
+   "name": "UnitPanelListWindow_OwnsElement",
+   "signature": "bool __fastcall UnitPanelListWindow_OwnsElement(void* observer@ECX, CGuiObject* element@stack:4) @AL",
+   "no_signature": null,
+   "comment": "Slot 22 of the observer table (+0x1C) of the three unit-panel rows that hold a list - CWindowForSubUnitsEntry, CWindowForChildUnitsEntry, CWindowForLoadedUnitsEntry: true where any row of the window's `list` owns the element (each row's own observer slot 22), else what the window itself answers (its +0x18 table's slot 37). It is what lets the panel's tooltip walk (0x762670) reach the rows. One body for three sibling classes, so named for none (trap 4). See reversing/findings/FINDINGS-transport.md, section C.2.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled: 'list' through the window's slot 31 (+0x7C), each node's row asked at `[row+0x1C]+0x58`, true on the first yes, else `[[window+0x18]]+0x94`. `mov esi,ecx` at 0x7569AE; `ret 4` at 0x756A5E and 0x756A73. vtable.py --holding 0x756990: slot 22 of exactly those three tables at object offset 28."
+  },
+  {
+   "rva": "0x34CB30",
+   "kind": "function",
+   "name": "CLoadedUnitEntry::CLoadedUnitEntry",
+   "signature": "CLoadedUnitEntry* __stdcall CLoadedUnitEntry::CLoadedUnitEntry(CLoadedUnitEntry* object, void* screen, CUnit* unit)",
+   "no_signature": null,
+   "comment": "**One row of a fleet's or an air unit's list of what it carries**: the window `loadedunit_entry` (0xA0 bytes). Keeps the unit by its persistent id (+0x28), registers `select` with the shared row handler 0x67A310 (which calls slot 4, the 0x74D8A0 body recorded as CParentUnitEntry::SelectUnit), updates once, and sets the counter: `counter_type` to GFX_counter_ + the type name of the unit's first brigade where the screen's intel on it (+0x1F8) is 3 or more and that sprite exists; `counter_size` to frame n + 1 by oob_level - 0 gives 5, 1 gives 4, 2 gives 3, 3 gives 2, 4 (a division) 1 with more than one brigade and 0 otherwise, 5 gives 1, else 0 - as the header's. See reversing/findings/FINDINGS-transport.md, section C.2.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled: 'loadedunit_entry' through param_2's slots 16 and 14 (the screen's GUI factory, as in CSingleUnitButtons' constructor), FUN_42DD70(this+0x28, unit), the glue with 0x67A310, `vf1c_09(this+7 dwords)`, the GFX_counter_ join and StringHashFind, the switch on [unit+0x1F4]. Callers 0x7582E9, 0x758372, 0x7588BC push unit, the screen and the object; `ret 0xC` at 0x74CE3A."
+  },
+  {
+   "rva": "0x34CF30",
+   "kind": "function",
+   "name": "CLoadedUnitEntry::Update",
+   "signature": "void __fastcall CLoadedUnitEntry::Update(void* observer@ECX)",
+   "no_signature": null,
+   "comment": "Slot 9 of the observer table: finds its unit again by its id; none, nothing (the row keeps what it showed). `name` the unit's name (its slot 7, no leader), `order` CUnit::DescribeOrder, `objective` 0x5B5B50; `org_bar` = trunc(100 x GetAverageOrganisation / MaxOrganisation) and `str_bar` = trunc(100 x the sum of its brigades' strength (+0x5C) / GetTotalMaxStrength), each in single-precision floats of the thousandths over 1000 and with the divisor raised to the dividend where smaller. **No strength figure**: loadedunit_entry has no `str` text. See reversing/findings/FINDINGS-transport.md, section C.2.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x74CF30-0x74D49E: FindPersistentById on +0x10/+0x14 of the observer and the early return on null; 'name' (0x15CA888) with slot 7 (+0x1C), 'order' (0x15D76F8) with `call 0x5d2e90`, 'objective' with `call 0x5b5b50`; slot 38 (+0x98) and slot 20 (+0x50) divided by the double 1000.0 at 0x160A300, the larger kept, times 100.0 (0x160A358), `cvttss2si`, into 'org_bar' (0x15D6428) slot +0x48; the +0x5C sum over the +0x38 list and slot 23 (+0x5C) the same way into 'str_bar' (0x15D6420). Bare `ret` at 0x74D49E."
+  },
+  {
+   "rva": "0x250700",
+   "kind": "function",
+   "name": "CInGameIdler_UpdatePanels",
+   "signature": "void __stdcall CInGameIdler_UpdatePanels(CInGameIdler* idler)",
+   "no_signature": null,
+   "comment": "**The in-game screen's per-frame work on its panels**, called once from CInGameIdler::Update (0x655E2E); 0x650700 to the `ret 4` at 0x651695. Read here in part: a selection waiting at +0x1DE4 replaces the current one, keeping only units of the first one's kind (slot 1); the window at +0x1358 is asked (0x7646D0) and the screen's slot 50 called where it says no; with exactly one row in the selection list (+0xD28) and no battle view, CSingleUnitPanel_RefreshIfChanged on the panel at +0x135C; CCombatView::Update on the battle view (+0x1364); ProvinceView_Update where the province view is shown; and **with two rows or more, the multi-unit panel (+0x1368)**: `load_multiunit`, `load_on_air_multiunit` and `unmount_multiunit` shown where the first row's unit is a land unit and hidden otherwise; `load_multiunit` enabled where CInGameIdler_FindFleetForSelection finds a fleet, `load_on_air_multiunit` where CInGameIdler_FindPlanesForSelection finds an air unit, `unmount_multiunit` where any selected land unit is aboard a ship or a plane - each disabled under the custom-game lock (0x4208B0); then `highercomm_multiunit` (0x669EB0), `detach_multiunit` (0x669DE0), the three checkboxes (0x669D50), `upgrade_all`, `disband_multiunit` and `reorganizebutton`. See reversing/findings/FINDINGS-transport.md, section C.3.",
+   "confidence": "inferred",
+   "evidence": "Decompiled whole; the multi-unit part checked in the listing (0x6509AF..0x650DE3: the three names, `call 0x669bf0` and `call 0x669aa0` choosing +0xB8/+0xBC, the inline count of slot-15 units with AsArmy +0x300 or +0x304). The idler arrives on the stack (`mov ebx,[ebp+8]` at 0x65071C); the one caller is 0x655E2E. `inferred` for the name and the parts not followed through (the waiting selection, the reorganise window's test, the highercomm/detach/checkbox helpers); `confirmed` for the transport buttons."
+  },
+  {
+   "rva": "0x269BF0",
+   "kind": "function",
+   "name": "CInGameIdler_FindFleetForSelection",
+   "signature": null,
+   "no_signature": "the idler in EAX, no stack argument, a bare `ret`; answers the fleet's CUnit* in EAX",
+   "comment": "**The fleet `load_multiunit` would load the selection onto, or null.** Null with fewer than two selected (+0x130C). Walks the selection (+0x1304) in order, adding up **each unit's whole weight** (CUnit_TransportWeight, before any test) and failing at the first unit that is not a land unit, stands in another province than the one before it, stands where the province is not land, is in a battle, or where no naval base has been built. Then, in the province of the last unit, the fleets of its port (CMapProvince +0x354, list at +8) in order: **the first** that is naval, whose SumTransportWeight(passengers) + the selection's weight is within trunc(its transport_capability / 1000), and that CNavy::CanCarry (0x5CEFB0) accepts **for the last selected unit only**. See reversing/findings/FINDINGS-transport.md, section C.3.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x669BF0-0x669D40: `cmp [eax+0x130c],2; jge`, the walk of [eax+0x1304] with `[[unit+0xc8]+0x10c] * 0x10624dd3 >> 6` (/1000) added to [ebp-4] **before** the slot-15 call, the same-province, is_land, +0x11C and naval-base tests; the port walk with slot 16, AsNavy + 0x2E4 into `call 0x5d6690`, `add eax,[ebp-4]`, compared (`jg`) with `[[fleet+0xc8]+0x144]/1000`, then `mov ecx,eax (AsNavy); mov eax,esi (the last unit); call 0x5cefb0`. Bare `ret` at 0x669D2F/0x669D37/0x669D40."
+  },
+  {
+   "rva": "0x269AA0",
+   "kind": "function",
+   "name": "CInGameIdler_FindPlanesForSelection",
+   "signature": null,
+   "no_signature": "the idler in EAX, no stack argument, a bare `ret`; answers the air unit's CUnit* in EAX",
+   "comment": "**The air unit `load_on_air_multiunit` would load the selection onto, or null** - CInGameIdler_FindFleetForSelection's air twin: two or more selected, every one a land unit in one land province, in no battle, where an air base has been built (+0x304, level_max above 0), their whole weights summed; then the units stationed at the province's base (CMapProvince +0x54, list at +4): the first air unit that is CUnit_IsAtOwnBase, whose passengers plus the selection fit its transport_capability (whole units), and that CAir::MayLoad (0x5D07F0) accepts for the last selected unit. See reversing/findings/FINDINGS-transport.md, section C.3.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x669AA0-0x669BEF: the same shape as 0x669BF0 with `[eax+0x304]` for the base, `[ecx+0x54]` -> `[edx+4]` for the list, slot 17 (+0x44), `call 0x5cdc30`, AsAir (+0x34) + 0x2E4 into `call 0x5d6690`, the capacity compare, `push edi (last unit); push AsAir; call 0x5d07f0`."
+  },
+  {
+   "rva": "0x269A10",
+   "kind": "function",
+   "name": "CInGameIdler_CountSelectedAboard",
+   "signature": "int __stdcall CInGameIdler_CountSelectedAboard(CInGameIdler* idler@EAX, void* out@stack:4, bool by_air@stack:8, bool by_sea@stack:0xC) @EAX",
+   "no_signature": null,
+   "comment": "How many selected land units are aboard an air unit (where by_air; CArmy +0x304) or a ship (where by_sea; +0x300), each also appended to the vector `out` where it is not null. The tooltip of `unmount_multiunit` asks (null, true, true) for UNMOUNT_MULTILOAD's NUM. See reversing/findings/FINDINGS-transport.md, section C.3.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled and the `ret 0xc` read at 0x669A8E; the walk of [eax+0x1304], slot 15, AsArmy (+0x24) +0x304 under the first bool and +0x300 under the second, vector_pushBackByAddress where the pointer is set. Called from CInGameIdler::GetElementTooltip as `FUN_00669a10(0,1,1)` beside 'unmount_multiunit'."
+  },
+  {
+   "rva": "0x26AB50",
+   "kind": "function",
+   "name": "CInGameIdler::OnLoadMultiUnit",
+   "signature": "void __thiscall CInGameIdler::OnLoadMultiUnit(CInGameIdler* this)",
+   "no_signature": null,
+   "comment": "**`load_multiunit`'s click** (the glue at +0x14B0): CInGameIdler_FindFleetForSelection, and where it finds a fleet, **one `CLoadArmyCommand(unit, that fleet)` for every unit of the selection**, in its order, each posted to the session. No custom-game test of its own: the button is disabled under the lock. See reversing/findings/FINDINGS-transport.md, section C.3.",
+   "confidence": "confirmed",
+   "evidence": "Listing from 0x66AB50: `mov esi,ecx; mov eax,esi; call 0x669bf0`, the walk of [esi+0x1304], operator new(0x8C) and the 0x5E3A20 constructor with (unit, fleet), the session post; bare `ret` at 0x66AC72. Pairing: CInGameIdler's constructor builds the glue at `lea eax,[ebx+0x14b0]` with `mov eax,0x66ab50` pushed (0x6481B8), and CInGameIdler::Enter hands `load_multiunit` the +0x14B0 glue (0x65F2D4)."
+  },
+  {
+   "rva": "0x26AA30",
+   "kind": "function",
+   "name": "CInGameIdler::OnLoadOnAirMultiUnit",
+   "signature": "void __thiscall CInGameIdler::OnLoadOnAirMultiUnit(CInGameIdler* this)",
+   "no_signature": null,
+   "comment": "**`load_on_air_multiunit`'s click** (the glue at +0x1500): CInGameIdler_FindPlanesForSelection, and where it finds an air unit, one `CLoadOnPlaneCommand(unit, that air unit)` for every selected unit, posted. See reversing/findings/FINDINGS-transport.md, section C.3.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled: `FUN_00669aa0()` with the idler in EAX, the selection walk, CLoadOnPlaneCommand's constructor with (unit, air unit), the post; bare `ret` at 0x66AB4A. Pairing: `mov eax,0x66aa30` for the glue at +0x1500 (0x6481E2) and `load_on_air_multiunit` given +0x1500 (0x65F350)."
+  },
+  {
+   "rva": "0x26A750",
+   "kind": "function",
+   "name": "CInGameIdler::OnUnmountMultiUnit",
+   "signature": "void __thiscall CInGameIdler::OnUnmountMultiUnit(CInGameIdler* this)",
+   "no_signature": null,
+   "comment": "**`unmount_multiunit`'s click** (the glue at +0x1550): first a `CUnloadFromPlaneCommand(unit)` for every selected land unit aboard an air unit (+0x304), then a `CUnloadArmyCommand(unit)` for every selected land unit aboard a ship (+0x300), each posted. **No test of where the carrier is** - not the port the single panel's `unload_button` asks for, nor the air unit's own base: what a command does with a unit at sea or away from a base is its own test's (readers A and D). See reversing/findings/FINDINGS-transport.md, section C.3.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled: two passes over [this+0x1304] (count +0x130C reserved), the first collecting slot-15 units whose AsArmy +0x304 is set and posting 100-byte CUnloadFromPlaneCommand objects, the second +0x300 and CUnloadArmyCommand; no province read. Bare `ret` at 0x66AA24. Pairing: `mov eax,0x66a750` for +0x1550 (0x64820C) and `unmount_multiunit` given +0x1550 (0x65F3CC)."
+  },
+  {
+   "rva": "0x3624F0",
+   "kind": "function",
+   "name": "CSingleUnitPanel_RefreshIfChanged",
+   "signature": "void __stdcall CSingleUnitPanel_RefreshIfChanged(CSingleUnitPanel* panel)",
+   "no_signature": null,
+   "comment": "The single unit panel's frame check, from CInGameIdler_UpdatePanels: every row's own update (the list's slot 31), a relayout where any row asks for one (its slot 12), and **CSingleUnitPanel::Rebuild only where something the list is built from changed**: the byte at +0 is set (a request; cleared here), the number of units above differs from +0x10, the number of battles the unit shows (its combats whose slot 9 says yes, plus current_combat's) from +0x14, or whether it or one above has an AI agent from +0xC. Passengers are not among them. See reversing/findings/FINDINGS-transport.md, section C.2.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x7624F0-0x76266D: the list's +0x7C and +0x2C walk with each row's slot 12 (+0x30) and the list's +0x6C; the parent count over +0x1E0, the battle count over +0x114 and +0x110 with slot 9, the agent over +0x198 up the chain; `cmp byte [ebx],0; jne`, `cmp [ebx+0x10],ecx`, `cmp [ebx+0x14],edi`, `cmp [ebx+0xc],dl`, then `call 0x762780`; `mov byte [ebx],0` and `ret 4`. The panel is pushed by 0x65093B (`mov eax,[ebx+0x135c]; push eax`)."
+  },
+  {
+   "rva": "0xAB880",
+   "kind": "function",
+   "name": "CProvinceTemplate_AddUnitCounter",
+   "signature": null,
+   "no_signature": "the template in EDI and the unit on the stack; `ret 4`",
+   "comment": "**Gives a unit that has entered a province its place in one of the province's five stacks - or none.** Returns at once in a land province for a fleet, and for a land unit carried by a fleet (CArmy +0x300 - so **a passenger in port has no counter**); anywhere for an air unit that CUnit_IsAtOwnBase. Otherwise the stack, first that holds: 4 for an air unit; 2 or 3 for one in a combat (by 0x5C5BA0); 1 for one with provinces left to move through (+0x140); **1 for a land unit whose carrying fleet has provinces left to move through**; 4 for a land unit carried by an air unit (+0x304); else 0 - so **a passenger at sea has its own counter**, in the moving stack while its fleet sails and in stack 0 while it lies still. It makes the stack on first use (+0x108 + 4 * n) at the stack's point (+0xCC + 12 * n), adds the avatar's near counter (CCounterStack_Add), sorts, and marks the stacks for CProvinceTemplate_RefreshStacks. It also keeps up to seven small flags a stack (+0x140). See reversing/findings/FINDINGS-counters.md and reversing/findings/FINDINGS-transport.md, section C.4.",
+   "confidence": "inferred",
+   "revises": "The stack-1 clause said 'a land unit whose slot 9 object's +0x300 has units'. The bytes test the carrying fleet's **path**: `mov eax,[eax+0x300]; cmp dword [eax+0x140],ebx; jle` at 0x4AB976 - CUnit +0x140 is movement_order_remaining_provinces_count. Also spelled out which units get no counter and that +0x300 is carried_by. Left `inferred` because the part after the stack choice was not re-read.",
+   "evidence": "Listing 0x4AB880-0x4AB9B7: `[esi+0x130]->[+0xd4]->[+0x22]` (is_land) then slot 16 -> return, slot 15 and AsArmy +0x300 -> return; slot 17 with `call 0x5cdc30` -> return; then slot 17 -> 4, `[esi+0x11c] > 0` -> 2/3 by `call 0x5c5ba0`, `[esi+0x140] > 0` -> 1, AsArmy `[+0x300]` non-null and `[[+0x300]+0x140] > 0` -> 1, AsArmy `[+0x304]` non-null -> 4, else ebx 0."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CInGameIdler",
+   "offset": "0x1368",
+   "name": "multi_unit_panel",
+   "type": "void*",
+   "comment": "The `multi_unitpanel` window of unitpanel.gui, made in CInGameIdler::Enter. Its buttons are found through it (slot 13) - `load_multiunit`, `load_on_air_multiunit`, `unmount_multiunit`, `highercomm_multiunit`, `detach_multiunit`, `disband_multiunit`, `upgrade_all`, `reorganizebutton` and the three checkboxes - by CInGameIdler_UpdatePanels and by Enter, which gives the three transport buttons the glues at +0x14B0, +0x1500 and +0x1550. See reversing/findings/FINDINGS-transport.md, section C.3.",
+   "evidence": "`mov dword ptr [ebx+0x1368],eax` at 0x65F0D6, eax from the GUI factory (`[ebx+0x60]` slot 11) called with 'multi_unitpanel' (0x15CE460, loaded at 0x65F0A0); every name above looked up through `this[0x4DA]` (+0x1368) in 0x650700, and `[ebx+0x1368]` slot 13 then `+0x48` slot 1 with `lea edx,[ebx+0x14b0]` at 0x65F2BC..0x65F2DB."
+  }
+ ],
+ "vftable_slots": {
+  "CWindowForLoadedUnitsEntry": {"13": "BuildTooltip"},
+  "CWindowForLoadedUnitsEntry@0x1C": {"5": "GetSize", "9": "Update", "22": "OwnsElement"},
+  "CWindowForChildUnitsEntry@0x1C": {"22": "OwnsElement"},
+  "CWindowForSubUnitsEntry@0x1C": {"22": "OwnsElement"},
+  "CLoadedUnitEntry@0x1C": {"9": "Update"},
+  "CLoadedUnitEntry": {"4": "SelectUnit"}
+ },
+ "frontier": ["0x1CEFB0", "0x1D07F0", "0x1E3A20", "0x1E3560", "0x1E46A0", "0x1E4260", "0x1CA340", "0x2208B0", "0x269D50", "0x269DE0", "0x269EB0", "0x1D2A00", "0x1B5B50", "0x1D36A0", "0x6982B0", "0x34CE60"],
+ "slots_noted": "CLoadedUnitEntry slot 0 (0x74CE60) and CWindowForLoadedUnitsEntry slot 0 (0xA982B0) are the deleting destructors Ghidra's RTTI pass already names; not recorded. CLoadedUnitEntry slot 13 is CChildUnitEntry::BuildTooltip (0x74C2A0), already recorded and already carried as CLoadedUnitEntry's slot 13; its slot 22 (0x749390) is a body folded across dialog tables and is left alone (trap 4)."
+}
