@@ -4518,18 +4518,20 @@
    "kind": "function",
    "name": "GetIdeologies",
    "signature": "CNameDataBase* __cdecl GetIdeologies() @EAX",
-   "comment": "The ideology database, made on first use at `g_ideologies`. **Read live**: eleven entries - `noIdeology` and the ten of `common/ideologies.txt`, in file order. The name is BiceLib's; the object has no RTTI.",
+   "no_signature": null,
+   "comment": "The ideology database, made on first use at `g_ideologies`. **Read live**: eleven entries - `noIdeology` and the ten of `common/ideologies.txt`, in file order. The name is BiceLib's; the object has no RTTI. **It also holds the three groups by name** (added 2026-10-16): `+0x34` democracy, `+0x38` fascism, `+0x3C` communism - stored by the loader at 0x127470 beside its string compares, and read by CAIStrategy_CollectThreats to give a faction's group its weight.",
    "confidence": "confirmed",
-   "source": "BiceLib/GameClasses/CGovernment.hpp"
+   "source": "reversing/findings/FINDINGS-aistrategy.md"
   },
   {
    "rva": "0x127470",
    "kind": "function",
    "name": "LoadCommonFileContents",
    "signature": null,
-   "comment": "The driver `LoadCommonFiles` calls once a CParseContext is built, taking it as the second argument: pulls tokens through the tokenizer's slot 1 until the kind is 0x13, end of input. The same loop and token kinds as CPersistent::Load. **Which class a given file fills is not traced** - this is as far as the general path goes. The name is BiceLib's.",
-   "confidence": "confirmed",
-   "source": "reversing/CLASSES.md:1354"
+   "no_signature": "not read for its convention; only the group stores were looked at",
+   "comment": "The driver `LoadCommonFiles` calls once a CParseContext is built, taking it as the second argument: pulls tokens through the tokenizer's slot 1 until the kind is 0x13, end of input. The same loop and token kinds as CPersistent::Load. **Which class a given file fills is not traced** - this is as far as the general path goes. The name is BiceLib's. **Added 2026-10-16**: it compares each key with `fascism`, `democracy` and `communism` and stores the group it read at `+0x38`, `+0x34` and `+0x3C` of its first argument (VA 0x527630-0x5276ED) - so it is at least the ideology groups' loader (`common/ideologies.txt`), and the general-path reading may be its outer loop only.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-aistrategy.md"
   },
   {
    "rva": "0x128540",
@@ -12380,9 +12382,9 @@
    "name": "CAIStrategy::Rebuild",
    "signature": "void __thiscall CAIStrategy::Rebuild(CAIStrategy* this)",
    "no_signature": null,
-   "comment": "Rebuilds a country's merged AI strategy. 0x4A5C90 to the bare `ret` at 0x4A5DCD. Bails when `+0xC` is null or the tag at `+8` is `REB`, and also when `country->+0xCF8 <= 0` and when a virtual on `0x2F100()->+0x2B4` answers false; then calls **CAIStrategy::ClearCollectedLists(this, 0)** (0x4A5D15), stamps `+0x10 = gamestate->tick` (0x4A5D99) and finally `+0x14 = 1` (`initialized`), and in between calls 0x4A5DD0, 0x4ACE20, 0x4AD430, ApplyCountryAIStrategies (0x4A62A0) and 0x4AD6E0. Because it clears first, **every rebuild re-derives all ten collected lists from nothing** - the weights in a savegame's `ai` block are one rebuild's worth, not a running total over the game.\n\n**Eleven direct callers, as rvas** (the previous list gave virtual addresses): 0xDB7C4 inside `RunCountryDailyPass` (0xDA530), 0xE055D (in 0xE0460), 0xE3E5E (in 0xE39C0), 0xE6CCB inside `CCountry::UpdateAtWarAndEnemies`, 0xEF2A2 and 0xEF781 (both in 0xEE860), 0xF640E and 0xF645B inside `CFaction::AddCountry`, 0x25C282 inside `CInGameIdler::Enter`, 0x5B0E78 inside `CAddAIStrategyEffect::Execute`, and 0x64018C inside `CPeaceAction::Apply`.\n\n**Only the daily one is gated on the stamp**: `RunCountryDailyPass` calls it as `if (!strategy->initialized && !strategy->is_static) Rebuild()` at 0xDB7AF-0xDB7C4, reading `CCountry +0x4A0`, which is `strategy+0x14`. So after the first successful rebuild the daily pass skips it, and the rest are **event-driven** - entering a session, a war's membership changing, a faction joining, a peace, or an `add_ai_strategy` effect firing. The AI's weighted trigger walk is therefore not a periodic cost at all; see reversing/findings/FINDINGS-triggereval.md.\n\n**Renamed 2026-10-01 from `AIStrategyCache::Rebuild`.** `AIStrategyCache` was a good *description* - the object caches the country's two loaded strategies merged together, and the `+0x10 = tick` / `+0x14 = 1` stamp this writes is exactly a cache validity stamp - but it is not a class, and the receiver has a name already: every caller passes `&country[+0x48C]`, which the record declares as `CAIStrategy`. See `FINDINGS-aitheatre.md`.",
-   "confidence": "inferred",
-   "source": "reversing/findings/FINDINGS-ai.md"
+   "comment": "Rebuilds a country's merged AI strategy. 0x4A5C90 to the bare `ret` at 0x4A5DCD. Bails unless the tag's id is non-zero and not `REB`, the country owns a province (`+0xCF8 > 0`) and its acting capital's area (CProvince +0x2B4) answers slot 0 (a real area); then **CAIStrategy::ClearCollectedLists(this, 0)**, `rebuild_tick (+0x10) = tick`, and in order CAIStrategy_ChoosePersonality, CAIStrategy_SetProductionShares, CAIStrategy_SetMaxSubunits, ApplyCountryAIStrategies and CAIStrategy_RecheckWarTargets, then `initialized (+0x14) = 1`. Because it clears first, **every rebuild re-derives all ten lists from nothing** - a save's `ai` block is one rebuild's worth.\n\n**How often - corrected 2026-10-16.** The old comment said the daily pass's call was the only gated one and the rest were event-driven. **RunDailyPass calls CCountry_AfterDiplomacyChange (0xE39C0) for every country in the session every day** (VA 0x682E0F, just before RunCountryDailyPass), and that rebuilds in a running game whenever ten whole days have passed since rebuild_tick - so about 36 rebuilds a country a year. Its 64 other callers (every diplomatic effect, trades, influence, TakeControl, coups, vassals, commands) obey the same ten days. Unthrottled: CCountry::UpdateAtWarAndEnemies in a running game, CFaction::AddCountry (twice), CPeaceAction::Apply, CAddAIStrategyEffect::Execute, CCountry_SetGovernment and CCountry_UpdateActiveMission. On entering a game, CInGameIdler::Enter (0x25C282) rebuilds every country **before** the weather's hours and the two days a new game runs. The daily pass's own call (0xDB7AF-0xDB7C4, `if (!initialized && !is_static)`) is the first-time rebuild of a country nothing else reached.\n\n**Eleven direct callers, as rvas**: 0xDB7C4 inside `RunCountryDailyPass` (0xDA530), 0xE055D (in 0xE0460), 0xE3E5E (in 0xE39C0), 0xE6CCB inside `CCountry::UpdateAtWarAndEnemies`, 0xEF2A2 and 0xEF781 (both in 0xEE860), 0xF640E and 0xF645B inside `CFaction::AddCountry`, 0x25C282 inside `CInGameIdler::Enter`, 0x5B0E78 inside `CAddAIStrategyEffect::Execute`, and 0x64018C inside `CPeaceAction::Apply`.\n\n**Renamed 2026-10-01 from `AIStrategyCache::Rebuild`**: every caller passes `&country[+0x48C]`, the embedded CAIStrategy. See reversing/findings/FINDINGS-aistrategy.md and FINDINGS-aitheatre.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-aistrategy.md"
   },
   {
    "rva": "0x4A62A0",
@@ -12390,9 +12392,9 @@
    "name": "ApplyCountryAIStrategies",
    "signature": "void __stdcall ApplyCountryAIStrategies(CAIStrategy* strategy)",
    "no_signature": null,
-   "comment": "**The answer to who consumes CAIStrategy.** A sweep of all 1295 CCountryTag::GetCountry call sites for a `+0x1DC` access within 0x30 bytes returns exactly one hit, 0x8A62C4, and it is here: `country = GetCountry(&acc[+8])`, then `0x8A3B90(acc, &country[+0x1DC])` (`ai_hard_strategy`) and `0x8A3B90(acc, &country[+0x334])` (`ai_event_strategy`). 0x8A3B90 is the same merge routine CAddAIStrategyEffect::Execute uses, so the two loaded strategies and the `add_ai_strategy` effect all feed one accumulator. One caller, the cache rebuild at 0x4A5C90. See reversing/findings/FINDINGS-ai.md.\n\n*(2026-10-01: the argument type was `AIStrategyCache*`, which is not a declared struct. It is a `CAIStrategy*` - `CCountry +0x48C`.)*\n\n**It is also the only caller of trigger slot 10** - added 2026-10-06. Two sites: 0x4A63C2 first calls slot 6 on [esi+0xE40] and, when that answers true, calls slot 10 on the CAndTrigger embedded at its +0xC4 with (collector=ebx, scope=&[esi+0xE44], polarity=0, weight=0x258); 0x4A6566 does the same per element of a pointer array, on a trigger embedded at the element's +0x24, with a stack CEventScope at [ebp-0x64] and weight=0xC8. The weighted attribution walk the trigger side describes therefore runs exactly as often as this function does - its one caller is the cache rebuild at 0x4A5C90, which has eight callers of its own. The class of the objects holding those embedded triggers was **not** identified; that is AI-side work and was left.",
+   "comment": "**Step 4 of CAIStrategy::Rebuild, and the only consumer of `ai_hard_strategy` (+0x1DC) and `ai_event_strategy` (+0x334)**: MergeAIStrategy of each into the strategy (weights add). Then, unless the country is played and the local player's automation flag [1] is not 1, the weighted trigger walk (slot 10) - the country's mission's (+0xE40, where its slot 6 holds) trigger at +0xC4 with weight 600 in the mission's scope (+0xE44), and, where its faction is real, every victory condition **chosen** for the faction (CVictoryConditionManager +0x18) with its trigger at CVictoryCondition +0x24, weight 200, in a scope of the country alone. Then CAIStrategy_CollectMilitaryAccess, and unless `is_static`: CAIStrategy_CollectConquerProvinces, CAIStrategy_CollectDefendProvinces, CAIStrategy_CollectThreats, AIStrategyList_ScaleTo400(threat), CAIStrategy_CollectAntagonismAndRivals, AIStrategyList_ScaleTo400(antagonize), (rival), CAIStrategy_CollectFriendsAndVassals, AIStrategyList_ScaleTo400(befriend), (vassal), CAIStrategy_CollectProtection, AIStrategyList_ScaleTo400(protect). **The walk is what fills Britain's antagonize with the countries of the Allies' `allied_*` aims** - a `<province> = { controller = { faction = allies } }` block whose controller is outside the faction antagonises that controller by 200. See reversing/findings/FINDINGS-aistrategy.md, section D, and FINDINGS-triggereval.md 17. `ret 4` at its end.",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-triggereval.md"
+   "source": "reversing/findings/FINDINGS-aistrategy.md"
   },
   {
    "rva": "0x4A8EF0",
@@ -18818,9 +18820,11 @@
    "rva": "0x1715028",
    "kind": "global",
    "name": "g_theatre_split_threshold",
-   "comment": "VA 0x1B15028, an int. CAIStrategy::BuildTheatres compares it at 0x8AA09C against `spill * 1000 / home` for a province group, and makes the group its own theatre when the ratio reaches it (or when `spill` alone reaches 0x1F40 = 8 provinces x 1000). It sits in the zero-initialised part of .data - image.read returns nothing there - so its value is written at runtime and could not be read statically; the name is from its one use.",
-   "confidence": "inferred",
-   "source": "reversing/findings/FINDINGS-theatre2.md"
+   "signature": null,
+   "no_signature": "data",
+   "comment": "VA 0x1B15028, an int: **250 (0.250)**, written by a static initialiser in the run from VA 0xD10280 out of the float 250.5 at VA 0x160A688 - so it is known, not runtime-only. CAIStrategy::BuildTheatres compares it at 0x8AA09C against `spill * 1000 / home` for a province group, and makes the group its own theatre when the ratio reaches it (or when `spill` alone reaches 0x1F40 = 8 provinces x 1000); CAIStrategy_SetProductionShares also uses it as the default armor_bias. The name is from the first use.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-aistrategy.md"
   },
   {
    "rva": "0x17151E4",
@@ -22099,9 +22103,9 @@
    "name": "CExistsTrigger::WalkChildren",
    "signature": "void __thiscall CExistsTrigger::WalkChildren(CExistsTrigger* this, void* collector, CEventScope* scope, bool polarity, int weight)",
    "no_signature": null,
-   "comment": "**Slot 10 for CExistsTrigger.** 0x5DABA0 to the `ret 0x10` at 0x5DABD9. Held by CExistsTrigger's table alone, so this is the class's own body and not a fold. It tests `cmp byte ptr [ebp+0x10], 0` and jumps to its own epilogue when the flag is **clear**, so it reports only a *negated* condition - under an odd number of NOTs, since both root calls pass 0. It is the only leaf in the image that works this way round. Behaviour: if (polarity && this->Evaluate(scope)) collect(collector, this->+0x44, this->+0x48) with the weight in EDX, through 0x4A5270.\n\nThe five collector entry points the leaf slot-10 bodies report through are 0x4A4F50, 0x4A51C0, 0x4A5270, 0x4A5420 and 0x4A5620, all unnamed and all in CAIStrategy's region - the record already has 0x4A5270 inserting into a map a CAIStrategy owns.",
+   "comment": "**Slot 10 for CExistsTrigger.** 0x5DABA0 to the `ret 0x10` at 0x5DABD9. Held by CExistsTrigger's table alone, so this is the class's own body and not a fold. It tests `cmp byte ptr [ebp+0x10], 0` and jumps to its own epilogue when the flag is **clear**, so it reports only a *negated* condition - under an odd number of NOTs, since both root calls pass 0. It is the only leaf in the image that works this way round. Behaviour: if (polarity && this->Evaluate(scope)) collect(collector, this->+0x44, this->+0x48) with the weight in EDX, through 0x4A5270.\n\nThe five collector entry points the leaf slot-10 bodies report through are 0x4A4F50, 0x4A51C0, 0x4A5270, 0x4A5420 and 0x4A5620, all unnamed and all in CAIStrategy's region - the record already has 0x4A5270 inserting into a map a CAIStrategy owns.\n\n**What it reports, read 2026-10-16**: only when negated and the condition holds, CAIStrategy::AddAntagonize(the trigger's tag, +0x44/+0x48, weight).",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-triggereval.md"
+   "source": "reversing/findings/FINDINGS-aistrategy.md"
   },
   {
    "rva": "0x5DB2F0",
@@ -22109,9 +22113,9 @@
    "name": "CSubUnitTrigger::WalkChildren",
    "signature": "void __thiscall CSubUnitTrigger::WalkChildren(CSubUnitTrigger* this, void* collector, CEventScope* scope, bool polarity, int weight)",
    "no_signature": null,
-   "comment": "**Slot 10 for CSubUnitTrigger.** 0x5DB2F0 to the `ret 0x10` at 0x5DB3A8. Held by CSubUnitTrigger's table alone, so this is the class's own body and not a fold. It tests `cmp byte ptr [ebp+0x10], 0` and jumps to its own epilogue when the flag is **set**, so it reports only an un-negated condition, which is what both root calls pass. Behaviour: reads arg_is_this/arg_is_from (+0x18/+0x19) and this->+0x40/+0x44, resolves a tag through EventScope_GetCountryTag (0x5C1A40) and 0x1D62B0, and reports through an indirect call.\n\nThe five collector entry points the leaf slot-10 bodies report through are 0x4A4F50, 0x4A51C0, 0x4A5270, 0x4A5420 and 0x4A5620, all unnamed and all in CAIStrategy's region - the record already has 0x4A5270 inserting into a map a CAIStrategy owns.",
+   "comment": "**Slot 10 for CSubUnitTrigger.** 0x5DB2F0 to the `ret 0x10` at 0x5DB3A8. Held by CSubUnitTrigger's table alone, so this is the class's own body and not a fold. It tests `cmp byte ptr [ebp+0x10], 0` and jumps to its own epilogue when the flag is **set**, so it reports only an un-negated condition, which is what both root calls pass. Behaviour: reads arg_is_this/arg_is_from (+0x18/+0x19) and this->+0x40/+0x44, resolves a tag through EventScope_GetCountryTag (0x5C1A40) and 0x1D62B0, and reports through an indirect call.\n\nThe five collector entry points the leaf slot-10 bodies report through are 0x4A4F50, 0x4A51C0, 0x4A5270, 0x4A5420 and 0x4A5620, all unnamed and all in CAIStrategy's region - the record already has 0x4A5270 inserting into a map a CAIStrategy owns.\n\n**What it reports, read 2026-10-16**: not negated, the scope's country is the collector's, and the condition does not hold: the count asked for (or THIS's or FROM's own, through CUnitList::SumSubUnitsOfDefinition, thousandths made whole) added to the strategy's per-definition array at +0x138, indexed by the definition's index.",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-triggereval.md"
+   "source": "reversing/findings/FINDINGS-aistrategy.md"
   },
   {
    "rva": "0x5DCC20",
@@ -22119,9 +22123,9 @@
    "name": "CRegionScopeTrigger::WalkChildren",
    "signature": "void __thiscall CRegionScopeTrigger::WalkChildren(CRegionScopeTrigger* this, void* collector, CEventScope* scope, bool polarity, int weight)",
    "no_signature": null,
-   "comment": "**Slot 10 for CRegionScopeTrigger.** 0x5DCC20 to the `ret 0x10` at 0x5DCC9A. Held by CRegionScopeTrigger's table alone, so this is the class's own body and not a fold. It does not test the flag at all - it rebinds the scope and forwards all four arguments down. Behaviour: copies the scope with CEventScope::CopyConstruct (0x3C850) and forwards all four arguments to every child's slot 10 - the scope-rebinding shape, so the flag passes through untouched.\n\nThe five collector entry points the leaf slot-10 bodies report through are 0x4A4F50, 0x4A51C0, 0x4A5270, 0x4A5420 and 0x4A5620, all unnamed and all in CAIStrategy's region - the record already has 0x4A5270 inserting into a map a CAIStrategy owns.",
+   "comment": "**Slot 10 for CRegionScopeTrigger.** 0x5DCC20 to the `ret 0x10` at 0x5DCC9A. Held by CRegionScopeTrigger's table alone, so this is the class's own body and not a fold. It does not test the flag at all - it rebinds the scope and forwards all four arguments down. Behaviour: copies the scope with CEventScope::CopyConstruct (0x3C850) and forwards all four arguments to every child's slot 10 - the scope-rebinding shape, so the flag passes through untouched.\n\nThe five collector entry points the leaf slot-10 bodies report through are 0x4A4F50, 0x4A51C0, 0x4A5270, 0x4A5420 and 0x4A5620, all unnamed and all in CAIStrategy's region - the record already has 0x4A5270 inserting into a map a CAIStrategy owns.\n\n**What it walks, read 2026-10-16**: the copied scope's province set to each province of the region (this->+0x40, its vector +8..+0xC) in turn, the country kept, and every child walked with it - so a region block reports once for each of its provinces. Their Finest Hour's `comintern_east_germany` is what gives the Soviet Union, Mongolia and Tannu Tuva Germany at the top of `antagonize`.",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-triggereval.md"
+   "source": "reversing/findings/FINDINGS-aistrategy.md"
   },
   {
    "rva": "0x5DD240",
@@ -22129,9 +22133,9 @@
    "name": "CAnyNeighborProvinceTrigger::WalkChildren",
    "signature": "void __thiscall CAnyNeighborProvinceTrigger::WalkChildren(CAnyNeighborProvinceTrigger* this, void* collector, CEventScope* scope, bool polarity, int weight)",
    "no_signature": null,
-   "comment": "**Slot 10 for CAnyNeighborProvinceTrigger.** 0x5DD240 to the `ret 0x10` at 0x5DD45C. Held by CAnyNeighborProvinceTrigger's table alone, so this is the class's own body and not a fold. It does not test the flag at all - it rebinds the scope and forwards all four arguments down. Behaviour: builds a rebound scope per neighbour province (CEventScope::CopyConstruct, and two heap allocations through operator new) and forwards to the children.\n\nThe five collector entry points the leaf slot-10 bodies report through are 0x4A4F50, 0x4A51C0, 0x4A5270, 0x4A5420 and 0x4A5620, all unnamed and all in CAIStrategy's region - the record already has 0x4A5270 inserting into a map a CAIStrategy owns.",
+   "comment": "**Slot 10 for CAnyNeighborProvinceTrigger.** 0x5DD240 to the `ret 0x10` at 0x5DD45C. Held by CAnyNeighborProvinceTrigger's table alone, so this is the class's own body and not a fold. It does not test the flag at all - it rebinds the scope and forwards all four arguments down. Behaviour: builds a rebound scope per neighbour province (CEventScope::CopyConstruct, and two heap allocations through operator new) and forwards to the children.\n\nThe five collector entry points the leaf slot-10 bodies report through are 0x4A4F50, 0x4A51C0, 0x4A5270, 0x4A5420 and 0x4A5620, all unnamed and all in CAIStrategy's region - the record already has 0x4A5270 inserting into a map a CAIStrategy owns.\n\n**What it walks, read 2026-10-16**: for each edge of the scope's province (path node +0x90..+0x94, 0x14 bytes) whose province has an owner, the copied scope's province set to it, the country kept, and every child walked.",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-triggereval.md"
+   "source": "reversing/findings/FINDINGS-aistrategy.md"
   },
   {
    "rva": "0x5DDA20",
@@ -22139,9 +22143,9 @@
    "name": "CAnyOwnedProvinceTrigger::WalkChildren",
    "signature": "void __thiscall CAnyOwnedProvinceTrigger::WalkChildren(CAnyOwnedProvinceTrigger* this, void* collector, CEventScope* scope, bool polarity, int weight)",
    "no_signature": null,
-   "comment": "**Slot 10 for CAnyOwnedProvinceTrigger.** 0x5DDA20 to the `ret 0x10` at 0x5DDB64. Held by CAnyOwnedProvinceTrigger's table alone, so this is the class's own body and not a fold. It does not test the flag at all - it rebinds the scope and forwards all four arguments down. Behaviour: the same shape over the owned provinces, with one heap allocation per iteration.\n\nThe five collector entry points the leaf slot-10 bodies report through are 0x4A4F50, 0x4A51C0, 0x4A5270, 0x4A5420 and 0x4A5620, all unnamed and all in CAIStrategy's region - the record already has 0x4A5270 inserting into a map a CAIStrategy owns.",
+   "comment": "**Slot 10 for CAnyOwnedProvinceTrigger.** 0x5DDA20 to the `ret 0x10` at 0x5DDB64. Held by CAnyOwnedProvinceTrigger's table alone, so this is the class's own body and not a fold. It does not test the flag at all - it rebinds the scope and forwards all four arguments down. Behaviour: the same shape over the owned provinces, with one heap allocation per iteration.\n\nThe five collector entry points the leaf slot-10 bodies report through are 0x4A4F50, 0x4A51C0, 0x4A5270, 0x4A5420 and 0x4A5620, all unnamed and all in CAIStrategy's region - the record already has 0x4A5270 inserting into a map a CAIStrategy owns.\n\n**What it walks, read 2026-10-16**: for each province of the scope country's OwnedProvinces list, the copied scope's province set to it, the country kept, and every child walked.",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-triggereval.md"
+   "source": "reversing/findings/FINDINGS-aistrategy.md"
   },
   {
    "rva": "0x5DEFA0",
@@ -22149,9 +22153,9 @@
    "name": "CRelationTrigger::WalkChildren",
    "signature": "void __thiscall CRelationTrigger::WalkChildren(CRelationTrigger* this, void* collector, CEventScope* scope, bool polarity, int weight)",
    "no_signature": null,
-   "comment": "**Slot 10 for CRelationTrigger.** 0x5DEFA0 to the `ret 0x10` at 0x5DF1B0. Held by CRelationTrigger's table alone, so this is the class's own body and not a fold. It tests `cmp byte ptr [ebp+0x10], 0` and reports on **both** branches, switching which collector it calls - 0x4A5270 when the flag is set and 0x4A5420 when it is clear, with the same three arguments. Behaviour: reads arg_is_this (+0x18), allocates twice through operator new, and reports through 0x4A5270 and 0x4A5420.\n\nThe five collector entry points the leaf slot-10 bodies report through are 0x4A4F50, 0x4A51C0, 0x4A5270, 0x4A5420 and 0x4A5620, all unnamed and all in CAIStrategy's region - the record already has 0x4A5270 inserting into a map a CAIStrategy owns.",
+   "comment": "**Slot 10 for CRelationTrigger.** 0x5DEFA0 to the `ret 0x10` at 0x5DF1B0. Held by CRelationTrigger's table alone, so this is the class's own body and not a fold. It tests `cmp byte ptr [ebp+0x10], 0` and reports on **both** branches, switching which collector it calls - 0x4A5270 when the flag is set and 0x4A5420 when it is clear, with the same three arguments. Behaviour: reads arg_is_this (+0x18), allocates twice through operator new, and reports through 0x4A5270 and 0x4A5420.\n\nThe five collector entry points the leaf slot-10 bodies report through are 0x4A4F50, 0x4A51C0, 0x4A5270, 0x4A5420 and 0x4A5620, all unnamed and all in CAIStrategy's region - the record already has 0x4A5270 inserting into a map a CAIStrategy owns.\n\n**What it reports, read 2026-10-16**: the `who` resolved (THIS - THIS's country, or its province's controller; FROM likewise); where it or the scope's country is the collector's country, the other of the two is antagonised by the weight when negated and befriended when not - **without evaluating**.",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-triggereval.md"
+   "source": "reversing/findings/FINDINGS-aistrategy.md"
   },
   {
    "rva": "0x5DF8A0",
@@ -22169,9 +22173,9 @@
    "name": "CHasBuildingTrigger::WalkChildren",
    "signature": "void __thiscall CHasBuildingTrigger::WalkChildren(CHasBuildingTrigger* this, void* collector, CEventScope* scope, bool polarity, int weight)",
    "no_signature": null,
-   "comment": "**Slot 10 for CHasBuildingTrigger.** 0x5E4A50 to the `ret 0x10` at 0x5E4AAB. Held by CHasBuildingTrigger's table alone, so this is the class's own body and not a fold. It tests `cmp byte ptr [ebp+0x10], 0` and jumps to its own epilogue when the flag is **set**, so it reports only an un-negated condition, which is what both root calls pass. Behaviour: reads this->+0x40, assigns a string and reports through 0x4A51C0 - the only leaf that hands the collector text.\n\nThe five collector entry points the leaf slot-10 bodies report through are 0x4A4F50, 0x4A51C0, 0x4A5270, 0x4A5420 and 0x4A5620, all unnamed and all in CAIStrategy's region - the record already has 0x4A5270 inserting into a map a CAIStrategy owns.",
+   "comment": "**Slot 10 for CHasBuildingTrigger.** 0x5E4A50 to the `ret 0x10` at 0x5E4AAB. Held by CHasBuildingTrigger's table alone, so this is the class's own body and not a fold. It tests `cmp byte ptr [ebp+0x10], 0` and jumps to its own epilogue when the flag is **set**, so it reports only an un-negated condition, which is what both root calls pass. Behaviour: reads this->+0x40, assigns a string and reports through 0x4A51C0 - the only leaf that hands the collector text.\n\nThe five collector entry points the leaf slot-10 bodies report through are 0x4A4F50, 0x4A51C0, 0x4A5270, 0x4A5420 and 0x4A5620, all unnamed and all in CAIStrategy's region - the record already has 0x4A5270 inserting into a map a CAIStrategy owns.\n\n**What it reports, read 2026-10-16**: not negated and the condition does not hold: CAIStrategy::AddBuildingProv(the scope's province, the building's name, weight).",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-triggereval.md"
+   "source": "reversing/findings/FINDINGS-aistrategy.md"
   },
   {
    "rva": "0x5E6300",
@@ -22179,9 +22183,9 @@
    "name": "CAnyNeighborCountryTrigger::WalkChildren",
    "signature": "void __thiscall CAnyNeighborCountryTrigger::WalkChildren(CAnyNeighborCountryTrigger* this, void* collector, CEventScope* scope, bool polarity, int weight)",
    "no_signature": null,
-   "comment": "**Slot 10 for CAnyNeighborCountryTrigger.** 0x5E6300 to the `ret 0x10` at 0x5E6389. Held by CAnyNeighborCountryTrigger's table alone, so this is the class's own body and not a fold. It does not test the flag at all - it rebinds the scope and forwards all four arguments down. Behaviour: rebinds the scope per neighbouring country and forwards to the children.\n\nThe five collector entry points the leaf slot-10 bodies report through are 0x4A4F50, 0x4A51C0, 0x4A5270, 0x4A5420 and 0x4A5620, all unnamed and all in CAIStrategy's region - the record already has 0x4A5270 inserting into a map a CAIStrategy owns.",
+   "comment": "**Slot 10 for CAnyNeighborCountryTrigger.** 0x5E6300 to the `ret 0x10` at 0x5E6389. Held by CAnyNeighborCountryTrigger's table alone, so this is the class's own body and not a fold. It does not test the flag at all - it rebinds the scope and forwards all four arguments down. Behaviour: rebinds the scope per neighbouring country and forwards to the children.\n\nThe five collector entry points the leaf slot-10 bodies report through are 0x4A4F50, 0x4A51C0, 0x4A5270, 0x4A5420 and 0x4A5620, all unnamed and all in CAIStrategy's region - the record already has 0x4A5270 inserting into a map a CAIStrategy owns.\n\n**What it walks, read 2026-10-16**: for each country of the scope country's neighbours list, the copied scope's country set to it, the province kept, and every child walked.",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-triggereval.md"
+   "source": "reversing/findings/FINDINGS-aistrategy.md"
   },
   {
    "rva": "0x5E6820",
@@ -22189,9 +22193,9 @@
    "name": "CAnyCoreTrigger::WalkChildren",
    "signature": "void __thiscall CAnyCoreTrigger::WalkChildren(CAnyCoreTrigger* this, void* collector, CEventScope* scope, bool polarity, int weight)",
    "no_signature": null,
-   "comment": "**Slot 10 for CAnyCoreTrigger.** 0x5E6820 to the `ret 0x10` at 0x5E6934. Held by CAnyCoreTrigger's table alone, so this is the class's own body and not a fold. It does not test the flag at all - it rebinds the scope and forwards all four arguments down. Behaviour: rebinds the scope per core province and forwards to the children.\n\nThe five collector entry points the leaf slot-10 bodies report through are 0x4A4F50, 0x4A51C0, 0x4A5270, 0x4A5420 and 0x4A5620, all unnamed and all in CAIStrategy's region - the record already has 0x4A5270 inserting into a map a CAIStrategy owns.",
+   "comment": "**Slot 10 for CAnyCoreTrigger.** 0x5E6820 to the `ret 0x10` at 0x5E6934. Held by CAnyCoreTrigger's table alone, so this is the class's own body and not a fold. It does not test the flag at all - it rebinds the scope and forwards all four arguments down. Behaviour: rebinds the scope per core province and forwards to the children.\n\nThe five collector entry points the leaf slot-10 bodies report through are 0x4A4F50, 0x4A51C0, 0x4A5270, 0x4A5420 and 0x4A5620, all unnamed and all in CAIStrategy's region - the record already has 0x4A5270 inserting into a map a CAIStrategy owns.\n\n**What it walks, read 2026-10-16**: for each core of the scope's province (its cores list), the copied scope's country set to it, the province kept, and every child walked.",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-triggereval.md"
+   "source": "reversing/findings/FINDINGS-aistrategy.md"
   },
   {
    "rva": "0x5EF4B0",
@@ -22199,9 +22203,9 @@
    "name": "CVassalOfTrigger::WalkChildren",
    "signature": "void __thiscall CVassalOfTrigger::WalkChildren(CVassalOfTrigger* this, void* collector, CEventScope* scope, bool polarity, int weight)",
    "no_signature": null,
-   "comment": "**Slot 10 for CVassalOfTrigger.** 0x5EF4B0 to the `ret 0x10` at 0x5EF595. Held by CVassalOfTrigger's table alone, so this is the class's own body and not a fold. It tests `cmp byte ptr [ebp+0x10], 0` and jumps to its own epilogue when the flag is **set**, so it reports only an un-negated condition, which is what both root calls pass. Behaviour: resolves the tag and reports twice, through 0x4A5620, 0x4A5270 and 0x4A5420.\n\nThe five collector entry points the leaf slot-10 bodies report through are 0x4A4F50, 0x4A51C0, 0x4A5270, 0x4A5420 and 0x4A5620, all unnamed and all in CAIStrategy's region - the record already has 0x4A5270 inserting into a map a CAIStrategy owns.",
+   "comment": "**Slot 10 for CVassalOfTrigger.** 0x5EF4B0 to the `ret 0x10` at 0x5EF595. Held by CVassalOfTrigger's table alone, so this is the class's own body and not a fold. It tests `cmp byte ptr [ebp+0x10], 0` and jumps to its own epilogue when the flag is **set**, so it reports only an un-negated condition, which is what both root calls pass. Behaviour: resolves the tag and reports twice, through 0x4A5620, 0x4A5270 and 0x4A5420.\n\nThe five collector entry points the leaf slot-10 bodies report through are 0x4A4F50, 0x4A51C0, 0x4A5270, 0x4A5420 and 0x4A5620, all unnamed and all in CAIStrategy's region - the record already has 0x4A5270 inserting into a map a CAIStrategy owns.\n\n**What it reports, read 2026-10-16**: not negated, the resolved tag (THIS - EventScope_GetCountryTag; FROM - THIS's from country; else the tag) is the collector's country, and the condition does not hold: AddVassal(the scope's country, weight); then for a collector that is not `_AI_DIPLOMAT_` AddAntagonize(+weight) and AddBefriend(-weight), and for a diplomat the signs the other way round.",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-triggereval.md"
+   "source": "reversing/findings/FINDINGS-aistrategy.md"
   },
   {
    "rva": "0x5EFB60",
@@ -22209,9 +22213,9 @@
    "name": "CAllianceWithTrigger::WalkChildren",
    "signature": "void __thiscall CAllianceWithTrigger::WalkChildren(CAllianceWithTrigger* this, void* collector, CEventScope* scope, bool polarity, int weight)",
    "no_signature": null,
-   "comment": "**Slot 10 for CAllianceWithTrigger.** 0x5EFB60 to the `ret 0x10` at 0x5EFC10. Held by CAllianceWithTrigger's table alone, so this is the class's own body and not a fold. It tests `cmp byte ptr [ebp+0x10], 0` and **negates the weight** when the flag is set (`neg eax` at 0x5EFBB5 on [ebp+0x14]), with a second `neg` at 0x5EFC02 so its two collector calls get opposite signs. Behaviour: resolves the tag and reports through 0x4A5420 and 0x4A5270.\n\nThe five collector entry points the leaf slot-10 bodies report through are 0x4A4F50, 0x4A51C0, 0x4A5270, 0x4A5420 and 0x4A5620, all unnamed and all in CAIStrategy's region - the record already has 0x4A5270 inserting into a map a CAIStrategy owns.",
+   "comment": "**Slot 10 for CAllianceWithTrigger.** 0x5EFB60 to the `ret 0x10` at 0x5EFC10. Held by CAllianceWithTrigger's table alone, so this is the class's own body and not a fold. It tests `cmp byte ptr [ebp+0x10], 0` and **negates the weight** when the flag is set (`neg eax` at 0x5EFBB5 on [ebp+0x14]), with a second `neg` at 0x5EFC02 so its two collector calls get opposite signs. Behaviour: resolves the tag and reports through 0x4A5420 and 0x4A5270.\n\nThe five collector entry points the leaf slot-10 bodies report through are 0x4A4F50, 0x4A51C0, 0x4A5270, 0x4A5420 and 0x4A5620, all unnamed and all in CAIStrategy's region - the record already has 0x4A5270 inserting into a map a CAIStrategy owns.\n\n**What it reports, read 2026-10-16**: where the scope's country or the resolved tag is the collector's country, the other of the two is befriended by the weight and antagonised by minus it - both signs flipped when negated - **whether or not the condition holds**: it never evaluates.",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-triggereval.md"
+   "source": "reversing/findings/FINDINGS-aistrategy.md"
   },
   {
    "rva": "0x5FCB30",
@@ -22579,9 +22583,9 @@
    "name": "CAIStrategy::AddProtect",
    "signature": "void __stdcall CAIStrategy::AddProtect(CAIStrategy* this@stack:0x4, int tag_chars@stack:0x8, int country_id@stack:0xC, int weight@EDX)",
    "no_signature": null,
-   "comment": "**The `protect` adder.** 0x4A5520 to the `ret 0xC` at 0x4A5615. List at `+0x90`, hash at `+0xA0`, and the same Personality-dependent cap as CAIStrategy::AddBefriend - 14 for `_AI_DIPLOMAT_`, 7 otherwise (`cmp [esi+0x18], 3` at 0x4A554A).\n\nTwo callers, neither a trigger: MergeAIStrategy (0x4A3D41) and 0x4A8EB7.",
+   "comment": "**The `protect` adder.** 0x4A5520 to the `ret 0xC` at 0x4A5615. List at `+0x90`, hash at `+0xA0`, and the cap is **6, or 12 for `_AI_DIPLOMAT_`** (`cmp [esi+0x18], 3` at 0x4A554A, then `mov [ebp-4], 6` or `0xC`) - **not 7 and 14 as this said**, which was befriend's copied across. Two callers, neither a trigger: MergeAIStrategy (0x4A3D41) and CAIStrategy_CollectProtection (0x4A8EB7).",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-triggereval.md"
+   "source": "reversing/findings/FINDINGS-aistrategy.md"
   },
   {
    "rva": "0x4A5620",
@@ -55452,6 +55456,266 @@
    "comment": "**Slot 14, the base's own body**: actor id != recipient id. Every kind overrides it with its own rules; Lua's `action:IsSelectable()` reaches the override, luabind registering a vcall thunk for slot 14 (luabind.json `vcall_thunk`), not this body. See reversing/findings/FINDINGS-foreignminister.md, section I; FINDINGS-diploaction.md.",
    "confidence": "confirmed",
    "source": "reversing/findings/FINDINGS-foreignminister.md"
+  },
+  {
+   "rva": "0x4A5DD0",
+   "kind": "function",
+   "name": "CAIStrategy_ChoosePersonality",
+   "signature": "void __stdcall CAIStrategy_ChoosePersonality(CAIStrategy* strategy)",
+   "no_signature": null,
+   "comment": "**Step 1 of CAIStrategy::Rebuild: the personality (+0x18).** First the event strategy's (CCountry +0x34C) where non-zero, else the hard strategy's (+0x1F4), else 4; then, unless `is_static` (+0x15), worked out and overwritten: n = the government's ideologies (CCountry +0xDFC, list +0x30, count +0x38), at least 1, share = thousandths of 1.0/n (the float idiom floor((float)(x+0.0005)*1000)); each ideology weighs share, twice that for the ruling party (CCountry +0x1140); its group's x (CIdeologyGroup +0x58) and y (+0x5C) give military = y/2, plus where y > 0 (y+|x|)*0.5 (x >= 0, VA 0x160A5E8) or (y-x)*0.33 (x < 0, VA 0x160A6E0); capital = -x for x < 0, (x+y)/2 for x >= 0 and y < 0; diplomacy = (200 - |x/1000|)*500 - y/2; each summed times the weight / 1000. total = the three, at least 1000; then in order military's share >= 0.400 (VA 0x160A6DC) -> 1, diplomacy's -> 3, capital's -> 2, else 4. Three `ret 4` exits at 0x4A61E0, 0x4A623A, 0x4A6296. See reversing/findings/FINDINGS-aistrategy.md, section B.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-aistrategy.md"
+  },
+  {
+   "rva": "0x4ACE20",
+   "kind": "function",
+   "name": "CAIStrategy_SetProductionShares",
+   "signature": "void __stdcall CAIStrategy_SetProductionShares(CAIStrategy* strategy)",
+   "no_signature": null,
+   "comment": "**Step 2 of CAIStrategy::Rebuild: land_perc (+0xFC), air_perc (+0x100), naval_perc (+0x104) and armor_bias (+0x108).** Air 0.050 (g_Fixed_0_050), naval 0.400 x the share of the country's provinces in coastal areas other than the acting capital's, + 0.100; where TotalIC (+0x604) is under 50 (unit not checked), naval halved at peace, naval and air nought at war; air nought where CCountry::CalcDesperation is above 0.100; armour 0.250 (g_theatre_split_threshold); then cases by tag - GER, ITA, JAP, USA, ENG, FRA and SOV, each against the owners of up to three fixed provinces (the map vector's 0x581, 0x7AC and 0x745) and friendships - and land the rest of 1. Germany's start block: 0.823 / 0.050 / 0.127 / 0.330. Read whole on the decompiler, not on the listing; what reads the shares was not sought. `ret 4` at 0x4AD421. See reversing/findings/FINDINGS-aistrategy.md, section C.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-aistrategy.md"
+  },
+  {
+   "rva": "0x4AD430",
+   "kind": "function",
+   "name": "CAIStrategy_SetMaxSubunits",
+   "signature": "void __cdecl CAIStrategy_SetMaxSubunits(CAIStrategy* strategy@ESI)",
+   "no_signature": null,
+   "comment": "**Step 3 of CAIStrategy::Rebuild: max_subunits (+0xF8) = 5 x (core_home_area_ic / 1000), at least 1** - a plain count, not thousandths. The receiver arrives in ESI; bare `ret` at 0x4AD469. Germany's start save: 665.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-aistrategy.md"
+  },
+  {
+   "rva": "0x4AD6E0",
+   "kind": "function",
+   "name": "CAIStrategy_RecheckWarTargets",
+   "signature": "void __stdcall CAIStrategy_RecheckWarTargets(CAIStrategy* strategy)",
+   "no_signature": null,
+   "comment": "**Step 5 of CAIStrategy::Rebuild: the prepared wars (+0x148) kept or dropped.** An entry stands where its target owns a province or is a government in exile, is not the country's subject, and is not in its real faction, **and** - with no decision (+0x18 of the entry) - a bare CDeclareWarAction(country, target) made by CDeclareWarAction_Construct answers CDeclareWarAction::IsSelectable, or - with one - the decision's `potential` (CDecision +0x24, slot 6) holds in a scope of the country. Otherwise it is unlinked and freed (or marked dead, +0xC, while the list's deferred-delete byte +0x154 is set), its value object destroyed, and `theatres_dirty` (+0xF4) set where the country borders the target. `ret 4` at 0x4AD9AD; CAIStrategy_PruneWarTargets follows at 0x4AD9B0. The decompiler's early `return`s after each `free` are its artefact, as in the pruning.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-aistrategy.md"
+  },
+  {
+   "rva": "0x4A6580",
+   "kind": "function",
+   "name": "CAIStrategy_CollectMilitaryAccess",
+   "signature": "void __stdcall CAIStrategy_CollectMilitaryAccess(CAIStrategy* strategy)",
+   "no_signature": null,
+   "comment": "**The `military_access` list.** Where the country has two areas or more and its acting capital's area is real: for every other area, OwnerAreaPathFind from it to the capital's area with a CMilAccessAreaCostCallback on the stack (vftable written at the call), and for each area of the path whose first province is held by its owner (+0x330 == +0x338), the owner not REB, not the country, and not yet scored (CAIStrategy::GetAccessScore == 0): CAIStrategy::AddMilitaryAccess(owner, the area's province count + 100, or + 150 where the country borders it, + 200 where either end area is landlocked). **Ghidra's own label on this address was CMilAccessAreaCostCallback::CMilAccessAreaCostCallback** - it is not that class's constructor. `ret 4` at 0x4A67AB. The path search and the callback were not read.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-aistrategy.md"
+  },
+  {
+   "rva": "0x4A67B0",
+   "kind": "function",
+   "name": "CAIStrategy_CollectConquerProvinces",
+   "signature": "void __stdcall CAIStrategy_CollectConquerProvinces(CAIStrategy* strategy)",
+   "no_signature": null,
+   "comment": "**The `conquer_prov` list.** Every map province in index order that is land, owned and not controlled by the country, where (Personality == military, or CCountry::IsEnemy(owner)) and (the owner is the country, or OwnerArea_TouchesController(country, province area)) and the province's strategic resource (CMapProvince +0x18) answers its slot 14 (ReturnTrue on CStrategicResource, ReturnFalse on CNullStrategicResource): CAIStrategy::AddConquerProv(province, 50) - the float 50000.5 (VA 0x160A7FC) floored and rounded to whole units. `ret 4` at 0x4A697B.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-aistrategy.md"
+  },
+  {
+   "rva": "0x4A6980",
+   "kind": "function",
+   "name": "CAIStrategy_CollectDefendProvinces",
+   "signature": "void __stdcall CAIStrategy_CollectDefendProvinces(CAIStrategy* strategy)",
+   "no_signature": null,
+   "comment": "**The `defend_prov` list.** AddDefendProv(capital_province_id (+0xE20, the real capital), 200); then for each controlled province (+0xD00): 50 for a real strategic resource + 20 for an air base built (air_base->Max > 0), added where non-zero. Germany's start list: Berlin 220, then 70, 50 and 20. `ret 4` at 0x4A6AB1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-aistrategy.md"
+  },
+  {
+   "rva": "0x4A6AC0",
+   "kind": "function",
+   "name": "CAIStrategy_CollectThreats",
+   "signature": "void __stdcall CAIStrategy_CollectThreats(CAIStrategy* strategy)",
+   "no_signature": null,
+   "comment": "**The `threat` list** - what the Lua's CAIStrategy:GetThreat reads. For every other owning country T not in the country's real faction and not its vassal: skipped where the country has three times T's provinces and T under half its strength (land regiments + 1); else 100 for T's usable casus belli on it, a faction term by T's faction's group (fascist leader 400, member 200; communist leader 200, member 100; democratic 300 or 200 when the country is in a fascist or other faction), min(provT,4) x 50 for a one-province country, x1.5 for an AI military T, and for a neighbour (T's neighbours[country]) 25 x the border share (CCountry +0x1048) + 100, x1.5 twice for the capital touching T; times min(strength ratio, 4); a non-neighbour only by (reach - distance) / reach where it is bigger in provinces and strength, reach min(provinces x 28, 1200) km; added where above 1. See reversing/findings/FINDINGS-aistrategy.md, section F. `ret 4` at 0x4A73BB.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-aistrategy.md"
+  },
+  {
+   "rva": "0x4A73C0",
+   "kind": "function",
+   "name": "CAIStrategy_CollectAntagonismAndRivals",
+   "signature": "void __stdcall CAIStrategy_CollectAntagonismAndRivals(CAIStrategy* strategy)",
+   "no_signature": null,
+   "comment": "**The `antagonize` and `rival` lists** - the first is what CAIStrategy:GetAntagonism reads. Per other owning country T as in the threats: conquer_prov weight over T's provinces (sent to T's top overlord instead where T is a subject, ending T); min(6/min(provT,6) x that, 800); for a military country a neighbour's (100 x border share + 25) x1.25 x1.25; +50 for a usable casus belli; 300 x (2.1 - power) for the country's own overlord under power 2; reset to nought for a historical friend (CCountry_IsHistoricalFriend) not antagonised and without casus belli; -200/-300/-400 by personality for the same ruling ideology, -400 for an ally; +50 and +150 for another ideology group; +400 or -400 for T in a faction; +100 x (1 - provinces ratio) for a smaller T, times 0.75/0.5 by personality; added where at least 1. Then the rival: only where power = (provinces ratio + strength ratio)/2 is within 0.34..3.0, 100 for a neighbour or (reach x 1000 - distance) / 2 - **the constant 2.000 still in [esp+0x28], not the reach** - plus 50 at war, 50 for a casus belli, 100 where both are `capital`; (that + 25) times or over the power clamped to 0.34..3.0 (VA 0x160A934, 0x171DC88); added where at least 1. See reversing/findings/FINDINGS-aistrategy.md, section G. `ret 4` at 0x4A8244.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-aistrategy.md"
+  },
+  {
+   "rva": "0x4A8250",
+   "kind": "function",
+   "name": "CAIStrategy_CollectFriendsAndVassals",
+   "signature": "void __stdcall CAIStrategy_CollectFriendsAndVassals(CAIStrategy* strategy)",
+   "no_signature": null,
+   "comment": "**The `befriend` and `vassal` lists** - the first is what CAIStrategy:GetFriendliness reads. Per other owning country T that is nobody's subject or the country's own: passed over where it borders us, is no clean historical friend, and owns one of our conquer_prov, unless it is our subject or we are a diplomat and it is small (provinces under round(ours x 1.5)); else each threat X of ours bordering T with at least T's threat gives X's threat x min((provT/provX + strT/strX)/2, 4); +100 same ruling ideology, +50 same group, -100 otherwise; for a small T, AddVassal(T, 10 x (ours - its provinces)) when a diplomat and +10 x that for our subject; a diplomat adds T's threat/2; +600 same faction, -200 another; +400 for a clean historical friend; added where at least 1. See reversing/findings/FINDINGS-aistrategy.md, section G.3. `ret 4` at 0x4A8AE0.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-aistrategy.md"
+  },
+  {
+   "rva": "0x4A8AF0",
+   "kind": "function",
+   "name": "CAIStrategy_CollectProtection",
+   "signature": "void __stdcall CAIStrategy_CollectProtection(CAIStrategy* strategy)",
+   "no_signature": null,
+   "comment": "**The `protect` list** - what CAIStrategy:GetProtectionism reads. Only for a country of ten provinces or more. Per other owning country T with (T's regiments over ours, ours at least 1, plus provT/ours)/2 under 0.66 that **we** border (our neighbours[T]): +25 for our usable casus belli on it, +25 where it has a fifth of our provinces or fewer, +10 more where it owns one province; added where at least 1 - so 60 at most, and the start save's lists are 60, 50 and 25. `ret 4` at 0x4A8EE6.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-aistrategy.md"
+  },
+  {
+   "rva": "0x4A5B50",
+   "kind": "function",
+   "name": "AIStrategyList_ScaleTo400",
+   "signature": "void __stdcall AIStrategyList_ScaleTo400(void* list)",
+   "no_signature": null,
+   "comment": "**Scales a sorted country list so its top weight is 400**, after each builder: where the first weight v0 is above 400, ratio = v0 x 1000 / 400 (truncated), the first becomes 400 and every other v becomes round-half-even((float)(trunc(v x 10^6 / ratio) / 1000.0)). Applied to threat, antagonize, rival, befriend, vassal and protect, by ApplyCountryAIStrategies. `ret 4` at 0x4A5C85.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-aistrategy.md"
+  },
+  {
+   "rva": "0x4A3370",
+   "kind": "function",
+   "name": "CCountry_IsHistoricalFriend",
+   "signature": "bool __stdcall CCountry_IsHistoricalFriend(CCountry* country@EAX, int tag_chars@stack:4, int country_id@stack:8) @AL",
+   "no_signature": null,
+   "comment": "Whether `country_id` is in the country's historical_friends (+0x10A4, the 0x14-byte nodes' tag id at +4, next at +0xC). `ret 8` at 0x4A3394. Called by the strategy's antagonism and friendship builders on the strategy's own country.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-aistrategy.md"
+  },
+  {
+   "rva": "0xA6A70",
+   "kind": "function",
+   "name": "MapProvince_BordersLandOf",
+   "signature": "bool __stdcall MapProvince_BordersLandOf(CMapProvince* province@EAX, CCountryTag* tag@stack:4) @AL",
+   "no_signature": null,
+   "comment": "Whether the province has an edge (path node +0x90..+0x94, 0x14 bytes each) that is not impassable (kind 3) to a simulated province owned by the tag. Asked by the threat and antagonism builders of the country's **real** capital (CCountry::GetCapitalLocation). `ret 4` at 0xA6AEC and 0xA6AF5.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-aistrategy.md"
+  },
+  {
+   "rva": "0xCCD50",
+   "kind": "function",
+   "name": "CCountry::GetDiplomaticDistance",
+   "signature": "CFixedPoint* __thiscall CCountry::GetDiplomaticDistance(CCountry* this, CFixedPoint* result, CCountryTag* tag)",
+   "no_signature": null,
+   "comment": "Lua `CCountry:GetDiplomaticDistance(tag)`: CMap::DistanceBetweenProvinces between the other country's acting capital (+0xE24) and this one's (GetActingCapitalLocation's +0xD0), x 1000 - so four times the straight map distance, in thousandths. `ret 8` at 0xCCD90.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-aistrategy.md"
+  },
+  {
+   "rva": "0x1D5C90",
+   "kind": "function",
+   "name": "CUnitList::GetTotalNumOfRegiments",
+   "signature": "int __thiscall CUnitList::GetTotalNumOfRegiments(CUnitList* this)",
+   "no_signature": null,
+   "comment": "Lua `CUnitList:GetTotalNumOfRegiments()`: the regiments (+regiments count) of the list's **land** units only (each unit's IsLand slot). Bare `ret` at 0x1D5CBE.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-aistrategy.md"
+  },
+  {
+   "rva": "0x611DF0",
+   "kind": "function",
+   "name": "CDeclareWarAction_Construct",
+   "signature": "void __stdcall CDeclareWarAction_Construct(CDeclareWarAction* this@ESI, int actor_chars@stack:4, int actor_id@stack:8, int target_chars@stack:12, int target_id@stack:16)",
+   "no_signature": null,
+   "comment": "Builds a CDeclareWarAction in place (this in ESI): actor and target tags at +8..+0x14, +0x18 nought, +0x1C and +0x20 the tick, an embedded CWarGoal at +0x28 with no casus belli, and the vftable written last. `ret 0x10` at 0x611F34. CAIStrategy_RecheckWarTargets builds one on its stack to ask IsSelectable. **Entered at 0xA11DF0 by this wave's first fragment** - its virtual address taken for an rva (trap 1); moved here.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-aistrategy.md"
+  },
+  {
+   "rva": "0x5D5F10",
+   "kind": "function",
+   "name": "COwnsTrigger::WalkChildren",
+   "signature": "void __thiscall COwnsTrigger::WalkChildren(COwnsTrigger* this, void* collector, CEventScope* scope, bool polarity, int weight)",
+   "no_signature": null,
+   "comment": "**Slot 10 of both COwnsTrigger and CControlsTrigger** (one body in both tables). Not negated, the scope's country (+0x14) is the collector's (+0xC), and the condition (its slot 6) does not hold -> CAIStrategy::AddConquerProv(the trigger's province, +0x40, weight). `ret 0x10` at 0x5D5F58. See reversing/findings/FINDINGS-aistrategy.md, section D.3.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-aistrategy.md"
+  },
+  {
+   "rva": "0x1714FF4",
+   "kind": "global",
+   "name": "g_Fixed_0_400",
+   "signature": null,
+   "no_signature": "data",
+   "comment": "VA 0x1B14FF4, an int: 400 (0.400), written by a static initialiser in the run from VA 0xD10280 out of the float 400.5 at VA 0x160A6DC through floor and _ftol2. Read by CAIStrategy_SetProductionShares.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-aistrategy.md"
+  },
+  {
+   "rva": "0x1715030",
+   "kind": "global",
+   "name": "g_Fixed_0_100",
+   "signature": null,
+   "no_signature": "data",
+   "comment": "VA 0x1B15030, an int: 100 (0.100), from the float 100.5 at VA 0x160A684 by a static initialiser (VA 0xD10280 onward). Read by CAIStrategy_SetProductionShares.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-aistrategy.md"
+  },
+  {
+   "rva": "0x1715040",
+   "kind": "global",
+   "name": "g_Fixed_0_500",
+   "signature": null,
+   "no_signature": "data",
+   "comment": "VA 0x1B15040, an int: 500 (0.500), from the float 500.5 at VA 0x160A5E8 by a static initialiser. Read by CAIStrategy_SetProductionShares.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-aistrategy.md"
+  },
+  {
+   "rva": "0x1715068",
+   "kind": "global",
+   "name": "g_Fixed_0_330",
+   "signature": null,
+   "no_signature": "data",
+   "comment": "VA 0x1B15068, an int: 330 (0.330), from the float 330.5 at VA 0x160A6E0 by a static initialiser. Read by CAIStrategy_SetProductionShares (Germany's armour bias).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-aistrategy.md"
+  },
+  {
+   "rva": "0x171502C",
+   "kind": "global",
+   "name": "g_Fixed_0_300",
+   "signature": null,
+   "no_signature": "data",
+   "comment": "VA 0x1B1502C, an int: 300 (0.300), from the float 300.5 at VA 0x160AAB4 by a static initialiser. Read by CAIStrategy_SetProductionShares.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-aistrategy.md"
+  },
+  {
+   "rva": "0x1715078",
+   "kind": "global",
+   "name": "g_Fixed_0_050",
+   "signature": null,
+   "no_signature": "data",
+   "comment": "VA 0x1B15078, an int: 50 (0.050), from the float 50.5 at VA 0x160A7B4 by a static initialiser. Read by CAIStrategy_SetProductionShares (the air share).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-aistrategy.md"
+  },
+  {
+   "rva": "0x131DC88",
+   "kind": "global",
+   "name": "g_AiRivalPowerCap",
+   "signature": null,
+   "no_signature": "data",
+   "comment": "VA 0x171DC88, a float in .data holding 3.0 in the file: the cap on the power ratio in CAIStrategy_CollectAntagonismAndRivals' rival term. Named from that one use; other readers were not sought.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-aistrategy.md"
+  },
+  {
+   "rva": "0x5EB000",
+   "kind": "function",
+   "name": "CWarWithTrigger::WalkChildren",
+   "signature": "void __thiscall CWarWithTrigger::WalkChildren(CWarWithTrigger* this, void* collector, CEventScope* scope, bool polarity, int weight)",
+   "no_signature": null,
+   "comment": "**Slot 10 of both CWarWithTrigger and CUndeclaredWarWithTrigger** (one body in both tables). Resolves the tag (THIS - EventScope_GetCountryTag; FROM - THIS's from country, +0x38 then +0x18/+0x1C; else the tag at +0x40/+0x44); not negated, where the scope's country or the tag is the collector's country, the other of the two is antagonised by the weight - **without evaluating**, so a `war_with` aim antagonises whether the war is on or not. `ret 0x10`. See reversing/findings/FINDINGS-aistrategy.md, section D.3.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-aistrategy.md"
   }
  ],
  "structs": [
@@ -55618,6 +55882,13 @@
   {
    "name": "CCountry",
    "fields": [
+    {
+     "offset": "0x1048",
+     "name": "border_shares",
+     "type": "int*",
+     "comment": "Begin of a std::vector<int> indexed by country id (end +0x104C): **the share of this country's border that is each other country's**, thousandths. CCountry::RebuildNeighbours adds 1000 for each edge from an owned province into a province another country both owns and controls (VA 0x4E2CF6), then divides each by the total (VA 0x4E2EA0). Read by the AI strategy's threat and antagonism builders.",
+     "source": "reversing/findings/FINDINGS-aistrategy.md"
+    },
     {
      "offset": "0x103C",
      "name": "core_building_levels_end",
@@ -68298,6 +68569,13 @@
    "name": "CAIStrategy",
    "fields": [
     {
+     "offset": "0xF4",
+     "name": "theatres_dirty",
+     "type": "bool",
+     "comment": "Set to make the next hourly pass rebuild the theatres: by CCountry_AfterDiplomacyChange after a ten-day CAIStrategy::Rebuild (as CCountry +0x580) and by CAIStrategy_RecheckWarTargets when it drops a prepared war on a neighbour.",
+     "source": "reversing/findings/FINDINGS-aistrategy.md"
+    },
+    {
      "offset": "0x134",
      "name": "rival_buckets",
      "type": "void**",
@@ -68490,8 +68768,8 @@
      "offset": "0x10",
      "name": "rebuild_tick",
      "type": "int",
-     "comment": "**When this strategy was last rebuilt**, as a game tick. CAIStrategy::Rebuild writes `gamestate->tick` (CCurrentGameState +0xBDC) here at 0x4A5D99, four instructions before setting `initialized` at +0x14. The daily gate in RunCountryDailyPass tests `initialized` and `is_static`, not this, so it looks like a diagnostic stamp rather than a cache key - but no scan was run for readers, so that is an impression and not a negative result.",
-     "source": "reversing/findings/FINDINGS-triggereval.md"
+     "comment": "**When this strategy was last rebuilt**, as a game tick. CAIStrategy::Rebuild writes `gamestate->tick` here at 0x4A5D99. **It is the ten-day clock**, not a diagnostic stamp as this said: CCountry_AfterDiplomacyChange rebuilds in a running game where the whole days since it are 10 or more, and RunDailyPass calls that for every country every day.",
+     "source": "reversing/findings/FINDINGS-aistrategy.md"
     },
     {
      "offset": "0x148",
@@ -68651,8 +68929,8 @@
      "offset": "0xF8",
      "name": "max_subunits",
      "type": "int",
-     "comment": "how many brigades the AI is aiming for, x1000. **Read live**: 1250 for Germany",
-     "source": "BiceLib/GameClasses/CAIStrategy.hpp:60"
+     "comment": "how many brigades the AI is aiming for: **a plain count**, 5 x the whole IC of the home area, at least 1 (CAIStrategy_SetMaxSubunits) - not thousandths, as this said; the save writes it with %d. Germany's start save: 665; the 1250 once read live would be a later IC of 250.",
+     "source": "reversing/findings/FINDINGS-aistrategy.md"
     },
     {
      "offset": "0xFC",
@@ -86943,6 +87221,7 @@
    "6": {"name": "Evaluate", "signature": "bool __thiscall Evaluate(CProvinceIdTrigger* this, CEventScope* scope)"}
   },
   "COwnsTrigger": {
+   "10": "WalkChildren",
    "8": {"name": "GetText", "signature": "Hoi3CString* __thiscall GetText(COwnsTrigger* this, Hoi3CString* out, CEventScope* scope, bool redWhen, int depth)"},
    "6": {"name": "Evaluate", "signature": "bool __thiscall Evaluate(COwnsTrigger* this, CEventScope* scope)"}
   },
@@ -87047,6 +87326,7 @@
    "6": "Evaluate"
   },
   "CWarWithTrigger": {
+   "10": "WalkChildren",
    "8": {"name": "GetText", "signature": "Hoi3CString* __thiscall GetText(CWarWithTrigger* this, Hoi3CString* out, CEventScope* scope, bool redWhen, int depth)"},
    "6": {"name": "Evaluate", "signature": "bool __thiscall Evaluate(CWarWithTrigger* this, CEventScope* scope)"}
   },
@@ -87055,6 +87335,7 @@
    "6": {"name": "Evaluate", "signature": "bool __thiscall Evaluate(CAtWarTrigger* this, CEventScope* scope)"}
   },
   "CUndeclaredWarWithTrigger": {
+   "10": "WalkChildren",
    "8": {"name": "GetText", "signature": "Hoi3CString* __thiscall GetText(CUndeclaredWarWithTrigger* this, Hoi3CString* out, CEventScope* scope, bool redWhen, int depth)"},
    "6": {"name": "Evaluate", "signature": "bool __thiscall Evaluate(CUndeclaredWarWithTrigger* this, CEventScope* scope)"}
   },
@@ -88082,6 +88363,7 @@
    "6": {"name": "Evaluate", "signature": "bool __thiscall Evaluate(CIsCoreTrigger* this, CEventScope* scope)"}
   },
   "CControlsTrigger": {
+   "10": "WalkChildren",
    "8": {"name": "GetText", "signature": "Hoi3CString* __thiscall GetText(CControlsTrigger* this, Hoi3CString* out, CEventScope* scope, bool redWhen, int depth)"},
    "6": {"name": "Evaluate", "signature": "bool __thiscall Evaluate(CControlsTrigger* this, CEventScope* scope)"}
   },

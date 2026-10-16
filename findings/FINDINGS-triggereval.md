@@ -648,7 +648,7 @@ ending `ret 8` or `ret 0xC`, each with nothing but padding between it and the ne
 | `0x4A5270` | `antagonize` `+0x58` | `+0x68` | 7 | yes - six leaves |
 | `0x4A5340` | `rival` `+0x11C` | `+0x12C` | 4 | no |
 | `0x4A5420` | `befriend` `+0x74` | `+0x84` | 7, or **14** for `_AI_DIPLOMAT_` | yes - four leaves |
-| `0x4A5520` | `protect` `+0x90` | `+0xA0` | 7, or 14 for `_AI_DIPLOMAT_` | no |
+| `0x4A5520` | `protect` `+0x90` | `+0xA0` | ~~7, or 14~~ **6, or 12** for `_AI_DIPLOMAT_` (corrected 2026-10-16, `FINDINGS-aistrategy.md` M.6) | no |
 | `0x4A5620` | `vassal` `+0xAC` | `+0xBC` | 10 | yes - `CVassalOfTrigger`, the caller the record had not attributed |
 | `0x4A5700` | `military_access` `+0xC8` | `+0xD8` | 10 | no |
 

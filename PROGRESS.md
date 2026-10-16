@@ -106,7 +106,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CAIInvasion` | `CAIAgent` |  | 18 |  | 14 |  | 4 | read |  |
 | `CAIPoliticsMinister` | `CAIAgent` | 0x5C | 1 lua |  | 4 |  | 107 | named |  |
 | `CAIProductionMinister` | `CAIAgent` |  | 2 lua |  | 6 |  | 107 | named |  |
-| `CAIStrategy` | `CPersistent` |  | 57 + 4 lua | 11/22 | 24 | CAIStrategy.hpp | 324 | read |  |
+| `CAIStrategy` | `CPersistent` |  | 58 + 4 lua | 11/22 | 24 | CAIStrategy.hpp | 324 | read |  |
 | `CAISubscriber` | `CReferenceObject` |  |  |  |  |  |  | RTTI |  |
 | `CAITechMinister` | `CAIAgent` | 0x80 | 3 + 3 lua |  | 9 |  | 107 | part |  |
 | `CAIUnit` | `CAIAgent` |  | 81 |  | 36 |  | 99 | read |  |
@@ -166,7 +166,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CConvoyConstruction` | `CConstruction` |  | 1 | 1/1 | 6 | CConstruction.hpp | 40 | placed |  |
 | `CConvoyEscortOrder` | `CNavalOrder` |  |  | 1/3 | 6 |  |  | placed |  |
 | `CConvoyRaid` | `CNavalOrder` |  |  | 1/1 | 5 |  | 62 | placed |  |
-| `CCountry` | `CPersistent` |  | 276 + 71 lua | 69/126 | 167 | CCountry.hpp | 108 | read |  |
+| `CCountry` | `CPersistent` |  | 277 + 71 lua | 69/126 | 168 | CCountry.hpp | 108 | read |  |
 | `CCountryDate` | `CPersistent` |  |  | 1/2 | 1 |  |  | placed |  |
 | `CCountryHistory` | `CHistoryContainer` |  |  |  | 1 | CCountryHistory.hpp | 108 | keys | **read**: `history/countries`, where a date is a key. See GameClasses/CCountryHistory.hpp |
 | `CCountryValue` | `CPersistent` | 0x14 | 2 | 1/2 | 1 |  | 9,078 | placed |  |
@@ -695,7 +695,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CUnitBaseCarrier` | `CUnitBase` |  | 1 |  |  |  | 3,339 | part |  |
 | `CUnitBaseProvince` | `CUnitBase` `CSelectable` |  | 1 |  | 1 |  | 56,760 | part |  |
 | `CUnitDeploymentCallback` |  |  |  |  |  |  |  | RTTI |  |
-| `CUnitList` | `PAVCUnit::__CList` |  |  |  | 7 |  |  | RTTI |  |
+| `CUnitList` | `PAVCUnit::__CList` |  |  |  | 8 |  |  | RTTI |  |
 | `CUnitNavalStanceEntry` | `CUnitViewBaseEntry` |  |  |  |  |  |  | RTTI |  |
 | `CUnitStanceEntry` | `CUnitViewBaseEntry` |  |  |  |  |  |  | RTTI |  |
 | `CUnitStatusEntry` | `CUnitViewBaseEntry` |  |  |  | 4 |  |  | RTTI |  |
@@ -1065,7 +1065,7 @@ One class per effect, trigger, command and decision the event scripts can use. E
 | `COutOfSupplyDaysTrigger` | `CIntTrigger` | 0x44 |  | 2/153 | 2 |  |  | RTTI |  |
 | `COwnedByTrigger` | `CTrigger` |  |  | 2/153 | 3 |  | 266 | RTTI |  |
 | `COwnerChange` | `CProvinceHistoryEntry` |  |  |  |  |  | 2,107 | RTTI |  |
-| `COwnsTrigger` | `CIntTrigger` | 0x44 |  | 2/153 | 2 |  | 74 | RTTI |  |
+| `COwnsTrigger` | `CIntTrigger` | 0x44 |  | 2/153 | 3 |  | 74 | RTTI |  |
 | `CPerformCoupCommand` | `CCommand` |  |  | 2/2 | 5 |  | 1 | placed |  |
 | `CPointsChange` | `CProvinceHistoryEntry` |  |  |  |  |  |  | RTTI |  |
 | `CPopularityChange` | `CCountryHistoryEntry` |  | 3 |  | 3 |  |  | part |  |
@@ -1228,7 +1228,7 @@ One class per effect, trigger, command and decision the event scripts can use. E
 | `CVassalOfTrigger` | `CTagTrigger` | 0x48 |  | 2/153 | 3 |  | 481 | RTTI |  |
 | `CWarEffect` | `CEffect` | 0x4C | 3 | 5/7 | 3 |  | 168 | placed |  |
 | `CWarGoalEffect` | `CEffect` | 0x54 | 2 | 3/4 | 4 |  | 26 | placed |  |
-| `CWarWithTrigger` | `CTagTrigger` | 0x48 |  | 2/153 | 2 |  | 2,895 | RTTI |  |
+| `CWarWithTrigger` | `CTagTrigger` | 0x48 |  | 2/153 | 3 |  | 2,895 | RTTI |  |
 | `CWarexhaustionEffect` | `CValueEffect` |  |  | 3/91 | 2 |  | 36 | RTTI |  |
 | `CWarexhaustionTrigger` | `CValueTrigger` | 0x44 |  | 2/153 | 2 |  |  | RTTI |  |
 | `CWingOption` | `CStandardlistboxItem` | 0x44 | 7 |  | 4 |  |  | read |  |

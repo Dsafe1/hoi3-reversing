@@ -1,0 +1,387 @@
+{
+ "agent": "AI strategy wave, collecting session: what fills CAIStrategy's lists (OpenHOI3 stage 5, 2026-10-16)",
+ "question": "What CAIStrategy::Rebuild computes - the personality, the shares, and the conquer/defend/threat/antagonize/rival/befriend/vassal/protect lists the Lua's GetFriendliness, GetAntagonism, GetThreat and GetProtectionism read - and how often it runs.",
+ "source": "reversing/findings/FINDINGS-aistrategy.md",
+ "vftable_slots": {
+  "COwnsTrigger": {"10": "WalkChildren"},
+  "CControlsTrigger": {"10": "WalkChildren"}
+ },
+ "addresses": [
+  {
+   "rva": "0x4A5DD0",
+   "kind": "function",
+   "name": "CAIStrategy_ChoosePersonality",
+   "signature": "void __stdcall CAIStrategy_ChoosePersonality(CAIStrategy* strategy)",
+   "no_signature": null,
+   "comment": "**Step 1 of CAIStrategy::Rebuild: the personality (+0x18).** First the event strategy's (CCountry +0x34C) where non-zero, else the hard strategy's (+0x1F4), else 4; then, unless `is_static` (+0x15), worked out and overwritten: n = the government's ideologies (CCountry +0xDFC, list +0x30, count +0x38), at least 1, share = thousandths of 1.0/n (the float idiom floor((float)(x+0.0005)*1000)); each ideology weighs share, twice that for the ruling party (CCountry +0x1140); its group's x (CIdeologyGroup +0x58) and y (+0x5C) give military = y/2, plus where y > 0 (y+|x|)*0.5 (x >= 0, VA 0x160A5E8) or (y-x)*0.33 (x < 0, VA 0x160A6E0); capital = -x for x < 0, (x+y)/2 for x >= 0 and y < 0; diplomacy = (200 - |x/1000|)*500 - y/2; each summed times the weight / 1000. total = the three, at least 1000; then in order military's share >= 0.400 (VA 0x160A6DC) -> 1, diplomacy's -> 3, capital's -> 2, else 4. Three `ret 4` exits at 0x4A61E0, 0x4A623A, 0x4A6296. See reversing/findings/FINDINGS-aistrategy.md, section B.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-aistrategy.md",
+   "evidence": "Read on the listing VA 0x8A5DD0-0x8A6296 (the decompiler lost two of the three accumulators). Checked against the start save: an all-fascist government (Germany) gives military at 1500 of the total, the save's `personality=military`; 51 military, 27 diplomacy, 23 balanced over its 101 merged strategies. Wrong if a mixed government in the save has a personality this rule does not give it - not yet run country by country."
+  },
+  {
+   "rva": "0x4ACE20",
+   "kind": "function",
+   "name": "CAIStrategy_SetProductionShares",
+   "signature": "void __stdcall CAIStrategy_SetProductionShares(CAIStrategy* strategy)",
+   "no_signature": null,
+   "comment": "**Step 2 of CAIStrategy::Rebuild: land_perc (+0xFC), air_perc (+0x100), naval_perc (+0x104) and armor_bias (+0x108).** Air 0.050 (g_Fixed_0_050), naval 0.400 x the share of the country's provinces in coastal areas other than the acting capital's, + 0.100; where TotalIC (+0x604) is under 50 (unit not checked), naval halved at peace, naval and air nought at war; air nought where CCountry::CalcDesperation is above 0.100; armour 0.250 (g_theatre_split_threshold); then cases by tag - GER, ITA, JAP, USA, ENG, FRA and SOV, each against the owners of up to three fixed provinces (the map vector's 0x581, 0x7AC and 0x745) and friendships - and land the rest of 1. Germany's start block: 0.823 / 0.050 / 0.127 / 0.330. Read whole on the decompiler, not on the listing; what reads the shares was not sought. `ret 4` at 0x4AD421. See reversing/findings/FINDINGS-aistrategy.md, section C.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-aistrategy.md",
+   "evidence": "Decompiled whole; the general shape (air 0.05, land = 1 - naval - air) agrees with Germany's start block. Inferred because the tag cases were not walked on the listing and TotalIC's unit at the < 50 test was not checked."
+  },
+  {
+   "rva": "0x4AD430",
+   "kind": "function",
+   "name": "CAIStrategy_SetMaxSubunits",
+   "signature": "void __cdecl CAIStrategy_SetMaxSubunits(CAIStrategy* strategy@ESI)",
+   "no_signature": null,
+   "comment": "**Step 3 of CAIStrategy::Rebuild: max_subunits (+0xF8) = 5 x (core_home_area_ic / 1000), at least 1** - a plain count, not thousandths. The receiver arrives in ESI; bare `ret` at 0x4AD469. Germany's start save: 665.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-aistrategy.md",
+   "evidence": "Seven instructions read whole: GetCountry(esi+8), `[eax+core_home_area_ic] / 1000 * 5`, stored at [esi+0xF8], clamped to 1. The save writes the field with %d (CAIStrategy::SaveContents)."
+  },
+  {
+   "rva": "0x4AD6E0",
+   "kind": "function",
+   "name": "CAIStrategy_RecheckWarTargets",
+   "signature": "void __stdcall CAIStrategy_RecheckWarTargets(CAIStrategy* strategy)",
+   "no_signature": null,
+   "comment": "**Step 5 of CAIStrategy::Rebuild: the prepared wars (+0x148) kept or dropped.** An entry stands where its target owns a province or is a government in exile, is not the country's subject, and is not in its real faction, **and** - with no decision (+0x18 of the entry) - a bare CDeclareWarAction(country, target) made by CDeclareWarAction_Construct answers CDeclareWarAction::IsSelectable, or - with one - the decision's `potential` (CDecision +0x24, slot 6) holds in a scope of the country. Otherwise it is unlinked and freed (or marked dead, +0xC, while the list's deferred-delete byte +0x154 is set), its value object destroyed, and `theatres_dirty` (+0xF4) set where the country borders the target. `ret 4` at 0x4AD9AD; CAIStrategy_PruneWarTargets follows at 0x4AD9B0. The decompiler's early `return`s after each `free` are its artefact, as in the pruning.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-aistrategy.md",
+   "evidence": "Decompiled whole and the shape checked on the listing; the decision's +0x24 is `potential` per FINDINGS-eventfire.md 2.4. Wrong if the IsSelectable call takes a goal - the action is built with none (0xA11DF0 zeroes +0x18)."
+  },
+  {
+   "rva": "0x4A6580",
+   "kind": "function",
+   "name": "CAIStrategy_CollectMilitaryAccess",
+   "signature": "void __stdcall CAIStrategy_CollectMilitaryAccess(CAIStrategy* strategy)",
+   "no_signature": null,
+   "comment": "**The `military_access` list.** Where the country has two areas or more and its acting capital's area is real: for every other area, OwnerAreaPathFind from it to the capital's area with a CMilAccessAreaCostCallback on the stack (vftable written at the call), and for each area of the path whose first province is held by its owner (+0x330 == +0x338), the owner not REB, not the country, and not yet scored (CAIStrategy::GetAccessScore == 0): CAIStrategy::AddMilitaryAccess(owner, the area's province count + 100, or + 150 where the country borders it, + 200 where either end area is landlocked). **Ghidra's own label on this address was CMilAccessAreaCostCallback::CMilAccessAreaCostCallback** - it is not that class's constructor. `ret 4` at 0x4A67AB. The path search and the callback were not read.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-aistrategy.md",
+   "evidence": "Decompiled whole; inferred because OwnerAreaPathFind's search is unread, so which areas a path holds is not settled. Germany's start list is POL 324; which areas made it was not worked out."
+  },
+  {
+   "rva": "0x4A67B0",
+   "kind": "function",
+   "name": "CAIStrategy_CollectConquerProvinces",
+   "signature": "void __stdcall CAIStrategy_CollectConquerProvinces(CAIStrategy* strategy)",
+   "no_signature": null,
+   "comment": "**The `conquer_prov` list.** Every map province in index order that is land, owned and not controlled by the country, where (Personality == military, or CCountry::IsEnemy(owner)) and (the owner is the country, or OwnerArea_TouchesController(country, province area)) and the province's strategic resource (CMapProvince +0x18) answers its slot 14 (ReturnTrue on CStrategicResource, ReturnFalse on CNullStrategicResource): CAIStrategy::AddConquerProv(province, 50) - the float 50000.5 (VA 0x160A7FC) floored and rounded to whole units. `ret 4` at 0x4A697B.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-aistrategy.md",
+   "evidence": "Decompiled and checked against the 1936 saves: every conquer_prov is 50 (142, 144 and 142 entries), and Germany's three are strategic-resource provinces beside its land. Slot 14 of the two resource classes checked with vtable.py."
+  },
+  {
+   "rva": "0x4A6980",
+   "kind": "function",
+   "name": "CAIStrategy_CollectDefendProvinces",
+   "signature": "void __stdcall CAIStrategy_CollectDefendProvinces(CAIStrategy* strategy)",
+   "no_signature": null,
+   "comment": "**The `defend_prov` list.** AddDefendProv(capital_province_id (+0xE20, the real capital), 200); then for each controlled province (+0xD00): 50 for a real strategic resource + 20 for an air base built (air_base->Max > 0), added where non-zero. Germany's start list: Berlin 220, then 70, 50 and 20. `ret 4` at 0x4A6AB1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-aistrategy.md",
+   "evidence": "Decompiled whole; Germany's start block has Berlin (1861) at 220 = 200 + 20 and the rest 70, 50 and 20 only."
+  },
+  {
+   "rva": "0x4A6AC0",
+   "kind": "function",
+   "name": "CAIStrategy_CollectThreats",
+   "signature": "void __stdcall CAIStrategy_CollectThreats(CAIStrategy* strategy)",
+   "no_signature": null,
+   "comment": "**The `threat` list** - what the Lua's CAIStrategy:GetThreat reads. For every other owning country T not in the country's real faction and not its vassal: skipped where the country has three times T's provinces and T under half its strength (land regiments + 1); else 100 for T's usable casus belli on it, a faction term by T's faction's group (fascist leader 400, member 200; communist leader 200, member 100; democratic 300 or 200 when the country is in a fascist or other faction), min(provT,4) x 50 for a one-province country, x1.5 for an AI military T, and for a neighbour (T's neighbours[country]) 25 x the border share (CCountry +0x1048) + 100, x1.5 twice for the capital touching T; times min(strength ratio, 4); a non-neighbour only by (reach - distance) / reach where it is bigger in provinces and strength, reach min(provinces x 28, 1200) km; added where above 1. See reversing/findings/FINDINGS-aistrategy.md, section F. `ret 4` at 0x4A73BB.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-aistrategy.md",
+   "evidence": "Decompiled whole, the constants read with image.read, the ideology group slots from the loader's stores. Wrong if OpenHOI3's build of it does not give the start save's threat lists."
+  },
+  {
+   "rva": "0x4A73C0",
+   "kind": "function",
+   "name": "CAIStrategy_CollectAntagonismAndRivals",
+   "signature": "void __stdcall CAIStrategy_CollectAntagonismAndRivals(CAIStrategy* strategy)",
+   "no_signature": null,
+   "comment": "**The `antagonize` and `rival` lists** - the first is what CAIStrategy:GetAntagonism reads. Per other owning country T as in the threats: conquer_prov weight over T's provinces (sent to T's top overlord instead where T is a subject, ending T); min(6/min(provT,6) x that, 800); for a military country a neighbour's (100 x border share + 25) x1.25 x1.25; +50 for a usable casus belli; 300 x (2.1 - power) for the country's own overlord under power 2; reset to nought for a historical friend (CCountry_IsHistoricalFriend) not antagonised and without casus belli; -200/-300/-400 by personality for the same ruling ideology, -400 for an ally; +50 and +150 for another ideology group; +400 or -400 for T in a faction; +100 x (1 - provinces ratio) for a smaller T, times 0.75/0.5 by personality; added where at least 1. Then the rival: only where power = (provinces ratio + strength ratio)/2 is within 0.34..3.0, 100 for a neighbour or (reach x 1000 - distance) / 2 - **the constant 2.000 still in [esp+0x28], not the reach** - plus 50 at war, 50 for a casus belli, 100 where both are `capital`; (that + 25) times or over the power clamped to 0.34..3.0 (VA 0x160A934, 0x171DC88); added where at least 1. See reversing/findings/FINDINGS-aistrategy.md, section G. `ret 4` at 0x4A8244.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-aistrategy.md",
+   "evidence": "Decompiled whole; the rival's divisor followed on the listing - [esp+0x28] written 2000 at VA 0x8A79C0 and read at 0x8A7FD9 with no write between. Germany's start antagonize (FRA and six tiny faction members) and Denmark's, Sweden's and Ireland's (seven Central American countries at 150-200) are what the terms give."
+  },
+  {
+   "rva": "0x4A8250",
+   "kind": "function",
+   "name": "CAIStrategy_CollectFriendsAndVassals",
+   "signature": "void __stdcall CAIStrategy_CollectFriendsAndVassals(CAIStrategy* strategy)",
+   "no_signature": null,
+   "comment": "**The `befriend` and `vassal` lists** - the first is what CAIStrategy:GetFriendliness reads. Per other owning country T that is nobody's subject or the country's own: passed over where it borders us, is no clean historical friend, and owns one of our conquer_prov, unless it is our subject or we are a diplomat and it is small (provinces under round(ours x 1.5)); else each threat X of ours bordering T with at least T's threat gives X's threat x min((provT/provX + strT/strX)/2, 4); +100 same ruling ideology, +50 same group, -100 otherwise; for a small T, AddVassal(T, 10 x (ours - its provinces)) when a diplomat and +10 x that for our subject; a diplomat adds T's threat/2; +600 same faction, -200 another; +400 for a clean historical friend; added where at least 1. See reversing/findings/FINDINGS-aistrategy.md, section G.3. `ret 4` at 0x4A8AE0.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-aistrategy.md",
+   "evidence": "Decompiled whole; the historical-friends list read is the strategy's own country's (the call's EAX is the country fetched at the prologue, [esp+0x2C] at VA 0x8A8282)."
+  },
+  {
+   "rva": "0x4A8AF0",
+   "kind": "function",
+   "name": "CAIStrategy_CollectProtection",
+   "signature": "void __stdcall CAIStrategy_CollectProtection(CAIStrategy* strategy)",
+   "no_signature": null,
+   "comment": "**The `protect` list** - what CAIStrategy:GetProtectionism reads. Only for a country of ten provinces or more. Per other owning country T with (T's regiments over ours, ours at least 1, plus provT/ours)/2 under 0.66 that **we** border (our neighbours[T]): +25 for our usable casus belli on it, +25 where it has a fifth of our provinces or fewer, +10 more where it owns one province; added where at least 1 - so 60 at most, and the start save's lists are 60, 50 and 25. `ret 4` at 0x4A8EE6.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-aistrategy.md",
+   "evidence": "Decompiled whole; the start save's protect maxima are 60 (3 countries), 50 (17) and 25 (10), no other value."
+  },
+  {
+   "rva": "0x4A5B50",
+   "kind": "function",
+   "name": "AIStrategyList_ScaleTo400",
+   "signature": "void __stdcall AIStrategyList_ScaleTo400(void* list)",
+   "no_signature": null,
+   "comment": "**Scales a sorted country list so its top weight is 400**, after each builder: where the first weight v0 is above 400, ratio = v0 x 1000 / 400 (truncated), the first becomes 400 and every other v becomes round-half-even((float)(trunc(v x 10^6 / ratio) / 1000.0)). Applied to threat, antagonize, rival, befriend, vassal and protect, by ApplyCountryAIStrategies. `ret 4` at 0x4A5C85.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-aistrategy.md",
+   "evidence": "Decompiled whole. Over the start save's 101 strategies no threat, antagonize, rival, befriend, vassal or protect list tops above 400, and 61 threat, 17 antagonize, 60 befriend and 7 vassal lists top at exactly 400."
+  },
+  {
+   "rva": "0x4A3370",
+   "kind": "function",
+   "name": "CCountry_IsHistoricalFriend",
+   "signature": "bool __stdcall CCountry_IsHistoricalFriend(CCountry* country@EAX, int tag_chars@stack:4, int country_id@stack:8)",
+   "no_signature": null,
+   "comment": "Whether `country_id` is in the country's historical_friends (+0x10A4, the 0x14-byte nodes' tag id at +4, next at +0xC). `ret 8` at 0x4A3394. Called by the strategy's antagonism and friendship builders on the strategy's own country.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-aistrategy.md",
+   "evidence": "Eight instructions; the list head at [eax+0x10A4] is the recorded historical_friends. Callers checked: EAX is the strategy's own country at VA 0x8A775D, 0x8A7C41 and 0x8A8456."
+  },
+  {
+   "rva": "0xA6A70",
+   "kind": "function",
+   "name": "MapProvince_BordersLandOf",
+   "signature": "bool __stdcall MapProvince_BordersLandOf(CMapProvince* province@EAX, CCountryTag* tag@stack:4)",
+   "no_signature": null,
+   "comment": "Whether the province has an edge (path node +0x90..+0x94, 0x14 bytes each) that is not impassable (kind 3) to a simulated province owned by the tag. Asked by the threat and antagonism builders of the country's **real** capital (CCountry::GetCapitalLocation). `ret 4` at 0xA6AEC and 0xA6AF5.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-aistrategy.md",
+   "evidence": "Decompiled whole; kind 3 is impassable per FINDINGS-movement.md. Both callers load EAX from GetCapitalLocation (0x17AF0) the instruction pair before: VA 0x8A71DD/0x8A71E5 and 0x8A7B37/0x8A7B3F."
+  },
+  {
+   "rva": "0xCCD50",
+   "kind": "function",
+   "name": "CCountry::GetDiplomaticDistance",
+   "signature": "CFixedPoint* __thiscall CCountry::GetDiplomaticDistance(CCountry* this, CFixedPoint* result, CCountryTag* tag)",
+   "no_signature": null,
+   "comment": "Lua `CCountry:GetDiplomaticDistance(tag)`: CMap::DistanceBetweenProvinces between the other country's acting capital (+0xE24) and this one's (GetActingCapitalLocation's +0xD0), x 1000 - so four times the straight map distance, in thousandths. `ret 8` at 0xCCD90.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-aistrategy.md",
+   "evidence": "Listing VA 0x4CCD50-0x4CCD90 read whole; the luabind registration names it."
+  },
+  {
+   "rva": "0x1D5C90",
+   "kind": "function",
+   "name": "CUnitList::GetTotalNumOfRegiments",
+   "signature": "int __thiscall CUnitList::GetTotalNumOfRegiments(CUnitList* this)",
+   "no_signature": null,
+   "comment": "Lua `CUnitList:GetTotalNumOfRegiments()`: the regiments (+regiments count) of the list's **land** units only (each unit's IsLand slot). Bare `ret` at 0x1D5CBE.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-aistrategy.md",
+   "evidence": "Decompiled whole; the luabind registration names it."
+  },
+  {
+   "rva": "0xA11DF0",
+   "kind": "function",
+   "name": "CDeclareWarAction_Construct",
+   "signature": "void __stdcall CDeclareWarAction_Construct(CDeclareWarAction* this@ESI, int actor_chars@stack:4, int actor_id@stack:8, int target_chars@stack:12, int target_id@stack:16)",
+   "no_signature": null,
+   "comment": "Builds a CDeclareWarAction in place (this in ESI): actor and target tags at +8..+0x14, +0x18 nought, +0x1C and +0x20 the tick, an embedded CWarGoal at +0x28 with no casus belli, and the vftable written last. `ret 0x10` at 0xA11F34. CAIStrategy_RecheckWarTargets builds one on its stack to ask IsSelectable.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-aistrategy.md",
+   "evidence": "Decompiled whole; inferred because whether it is the class's constructor or a helper folded into it is not settled (it writes the vftable, so either way it makes one)."
+  },
+  {
+   "rva": "0x5D5F10",
+   "kind": "function",
+   "name": "COwnsTrigger::WalkChildren",
+   "signature": "void __thiscall COwnsTrigger::WalkChildren(COwnsTrigger* this, void* collector, CEventScope* scope, bool polarity, int weight)",
+   "no_signature": null,
+   "comment": "**Slot 10 of both COwnsTrigger and CControlsTrigger** (one body in both tables). Not negated, the scope's country (+0x14) is the collector's (+0xC), and the condition (its slot 6) does not hold -> CAIStrategy::AddConquerProv(the trigger's province, +0x40, weight). `ret 0x10` at 0x5D5F58. See reversing/findings/FINDINGS-aistrategy.md, section D.3.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-aistrategy.md",
+   "evidence": "vtable.py --holding 0x9D5F10: CControlsTrigger and COwnsTrigger, slot 10, nothing else. Decompiled whole."
+  },
+  {
+   "rva": "0x1714FF4",
+   "kind": "global",
+   "name": "g_Fixed_0_400",
+   "signature": null,
+   "no_signature": "data",
+   "comment": "VA 0x1B14FF4, an int: 400 (0.400), written by a static initialiser in the run from VA 0xD10280 out of the float 400.5 at VA 0x160A6DC through floor and _ftol2. Read by CAIStrategy_SetProductionShares.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-aistrategy.md",
+   "evidence": "The initialiser's movss from 0x160A6DC and its `mov [0x1B14FF4], eax` decoded; 400.5 read with image.read."
+  },
+  {
+   "rva": "0x1715030",
+   "kind": "global",
+   "name": "g_Fixed_0_100",
+   "signature": null,
+   "no_signature": "data",
+   "comment": "VA 0x1B15030, an int: 100 (0.100), from the float 100.5 at VA 0x160A684 by a static initialiser (VA 0xD10280 onward). Read by CAIStrategy_SetProductionShares.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-aistrategy.md",
+   "evidence": "As g_Fixed_0_400."
+  },
+  {
+   "rva": "0x1715040",
+   "kind": "global",
+   "name": "g_Fixed_0_500",
+   "signature": null,
+   "no_signature": "data",
+   "comment": "VA 0x1B15040, an int: 500 (0.500), from the float 500.5 at VA 0x160A5E8 by a static initialiser. Read by CAIStrategy_SetProductionShares.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-aistrategy.md",
+   "evidence": "As g_Fixed_0_400."
+  },
+  {
+   "rva": "0x1715068",
+   "kind": "global",
+   "name": "g_Fixed_0_330",
+   "signature": null,
+   "no_signature": "data",
+   "comment": "VA 0x1B15068, an int: 330 (0.330), from the float 330.5 at VA 0x160A6E0 by a static initialiser. Read by CAIStrategy_SetProductionShares (Germany's armour bias).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-aistrategy.md",
+   "evidence": "As g_Fixed_0_400."
+  },
+  {
+   "rva": "0x171502C",
+   "kind": "global",
+   "name": "g_Fixed_0_300",
+   "signature": null,
+   "no_signature": "data",
+   "comment": "VA 0x1B1502C, an int: 300 (0.300), from the float 300.5 at VA 0x160AAB4 by a static initialiser. Read by CAIStrategy_SetProductionShares.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-aistrategy.md",
+   "evidence": "As g_Fixed_0_400."
+  },
+  {
+   "rva": "0x1715078",
+   "kind": "global",
+   "name": "g_Fixed_0_050",
+   "signature": null,
+   "no_signature": "data",
+   "comment": "VA 0x1B15078, an int: 50 (0.050), from the float 50.5 at VA 0x160A7B4 by a static initialiser. Read by CAIStrategy_SetProductionShares (the air share).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-aistrategy.md",
+   "evidence": "As g_Fixed_0_400."
+  },
+  {
+   "rva": "0x131DC88",
+   "kind": "global",
+   "name": "g_AiRivalPowerCap",
+   "signature": null,
+   "no_signature": "data",
+   "comment": "VA 0x171DC88, a float in .data holding 3.0 in the file: the cap on the power ratio in CAIStrategy_CollectAntagonismAndRivals' rival term. Named from that one use; other readers were not sought.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-aistrategy.md",
+   "evidence": "image.read gives 3.0f; the comparison `DAT_0171dc88 <= power` and the store of it read in the decompile. Inferred: being in .data, something could write it."
+  },
+  {
+   "rva": "0x1715028",
+   "kind": "global",
+   "name": "g_theatre_split_threshold",
+   "signature": null,
+   "no_signature": "data",
+   "revises": true,
+   "comment": "VA 0x1B15028, an int: **250 (0.250)**, written by a static initialiser in the run from VA 0xD10280 out of the float 250.5 at VA 0x160A688 - so it is known, not runtime-only. CAIStrategy::BuildTheatres compares it at 0x8AA09C against `spill * 1000 / home` for a province group, and makes the group its own theatre when the ratio reaches it (or when `spill` alone reaches 0x1F40 = 8 provinces x 1000); CAIStrategy_SetProductionShares also uses it as the default armor_bias. The name is from the first use.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-aistrategy.md",
+   "evidence": "Revised: the old comment said the value could not be read statically. The initialiser's `movss xmm0, [0x160A688]`, floor, _ftol2 and `mov [0x1B15028], eax` decoded; 250.5 read with image.read."
+  },
+  {
+   "rva": "0x4A5C90",
+   "kind": "function",
+   "name": "CAIStrategy::Rebuild",
+   "signature": "void __thiscall CAIStrategy::Rebuild(CAIStrategy* this)",
+   "no_signature": null,
+   "revises": true,
+   "comment": "Rebuilds a country's merged AI strategy. 0x4A5C90 to the bare `ret` at 0x4A5DCD. Bails unless the tag's id is non-zero and not `REB`, the country owns a province (`+0xCF8 > 0`) and its acting capital's area (CProvince +0x2B4) answers slot 0 (a real area); then **CAIStrategy::ClearCollectedLists(this, 0)**, `rebuild_tick (+0x10) = tick`, and in order CAIStrategy_ChoosePersonality, CAIStrategy_SetProductionShares, CAIStrategy_SetMaxSubunits, ApplyCountryAIStrategies and CAIStrategy_RecheckWarTargets, then `initialized (+0x14) = 1`. Because it clears first, **every rebuild re-derives all ten lists from nothing** - a save's `ai` block is one rebuild's worth.\n\n**How often - corrected 2026-10-16.** The old comment said the daily pass's call was the only gated one and the rest were event-driven. **RunDailyPass calls CCountry_AfterDiplomacyChange (0xE39C0) for every country in the session every day** (VA 0x682E0F, just before RunCountryDailyPass), and that rebuilds in a running game whenever ten whole days have passed since rebuild_tick - so about 36 rebuilds a country a year. Its 64 other callers (every diplomatic effect, trades, influence, TakeControl, coups, vassals, commands) obey the same ten days. Unthrottled: CCountry::UpdateAtWarAndEnemies in a running game, CFaction::AddCountry (twice), CPeaceAction::Apply, CAddAIStrategyEffect::Execute, CCountry_SetGovernment and CCountry_UpdateActiveMission. On entering a game, CInGameIdler::Enter (0x25C282) rebuilds every country **before** the weather's hours and the two days a new game runs. The daily pass's own call (0xDB7AF-0xDB7C4, `if (!initialized && !is_static)`) is the first-time rebuild of a country nothing else reached.\n\n**Eleven direct callers, as rvas**: 0xDB7C4 inside `RunCountryDailyPass` (0xDA530), 0xE055D (in 0xE0460), 0xE3E5E (in 0xE39C0), 0xE6CCB inside `CCountry::UpdateAtWarAndEnemies`, 0xEF2A2 and 0xEF781 (both in 0xEE860), 0xF640E and 0xF645B inside `CFaction::AddCountry`, 0x25C282 inside `CInGameIdler::Enter`, 0x5B0E78 inside `CAddAIStrategyEffect::Execute`, and 0x64018C inside `CPeaceAction::Apply`.\n\n**Renamed 2026-10-01 from `AIStrategyCache::Rebuild`**: every caller passes `&country[+0x48C]`, the embedded CAIStrategy. See reversing/findings/FINDINGS-aistrategy.md and FINDINGS-aitheatre.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-aistrategy.md",
+   "evidence": "Revised: the guard's virtual named, the five steps named, and the frequency corrected. The daily call: listing VA 0x682E03-0x682E2A, a loop over the country vector that pushes each country to 0xE39C0 then to RunCountryDailyPass. The 1936 saves: 68 of 101 countries' lists differ between 1 January and 20 April."
+  },
+  {
+   "rva": "0x4A62A0",
+   "kind": "function",
+   "name": "ApplyCountryAIStrategies",
+   "signature": "void __stdcall ApplyCountryAIStrategies(CAIStrategy* strategy)",
+   "no_signature": null,
+   "revises": true,
+   "comment": "**Step 4 of CAIStrategy::Rebuild, and the only consumer of `ai_hard_strategy` (+0x1DC) and `ai_event_strategy` (+0x334)**: MergeAIStrategy of each into the strategy (weights add). Then, unless the country is played and the local player's automation flag [1] is not 1, the weighted trigger walk (slot 10) - the country's mission's (+0xE40, where its slot 6 holds) trigger at +0xC4 with weight 600 in the mission's scope (+0xE44), and, where its faction is real, every victory condition **chosen** for the faction (CVictoryConditionManager +0x18) with its trigger at CVictoryCondition +0x24, weight 200, in a scope of the country alone. Then CAIStrategy_CollectMilitaryAccess, and unless `is_static`: CAIStrategy_CollectConquerProvinces, CAIStrategy_CollectDefendProvinces, CAIStrategy_CollectThreats, AIStrategyList_ScaleTo400(threat), CAIStrategy_CollectAntagonismAndRivals, AIStrategyList_ScaleTo400(antagonize), (rival), CAIStrategy_CollectFriendsAndVassals, AIStrategyList_ScaleTo400(befriend), (vassal), CAIStrategy_CollectProtection, AIStrategyList_ScaleTo400(protect). **The walk is what fills Britain's antagonize with the countries of the Allies' `allied_*` aims** - a `<province> = { controller = { faction = allies } }` block whose controller is outside the faction antagonises that controller by 200. See reversing/findings/FINDINGS-aistrategy.md, section D, and FINDINGS-triggereval.md 17. `ret 4` at its end.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-aistrategy.md",
+   "evidence": "Revised: the old comment ended at the walk and left the holders unidentified (since settled in FINDINGS-triggereval.md 17); the tail of eight calls is now named. Decompiled whole. Britain's antagonize in both 1936 saves: ROM, GRE, USA, BUL, NOR, BEL, TAN."
+  },
+  {
+   "rva": "0x127280",
+   "kind": "function",
+   "name": "GetIdeologies",
+   "signature": "CNameDataBase* __cdecl GetIdeologies() @EAX",
+   "no_signature": null,
+   "revises": true,
+   "comment": "The ideology database, made on first use at `g_ideologies`. **Read live**: eleven entries - `noIdeology` and the ten of `common/ideologies.txt`, in file order. The name is BiceLib's; the object has no RTTI. **It also holds the three groups by name** (added 2026-10-16): `+0x34` democracy, `+0x38` fascism, `+0x3C` communism - stored by the loader at 0x127470 beside its string compares, and read by CAIStrategy_CollectThreats to give a faction's group its weight.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-aistrategy.md",
+   "evidence": "Revised: the three group slots added. VA 0x527630/0x527661 (`fascism`, [eax+0x38]), 0x527674/0x5276AC (`democracy`, [ecx+0x34]), 0x5276BC/0x5276ED (`communism`, [edx+0x3C]); CAIStrategy_CollectThreats compares a faction's group against the getter's +0x38, +0x3C and +0x34."
+  },
+  {
+   "rva": "0x127470",
+   "kind": "function",
+   "name": "LoadCommonFileContents",
+   "signature": null,
+   "no_signature": "not read for its convention; only the group stores were looked at",
+   "revises": true,
+   "comment": "The driver `LoadCommonFiles` calls once a CParseContext is built, taking it as the second argument: pulls tokens through the tokenizer's slot 1 until the kind is 0x13, end of input. The same loop and token kinds as CPersistent::Load. **Which class a given file fills is not traced** - this is as far as the general path goes. The name is BiceLib's. **Added 2026-10-16**: it compares each key with `fascism`, `democracy` and `communism` and stores the group it read at `+0x38`, `+0x34` and `+0x3C` of its first argument (VA 0x527630-0x5276ED) - so it is at least the ideology groups' loader (`common/ideologies.txt`), and the general-path reading may be its outer loop only.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-aistrategy.md",
+   "evidence": "Revised: the group stores added and the confidence lowered to inferred, because a loader that string-compares ideology group names is not obviously the general common-file path. strrefs on the three strings: one reference each, all in this function."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CAIStrategy",
+   "offset": "0xF4",
+   "name": "theatres_dirty",
+   "type": "bool",
+   "comment": "Set to make the next hourly pass rebuild the theatres: by CCountry_AfterDiplomacyChange after a ten-day CAIStrategy::Rebuild (as CCountry +0x580) and by CAIStrategy_RecheckWarTargets when it drops a prepared war on a neighbour.",
+   "source": "reversing/findings/FINDINGS-aistrategy.md",
+   "evidence": "The two stores read: `(country->Strategy).field_0xf4 = 1` after Rebuild in 0xE39C0, and `*(param_1 + 0xf4) = 1` in 0x4AD6E0; CCountry +0x580 is +0x48C + 0xF4."
+  },
+  {
+   "struct": "CAIStrategy",
+   "offset": "0xF8",
+   "name": "max_subunits",
+   "type": "int",
+   "revises": true,
+   "comment": "how many brigades the AI is aiming for: **a plain count**, 5 x the whole IC of the home area, at least 1 (CAIStrategy_SetMaxSubunits) - not thousandths, as this said; the save writes it with %d. Germany's start save: 665; the 1250 once read live would be a later IC of 250.",
+   "source": "reversing/findings/FINDINGS-aistrategy.md",
+   "evidence": "Revised: the unit. CAIStrategy::SaveContents writes it through sprintf(\"%d\"); CAIStrategy_SetMaxSubunits computes (core_home_area_ic / 1000) x 5."
+  },
+  {
+   "struct": "CAIStrategy",
+   "offset": "0x10",
+   "name": "rebuild_tick",
+   "type": "int",
+   "revises": true,
+   "comment": "**When this strategy was last rebuilt**, as a game tick. CAIStrategy::Rebuild writes `gamestate->tick` here at 0x4A5D99. **It is the ten-day clock**, not a diagnostic stamp as this said: CCountry_AfterDiplomacyChange rebuilds in a running game where the whole days since it are 10 or more, and RunDailyPass calls that for every country every day.",
+   "source": "reversing/findings/FINDINGS-aistrategy.md",
+   "evidence": "Revised: a reader found. CCountry_AfterDiplomacyChange (0xE39C0) reads `(country->Strategy).rebuild_tick` into its day count before the `9 <` test."
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0x1048",
+   "name": "border_shares",
+   "type": "int*",
+   "comment": "Begin of a std::vector<int> indexed by country id (end +0x104C): **the share of this country's border that is each other country's**, thousandths. CCountry::RebuildNeighbours adds 1000 for each edge from an owned province into a province another country both owns and controls (VA 0x4E2CF6), then divides each by the total (VA 0x4E2EA0). Read by the AI strategy's threat and antagonism builders.",
+   "source": "reversing/findings/FINDINGS-aistrategy.md",
+   "evidence": "A scan of .text for displacement 0x1048: the reservation in the per-country arrays' builder (VA 0x4D4CD8..0x4D4FA3), the clear at VA 0x4E244A and the two above in RebuildNeighbours; readers VA 0x8A7131 and 0x8A7AB2 in the strategy builders."
+  }
+ ],
+ "frontier": "0x5DABA0 0x5EB000 0x5EF4B0 0x5EFB60 0x5DEFA0 0x5E4A50 0x5DB2F0 0x4811A0 0x4A4D00"
+}

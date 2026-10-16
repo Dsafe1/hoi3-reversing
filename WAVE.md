@@ -17,6 +17,23 @@ truth.
 
 ---
 
+## The AI strategy wave - who each country fears, courts, antagonises and protects
+
+> **LANDED 2026-10-16.** Read by the collecting session alone, on the maintainer's word that day ("go ahead with it",
+> the AI strategy before the military AI); two fragments merged (25 addresses new, 5 revised, 4 struct fields, and a
+> correction moving one entry off its virtual address; apply `failed: 0`, `struct fields: 0`); the write-up is
+> `findings/FINDINGS-aistrategy.md`, indexed in `CANDIDATES.md`, where three things it left are queued. Every country's
+> strategy is rebuilt every ten days, not a handful of times a year; the base game's victory conditions antagonise the
+> controllers of the provinces they name. A third fragment the same day read the walk's other twelve bodies and
+> corrected `protect`'s cap to 6 and 12, both found by OpenHOI3's check against the start save, which then agreed in
+> every list for all 78 countries.
+
+The question, for OpenHOI3's stage 5: what fills `CAIStrategy`'s lists. OpenHOI3's foreign minister answered
+`GetFriendliness`, `GetAntagonism`, `GetThreat` and `GetProtectionism` with 0, so no AI offered a NAP, a guarantee or an
+alliance in 180 days. The start save holds every country's strategy, so it is the check.
+
+---
+
 ## The foreign minister wave - the AI's decisions and its prepared wars, then the whole minister
 
 > **LANDED 2026-10-16.** Read by the collecting session alone, on the maintainer's word that day ("continue with
