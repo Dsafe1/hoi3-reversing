@@ -102,11 +102,11 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `C3dObjectType` | `CObjectType` |  |  |  | 1 |  |  | RTTI |  |
 | `CAIAgent` | `CAISubscriber` |  | 8 + 1 lua |  | 8 |  |  | read |  |
 | `CAIEspionageMinister` | `CAIAgent` |  | 1 lua |  | 3 |  | 107 | named |  |
-| `CAIForeignMinister` | `CAIAgent` |  | 2 lua |  | 6 |  | 107 | named |  |
+| `CAIForeignMinister` | `CAIAgent` |  | 2 lua |  | 10 |  | 107 | named |  |
 | `CAIInvasion` | `CAIAgent` |  | 18 |  | 14 |  | 4 | read |  |
 | `CAIPoliticsMinister` | `CAIAgent` | 0x5C | 1 lua |  | 4 |  | 107 | named |  |
 | `CAIProductionMinister` | `CAIAgent` |  | 2 lua |  | 6 |  | 107 | named |  |
-| `CAIStrategy` | `CPersistent` |  | 57 + 4 lua | 11/22 | 23 | CAIStrategy.hpp | 324 | read |  |
+| `CAIStrategy` | `CPersistent` |  | 57 + 4 lua | 11/22 | 24 | CAIStrategy.hpp | 324 | read |  |
 | `CAISubscriber` | `CReferenceObject` |  |  |  |  |  |  | RTTI |  |
 | `CAITechMinister` | `CAIAgent` | 0x80 | 3 + 3 lua |  | 9 |  | 107 | part |  |
 | `CAIUnit` | `CAIAgent` |  | 81 |  | 36 |  | 99 | read |  |
@@ -166,7 +166,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CConvoyConstruction` | `CConstruction` |  | 1 | 1/1 | 6 | CConstruction.hpp | 40 | placed |  |
 | `CConvoyEscortOrder` | `CNavalOrder` |  |  | 1/3 | 6 |  |  | placed |  |
 | `CConvoyRaid` | `CNavalOrder` |  |  | 1/1 | 5 |  | 62 | placed |  |
-| `CCountry` | `CPersistent` |  | 276 + 71 lua | 69/126 | 162 | CCountry.hpp | 108 | read |  |
+| `CCountry` | `CPersistent` |  | 276 + 71 lua | 69/126 | 167 | CCountry.hpp | 108 | read |  |
 | `CCountryDate` | `CPersistent` |  |  | 1/2 | 1 |  |  | placed |  |
 | `CCountryHistory` | `CHistoryContainer` |  |  |  | 1 | CCountryHistory.hpp | 108 | keys | **read**: `history/countries`, where a date is a key. See GameClasses/CCountryHistory.hpp |
 | `CCountryValue` | `CPersistent` | 0x14 | 2 | 1/2 | 1 |  | 9,078 | placed |  |
@@ -177,8 +177,8 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CDependency` | `CRelation` |  |  | 5/5 | 2 |  |  | RTTI |  |
 | `CDeployment` | `CReferenceObject` |  |  |  |  |  |  | RTTI |  |
 | `CDiplomacy` | `CPersistent` |  |  | 1/9 | 2 |  | 1 | placed | **read**: the save's diplomacy block, one key per kind of agreement |
-| `CDiplomacyStatus` | `CPersistent` |  | 28 + 8 lua | 8/10 | 16 |  | 11,664 | read |  |
-| `CDiplomaticAction` | `CPersistent` |  | 7 + 2 lua | 5/6 | 5 |  | 22,113 | read |  |
+| `CDiplomacyStatus` | `CPersistent` |  | 28 + 8 lua | 8/10 | 18 |  | 11,664 | read |  |
+| `CDiplomaticAction` | `CPersistent` |  | 7 + 2 lua | 5/6 | 6 |  | 22,113 | read |  |
 | `CDiplomaticHistory` | `CHistoryContainer` |  |  |  | 1 |  | 2 | keys |  |
 | `CDiplomaticHistoryEntry` | `CHistoryEntry` |  |  |  | 1 |  |  | RTTI |  |
 | `CEU3GameLauncher` | `CGameLaunchInterface` |  |  |  |  |  |  | RTTI |  |
@@ -315,7 +315,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CVassal` | `CDependency` |  |  | 5/5 |  |  | 24 | RTTI |  |
 | `CVersion` | `CPersistent` |  |  | 1/4 | 1 |  | 9 | placed |  |
 | `CVictoryConditionManager` | `CPersistent` | 0x44 | 10 |  | 1 |  | 1 | read |  |
-| `CWar` | `CPersistent` |  | 16 + 3 lua | 7/11 | 13 | CWar.hpp | 17 | read |  |
+| `CWar` | `CPersistent` |  | 16 + 3 lua | 7/11 | 14 | CWar.hpp | 17 | read |  |
 | `CWarGoal` | `CPersistent` |  | 5 + 4 lua | 5/5 | 7 | CWar.hpp | 216 | read |  |
 | `CWarGoalBaseAction` | `CDiplomaticAction` |  |  |  | 5 |  |  | keys |  |
 | `CWarHistory` | `CHistoryContainer` |  |  |  | 2 |  | 18 | keys |  |

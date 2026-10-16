@@ -707,6 +707,25 @@ jump with no padding). What it left, none of it in the way of building:
 6. **In multiplayer**, whether another person's country gets the AI's production shares.
 7. Whether the TBB workers inherit the 24-bit x87 control word.
 
+## What the foreign minister wave left - 2026-10-16 `[game]`
+
+`findings/FINDINGS-foreignminister.md` (the collecting session alone; two fragments, 8 address entries - 6 new, 2
+revised - and 2 signatures placed whole; apply `failed: 0`, `struct fields: 0`). For OpenHOI3's stage 5, the AI taking
+decisions: the decisions pass of `FINDINGS-eventfire.md` 2.4 stands, and what `CAIForeignMinister::DoWork` does after
+`ForeignMinister_Tick` is read whole - the cached proposal, `CAIStrategy_PruneWarTargets`, the walk of prepared wars and
+`CAIStrategy_IsReadyForWar`. Corrected: the decision score is rounded to the nearest, not cut; `DoWork`'s account had the
+first walk as a filter and the declaration unread. What it left:
+
+1. ~~**Who sets the foreign minister's skip-once byte `+0x70`**~~ - its constructor (second pass, section I); who reads
+   `CAIStrategy +0xF4`, which every change to a neighbour's war target sets (the theatres' rebuild, by its look).
+2. ~~**`Propose`** and the cached proposal; the rest of `ForeignMinister_Tick`~~ - read the same day in a second pass
+   (section I, `fragments/merged/foreign-minister-api.json`): `Propose`, `ProposeWar`, `ClearWarProposal`,
+   `PercOccupied`, nine country, status, war and strategy methods, the base's slot 14, and the constructor's last three
+   writes. What nothing found reads: the proposed war (`+0x64`..`+0x6C`) and the constructor's `+0x60`.
+3. **The fronts the readiness test counts** (`COwnerArea +0x74`, `CAreaBorder`, made by `CAIStrategy::BuildTheatres`):
+   until the theatre layer is read and built, OpenHOI3 cannot answer readiness, and no prepared war is posted there.
+4. `CDeclareWarAction`'s constructor (VA `0xA11DF0`) and the goal copy (VA `0x477210`), read only as far as needed.
+
 ## The planned next wave is in `WAVE.md`
 
 **It is not in this file any more.** `WAVE.md` holds the wave that is planned and has not launched,
@@ -1227,7 +1246,7 @@ of it.
 
 ## What has already been read
 
-164 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
+165 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
 header lives. This replaces the `Done` archive: the archive restated each file's headline and named
 only 40 of the 67 there were then, so it was both longer and less useful than a complete list.
 
@@ -1391,6 +1410,7 @@ the six it was missing were wave 15's.
 | `findings/FINDINGS-effecttext.md` | how an event option's effect text is built |
 | `findings/FINDINGS-text.md` | how the game measures text |
 | `findings/FINDINGS-ministers.md` | **the ministers wave (2026-10-16)**: the tech and production ministers as the install's Lua runs them - the tech minister's day, its two arguments, the monthly re-plan that feeds nothing, a finished level taking a technology off an AI's queue, `CStartResearchCommand`, `CChangeLeadershipCommand` and their rounding, `math.random` as MSVCR80's per-thread `rand`; the production minister's day, desperation, the daily `BalanceProductionSliders` and its arguments, `FastNormalizeByPriority` and its priority table, `CChangeInvestmentCommand`, `PrioritizeBuildQueue`, an AI's finished unit placed by `DeployFinishedUnits`; and every engine method the two scripts reach - the counts by type, the queue, IC and spare manpower, unit types, buildings, provinces, the front, the underground target that is not random, and the unit, building and convoy orders |
+| `findings/FINDINGS-foreignminister.md` | **the foreign minister (2026-10-16)**, in two passes: `DoWork` in order - the cached proposal, the pruning of small war targets while a great one is prepared, and the walk of `WarTargets` that gives up transit rights into a target, puts each neighbour to the readiness test and posts a ready target's decision (no Lua score) or its war (`conquer`, or `vichy_war_goal`, `barbarossa_war_goal`, `japan_USA_goal`); `PrepareWarDecision` and its family; **the readiness test** on the theatre layer's fronts - units at 99% strength and organisation, 30% of front provinces empty, the enemy at 0.66 after three months, Japan's short front, a dead 0.33 branch; the decision score **rounded to the nearest**, correcting `LuaEvaluateDecision_CallInt` and `FINDINGS-eventfire.md` 2.4; and (section I) everything else `ForeignMinister_Tick` reaches - `Propose` keeping the day's best selectable offer and posting it above 50, `ProposeWar`, `PercOccupied`, the skip-once byte the constructor sets, `IsSelectable` from Lua reaching each kind's own slot 14 through a vcall thunk, and nine country, status, war and strategy methods |
 | `findings/FINDINGS-selection.md` | **the selection wave (2026-10-16)**: the left button over the map - a drag at 2.0 map units, the white ground outline, the box taking the player's land units, else fleets, else air units, cleared first unless Shift with units selected; the input object's slots (10 Shift, 11 Alt, 12 Ctrl); a click and a Shift-click on a counter, a stack (the cycle), a port, an air base, a battle, a province; Ctrl taking an army's whole command; the right click sent to every selected unit in order, and several fleets or air units opening the window for the first only; the rings; selection groups on the digits; and the multi-unit panel - a row per unit in selection order, its layout and scroll, a row's deselect and select-this with Ctrl and Shift, the three checkboxes, upgrade-all, detach, higher command, reorganise, merge, disband and close |
 | `findings/FINDINGS-provinceview.md` | **the province-view wave (2026-10-15)**: the window a selected province opens - it follows the selection, its refresh and every-frame update, each element's figure, intelligence gate and tooltip, the weather strip, the `adj` list and the cores box; the building columns (`show_for_province`, split at the database's middle), the pips (working, damaged, queued), a row's shortcut letter and tooltip; the `underground` window and which mouse button steps its mission; the covert-operations panel and the allied-objectives panel with `CSetAlliedObjectiveCommand` |
 | `findings/FINDINGS-provincetooltip.md` | **the tooltip of a province**, `ProvinceTooltip_Build` read whole: a selected army's `UTM_*` line, the name and the owner, the terrain mode's flags, terrain and figures, the political mode's, the supply mode's lines put together with their colours and the line on infrastructure, the tail's distances; **the `@TAG` flag icon** in text, 23 by 11 below the line's top; `CArmy +0x300` the fleet carrying it |

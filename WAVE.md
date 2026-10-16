@@ -17,6 +17,25 @@ truth.
 
 ---
 
+## The foreign minister wave - the AI's decisions and its prepared wars, then the whole minister
+
+> **LANDED 2026-10-16.** Read by the collecting session alone, on the maintainer's word that day ("continue with
+> decisions"); two fragments merged (6 addresses new, 2 revised, 2 signatures placed whole; apply `failed: 0`,
+> `struct fields: 0`); the write-up is `findings/FINDINGS-foreignminister.md`, indexed in `CANDIDATES.md`, where four
+> things it left are queued. The decision score is rounded to the nearest, not cut; the readiness test a prepared war
+> waits on counts the theatre layer's fronts.
+
+> **Second pass LANDED the same day**, on the maintainer's word "Complete the foreign minister": every engine method
+> `ForeignMinister_Tick` reaches that was unread - 14 addresses new and the constructor revised (`foreign-minister-api.json`;
+> apply `failed: 0`, `struct fields: 0`); `FINDINGS-foreignminister.md` section I. The minister's skip-once byte is set by
+> its constructor, so its first work does nothing.
+
+The question, for OpenHOI3's stage 5: what the foreign minister's day does around `ExecuteDiploDecisions` - read
+2026-10-12 (`FINDINGS-eventfire.md` 2.4) - and in particular the prepared wars four countries' scripts tie a decision to
+(`PrepareWarDecision`): Germany's Danzig, Italy's Albania and Greece, Japan's Marco Polo Bridge.
+
+---
+
 ## The ministers wave - research and production for the countries nobody plays
 
 > **LANDED 2026-10-16.** Four briefs, merged (105 address entries, 91 landed; 8 structs declared, 59 fields; apply
