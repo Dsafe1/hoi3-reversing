@@ -1,0 +1,226 @@
+{
+ "agent": "reader F of the agent wave (the movers between theatres)",
+ "question": "What CEU3AI_BalanceDivisionsBetweenTheatres, CEU3AI_DistributeFleetsToTheatres, CEU3AI_DistributeAirToTheatres and CEU3AI_GatherTransportsForTheatres move between a country's theatre agents, by what measure, with what thresholds and tie-breaks, and what they post.",
+ "source": "reversing/findings/FINDINGS-agents.md",
+ "addresses": [
+  {
+   "rva": "0x48E490",
+   "kind": "function",
+   "name": "CEU3AI_BalanceDivisionsBetweenTheatres",
+   "signature": "void __fastcall CEU3AI_BalanceDivisionsBetweenTheatres(CEU3AI* ai@ECX)",
+   "no_signature": null,
+   "comment": "Read whole on the listing, 0x48E490 to the bare `ret` at 0x48F2AD. ProcessAI at hour id%24 for an AI-run country once unit_pass_done is set. (1) For every unit agent (+0x40) with a unit (slot 74) whose root theatre resolves: CAIUnit::UpdatePlanPower - the daily refresh of divisions_needed (+0x354), divisions_counted (+0x358) and the powers - then CEU3AI_InsertAgentByShortage (0x49C140) into a local list sorted by key = need - count, less 1000 unless frontier_at_war (+0x364): descending, ties in agent order. (2) For each taker A from the head: skipped when need < count and frontier_war_candidate (+0x365) is clear. The donors are the other listed agents, walked from the tail; a donor whose theatre is connected to A's (CTheatre_IsConnectedTo, 0xB0710) goes to the front of A's donor list and the rest to the back. For each donor B: skipped when A.+0x365 is clear, B.+0x364 is set and B's plan stance (CUnit +0x208) <= 2; skipped when 3*needA - countA < 1; skipped when A.+0x365 is clear, B.+0x364 is set and countA >= 2*|A ops area (+0x90)|/3. (3) Whole-unit grab: when connected, A.+0x365 set, B.+0x365 clear and needA > needB, every division of B holding a motorized, mechanized, armor, light_armor or heavy_armor brigade (CAIUnit_CollectMobileDivisions, 0x4BF660, rolled up to whole commands) is detached and attached under A's unit. (4) General: ratioA = countA/needA, ratioB = countB/needB (1.0 where the need is 0); thresholds (t1, t2) = (0.4, 0.15), or (0.3, 0.1) with A.+0x365, or (0.35, 0.125) with both +0x365. If ratioB - t1 > ratioA, n counts up while n < needA - countA and (countA+n)/needA < (countB-n)/needB - t2. minGive = countB - needB when A.+0x365 and connected and B.+0x365 clear (and then only units of max_speed >= 2000 qualify), (countB - needB)/2 when both are +0x365, connected and countB > 2*needB, else 0; n = min(max(n, minGive), 3*needA - countA); nothing below 1. The need scale f = 1 - min(n/(countB - n - minGive), 1) where that divisor is positive, else 1. CAIUnit_PickDivisionsToGive (0x4BF8E0)(B, n, n, fastOnly, A's theatre, f) chooses the units. (5) Each chosen unit: GetPower moved from B's +0x35C to A's, CDetachUnitCommand then CAttachUnitCommand(unit, A's unit) posted - no march; A's +0x358 up and B's down by the divisions moved (1 for a division, CUnit::CountDivisions over a command's children). The counts are re-read for each donor. The name is ours. See reversing/findings/FINDINGS-agents.md, section F.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x88E490-0x88F2AD end to end: the UpdatePlanPower/0x89C140 loop at 0x88E4D9-0x88E56C, the taker gate at 0x88E626-0x88E63B, the donor walk from [esp+0x88] through node+4 with push_front/push_back on 0x4B0710's answer at 0x88E702-0x88E78B, the stance<=2 skip at 0x88E7C8-0x88E7EA, the 3*need-count test at 0x88E88F-0x88E8A6, the 2/3 ops-area test at 0x88E8DE-0x88E901, the grab block 0x88E90F-0x88EC7A, the ratio block 0x88EC7E-0x88EE0A with the float constants read from the image (0x170AC10 0.4, 0x160A894 0.15, 0x15C05EC 0.3, 0x15C05F8 0.1, 0x160AA1C 0.35, 0x160AA18 0.125, 0x171DBAC 1.0), the pick call at 0x88EE7E with seven pushes, and the post loop to 0x88F1DE. Wrong if 0x89C140 sorted ascending (it inserts after the last node whose key is >= the new one, walking from the tail) or if node+4 were next rather than prev.",
+   "revises": "Was read for its shape only (inferred). Now the whole rule: the sort, the donor order, the four donor gates, the whole-unit grab, the ratio thresholds and minGive, the pick, and that nothing marches. Corrects the callee address: the connection test is rva 0xB0710 (VA 0x4B0710), not rva 0x4B0710, which is CAIUnit::DoUpdate."
+  },
+  {
+   "rva": "0x48FBB0",
+   "kind": "function",
+   "name": "CEU3AI_DistributeFleetsToTheatres",
+   "signature": "void __stdcall CEU3AI_DistributeFleetsToTheatres(CEU3AI* ai)",
+   "no_signature": null,
+   "comment": "Read whole on the listing, 0x48FBB0 to 0x490DA3: the `ret 4` at 0x4906EF is not the end - the surface-fleet half (0x4906F2-0x490BCC) lies past it, reached by the `jb` at 0x4905C4, and returns through the cleanup at 0x4906AF (trap 3); the throw stubs end at 0x490DA3. ProcessAI at hour (id+16)%24. (1) The fleets: every naval unit of the country with no ai_agent (+0x198) of its own, in the country's unit-list order. Counting every ship of them: carriers (carrier_size > 0), capitals, screens (neither, not a transport, not a sub) go into country-wide totals; a fleet holding any submarine is a sub fleet and its ship count (+0x40) is added to its current agent's sub tally; the others are surface fleets. A fleet's current agent is the topmost agent up its chain (the theatre's). (2) Sub fleets, each in order: over the agents with a unit and a non-zero submarine_want (+0xD8), score = (want - tally) - (current agent's want - tally + the fleet's ships), the current agent's term being -10000 where it has none or a want <= 0; the strictly highest above 0 wins, the first of equals. (3) Surface: per agent whose theatre resolves and has ports (CTheatre +0x9C), the carriers, capitals and screens (not subs, not transports) of the agent-less fleets under it are counted, and want = CAIUnit_CountSightedEnemyShips (0x4B96A0); nothing more when the wants sum to 0 or less. Else for each surface fleet in order (n = its carriers + capitals + other non-sub ships, transports included): over every agent with a unit, share = (that agent's warships + n, or - n for the current agent) / the country-wide total; score = want/sum of wants - share; the strictly highest from -10000 wins. (4) A winner other than the current agent: CDetachUnitCommand where the fleet has a parent, CAttachUnitCommand(fleet, winner's unit), replan_subordinates (+0x86) on both agents, and the tallies moved. No move order. The name is ours. See reversing/findings/FINDINGS-agents.md, section F.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x88FBB0-0x890DA3: the agent-less naval walk at 0x88FC14-0x88FC90, the ship classing at 0x88FD80-0x88FE13 (+0x190, +0x31, +0x2F, +0x30), the sub-fleet loop 0x88FF90-0x8902B3 with 0xFFFFD8F0 at 0x89003B, the per-agent counts and 0x8B96A0 at 0x890405-0x8905B6, the sum test at 0x8905BC, and the surface loop 0x890718-0x890BCC with the float -10000.0 at 0x160A620. Wrong if the sum test's `jb` at 0x8905C4 went to the cleanup (it goes to 0x8906F2, the surface loop).",
+   "revises": "Was read for its shape only (inferred, 'the largest unmet naval want'). Now the two halves - submarines by submarine_want, surface fleets by share of sighted enemy ships against share of warships - the extent past the first `ret 4`, and that transports count in a fleet's size but not in an agent's."
+  },
+  {
+   "rva": "0x48F2B0",
+   "kind": "function",
+   "name": "CEU3AI_DistributeAirToTheatres",
+   "signature": "void __stdcall CEU3AI_DistributeAirToTheatres(CEU3AI* ai)",
+   "no_signature": null,
+   "comment": "Read whole on the listing, 0x48F2B0 to the `ret 4` at 0x48FBAD. ProcessAI at hour (id+16)%24, after every agent's subunit_tally (+0x23C) is zeroed. The listed types: tactical_bomber, strategic_bomber, naval_bomber, transport_plane, paratrooper_brigade (CSubUnitDataBase +0x58, +0x64, +0x68, +0x74, +0x48). For each agent A with a unit, in agent order, and each unit U of the country in list order (any kind - a land division holding a paratrooper brigade too): skipped if moved already this pass, if U has an ai_agent of its own, or if U's current agent (topmost up its chain) is A. T = U's sub-units by type (CUnit_CountSubUnitsByTypeIndex). (a) If A's theatre is the one stamped on the country's capital province (CMapProvince +0x380/+0x384 against A +0x68/+0x6C) and U holds a paratrooper or transport-plane sub-unit: moved to A, no tally. (b) Otherwise gain = the sum over the listed types U holds of (A.diff[t] - A.tally[t] - T[t]) - (cur.diff[t] + T[t] - cur.tally[t]), diff being the unit's plan_subunit_group_difference (CUnit +0x6C; for a unit with no current agent every cur.diff is -1000 and its tally 0); moved if gain > 1, or else if U holds a tactical bomber, A.+0x365 is set and the current agent's is clear. A move: both tallies adjusted for every type, CDetachUnitCommand where U has a parent, CAttachUnitCommand(U, A's unit), replan_subordinates (+0x86) on both. Interceptors, multi-roles, CAS and fighters are never moved by it. The first agent that qualifies wins, not the best. The name is ours. See reversing/findings/FINDINGS-agents.md, section F.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x88F2B0-0x88FBAD: the five-type list at 0x88F31C-0x88F423, the -1000 vector at 0x88F440-0x88F4C8, the capital-theatre flag at 0x88F53F-0x88F557 (0x417AF0 is CCountry::GetCapitalLocation), the moved-list and +0x198 skips at 0x88F598-0x88F5C2, the unconditional para/transport arm at 0x88F65A-0x88F67D, the gain loop at 0x88F890-0x88F8D6 and its `> 1` at 0x88F8D8, the tactical-bomber fallback at 0x88F8E1-0x88F8FF, and the tally loop at 0x88F960-0x88F994. Wrong if the vector at A's unit +0x6C were not plan_subunit_group_difference (it is sized against the database's type count at 0x88F845-0x88F87D, as UpdatePlanForceNeeds sizes it).",
+   "revises": "Was read for its shape only (inferred). Now the rules: the capital theatre's pull of paratroopers and transport planes, the gain against the plan's group difference, the tactical-bomber rule for a war-candidate agent, and what +0x23C is."
+  },
+  {
+   "rva": "0x490DB0",
+   "kind": "function",
+   "name": "CEU3AI_GatherTransportsForTheatres",
+   "signature": "void __stdcall CEU3AI_GatherTransportsForTheatres(CEU3AI* ai)",
+   "no_signature": null,
+   "comment": "Read whole on the listing, 0x490DB0 to the `ret 4` at 0x4912C4. ProcessAI at hour (id+8)%24. For each agent A in order with a unit, a sealift_port (+0x58, the largest naval base of its theatre's largest area, set by AssignAreaTargetsAndSealift only while it lists divisions for the sea) and amphibious_transport_tonnage (+0xD4) > 0: r = CAIUnit_SealiftWeightToEnemyDebark (0x4BDCC0); have = CAIUnit_SumTransportCapacity (0x4B4F90). While tonnage > have: over every naval unit of the country with no ai_agent of its own, no busy order (order slot 24) and transport_capability / 1000 >= 1, whose current agent (topmost up its chain) is not A, not moved already this pass - and, where that current agent itself has a tonnage above 0, only if r >= 1.0 and have < r (A's own figures) - score = 10 - min(sea distance to A's sealift port / 1000 / 400, 10) + capability/1000; the strictly highest above 0 wins, the first of equals. The winner: CDetachUnitCommand where it has a parent, CAttachUnitCommand(fleet, A's unit), have += its capability, replan_subordinates (+0x86) on A and the old agent. Ends when nothing qualifies. No move order. The name is ours. See reversing/findings/FINDINGS-agents.md, section F.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x890DB0-0x8912C4: the +0x58 and +0xD4 gates at 0x890E02-0x890E21, 0x8BDCC0 and 0x8B4F90 at 0x890E15/0x890E28, the fleet tests at 0x890E8A-0x890EDE (slot 16, +0x198, order slot 24 at +0x60, capability >= 1), the donor-agent test at 0x890F48-0x890F8F, the score at 0x890FC6-0x891043 with 400.0 (0x160A710), 10.0 (0x160A340, 0x171DBB0) read from the image, and the loop test at 0x891277. Wrong if CAIUnit +0x58 were written elsewhere than 0x4C67EB/0x4C684C/0x4C6851 and the constructor (a displacement scan over 0x8C4370-0x8C7540 and 0x8AF530-0x8AFA00 found only those).",
+   "revises": "Was read for its shape only (inferred). Now the +0x58 gate (the sealift port), the score (sea distance capped at 4000 km, plus capacity), the guard on fleets of an agent with its own sealift, and the loop."
+  },
+  {
+   "rva": "0x48C090",
+   "kind": "function",
+   "name": "CEU3AI_MarkAgentsNearTheatres",
+   "signature": "void __fastcall CEU3AI_MarkAgentsNearTheatres(CCountryTag* tag@ECX, CEU3AI* ai@stack:4)",
+   "no_signature": null,
+   "comment": "Called once, by CAIStrategy_TellFriendsOfTheatres (0x4AC390) for each friendly country with an AI, with **our** tag and **their** CEU3AI: each of their unit agents whose unit is level 0 gets area_dirty (+0x87) = 1 where any theatre of ours (CCountry +0x570) is connected (CTheatre_IsConnectedTo, rva 0xB0710: shares an area, or our headquarters can reach theirs) to that agent's theatre - so their next tick re-anchors. `ret 4`. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "The call at VA 0x88C10C is `call 0x4b0710`, a virtual address: rva 0xB0710, with our theatre in EDI and the agent's theatre pushed. Rva 0x4B0710 is CAIUnit::DoUpdate.",
+   "revises": "Only the callee's address in the comment: 0x4B0710 was the VA (trap 1); the rva is 0xB0710, now named CTheatre_IsConnectedTo."
+  },
+  {
+   "rva": "0xB0710",
+   "kind": "function",
+   "name": "CTheatre_IsConnectedTo",
+   "signature": "bool __stdcall CTheatre_IsConnectedTo(CTheatre* theatre@EDI, CTheatre* other@stack:4) @AL",
+   "no_signature": null,
+   "comment": "True when the two theatres share an owner area (their +0x84 lists hold a common COwnerArea), or else when both headquarters resolve (+0x74/+0x78 through FindPersistentByIdPair, less 8) and CMapProvince::CanUnitReach(other's headquarters' province, theatre's headquarters, true, true). `ret 4`. Three callers: CEU3AI_MarkAgentsNearTheatres (our theatre in EDI) and CEU3AI_BalanceDivisionsBetweenTheatres twice (the donor's theatre in EDI, the taker's pushed). The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x4B0710-0x4B07C2 whole: the nested area walk 0x4B0714-0x4B074D, the two id lookups through 0xA9D390, the `push 1; push 1; push esi; mov ecx, [eax+0x130]` before 0x5C7710 (CanUnitReach), exits `ret 4` with al 1 or 0. findRefs --callers: 0x88C10C, 0x88E702, 0x88E86E. Wrong if CTheatre +0x74/+0x78 were not the headquarters' id pair.",
+   "revises": null
+  },
+  {
+   "rva": "0x49C140",
+   "kind": "function",
+   "name": "CEU3AI_InsertAgentByShortage",
+   "signature": "void __stdcall CEU3AI_InsertAgentByShortage(CList* list, CAIUnit** agent)",
+   "no_signature": null,
+   "comment": "Sorted insert into a CList of CAIUnit* by key = divisions_needed (+0x354) - divisions_counted (+0x358), less 1000 when frontier_at_war (+0x364) is clear: walking from the tail it inserts after the first node whose key is >= the new one's, else at the front - so the list runs from the most short (agents at war first) to the most surplus, equal keys in insertion order. `ret 8`. One caller, CEU3AI_BalanceDivisionsBetweenTheatres. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled and checked on the listing to the four `ret 8` (0x89C1B1-0x89C23A); the walk reads node+4 (prev) from list+4 (tail). Wrong if the comparison were `<` rather than `iVar2 <= iVar5` (new key <= node key inserts after).",
+   "revises": null
+  },
+  {
+   "rva": "0x4B96A0",
+   "kind": "function",
+   "name": "CAIUnit_CountSightedEnemyShips",
+   "signature": "int __cdecl CAIUnit_CountSightedEnemyShips(CAIUnit* agent@EAX) @EAX",
+   "no_signature": null,
+   "comment": "The sum of regiments_count (+0x40) over the units whose id pairs are on the agent's enemy_units_sighted list (+0x25C), each resolved through the id registry (0x1A857F0 above type 0x1268, 0x1A857F4 otherwise). Bare `ret` at 0x4B970D; the function at 0x4B9710 is another. Callers: CEU3AI_AssignSeaTargetsToAgents (0x48C9CA) and CEU3AI_DistributeFleetsToTheatres (0x490568), where it is an agent's naval want. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x8B96A0-0x8B970D whole: the list walk with next at +0xC, the registry choice at 0x8B96D2, `add edi, [eax+0x40]` after the -8 adjust. Wrong if +0x25C held something other than unit ids (FINDINGS-forceneeds.md resolves the same list to units).",
+   "revises": null
+  },
+  {
+   "rva": "0x4BDCC0",
+   "kind": "function",
+   "name": "CAIUnit_SealiftWeightToEnemyDebark",
+   "signature": null,
+   "no_signature": "One stack argument, the agent (`ret 4`), and a float answered in XMM0 - the caller stores xmm0 straight after the call (0x890E1A) - which no x86 calling convention Ghidra offers expresses.",
+   "comment": "debark = the agent's unit's plan debark (CUnit +0x288); if CCountry::IsEnemy(our country, that province's controller, the province) the answer is the sum of weight / 1000 (CSubUnitDefinition +0x10C of the unit's definition) over the land units on +0x11C whose target (CArmy +0x2E8) is the debark province, else 0. One caller, CEU3AI_GatherTransportsForTheatres. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x8BDCC0-0x8BDF20: +0x64 -> +0x288 at 0x8BDCDC-0x8BDCE5, the province lookup and 0x42F210 (IsEnemy, ESI country, EDX tag) at 0x8BDD57-0x8BDD7D, the unrolled sum over +0x11C comparing +0x2E8 with the debark id. Wrong if +0x10C were not the transport weight (the record has `weight`).",
+   "revises": null
+  },
+  {
+   "rva": "0x4B4F90",
+   "kind": "function",
+   "name": "CAIUnit_SumTransportCapacity",
+   "signature": "int __stdcall CAIUnit_SumTransportCapacity(CAIUnit* agent)",
+   "no_signature": null,
+   "comment": "The sum over the agent's naval_transports (+0xEC) of each fleet's definition (CUnit +0xC8) transport_capability (+0x144) / 1000, divided per fleet in C integer division. `ret 4` at 0x4B505B; UpdatePlanPower begins at 0x4B5060. One caller, CEU3AI_GatherTransportsForTheatres. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x8B4F90-0x8B505B whole: the pairwise unrolled loop and the remainder, each `imul 0x10624DD3; sar 6` (/1000). Wrong if +0xEC held anything but fleets (the record's naval_transports).",
+   "revises": null
+  },
+  {
+   "rva": "0x4C38C0",
+   "kind": "function",
+   "name": "COwnerArea_LargestNavalBase",
+   "signature": "CMapProvince* __fastcall COwnerArea_LargestNavalBase(COwnerArea* area@ECX) @EAX",
+   "no_signature": null,
+   "comment": "The area's province (walking +0x24) with a sea link (template +0xA4 >= 1) and a naval base of level_max >= 1000 whose level is the largest - scored -level/1000 against a best of 1000000.0, strictly, so the first of equals - or null. Bare `ret`. Callers: AssignAreaTargetsAndSealift at 0x4C67E6 (on CTheatre_LargestArea of the agent's theatre) and 0x4C6847 (on the area of the agent's headquarters' province), each storing the answer at CAIUnit +0x58. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x8C38C0-0x8C3935 whole; constants read from the image: 0x160A598 = 1000000.0f, 0x160A6D0 = -1000.0. Wrong if CMapProvince +0x300 were not the naval base (the record's naval_base).",
+   "revises": null
+  },
+  {
+   "rva": "0x4BEC70",
+   "kind": "function",
+   "name": "CAIUnit_UnitMayLeave",
+   "signature": "bool __stdcall CAIUnit_UnitMayLeave(CAIUnit* agent, CArmy* unit, CList* exclude, bool strict, bool notInBattleSide)",
+   "no_signature": null,
+   "comment": "False when the unit is retreating (+0x158). In combat (+0x11C > 0): false when it is landing from the sea (CUnit::IsLandingFromSea) with progress below 1000, and for each of its combats (+0x114) whose slot 8 answers false, false when slot 12 also does, or when notInBattleSide and the unit is on the combat's +0x14 side list. Then over the province's edges not of kind 3 to land, simulated, enemy-controlled (CCountry::IsEnemy) provinces: enemies = their enemy land units, incoming = friendly land units there (CanOperateIn) bound for this unit's province. True when !strict and incoming <= 0; otherwise k = CAIUnit_CountIdleDivisionsBesideWarCandidate(agent, unit, exclude): false when incoming > 0 and k < 1, false when strict and k - enemies < 1, else true. `ret 0x14`, seven callers (slot 78 twice, the division picker, AssignAreaTargetsAndSealift and the land manager). The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x8BEC70-0x8BEF24 whole. What combat slots 8 and 12 ask is not read. Wrong if +0x14 of a combat were not a side record (only its +0x40 list is walked).",
+   "revises": null
+  },
+  {
+   "rva": "0x4BEF30",
+   "kind": "function",
+   "name": "CAIUnit_CountEnemyUnitsOnWarCandidateBorders",
+   "signature": "int __stdcall CAIUnit_CountEnemyUnitsOnWarCandidateBorders(CAIUnit* agent, CArmy* unit)",
+   "no_signature": null,
+   "comment": "Over the unit's province's edges not of kind 3 to land, simulated provinces whose controller our strategy's IsWarCandidate accepts: the number of land units standing there. `ret 8`. One caller, the division picker, which computes it and does not use it on the path its caller takes (quota >= 1). The name is ours.",
+   "confidence": "inferred",
+   "evidence": "Decompiled whole; extent and `ret 8` checked on the listing (0x8BF0BD, 0x8BF0D2). Likely, not stepped: the decompiler's reading of a short loop. Wrong if the controller test were IsEnemy rather than IsWarCandidate (the call is named in the decompilation as CAIStrategy::IsWarCandidate).",
+   "revises": null
+  },
+  {
+   "rva": "0x4BF0E0",
+   "kind": "function",
+   "name": "CAIUnit_CountIdleDivisionsBesideWarCandidate",
+   "signature": "int __stdcall CAIUnit_CountIdleDivisionsBesideWarCandidate(CAIUnit* agent, CArmy* unit, CList* exclude)",
+   "no_signature": null,
+   "comment": "1000 unless some edge of the unit's province (not of kind 3) reaches a land, simulated province whose controller our strategy's IsWarCandidate accepts; then the number of other divisions (oob_level 4) in the unit's province that are not moving (+0x2CC < 1), have no path left (+0x140 < 1) and are not on the exclude list. `ret 0xC`. Callers: slot 78, CAIUnit_UnitMayLeave and the division picker. The name is ours.",
+   "confidence": "inferred",
+   "evidence": "Decompiled whole; `ret 0xC` at 0x8BF2D5 checked on the listing. Likely, not stepped. Wrong if the default were not 1000 (the decompilation's `iVar10 = 1000`).",
+   "revises": null
+  },
+  {
+   "rva": "0x4BF660",
+   "kind": "function",
+   "name": "CAIUnit_CollectMobileDivisions",
+   "signature": "CList* __stdcall CAIUnit_CollectMobileDivisions(CAIUnit* agent, CList* out)",
+   "no_signature": null,
+   "comment": "Empty without a unit or a theatre. Otherwise every land unit on +0x11C, in order, other than the agent's own unit, with a brigade (+0x40 >= 1), at oob_level 4, and holding at least one brigade of type motorized_brigade, mechanized_brigade, armor_brigade, light_armor_brigade or heavy_armor_brigade (CSubUnitDataBase +0x38, +0x3C, +0x2C, +0x84, +0x30); each one's parent, other than the agent's unit, is listed once; then CAIUnit_RollUpWholeCommands. `ret 8`. One caller, CEU3AI_BalanceDivisionsBetweenTheatres' whole-unit grab. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled whole and the tests checked on the listing: +0x64 at 0x8BF71C, +0x40 at 0x8BF725, +0x1F4 == 4 at 0x8BF72F, the five +0x24 compares at 0x8BF74A-0x8BF789, +0x1E0 at 0x8BF7D1, `ret 8` at 0x8BF6C2 and 0x8BF8D7. Wrong if those five database offsets were other brigade types (the record names them).",
+   "revises": null
+  },
+  {
+   "rva": "0x4BF8E0",
+   "kind": "function",
+   "name": "CAIUnit_PickDivisionsToGive",
+   "signature": "CList* __stdcall CAIUnit_PickDivisionsToGive(CAIUnit* agent, CList* out, int maxCount, int quota, bool fastOnly, CTheatre* toTheatre, float needScale)",
+   "no_signature": null,
+   "comment": "The donor's choice of up to maxCount divisions for another theatre. Per owner area of the donor's theatre (+0x84): keep = round-half-even(EstimateAreaNeed(agent, area, relaxed) x needScale), at least 1 where the need is above 0; have = CAIUnit::CountDivisionsInArea. Candidates, in +0x11C order: divisions (level 4, a brigade) other than the agent's unit; not army_role 8; army_role 5 only off a province of more than 9 victory points or its own supply depot; CAIUnit_UnitMayLeave(agent, unit, candidates, false, true); not bound (CUnit_GetPendingDestinationProvince) for an enemy-controlled province; with fastOnly, definition max_speed >= 2000; not standing on the agent's target-area provinces (+0x1CC); and not in an area whose have <= keep with keep > 0. maxD = the largest DistanceToTheatreFronts(province, toTheatre) over them (0.1 when 0). Then repeatedly, while fewer than maxCount are picked: over the unpicked candidates with k = CAIUnit_CountIdleDivisionsBesideWarCandidate >= 1 (with quota < 1 instead k - enemies >= 1; quota counts down from maxCount, so never here): skipped when the agent is +0x365, fastOnly is clear and the division holds a motorized, mechanized, armor, light_armor or heavy_armor brigade; score = (1 - distance/maxD) x (15 if its parent is a parent already picked from, else 10), x 0.25 unless its area is one of toTheatre's areas or touches one (COwnerArea +0x34), / 3 when it holds a bergsjaeger brigade, stands idle on a mountain province of the agent's ops area (+0x90, terrain is_mountain), x min(k/100, 1); the strictly highest above 0 is picked, the first of equals, and its parent (not the agent's unit) is listed. Nothing left: stop. Finally CAIUnit_RollUpWholeCommands. `ret 0x1C`. One caller. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x8BF8E0-0x8C0154 whole: the area maps at 0x8BF991-0x8BFA9B (fistp at 0x8BFA1A, the floor to 1 at 0x8BFA23-0x8BFA2B), the candidate tests 0x8BFAE0-0x8BFC72, the 0.1 default (0x15C05F8) at 0x8BFC9B, the pick loop 0x8BFCB2-0x8C0074 with 10.0 (0x171DBB0), 15.0 (0x160A838), 0.25 (0x160A258), 3.0 (0x160A4E8), 100.0 (0x160A358). Wrong if the role-5 arm compared other fields than victory_points (+0x34) and supply_depot_id (+0x48) against id (+0xD0).",
+   "revises": null
+  },
+  {
+   "rva": "0x4C0160",
+   "kind": "function",
+   "name": "CAIUnit_RollUpWholeCommands",
+   "signature": "void __stdcall CAIUnit_RollUpWholeCommands(CAIUnit* agent, CList* picked, CList* parents)",
+   "no_signature": null,
+   "comment": "For each listed parent P not in combat (+0x11C), not retreating (+0x158) and not a theatre (oob_level 0): if every one of P's children (+0x1E4, count +0x1EC) is on the picked list, those children are taken off it and P appended; P's own parent, unless null, the agent's unit or listed already, goes on a second list, which gets the same test once more and no further. So a corps whose divisions were all picked moves whole, and an army whose corps all did. `ret 0xC`. Callers: CAIUnit_CollectMobileDivisions and CAIUnit_PickDivisionsToGive. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x8C0160-0x8C04B2: the two passes 0x8C01A2-0x8C033E and 0x8C0352-0x8C0482, the second appending to the picked list (0x8C043F-0x8C047C) and no further parent. Wrong if the second pass also appended grandparents (it has no +0x1E0 read).",
+   "revises": null
+  },
+  {
+   "rva": "0x4B7F80",
+   "kind": "function",
+   "name": "CAIUnit::CountDivisionsInArea",
+   "signature": "int __thiscall CAIUnit::CountDivisionsInArea(CAIUnit* this, COwnerArea* area, int* powerOut, bool anyLevel)",
+   "no_signature": null,
+   "comment": "Over a copy of the agent's land units (+0x11C) - plus, for the played country only, its divisions with no agent up their chain - each one at oob_level 4 (any level with anyLevel) whose anchor province's area is valid and is the area, or lies in a region group (COwnerArea +0x6C) listing the area while its controller is not us and we may operate in it: counted, and its GetPower added to *powerOut. `ret 0xC`, four callers (the division picker, AssignAreaTargetsAndSealift, 0x49273C, 0x4D4CD7). The name is ours.",
+   "confidence": "inferred",
+   "evidence": "Decompiled whole; `ret 0xC` at 0x8B82E2 and the thiscall (`mov ecx, [ebp+8]` before the call at 0x8BFA7E) checked on the listing. Likely, not stepped: the region-group arm is the decompiler's reading. Wrong if the player test compared something other than gamestate->player.id with the agent's country id.",
+   "revises": null
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CAIUnit",
+   "offset": "0x23C",
+   "name": "subunit_tally_first",
+   "type": "int*",
+   "comment": "Begin of a std::vector<int> (end +0x240, capacity end +0x244) sized to the number of sub-unit types, one per type index: **CEU3AI_DistributeAirToTheatres' running tally of what it has moved this pass** - each unit given to this agent adds its sub-units by type, each taken away subtracts them - so an agent's remaining want is plan_subunit_group_difference minus this. ProcessAI zeroes every element at hour (id+16)%24 (0x489B4D) just before the fleets and air distributors; the fleets distributor does not use it (it keeps maps of its own).",
+   "evidence": "Readers and writers in 0x88F2B0-0x88FBAD: read at 0x88F8A4 (the receiver) and 0x88F8C3 (the donor), added at 0x88F96C and subtracted at 0x88F97F in the move loop over every type index. Not touched in 0x88FBB0-0x890DA3.",
+   "revises": "The comment said what it counts was not read; now read."
+  },
+  {
+   "struct": "CAIUnit",
+   "offset": "0x58",
+   "name": "sealift_port",
+   "type": "CMapProvince*",
+   "comment": "The port the agent gathers transports at: written by CAIUnit::AssignAreaTargetsAndSealift at the end of its tail - while amphibious_transport_tonnage (+0xD4) is above 0, COwnerArea_LargestNavalBase of CTheatre_LargestArea(the agent's theatre) (0x4C67EB), or with no theatre that of the area of its headquarters' province (0x4C684C); null with no tonnage (0x4C6851). Zeroed by the constructor (0x4AF571). Read by CEU3AI_GatherTransportsForTheatres, which skips an agent without one and measures each fleet's sea distance to it.",
+   "evidence": "Displacement scan over 0x8C4370-0x8C7540 and 0x8AF530-0x8AFA00 for disp 0x58: the three stores through ESI (the agent, `mov esi, [ebp+8]` at 0x8C67C3) and the constructor's, the rest stack slots. The reader at 0x890E02. Not a check of the whole image: another writer through a different base would not show.",
+   "revises": null
+  }
+ ],
+ "frontier": ["0x48C140", "0x4B9610", "0x4C4370"]
+}

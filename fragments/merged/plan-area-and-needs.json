@@ -1,0 +1,264 @@
+{
+ "agent": "agent wave reader E (2026-10-17): the plan's area - ops area, axis, embark and debark, min",
+ "question": "What CAIUnit::SetArea computes and posts, what the axis is, where embark and debark come from, what ReplanSubtree's callees and RebuildFocusOwnerAreas do, why 16 theatres have no ops area, and what the save's min counts are - against the saves.",
+ "source": "reversing/findings/FINDINGS-agents.md",
+ "addresses": [
+  {
+   "rva": "0x4BA5A0",
+   "kind": "function",
+   "name": "CAIUnit::SetArea",
+   "signature": "void __stdcall CAIUnit::SetArea(CAIUnit *agent, CTheatre *area)",
+   "no_signature": null,
+   "revises": true,
+   "comment": "**The theatre agent's operations area, and for a country the AI runs the only writer of its plan's ops area** (slot 76 runs only for the human's delegated AI). 0x4BA5A0 to the single epilogue at 0x4BBAD6, `ret 8`, both arguments on the stack. Clears area_dirty (+0x87) first, then does nothing unless the agent has a unit at oob_level 0 and `area` (its theatre) is not null. In order: (1) CAIUnit::RebuildFocusOwnerAreas, and the ops-area vector (+0x90) cleared. (2) **Only where the owner AI's runs_units (+0x2C) is clear** - the human's delegated AI - the distinct owner areas of the plan's objectives not owned by us; for every AI country this is skipped. (3) The candidate fronts: the theatre's own fronts (+0x50) in order, then, for each focus area on +0x338 that AreaMayWidenFrontSearch(us, area, &out, false) allows (and recording the area where `out` comes back set), the fronts of every theatre of that area's controller whose first province lies in the area and whose enemy is not us (for a subject agent only those against an enemy at war, REB, or covered by an undeclared war), deduplicated - so a subject's fronts join its overlord's theatre. (4) Per front: wideOpen = theatre not hot, or CAIStrategy::IsPreparingWarWith(enemy), or (our CDiplomacyStatus towards the enemy +0x5C >= 40000 and the enemy's +0xA90 <= 20000) - forced false when step 2 found objective areas; the front is taken when it is hot (CAreaBorder +0x28, the save's `front`), or IsWarCandidate(enemy), or wideOpen and IsFrontWorthyEnemy(enemy), or it is one of step 2's fronts. (5) A taken front's province p goes in, in the front's order, when MaxInfrastructure(p) >= g_AiFrontProvinceThreshold (200, two levels), p is in a real owner area, p is ours, a front province (CProvince::IsFrontProvince(p, false)) or held by our subject (controller's +0xF3C is us), and some edge of p not of kind 3 reaches a land, simulated province whose controller is hostile - id 0, REB, or not CCountry::IsSameSide and either not a co-belligerent (CDiplomacyStatus +0x58) or an enemy (IsEnemyTag) - **and which is itself in a real owner area, i.e. has more than one level of infrastructure** (for step 2's restricted fronts the neighbour's area must also be an objective area). Each p goes onto +0x90 and its id onto the command's list. (6) Only where step 3 recorded focus areas: for each province of the owner AI's priority list (CEU3AI +0x118) in or beside one of them, at war with its owner the three ops provinces nearest it, otherwise every ops province within CMap distance 100 of it, are kept, and every other ops province in a recorded area is erased from both lists. (7) **Second chance**, where the area has an id and +0x90 came out empty: each of the theatre's own fronts whose enemy's threat towards us (enemy strategy +0x50 hash, keyed by our id) plus, for an AI country, our antagonize of it (strategy +0x6C hash) exceeds 100 gives every province with MaxInfrastructure >= 200 in a real area - no neighbour test. Then, always, one CSetPlanOpsAreaCommand with the ids is posted, the five replan calls run (RebuildOpsAreaProvinceRecords only at plan stance 0), CArmy +0x2EC is refilled from the plan's objectives, slot 82 runs with false, +0x84 = 1 and +0x82 = 0. **Checked against the saves**: all 106 AI theatre plans of Germany1936_01_04_12, _01_08_07 and _04_20_03 are this rule province for province and in order - 82 by the main path, 2 with a subject's fronts appended (JAP's Kwantung Army with Manchukuo's, the Soviet Far East with Mongolia's), 6 by the second chance (each front with threat plus antagonize above 100 taken whole), 16 empty (no front taken and none above 100: islands with no front, or only fronts against countries not front-worthy). Called by CAIUnit::Tick (area_dirty, or at hour 1 when the day of the year is a multiple of 7), CAIUnit::SetUnit, slot 76's adoption and CTogglePlanObjectiveCommand::Execute.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agents.md",
+   "evidence": "Read on the decompiler and checked on the listing at 0x8BACA0-0x8BAD8B (front gate: hot at +0x28, IsPreparingWarWith, threat 0x9C40, neutrality 0x4E20, IsWarCandidate, IsFrontWorthyEnemy), 0x8BAD90-0x8BB0BD (the province loop: [esi+0x5C] against [0x1B151E4], area slot 0 on p and on the neighbour, IsSameSide/+0x58/IsEnemyTag) and 0x8BB656-0x8BB6CB (second chance only with +0x90 empty). A neighbour's area is real only above one level of infrastructure (RebuildOwnerAreas, FINDINGS-supplynetwork.md section 2), which is what made 9 front provinces with only one-level hostile neighbours drop out; with that, a script over the saves (scratchpad wave/E opssim3.py, the install's map/cache/adjacencies.bin for the edges) reproduces all 106 plans in three saves. What would show it wrong: a theatre whose saved ops area takes part of a front by the main path for any reason but the neighbour test, or a second-chance theatre whose fronts do not split at threat plus antagonize 100. Front acceptance by IsFrontWorthyEnemy was not recomputed from first principles; it was taken as all-or-nothing per front and spot-checked (SOV takes FIN/POL/ROM/MAN/JAP fronts and not AFG/PER/SIK, FIN takes SOV and not SWE/NOR, a subject such as MON takes none)."
+  },
+  {
+   "rva": "0x4B0D20",
+   "kind": "function",
+   "name": "CAIUnit::RebuildFocusOwnerAreas",
+   "signature": "void __thiscall CAIUnit::RebuildFocusOwnerAreas(CAIUnit* this)",
+   "no_signature": null,
+   "revises": true,
+   "comment": "0x4B0D20 to the bare `ret` at 0x4B0E52, `this` in ECX. Frees the CList at +0x338, takes the agent's theatre (CAIUnit::GetArea; none: done), and for each distinct region group (COwnerArea +0x6C) of the theatre's areas (+0x84) in order whose real areas hold more than one province in all (AreaGroup_CountProvinces, rva 0x803F0), calls CollectTheatreFocusAreas(theatre, group, &this->+0x338) (rva 0xB0F20). **Corrected: the earlier comment called the collector 0x4B0F20 as an rva; the call at VA 0x8B0E2D is to VA 0x4B0F20, which is rva 0xB0F20** (trap 1). So +0x338 is the other same-side countries' areas in the theatre's block of land that border this theatre most. Called by CAIUnit::Tick at the hour (id + 9) % 24 and first thing by CAIUnit::SetArea, which reads +0x338 to take a subject's fronts.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agents.md",
+   "evidence": "Listing: `call 0x4803f0` at 0x8B0E17 compared `> 1`, `call 0x4b0f20` at 0x8B0E2D; both targets are VAs below 0x500000 and decode as function entries (0x4803F0 bare ret, 0x4B0F20 ret 0xC). What would show it wrong: a call target read as VA 0x8B0F20, which is inside slot 32's body."
+  },
+  {
+   "rva": "0xB0F20",
+   "kind": "function",
+   "name": "CollectTheatreFocusAreas",
+   "signature": "void __stdcall CollectTheatreFocusAreas(CTheatre* theatre, void* areaGroup, CList* focusAreas)",
+   "no_signature": null,
+   "comment": "0x4B0F20 to the `ret 0xC` at 0x4B1164. Repeats while a pass adds something: first, where the group's province total (AreaGroup_CountProvinces) is not above the list's count, it returns; then for each area A of the group's list in order - skipped where A's controller (its first province's) is the theatre's country (+0x80), where that country and A's controller are both in real factions (slot 7) that differ, or where A is already listed - A is appended where TheatreBordersAreaMost(theatre, A, &edges) answers true, or where edges came back 0 and the list already holds something. So the focus areas are other same-side countries' areas of the theatre's region group (a connected block of one side's land, CollectAreaGroup) that touch this theatre more than any other theatre of ours, grown outward through areas that touch none. Callers: CAIUnit::RebuildFocusOwnerAreas (VA 0x8B0E2D), VA 0x4B1203 (the function at rva 0xB1170) and VA 0x864FE4.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-agents.md",
+   "evidence": "Read on the decompiler; the extent and the `ret 0xC` on the listing (int3 run from 0x4B1167). Inferred because the loop's guard compares a province total against a count of areas, which reads oddly and was not stepped on the listing. Positive check: SetArea's pass over these areas reproduces Manchukuo's fronts in Japan's Kwantung Army ops area and Mongolia's in the Soviet Far East's, in the saves. What would show it wrong: a focus area that does not belong to the theatre's region group."
+  },
+  {
+   "rva": "0xB1240",
+   "kind": "function",
+   "name": "TheatreBordersAreaMost",
+   "signature": "bool __stdcall TheatreBordersAreaMost(CTheatre* theatre, COwnerArea* area, int* mostEdges)",
+   "no_signature": null,
+   "comment": "0x4B1240 to the `ret 0xC` at 0x4B14BC. Over the area's land fronts (+0x74), each front's provinces and each of their edges not of kind 3 to a land, simulated province controlled by the theatre's country (+0x80), counts the edges per that province's theatre serial (CMapProvince +0x384) in a std::map; *mostEdges = the largest count (0 when none); answers whether the serial with the largest count - the first strictly greater, in ascending serial order - is this theatre's (+0xC).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agents.md",
+   "evidence": "Listing 0x4B13C0-0x4B14BC: the controller test against [theatre+0x80], the map key [eax+0x384], the strict `cmp ecx, edx; jle` maximum, *out written at 0x4B147D and `cmp esi, [ecx+0xC]; sete bl` at 0x4B1484. One caller, CollectTheatreFocusAreas at VA 0x4B10F1. What would show it wrong: a theatre id compared by type half as well."
+  },
+  {
+   "rva": "0x803F0",
+   "kind": "function",
+   "name": "AreaGroup_CountProvinces",
+   "signature": "int __cdecl AreaGroup_CountProvinces(CList* group@EAX) @EAX",
+   "no_signature": null,
+   "comment": "0x4803F0 to the bare `ret` at 0x480421: the sum of provinces_count (+0x2C) over the group list's areas that are real (slot 0). A region group is COwnerArea +0x6C's object (CollectAreaGroup). Two callers: CAIUnit::RebuildFocusOwnerAreas (a group counts only above 1) and CAIUnit::EstimateAreaNeed (VA 0x8B90BF).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agents.md",
+   "evidence": "Read whole on the listing (13 instructions). findRefs --callers gives exactly 0x8B0E17 and 0x8B90BF. What would show it wrong: a caller passing something other than a COwnerArea +0x6C in EAX."
+  },
+  {
+   "rva": "0x4DCAE0",
+   "kind": "function",
+   "name": "CAIUnit_GetFrontCoverage",
+   "signature": null,
+   "no_signature": "The agent comes on the stack (`ret 4`) and the answer is a float returned in xmm0 (movss/cvtsd2ss), which no x86 signature here expresses; Ghidra's int return is wrong.",
+   "comment": "**What CAIUnit +0x368 holds: the share of the agent's exposed positions that have a division of ours in them.** 0x4DCAE0 to three `ret 4` (0x4DCB1D, 0x4DCD4B, 0x4DCD9C). 0.0 without a unit. The record list is +0x2FC (the hold positions RebuildOpsAreaProvinceRecords makes) at plan stance 0, else +0x2C0 (ScoreOpsAreaProvinces'); an empty list gives 0.0. For each record's province: over its edges not of kind 3 to land, simulated provinces, the first neighbour that CCountry::IsEnemy (the province-aware 0x42F210) and whose owner area holds more than 5 provinces makes the record **exposed**, and then the province's units (+0x2B8) are walked - the first that answers slot 15, has a controller tag that is not empty or REB, is CCountry::IsSameSide or a co-belligerent that is not IsEnemyTag, and has no children (+0x1EC <= 0) makes it **covered**. No exposed record: 1.0. Otherwise covered / min(exposed, count of the vector at +0x12C), worked in double and rounded to float; 0.0 where +0x12C is empty. One caller, CAIUnit::Tick at VA 0x8B09F0, which stores it into +0x368 every hour; its one reader is CEU3AI::UpdateUnitStances at VA 0x891AE3.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agents.md",
+   "evidence": "Read whole on the listing 0x8DCAE0-0x8DCD9C: the list choice at 0x8DCB20-0x8DCB2E on [unit+0x208], the 5-province test at 0x8DCC80, the covered walk at 0x8DCCA3-0x8DCD1E, the 1.0f at 0x171DBAC, the cmovg minimum and the divsd at 0x8DCD6E-0x8DCD89; the store `movss [esi+0x368], xmm0` at 0x8B09FC. A scan of 0x880000-0x8E8000 for +0x368 finds the two writers (ctor 0x8AF9DE, tick) and one CAIUnit reader, 0x891AE3; the other two hits read a province's and another object's +0x368. What would show it wrong: a second reader of the agent's +0x368."
+  },
+  {
+   "rva": "0x4BC860",
+   "kind": "function",
+   "name": "CAIUnit::RebuildAreaNeighbourProvinces",
+   "signature": "void __stdcall CAIUnit::RebuildAreaNeighbourProvinces(CAIUnit* agent, void* opsAreaVector)",
+   "no_signature": null,
+   "revises": true,
+   "comment": "0x4BC860 to the `ret 8` at 0x4BCD59, read whole. Empties the vectors at +0xA0 and +0xB0 (the second is never filled here). **Ring one**: every province across an edge not of kind 3 from an ops-area province that is land, simulated, controlled by a country (id not 0, not REB) that is CCountry::IsSameSide or a co-belligerent (CDiplomacyStatus +0x58) and not an enemy, and is not in the ops area - deduplicated into a local vector. **Ring two**: the same test from each ring-one province; a province not in the ops area, not in ring one and not already listed is appended to +0xA0. **So +0xA0 is friendly land exactly two steps out from the operations area, and the adjacent ring is thrown away** - corrected: the earlier comment had +0xA0 as the adjacent provinces and the middle unread.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agents.md",
+   "evidence": "Decompiled whole; on the listing ring one is pushed into the local vector at [ebp-0x34]/[ebp-0x30] (0x8BCA8F-0x8BCAD9) and the second loop walks [ebp-0x34] (0x8BCB2A-0x8BCB4B), its push being the one at 0x8BCD12 onto +0xA0. What would show it wrong: a store of ring one into +0xA0 anywhere in 0x8BC860-0x8BCD59."
+  },
+  {
+   "rva": "0x4BCD60",
+   "kind": "function",
+   "name": "CAIUnit::RebuildOpsAreaProvinceRecords",
+   "signature": "void __thiscall CAIUnit::RebuildOpsAreaProvinceRecords(CAIUnit* this, void* opsAreaVector)",
+   "no_signature": null,
+   "revises": true,
+   "comment": "**The hold positions of a defensive plan.** 0x4BCD60, `ret 4`; every caller runs it only at plan stance 0 (CUnit +0x208). Clears the map at +0x30C and the record list at +0x2FC, then per ops-area province p in order: where p is its own supply depot (+0x48 == +0xD0) and has no record yet, a 0x1C-byte record {p, 0, 100.0f, 0, 0, 0, 0}. Otherwise over p's edges not of kind 3 to land, simulated provinces: enemies (CCountry::IsEnemy) across an edge of kind 1 or 2 are counted (`crossings`); friendly ones (IsSameSide, or a co-belligerent and not an enemy) are counted, those in the ops area separately, and the friendly neighbour kept is the last one outside the area (or the first inside where none is outside), with a flag for an outside one across a kind 1 or 2 edge. The position is p, except: exactly one friendly neighbour outside the area, and `10 x fort level(it) + 10 if flagged > 10 x (fort level(p) + crossings)` - then that neighbour; or none outside but one inside - then that inside neighbour. Fort level is the province modifier 10 (FORT_LEVEL) / 1000. A record {position, 0, 50.0f, ...} is made for the position once (the map dedups). CAIUnit_GetFrontCoverage reads +0x2FC at stance 0.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-agents.md",
+   "evidence": "Read whole on the decompiler; on the listing the depot test and the record allocation at 0x8BCDFE-0x8BCE57, and the two floats (100.0 at 0x1717BFC, 50.0 at 0x15C0548) read from the image. Inferred because the neighbour bookkeeping (which neighbour is kept) was not stepped on the listing. What would show it wrong: a record at stance 0 for a province that is neither in the ops area nor beside it."
+  },
+  {
+   "rva": "0x4B5210",
+   "kind": "function",
+   "name": "CAIUnit_ComputePlanForces",
+   "signature": "void __stdcall CAIUnit_ComputePlanForces(CAIUnit* agent)",
+   "no_signature": null,
+   "revises": true,
+   "comment": "**The force planner every AI country's theatre takes, and what fills the save's `min`.** 0x4B5210-0x4B60EC (`ret 4`), chosen by slot 73 where played_countries_array[country] is 0. brigadeDemand = divisions_needed (+0x354) x 3 + invasion_brigade_need (+0x370); totalBrigades = the sum of +0x40 (regiment count) over the units of +0x11C. A zeroed vector<int> of GetNumberOfSubUnits() entries then gets six aircraft wants, each only where technology_status->unit_available[type] and SubUnitDefinitionIsUsableBy admit the type: transport_plane += round(sum of transport_weight/1000 over +0x16C's armies / (transport_capability/1000)); tactical_bomber (cas where tactical is not available) += (totalBrigades + brigadeDemand) / 40, truncated; strategic_bomber += round(s) where s = sum over +0x18C of (LOCAL_IC + current_producing crude_oil)/1000, / 300, halved where +0x90 is non-empty, and only where s > 0; naval_bomber = round(score) (a plain store); multi_role += round(0.5 x tactical + 0.5 x score + 0.5 x transport planes); interceptor += (totalBrigades + brigadeDemand) / 40. The score: +0.07 / +0.15 / +0.02 per brigade (heavy_cruiser / is_capital / anything but a **submarine**) of each unit on +0x25C (sightings gained) **that is an enemy** (at war, REB either way, or covered by an undeclared war), and -0.07 / -0.15 / -0.02 per brigade (anything but a **transport_ship** for the last) of **every** unit on +0x26C (sightings lost), with no enemy test - so at peace it is only ever 0 or negative. Rounding is fistp, to nearest even. Posts CSetPlanForcesCommand only where the vector's length or any entry differs from the plan's min; never CSetPlanAttributesCommand. **Checked against the saves**: of the 58 entries only index 29 (interceptor), 39 (naval_bomber) and 53 (tactical_bomber) are ever non-zero in the 106 AI theatre plans; interceptor and tactical are equal but where the technology is missing (FIN and GRE hold no single_engine_aircraft_design and want neither, POR lacks twin_engine_aircraft_design and wants an interceptor only); naval_bomber is negative in exactly 9 theatres, all of countries holding nav_development; and floor(brigades under the HQ / 40) never exceeds the interceptor want where the type is available.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agents.md",
+   "evidence": "Decompiled whole; on the listing the two sighting loops (0x8B5BE0-0x8B5C31 adding, 0x8B5E12-0x8B5E77 subtracting; the third comparison against [esp+0x3C] = db+0x90 submarine in the first and [esp+0x44] = db+0x88 transport_ship in the second, stored at 0x8B59D5-0x8B59E3; no enemy test between the resolve and the brigade walk in the second), the naval_bomber store at 0x8B5EC7 after fistp, multi_role's three 0.5 (0x160A308) terms, the interceptor's /40 (0x66666667, sar 4). The save check is scratchpad wave/E mincheck.py and the technology lines of each country block. What would show it wrong: a land or ship type non-zero in an AI theatre's min, or a positive naval_bomber want between countries at peace."
+  },
+  {
+   "rva": "0x4C4370",
+   "kind": "function",
+   "name": "CAIUnit::AssignAreaTargetsAndSealift",
+   "signature": "bool __stdcall CAIUnit::AssignAreaTargetsAndSealift(CAIUnit* agent, bool daily)",
+   "no_signature": null,
+   "comment": "**Where embark and debark come from.** 0x4C4370 to the `ret 8` at 0x4C7530 (an early `ret 8` at 0x4C43B4), about 12.7 KB, one caller: CAIUnit::Tick at VA 0x8B0C38 for the agent planning its order of battle, with daily = (hour == (id + 6) % 24). Ghidra's own label on it, CSetAIParamCommand::CSetAIParamCommand_4, is wrong. Runs only where the agent has a unit and +0x5C is set (cleared here), or daily, or the owner AI does not run units. The head (read on the decompiler only) builds, per owner area of the theatre (+0x84), a need from CAIUnit::EstimateAreaNeed (halved for the acting capital's area at war) and a count of what is there, and gives each land division of +0x11C a target province (CArmy +0x2E8, the save's `target`) through CSetAIParamCommand(unit, target, staging), moving it with CEU3AI::MoveUnit where CMapProvince::CanUnitReach allows and otherwise listing it for the sea. The tail: +0xD4 = the summed transport_weight/1000 of the listed divisions, +0x58 from 0x4C38C0 of the theatre's largest area (0 when nothing is listed); where exactly one of the plan's embark and debark is set, or both but no listed division bound for debark stands in embark's area, **CSetPlanTransportStateCommand(unit, 0, 0)** clears them; then, while debark is unset and anything is listed and the agent has transports (+0xEC), the listed divisions vote for their target province (weight 1, or 4 where one of the two per-area tallies of the area the division stands in is below 1, +3 where the other is above 0, +10 where the target is not ours - checked on the listing at VA 0x8C6A97-0x8C6B90), the best not yet tried is debark, and embark is 0x4C3AF0's port in the area most of those divisions stand in - **CSetPlanTransportStateCommand(unit, embark, debark)**; without an embark port the target is set aside and the next tried. With both set, the divisions bound there are marched to embark and transports (+0xEC) not already there are sent, nearest by naval distance weighted by strength and organisation, until their transport_capability covers the divisions' weight. In the saves both are always ports and debark is a listed division's target in 10 of 12 plans that have one (_01_04_12).",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-agents.md",
+   "evidence": "Extent and gates on the listing (0x8C4370-0x8C43CB: [edi+0x64], [edi+0x5C], [ebp+0xC], owner +0x2C; +0x5C cleared at 0x8C43CB); the two CSetPlanTransportStateCommand constructions at VA 0x8C68A0 and 0x8C6E8B (findRefs --callers 0x5E8C00), whose Execute writes CUnit +0x284/+0x288 (plan +0x88/+0x8C). The rest is the decompiler's and is inferred. What would show it wrong: an embark or debark in a save that is not a port, or a plan with only one of the two set."
+  },
+  {
+   "rva": "0x1E8C00",
+   "kind": "function",
+   "name": "CSetPlanTransportStateCommand::CSetPlanTransportStateCommand",
+   "signature": "CSetPlanTransportStateCommand* __stdcall CSetPlanTransportStateCommand::CSetPlanTransportStateCommand(CSetPlanTransportStateCommand* self, CUnit* unit, int embark, int debark)",
+   "no_signature": null,
+   "comment": "0x5E8C00 to the `ret 0x10` at 0x5E8CA4. Inlines the CCommand base (vftable 0x11B4F74, 0x18D at +4, 0x733 at +0x2C and +0x30, 0xFFFF tickstamp at +0x34), writes its own vftable 0x11C949C, builds the unit reference at +0x3C (0x2DD70), and stores embark at +0x64 and debark at +0x68; the object is 0x6C bytes. Two callers, both in CAIUnit::AssignAreaTargetsAndSealift (VA 0x8C68A0 with 0, 0; VA 0x8C6E8B with the two provinces).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agents.md",
+   "evidence": "Read whole on the listing; findRefs --callers 0x5E8C00 gives the two sites; the operator new(0x6C) before each. What would show it wrong: a third constructor site."
+  },
+  {
+   "rva": "0x1E8CB0",
+   "kind": "function",
+   "name": "CSetPlanTransportStateCommand::Execute",
+   "signature": "void __thiscall CSetPlanTransportStateCommand::Execute(CSetPlanTransportStateCommand* this)",
+   "no_signature": null,
+   "comment": "Slot 6 of CSetPlanTransportStateCommand (one table, 0x11C949C). Resolves the unit reference (+0x40/+0x44) through the id registry and writes **plan embark (CUnit +0x284, CUnitPlan +0x88) = +0x64** and **plan debark (CUnit +0x288, CUnitPlan +0x8C) = +0x68**; nothing else - no refresh of the force needs. Like CSetPlanAttributesCommand it stores through a null unit where the lookup fails.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agents.md",
+   "evidence": "Read whole on the listing 0x5E8CB0-0x5E8D5B (stores at 0x5E8D04 and 0x5E8D3D, the second through the persistent pointer, unit - 8 + 0x288); vtable.py --holding 0x5E8CB0: one table, slot 6. What would show it wrong: another writer of CUnit +0x284/+0x288 in the AI."
+  },
+  {
+   "rva": "0x4DEBB0",
+   "kind": "function",
+   "name": "CUnitPlan::SetOpsArea",
+   "signature": "void __stdcall CUnitPlan::SetOpsArea(CUnitPlan* plan, void* provinces)",
+   "no_signature": null,
+   "revises": true,
+   "comment": "Replaces the plan's operations area - the province list at `+0x18`/`+0x1C`/`+0x20` - with the province ids it is given, freeing the old one. **First it grows the plan's min (+0x70/+0x74) with zeros up to the subunit database's count** (building the database if there is none), so any plan given an ops area saves GetNumberOfSubUnits() entries of `min` - 58 in Their Finest Hour, type 0 being the null definition. Both arguments are on the stack.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agents.md",
+   "evidence": "Listing 0x8DEBB0-0x8DECA1: the inlined CSubUnitDataBase construction, then the loop comparing an index against (db+0x20 - db+0x1C) >> 2 and pushing 0 onto plan +0x74 while it is past the vector's end; decompiled whole. All 106 saved plans have 58 entries. What would show it wrong: a saved plan with an ops area and a shorter min."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CAIUnit",
+   "offset": "0x368",
+   "name": "front_coverage",
+   "type": "float",
+   "comment": "The share of the agent's exposed hold or scored positions with a division of ours standing in them, 0.0 to 1.0 (1.0 when none is exposed) - CAIUnit_GetFrontCoverage, stored by CAIUnit::Tick every hour at VA 0x8B09FC. Its one reader is CEU3AI::UpdateUnitStances (VA 0x891AE3).",
+   "source": "reversing/findings/FINDINGS-agents.md",
+   "evidence": "Listing 0x8B09F0-0x8B09FC (`call 0x8dcae0; movss [esi+0x368], xmm0`); displacement scan of 0x880000-0x8E8000 for +0x368. What would show it wrong: another writer after the constructor."
+  },
+  {
+   "struct": "CAIUnit",
+   "offset": "0x5C",
+   "name": "reassign_areas_now",
+   "type": "uint8_t",
+   "comment": "Seeded 1 by the constructor (0x8AF574) and set again at VA 0x8D5503 and 0x8D5619 (observer slots); while set, CAIUnit::AssignAreaTargetsAndSealift runs in the next hour rather than waiting for its daily hour, and clears it (VA 0x8C43CB).",
+   "source": "reversing/findings/FINDINGS-agents.md",
+   "evidence": "Byte accesses at +0x5C in 0x8AF4D0-0x8DCDA0: the four writes listed and the test at 0x8C43B7. What would show it wrong: a reader that treats it as something other than a request flag."
+  },
+  {
+   "struct": "CAIUnit",
+   "offset": "0x2FC",
+   "name": "hold_positions_first",
+   "type": "void*",
+   "comment": "Head of the CList of 0x1C-byte position records {province, 0, weight float (100.0 for a supply depot, 50.0 otherwise), 0, 0, 0, 0} that CAIUnit::RebuildOpsAreaProvinceRecords rebuilds at plan stance 0; CAIUnit_GetFrontCoverage walks it at stance 0 in place of +0x2C0.",
+   "source": "reversing/findings/FINDINGS-agents.md",
+   "evidence": "Listing 0x8BCD94 (`lea eax, [esi+0x2fc]` handed to the list clear) and the record build at 0x8BCE22-0x8BCE57; 0x8DCB2E picks it at stance 0. What would show it wrong: a non-record payload in its nodes."
+  },
+  {
+   "struct": "CAIUnit",
+   "offset": "0x30C",
+   "name": "hold_position_by_province",
+   "type": "void*",
+   "comment": "A std::map from CMapProvince* to its record on +0x2FC (0x4DCF30 is its operator[]), cleared and rebuilt with +0x2FC by CAIUnit::RebuildOpsAreaProvinceRecords; it is what makes one record per position.",
+   "source": "reversing/findings/FINDINGS-agents.md",
+   "evidence": "Listing 0x8BCD83 (`lea edi, [esi+0x30c]` handed to the map clear) and the operator[] at 0x8BCE15. What would show it wrong: a key that is not a province."
+  },
+  {
+   "struct": "CAIUnit",
+   "offset": "0xB0",
+   "name": "cleared_province_vector_first",
+   "type": "CMapProvince**",
+   "revises": true,
+   "comment": "Begin of a vector (end +0xB4, capacity end +0xB8), zeroed by the constructor and the destructor and emptied by CAIUnit::RebuildAreaNeighbourProvinces on every replan, which never fills it; no filler was found. **Not a COrder***: the reader the old name came from, 0x4AF4E0, takes a CUnit in ESI (CUnit +0x2CC, +0xB0 order_ptr) - FINDINGS-setarea.md's correction 1.",
+   "source": "reversing/findings/FINDINGS-agents.md",
+   "evidence": "Listing 0x8BC8B2-0x8BC8DD (end = begin after a zero-length move); +0xB4/+0xB8 accesses in 0x8AF4D0-0x8DCDA0 are only the constructor (0x8AF5DB), the destructor (0x8B02BD) and this clear - the hits at 0x8C8385/0x8C85E7 are an inlined CSubUnitDataBase construction. 0x4AF4E0 opens `cmp [esi+0x2cc], 0`. What would show it wrong: a COrder vftable call through CAIUnit +0xB0."
+  },
+  {
+   "struct": "CAIUnit",
+   "offset": "0xA0",
+   "name": "area_neighbours_first",
+   "type": "CMapProvince**",
+   "revises": true,
+   "comment": "Begin of a vector<CMapProvince*> (end +0xA4, capacity end +0xA8) that CAIUnit::RebuildAreaNeighbourProvinces clears and refills on every replan with **friendly land two steps out from the operations area** - same side, or a co-belligerent that is not an enemy; neither in the area nor beside it. Corrected: this said the adjacent provinces. Read by the land manager (VA 0x8CA1E2 and on).",
+   "source": "reversing/findings/FINDINGS-agents.md",
+   "evidence": "See CAIUnit::RebuildAreaNeighbourProvinces: ring one into a local vector, ring two from it into +0xA0. What would show it wrong: a province adjacent to the ops area in +0xA0."
+  },
+  {
+   "struct": "CUnitPlan",
+   "offset": "0x70",
+   "name": "min",
+   "type": "std::vector<int>",
+   "revises": true,
+   "comment": "How many regiments of each subunit type the plan wants, indexed by CSubUnitDefinition::type_index - **type 0 is the null definition, made first (`push 0` at VA 0x5AEFED); types 1 on are the units files in the order the folder is listed** (Their Finest Hour: 57 in tfh/units, so 58 entries, interceptor 29, naval_bomber 39, tactical_bomber 53). The same vector CUnit reaches as plan_subunit_wanted at +0x26C, twelve bytes (+0x70..+0x7B). Written by CSetPlanForcesCommand (CUnitPlan::SetMinForces) and padded with zeros by CUnitPlan::SetOpsArea; for an AI theatre it holds only the six aircraft wants of CAIUnit_ComputePlanForces, and because the theatre's plan is active at oob_level 0 CUnit::UpdatePlanForceNeeds leaves it alone. Saved as `min`.",
+   "source": "reversing/findings/FINDINGS-agents.md",
+   "evidence": "The loader passes a running index to the definition constructor (VA 0x5AF7FA-0x5AF809) after building the null one with 0; the saves' non-zero entries fall exactly on the three aircraft at file position + 1. What would show it wrong: a mod whose units folder lists in another order with the save's entries still on these indices."
+  },
+  {
+   "struct": "CUnitPlan",
+   "offset": "0x88",
+   "name": "embark",
+   "type": "int",
+   "revises": true,
+   "comment": "The province a sealift embarks at - a port - saved as `embark`, 0 for none. Besides the plan's own constructor, loader, SetActive's off arm and CUnitPlan::ApplyToUnit's whole-plan copy, it is written by CSetPlanTransportStateCommand::Execute, whose only poster is CAIUnit::AssignAreaTargetsAndSealift: the port, in the area most of the divisions it could not send by land stand in, from which they sail to debark. CAIUnit_ManageNavalUnits lets a transport fleet take warships while it is set.",
+   "source": "reversing/findings/FINDINGS-agents.md",
+   "evidence": "CSetPlanTransportStateCommand::Execute writes CUnit +0x284 = plan +0x88; its two constructor sites are both in 0x4C4370 (findRefs --callers 0x5E8C00, plus the prototype in RegisterCommandTypes). 12 plans of _01_04_12 have one, every one a naval base. What would show it wrong: an embark that is not a port."
+  },
+  {
+   "struct": "CUnitPlan",
+   "offset": "0x8C",
+   "name": "debark",
+   "type": "int",
+   "revises": true,
+   "comment": "The province a sealift lands at - a port - saved as `debark`, 0 for none. Beside the plan's own housekeeping (as embark), written by CSetPlanTransportStateCommand::Execute (CUnit +0x288); the AI's choice is the target province (CArmy +0x2E8) most voted for by the divisions CAIUnit::AssignAreaTargetsAndSealift could not send by land.",
+   "source": "reversing/findings/FINDINGS-agents.md",
+   "evidence": "As for embark; in _01_04_12 debark is a division's saved `target` in 10 of the 12 plans that have one. What would show it wrong: a debark no division of the theatre was ever given."
+  }
+ ],
+ "vftable_slots": {
+  "CSetPlanTransportStateCommand": {
+   "6": "Execute"
+  }
+ },
+ "frontier": [
+  "0x4C3AF0",
+  "0x4C3940",
+  "0x4C3D50",
+  "0x4C38C0",
+  "0x4B7F80",
+  "0x1D66D0",
+  "0x4D4070",
+  "0x4D4D40",
+  "0x1CE350",
+  "0xEFB40",
+  "0xB1170",
+  "0x464C40",
+  "0x48F2B0"
+ ]
+}

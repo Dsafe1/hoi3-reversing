@@ -1,0 +1,96 @@
+{
+ "agent": "agents wave, reader G",
+ "question": "what puts the history's units under the theatre headquarters in a new game's first hour",
+ "source": "reversing/findings/FINDINGS-agents.md",
+ "addresses": [
+  {
+   "rva": "0x48D560",
+   "kind": "function",
+   "name": "CEU3AI_SortUnitsIntoTheatres",
+   "replaces": "AnnounceLoadedUnitsToScreen",
+   "revises": "Was AnnounceLoadedUnitsToScreen(void* owner, char flag), 'tells the interface about a country's units' (FINDINGS-effecttext.md, FINDINGS-ai.md: 'almost certainly the CAIUnit agent refresh'). The 0x64-byte object is a CDetachUnitCommand (constructor 0x1DE1D0 called at 0x48D894) and the 0x8C one a CAttachUnitCommand (0x1DE890 at 0x48D957), and the in_game_screen call is the session's post. The owner is the CEU3AI (CCountry +0x1D8).",
+   "signature": "void __stdcall CEU3AI_SortUnitsIntoTheatres(CEU3AI* ai, bool spareOtherAgentsUnits)",
+   "no_signature": null,
+   "comment": "**Puts every unit of a country under the headquarters of the theatre it stands in** - what spreads the history's order of battle over a new game's theatres, the start save's whole order of battle (FINDINGS-agents.md G). `ret 8`, read whole on the listing (0x48D560 to 0x48DA33). Two passes over the country's units (CCountry +0xBAC, list order - after a load, children before their parents). **(1)** For each unit U not of oob_level 0: P = CEU3AI_GetUnitTheatreProvince(U, ai) (0x48DA40); T = the theatre stamped on P (CMapProvince +0x380/+0x384), U skipped unless T exists and is the AI's country's (CTheatre +0x80 == CEU3AI +0x24). With the flag set and T's headquarters bound to an agent (CUnit +0x198), U is also skipped where the nearest agent up its chain (CUnit_FindNearestAgent) answers slot 65 and its unit (slot 74) is not of level 0. Then from U up the parents (+0x1E0), while the unit reached is not of level 0, each parent's province by the same function is tested: stamped with T, the climb goes on to it; stamped otherwise (or not at all), the climb stops and **the unit below that parent is listed** - once, compared by pointer, in the order first found. A climb that reaches the top or a level-0 unit without leaving T lists nothing, except U itself when U has no parent at all. **(2)** For each listed unit A in order: skipped where it is an air unit (slot 17) holding a CAG wing (CSubUnitDefinition +0x32); P and T again and T's headquarters resolved, else skipped; where A has a parent a CDetachUnitCommand(A) (0x64 bytes) is posted, then CAttachUnitCommand(A, the headquarters) (0x8C bytes) - both through the in-game screen's session (slot 18, +0x38, slot 6), so they run at the next drain of commands and the attach appends A last under the headquarters. No test of a unit's kind beyond the CAG one: divisions, commands, fleets and air units alike. Hazard, not reached: a parent whose province comes back null makes the climb loop on the same unit for ever (0x48D6EC to 0x48D725). Callers: ProcessAI's readiness gate (0x48984D, flag = the country is the player's - CCurrentGameState +0xC34), CInGameIdler::Update's one-off kick for each unplayed country (0x2561C5, flag 0), ApplyCustomGameSettingFaction (0x1C460, flag 1), CProductionView::BuildSliders (0x3FCA12, flag 1), and CAddDivisionEffect::Execute (0x5B5DD5) and CLoadOOBEffect::Execute (0x5BBE22) only where CCurrentGameState +0xD0C is set and the country is the player's. **Recorded until 2026-10-17 as AnnounceLoadedUnitsToScreen, which 'tells the interface about a country's units': the two objects it builds are the detach and attach commands, and the interface call is the post.** Checked against Germany1936_01_01_00: run on every country's history order of battle with that save's theatres it gives the parent of all 1555 units the files and the save share, and the children of all 108 theatre headquarters in order; without it 535 parents and 100 headquarters differ. See reversing/findings/FINDINGS-agents.md, section G.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agents.md",
+   "evidence": "Read whole on the listing, VA 0x88D560-0x88DA33 (ret 8), against Ghidra's decompilation; the two constructors identified by their call targets and allocation sizes (0x64, 0x8C), matching the record's sizes for both. The rule reproduces Germany1936_01_01_00 exactly: scratch sim.py runs it on each of 78 countries' history files (tfh layer first) with the save's theatres, stamps and controllers - 1555 of 1555 matched units' parents and 108 of 108 headquarters' child lists in order (the 24 unmatched are CAG air units made at load, which stay under their carriers), against 535 parents and 100 lists wrong without it. Wrong if a unit in some save stands in one theatre under a command standing in another right after the first AI pass."
+  },
+  {
+   "rva": "0x48DA40",
+   "kind": "function",
+   "name": "CEU3AI_GetUnitTheatreProvince",
+   "signature": "CMapProvince* __stdcall CEU3AI_GetUnitTheatreProvince(CUnit* unit@EAX, CEU3AI* ai@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "**The province a unit counts as standing in, for CEU3AI_SortUnitsIntoTheatres.** `ret 4`, the unit in EAX and the CEU3AI on the stack; read whole on the listing (0x48DA40 to 0x48DCE3). In order: (1) a land unit (slot 15) carried by a fleet (CArmy +0x300): the last province of the fleet's path (the node at CUnit +0x13C) where the path is not empty (+0x140) and that province is land (template +0xD4, +0x22) controlled by the AI's country (CMapProvince +0x338 == CEU3AI +0x24); else the fleet's base (home_base_ptr +0x98, slot 0) where it has one. (2) A fleet (slot 16) carrying anything (CNavy +0x2EC) with a path: its path's last province on the same test. (3) The unit's own base (+0x98, slot 0) where it has one, **whoever controls it** - so a fleet or an air unit is placed by its base. (4) Its destination (CUnit::GetMovementDestinationProvince) where the AI's country controls it; else its location (+0x130) where it does. (5) Otherwise a search from R - the destination where there is one, else the location: best = 1,000,000.0 and cur = R; over the country's theatres (CCountry +0x570) in order whose headquarters resolves, that headquarters' location is answered at once where R's area (+0x2B4) is real (slot 0), CCountry::CanOperateIn(R's controller) and CTheatre_CoversArea(theatre, R's area); otherwise, where (float)CMap::DistanceBetweenProvinces(cur, its location) < best, best is that distance and **cur becomes the headquarters' location** - so every distance after the first best is measured from the last best headquarters, not from R. Answers cur, which is R where nothing came nearer. A unit with neither base nor location would fault on a null +0xD0 there; none reaches it. Three callers, all in 0x48D560. The name is ours. See reversing/findings/FINDINGS-agents.md, section G.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agents.md",
+   "evidence": "Read whole on the listing, VA 0x88DA40-0x88DCE3 (three ret 4 exits, 0x88DB02, 0x88DCD1 and 0x88DCE3), the decompilation beside it; the walking reference read off 0x88DC89 (`mov eax,[ebp+8]`) and 0x88DCBB (`mov [ebp+8],edi`). The save shows the walk: the Philippine Force (a top-level USA division at Manila, PHI-held) is under CONUS East Theater, which the walking reference gives (SF 6948, then Washington from SF 3029, Honolulu from Washington 4716) and a fixed one would not (Honolulu 5091 from Manila against 6948 and 9786) - distances from map/positions.txt points, an approximation of CMap's centres. Wrong if CMap +0x2C/+0x30 put Honolulu nearer Washington than San Francisco is."
+  },
+  {
+   "rva": "0x1B6E60",
+   "kind": "function",
+   "name": "CUnit_FindNearestAgent",
+   "signature": "CAIAgent* __fastcall CUnit_FindNearestAgent(CUnit* unit@ECX) @EAX",
+   "no_signature": null,
+   "comment": "**The nearest AI agent up a unit's chain**: the unit's own ai_agent (CUnit +0x198), else its parent's (higher_oob_unit_ptr +0x1E0), and so on; null where none up to the top has one. The unit in ECX, the agent in EAX, bare `ret` (0x1B6E60 to 0x1B6E84), nothing written. Nine call sites in five functions: CUnit_AttachToParent (three), CUnit::AdvanceMovement (two), CEU3AI_SortUnitsIntoTheatres, CAIUnit::ManageSubordinates and two in the range recorded as PlanNavalStanceName (VA 0x8E14D9, 0x8E14E4). In no virtual table. The name is ours. See reversing/findings/FINDINGS-agents.md, section G.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agents.md",
+   "evidence": "Eleven instructions read whole, VA 0x5B6E60-0x5B6E84 (bare ret); callers by findRefs --callers 0x5B6E60 (9 sites); vtable.py --holding: in no table. Wrong if a caller expects something other than an agent in EAX."
+  },
+  {
+   "rva": "0xB1170",
+   "kind": "function",
+   "name": "CTheatre_CoversArea",
+   "signature": "bool __fastcall CTheatre_CoversArea(CTheatre* theatre@ECX, COwnerArea* area@EDX) @AL",
+   "no_signature": null,
+   "comment": "**Whether a theatre counts an owner area as its own**: true where the area's controller - its first province's (COwnerArea +0x24, controller id +0x338; none, with +0x2C zero) - is the theatre's country (CTheatre +0x80); otherwise false where the area has no region group (+0x6C), and else CollectTheatreFocusAreas(theatre, group, list) (0xB0F20) is run into a local list and the answer is whether the area is on it (the list freed by 0x50D1E0). So any area of the theatre's own country answers true, **whichever theatre of that country it lies in**. The theatre in ECX, the area in EDX, bare `ret` (0xB1170 to 0xB1238). Two callers: CEU3AI_GetUnitTheatreProvince's search (0x48DC71) and slot 79's lending test (0x4B38DA, the call the record's slot-79 entry writes as 0xB1170(theatre, area)). The name is ours. See reversing/findings/FINDINGS-agents.md, section G.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agents.md",
+   "evidence": "Read whole on the listing, VA 0x4B1170-0x4B1238 (three bare ret exits, 0x4B11D3, 0x4B11ED, 0x4B1238); 0xB0F20's three pushes (list, area +0x6C, theatre) match its recorded signature. Callers by findRefs --callers 0x4B1170 (2). Wrong if 0xB0F20's list is not a list of COwnerArea*."
+  },
+  {
+   "rva": "0x4894E0",
+   "kind": "function",
+   "name": "ProcessAI",
+   "signature": "void __stdcall ProcessAI(CEU3AI* ai)",
+   "no_signature": null,
+   "comment": "**One country's whole AI pass**, read whole on the listing (rva 0x4894E0 to the `ret 4` at 0x489BB5; two earlier `ret 4` exits at 0x489618 and 0x48986A with the body continuing past them - trap 3). In order: (1) nothing while `ai +0x128` (ai_paused, the console's AI pause) or the country's theatres_dirty (CCountry +0x580) is set; (2) the played country (`ai->id == gamestate->player`) has runs_units (+0x2C) cleared; (3) CEU3AI_RefreshUnitDestinations (0x49A800), AI_ManageUndergrounds (0x489E10); (4) a country owning no province and not in exile: CEU3AI_SendLandlessUnitsOnExpedition (0x499A10) and return; (5) firstPass = unit_pass_done (+0xA5) clear - but in a game loaded from a save (gamestate +0xD9C) firstPass is false and theatres_changed (+0xA6) is cleared; (6) every enabled minister on +0x74 is ticked (slot 9) and the foreign minister answers its offers (0x49E010); (7) the played country with automation[6] == 1: DeployFinishedUnits (0x48B300), every hour; (8) the played country of a loaded game with runs_units clear and no unit agent yet: CreateAgentsForPlannedUnits (0x48BEF0); (9) CEU3AI_DisbandTheatrelessHQs (0x489BD0) - a true answer ends the pass; (10) while theatres_changed is set, the strategy's theatres (CCountry +0x570, which is CAIStrategy +0xE4) are walked: the first whose `unit` does not resolve sends the pass on to (11); when every one resolves, CEU3AI_SortUnitsIntoTheatres(ai, isPlayer) - every unit put under the headquarters of the theatre it stands in, by posted detach and attach commands (FINDINGS-agents.md G) - theatres_changed cleared and **return**, so that hour ticks no agent; (11) every unit agent (+0x40) and every invasion agent (+0x50) is ticked through slot 9. Then with hour = (tick - 43800000) % 24 and the country id: (12) at hour 1 of the 1st of a month the failed-invasion areas (+0x94) are freed; at hour id%24 CEU3AI_AssignSeaTargetsToAgents (0x48C140); always CEU3AI_PruneInvasions (0x491BE0) into a local list; (13) a country whose runs_units is clear (the played one): on even hours, for each unit agent CEU3AI_RankInvasionAreas (0x495530) and CEU3AI::PlanAmphibiousInvasion (0x492190) with that agent - and nothing more; (14) every other country: CEU3AI_RecallStrandedLandUnits (0x498870) on the first pass or at hour (id+16)%24; CEU3AI::CreateAgentsForTheatres (0x48AA80); CEU3AI_BindAgentsAndAttachOrphans (0x48DCF0, whose answer is always false); at hour id%24 CEU3AI_ChoosePride (0x499C80), CEU3AI_BalanceDivisionsBetweenTheatres (0x48E490) where unit_pass_done is set, CEU3AI::RebuildPriorityProvinces (0x4976E0), RankInvasionAreas(ai, null), CEU3AI_RebuildWeakEnemyPorts (0x4972E0), CEU3AI::GenerateUnitObjectives (0x4980E0), PlanAmphibiousInvasion(ai, list, null); else at hour (id+8)%24 CEU3AI_GatherTransportsForTheatres (0x490DB0), DeployFinishedUnits, AI_ReassignLeaders (0x498EF0); else at hour (id+16)%24 every unit agent's per-type tally (CAIUnit +0x23C) zeroed, CEU3AI_DistributeFleetsToTheatres (0x48FBB0), CEU3AI_DistributeAirToTheatres (0x48F2B0), and CEU3AI_PromoteLeadersForCommands (0x499280); then CEU3AI::UpdateUnitStances(ai, hour == (id+16)%24) and unit_pass_done = 1. Callers: RunAIPass's tbb parallel_for, once a game hour from the frame after the hour turns; CInGameIdler::Enter for a game loaded from a save; a once-per-process multiplayer kick; idler slot 67 (FINDINGS-ai.md). **A single-player new game runs none of it during its two days and first hour.** See reversing/findings/FINDINGS-agents.md, section A.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agents.md",
+   "revises": "the readiness gate's call named for what it does: it posts the sort, it does not announce units; nothing else changed",
+   "evidence": "One phrase of the comment, the call at VA 0x88984D, read with 0x48D560 whole."
+  },
+  {
+   "rva": "0x4897E8",
+   "kind": "instruction",
+   "name": "ProcessAI_TheatreReadinessGate",
+   "signature": null,
+   "no_signature": null,
+   "comment": "`cmp byte [edi+0xa6], al` with al == 0 (CEU3AI_DisbandTheatrelessHQs's false answer) - the top of a block in ProcessAI (0x4897E8-0x48986A) that runs only while CEU3AI +0xA6 (theatres_changed) is set. It walks the country's theatres at CCountry +0x570, which is the embedded strategy's area_theatre list (CAIStrategy +0xE4), resolving each theatre's `unit` id pair (CTheatre +0x74/+0x78) through 0xA9D390, and goes on to the agent loops (0x48986D) at the first that does not resolve, leaving the flag set for the next hour. When every theatre has a live HQ - or the country has none - it calls CEU3AI_SortUnitsIntoTheatres(ai, ai->id == gamestate->+0xC34) at 0x48984D - which posts a CDetachUnitCommand and a CAttachUnitCommand for each unit standing in another theatre than its parent, putting it under its own theatre's headquarters (FINDINGS-agents.md G; this is what the start save's order of battle shows) -, clears +0xA6 at 0x489852 and **returns** (`ret 4` at 0x48986A), so that hour ticks no agent and runs none of the rest of the pass. The constructor seeds +0xA6 to 1, so every country's first AI pass ends here once its HQs exist. Worker thread - the sort posts its commands through CCurrentGameState::in_game_screen's session off the tick thread.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agents.md",
+   "revises": "the call at 0x48984D is the sort of the country's units into its theatres, not an announcement; nothing else changed",
+   "evidence": "The gate re-read at VA 0x8897E8-0x88986A: the flag pushed is sete over gamestate +0xC34 == the country id; the callee read whole."
+  },
+  {
+   "rva": "0x5B57F0",
+   "kind": "function",
+   "name": "CAddDivisionEffect::Execute",
+   "signature": "void __thiscall CAddDivisionEffect::Execute(CAddDivisionEffect* this, CEventScope* scope, int unknown)",
+   "no_signature": null,
+   "comment": "**Slot 11, what `add_division` does.** Takes the province from the effect's +0x3C through g_CMap +0x2200 and the owner from the scope's country, falling back to the province's controller (+0x334/+0x338). Then walks the {definition, name} entries the loader collected at +0x40/+0x44 and, for the first one, allocates the parent unit too - **the class coming from the brigade definition's own flags**: land (+0x2D) gives CRegiment 0xD8 under CArmy 0x308, is_air (+0x2C) CWing under CAir 0x2F4, anything else CShip 0xF8 under CNavy 0x2FC. Each object gets an id from the generator at 0x170AF78 with type 0x29, its type through CSubUnit::SetType, its name from the entry's string, and its organisation from CSubUnit::GetMaxOrganisation; then CUnit::EnterProvince puts the unit **on the map** - not in the deployment pool - and, only where CCurrentGameState +0xD0C is set and the scope's country is the player's, CEU3AI_SortUnitsIntoTheatres(its CEU3AI, 1) at 0x5B5DD5 puts its units under the theatres they stand in (FINDINGS-agents.md G; the record had this call as a notice to the player). See reversing/findings/FINDINGS-oob.md. Signature corrected 2026-10-02 by the signature audit (reversing/findings/FINDINGS-sigaudit.md).",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-oob.md",
+   "revises": "its last call is CEU3AI_SortUnitsIntoTheatres and is gated on +0xD0C and the player's country; the record had it as AnnounceLoadedUnitsToScreen telling the player",
+   "evidence": "VA 0x9B5D9E-0x9B5DD5: sete over gamestate +0xC34 == the country, je on gamestate +0xD0C == 0 and on that byte, then the push of the flag and of CCountry +0x1D8."
+  }
+ ],
+ "struct_fields": [],
+ "vftable_slots": {
+  "CAddDivisionEffect": {
+   "11": "Execute"
+  }
+ },
+ "frontier": []
+}

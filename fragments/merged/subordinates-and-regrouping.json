@@ -1,0 +1,500 @@
+{
+ "agent": "agent wave, reader C - subordinates moved between commands, and fleets and air units regrouped",
+ "question": "What CAIUnit slots 78-80 do to the order of battle, where the three CTransferSubUnitCommand sites are and when they fire, what regroups fleets and air units into new ones under a theatre (which ships go together, how many, where, what name), and the Execute of the commands involved.",
+ "source": "reversing/findings/FINDINGS-agents.md",
+ "addresses": [
+  {
+   "rva": "0x4B1D10",
+   "kind": "function",
+   "name": "CAIUnit::ManageSubordinates",
+   "signature": "void __thiscall CAIUnit::ManageSubordinates(CAIUnit* this)",
+   "no_signature": null,
+   "comment": "**Slot 78: sorts every unit the agent commands into its per-pass containers and decides which divisions are committed and which held back.** 0x4B1D10 to the bare `ret` at 0x4B32AC; the `bad_alloc` throw tail runs to 0x4B32DF and slot 79 starts at 0x4B32E0. Called from CAIUnit::Tick at 0x4B0A1D when +0x86 replan_subordinates is set, or the hour is (id+9) % 24, or the tick's daily flag is set (hour (id+6) % 24 or +0x84).\n\n(1) Empties the vectors +0x13C, +0x12C, +0x14C, +0x15C, +0x16C, +0x11C, the air list +0xFC (head/tail/count +0xFC/+0x100/+0x104), the vectors +0x10C, +0xDC, +0xEC and +0x1AC, and zeroes +0x348; first it notes whether +0x10C (air transports) was non-empty. (2) The commitment factor from CUnitPlan::GetPowerRatio of the agent's unit: 0.7 above 2.0, 0.6 above 1.5, 0.2 below 0.25, 0.3 below 0.5, 0.4 below 0.75, else 0.5 - all literals. (3) **Walks the whole of the country's unit list (CCountry +0xBAC), not a subtree.** Per unit: clears CUnit +0x2CA; a naval unit under an `invasion` order (0x3A5) has its order's province pushed on +0x1AC whoever owns it; then the unit belongs to this agent when the nearest ai_agent up its parent chain is this one - or it is an air unit whose first brigade is a CAG based on a carrier (home base slot 1) whose fleet's agent is this one. Air: inserted into +0xFC by InsertUnitByRange, and onto +0x10C when its definition's transport_capability is at least 1000. Naval: onto +0xDC, and onto +0xEC when transport_capability >= 1000 and (it carries something, CNavy +0x2EC > 0, or CUnit_FleetNeedsPort answers false). Land: one on `support_attack` (0x4E5) that is neither holding ground nor retreating is stopped (0x49AAB0); onto +0x11C; onto +0x16C when CArmy +0x2FC is 8, and then a CArmy +0x2E4 province whose air base is below level 1 is cleared and CSetAIParamCommand(unit, +0x2E8, 0) posted (0x4B24CB); then, unless slot 86 claims the unit (held_back cleared), a division (oob_level 4) is committed (+0x12C and +0x13C) or held back (+0x15C, CUnit +0x2C8 set) - see FINDINGS-power.md for the strength/organisation bars - and anything else goes on +0x14C. A role-8 division is skipped when air transports existed, and is held back whenever the test runs. With manage_reserve (+0x364) clear, or for a theatre agent's division outside the theatre's largest area, the test is skipped: a held-back division stays held back, any other is committed. A committed division whose destination lies in an area sharing a region group with the capital's area, and on a friendly foreign country's ground (or on enemy ground while it stands on such ground), bumps +0x348 (the arms at 0x4B28B4-0x4B29E9). (4) The reserve size by stance, the recall loop and the detach-to-reserve loop, as FINDINGS-power.md section 'The middle of slot 78'. (5) Clears +0x86. **The one command it posts is CSetAIParamCommand; it detaches nothing and sends no expedition** - those are slot 79's.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled whole and read off the disassembly at 0x4B2080-0x4B2A07 (the vector pushes at 0x4B21C7 +0x1AC, 0x4B22CB +0x11C, 0x4B2365 +0x16C, 0x4B25D1 +0xDC, 0x4B2687 +0xEC, 0x4B26A8 +0xFC, 0x4B2885 +0x12C, 0x4B28A9 +0x13C, 0x4B2994 +0x15C, 0x4B29FC +0x14C); the unit walk starts from CCountry Units (+0xBAC). vftable 0x15EC0B4 slot 78 holds 0x8B1D10. Wrong if a division with +0x364 clear lands on +0x15C without having been held back before - the branch at 0x4B279F/0x4B2960 says it cannot.",
+   "revises": "Renamed from Slot78_ManageSubordinates and the comment corrected: it was 'Not read' and claimed slot 78 builds CDetachUnitCommand and CSendExpeditionCommand, which FINDINGS-aiplans.md already showed are slot 79's; now read whole, including the country-wide unit walk and the manage_reserve branch, which FINDINGS-power.md had backwards."
+  },
+  {
+   "rva": "0x4B32E0",
+   "kind": "function",
+   "name": "CAIUnit::ManageExpeditions",
+   "signature": "void __thiscall CAIUnit::ManageExpeditions(CAIUnit* this)",
+   "no_signature": null,
+   "comment": "**Slot 79, 0x4B32E0 to the bare `ret` at 0x4B3A46** (slot 80 starts at 0x4B3A50). Runs only for an AI-run country (owner_ai +0x2C), from CAIUnit::Tick at 0x4B0A36 under the daily flag, after slot 78 and 0x4B1820. Walks the land vector +0x11C slot 78 has just built; a unit whose province's area is not valid is skipped.\n\n**Give back** (0x4B336A): the unit has an expeditionary owner (CUnit +0x290) that is **not** a government in exile. It is left alone when it has a blocking order (0x4AF4E0), when a human plays the owner, or when AreaMayWidenFrontSearch(owner, the unit's area, &x, true) answers true; otherwise every child gets a CDetachUnitCommand (0x4B34D1) and the unit a CSendExpeditionCommand(unit, owner) (0x4B35C5), and it is erased from six vectors.\n\n**Lend** (0x4B36DA): the unit has no expeditionary owner, **or its owner is a government in exile** - such a unit is treated as our own. Needed: neither its destination (else its province) nor its province controlled by us; the province's controller not an enemy of us either way; the controller's CCountry +0xD8 faction **pointer** equal to ours - and since every country outside a faction points at one shared null faction, **two factionless countries pass**; the unit a leaf (no children) with oob_level != 0; AreaMayWidenFrontSearch(us, area, &x, true) true; the area's controller not played, or 0x497A40(owner_ai, area); and the area outside our theatre (GetArea null, or 0xB1170(theatre, area) false). Then it is erased from +0x11C, +0x12C, +0x13C, +0x14C, +0x15C, +0x16C (0x4DCE00) and CSendExpeditionCommand(unit, that province's controller) is posted (0x4B3973).",
+   "confidence": "confirmed",
+   "evidence": "Read off the decompilation and checked at 0x4B335D-0x4B3390 (the +0x290 test and the +0x95 government-in-exile test both jump to 0x4B36DA) and 0x4B3779-0x4B37B8 (the +0xD8 compare). The install's exe and the unpatched copy agree byte for byte over 0x4B1D10-0x4B41F0 (trap 19), so BiceLib's InterAiExpeditionaries patch is in memory only. Wrong if 0x4B3390's jne went to the skip label rather than the lend branch.",
+   "revises": "Comment corrected: a unit on loan from a government in exile goes to the lend branch rather than being skipped, the 'same faction' test is a pointer compare that two factionless countries pass, the area-valid gate and the last two lend conditions were missing."
+  },
+  {
+   "rva": "0x4B3A50",
+   "kind": "function",
+   "name": "CAIUnit::RebuildHoldProvinces",
+   "signature": "void __thiscall CAIUnit::RebuildHoldProvinces(CAIUnit* this)",
+   "no_signature": null,
+   "comment": "**Slot 80**, 0x4B3A50 to the bare `ret` at 0x4B41F0. CAIUnit::Tick calls it through [vftable+0x140] at 0x4B0A99 (Ghidra's `vf_80`) - so the tick's two calls after slot 78 are slot 79 ManageExpeditions at 0x4B0A36 and slot 80 this. It clears the CList at +0x17C and refills it, kept in descending score order (CList_InsertByDescendingScore) with 0x1C-byte records {province, 0, score}: (1) every objective of the agent's unit's plan (CUnit +0x234) whose province's controller is on our side (IsSameSide) or a co-belligerent that is not an enemy, scored 0x4B4200(this, province) **plus the objective's priority (CObjective +0xC, read at 0x4B3C64)**; (2) every focus province of the owner AI (CEU3AI +0x118) that we control, or whose controller we are not at war with (neither REB, and no undeclared war covering it), scored 0x4B4200 plus 200.0; then sets +0x82. For a theatre agent (or no unit) of a country that is not a subject: the provinces of each focus owner area (+0x338) belonging to a puppet of ours where none of that puppet's land units stands or is heading, and the provinces of the theatre's +0x60 list, each kept when 0x4B4200 reaches 0.1, the score rounded to a whole number. Last, the list is cut from the tail to max(land units +0x11C minus non-division units +0x14C, the objective and focus count). Read by slot 86 (0x4C7CA7). The name is ours and only the shape is read; 0x4B4200's score is not.",
+   "confidence": "inferred",
+   "evidence": "vftable 0x15EC0B4 slot 80 holds 0x8B3A50; the tick's call at 0x4B0A99 is `call [edx+0x140]`. The objective walk (+0x234, next at +0x1C, province at +8, priority at +0xC added to the float at 0x4B3C64-0x4B3C7E) read off the disassembly; the rest off the decompilation only, hence inferred. Wrong if the +0xC read were of another object - the node is the plan list's CObjective at both ends of the loop."
+  },
+  {
+   "rva": "0x4B16F0",
+   "kind": "function",
+   "name": "CUnit_FleetNeedsPort",
+   "signature": "bool __fastcall CUnit_FleetNeedsPort(CUnit* fleet@ECX) @AL",
+   "no_signature": null,
+   "comment": "True when any ship of the fleet (slot 11 AsNavy, then +0x38) is worn: a transport (definition +0x30) below 0.5 of its strength, or any other ship below 0.75 strength or below 0.5 organisation (CSubUnit::GetMaxOrganisation). Strength is +0x5C over slot 12's maximum, organisation +0x60 over the maximum, both /1000 in floats. Bare `ret`, 0x4B16F0-0x4B181B. Callers: CAIUnit::ManageSubordinates (0x4B2661, a fleet with transport capability that does not need port is a lift candidate) and CAIUnit_ManageNavalUnits' port phase (0x4D0DDC, a fleet that needs port is sent to the nearest one). The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Read end to end: constants 0.5f at 0x15AB304 and 0.75f at 0x17179A8, the transport flag test at 0x4B17AA. Wrong if the 0.75 branch compared organisation - 0x4B17C6 compares [ebp-4], the strength ratio."
+  },
+  {
+   "rva": "0x4BEAD0",
+   "kind": "function",
+   "name": "PostCreateUnitCommand",
+   "signature": "void __stdcall PostCreateUnitCommand(CAIUnit* agent@ESI, int* idPair@stack:4, int provinceId@stack:8, int unitKind@stack:0xC, int baseProvinceId@stack:0x10)",
+   "no_signature": null,
+   "comment": "0x4BEAD0-0x4BEC6B (`ret 0x10`). **Posts a CCreateUnitCommand for a unit the agent means to fill, and remembers its id.** Allocates 0x5C bytes, CCreateUnitCommand(object, the agent's tag, the id pair, provinceId, unitKind, baseProvinceId, 0) and posts it; then, unless the id pair is already on it (CList_FindObjectIdNode), appends the pair to the agent's **requested-units list at CAIUnit +0x1EC** (tail +0x1F0, count +0x1F4; 0x14-byte nodes {type, serial, prev, next, byte}). When the unit is created, CCreateUnitCommand::Execute raises the kind's observer channel, the agent's slot 17/18/19 body (0x4D5320) finds the id on that list, posts CAttachUnitCommand(new unit, agent->unit) and takes the id off - **which is how a split-off fleet or air unit ends up under the theatre headquarters**. Three callers, all splits: 0x4CE8D3 (air, kind 2), 0x4D12EA and 0x4D1BA4 (naval, kind 1). The caller makes the id: type word[0x1A857EC] + 0x1268, serial ++[0x1A857F8].",
+   "confidence": "confirmed",
+   "evidence": "Decompiled and the list append read at 0x4BEBDE-0x4BEC56; the observer's lookup and CAttachUnitCommand at 0x4D5339-0x4D5380 seen in its decompilation. Wrong if +0x1EC were walked with next at +8 - CList_FindObjectIdNode takes next at +0xC, matching the node built here.",
+   "revises": "Adds what the second half does - the id goes onto CAIUnit +0x1EC, which is what attaches the new unit - raises likely to confirmed, and places every parameter: the signature was __fastcall with four stack arguments unplaced."
+  },
+  {
+   "rva": "0x147930",
+   "kind": "function",
+   "name": "CCreateUnitCommand::Execute",
+   "signature": "void __thiscall CCreateUnitCommand::Execute(CCreateUnitCommand* this)",
+   "no_signature": null,
+   "comment": "Slot 6, 0x147930 to the bare `ret` at 0x147F92. Where client_only (+0x58) is set it returns at once when the session's +0x34 is set. Makes an empty unit of kind +0x54 - 0 CArmy (0x308 bytes) at oob_level 4, 1 CNavy (0x2FC) at 5, 2 CAir (0x2F4) at 6 - gives it the id pair +0x4C/+0x50 (CSelectable slot 6), owner +0x3C/+0x40 (CUnit_SetOwner), CUnit +0x159 from +0x59, and the name CUnit_MakeName(country, 0), which for a unit with no brigade is empty; adds it to the country (CCountry::AddUnit), enters the province +0x44 (twice, with RebuildAvatar between), sets its intel level for the screen's country, and where +0x48 >= 0 sets its base to that province's naval base (CMapProvince +0x58) for a fleet or air base (+0x54) for an air unit. Then it tells the AI: the unit's own agent's slot 63, if any, and BroadcastToListeners on channel 6 (army, slot 17), 7 (navy, slot 18; then channel 3, slot 14) or 8 (air, slot 19). **No parent and no brigade are given here**: CTransferSubUnitCommand fills it and the posting agent attaches it.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled whole; the kind switch at 0x147A8E-0x147B70 and oob_level store at 0x147B7C, the province index [cmd+0x44] at 0x147A84 and the base province [cmd+0x48] at 0x147E81 read off the disassembly; the vftable 0x15C36D4 slot 6 holds VA 0x547930. The ctor's argument order (0x147870, already recorded) fixes the layout. Wrong if +0x44 were the base - the base is the one looked up with the naval base/air base fields."
+  },
+  {
+   "rva": "0x1DCA90",
+   "kind": "function",
+   "name": "CTransferSubUnitCommand::CTransferSubUnitCommand",
+   "signature": "CTransferSubUnitCommand* __stdcall CTransferSubUnitCommand::CTransferSubUnitCommand(CTransferSubUnitCommand* this, int unitIdType, int unitIdSerial, CSubUnit* subUnit)",
+   "no_signature": null,
+   "comment": "0x1DCA90-0x1DCB37 (`ret 0x10`), 0x70 bytes at every AI site. CCommand base with token 0x18D and type id 0x384 (`transfer_subunit`) at +0x2C/+0x30, then its own vftable; the sub-unit's reference at +0x3C (0x3C9530: pointer, then id pair +0x40/+0x44), the **receiving unit's** id pair at +0x64/+0x68, and client_only +0x6C = 0. The receiving unit is named by id because at the AI's sites it does not exist yet - its CCreateUnitCommand is posted first. Five callers: 0x33AB6C and 0x363C53 (interface) and the three AI splits 0x4CE90E, 0x4D1341, 0x4D1BEB.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled; the call sites push the sub-unit, then the id pair as two dwords, then the object - four dwords, matching `ret 0x10`. findRefs --callers gives the five sites."
+  },
+  {
+   "rva": "0x1DCB40",
+   "kind": "function",
+   "name": "CTransferSubUnitCommand::Execute",
+   "signature": "void __thiscall CTransferSubUnitCommand::Execute(CTransferSubUnitCommand* this)",
+   "no_signature": null,
+   "comment": "Slot 6, 0x1DCB40 to the bare `ret` at 0x1DD4CF (slot 7 is the next byte, 0x1DD4D0). Where client_only (+0x6C) is set it returns at once when the session's +0x34 is set. Resolves the receiving unit by +0x64/+0x68 and the sub-unit by +0x40/+0x44 (into +0x3C); either missing, nothing. **Refused** when 0xE1010(unit, its country, subunit, 1) says no - false at once when the receiving unit is in combat (CUnit +0x11C), and otherwise a test of the sub-unit's kind against the unit's (not read past that). Then: the sub-unit leaves its old unit (RemoveRegimentFromUnit) and joins this one (AddRegimentToUnit); avatar_stale set; where the unit is not land or has more than one brigade, has no real leader (leader slot 8) and its country assigns leaders automatically, CUnit::AssignBestLeader. The old unit, if any: left empty, or a land unit left with one brigade, has its leader set to the null leader; a fleet has CheckTransportOverload run. **A unit whose name is shorter than two characters is named now**: CCountry::MakeUnitName(country, first brigade's definition, oob_level, 0) - which is where `1st Navy` and `1st Air wing` come from. The player is told (TRANSFEREDSUBUNIT, with SUB, OLD and NEW). A ship with carrier_size > 0 brings the air units based on it: each leaves its parent and is attached under the receiving fleet. Last, unless client-only: both units re-enter their provinces, a unit of one brigade looks for a battle, intel refreshed. The global byte 0x1A857BF is held at 1 throughout.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled whole and the middle checked at 0x1DCC9C-0x1DCE60 (0xE1010 at 0x1DCCF3, the leader test via [unit+0x12C] slot 8 and CCountry +0x74B, the name-length test `cmp [name+0x10], 2` at 0x1DCDD7 and MakeUnitName's level argument [unit+0x1F4]). Reproduces the saves: Italy's ten split-off ships became '1st'..'10th Navy' in their ships' list order (ids 193..202), of which 3rd, 8th and 9th survive the merges with the right ships."
+  },
+  {
+   "rva": "0x1E9950",
+   "kind": "function",
+   "name": "CSendExpeditionCommand::Execute",
+   "signature": "void __thiscall CSendExpeditionCommand::Execute(CSendExpeditionCommand* this)",
+   "no_signature": null,
+   "comment": "**Slot 6 is 0x1E9950, not 0x1E9660** - the vftable 0x15C951C holds VA 0x5E9950 at slot 6, and 0x1E9660 is a recursive helper it calls. 0x1E9950 to the bare `ret` at 0x1E9C59. The unit (+0x40/+0x44) leaves its parent (CUnit_LeaveParent, telling the AI). Then: where its expeditionary owner id (+0x290) equals the command's target (+0x68) it is **going home** - the field is cleared to `---`/0 and the unit taken off that country's expeditionary_units_lent list; otherwise it is **being lent** - CUnit +0x294 is set to defines.end_date and, if it had no expeditionary owner, its owner becomes it (+0x28C/+0x290 from +0x124/+0x128) and 0xE0860 puts it on that country's lent list. Either way it is unlinked from its current owner's Units list and CCountry::AddUnit'ed to the target (+0x64/+0x68), and where it has children 0x1E9660(unit, &target) does the same to the whole subtree, re-attaching each child under its parent. Three posters: slot 79 at 0x4B35C5 (home) and 0x4B3973 (lend), and 0x499B9B inside CEU3AI 0x499A10.",
+   "confidence": "confirmed",
+   "evidence": "vftable 0x15C951C slot 6 read from the image (VA 0x5E9950); rva 0x1E9660 has two callers, rva 0x1E9906 (itself) and 0x1E9C4E (inside 0x1E9950), so it is a helper; decompiled both. Wrong if the RTTI export's introduces list for CSendExpeditionCommand did not give slot 6 = 0x1E9950 - it does.",
+   "revises": "Moves the name from 0x1E9660 to 0x1E9950, the real slot 6, and replaces the comment that described the helper's toggle with the command's own. 0x1E9660 is left for a separate entry, CSendExpeditionCommand_TransferSubtree, given in the report, because one merge cannot both move the name and rename the old address."
+  },
+  {
+   "rva": "0x1DE1D0",
+   "kind": "function",
+   "name": "CDetachUnitCommand::CDetachUnitCommand",
+   "signature": "CDetachUnitCommand* __stdcall CDetachUnitCommand::CDetachUnitCommand(CDetachUnitCommand* this, CUnit* unit)",
+   "no_signature": null,
+   "comment": "0x1DE1D0-0x1DE268 (`ret 8`), 0x64 bytes at slot 79's site. CCommand base, token 0x18D, type id 0x4B9 (`detach_unit`) at +0x2C/+0x30, own vftable, and the unit's reference at +0x3C (0x2DD70: pointer, id pair +0x40/+0x44).",
+   "confidence": "confirmed",
+   "evidence": "Decompiled; one AI caller, ManageExpeditions at 0x4B34D1, which pushes the child and the 0x64-byte object."
+  },
+  {
+   "rva": "0x1DE270",
+   "kind": "function",
+   "name": "CDetachUnitCommand::Execute",
+   "signature": "void __thiscall CDetachUnitCommand::Execute(CDetachUnitCommand* this)",
+   "no_signature": null,
+   "comment": "Slot 6, bare `ret` at 0x1DE669. Finds the unit by id (+0x40/+0x44, cached into +0x3C) and calls CUnit_LeaveParent(unit, true) - the unit keeps its children and is left at the top of its country's order of battle; for the player's unit, once the top bar exists (screen slot 57), the screen's slot 105 object is told (0x739C30) and, where slot 72 says so, the DETACHEDUNIT message with UNIT its name. Nothing else: no id is made and nothing is renamed. See reversing/findings/FINDINGS-selection.md, section B.4.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled whole for this wave; the body has no other call that changes state. Wrong if CUnit_LeaveParent touched the children - its record says it does not.",
+   "revises": "Raised from inferred to confirmed on a whole reading; the comment adds that the unit keeps its children and no id or name changes."
+  },
+  {
+   "rva": "0x19BC40",
+   "kind": "function",
+   "name": "CJoinFleetOrder::IsActive",
+   "signature": "bool __thiscall CJoinFleetOrder::IsActive(CJoinFleetOrder* this)",
+   "no_signature": null,
+   "comment": "Slot 14 (COrder's IsActive), 0x19BC40-0x19BD78, bare `ret`s. **Where a join_fleet order does its merge.** False when the fleet has no base. Otherwise, while CNavalOrder::IsActive holds: the target fleet (0x19BBF0); where it exists and is not the fleet itself, then if the two stand in **the same province** CUnit_MergeInto(target, fleet) - every ship and every carried land unit go to the **target**, which keeps its name and id - the fleet is queued for removal and the order ends (false); if not yet together, true (still sailing). No target, or itself: COrder::OrderReturnToBase and false. So the unit given the order is the one that disappears.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled; vftable of CJoinFleetOrder slot 14 holds VA 0x59BC40 (vtable.py). The save shows it: Italy's '2a Squadra di Marina' was given join_fleet to '8th Navy' by the merge rule and is gone at 1936-01-04, its three cruisers in 8th Navy."
+  },
+  {
+   "rva": "0x197BB0",
+   "kind": "function",
+   "name": "CJoinAirOrder::IsActive",
+   "signature": "bool __thiscall CJoinAirOrder::IsActive(CJoinAirOrder* this)",
+   "no_signature": null,
+   "comment": "Slot 14, 0x197BB0 to the last bare `ret` at 0x197D1F (slot 7 starts at 0x197D20). False when the unit has no base. The target (CRef at +0x80) must resolve, must not itself be under a join_air order (0x717), and must hold brigades; then if it stands in the unit's province, CUnit_MergeInto(target, unit), the unit queued for removal, false; else true while CAirOrder::IsActive holds. Any failed test: COrder::OrderReturnToBase and false. The unit given the order is the one that disappears.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled; CJoinAirOrder slot 14 holds VA 0x597BB0. Japan's '1. Nihon Koukuujieitai' and '1 Zerosen no Hikodan' are gone at 1936-01-04 with their wings in the units they joined."
+  }
+ ],
+ "structs": [
+  {
+   "name": "CCreateUnitCommand",
+   "size": "0x5C",
+   "inherits": "CCommand",
+   "vftable_rva": "0x11C36D4",
+   "comment": "Makes an empty unit of a kind, with an id chosen by whoever posts it. Posted by the AI's splits (PostCreateUnitCommand) and by event script. Keys: base, client_only, country, id, is_allowed_empty, province, type.",
+   "evidence": "0x5C from PostCreateUnitCommand's operator new; RTTI gives CCommand at offset 0 and the vftable 0x15C36D4."
+  },
+  {
+   "name": "CTransferSubUnitCommand",
+   "size": "0x70",
+   "inherits": "CCommand",
+   "vftable_rva": "0x11C8E1C",
+   "comment": "Moves one brigade, ship or wing into a unit named by id. Keys: client_only, sub_unit.",
+   "evidence": "0x70 from `push 0x70` before every AI construction (0x4CE8D8, 0x4D1303, 0x4D1BA9); RTTI gives CCommand at offset 0 and the vftable 0x15C8E1C."
+  },
+  {
+   "name": "CSendExpeditionCommand",
+   "size": "0x6C",
+   "inherits": "CCommand",
+   "vftable_rva": "0x11C951C",
+   "comment": "Lends a unit to another country as an expeditionary force, or sends it home when the target is its expeditionary owner. Keys: target, unit.",
+   "evidence": "0x6C from operator new at slot 79's two sites and the recorded constructor; RTTI gives CCommand at offset 0 and the vftable 0x15C951C."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CCreateUnitCommand",
+   "offset": "0x3C",
+   "name": "country",
+   "type": "CCountryTag",
+   "comment": "The owner of the unit to make; id half at +0x40.",
+   "evidence": "Ctor stores [ebp+0xC]/[ebp+0x10] here; Execute passes both to CUnit_SetOwner and indexes the country database by +0x40."
+  },
+  {
+   "struct": "CCreateUnitCommand",
+   "offset": "0x44",
+   "name": "province_id",
+   "type": "int",
+   "comment": "The province the new unit is put in (EnterProvince).",
+   "evidence": "Ctor [ebp+0x1C]; Execute indexes gamestate provinces by [cmd+0x44] at 0x147A84."
+  },
+  {
+   "struct": "CCreateUnitCommand",
+   "offset": "0x48",
+   "name": "base_province_id",
+   "type": "int",
+   "comment": "Where the new unit is based, or -1: the province's naval base for a fleet, air base for an air unit.",
+   "evidence": "Ctor [ebp+0x24]; Execute tests >= 0 and reads +0x58/+0x54 of that province at 0x147DD5/0x147E81."
+  },
+  {
+   "struct": "CCreateUnitCommand",
+   "offset": "0x4C",
+   "name": "unit_id_type",
+   "type": "int",
+   "comment": "Type half of the id the new unit is given; serial at +0x50.",
+   "evidence": "Ctor [ebp+0x14]; Execute hands &[cmd+0x4C] to CSelectable slot 6 (SetId) at 0x147B85."
+  },
+  {
+   "struct": "CCreateUnitCommand",
+   "offset": "0x50",
+   "name": "unit_id",
+   "type": "int",
+   "comment": "Serial half of the new unit's id.",
+   "evidence": "Ctor [ebp+0x18]."
+  },
+  {
+   "struct": "CCreateUnitCommand",
+   "offset": "0x54",
+   "name": "unit_kind",
+   "type": "int",
+   "comment": "0 an army (CArmy, oob_level 4), 1 a fleet (CNavy, 5), 2 an air unit (CAir, 6). Saved as `type`.",
+   "evidence": "Ctor [ebp+0x20]; Execute's switch at 0x147A8E."
+  },
+  {
+   "struct": "CCreateUnitCommand",
+   "offset": "0x58",
+   "name": "client_only",
+   "type": "bool",
+   "comment": "Zeroed by the constructor; when set, Execute does nothing on a session whose +0x34 is set.",
+   "evidence": "Ctor `mov [esi+0x58], bl`; Execute's first test at 0x147930."
+  },
+  {
+   "struct": "CCreateUnitCommand",
+   "offset": "0x59",
+   "name": "is_allowed_empty",
+   "type": "bool",
+   "comment": "Copied to CUnit +0x159 by Execute. The constructor's last argument; the AI passes 0. Named from the LoadKey key list by elimination - inference.",
+   "evidence": "Ctor [ebp+0x28] -> +0x59; Execute 0x147B9A-0x147B9D."
+  },
+  {
+   "struct": "CTransferSubUnitCommand",
+   "offset": "0x3C",
+   "name": "sub_unit",
+   "type": "CSubUnit*",
+   "comment": "Cached pointer of the reference to the brigade, ship or wing being moved; its id pair is +0x40/+0x44. Execute refreshes it.",
+   "evidence": "Ctor passes +0x3C and the sub-unit to 0x3C9530; Execute writes the resolved sub-unit to [cmd+0x3C] at 0x1DCCB8."
+  },
+  {
+   "struct": "CTransferSubUnitCommand",
+   "offset": "0x40",
+   "name": "sub_unit_id_type",
+   "type": "int",
+   "comment": "Type half of the moved sub-unit's id.",
+   "evidence": "Execute resolves [cmd+0x40]/[cmd+0x44] (local_90[0x10]/[0x11])."
+  },
+  {
+   "struct": "CTransferSubUnitCommand",
+   "offset": "0x44",
+   "name": "sub_unit_id",
+   "type": "int",
+   "comment": "Serial half of the moved sub-unit's id.",
+   "evidence": "As +0x40."
+  },
+  {
+   "struct": "CTransferSubUnitCommand",
+   "offset": "0x64",
+   "name": "unit_id_type",
+   "type": "int",
+   "comment": "Type half of the id of the unit receiving the sub-unit - named by id because the AI posts it before the unit exists.",
+   "evidence": "Ctor's second argument; Execute resolves +0x64/+0x68 first (param_1[0x19]/[0x1A])."
+  },
+  {
+   "struct": "CTransferSubUnitCommand",
+   "offset": "0x68",
+   "name": "unit_id",
+   "type": "int",
+   "comment": "Serial half of the receiving unit's id.",
+   "evidence": "Ctor's third argument."
+  },
+  {
+   "struct": "CTransferSubUnitCommand",
+   "offset": "0x6C",
+   "name": "client_only",
+   "type": "bool",
+   "comment": "Zeroed by the constructor; when set Execute does nothing on a non-client session, and skips the closing EnterProvince calls.",
+   "evidence": "Ctor `*(byte*)(this+0x1B*4) = 0`; Execute tests it first and again before EnterProvince."
+  },
+  {
+   "struct": "CSendExpeditionCommand",
+   "offset": "0x3C",
+   "name": "unit",
+   "type": "CUnit*",
+   "comment": "Cached pointer of the reference to the unit sent; id pair +0x40/+0x44.",
+   "evidence": "Execute resolves [cmd+0x40] and writes the pointer to +0x3C."
+  },
+  {
+   "struct": "CSendExpeditionCommand",
+   "offset": "0x40",
+   "name": "unit_id_type",
+   "type": "int",
+   "comment": "Type half of the unit's id.",
+   "evidence": "Execute's FindPersistentById key."
+  },
+  {
+   "struct": "CSendExpeditionCommand",
+   "offset": "0x44",
+   "name": "unit_id",
+   "type": "int",
+   "comment": "Serial half of the unit's id.",
+   "evidence": "As +0x40."
+  },
+  {
+   "struct": "CSendExpeditionCommand",
+   "offset": "0x64",
+   "name": "target",
+   "type": "CCountryTag",
+   "comment": "The country the unit goes to: on loan, or home when it is the unit's expeditionary owner. Id half at +0x68.",
+   "evidence": "Recorded constructor writes the tag letters here and the id at +0x68; Execute compares CUnit +0x290 with +0x68 and calls CCountry::AddUnit on countries[+0x68]."
+  },
+  {
+   "struct": "CAIUnit",
+   "offset": "0x100",
+   "name": "air_units_last",
+   "type": "void*",
+   "comment": "Tail of the air-unit CList headed at +0xFC (count +0x104). Rebuilt by CAIUnit::ManageSubordinates.",
+   "evidence": "Slot 78 frees the chain from +0xFC and zeroes +0xFC/+0x100/+0x104 together at 0x4B1E94-0x4B1EA0.",
+   "revises": "Was subordinate_list_first, one word too high, as FINDINGS-power.md said; it is the tail of the +0xFC list."
+  },
+  {
+   "struct": "CAIUnit",
+   "offset": "0x10C",
+   "name": "air_transports_first",
+   "type": "CAir**",
+   "comment": "A vector (end +0x110) of the agent's air units whose definition carries troops (transport_capability >= 1000), rebuilt by CAIUnit::ManageSubordinates. Its emptiness at the start of that pass is read once: a role-8 division (CArmy +0x2FC == 8) is left out of the land vectors when air transports existed.",
+   "evidence": "Pushes at 0x4B26E9; the flag at 0x4B1D53 read at 0x4B272D.",
+   "revises": "Was subordinate_vector_first with 'slot 78's entry test'; it is the air-transport vector and the test is a per-division skip."
+  },
+  {
+   "struct": "CAIUnit",
+   "offset": "0x11C",
+   "name": "land_units_first",
+   "type": "CArmy**",
+   "comment": "Every land unit the agent commands (nearest agent up the chain is this one), end +0x120. Rebuilt by CAIUnit::ManageSubordinates; walked by ManageExpeditions and summed for our_power.",
+   "evidence": "Push at 0x4B22CB of unit->vf[9]().",
+   "revises": "Was subordinate_vector2_first, contents unknown."
+  },
+  {
+   "struct": "CAIUnit",
+   "offset": "0x12C",
+   "name": "committed_divisions_first",
+   "type": "CArmy**",
+   "comment": "The divisions committed to the line this pass (end +0x130).",
+   "evidence": "Push at 0x4B2885.",
+   "revises": "Was subordinate_vector3_first."
+  },
+  {
+   "struct": "CAIUnit",
+   "offset": "0x13C",
+   "name": "committed_divisions_copy_first",
+   "type": "CArmy**",
+   "comment": "A second copy of the committed divisions (end +0x140), pushed beside +0x12C; the recall and detach loops change only +0x12C.",
+   "evidence": "Push at 0x4B28A9.",
+   "revises": "Was subordinate_vector4_first."
+  },
+  {
+   "struct": "CAIUnit",
+   "offset": "0x14C",
+   "name": "other_land_units_first",
+   "type": "CArmy**",
+   "comment": "The agent's land units that are not divisions (oob_level != 4), end +0x150.",
+   "evidence": "Push at 0x4B29FC.",
+   "revises": "Was subordinate_vector5_first."
+  },
+  {
+   "struct": "CAIUnit",
+   "offset": "0x15C",
+   "name": "held_back_divisions_first",
+   "type": "CArmy**",
+   "comment": "The divisions held back from the line (end +0x160); CUnit +0x2C8 ai_held_back is set on each.",
+   "evidence": "Push at 0x4B2994 after `mov byte [ebx+0x2C8], 1`.",
+   "revises": "Was subordinate_vector6_first."
+  },
+  {
+   "struct": "CAIUnit",
+   "offset": "0x16C",
+   "name": "role8_armies_first",
+   "type": "CArmy**",
+   "comment": "The land units whose CArmy +0x2FC role is 8 (end +0x170) - by the air-transport skip and the air body's transport-plane rebase, likely paratroopers (inference).",
+   "evidence": "Push at 0x4B2365; read by CAIUnit_ManageAirUnits at 0x4CE29F.",
+   "revises": "Was subordinate_vector7_first."
+  },
+  {
+   "struct": "CAIUnit",
+   "offset": "0x17C",
+   "name": "hold_provinces_first",
+   "type": "void*",
+   "comment": "Head of a CList (tail +0x180, count +0x184) of 0x1C-byte {province, 0, score} records in descending score order, rebuilt by slot 80 CAIUnit::RebuildHoldProvinces from the plan's objectives, the AI's focus provinces, puppets' unguarded provinces and the theatre's list, cut to the number of divisions. Read by slot 86.",
+   "evidence": "CListOfOwned_Clear(+0x17C) at 0x4B3ABD, inserts at 0x4B3CAE; reads at 0x4C7CA7 and 0x4C8190."
+  },
+  {
+   "struct": "CAIUnit",
+   "offset": "0x180",
+   "name": "hold_provinces_last",
+   "type": "void*",
+   "comment": "Tail of the CList at +0x17C.",
+   "evidence": "Slot 80's trim reads and rewrites it at 0x4B4180-0x4B41A1."
+  },
+  {
+   "struct": "CAIUnit",
+   "offset": "0x184",
+   "name": "hold_provinces_count",
+   "type": "int",
+   "comment": "Count of the CList at +0x17C; slot 80 trims the tail while it exceeds the number of divisions.",
+   "evidence": "Compared at the end of slot 80."
+  },
+  {
+   "struct": "CAIUnit",
+   "offset": "0x1EC",
+   "name": "requested_units_first",
+   "type": "void*",
+   "comment": "Head of a CList of object id pairs (tail +0x1F0, count +0x1F4; nodes {type, serial, prev, next at +0xC, byte}) - **units this agent has asked to be created** and not yet seen. PostCreateUnitCommand appends; the observer slots 17-19 (0x4D5320) attach a newly created unit found on it under the agent's unit and remove it; slot 49 frees it.",
+   "evidence": "Append at 0x4BEBDE-0x4BEC56; CList_FindObjectIdNode on it in 0x4D5320; freed at 0x4B05B3-0x4B05D3."
+  },
+  {
+   "struct": "CAIUnit",
+   "offset": "0x1F0",
+   "name": "requested_units_last",
+   "type": "void*",
+   "comment": "Tail of the CList at +0x1EC.",
+   "evidence": "PostCreateUnitCommand."
+  },
+  {
+   "struct": "CAIUnit",
+   "offset": "0x1F4",
+   "name": "requested_units_count",
+   "type": "int",
+   "comment": "Count of the CList at +0x1EC.",
+   "evidence": "PostCreateUnitCommand increments it."
+  },
+  {
+   "struct": "CAIUnit",
+   "offset": "0x348",
+   "name": "divisions_on_allied_soil",
+   "type": "int",
+   "comment": "Zeroed by CAIUnit::ManageSubordinates and counted there: a committed division whose destination (or province) is in the area group of our capital and controlled by a friendly foreign country, or is enemy ground while the division stands in such a country's land. Read by 0x4CC450, which subtracts it from a fifth or a third of a count. The name is inference.",
+   "evidence": "Increments at 0x4B2955 and 0x4B29E3; the one reader at 0x4CC576.",
+   "revises": "Was unknown348 with 'nothing else touches it'; its writer and reader are now known."
+  },
+  {
+   "struct": "CAIUnit",
+   "offset": "0x364",
+   "name": "frontier_at_war",
+   "type": "uint8_t",
+   "comment": "A shooting war on the agent's frontier: written by CAIUnit::ClassifyOpsAreaFrontier (the low half of the word 0x101), read by 0x4BD270 as the switch between the peacetime and wartime scoring, by CEU3AI::UpdateUnitStances (frontier not at war: stance 1), by CAIUnit_PullHeadquartersIn (a headquarters on a front province is moved only while it is set) and by ManageSubordinates (FINDINGS-opsarea.md, FINDINGS-agents.md sections B.7, C.6, D.2). Was named manage_reserve off the slot-78 reader alone. In ManageSubordinates it is read into a local at the top (0x4B1FFC). Set: each division is tested against the commitment factor and either committed or held back, and the reserve, recall and detach loops run. Clear: no test - a division already held back (CUnit +0x2C8) stays held back and any other is committed - and the reserve size is -2, so the recall loop brings back every fit division and none is detached. No writer found in slots 78-80.",
+   "evidence": "Branches at 0x4B279F (into 0x4B2960, which commits unless +0x2C8) and 0x4B2A19.",
+   "revises": "Renamed from manage_reserve to frontier_at_war (three readers and the writer agree, FINDINGS-opsarea.md). The comment said a clear byte pushes every division onto the held-back vector; the branch at 0x4B2960 commits any division not already held back."
+  },
+  {
+   "struct": "CAIUnit",
+   "offset": "0xEC",
+   "name": "naval_transports_first",
+   "type": "void**",
+   "comment": "Begin of a std::vector<CNavy*> (end +0xF0, capacity +0xF4) rebuilt by CAIUnit::ManageSubordinates (0x4B2687) with the agent's fleets whose definition has transport_capability >= 1000 and that either carry something (CNavy +0x2EC > 0) or do not need port (CUnit_FleetNeedsPort false) - the fleets available to lift troops.",
+   "evidence": "0x4B2640-0x4B2687: `transport_capability/1000 > 0`, then `+0x2EC > 0 || !IsNaval || !0x4B16F0`.",
+   "revises": "The condition was 'hold no objectives or fail 0x4B16F0'; it is 'carrying something, or not needing port'."
+  }
+ ],
+ "vftable_slots": {
+  "CAIUnit": {
+   "78": "ManageSubordinates",
+   "79": "ManageExpeditions",
+   "80": "RebuildHoldProvinces"
+  },
+  "CCreateUnitCommand": {
+   "6": "Execute"
+  },
+  "CTransferSubUnitCommand": {
+   "6": "Execute"
+  },
+  "CSendExpeditionCommand": {
+   "6": "Execute"
+  },
+  "CJoinFleetOrder": {
+   "14": "IsActive"
+  },
+  "CJoinAirOrder": {
+   "14": "IsActive"
+  },
+  "CDetachUnitCommand": {
+   "6": "Execute"
+  }
+ },
+ "frontier": [
+  "0xD52A0",
+  "0xE1010",
+  "0x49AAB0",
+  "0x4B4200",
+  "0x4C7540",
+  "0x4CC450",
+  "0x4D5320",
+  "0x499A10",
+  "0xE0860",
+  "0x4B1820",
+  "0x497A40",
+  "0xB1170"
+ ]
+}

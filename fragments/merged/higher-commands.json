@@ -1,0 +1,310 @@
+{
+ "agent": "agent wave 2026-10-17, reader B (higher commands made)",
+ "question": "When a CAIUnit agent makes an army group, army or corps (CCreateHigherCommand), what it attaches under what (CAttachUnitCommand), what CSetCommandLevel does, where a headquarters is moved to, and the three commands' Execute.",
+ "source": "reversing/findings/FINDINGS-agents.md",
+ "addresses": [
+  {
+   "rva": "0x4C20C0",
+   "kind": "function",
+   "name": "CAIUnit::OrganiseCommands",
+   "signature": "bool __thiscall CAIUnit::OrganiseCommands(CAIUnit* this)",
+   "no_signature": null,
+   "comment": "**Slot 85: the agent's daily reorganisation of the land order of battle under its unit**, run by CAIUnit::Tick at hour `(country id + 3) % 24`. 0x4C20C0 to the bare `ret` at 0x4C276E; answers whether it posted anything. Nothing unless the agent has a unit (+0x64) and an area (GetArea, a CTheatre).\n\n1. Where the owner's AI runs units (`CEU3AI +0x2C`) or the unit's plan allows headquarters reorganisation (`CUnit +0x205`, CUnitPlan +0x9 `allow_hq_reorg`): CAIUnit_CreateHigherCommands (0x4C2CD0) - the new corps, armies and army groups.\n2. Over the land units of the subtree (`+0x11C`, slot 78's list, CArmy*): each has `CUnit +0x2C4` (pending subordinates) zeroed; the agent's own unit, a unit carried by a fleet (`CArmy +0x300`) and one slot 86 answers true for are skipped; the rest are sorted by oob_level into army groups (1), armies (2), corps (3), and the rest - a level 0 or 4 unit whose first brigade (0x1BD220) is the `garrison_brigade` type into a garrison list, any other into a list of divisions.\n3. Under the same gate as 1: every garrison division whose parent is not the agent's unit is attached straight under it (CAttachUnitCommand(division, unit); the old parent's +0x2C4 down one, the unit's up one), and so is every fleet of the subtree (slot 78's `+0xDC`) whose parent is not the agent's unit.\n4. CAIUnit::AssignToNearestCommand (0x4C2770) three times: divisions to corps, corps to armies, armies to army groups.\n\nThe four RADIO_*_LEADER_DISTANCE reads the record placed here are in 0x4C2770, not in this body. See reversing/findings/FINDINGS-agents.md, section B.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agents.md",
+   "revises": "Renamed from CAIUnit::Slot85 and given a signature, read end to end. The old comment put the RADIO_*_LEADER_DISTANCE arithmetic and CAttachUnitCommand in this body and called it 'the command-range calculation'; the radius is computed in 0x4C2770 (two copies of the four-way jump table, 0x4C2886 and 0x4C2A43, are both inside 0x4C2770-0x4C2CAA), and the CCreateHigherCommand post at 0x4C31AF is in 0x4C2CD0. This body is the dispatcher: the creation call, the sorting by level, the garrison and fleet attachments and the three assignment passes.",
+   "evidence": "Decoded 0x4C20C0-0x4C276E: the gate at 0x4C20E9/0x4C2104 (+0x64, GetArea), the +0x2C/+0x205 test at 0x4C2110/0x4C2119 before `call 0x4C2CD0` at 0x4C2123, the level switch at 0x4C21D6 (dec/je to three vectors), the garrison test 0x4C21F3 (0x1BD220's definition +0x24 against CSubUnitDataBase +0x50's +0x24), the attaches at 0x4C24E2 and 0x4C25FF, and the three calls of 0x4C2770 at 0x4C26C1/0x4C26DC/0x4C26F7 with ([esp+0x40],[esp+0x30]), ([esp+0x30],[esp+0x20]), ([esp+0x20],[esp+0x50]) - the vectors the switch filled for divisions, corps, armies and army groups. Against the saves: between Germany1936_01_01_00 and _01_04_12 every AI theatre with land units ends with at least floor(divisions/4)+1 corps, floor(corps/4)+1 armies and floor(armies/4)+1 army groups (99 of 99 theatres; Germany, played, is the only country short). WHAT WOULD SHOW IT WRONG: a theatre of an AI country with non-garrison divisions and no corps after three days, or the vectors passed to 0x8C2770 in another order."
+  },
+  {
+   "rva": "0x4C2CD0",
+   "kind": "function",
+   "name": "CAIUnit_CreateHigherCommands",
+   "signature": "bool __stdcall CAIUnit_CreateHigherCommands(CAIUnit* agent)",
+   "no_signature": null,
+   "comment": "**Where the AI makes its corps, armies and army groups.** 0x4C2CD0 to the `ret 4` at 0x4C331E; answers whether it posted a CCreateHigherCommand. Called only by CAIUnit::OrganiseCommands (slot 85).\n\n- Nothing unless the country's Manpower (+0xBCC) is at least the hq_brigade type's build_cost_manpower (CSubUnitDataBase +0x78, +0xFC).\n- counts[0..4]: the land units of the subtree (`+0x11C`) by oob_level, leaving out a unit whose first brigade is a garrison_brigade (a unit with no brigade counts).\n- For L = 4, 3, 2 (division, corps, army): need = counts[L] / 4 + 1 (truncated). While counts[L-1] < need:\n  - where the owner's AI runs units (`CEU3AI +0x2C`), over the owner's other agents (`CEU3AI +0x40` list, in order) and each one's non-division units (`+0x14C`): a unit of level L-1 with no children (`+0x1EC`), no pending subordinates (`CUnit +0x2C4` not above 0), standing where an owner area is, not taken already this round, and reachable from it to the agent's unit's province through owner areas held by no enemy (CCountry_ProvincesConnectedByArea, 0xEFB40, with the flag) is borrowed: counts[L-1] + 1, and CAttachUnitCommand(it, the agent's unit) posted. The test against need comes only between agents. Enough borrowed: on to the next L.\n  - else the unit of level L in `+0x11C` that is not garrison-led, not already chosen this L, standing on a land province, with **the fewest ancestors** (parent chain length; strictly fewer wins, so the first of equals in the vector's order) gets a CCreateHigherCommand made over it (constructor 0x1DF320 with that one unit; posted), counts[L-1] + 1. None: on to the next L.\n\nCommands are posted, not executed, so a corps made at L = 4 counts towards the armies needed at L = 3 but cannot be chosen there: **the ladder grows one level a day** - corps, then armies, then army groups. L = 1 is never reached, so the AI never makes a theatre here. All numbers exe-hardcoded (4, +1, the levels); the hq_brigade type's cost is mod-able.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agents.md",
+   "evidence": "Decoded 0x4C2CD0-0x4C331E end to end, int3 run after. The manpower gate 0x4C2D2C-0x4C2D46; the five-int vector at [ebp-0x68] zeroed 0x4C2D80-0x4C2DE4 and counted 0x4C2E00-0x4C2E4A (`inc [edi+eax*4]` with eax = +0x1F4); need at 0x4C2E59-0x4C2E67 (cdq/and 3/sar 2/inc); the borrow loop 0x4C2E90-0x4C30E8 under `cmp byte [eax+0x2C],0` at 0x4C2E98; the fewest-ancestors pick 0x4C30EB-0x4C3192 (initial 1000 at 0x4C30FE, `jge` at 0x4C317E keeps the first of equals); the post at 0x4C31AF; the level loop `cmp eax,1; jg` at 0x4C32F2. Against the saves (Germany1936_01_01_00 to _01_04_12): 279 new higher commands of the AI - 89 corps, 97 armies, 93 army groups; in 88 of the 99 AI theatres with land units the corps, armies and army groups are exactly max(what was there, need) - the other 11 had units move between theatres in those days and still meet need. Ids show the one-level-a-day order: Ecuador's corps 371, army 2170, army group 2447. WHAT WOULD SHOW IT WRONG: an AI theatre with more commands of a level than max(old, need), or a new command whose first child is not one level below it."
+  },
+  {
+   "rva": "0x4C2770",
+   "kind": "function",
+   "name": "CAIUnit::AssignToNearestCommand",
+   "signature": "bool __thiscall CAIUnit::AssignToNearestCommand(CAIUnit* this, void* units, void* commands)",
+   "no_signature": null,
+   "comment": "**Puts each unit of one level under a command of the level above it.** 0x4C2770 to the `ret 8` at 0x4C2CAA (a jump-table pair follows at 0x4C2CB0/0x4C2CC0); `units` and `commands` are std::vector<CArmy*> built by slot 85. Answers whether it posted anything. reorg = the owner's AI runs units (`CEU3AI +0x2C`) or the agent's unit's plan allows headquarters reorganisation (`CUnit +0x205`).\n\nreach(H) = 0 for a command with no brigade, else its first brigade's radio_strength (+0x180) x RADIO_<level>_LEADER_DISTANCE / 1000 for levels 0-3 (military +0x21C, +0x218, +0x214, +0x210), then / 1000 (the radio strength alone, / 1000, for a deeper level). dist(a, b) = CMap::DistanceBetweenProvinces.\n\nFor each unit U in order (P its parent):\n1. Skip where U's `CArmy +0x2E8` (target) is above 0, or P's is.\n2. over = -1000; with P: over = (dist(U's destination or province, P's destination or province) - reach(P)) x 1000.\n3. P one level above U: skip unless reorg; skip if U has a blocking order (0x4AF4E0); where P has one, or U is within P's reach (over <= 0), keep U unless P's pending subordinates (`CUnit +0x2C4`) plus its children of U's level exceed 4. P at another level: skip unless reorg. No P: go on.\n4. Over the commands K in order: n = K's +0x2C4 + 1 + its children of the level below it. K may take U where n <= 4, or n = 5 and either (over > 0 and U's `+0x2C9` is clear) or K is P. Score = dist(U's province, K's province) as a float, + over_K / 1000 where K's own over is above 0, x 0.85 where K is P; the least wins, under 1000000.0, strictly.\n5. A winner other than P: P's +0x2C4 down one, the winner's up one, and CAttachUnitCommand(U, winner) posted.\n\nSo a command takes at most five of the level below it, and one already holding five sheds them to another with room. Exe-hardcoded: 4, 5, 0.85, 1000000; mod-able: RADIO_*_LEADER_DISTANCE and each type's radio_strength. **These two copies of the four RADIO_* reads are the ones FINDINGS-aiunit.md attributed to slot 85.**",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agents.md",
+   "evidence": "Decoded 0x4C2770-0x4C2CAA (code by rva, constants by VA). The target tests 0x4C27D8 and 0x4C27FC (parent's slot 9, AsArmy); the parent's reach 0x4C285E-0x4C28FB (jump table 0x4C2CB0, imul by radio_strength, /1000 via 0xB99980, then the 0x10624DD3 divide by 1000); the keep test 0x4C290F-0x4C297D (`cmp ebx,4; jle` keeps); the candidate loop 0x4C2983-0x4C2B82: n at 0x4C29E8 (`lea edx,[eax+esi+1]`), `cmp eax,5; jg` and `cmp eax,4; jle` at 0x4C2AC4/0x4C2ACD, the over/+0x2C9/K==P arms 0x4C2AD2-0x4C2AE7, the score 0x4C2B0F-0x4C2B57 (distance of the two +0x130 provinces, + over/1000.0 from the double at 0x160A300, x the double 0.85 at 0x160A9D0), the start 1000000.0f at 0x160A598, `comisd; jbe` strict at 0x4C2B6A; the post 0x4C2BDF. Against the 4 January save: of the 605 armies, corps and army groups of AI countries, 4 hold five of the level below and none more (Germany, played, has one with five) - and the 7 January save the same, 3 with five. WHAT WOULD SHOW IT WRONG: an AI command with six or more children of the next level after the first days, or a unit moved to a farther command where a nearer one had room."
+  },
+  {
+   "rva": "0x4C0600",
+   "kind": "function",
+   "name": "CAIUnit::MaybeSetCommandLevel",
+   "signature": "bool __thiscall CAIUnit::MaybeSetCommandLevel(CAIUnit *this, bool force)",
+   "no_signature": null,
+   "comment": "**Slot 82**, 0x4C0600 to the `ret 4` at 0x4C078A, run every hour by the tick (force set at hour `id % 24` on days of the year divisible by 9), by SetArea (false) and by ReplanSubtree. Nothing, false, unless the agent's unit is land (slot 15) with children (`CUnit +0x1EC`).\n\n1. wanted = CAIUnit::GetWantedCommandLevel (0x4BA550). Where the agent has no parent (`+0x40`), the unit's oob_level is above wanted and the owner's AI runs units (`CEU3AI +0x2C`): CSetCommandLevel(unit, wanted) posted (constructor 0x1E1870), answer true. It only ever raises a unit, and a theatre agent's unit is level 0 already, so for the AI's theatres it never fires.\n2. Where `+0x54` (command_province) is null, or force, or the unit stands on a front province (CProvince::IsFrontProvince(province, false)): `+0x54` = CAIUnit_PickCommandProvince(this, unit's oob_level) (0x4DA340) - for a theatre headquarters the province CTheatre_PickHQProvince chooses. CAIUnit_MoveAgentUnitToCommandProvince then marches the unit there.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agents.md",
+   "revises": "Raised from likely and the second half added: the record stopped at the post. The tail writes +0x54, which the record had as an int `command_level_state`; it is the province the headquarters should stand in, from 0x4DA340. The post's gate was right as recorded.",
+   "evidence": "Decoded 0x4C0600-0x4C078A: IsLand at 0x4C0638 (slot 15, +0x3C), children 0x4C0644, 0x8BA550 at 0x4C0653, `cmp [edi+0x40],0` 0x4C0658, `cmp [ecx+0x1F4],esi; jle` 0x4C0667, `cmp [edx+0x2C],bl` 0x4C0676, the constructor call at 0x4C069B (0x68 bytes), the post through the session's slot 6 (+0x18) at 0x4C0741; then `cmp [edi+0x54],0` 0x4C0745, the force byte 0x4C074B, IsFrontProvince(0) 0x4C075C, the call of 0x4DA340 with (this, unit->oob_level) at 0x4C0770 and the store 0x4C0775. WHAT WOULD SHOW IT WRONG: an AI theatre headquarters changing level, or +0x54 holding anything but a province pointer when read by 0x4D5720."
+  },
+  {
+   "rva": "0x4BA550",
+   "kind": "function",
+   "name": "CAIUnit::GetWantedCommandLevel",
+   "signature": "int __fastcall CAIUnit::GetWantedCommandLevel(CAIUnit* this@EAX) @EAX",
+   "no_signature": null,
+   "comment": "`this` in EAX, bare `ret`. The level an agent thinks its unit should command at, by how many provinces it covers: n = the unit's plan's ops-area count (`CUnit +0x21C`) where the unit has an active plan (+0x204), else its theatre's province count (CTheatre +0x68, the count of the +0x60 list), and 3 where it has no area. **n <= 5: 3 (corps); 6-10: 2 (army); 11-29: 1 (army group); 30 or more: 0 (theatre).** One caller, CAIUnit::MaybeSetCommandLevel (slot 82). Exe-hardcoded thresholds.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agents.md",
+   "revises": "Read: the record had it from its one use, 'the body was not read'. The thresholds and the two counts are now known.",
+   "evidence": "Decoded 0x4BA550-0x4BA59C (25 instructions): +0x64, +0x204, +0x21C; GetArea and +0x68; `cmp eax,5; jg`, `cmp eax,0xA; jg`, `cmp eax,0x1E` with `mov eax,1`/`jl`/`mov eax,esi(0)`. WHAT WOULD SHOW IT WRONG: nothing short of a different decode; the body has no other path."
+  },
+  {
+   "rva": "0x4DA340",
+   "kind": "function",
+   "name": "CAIUnit_PickCommandProvince",
+   "signature": "CMapProvince* __stdcall CAIUnit_PickCommandProvince(CAIUnit* agent, int level)",
+   "no_signature": null,
+   "comment": "**The province an agent's headquarters should stand in**, stored by slot 82 in `CAIUnit +0x54`. 0x4DA340 to `ret 8`.\n\n- With an area (GetArea): **level 0 - CTheatre_PickHQProvince(theatre)**, the theatre headquarters' own chooser; otherwise the candidates are the theatre's `+0x60` provinces.\n- Without one: nothing without a unit; a unit whose plan has no ops area gets CAIUnit_PickProvinceAmongSubordinates (0x4DA660); otherwise the candidates are the provinces of the owner area of the plan's first ops-area province (nothing where that area is not a real one).\n- best = the unit's province (the first candidate where there is none), best score -1.0. For each candidate P, only where the agent's own ops area (`+0x90`) is not empty: mean = the mean CMap distance from P to each ops-area province; P skipped where mean is 0. s = 100000 / mean; halved where P is next to (any edge) an ops-area province - except for an army or a corps (level 2 or 3), which is halved where P is **not** next to one; halved again where P borders another holder's land (CProvince_BordersForeignLand, 0xA5E30); x 0.01 where P is itself in the ops area; x (1 - a / 15), a = the friendly land units in or heading into P (0x4DA180); x 0.01 where P's `ai_front_value` (`CMapProvince +0x5C`) is under g_AiFrontProvinceThreshold (200). The highest s wins, strictly.\n\nSo an army or corps headquarters wants to stand beside its ops area, an army group's behind it. Exe-hardcoded: 100000, 0.5, 0.01, 15, 200.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agents.md",
+   "evidence": "Decoded 0x4DA340-0x4DA659 (code by rva, constants by VA). Level 0 to CTheatre_PickHQProvince (rva 0xB0A00; `call 0x4B0A00` in VA) at 0x4DA35F; +0x60 at 0x4DA36D; the no-area arms 0x4DA37F-0x4DA3BB; the 0x4DA180 call at 0x4DA43E with (agent, P, &[ebp-0x20], &[ebp-0x1C]) and only [ebp-0x20] read after (0x4DA5D8 - [ebp-0x1C] is reused as the loop count at 0x4DA470); the ops-area loop 0x4DA473-0x4DA506 (identity at 0x4DA478, edge search over the template's 0x14-byte edges 0x4DA482-0x4DA4C8); the mean-zero skip 0x4DA525; 100000.0 (0x160A908) / mean at 0x4DA547/0x4DA56B; the level-2/3 inversion of the adjacency halving 0x4DA536-0x4DA587 (0.5 at 0x160A308); BordersForeignLand 0x4DA59E; x 0.01 (0x160A288) for in-area 0x4DA5CC; (1.0 - a/15.0) 0x4DA5DD-0x4DA5FF (0x160A248, 0x160A6E8); +0x5C against g_AiFrontProvinceThreshold (VA 0x1B151E4) at 0x4DA60A; best from -1.0f (0x170AC0C), `comisd; jbe` strict. Not set against a save: no save keeps +0x54. WHAT WOULD SHOW IT WRONG: a theatre headquarters marching anywhere but where CTheatre_PickHQProvince would put a new one."
+  },
+  {
+   "rva": "0x4DA660",
+   "kind": "function",
+   "name": "CAIUnit_PickProvinceAmongSubordinates",
+   "signature": "CMapProvince* __stdcall CAIUnit_PickProvinceAmongSubordinates(CAIUnit* agent, CUnit* unit)",
+   "no_signature": null,
+   "comment": "**Where a headquarters should stand among its subordinates.** 0x4DA660 to `ret 8`. start = the unit's destination, or its province; a unit trespassing (`+0x1A8`) and on the move answers its destination at once. Nothing where start is not in a real owner area.\n\nCandidates, from each land child C in order: C's destination or province Q (land, in a real area) where it is reachable from start through owner areas held by no enemy (CCountry_ProvincesConnectedByArea, 0xEFB40, with the flag), then - whether or not it was - every land, simulated neighbour of Q (edges not of kind 3) in Q's owner area. For each candidate K: the mean CMap distance from K to each land child's destination or province (only children with `+0x2C9` clear, where any has it clear); K skipped where the mean is 0. Score = mean, - 6 where K is start, + 1000 where K borders another holder's land, + 100000 where K's `ai_front_value` (+0x5C) is under 200. The least wins, under 100000.0 and strictly; the default is the unit's own province.\n\nCallers: CAIUnit_PullHeadquartersIn and CAIUnit_PickCommandProvince. Exe-hardcoded: 6, 1000, 100000, 200.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agents.md",
+   "evidence": "Decoded 0x4DA660-0x4DAAE2 (code by rva, constants by VA). Destination/trespass 0x4DA686-0x4DA6A8; area test 0x4DA6B6; children 0x4DA70C-0x4DA939 (IsLand slot 15, +0x2C9 flag 0x4DA73E, 0xEFB40(country, start, Q, 1) called at 0x4DA7A2, the neighbour loop 0x4DA7EB-0x4DA933 with kind 3, +0x22, +0x13D and +0x2B4 tests outside the 0x4EFB40 branch); scores 0x4DA959-0x4DAAAF (-6.0 at 0x160A590, +1000.0 at 0x160A300, +100000.0 at 0x160A908, start 100000.0f at 0x160A500, `comisd; jbe`). Default [esp+0x2C] = unit+0x130 at 0x4DA6D8. WHAT WOULD SHOW IT WRONG: an AI corps or army headquarters walking onto a front province while a province behind its divisions was free."
+  },
+  {
+   "rva": "0x4DA180",
+   "kind": "function",
+   "name": "CAIUnit_CountFriendlyLandUnitsAt",
+   "signature": null,
+   "no_signature": "Register convention: the country's own unit list (CCountry +0xBAC) arrives in EAX beside four stack arguments (agent, province, int* hereOrComing, int* staying), `ret 0x10`; ECX is not an argument.",
+   "comment": "Counts land units for CAIUnit_PickCommandProvince. Over the country's units (the list in EAX): a land unit, not retreating or retreating with an organisation share at least g_AiAreaWeightFloor - standing in the province (and staying, or heading to a province held by an enemy): both counts + 1; heading into it: the first + 1. Then over the province's own units (+0x2B8): a foreign land unit that is not moving, whose order is idle (kind 0x4E5 or 0x56C, or its slot 24 false), of a real country that is not REB and is on our side or fighting a war with us and not our enemy, standing there: both counts + 1. Only the first count is read by its one caller.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-agents.md",
+   "evidence": "Decompiled and the first loop and the `ret 0x10` read on the listing; the second loop's conditions were read off the decompiler's nested do-while, which garbles them - likely, and why: the shape (owner id, REB letters, IsSameSide, the pair's war-together byte, IsEnemy) is plain, the exact order of the tests is not. WHAT WOULD SHOW IT WRONG: a caller reading the second count, or the second loop counting enemies."
+  },
+  {
+   "rva": "0x4CC320",
+   "kind": "function",
+   "name": "CAIUnit_PullHeadquartersIn",
+   "signature": "bool __stdcall CAIUnit_PullHeadquartersIn(void* agent@stack:4) @AL",
+   "no_signature": null,
+   "comment": "**Moves the agent's headquarters to stand among their subordinates.** 0x4CC320 to `ret 4`, called by CAIUnit::Tick at hour `(id + 6) % 24` or while `+0x84` is set. Over the agent's non-division units (`+0x14C`), skipping its own unit, one retreating (+0x158), and one in a battle (+0x11C) it may not leave (CUnit::MayLeaveCombats, 0x1C0000): **a unit on the move is always looked at**; one standing still only where some child is reached by less than its full command (CUnit::CommandReachFrom under 1000), or it is trespassing (+0x1A8), or it stands on a front province (IsFrontProvince(false)) while the agent's `+0x364` is set. target = CAIUnit_PickProvinceAmongSubordinates(agent, unit) (0x4DA660); where it is not null, not where the unit is going (or standing), and CMapProvince::CanUnitReach(target, unit, 1, 1): CEU3AI::MoveUnit(owner, unit, target, 0, 1, 1, null). Answers whether it moved one.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agents.md",
+   "revises": "Read whole, and one condition corrected: the record said 'a unit with no destination of its own is moved', but a unit with a destination skips the reach test and goes straight to the choice (the `jne` at 0x4CC397 to 0x4CC3EF), with its destination as the place to compare - so a moving headquarters is re-aimed every pass. 0x8DA660 is named.",
+   "evidence": "Decoded 0x4CC320-0x4CC44B (rvas): skips at 0x4CC35E/0x4CC367/0x4CC374-0x4CC386; GetMovementDestinationProvince 0x4CC38E and `test ebx,ebx; jne` to 0x4CC3EF; the children loop 0x4CC399-0x4CC3C1 (`cmp [eax],0x3E8; jl` to the move); +0x1A8 at 0x4CC3C3; +0x364 and IsFrontProvince(0) at 0x4CC3CF-0x4CC3E7; 0x4DA660 at 0x4CC3F4; CanUnitReach 0x4CC40A; CEU3AI::MoveUnit (0x49A840) with (unit, id, 0, 1, 1, 0) at 0x4CC429. WHAT WOULD SHOW IT WRONG: a moving AI headquarters that keeps an old destination after its subordinates have gone elsewhere."
+  },
+  {
+   "rva": "0x4D5720",
+   "kind": "function",
+   "name": "CAIUnit_MoveAgentUnitToCommandProvince",
+   "signature": "bool __fastcall CAIUnit_MoveAgentUnitToCommandProvince(CAIUnit* agent@ESI) @AL",
+   "no_signature": null,
+   "comment": "0x4D5720 to the bare `ret` at 0x4D57E5, 70 instructions; one caller, CAIUnit::Tick, **every hour**. Marches the agent's own unit to `+0x54`, the province CAIUnit_PickCommandProvince chose (slot 82): nothing for an agent with an area and a parent whose unit is a theatre (or missing); otherwise where the army's `army_role` (+0x2FC) is 0, `+0x54` is set, slot 86 refuses the unit, it is not retreating and in no battle, and it is not already going (or standing) there: CMapProvince::CanUnitReach(+0x54, unit, 1, 1), then CEU3AI::MoveUnit(owner, unit, +0x54's id, 0, 1, 1, null). So an AI theatre headquarters with land under it walks to where CTheatre_PickHQProvince would place a new one.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agents.md",
+   "revises": "Raised from likely; the reading in FINDINGS-aiconsumer.md is right and now has its other half - +0x54 is written by slot 82 from 0x4DA340, whose level-0 answer is CTheatre_PickHQProvince.",
+   "evidence": "Decompiled and set against the listing summarised in FINDINGS-aiconsumer.md; its +0x54 is read as CanUnitReach's `this` and at +0xD0, which 0x4DA340's return (a CMapProvince* from its candidate lists or CTheatre_PickHQProvince) fits. WHAT WOULD SHOW IT WRONG: an AI theatre headquarters with subordinates standing for days away from the province PickHQProvince scores best."
+  },
+  {
+   "rva": "0x4D5320",
+   "kind": "function",
+   "name": "CAIUnit::OnUnitCreated",
+   "signature": "void __thiscall CAIUnit::OnUnitCreated(CAIUnit* this, CUnit* unit)",
+   "no_signature": null,
+   "comment": "**Slots 17, 18 and 19 - one body**: the agent's answer to a unit coming into being. A land unit made is broadcast on channel 6 to slot 17, a fleet on 7 to slot 18, an air unit on 8 to slot 19 (BroadcastToListeners from CCreateUnitCommand::Execute (rva 0x147930), CUnitDeployment::DeployAt, CCreateHigherCommand::Execute, CCreateNewHQCommand::Execute, the unnamed rva 0x1EB970 beside CUnitSplitCommand, and two small helpers at rva 0x4A2D10/0x4A2D40 for a fleet and an air unit), and CAIUnit::Enable subscribes every agent to all three. Where the unit's id (+0x10/+0x14) is on the agent's `+0x1EC` list (`requested_units`, a CList of 0x14-byte id nodes) - the units it asked for, which only PostCreateUnitCommand (0x4BEAD0, the naval and air splits) appends to - and the agent has a unit: CAttachUnitCommand(the new unit, the agent's unit) posted and the id taken off the list. Any other unit: nothing. So **a fleet or air group the agent split off is hung under the agent's own unit**, the theatre headquarters; a headquarters CCreateHigherCommand makes is never on the list.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agents.md",
+   "revises": "Named and given a signature; the record left 'which of the three notifications it answers' open. All three: the channel decides the slot (6, 7, 8 for land, naval, air), the body is the same. And the 0x4D42D0/0x4D4070 calls the old comment listed are not in this body - 0x4D5320 runs to the `ret 4` at 0x4D549B and calls CList_FindObjectIdNode (0xBEEE0), the attach constructor, the session post and CList_CCountryTag_RemoveNode (0xA85D0).",
+   "evidence": "Decoded 0x4D5320-0x4D549B (rvas): id pair from [esi+0x10]/[esi+0x14], the list head [edi+0x1EC], CList_FindObjectIdNode at 0x4D536D, `cmp [edi+0x64],0` at 0x4D537D, CAttachUnitCommand(unit, +0x64) at 0x4D53A8, the post at 0x4D5460, the lookup again and the removal. Channels: the handler pushed at each BroadcastToListeners site - VA 0x8A3120 (`mov eax,[ecx]; jmp [eax+0x44]`, slot 17) with eax 6, VA 0x8A3150 (`jmp [eax+0x48]`, slot 18) with 7, VA 0x8A3110 (`jmp [eax+0x4C]`, slot 19) with 8 - and channel N's list at VA 0x1B14DC0 + N x 16, i.e. VA 0x1B14E20/E30/E40, three of the eight CAIUnit::Enable subscribes. The list's only appender: a census of every instruction with displacement 0x1EC/0x1F0/0x1F4 over VA 0x880000-0x8E0000 (chunked on int3, resumed past stops) finds +0x1EC/+0x1F0 written only in 0x4BEAD0 (rva 0x4BEC31, 0x4BEC56) and cleared in slot 49 and CAIUnit's teardown (positive control: the same census finds this body's own reads at rva 0x4D5350/0x4D535B, and slot 82's `+0x1EC` children test at 0x4C0644). WHAT WOULD SHOW IT WRONG: another writer of +0x1EC outside that range."
+  },
+  {
+   "rva": "0x4AF4E0",
+   "kind": "function",
+   "name": "UnitHasBlockingOrder",
+   "signature": "bool __stdcall UnitHasBlockingOrder(CUnit* unit@ESI) @AL",
+   "no_signature": null,
+   "comment": "`unit` in **ESI**, bare `ret`, no stack arguments; 0x4AF4E0 to 0x4AF529. True where the unit is moving (`CUnit +0x2CC`, movement_destination_province_id, above 0); otherwise false where its order (`CUnit +0xB0`) is of kind **0x4E5** or **0x56C** (slot 16), else the order's slot 24. The receiver is a **CUnit**: every caller hands it a unit - CAIUnit::AssignToNearestCommand a division and its parent (0x4C292D, 0x4C293C), the site at 0x4CBD80 one it has just tested at `+0x1F4 == 4` - and +0x2CC and +0xB0 are CUnit's movement destination and order.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agents.md",
+   "revises": "Receiver retyped from CAIUnit* to CUnit*. The record read +0x2CC and +0xB0 as CAIUnit fields; both are the unit's (movement_destination_province_id and order_ptr), and the callers read pass units. The CAIUnit +0xB0 `order` field record rests on this misreading and should be looked at.",
+   "evidence": "Decoded 0x4AF4E0-0x4AF529 (`cmp [esi+0x2CC],0`, `[esi+0xB0]` slot 16 against 0x4E5 and 0x56C, slot 24). At 0x4C292D ESI is the unit taken from slot 85's vector (`mov esi,[ebp-0x14]` at 0x4C28F0) and at 0x4C293C its parent (`mov esi,ebx`); at 0x4CBD77 `cmp [esi+0x1F4],4` precedes the call - oob_level, a CUnit field. WHAT WOULD SHOW IT WRONG: a caller with a CAIUnit in ESI."
+  },
+  {
+   "rva": "0xEFB40",
+   "kind": "function",
+   "name": "CCountry_ProvincesConnectedByArea",
+   "signature": "bool __stdcall CCountry_ProvincesConnectedByArea(CCountry* country, CMapProvince* from, CMapProvince* to, bool avoidEnemy)",
+   "no_signature": null,
+   "comment": "Whether a country can get from one province to another over the owner-area graph. 0xEFB40 to `ret 0x10`. False where either province's owner area (+0x2B4) is not a real one (its slot 0); true where both are in one area; otherwise OwnerAreaPathFind(from's area, to's area, functor, path) with the functor {vftable, the country's tag} being OwnerAreaCost_NoEnemy (vftable 0x11C1BF0) where avoidEnemy is set and OwnerAreaCost_Accessible (0x11C1BF8) where not - its answer. Every caller in the higher-command code passes avoidEnemy = 1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agents.md",
+   "evidence": "Decoded VA 0x4EFB40-0x4EFC41: both slot-0 tests, `cmp esi,edi; je` to true, the two functor vftables (VA 0x15C1BF0/0x15C1BF8) chosen on the byte [ebp+0x14], the tag from CCountry +0xCA4/+0xCA8, the call of OwnerAreaPathFind (rva 0x811A0) with ECX = the from area and `add esp,0xC`, the answer in AL. WHAT WOULD SHOW IT WRONG: OwnerAreaPathFind answering something other than whether a path exists - its own body is only partly read."
+  },
+  {
+   "rva": "0x1BD220",
+   "kind": "function",
+   "name": "CUnit_GetFirstBrigadeDefinition",
+   "signature": "CSubUnitDefinition* __stdcall CUnit_GetFirstBrigadeDefinition(CUnit* unit@EAX) @EAX",
+   "no_signature": null,
+   "comment": "Unit in EAX, bare `ret`, 22 bytes: null where the unit has no brigade (`+0x40` count not above 0) or the first node's brigade is null, else the first brigade's definition (`CSubUnit +0x58`). Slot 85 compares its `+0x24` index with the garrison_brigade type's to tell a garrison division.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agents.md",
+   "evidence": "Decoded VA 0x5BD220-0x5BD235 whole: `cmp [eax+0x40],0; jle`, `mov eax,[eax+0x38]; mov eax,[eax]; test; je`, `mov eax,[eax+0x58]; ret`, `xor eax,eax; ret`, ten int3 after. WHAT WOULD SHOW IT WRONG: nothing short of a different decode."
+  },
+  {
+   "rva": "0x1DF320",
+   "kind": "function",
+   "name": "CCreateHigherCommand::CCreateHigherCommand",
+   "signature": "CCreateHigherCommand* __stdcall CCreateHigherCommand::CCreateHigherCommand(CCreateHigherCommand* this, CUnit* unit)",
+   "no_signature": null,
+   "comment": "**The one-unit constructor** - the AI's (CAIUnit_CreateHigherCommands, rva 0x4C31AF) and the interface's at VA 0x75DB4B; `ret 8`. CCommand's base (class id 0x18D, type ids 0x4BA at +0x2C/+0x30, 0xFFFF at +0x34), the vftable (rva 0x11C8F5C), an empty vector of 0x28-byte unit references at +0x3C, then - under the spin lock at VA 0x1B16714 - **the new headquarters' id is reserved here**: type `0x1268 + word[VA 0x1A857EC]` (4713) at +0x4C, serial = the persistent-id counter at VA 0x1A857F8 plus 1 at +0x50, and **the counter moves on by 3** (the headquarters, its brigade at serial + 1, and one left unused). +0x54 (select) = 0. Then the unit's reference is appended to the vector. So the ids are taken when the AI decides, not when the command runs - which is why a corps and the army over it made in one pass have neighbouring ids.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agents.md",
+   "evidence": "Decoded VA 0x5DF320-0x5DF421 (VAs here): the base, vftable 0x15C8F5C stored at 0x5DF39B, the spin-lock acquire 0x67AEE0 on 0x1B16714, `lea edx,[ecx+1]; add ecx,3; mov [0x1A857F8],ecx` at 0x5DF3B7-0x5DF3C3, the type at 0x5DF3C9-0x5DF3D6, the lock released at 0x5DF3DF, the unit through 0x42DD70 and 0x44F910 (the reference builder and the vector push_back). Against the 4 January save: all 279 new AI headquarters have type 4713 and a brigade of serial + 1 (Prussia's corps 524 with brigade 525, the army made next in the same pass 527). WHAT WOULD SHOW IT WRONG: a new headquarters whose brigade is not its own serial + 1."
+  },
+  {
+   "rva": "0x1DF600",
+   "kind": "function",
+   "name": "CCreateHigherCommand::Execute",
+   "signature": "void __thiscall CCreateHigherCommand::Execute(CCreateHigherCommand* this)",
+   "no_signature": null,
+   "comment": "Slot 6. **Makes a headquarters one level above the highest-ranked of its units and puts them under it.**\n\n1. top = the referenced unit with the lowest oob_level (first of equals); none, or top a theatre (level < 1): logged `Failed to create higher command`, nothing.\n2. place = top's province; where that is sea, top is land and carried (`CArmy +0x300`), the fleet's home base province (+0x98, slot 0). Still not land: logged `Failed attempt to spawn higher command on the naval base`, nothing.\n3. **A CArmy (0x308) of level top - 1**, with the id the constructor reserved (+0x4C/+0x50), the owner top's.\n4. **One CRegiment of the hq_brigade type** (CSubUnitDataBase +0x78), id serial + 1, home the place, **strength a twentieth of its most** (x 1000 / 20000, not below 0), its highest raised to that; no experience is given. The owner's Manpower is charged a twentieth of the brigade's men: `(1000 + technology build_cost_mp modifier, at least 50) x build_cost_manpower / 1000 x 1000 / 20000`, held at 0. Named by REGIMENT_NAME (CCountry::MakeSubUnitName), technologies applied, the unit added to the country, its avatar made, the brigade added.\n5. **Placing it in the order of battle**: where top has a parent - the grandparent instead where the parent is already at the new level - and that one ranks above the new level, the headquarters goes under it; top leaves its parent and goes under the headquarters. Every other referenced unit that CUnit_MayTakeSubordinate lets the headquarters take leaves its parent and goes under it too.\n6. Put in the place (EnterProvince), its intel level set; **named**: level 0 - CUnit_MakeName with the province, and a new CTheatre (id the game's theatre counter, then raised by one, its `unit` the headquarters) appended to the country's theatres (`CCountry +0x570`); any other level - CUnit_MakeName with no province, `$NUM$$ORDER$ Army Group` / `Army` / `Corps` numbered per country.\n7. The best free leader where the country assigns them (`CCountry +0x74B`), CCombatManager::CheckForCombat in top's province, then the creation broadcast (channel 6 for a land unit, with channel 0); for the player, the interface told and, with +0x54, the new unit selected; a custom-game byte set.\n\nThe AI never reaches the level-0 arm: CAIUnit_CreateHigherCommands stops at army groups.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agents.md",
+   "revises": "Read whole. The comment presented this as 'the live way a CTheatre comes into being'; a CTheatre is made only when the new headquarters is level 0, i.e. made over an army group - which only the player's button can do. What it does every time - the CArmy one level up, the hq_brigade at a twentieth, the manpower, the placing, the parent rule, the name, the leader - was not recorded.",
+   "evidence": "Decompiled whole and the arithmetic settled on the listing (VAs in this paragraph): the lowest-level scan with start 8, `jl 1` failure; the sea arm (+0x300, +0x98 slot 0) and the two log strings; `operator new(0x308)` and CArmy::CArmy; level = top - 1; strength 0x5DF93C-0x5DF9B9 (imul 0x3E8 then the 0x68DB8BAD/sar 0xD magic = / 20000, or 0xB99AF0/0xB99980 with 0x3E8 and 0x4E20; `jns` floor at 0; +0x30 raised); manpower 0x5DF9BC-0x5DFA2B (TechnologyStatus +0x25C, `cmovl` with g_OneTwentieth = 50, x +0xFC, /1000, x1000, /20000, sub from +0xBCC, floor 0); the parent rule 0x5DFAA7-0x5DFAF5; the other units 0x5DFB30-0x5DFBCD (0x5B96B0 with the new unit in EAX, then 0x5B9A30 and 0x5B9760); 0x5BEFD0 EnterProvince; CUnit_MakeName at 0x5DFCA7/0x5DFE31; AssignBestLeader 0x5DFE71; the broadcasts 0x5DFF8C-0x5E002D. Against the 4 January save, the 279 AI headquarters made in those days: every one a single hq_brigade of serial + 1; the fresh ones at strength 0.500 of hq_brigade's 10 with no experience line; names `<n><st|nd|rd|th> Army Group/Army/Corps`; 273 with a leader. WHAT WOULD SHOW IT WRONG: a fresh AI headquarters brigade at another strength, or with experience."
+  },
+  {
+   "rva": "0x1E07D0",
+   "kind": "function",
+   "name": "CCreateHigherCommand::IsValid",
+   "signature": "bool __thiscall CCreateHigherCommand::IsValid(CCreateHigherCommand* this)",
+   "no_signature": null,
+   "comment": "Slot 14, bare `ret`. False with no referenced units, or where one no longer exists or is a theatre (oob_level < 1). Otherwise true where the first unit's owner has Manpower of at least **n hq_brigades' build_cost_manpower** - `floor((n + 0.0005) x 1000) x build_cost_manpower / 1000`, n the number of units referenced - though Execute makes one headquarters and charges a twentieth of one. For the AI, n is 1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agents.md",
+   "evidence": "Decompiled and the arithmetic read on the listing VA 0x5E07D0-0x5E0A43: the per-reference loop (+0x1F4 < 1 fails), floorf((n + 0.0005) x 1000.0) through _ftol2_sse (0x160A460, 0x160A300), x hq_brigade +0xFC / 1000, against the owner's +0xBCC (owner id at the first unit's +0x128). FINDINGS-selection.md B.4 has the same figure on the player's button. WHAT WOULD SHOW IT WRONG: a command made by the AI with less than one hq_brigade's men in the pool."
+  },
+  {
+   "rva": "0x1DE890",
+   "kind": "function",
+   "name": "CAttachUnitCommand::CAttachUnitCommand",
+   "signature": "CAttachUnitCommand* __stdcall CAttachUnitCommand::CAttachUnitCommand(CAttachUnitCommand* this, CUnit* unit, CUnit* parent)",
+   "no_signature": null,
+   "comment": "`ret 0xC`. CCommand's base (class id 0x18D, type ids 0x4B8 at +0x2C/+0x30, 0xFFFF at +0x34), the vftable, then the unit's reference at +0x3C and the parent's at +0x64 (the reference builder, rva 0x2DD70, each). 0x8C bytes. Posted by slot 85 and its two helpers, slot 17-19, and the production minister's placing for the player.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agents.md",
+   "evidence": "Decoded VA 0x5DE890-0x5DE939 (`ret 0xc`, int3 after); the two calls of the reference builder with this+0x3C and this+0x64; every allocation site pushes 0x8C. WHAT WOULD SHOW IT WRONG: nothing short of a different decode."
+  },
+  {
+   "rva": "0x1DE940",
+   "kind": "function",
+   "name": "CAttachUnitCommand::Execute",
+   "signature": "void __thiscall CAttachUnitCommand::Execute(CAttachUnitCommand* this)",
+   "no_signature": null,
+   "comment": "Slot 6, bare `ret`. Resolves the unit (+0x40/+0x44 into +0x3C) and the parent (+0x68/+0x6C into +0x64) and calls CUnit_AttachToParent(unit, parent) - which does nothing unless they have one owner and the parent ranks above, takes the unit from its old parent and hangs it last under the new one. **No limit on how many a command may hold is tested here** (CUnit_MayTakeSubordinate is not called): the AI keeps to five by its own counting. For the player's unit, where the interface is up, the unit panel is told, and where slot 72 of the interface says so and the unit has a name, the message ATTACHEDUNIT with UNIT and PARENT.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agents.md",
+   "evidence": "Decompiled VA 0x5DE940-0x5DEF29; the two FindPersistentById resolutions, the call of CUnit_AttachToParent (rva 0x1B9760), the player test against g_CCurrentGameState->player, the strings `UNIT`, `PARENT`, `ATTACHEDUNIT`. No call of CUnit_MayTakeSubordinate in the body: findRefs --callers on it (VA 0x5B96B0) lists ten sites, none in VA 0x5DE940-0x5DEF29 (positive control: it lists CCreateHigherCommand::Execute's at VA 0x5DFB81). WHAT WOULD SHOW IT WRONG: a site in that range calling the subordinate limit."
+  },
+  {
+   "rva": "0x1DF130",
+   "kind": "function",
+   "name": "CAttachUnitCommand::IsValid",
+   "signature": "bool __thiscall CAttachUnitCommand::IsValid(CAttachUnitCommand* this)",
+   "no_signature": null,
+   "comment": "Slot 14. True where both units still exist and the parent's oob_level is below the unit's. Nothing else: not the owners (CUnit_AttachToParent tests that and does nothing), not the number of subordinates.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agents.md",
+   "evidence": "Decoded VA 0x5DF130-0x5DF1CA: the two resolutions, `cmp [parent+0x1F4] < [unit+0x1F4]` into AL. WHAT WOULD SHOW IT WRONG: nothing short of a different decode."
+  },
+  {
+   "rva": "0x1E1870",
+   "kind": "function",
+   "name": "CSetCommandLevel::CSetCommandLevel",
+   "signature": "CSetCommandLevel* __stdcall CSetCommandLevel::CSetCommandLevel(CSetCommandLevel* this, CUnit* unit, int level)",
+   "no_signature": null,
+   "comment": "`ret 0xC`. CCommand's base (type ids 0x723 at +0x2C/+0x30), the vftable, the unit's reference at +0x3C, the level at +0x64. 0x68 bytes. Posted by CAIUnit::MaybeSetCommandLevel (slot 82).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agents.md",
+   "evidence": "Decoded VA 0x5E1870-0x5E190E (`ret 0xc`). WHAT WOULD SHOW IT WRONG: nothing short of a different decode."
+  },
+  {
+   "rva": "0x1E1920",
+   "kind": "function",
+   "name": "CSetCommandLevel::Execute",
+   "signature": "void __thiscall CSetCommandLevel::Execute(CSetCommandLevel* this)",
+   "no_signature": null,
+   "comment": "Slot 6, bare `ret`. The unit's oob_level = the level (+0x64), and it is **renamed** by CUnit_MakeName(owner, its province) - a numbered name of the new level, or NAMED_THEATHRE at level 0. Nothing else: its children are not looked at, no theatre is made at level 0, no brigade or leader changes.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agents.md",
+   "evidence": "Decompiled and read on the listing VA 0x5E1920-0x5E19EB: one resolution, the store to +0x1F4, CUnit_MakeName and CUnit_SetName. WHAT WOULD SHOW IT WRONG: nothing short of a different decode."
+  },
+  {
+   "rva": "0x1E1BF0",
+   "kind": "function",
+   "name": "CSetCommandLevel::IsValid",
+   "signature": "bool __thiscall CSetCommandLevel::IsValid(CSetCommandLevel* this)",
+   "no_signature": null,
+   "comment": "Slot 14. The unit must exist; a land unit (slot 15) needs a level under 5, a fleet (slot 16) exactly 5, an air unit (slot 17) exactly 6. The level is not tested against the unit's children or against nought.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-agents.md",
+   "evidence": "Decoded VA 0x5E1BF0-0x5E1C85: slot +0x3C with `cmp [this+0x64],5; jl`, slot +0x44 with `== 6`, slot +0x40 with `== 5`. WHAT WOULD SHOW IT WRONG: nothing short of a different decode."
+  }
+ ],
+ "structs": [
+  {"name": "CAttachUnitCommand", "size": "0x8C", "inherits": "CCommand", "vftable_rva": "0x11C8EDC",
+   "comment": "The command that hangs one unit under another. Two 0x28-byte object references (cached pointer, type, id, name): the unit at +0x3C and the parent at +0x64. Save keys `unit` and `parent`.",
+   "evidence": "Every allocation pushes 0x8C (slot 85 0x4C24BC, 0x4C25DB; 0x4C2770 0x4C2BB8; 0x4C2CD0 0x4C2FD4; slot 17 0x4D5387); the constructor 0x1DE890 writes the two references; vftable from vtable.py."},
+  {"name": "CSetCommandLevel", "size": "0x68", "inherits": "CCommand", "vftable_rva": "0x11C8FDC",
+   "comment": "The command that changes a unit's oob_level. The unit's 0x28-byte reference at +0x3C, the level at +0x64. Save keys `unit` and `level`.",
+   "evidence": "Slot 82 allocates 0x68 (0x4C067F); the constructor 0x1E1870 writes +0x3C and +0x64; vftable from vtable.py."},
+  {"name": "CCreateHigherCommand", "size": "0x58", "inherits": "CCommand", "vftable_rva": "0x11C8F5C",
+   "comment": "The command that makes a headquarters over units. A vector of 0x28-byte unit references at +0x3C, the new headquarters' id (type +0x4C, serial +0x50, reserved by the constructor; its brigade takes serial + 1), and +0x54 whether to select it. Save keys `unit`, `select_units`, `parent`.",
+   "evidence": "CAIUnit_CreateHigherCommands allocates 0x58 (0x4C3198); the constructor 0x1DF320 writes +0x3C..+0x44, +0x4C, +0x50, +0x54; vftable from vtable.py."}
+ ],
+ "struct_fields": [
+  {"struct": "CAIUnit", "offset": "0x54", "name": "command_province", "type": "CMapProvince*",
+   "comment": "The province the agent's own headquarters should stand in. Written only by CAIUnit::MaybeSetCommandLevel (slot 82, 0x4C0775) from CAIUnit_PickCommandProvince (0x4DA340) - where it is null, on a forced pass (hour id % 24, day of the year divisible by 9) or while the unit stands on a front province; read by CAIUnit_MoveAgentUnitToCommandProvince (0x4D5720) as CanUnitReach's `this` and for its id at +0xD0. Zeroed by the constructor. The slot where CAIAgent keeps the owner AI for the ministers, which is why GetOwnerAI on a CAIUnit answers a province.",
+   "revises": "Retyped and renamed from `command_level_state int`: both readers use it as a CMapProvince* and its one writer stores 0x4DA340's province (or CTheatre_PickHQProvince's). FINDINGS-aiconsumer.md argued the type and left the correction to prose.",
+   "evidence": "Store at 0x4C0775 of 0x4DA340's EAX, which returns local CMapProvince* candidates or CTheatre_PickHQProvince's (rva 0xB0A00) answer directly; reads at 0x4D57AB (identity with a province), 0x4D57B7 (CanUnitReach this), 0x4D57C3 (+0xD0). WHAT WOULD SHOW IT WRONG: another writer storing a non-pointer."},
+  {"struct": "CUnit", "offset": "0x2C4", "name": "ai_pending_subordinates", "type": "int",
+   "comment": "The AI's count of subordinates it has just posted CAttachUnitCommands to put under this headquarters and that have not landed yet. CAIUnit::OrganiseCommands (slot 85) zeroes it on every land unit of its subtree at the start of a pass; a garrison or fleet sent to the agent's unit, and each unit CAIUnit::AssignToNearestCommand moves, takes one off the old parent and adds one to the new; AssignToNearestCommand counts it with the children already there against its limit of five, and CAIUnit_CreateHigherCommands will not borrow a headquarters while it is above 0.",
+   "evidence": "Writes 0x4C219D (zero), 0x4C24AC/0x4C24C1, 0x4C2BAB/0x4C2BBD; reads 0x4C2972, 0x4C29E2, 0x4C2F36. Trap 12: CAIUnit +0x2C4 (scored_provinces_last) is another object; every site here has a CUnit from the subtree vectors or a parent pointer (+0x1E0) in the register. WHAT WOULD SHOW IT WRONG: a site where the register is a CAIUnit."}
+ ],
+ "vftable_slots": {
+  "CAIUnit": {
+   "17": {"name": "OnUnitCreated", "signature": "void __thiscall OnUnitCreated(CAIUnit* this, CUnit* unit)"},
+   "18": {"name": "OnUnitCreated", "signature": "void __thiscall OnUnitCreated(CAIUnit* this, CUnit* unit)"},
+   "19": {"name": "OnUnitCreated", "signature": "void __thiscall OnUnitCreated(CAIUnit* this, CUnit* unit)"},
+   "82": {"name": "MaybeSetCommandLevel", "signature": "bool __thiscall MaybeSetCommandLevel(CAIUnit* this, bool force)"},
+   "85": {"name": "OrganiseCommands", "signature": "bool __thiscall OrganiseCommands(CAIUnit* this)"}
+  },
+  "CAttachUnitCommand": {
+   "6": "Execute",
+   "14": {"name": "IsValid", "signature": "bool __thiscall IsValid(CAttachUnitCommand* this)"}
+  },
+  "CSetCommandLevel": {
+   "6": "Execute",
+   "14": {"name": "IsValid", "signature": "bool __thiscall IsValid(CSetCommandLevel* this)"}
+  },
+  "CCreateHigherCommand": {
+   "6": "Execute",
+   "14": {"name": "IsValid", "signature": "bool __thiscall IsValid(CCreateHigherCommand* this)"}
+  }
+ },
+ "frontier": ["0x1EB970", "0x4A2D10", "0x4A2D40", "0x1B6E60", "0x499F70", "0x4811A0"]
+}
