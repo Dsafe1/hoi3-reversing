@@ -17,6 +17,57 @@ truth.
 
 ---
 
+## The moving wave - the military AI's third piece: moving and attacking
+
+> **LANDED 2026-10-19.** Six readers, A to F below, on the maintainer's word "Ok lets go" (2026-10-17; relaunched on
+> 2026-10-19 after the first launch hit the usage limit before any reader's first step). Six fragments merged (72 address
+> entries, 43 new; 1 struct declared, 40 struct fields; apply `failed: 0`, `struct fields: 0`); the write-up is
+> `findings/FINDINGS-moving.md`, indexed in `CANDIDATES.md`, where what it left is queued. The attack's candidates are
+> taken lowest cost first; the division need's weight sum is never divided, and the capital's naval floor gives every
+> European Soviet theatre 18; the AI's sea targeting asks for no sighting; an invasion's "load at night" stage sends
+> carrier aircraft; the AI's leader pass only fills leaderless units.
+
+**The question, for OpenHOI3's stage 5 - the military AI's third piece**: what moves a unit and makes it attack. The
+second piece built the theatres, the agents, the order of battle and every plan; nothing yet marches a division to a
+front, sends a fleet or a wing at the enemy, lands anyone on a coast - or settles the division need the built balancing
+waits on. Six readers, A to F; the write-up is **a new `findings/FINDINGS-moving.md`**, sections A to F.
+
+**Already read, not to be redone - cite it; re-read only to settle a listed leftover or to correct**:
+
+- `FINDINGS-agents.md` - the pass, the agent tick's 22 rows (A.2 numbers them; rows 10, 12, 15, 17, 18, 19, 21 are this
+  wave's), the regrouping, the plan whole, and the movers between theatres (F.1-F.5, divisions, fleets, transports, air).
+- `FINDINGS-aiconsumer.md` - `CAIUnit_ManageLandUnits` (row 21) phases 1-3 whole: the front-province scoring, the
+  committing of units one at a time against the odds bars, the calling-off. Its *What is not established* is reader B's
+  list.
+- `FINDINGS-attackodds.md` - `CAIUnit::EstimateAttackOdds` (`0x4D93B0`) whole: a damage ratio.
+- `FINDINGS-aihelpers.md` - the AI's own combat modifier model (`0x4D8C50` attack, `0x4D8590` defence).
+- `FINDINGS-airnaval4.md` - air phase 4's mission assignment; the naval convoy-escort and rebase block.
+- `FINDINGS-airstance.md` - who sets the air stance; who fills the four `air_target_provinces_*` lists.
+- `FINDINGS-invasion.md` - `CEU3AI::PickInvasionLandingProvince` whole. `FINDINGS-theatre2.md` - `CAIInvasion`'s stage
+  machine, named `likely` from one read.
+- `FINDINGS-aiplans.md`, `FINDINGS-aiunit.md`, `FINDINGS-theatres.md` - the plan's slots, the class, the theatres.
+
+**The oracle.** The five saves (one game, Germany played): **Italy is at war with Ethiopia in all of them - the one
+running war**, so Italy's land block runs every third hour and *Cdo. Sup. Africa* is the one plan at stance 4 with a
+`path`; 12 plans in `_01_04_12` carry an embark/debark pair, all ports; between `_01_01_00` and `_01_04_12` 429 units
+change place. OpenHOI3's built check (`SaveCheck agents`) leaves concrete targets: the Soviet Home Command holds 3
+divisions against the save's 18 (the division need), `our_power` agrees in 22 of 106 and `their_power` in 78 of 106.
+
+| reader | brief | fragment |
+| --- | --- | --- |
+| **A** | **The land block - who marches where.** Rows 10 and 15: `0x4B1820` (`CAIUnit_UpdateThreatenedProvinces`); `0x4CC450` (the land block's first call, clears `full_pass_pending`) and `0x4CC020`, `0x4D7F80` (sets it back), `0x4CC690` (gated on the air-transports vector `+0x10C` - a paradrop planner?) - all four whole: how a division is given a province to stand in (garrisons, reserves, the walk to the front), which command each posts, and how this meets the per-division `CSetAIParamCommand(unit, target, staging)` targets. With them: which order kinds `0x4E5` and `0x56C` are (slot 86 skips a unit under one), `CUnit +0x2C9` (disqualifies a candidate, one reader at `0x4D6CE0`), `CCountry +0xF50` (tested `> 0` beside `at_war` to run the land pass at all). | `land-block.json` |
+| **B** | **Attacking's open ends** - `FINDINGS-aiconsumer.md`'s *not established*, off the bytes: slot 86 (`0x4C7540`, the veto - what disqualifies a unit); slot 88 (`0x4BE560`, a float against 95.0); slot 89 (`0x4BE7E0`, the enemy's power at a province); **`0x49AAB0`, the stand-down primitive** - what command it posts, whether a cancelled attack stops or reverses; slot 17's sign on one `CCombat` subclass (the land body disengages `> 0.5`, the naval `< 0.5` complemented - which is "losing"); `CMapProvince +0x330`/`+0x354` (the unsupplied-attacker port test); `CAIUnit +0x12C`'s contents (`FINDINGS-opsarea.md` item 7's `m mod n`). | `attack-vetoes-and-standdown.json` |
+| **C** | **The division need's arithmetic** - what OpenHOI3's balancing waits on. `CAIUnit::EstimateAreaNeed` (`0x4B82F0`) tail, VA `0x8B8F26`-`0x8B9098`, instruction by instruction: the integer score sum divided by 1000.0 and rounded by `fistp`, the float sum carried through the recursion into the focus areas of `+0x338`, and **which of the two is divided by the area's provinces (at most 40)**; `CAIUnit::EstimateTheatreNeed` (`0x4B9610`) whole; `their_power` exact (`0x4B5210`/`0x4B60F0`'s enemy side - the save agrees only 78 of 106); France's 0.5% in `our_power` and how a figure under 1.000 passed the whole-number gate on its first post (`0x4E1D00`?); `0x508C30`. The check: the Soviet Home Command's 18 divisions, and the saves' `our_power`/`their_power`. | `division-need.json` |
+| **D** | **Fleets and aircraft to their targets.** `CEU3AI_AssignSeaTargetsToAgents` (`0x48C140`) whole - what fills `+0x25C` (sightings gained), `+0x26C` (lost) and `+0xD8` (`submarine_want`), which `DistributeFleetsToTheatres` and the naval-bomber want read; `CAIUnit_ManageNavalUnits` (`0x4D0880`) rows the regroup (section C) and the convoy/rebase block (`FINDINGS-airnaval4.md`) did not cover - who is sent to sea, to patrol, to intercept, and when; `CAIUnit_ManageAirUnits` (`0x4CD890`) likewise beyond phase 4 and the regroup; `BuildAirTargetProvinceLists` (row 12) against `FINDINGS-airstance.md` - settle what it left. Small leftovers in reach: `0xD52A0`'s war branch (the fleet-to-port route test), `0xE1010` past its combat test (is a transfer refused?), `0x4B4200`'s province score, which way `InsertUnitByRange` keeps its order. | `sea-and-air-targets.json` |
+| **E** | **Invasions.** The `CEU3AI` side whole: `PlanAmphibiousInvasion` (`0x492190`) with `AddTransportNeed` (`0x4935DE`), `AddBrigadeNeed` (`0x493756`), `CreateInvasionAgent` (`0x493B18`); `RankInvasionAreas` (`0x495530`); `PruneInvasions` (`0x491BE0`); `RebuildWeakEnemyPorts` (`0x4972E0`); `AbandonInvasionArea` (`0x494C40`); `ProcessAI_UpdateInvasionAgents` (`0x489887`). Then `CAIInvasion`'s tick off the bytes, raising `FINDINGS-theatre2.md`'s `likely` names: `DoTick` (`0x49FB40`), `PickLandingSite` (`0x49FBC0`), `MarchLandForceToPort` (`0x4A01F0`), `LoadTransportsAtNight` (`0x4A0610`), `SailAndIssueInvasionOrder` (`0x4A09B0`), `UnitCanReachObjectiveOverland` (`0x4A11B0`), `IsInvasionOver` (`0x4A12F0`), `AddUnit` (`0x4A1680`), `ReleaseUnitOutsidePortArea` (`0x4A18E0`). `PickInvasionLandingProvince` is read whole - cite it. | `invasions.json` |
+| **F** | **Sealift and the pass's remainders.** `CAIUnit::AssignAreaTargetsAndSealift` (`0x4C4370`, 12.7 KB) **off the bytes** - `FINDINGS-agents.md` E.6 has its shape from the decompiler alone: the head's per-division targets by area need and the `CSetAIParamCommand(unit, target, staging)` it posts (and that command's `Execute`), the land-or-sea split, the tail's embark/debark vote, and the pickers `0x4C3AF0` (the port), `0x4C3940`, `0x4C3D50`; `CEU3AI_RecallStrandedLandUnits` (`0x498870`) whole; `AI_ReassignLeaders` (`0x498EF0`) whole - raise it from `inferred`, what it moves and by what rule against `FINDINGS-leaderassign.md`. | `sealift-and-leaders.json` |
+
+**Measurable afterwards, by OpenHOI3**: the 4 January and 20 April saves beside a run - divisions standing on the
+fronts' provinces, the two powers whole, the Soviet divisions balanced, embark/debark pairs posted - and the headless
+run's Spanish Civil War and Italy's war in Ethiopia no longer frozen.
+
+---
+
 ## The agent wave - the order of battle the AI builds under its theatres, and each theatre's plan
 
 > **LANDED 2026-10-17.** Five readers, A to E below, on the maintainer's word "Continue with the next step" after the

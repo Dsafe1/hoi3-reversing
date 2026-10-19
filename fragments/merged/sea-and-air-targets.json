@@ -1,0 +1,261 @@
+{
+ "agent": "reader D of the moving wave (fleets and aircraft to their targets)",
+ "question": "What CEU3AI_AssignSeaTargetsToAgents hands each unit agent, and what CAIUnit_ManageNavalUnits and CAIUnit_ManageAirUnits do with fleets and air groups beyond the regrouping and the convoy/rebase block already read; with the sea-route test, the transfer refusal test, the hold-province score and the air target list builder's leftovers.",
+ "source": "reversing/findings/FINDINGS-moving.md",
+ "addresses": [
+  {
+   "rva": "0x48C140",
+   "kind": "function",
+   "name": "CEU3AI_AssignSeaTargetsToAgents",
+   "signature": "void __stdcall CEU3AI_AssignSeaTargetsToAgents(CEU3AI* ai)",
+   "no_signature": null,
+   "comment": "**Hands every enemy convoy, enemy fleet, enemy war-industry province, recent raid on our convoys and friendly fleet to one of the country's unit agents.** Read whole on the listing, 0x48C140 to the single `ret 4` at 0x48D551. One caller, ProcessAI at 0x4899B9, at hour id % 24, for every country with a CEU3AI (before the played/AI branch split). No intelligence, sighting or detection is consulted anywhere: every unit of the countries listed counts, wherever it is. (1) The enemy list: CCountryList_AppendAll of `enemies` (+0x1008) and `undeclared_war_opponents` (+0x1018), then every tag of the strategy's WarTargets (CCountry +0x5D4) not already on it. (2) Every unit agent (ai +0x40): submarine_want (+0xD8) = 0; the lists +0x24C, +0x25C, +0x26C and +0x284 freed and zeroed; the vector +0x18C emptied. An agent's theatre is its root's area id (+0x68/+0x6C) resolved through FindPersistentById; its slot 65 is `mov al,1` on CAIUnit. (3) For each enemy on the list that is in the scenario (+0x44): (a) **each of its convoys** (CCountry +0xA0): c = CConvoy::GetDesiredTransports; for each agent whose theatre has ports (CTheatre +0x9C > 0): over every (path province of the convoy, port of the theatre +0x94) pair with NavalDistanceTo(port, province)/1000 < 3000: sumBase += port's naval base level_max/1000, sumDist += that distance; agents with sumBase >= 1.0 get the convoy's id appended to their +0x24C (every such agent, not only the best); score = max((want + c)/20/sumBase, 1.0) x sumDist/portCount, want being the agent's +0xD8 so far; the agent with the strictly lowest score (from 1e7, first of equals in agent order) gets +0xD8 += c. (b) **each of its naval units** (+0xBAC, slot 16 IsNaval): per agent, over the theatre's ports with NavalDistanceTo(fleet province, port)/1000 <= 2000: sumDist, sumBase (naval base level_max/1000) and n; needs sumBase >= 1 and n >= 1; score = max((CAIUnit_CountAssignedEnemyShips(agent) + fleet's ships)/sumBase, 1.0) x sumDist/n, x 0.2 (double 0x160A260) where our acting capital's area is a real area (slot 0) on the theatre's area list (+0x84); the lowest, first of equals, gets the fleet's id on +0x25C. (c) **war-industry provinces**: in the enemy's acting capital's area (a real area), each province whose owner is its controller and is hostile to us (at war, either side REB, or an undeclared war covering it - IsEnemy inlined) and which works at least one level of industry (the province's building of g_CBuildingDataBase +0x2C, level_current +0x24 >= 1000) or produces at least 1 crude oil (+0x27C >= 1000); weight 2.0 where it carries a real strategic resource (+0x18, slot 14), else 1.0; per agent, over every air base (COwnerArea +0x58) of every area of the theatre within CMap::DistanceBetweenProvinces 800: sumBase += air base level_current/1000, sumDist += d; needs sumBase >= 1; score = sumDist/sumBase/weight; the lowest, first of equals, gets the province pushed on +0x18C. (4) **Raids on our convoys**: the game state's finished-battle list (+0xB80, walked through CCombatHistoryEntry +0x28) - each entry of kind 2 (naval) with is_convoy_battle (+0x20) set, a defender (+0x18/+0x1C) that is real, not REB, and our side (CCountry::IsSameSide, or co_belligerent and not an enemy), whose tick plus one month (AddMonths) is not before now: every agent with a theatre port within NavalDistanceTo 2000 of the battle province and CCountry_IsSeaRouteOpen(us, port, province, false) gets the province on +0x284 (CAIUnit_AddConvoyRaidProvince), once per agent. (5) **Friendly fleets**: every naval unit of every country on our non_hostile_countries (+0xF98: ourselves and co-belligerents not at war with us) goes to the agent with the lowest mean NavalDistanceTo (ports within 2000, sumBase >= 1, n >= 1) x 0.2 on the capital's theatre - no load term - and its id onto +0x26C. (6) Every agent's +0xD8 = +0xD8 / 20, truncated toward zero. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x88C140-0x88D551 end to end (one `ret 4`, twelve int3 then 0x88D560's prologue). Constants read off .rdata: 1e7 at 0x160A7CC, 1000.0 at 0x160A300, 3000.0f at 0x160A978, 2000.0 at 0x160A970, 1.0f at 0x171DBAC, 20.0 at 0x160A318, 0.2 at 0x160A260, 2.0f at 0x1718064. The appends: +0x24C at 0x88C69B, +0x25C at 0x88CB21, +0x26C at 0x88D4E6, +0x18C push_back at 0x88CE21-0x88CE7E, +0x284 through 0x887FC0 at 0x88D12F; the /20 at 0x88D515 (imul 0x66666667, sar 3). Slot 16 is IsNaval (CNavy 0xA92590 mov al,1). What would show it wrong: a sighting or intel test between 0x88C761 and 0x88CB2C (there is none), or a reader of +0x26C that treats it as enemies.",
+   "revises": "Read whole: the record had the shape only (inferred). Now every score, cut-off, tie-break and which list each target lands on; +0x26C is friendly fleets, not sightings lost; +0x284 is our raided-convoy sites; no detection is involved."
+  },
+  {
+   "rva": "0x487FC0",
+   "kind": "function",
+   "name": "CAIUnit_AddConvoyRaidProvince",
+   "signature": "void __stdcall CAIUnit_AddConvoyRaidProvince(CAIUnit* agent@ESI, CMapProvince* province@stack:4)",
+   "no_signature": null,
+   "comment": "Appends a province to the agent's convoy-raid list (+0x284, tail +0x288, count +0x28C): a 0x10-byte node {province, prev = old tail, next 0, byte 0}. `ret 4`, one caller: CEU3AI_AssignSeaTargetsToAgents at 0x48D12F. The list is read by CAIUnit_ManageNavalUnits' patrol phase. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x887FC0-0x888017: [esi+0x288] tail, new 0x10 node, [esi+0x28C] incremented, [esi+0x284] set on an empty list; two `ret 4`. findRefs --callers: one call, 0x88D12F. Wrong if another caller passed something other than an agent in ESI.",
+   "revises": null
+  },
+  {
+   "rva": "0x4B96A0",
+   "kind": "function",
+   "name": "CAIUnit_CountAssignedEnemyShips",
+   "signature": "int __cdecl CAIUnit_CountAssignedEnemyShips(CAIUnit* agent@EAX) @EAX",
+   "no_signature": null,
+   "comment": "The sum of regiments_count (+0x40) over the enemy naval units on the agent's +0x25C list, each resolved through the id registry (0x1A857F0 above type 0x1268, 0x1A857F4 otherwise). Bare `ret` at 0x4B970D; the function at 0x4B9710 is another. **Nothing on that list was sighted**: CEU3AI_AssignSeaTargetsToAgents puts every naval unit of every enemy, undeclared-war opponent and strategy war target on the nearest agent's list. Callers: CEU3AI_AssignSeaTargetsToAgents (0x48C9CA, the load term of its own assignment) and CEU3AI_DistributeFleetsToTheatres (0x490568), where it is an agent's surface want. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Renamed from CAIUnit_CountSightedEnemyShips: the list's only filler (0x88CB21 in 0x48C140) takes every IsNaval unit of the enemy list with no intel or sighting test. The body is unchanged from the existing record. Wrong if a second writer of +0x25C filtered by detection - fieldchain --field 0x25C lists only 0x48C140's stores besides the constructor.",
+   "revises": "Renamed from CAIUnit_CountSightedEnemyShips: the ships are assigned, not sighted."
+  },
+  {
+   "rva": "0x4D0880",
+   "kind": "function",
+   "name": "CAIUnit_ManageNavalUnits",
+   "signature": "bool __stdcall CAIUnit_ManageNavalUnits(CAIUnit* agent, bool force)",
+   "no_signature": null,
+   "comment": "**The theatre agent's fleets, every pass the tick allows.** Extent 0x4D0880-0x4D3EA1 (the throw tail past the real `ret 8` at 0x4D3E67). Gates: `!force && !at_war (+0xACC) && !in_undeclared_war (+0xACD)` returns; force clears +0x85; no fleet on +0xDC returns; the area is GetArea or the theatre of the unit's province, which must be ours. Phases in order: (1) 0x4D099D withdraw from a losing sea battle (slot-17 ratio against 0.5). (2) 0x4D0B30 **idle fleets home**: a fleet not moving, with no busy order (slot 24) and not at its own base is MoveUnit-ed to its base when CanUnitReach; but a fleet whose definition carries troops (transport_capability >= 1000) stays in port while the plan has an embark (CUnit +0x284); a fleet with no base or an unreachable one is kept on a 'homeless' vector. (3) 0x4D0D70 port and repair, and the 'ready' vector (FINDINGS-agents.md C.3). (4) 0x4D14F0 **existing orders**, per ready fleet: an idle fleet with no destination (+0x2CC) sitting in a port that is not its base is moved to its base, unless it holds a transport and lies in the plan's embark port; a busy fleet: join_fleet - the mover and its target go on the 'handled' list and the port tallies move; a busy transport fleet carrying nothing (CNavy +0x2EC) is cancelled unless CUnit +0x2CA is set; convoy_raid and convoy_escort are cancelled at peace, an escort also when its target is gone; patrol is kept only at war; any other order is kept while the fleet has a destination, cancelled at its own base, and an intercept with no destination away from base is cancelled; cancel = IssueUnitOrder(none) and MoveUnit to the base (or where it is). (5) 0x4D19F6 split and merge (C.3). (6) 0x4D2025 the handled fleets swap-removed from the ready vector (Vector_SwapRemoveValue, which reorders it); +0x27C and +0x280 zeroed; **enemy survey**: every naval unit of every country at war or in undeclared war with us within NavalDistanceTo 1000 of one of the theatre's ports and hostile where it stands (CCountry::IsEnemy) adds GetPower/1000 to +0x27C and goes on a local list, troop carriers (+0x2EC > 0) at the front, the rest at the back. (7) 0x4D2418 per ready fleet: submarine convoy raid, or relocation to the port with most raidable tonnage when fewer than half the route provinces seen are raid candidates, or a surface rebase; the tail adds a free fleet's GetPower/1000 to +0x280 and keeps it free (FINDINGS-airnaval4.md, and FINDINGS-moving.md D). (8) 0x4D323D **patrol**, with naval stance != 0 and (at war, undeclared war or +0x28C > 0): the region V = the +0x284 provinces, or failing any, the sea zone (+0xA4) of each theatre port, both less what CAIUnit_IsBalticBarredToAllies refuses; while V is not empty: centre = V[rand() % |V|] (the C runtime's rand, per thread), the patrol area the centre plus the nearest remaining V entries to it (up to five provinces, each swap-removed from V); the fleet = the nearest free fleet with no busy order, no submarine and at least one screen; `patrol` from now to now + 168 hours over that area; no fleet ends the phase. (9) 0x4D37EA **intercept**, per enemy fleet of the survey list at sea and not Baltic-barred, and only where enemy power (+0x27C) <= own power (+0x280) x 1.5 (2.0 at naval stance 1) unless it carries troops: need = its GetPower/1000, target = need (x 0.66 for a troop carrier); free fleets are gathered nearest first (NavalDistanceTo, strict, first of equals) while 2 x need > gathered, each reachable (CanUnitReach), of non-zero power, not on patrol unless the enemy carries troops, and with a screen when the enemy is all submarines; if gathered >= target, the first gets `intercept` on the enemy fleet and the rest `join_fleet` onto the first, each window now to now, own power reduced and need reduced by each until it falls below zero. Returns 'split or merged a fleet'; slot 73 ignores it.",
+   "confidence": "inferred",
+   "evidence": "Disassembled 0x8D0880-0x8D3E67 in full; the phases at 0x8D0B30-0x8D0C27, 0x8D14F0-0x8D19CD, 0x8D2025-0x8D23C0 and 0x8D323D-0x8D3DC4 read instruction by instruction here. Tokens per the order table (patrol 0x42E at 0x8D3776, intercept 0x6E6 at 0x8D3CCF, join_fleet 0x6E5 at 0x8D3D10, none 0x18D at 0x8D19A2). Constants: 1.5f 0x17179AC, 2.0f 0x1718064, 100000.0f 0x160A500, 1e6f 0x160A598, 0.66 0x160A928, 2.0 0x160A360, 168 = 0xA8 at 0x8D373F. rand() is 0xB97F3F (_getptd, *0x343FD + 0x269EC3). The name stays inferred: it describes what the body does, no string names it.",
+   "revises": "The six phases the record only mapped are now read: idle fleets home, existing orders, the enemy survey and the two powers, patrol and intercept."
+  },
+  {
+   "rva": "0x4CD890",
+   "kind": "function",
+   "name": "CAIUnit_ManageAirUnits",
+   "signature": "bool __stdcall CAIUnit_ManageAirUnits(CAIUnit* agent, int force)",
+   "no_signature": null,
+   "comment": "**The theatre agent's air groups, every hour it holds one.** Body 0x4CD890-0x4D051D (trap 3: the `ret 8` at 0x4CEE68 is a shared epilogue mid-function). Gate: air_units_count (+0x104) >= 1. Four phases (FINDINGS-reorganise.md, FINDINGS-airnaval4.md): (1) 0x4CDA90 triage of +0xFC (kept by InsertUnitByRange, shortest range first, equals in slot 78's walk order): a dead join_air cancelled; at war, a group whose base province has enemy land units marching in is pulled out of any order but rebase_air and **sets force**; fitness bars 0.5/0.75 at air stance 2, else 0.7/0.85, halved for a CAG or interceptor group; an unfit busy group gets carrier_protection (all CAG, on a carrier) or none; a tired idle group at its base rests. (2) 0x4CE1E9 rebase, only with force: the list is +0x20C (strategic bomber or strategic_attack > 50000), +0x21C (naval bomber), +0x22C (transport plane, and the group is skipped while +0x16C is non-empty) or +0x1FC; the running best starts at the current base province with score 1e6, so the lowest listed base below 1e6 wins and the current one is not scored; a province with enemy land units marching in is skipped; score = the list's float, made (score + DistanceBetweenProvinces(the agent's HQ province, it)) x 0.5 when the group's parent is not at oob level 0; without a transport plane, x load where load = (this pass's arrivals + wings based there + the group's own unless based there) / the air base's level_current, when above 1.0; strict lower wins, first of equals in list (ascending) order; a winner other than the current base gets rebase_air and the arrivals tally moves. (3) 0x4CE64F split and merge. The hinge 0x4CEDA8: a regroup this pass (+0x88) with runs_units or allow_hq_reorg returns 1 with no missions; otherwise missions need force or war and air stance != 0. (4) 0x4CEE76 missions; **the anti-shipping budget is 4 x threatened_provinces_count (+0x1E4)** - the provinces of ours an enemy force at sea is heading for - so a tactical or CAS wing with sea attack flies naval missions only while such a threat stands. The returned bool is not read. The second argument is an int whose byte 3 is read uninitialised and ignored.",
+   "confidence": "inferred",
+   "evidence": "Disassembled the head 0x8CD890-0x8CDA90, phase 2 0x8CE1E9-0x8CE63E and the hinge 0x8CED9D-0x8CEEDF. +0x1E4 at 0x8CEED2 (`lea edx,[eax*4]` into [ebp+0xC]) is the field already recorded as threatened_provinces_count, the count of the CList at +0x1DC kept by CAIUnit_UpdateThreatenedProvinces. Phase-2 constants: 1e6f 0x160A598, 0.5 0x160A308, 1.0f 0x171DBAC. InsertUnitByRange (0x8DD3D0) walks back from the tail and inserts after the first node whose range is not above the new one's (jle at 0x8DD40E), else CList_PushFront. Wrong if +0x1E4 at 0x8CEED2 were read off a different object: esi there is [ebp+8], the agent.",
+   "revises": "Adds what fills the anti-shipping budget (+0x1E4 is the threatened-provinces count), phase 2's scoring as read on the listing (the current base is never scored), the list order (ascending range) and the hinge; the rest kept."
+  },
+  {
+   "rva": "0x4B4740",
+   "kind": "function",
+   "name": "CAIUnit::BuildAirTargetProvinceLists",
+   "signature": "void __stdcall CAIUnit::BuildAirTargetProvinceLists(CAIUnit* agent)",
+   "no_signature": null,
+   "comment": "**The writer of all four `air_target_provinces_*` lists** (`CAIUnit +0x1FC`, `+0x20C`, `+0x21C`, `+0x22C`). 0x4B4740 to the `ret 4` at 0x4B4E59. One caller: CAIUnit::Tick at 0x4B0A4F, under `agent->unit != 0` and then `fullPass || !air_target_lists_built (+0x83)` - fullPass being the tick's own flag, hour == (id+6) % 24 or full_pass_pending (+0x84) - **so the lists are rebuilt at every daily full pass**, and also the first time an agent ticks with a unit.\n\n**Step 1, the candidate set.** `CAIUnit::GetArea(agent)` (0x4BBAE0); with none, the theatre of the agent's unit's province (`CMapProvince +0x380`/`+0x384`) through FindPersistentById. All four lists emptied (CListOfOwned_ClearByPointer x4). Candidates are the **AirBases** (`CCountry +0xD70`, the Lua's GetAirBases) of our own country, of our **Overlord** (`+0xF38`/`+0xF3C`) when we are a subject (`isSubject +0xF34`), and of every one of our **Vassals** (`+0xF78`), each kept when its theatre id (`+0x380`/`+0x384`) is the area's; the test on the province's base object (`+0x54`, a CUnitBaseProvince) slot 1 is IsCarrier, false for every province base, so it never refuses. Separately, a vector of the AirBases of every country in `enemies (+0x1008)` that is in the scenario (`+0x44`) lying in that country's acting capital's area.\n\n**Step 2, four scores per candidate, one appended to each list.** Each is a 0x10-byte CPersistent record - vftable 0x15EB644, save id 0x18D at `+4`, the province id at `+8` and the float at `+0xC` - inserted by CList_InsertByAscendingScore (0x4DD590), lowest first.\n\n| list | appended at | scored against (CAIUnit::MeanDistanceToProvinceList) |\n| --- | --- | --- |\n| `+0x1FC` default | 0x4B4C68 | the ops area (`+0x90`) when `frontier_at_war (+0x364)` is set, else the enemy air-base vector; blended `0.75 * s(invasion_target_provinces +0x1AC) + 0.25 * s(that)` when `+0x1AC` is non-empty |\n| `+0x20C` strategic | 0x4B4CC1 | `strategic_target_provinces (+0x18C)`, which CEU3AI_AssignSeaTargetsToAgents fills with enemy war-industry provinces |\n| `+0x21C` naval | 0x4B4D1A | `enemy_sighting_provinces (+0x19C)`, the provinces of the enemy fleets assigned to the agent (+0x25C) |\n| `+0x22C` transport | 0x4B4E00 | `invasion_target_provinces (+0x1AC)`, and only while the vector +0x16C is non-empty (the gate at 0x4B4D1F, the reader's gate inverted) |\n\nIt finishes by setting `agent->+0x83 = 1` (0x4B4E18) and freeing both temporaries.\n\n**Why no earlier pass found it:** it reaches every list through a plain `lea reg, [agent + 0x1FC]`; the scan that missed it was limited to recorded function entries.",
+   "confidence": "confirmed",
+   "evidence": "Tick at 0x8B09D2-0x8B0A4F: [esp+0xC] = 1 when the hour equals (id+6)%24 or +0x84 is set (0x8B09DC-0x8B09EA), then `cmp [esp+0xC],0; jne call; cmp [esi+0x83],0; jne skip; call 0x8B4740`. The builder's reads: +0xD70 at 0x8B481A/0x8B48E7/0x8B4989/0x8B4A61, +0xF34/+0xF38/+0xF3C at 0x8B48B9-0x8B48D4, +0xF78 at 0x8B4954 - the record names these AirBases, isSubject/Overlord and Vassals. CUnitBase slot 1 is ReturnFalse on CUnitBaseProvince (CUnitBaseCarrier's record). Wrong if the tick's flag at [esp+0xC] were anything but the full-pass flag.",
+   "revises": "Corrects 'built once per agent and rebuilt only on a replan' (the flag is the daily full pass), 'faction leader' (it is the Overlord, +0xF34 being isSubject), names +0xD70 and +0xF78, and settles the slot-1 skip as never refusing."
+  },
+  {
+   "rva": "0xD52A0",
+   "kind": "function",
+   "name": "CCountry_IsSeaRouteOpen",
+   "signature": "bool __stdcall CCountry_IsSeaRouteOpen(CCountry* country, CMapProvince* from, CMapProvince* to, bool alsoNeighbours)",
+   "no_signature": null,
+   "comment": "**Whether a country's ships may get from one place to another past the straits.** `ret 0x10`, two exits (0x4D5732 false, 0x4D5747 true). True at once when the country is not at war (+0xACC). Otherwise `from` and `to` are each replaced by the sea zone a land province names (CProvinceTemplate +0xA4), and alsoNeighbours is cleared where `to` is already a sea province; the three blockers are the provinces of the defines' map block GIBRALTAR_BLOCKER (+0x24), SUEZ_BLOCKER (+0x4) and BLACKSEA_BLOCKER (+0x1C). True when SeaRouteCrossesClosedStrait(from, to) is false; failing that, with alsoNeighbours, true when any edge of the original `to` (kind other than 3) leads to a simulated sea province (template +0x13D set, is_land clear) the route to which crosses no closed strait; false otherwise. PANAMA and BALTIC are not asked. Ten callers: CEU3AI_AssignSeaTargetsToAgents (port to raided-convoy site, false), CAIUnit_ManageNavalUnits' port phase (fleet to port, false), CEU3AI::PickInvasionLandingProvince, CEU3AI_RankInvasionAreas (twice), CAIInvasion::PickLandingSite (twice), CAIInvasion::MarchLandForceToPort (twice) and 0xD5760 (any port of one area to any of another). The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x4D52A0-0x4D5759 whole and the decompilation beside it: the +0xACC test at 0x4D52BB, the +0xA4 replacements at 0x4D52E6/0x4D5387, the flag cleared at 0x4D540D, the three GetDefines reads [+0xFC]+0x24, +0x4, +0x1C (definesMap --block map: GIBRALTAR_BLOCKER, SUEZ_BLOCKER, BLACKSEA_BLOCKER), the call at 0x4D55D7 whose `je 0x4D5747` returns true on a clear route, and the edge loop 0x4D5630-0x4D572C. Wrong if 0xD5190 answered 'open' rather than 'blocked' - its true exits need IsEnemyTag on the blockers' controllers, which only a closure would.",
+   "revises": null
+  },
+  {
+   "rva": "0xD5190",
+   "kind": "function",
+   "name": "SeaRouteCrossesClosedStrait",
+   "signature": "bool __cdecl SeaRouteCrossesClosedStrait(CMapProvince* from@EAX, CCountry* country@stack:4, CMapProvince* to@stack:8, CMapProvince* gibraltarBlocker@stack:0xC, CMapProvince* suezBlocker@stack:0x10, CMapProvince* blackSeaBlocker@stack:0x14) @AL",
+   "no_signature": null,
+   "comment": "True when a passage from `from` to `to` crosses a strait the country's enemies hold. Bare `ret`, the caller cleans 0x14. A province is 'inside' a region when the region pointer is on its region list (+0x358). (1) When exactly one of the two lies inside g_mediterranean_region or g_black_sea_region, the passage is closed if **both** the Gibraltar blocker's and the Suez blocker's controllers (+0x334) are enemies (CCountry::IsEnemyTag - at war, or either side REB). (2) Otherwise, or with (1) open, when exactly one lies inside g_black_sea_region, it is closed if the Black Sea blocker's controller is an enemy. Else open. Two callers, both in CCountry_IsSeaRouteOpen. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x4D5190-0x4D5290 whole: the two region loops against [0x1A85584] (g_mediterranean_region) and [0x1A85588] (g_black_sea_region) for EAX's +0x358 and [ebp+0xC]'s, the cmp at 0x4D5209, IsEnemyTag on [ebp+0x10]+0x334 then [ebp+0x14]+0x334 (both required), then the black-sea-only pair at 0x4D5240-0x4D5272 and IsEnemyTag on [ebp+0x18]+0x334. Caller pushes at 0x4D55C9-0x4D55D3 fix the argument order. Wrong if the first test needed either blocker rather than both: the second call is reached only when the first answered true.",
+   "revises": null
+  },
+  {
+   "rva": "0xE1010",
+   "kind": "function",
+   "name": "CUnit_CanTakeSubUnit",
+   "signature": "bool __stdcall CUnit_CanTakeSubUnit(CUnit* unit@EAX, CCountry* country@stack:4, CSubUnit* subUnit@stack:8, bool sameProvince@stack:0xC) @AL",
+   "no_signature": null,
+   "comment": "**Whether a unit may receive a brigade, ship or wing.** `ret 0xC`. False, in order, when: the receiver is fighting (combats_count +0x11C > 0); the sub-unit's definition (+0x58) has is_buildable (+0x36) clear - HQ and partisan brigades, the two `is_buildable = no` types of the base game; the sub-unit is land (its slot 9) and the receiver is not, or air (slot 11) and the receiver is not, or naval (slot 10) and the receiver is not; the receiver is all carrier air groups and the sub-unit is not a CAG; the sub-unit is a CAG, the receiver's base (+0x98) is a carrier, and that carrier's carrier_size/1000 is not above the planes based on it plus the receiver's wings. Then against the sub-unit's current unit (+0xB0), where it has one: it is the first brigade of a unit below oob level 4 (a command's HQ brigade); the receiver has wings and exactly one of the two is all-CAG; either unit is on loan (expeditionary_owner +0x290); the current unit is fighting; sameProvince and the two stand in different provinces. Last: a land receiver already at CCountry_GetMaxBrigadesInDivision. Otherwise true. Callers: CTransferSubUnitCommand::Execute (0x1DCCF3, with the receiver's owner and sameProvince 1), CMilitaryConstruction::Deliver (0x850A0), a command at 0x1EB620 and two interface sites (0x336596, 0x33AAC4). The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x4E1010-0x4E118C whole: exits `ret 0xC` with al 0 at 0x4E101F/0x4E1095/0x4E117D and 1 at 0x4E1186; slot calls at +0x24/+0x2C/+0x28 on the sub-unit against +0x3C/+0x44/+0x40 (IsLand/IsAir/IsNaval) on the receiver; CUnit_AllSubUnitsAreCag 0x5D1220; carrier_size +0x190 at 0x4E10D6; CCountry_GetMaxBrigadesInDivision at 0x4E1174. The install's tfh/units: is_buildable = no only in hq_brigade.txt and partisan_brigade.txt. Wrong if +0x36 were not the key is_buildable (the name comes from a BiceLib header).",
+   "revises": null
+  },
+  {
+   "rva": "0x4B4200",
+   "kind": "function",
+   "name": "CAIUnit_ScoreHoldProvince",
+   "signature": "float __stdcall CAIUnit_ScoreHoldProvince(CAIUnit* agent@stack:4, CMapProvince* province@stack:8) @XMM0",
+   "no_signature": null,
+   "comment": "**How much a province is worth holding against its neighbours**, for slot 80 (CAIUnit::RebuildHoldProvinces, four calls). `ret 8`, the float in XMM0. 0 when the province's MaxInfrastructure (+0x5C) is below g_AiFrontProvinceThreshold (200). Over each edge of the province (kind other than 3) to a simulated land province: if the province has no victory points (+0x34) and is not its own supply depot (+0x48 != +0xD0), and the neighbour's controller is a war candidate of ours (CAIStrategy::IsWarCandidate), **the answer is 0**. For France, a neighbour held by Belgium or Luxembourg - for Belgium, one held by Luxembourg - adds 4000 and counts one, provided that holder is not Germany's... where the holder's Overlord is not us, Germany controls provinces, Germany's faction is not ours and Germany is not at war with the holder there; otherwise, and for everyone else: nothing for a friend (CCountry::IsFriend, with military access); else t = the **holder's** threat towards us (its CAIStrategy::GetThreat of our tag), plus our antagonism towards it (GetAntagonism) when we are at peace and runs_units is set; where t >= 100 and the holder's surrender progress is below 100 (0.1), t is added and counted. Then s = (sum / count) / 20 + count where count > 0; plus CAIUnit 0x4B9710(province, agent, true) (a second term, not read); plus 200 where the province is on the agent's threatened list (+0x1DC); plus, with runs_units, the holder-of-the-province's defend_prov weight for it (CCountry +0x4B8, the entry's +0xC). The name is ours.",
+   "confidence": "inferred",
+   "evidence": "Disassembled 0x8B4200-0x8B4730 whole (two `ret 8`, the early one returning 0.0). Constants: 4000.0 0x160A900, 100.0 0x160A358, 0.1 0x160A3C0, 20.0 0x160A318, 200.0 0x160A4D0. GetThreat (rva 0x4A4DC0) and GetAntagonism (0x4A4E00) by luabind; FRA/BEL/LUX/GER by CCountryDataBase +0x28/+0x88/+0x90/+0x0. The caller at 0x8B3C69 pushes province then agent and reads xmm0. Inferred because 0x4B9710's term is not read, and because GetThreat being asked of the holder's strategy reads backwards - the bytes say so (ecx = countries[controller] + 0x48C at 0x8B4512).",
+   "revises": null
+  },
+  {
+   "rva": "0x4D0520",
+   "kind": "function",
+   "name": "CAIUnit_IsBalticBarredToAllies",
+   "signature": "bool __stdcall CAIUnit_IsBalticBarredToAllies(CAIUnit* agent, int provinceId)",
+   "no_signature": null,
+   "comment": "True when an AI-run Allied country must keep its ships out of a Baltic province. `ret 8`. False unless the agent's country is in a real faction (slot 7) that is the United Kingdom's (CCountryDataBase +0x8/+0xC, ENG), has an AI (+0x1D8) and is not played (game state +0xBCC by id). False when the province of the defines' BALTIC_BLOCKER (map +0x14) has no controller, or its controller owns provinces (+0xCF8), is in that same faction and is a major (0x4F8AB0) - the Baltic open. Otherwise true when the province lies in the region whose name is exactly 'baltic_sea_region' (its region list +0x358, the name std::string at the region's +0x18). Callers in CAIUnit_ManageNavalUnits: the convoy-raid route provinces, the patrol region (twice) and the intercept targets. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x8D0520-0x8D0870 whole beside the decompilation: the ENG faction at 0x8D057C-0x8D058C, the faction, AI and played tests at 0x8D05A6-0x8D0672, GetDefines [+0xFC]+0x14 at 0x8D067D (definesMap: BALTIC_BLOCKER), the controller tests at 0x8D070D-0x8D076E, and the string compare against 'baltic_sea_region' (0x15BE1F4) at 0x8D0814. Wrong if 0x4F8AB0 were not IsMajor (the decompiler names it so; not read here).",
+   "revises": null
+  },
+  {
+   "rva": "0x4DCDA0",
+   "kind": "function",
+   "name": "Vector_SwapRemoveValue",
+   "signature": "bool __stdcall Vector_SwapRemoveValue(void* vector@EDX, int* value@stack:4) @AL",
+   "no_signature": null,
+   "comment": "Removes the first element equal to *value from a 4-byte vector by **overwriting it with the last element and popping the last** - so the vector's order changes. True when found. `ret 4`. Eight callers, all in CAIUnit_ManageNavalUnits: the handled fleets out of the ready vector, the patrol region, the chosen fleets out of the free vector. Generic; not named for a class. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x8DCDA0-0x8DCDFD: linear search, `mov ecx,[ecx+esi-4]; mov [eax],ecx` then end -= 4, al = 1; al = 0 when not found. findRefs --callers: 8, all between 0x8D206B and 0x8D378D. Wrong if the end were decremented before the copy (it is after).",
+   "revises": null
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CAIUnit",
+   "offset": "0xD8",
+   "name": "submarine_want",
+   "type": "int",
+   "comment": "Added straight onto the want vector's submarine entry - `want[nuclear_submarine or submarine] += this->+0xD8` at 0x4B7182, with no scaling - and read by CEU3AI_DistributeFleetsToTheatres for its submarine rule. **Written by CEU3AI_AssignSeaTargetsToAgents** (daily, hour id % 24): zeroed, then each enemy convoy's CConvoy::GetDesiredTransports added to the one agent that best covers its route (0x48C750), and at the end divided by 20, truncated toward zero (0x48D52A). The enemies are those at war or in undeclared war with the country and its strategy's war targets. Zeroed by the constructor at 0x4AF60A.",
+   "source": "reversing/findings/FINDINGS-moving.md",
+   "evidence": "Writers: 0x48C299 (= 0), 0x48C750 (+= c), 0x48D52A (/ 20 by imul 0x66666667, sar 3). fieldchain --field 0xD8 lists no other CAIUnit writer in 0x480000-0x4E0000.",
+   "revises": "Names its writer (was 'the unidentified CEU3AI helper') and the divide by 20."
+  },
+  {
+   "struct": "CAIUnit",
+   "offset": "0x24C",
+   "name": "known_enemy_convoys",
+   "type": "void *",
+   "comment": "Head of a CList of **convoy object id pairs** (type +0, serial +4, prev +8, next +0xC; tail +0x250, count +0x254). Filled daily by CEU3AI_AssignSeaTargetsToAgents (0x48C69B): every convoy of every enemy (at war, undeclared war, or a strategy war target) one of whose route provinces lies within NavalDistanceTo 3000 of the agent's theatre ports, those ports' naval base levels summing to at least one - **every agent that qualifies gets it**, not only the one charged with its submarine_want. Read by CAIUnit_ManageNavalUnits' convoy-raid block (0x4D2526).",
+   "source": "reversing/findings/FINDINGS-moving.md",
+   "evidence": "The append at 0x88C640-0x88C69B runs after the sumBase >= 1.0 test at 0x88C625 and before the best-score comparison, for [esp+0x5C], the agent in hand.",
+   "revises": "Names its filler and the rule."
+  },
+  {
+   "struct": "CAIUnit",
+   "offset": "0x25C",
+   "name": "enemy_fleets_assigned_first",
+   "type": "void*",
+   "comment": "Head of a CList of unit id pairs (tail +0x260, count +0x264; nodes {type, serial, prev, next +0xC, byte}). **Every naval unit of every enemy** (at war, in undeclared war, or a war target of the strategy) - no sighting, intelligence or detection test - put by CEU3AI_AssignSeaTargetsToAgents (0x48CB21) on the one agent with the lowest score: its load (CAIUnit_CountAssignedEnemyShips + the fleet's ships, over the naval base levels of the theatre's ports within NavalDistanceTo 2000, at least 1.0) times the mean distance to those ports, x 0.2 for the theatre holding our capital's area. Read by the force planners for the naval-bomber and surface wants (0x4B5A00, 0x4B7550), by CAIUnit_CountAssignedEnemyShips (CEU3AI_DistributeFleetsToTheatres' surface want), by 0x4B77CE into +0x19C, by CAIUnit_UpdateThreatenedProvinces (0x4B1B31) and by air phase 4's naval_strike survey (0x4D0031).",
+   "source": "reversing/findings/FINDINGS-moving.md",
+   "evidence": "The filler at 0x88C761-0x88CB2C walks the enemy's units (+0xBAC) with slot 16 (IsNaval) and nothing else before the distance loop. Positive control: the same walk's convoy and province halves carry explicit hostility and production tests (0x88CB8F-0x88CC65), so a test would show here if there were one.",
+   "revises": "Renamed from enemy_units_sighted_first: nothing is sighted; the list is every enemy fleet assigned to the nearest agent."
+  },
+  {
+   "struct": "CAIUnit",
+   "offset": "0x26C",
+   "name": "friendly_fleets_assigned_first",
+   "type": "void*",
+   "comment": "Head of a CList of unit id pairs in the same form as +0x25C (tail +0x270, count +0x274). **Every naval unit of the country itself and of its co-belligerents** (non_hostile_countries, CCountry +0xF98), put by CEU3AI_AssignSeaTargetsToAgents (0x48D4E6) on the agent whose theatre ports are nearest on average (NavalDistanceTo within 2000, naval base levels summing to at least 1), x 0.2 for the theatre holding our capital's area. The force planners walk it with every step the mirror of +0x25C's - `dec want[...]` and 0.07/0.15/0.02 subtracted - so a theatre's own fleets offset the enemy's in its naval-bomber and surface wants; which is why an AI theatre at peace carries a **negative** naval-bomber want (FINDINGS-agents.md E.7, E.8).",
+   "source": "reversing/findings/FINDINGS-moving.md",
+   "evidence": "The filler at 0x88D14B-0x88D4FC walks [esp+0x10]+0xF98 (our country), resolves each tag through the country database and takes every IsNaval unit; the append at 0x88D46D-0x88D4E6. Against the saves: the nine non-zero naval-bomber wants in Germany1936_01_04_12 are all negative (-1 to -4), on ENG, USA, JAP, FRA, ITA and ARG plans.",
+   "revises": "Renamed from enemy_units_lost_first: it is the friendly fleets near the theatre, not enemy sightings lost."
+  },
+  {
+   "struct": "CAIUnit",
+   "offset": "0x18C",
+   "name": "strategic_target_provinces_first",
+   "type": "CMapProvince**",
+   "comment": "A std::vector<CMapProvince*> (end at +0x190). **Filled daily by CEU3AI_AssignSeaTargetsToAgents** (0x48CE21): every province of each enemy's acting capital's area that its owner controls, that is hostile to us, and that works at least one level of industry or produces at least 1 crude oil, pushed onto the agent whose theatre's air bases within CMap::DistanceBetweenProvinces 800 give the lowest (sum of distances / sum of working air base levels) / weight - weight 2 for a province with a strategic resource. Read by both force planners for the strategic-bomber want (LOCAL_IC + crude oil, / 300) and by CAIUnit::BuildAirTargetProvinceLists for the strategic list (+0x20C).",
+   "source": "reversing/findings/FINDINGS-moving.md",
+   "evidence": "The push_back at 0x88CE21-0x88CE7E through `lea esi,[eax+0x18C]` (why a displacement scan missed it); the province tests at 0x88CB70-0x88CC65; the air-base loop at 0x88CD20-0x88CDAF.",
+   "revises": "Names the filler the record could not find."
+  },
+  {
+   "struct": "CAIUnit",
+   "offset": "0x27C",
+   "name": "enemy_naval_power_near",
+   "type": "float",
+   "comment": "The summed CUnit::GetPower / 1000 of every naval unit of a country at war or in undeclared war with us lying within NavalDistanceTo 1000 of one of the theatre's ports and hostile where it stands. Zeroed and summed by CAIUnit_ManageNavalUnits' enemy survey (0x4D2098, 0x4D225C); read by its intercept phase against +0x280 (0x4D3853).",
+   "source": "reversing/findings/FINDINGS-moving.md",
+   "evidence": "movss stores at 0x8D2098 (0) and 0x8D225C (+= GetPower/1000, slot 27 at 0x8D2229); the one read at 0x8D3853. fieldchain --field 0x27C: every other hit in the AI is CUnit +0x27C (the plan's our_power) on a unit, not an agent (trap 12).",
+   "revises": null
+  },
+  {
+   "struct": "CAIUnit",
+   "offset": "0x280",
+   "name": "own_naval_power",
+   "type": "float",
+   "comment": "The summed CUnit::GetPower / 1000 of the agent's ready fleets that hold no transport and are not on rebase, join_fleet or convoy_raid. Zeroed by CAIUnit_ManageNavalUnits (0x4D20A0), summed in the convoy block's tail (0x4D31D6), reduced by each fleet sent to intercept (0x4D3C83); compared with +0x27C x 1.5 (2.0 at naval stance 1) before an intercept.",
+   "source": "reversing/findings/FINDINGS-moving.md",
+   "evidence": "Stores at 0x8D20A0, 0x8D31D6, 0x8D3C83; the read at 0x8D3841. Same trap-12 note as +0x27C for the plan's their_power at CUnit +0x280.",
+   "revises": null
+  },
+  {
+   "struct": "CAIUnit",
+   "offset": "0x284",
+   "name": "convoy_raid_provinces_first",
+   "type": "void*",
+   "comment": "Head of a CList of CMapProvince* (nodes {province, prev, next +8, byte}; tail +0x288, count +0x28C): the sea provinces where a convoy of ours or of a co-belligerent was raided in the last month and which a port of the theatre reaches within NavalDistanceTo 2000 by an open route. Rebuilt daily by CEU3AI_AssignSeaTargetsToAgents through CAIUnit_AddConvoyRaidProvince. Read by CAIUnit_ManageNavalUnits: a count above 0 lets the patrol phase run at peace, and the provinces are the patrol region.",
+   "source": "reversing/findings/FINDINGS-moving.md",
+   "evidence": "Writer 0x48800F/0x887FFC (via 0x487FC0), cleared at 0x88C367-0x88C38F, constructor 0x4AF842, destructor 0x4AFE8F; readers 0x8D3294 (+0x28C) and 0x8D32C0. The other +0x284 hits in the AI are CUnit +0x284, the plan's embark.",
+   "revises": null
+  },
+  {
+   "struct": "CAIUnit",
+   "offset": "0x288",
+   "name": "convoy_raid_provinces_last",
+   "type": "void*",
+   "comment": "Tail of the CList at +0x284.",
+   "source": "reversing/findings/FINDINGS-moving.md",
+   "evidence": "0x887FC4 reads it as the new node's prev; 0x887FFC writes the new node into it.",
+   "revises": null
+  },
+  {
+   "struct": "CAIUnit",
+   "offset": "0x28C",
+   "name": "convoy_raid_provinces_count",
+   "type": "int",
+   "comment": "Count of the CList at +0x284. Above 0, CAIUnit_ManageNavalUnits patrols even at peace.",
+   "source": "reversing/findings/FINDINGS-moving.md",
+   "evidence": "Incremented at 0x887FF6; tested at 0x8D3294 (`cmp [ebx+0x28c],0; jle` past the patrol phase).",
+   "revises": null
+  },
+  {
+   "struct": "CAIUnit",
+   "offset": "0x83",
+   "name": "air_target_lists_built",
+   "type": "uint8_t",
+   "comment": "Set to 1 by CAIUnit::BuildAirTargetProvinceLists as its last act (0x4B4E18) and tested by CAIUnit::Tick at 0x4B0A45: `if (agent->unit == 0) skip; if (fullPass) call; if (+0x83) skip; call` - fullPass being hour == (id+6) % 24 or full_pass_pending (+0x84). So it only makes the first tick with a unit build the lists; **every daily full pass rebuilds them anyway**. Nothing clears it.",
+   "source": "reversing/findings/FINDINGS-moving.md",
+   "evidence": "CAIUnit::Tick 0x8B09D2-0x8B0A4F: the flag at [esp+0xC] is set from the hour test and +0x84 and is the same one that gates slot 79 and the land block.",
+   "revises": "The lists are rebuilt at every daily full pass, not 'only when Tick decides to replan'."
+  },
+  {
+   "struct": "CAIUnit",
+   "offset": "0x1E4",
+   "name": "threatened_provinces_count",
+   "type": "int",
+   "comment": "Count of the threatened-provinces CList at +0x1DC. Slot 73 runs slot 80 every hour while it is above 0 (0x4B0A5D). **And CAIUnit_ManageAirUnits' phase 4 takes 4 x this as its anti-shipping budget** (0x4CEED2): that many tactical, CAS or CAG wings with sea attack go to the naval-strike pool, so with no threat from the sea none do.",
+   "source": "reversing/findings/FINDINGS-moving.md",
+   "evidence": "0x8CEED2 `mov eax,[esi+0x1E4]` with esi = [ebp+8], the agent; `lea edx,[eax*4]` into [ebp+0xC], decremented at 0x8CF08C/0x8CF097 (FINDINGS-airnaval4.md).",
+   "revises": "Adds the air body's reader, which FINDINGS-airnaval4.md had left unnamed."
+  }
+ ]
+}

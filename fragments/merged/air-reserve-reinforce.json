@@ -1,0 +1,68 @@
+{
+ "agent": "main session, 2026-10-18, reading a player's crash dump (BlackICE 15.1) for the maintainer",
+ "question": "What threw the std::length_error that ended a game in an air unit's daily update?",
+ "source": "reversing/findings/FINDINGS-airreserve.md",
+ "addresses": [
+  {
+   "rva": "0x1964B0",
+   "kind": "function",
+   "name": "CAirReserveOrder::RunDaily",
+   "signature": "void __thiscall CAirReserveOrder::RunDaily(CAirReserveOrder* this)",
+   "no_signature": null,
+   "comment": "**An air reserve's day.** Only while the order's unit (+0x8) stands in the order's province (+0xC, against CUnit +0x130). It takes the unit's home base (CUnit +0x98), sorts every unit in the base's list (+4) into buckets by its order's priority (slot 18, COrder::GetPriority) - skipping a unit with no order and one whose order's slot 24 answers false, which among the order classes only CNullOrder does - and then, from priority 3 down, calls CAirReserveOrder_ReinforceUnit for every unit but its own. **It does not look at what kind of order a unit holds**, so a unit at the base with an order that is not a CAirOrder is handed on all the same. See reversing/findings/FINDINGS-airreserve.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-airreserve.md",
+   "evidence": "Addresses here are VAs (image base 0x400000). Slot 23 of CAirReserveOrder's table (0x015C6934) by scripts/vtable.py --holding 0x5964B0, the only table holding it; every other air order's slot 23 is the bare `ret` at 0x6BF890. Read off the bytes 0x5964B0..0x5966A6: `mov edx,ecx; mov eax,[edx+8]; mov ecx,[eax+0x130]; cmp ecx,[edx+0xc]; jne` (the unit in the order's province), `mov edi,[eax+0x98]` then `mov edi,[edi+4]` (the base's list), per unit `mov ecx,[edi+0xb0]` with a null test, `call [edx+0x60]` and `call [edx+0x48]` (slots 24 and 18), the 16-byte buckets indexed by the priority, `mov ebx,3` and the `cmp esi,[ecx+8]` that skips its own unit before `call 0x5966b0`; two bare `ret`s, at 0x596672 and 0x5966A6. What would show it wrong: a caller passing a stack argument - there is no `ret N`."
+  },
+  {
+   "rva": "0x1966B0",
+   "kind": "function",
+   "name": "CAirReserveOrder_ReinforceUnit",
+   "signature": "void __stdcall CAirReserveOrder_ReinforceUnit(CAirReserveOrder* order, CUnit* unit)",
+   "no_signature": null,
+   "comment": "**One unit at an air reserve's base, reinforced from the reserve** - the name is inferred from the message it posts, and most of its 0x11C0 bytes were not read. It posts a `REINFORCE_AIR` message (a CMessage between the reserve's owner +0x124/+0x128 and the unit's) and then copies the vector at +0x34 of **the unit's order** through CAirOrder::CopyByUnitType, with no test that the order is a CAirOrder. Where it is not, the three dwords there are whatever that class keeps at +0x34 - on a CNavalOrder `return_to_base` and `priority` - or lie past the end of a smaller object, and the copy is asked for a nonsense length: the std::length_error of the crash in reversing/findings/FINDINGS-airreserve.md.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-airreserve.md",
+   "evidence": "Addresses here are VAs (image base 0x400000). Its one caller, 0x5965E7 in CAirReserveOrder::RunDaily, pushes the unit then the order; it ends `ret 8` at 0x597059 and 0x597870. Read 0x596E80..0x596FC1: `mov edx,0x15c5e38` ('REINFORCE_AIR') into a string, CMessageHandler::FindType, CMessage::CMessage with the two owners, PostMessage_CMessageHandler, then `mov ecx,[ebp+0xc]; mov ecx,[ecx+0xb0]; call 0x58a7c0`. A player's crash dump (2026-10-18) has this frame between RunDaily and the throw. What would show it wrong for the name: the unread rest of the body doing something other than reinforcing."
+  },
+  {
+   "rva": "0x18A7C0",
+   "kind": "function",
+   "name": "CAirOrder::CopyByUnitType",
+   "signature": "void __thiscall CAirOrder::CopyByUnitType(CAirOrder* this, void* out)",
+   "no_signature": null,
+   "comment": "**Copies the vector at +0x34 into `out`**, a fresh three-pointer vector, through std::vector_assign - after building and assigning a temporary through 0x1888B0 and calling 0x18A890 on `this`, neither read. +0x34 is CAirOrder's by_unit_type, which this shows to be a vector (begin +0x34, end +0x38, capacity +0x3C) rather than a bare pointer - *inferred* from the copy. Not virtual, so it trusts its caller that `this` is a CAirOrder: CAirReserveOrder_ReinforceUnit does not check.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-airreserve.md",
+   "evidence": "Addresses here are VAs (image base 0x400000). Read 0x58A7C0..0x58A841: `mov esi,[ebp+8]`, `mov edi,ecx`, the out vector zeroed at [esi]/[esi+4]/[esi+8], `add edi,0x34; push edi; mov eax,esi; call 0x8dd860` (std::vector_assign); `ret 4` at 0x58A880. In no virtual table (scripts/vtable.py --holding 0x58A7C0). What would show it wrong: a caller handing it something other than an air order on purpose."
+  },
+  {
+   "rva": "0x142A60",
+   "kind": "function",
+   "name": "std::vector_Buy",
+   "signature": "bool __stdcall std::vector_Buy(void* vector@ESI, unsigned int count@EDI) @AL",
+   "no_signature": null,
+   "comment": "**The standard library's vector<4-byte T>::_Buy**: zeroes the vector's three pointers, answers false for a count of 0, throws std::length_error ('vector<T> too long') through std::_Xlength_error for a count above 0x3FFFFFFF, and otherwise allocates the count and sets all three pointers to the new block. std::vector_assign reaches it; it is where the crash in reversing/findings/FINDINGS-airreserve.md was thrown.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-airreserve.md",
+   "evidence": "Addresses here are VAs (image base 0x400000). Read 0x542A60..0x542A97: `xor eax,eax; mov [esi],eax; mov [esi+4],eax; mov [esi+8],eax; cmp edi,eax; jne`, `xor al,al; ret`; `cmp edi,0x3fffffff; jbe`, `push 0x15b4f5c` ('vector<T> too long'), `call 0xb94936`; the allocation from `mov ecx,edi; call 0xa6aca0`. Starts after an int3 run at 0x542A54; bare `ret`s at 0x542A70 and 0x542A97. The dump's return address 0x142A83 is the instruction after the throw's call."
+  },
+  {
+   "rva": "0x794936",
+   "kind": "function",
+   "name": "std::_Xlength_error",
+   "signature": "void __cdecl std::_Xlength_error(const char* message)",
+   "no_signature": null,
+   "comment": "**Throws std::length_error** with `message`, and never returns: it builds the exception on its own stack with the length_error vftable (rva 0x11A7A20) and the ThrowInfo at rva 0x124715C, whose catchable types are length_error, logic_error and exception, and calls _CxxThrowException.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-airreserve.md",
+   "evidence": "Addresses here are VAs (image base 0x400000). Read 0xB94936..0xB94965: `mov eax,[ebp+8]`, `call 0xb95991` on a local, `push 0x164715c`, `mov [ebp-0xc],0x15a7a20`, `call 0xb9894b` (_CxxThrowException), then `int3` - no ret. The ThrowInfo's catchable type array names `.?AVlength_error@std@@`, `.?AVlogic_error@std@@`, `.?AVexception@std@@`, and is the one the player's dump records (0x0134715C at that dump's image base 0x100000). In no virtual table."
+  }
+ ],
+ "struct_fields": [],
+ "vftable_slots": {
+  "CAirReserveOrder": {
+   "23": "RunDaily"
+  }
+ }
+}

@@ -1,0 +1,120 @@
+{
+ "agent": "reader B of the moving wave (attacking's open ends)",
+ "question": "FINDINGS-aiconsumer.md's not-established items: CAIUnit slots 86, 88 and 89; the stand-down primitive 0x49AAB0 and whether a cancelled attack stops or reverses; slot 17's sign; CMapProvince +0x330/+0x354 in the port test; CAIUnit +0x12C's contents.",
+ "source": "reversing/findings/FINDINGS-moving.md",
+ "addresses": [
+  {
+   "rva": "0x4C7540",
+   "kind": "function",
+   "name": "CAIUnit::IsUnitReservedForTransport",
+   "signature": "bool __thiscall CAIUnit::IsUnitReservedForTransport(CAIUnit* this, CUnit* unit)",
+   "no_signature": null,
+   "comment": "**CAIUnit slot 86: whether a land unit is held for a sealift or a paradrop, and so is not to be used for anything else.** 0x4C7540 to the `ret 4` at 0x4C77BC; `this` is never read (ECX is overwritten by the CSubUnitDataBase singleton at the first instruction). The unit must be a land unit - every read goes through `unit->slot9()`, ReturnThis on CArmy and the null stub elsewhere. True in two cases:\n\n1. **A paradrop**: the army's `staging_province` (CArmy +0x2E4) is above 0 and it holds at least one brigade of the database's `paratrooper_brigade` type (CSubUnitDataBase +0x48, counted by CUnit_CountSubUnitsByTypeIndex into an _alloca'd array, 0x4C75CA-0x4C7615).\n2. **A sealift**: the army's `target` (CArmy +0x2E8) is above 0; the topmost AI agent up its chain (CUnit +0x198, climbing +0x1E0, the highest non-null wins) exists, answers slot 65 true (a CAIUnit - a CAIInvasion answers false) and has a unit (slot 74) whose plan debark (CUnit +0x288) **equals that target**; and then either the unit is not standing in the debark port's area (CMapProvince +0x2B4) while the province it is heading for (CUnit::GetMovementDestinationProvince, else the province it stands in) is in it, or the plan has an embark port (CUnit +0x284 > 0) and the province it is heading for or standing in is in **the embark port's area**.\n\nSo a division voted to the sealift is reserved while it walks to or waits in the embark area and while it is on its way into the debark area, and is free again once it stands in the debark area (unless the two areas are one). Callers through [vftable+0x158]: CAIUnit_ManageLandUnits three times (the candidate filter 0x4D6DAD, the commit loop 0x4D7579, the stand-in 0x4D7768), CAIUnit_MoveAgentUnitToCommandProvince (0x4D5773), ManageSubordinates (0x4B2705, which clears ai_held_back and skips the unit), OrganiseCommands (0x4C21C3) and slot 32 (0x4B1235). **It reads no order kind.**",
+   "confidence": "confirmed",
+   "evidence": "Disassembled (VAs in this evidence) 0x8C7540-0x8C77BC whole and decompiled it (agrees). The singleton at [0x1A886F0] is the record's g_CSubUnitDataBase, its +0x48 the record's paratrooper_brigade; 0x5BD740 is the recorded CUnit_CountSubUnitsByTypeIndex(unit, counts@ESI) with ESI = the _alloca'd esp; slot 65 is ReturnFalse on CAIAgent/CAIInvasion and ReturnTrue on CAIUnit, slot 74 on CAIUnit is ReturnDwordAt0x64 (the agent's unit) - vtable.py; CUnit +0x284/+0x288 are the record's plan embark/debark (CSetPlanTransportStateCommand::Execute), CArmy +0x2E4/+0x2E8 staging_province/target. vtable.py --holding: one table, CAIUnit slot 86; no luabind claimant. Witness: Germany1936_01_04_12 has a plan with embark 5762 and debark 10636 and one division with target=10636 under a strategic_redeployment to 5762 - exactly the state the second case vetoes. Wrong if the topmost-agent loop keeps the first agent rather than the last (it is `cmovne` over the whole chain), or if slot 74 were not the agent's unit.",
+   "source": "reversing/findings/FINDINGS-moving.md"
+  },
+  {
+   "rva": "0x4BE560",
+   "kind": "function",
+   "name": "CAIUnit::RateUnitAsGarrison",
+   "signature": "float __thiscall CAIUnit::RateUnitAsGarrison(CAIUnit* this, CUnit* unit)",
+   "no_signature": null,
+   "comment": "**CAIUnit slot 88: how much a land unit is a garrison rather than a field force, 1 to 100** (0.0 for a unit with no brigades). 0x4BE560 to the `ret 4` at 0x4BE7D8; `this` is never read; the answer is in ST0. For each brigade b of the unit (CUnit +0x38, `regiments_count` n at +0x40):\n\n    fill  += strength(b) / GetMaxStrength(b, 0, 0)         ; CSubUnit +0x5C, slot 12, both /1000\n    score += 100 police_brigade or garrison_brigade\n              90 militia_brigade\n              75 paratrooper_brigade or marine_brigade\n              20 infantry_brigade\n              10 bergsjaeger_brigade\n               1 anything else\n\nthe type matched by comparing CSubUnitDataBase::definitions[b's type_index] with the database's cached role definitions (+0x4C, +0x50, +0x54, +0x48, +0x44, +0x34, +0x40). Then `r = (score/n + (2 - n) * 20) * (2.0 - fill/n)`, clamped to 100 above and 1 below. So a one-brigade garrison is 100 at any strength, a two-brigade police or garrison unit 100 at full strength, an under-strength unit rates higher than a full one, and a three-brigade infantry division (20 - 20 = 0) is 1. Float steps: each term is converted to float before it is added; score/n, fill/n and the product are each rounded to float. CAIUnit_ManageLandUnits adds 100 to a candidate's cost when this exceeds 95.0 (0x4D70D8), which puts garrisons at the back of the attack list. Also called by CAIUnit::AssignAreaTargetsAndSealift (0x4C61D6) and by 0x4C7AB0 (0x4C8D49), a callee of the land block 0x4CC450.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled (VAs in this evidence) 0x8BE560-0x8BE7D8 whole; constants read out of the image: [0x160A300] 1000.0, [0x160A358] 100.0, [0x160A778] 90.0, [0x160A770] 75.0, [0x160A318] 20.0, [0x160A340] 10.0, [0x160A248] 1.0, [0x160A360] 2.0, [0x1717BFC] 100.0f, [0x171DBAC] 1.0f. The database offsets are the record's cached role definitions. Ghidra's decompilation agrees term for term. vtable.py --holding: one table, CAIUnit slot 88; slotcalls.py 88 finds three CAIUnit sites. Wrong if the `(2 - n) * 20` were not built from regiments_count: it is `mov eax,2; sub eax,ecx; lea eax,[eax+eax*4]; add eax,eax; add eax,eax` with ecx = [unit+0x40].",
+   "source": "reversing/findings/FINDINGS-moving.md"
+  },
+  {
+   "rva": "0x4BE7E0",
+   "kind": "function",
+   "name": "CAIUnit::GetUnitTerrainModifier",
+   "signature": "float __thiscall CAIUnit::GetUnitTerrainModifier(CAIUnit* this, CMapProvince* province, CUnit* unit, bool attacking)",
+   "no_signature": null,
+   "comment": "**CAIUnit slot 89: the unit's own terrain modifier at a province's terrain - not anybody's power.** 0x4BE7E0 to the `ret 0xC` at 0x4BEAC5, answer in ST0. Let adj be the unit's definition's (CUnit +0xC8) terrain adjuster (CSubUnitDefinition +0x54, 0x18 bytes each) for the province's terrain id (CMapProvince +0xD4 -> +0xC -> +8):\n\n- `attacking` true: `adj.attack/1000 + adj.movement/1000` (CUnitAdjuster +0x8, +0x10).\n- `attacking` false: `adj.defence/1000` (+0xC), **plus** the average over the province's land, simulated neighbours (edge kind != 3) whose controller the agent's country's strategy counts a war candidate (CAIStrategy::IsWarCandidate on CCountry +0x48C) of `adj.attack/1000 + adj.movement/1000` - **of the province's own terrain again**, not the neighbour's (0x4BE93B reloads the province argument), so the average is that same figure whenever one such neighbour exists and 0 when none does.\n\nEach term is rounded to float before it is added. CAIUnit_ManageLandUnits calls it with attacking = 1 (0x4D70B6) and subtracts ten times it from a candidate's cost; 0x4C8EE0 (a callee of the land block 0x4CC450) calls it twice with 0 (0x4CA0B2, 0x4CA858).",
+   "confidence": "confirmed",
+   "evidence": "Disassembled (VAs in this evidence) 0x8BE7E0-0x8BEAC5 whole and decompiled it (agrees, including the province argument inside the loop). CUnitAdjuster +0x8/+0xC/+0x10 are the record's attack/defence/movement (CUnitAdjuster::LoadKey), CSubUnitDefinition +0x54 its terrain_adjusters indexed by terrain id, CProvinceTemplate +0xC terrain and CTerrain +8 id; 0x4A9A30 is the recorded CAIStrategy::IsWarCandidate(this@EDI, tag). Call sites read for the flag: push 1 at 0x4D70A0, push 0 at 0x4CA0AC and 0x4CA852. vtable.py --holding: one table, CAIUnit slot 89. Wrong if +0xC8 were not the unit's own synthesised definition (the record's CUnit::CSubUnitDefinitionPtr).",
+   "source": "reversing/findings/FINDINGS-moving.md"
+  },
+  {
+   "rva": "0x49AAB0",
+   "kind": "function",
+   "name": "CUnit::AIStandDown",
+   "signature": "void __thiscall CUnit::AIStandDown(CUnit* this, CEU3AI* ai)",
+   "no_signature": null,
+   "comment": "**The AI's stand-down: a unit halts where it stands.** 0x49AAB0 to the `ret 4` at 0x49ABCC, 287 bytes; the unit in ECX, the CEU3AI on the stack. In order:\n\n1. Where the unit's order (CUnit +0xB0) slot 16 is not 0x18D (`none`): CEU3AI::IssueUnitOrder(ai, none, unit, provinceId@EDI = the province the unit stands in) - a CSetOrderCommand for a null order there, posted.\n2. `movement_destination_province_id` (CUnit +0x2CC) = 0 - **written directly, not by a command**, so the rest of this AI pass sees the unit as going nowhere.\n3. A CCancelMovementCommand for the unit (0x64 bytes, constructor 0x1D96D0), posted on the session's command queue (CCurrentGameState +0xBE8, slot 18, +0x38, slot 6). Its Execute is CUnit::CancelMovement(unit, true): the path emptied, the progress lost, the order nulled, the unit out of every battle it was attacking in, still in the province it stood in.\n\n**So a called-off attack stops; it does not reverse**: nothing is ordered back, and a unit that had been marching into the target is left in the province it was attacking from. Six callers: CEU3AI::MoveUnit (0x49A93E) when told to move a unit to the province it already stands in, if it is moving or holds a blocking order (0x49AEC0); ManageSubordinates (0x4B2288) for a land unit on `support_attack` that is neither holding ground nor retreating; 0x4CC020 twice (0x4CC15B, 0x4CC2C4); and CAIUnit_ManageLandUnits's call-off (0x4D7BCF) and phase 3 (0x4D7F14).",
+   "confidence": "confirmed",
+   "evidence": "Disassembled (VAs in this evidence) 0x89AAB0-0x89ABCC whole and decompiled it (agrees). 0x89ABD0 is the recorded CEU3AI::IssueUnitOrder(ai, orderType, unit, provinceId@EDI), EDI loaded at 0x89AAEB from current_province (+0x130) ->+0xD0; it tail-calls CreateUnitOrder, whose 0xA0-byte object takes vftable 0x15C901C = CSetOrderCommand by the RTTI export (0x5E1E97/0x5E1EEC). The 0x64-byte object's constructor 0x5D96D0 writes vftable 0x15C8C5C = CCancelMovementCommand (RTTI), whose slot 6 is the recorded CCancelMovementCommand::Execute (0x1D9770). The post is the same eleven-byte shape the record documents for CConfirmRemoveAll::OnConfirm. Callers by findRefs.py --callers: six. Not virtual (vtable.py --holding: none). Wrong if CUnit::CancelMovement moved the unit, which its record (confirmed) says it does not.",
+   "source": "reversing/findings/FINDINGS-moving.md"
+  },
+  {
+   "rva": "0x1D96D0",
+   "kind": "function",
+   "name": "CCancelMovementCommand::CCancelMovementCommand",
+   "signature": "CCancelMovementCommand* __stdcall CCancelMovementCommand::CCancelMovementCommand(CCancelMovementCommand* object, CUnit* unit)",
+   "no_signature": null,
+   "comment": "The constructor, `ret 8`, the object on the stack and given back in EAX. Inlines the CCommand base (vftable 0x11B4F74, 0x18D at +4, an empty string at +8, the type 0x263 into +0x2C and +0x30, the tickstamp word +0x34 = 0xFFFF, +0x24/+0x28/+0x36/+0x38 zero), writes its own vftable 0x11C8C5C and builds the unit reference at +0x3C from `unit` (0x2DD70) - the id at +0x40 that Execute looks up. Four callers: CUnit::AIStandDown (0x49AB1B) and three others (0x1C2151, 0x1C2501, 0x352E80).",
+   "confidence": "confirmed",
+   "evidence": "Disassembled (VAs in this evidence) 0x5D96D0-0x5D9768 whole and decompiled it (agrees). The vftable 0x15C8C5C is CCancelMovementCommand's by the RTTI export, slot 6 the recorded Execute; 0x263 is the type the Execute record says slot 7 answers. Four direct callers by findRefs.py --callers. Wrong if 0x2DD70 were not the unit-reference builder every other command constructor in the record calls at +0x3C.",
+   "source": "reversing/findings/FINDINGS-moving.md"
+  },
+  {
+   "rva": "0x4D57F0",
+   "kind": "function",
+   "name": "CAIUnit_ManageLandUnits",
+   "signature": "bool __stdcall CAIUnit_ManageLandUnits(CAIUnit* agent)",
+   "no_signature": null,
+   "comment": "**The land half of CAIUnit slot 73**, the third body it calls after CAIUnit_ManageAirUnits (0x4CD890) and CAIUnit_ManageNavalUnits (0x4D0880). Extent 0x4D57F0-0x4D7F7E, 10126 bytes, 2768 instructions, read end to end by walking every branch; two `ret 4` at 0x4D7F5B and 0x4D7F7B, both in the epilogue, so trap 3 does not apply. int3 x16 before it, int3 x2 and a fresh SEH prologue at 0x4D7F80 after. Trap 2: functionStart is wrong inside it twice (functionStart(0x4D6B45)=0x4D653C, functionStart(0x4D7D00)=0x4D78FB), both isolated 0xCC bytes. One dead 5-byte `jmp`+nop at 0x4D613B. One caller, slot 73 at 0x4B0D01: unconditional when the daily-stagger flag is set, otherwise one pass in three and only when at_war, in_undeclared_war or CCountry +0xF50 > 0. Return value set at exactly one place (0x4D7AB3) and never read.\\n\\nENTRY GATE: the topmost-agent test, then the +0x12C vector must hold at least one element, then **agent->+0x364 (frontier at a shooting war) and +0x366 must both be set** - so the whole function is dead for an agent whose operations area does not border an active war.\\n\\nPHASE 1 (0x4D5944-0x4D678D) scores every enemy-controlled province of agent->front_provinces (+0xC0) into a fresh CProvinceFloat {vftable 0x15EB644, 0x18D, province id, float} inserted score-descending through 0x49C330. Base weight is a 0..500 ramp on map distance from the ops area's supply depot (flat 100.0 in arcade mode), x2 in an owner area of under 3 provinces, + half each enemy neighbour's plan-objective priority, + (operable land neighbours - 1) x 50 (x20 at stance 3, x10 at stance 4), +1000 for being on agent->+0x1BC and +500 for touching it, + 5*navalBase.level_max+100. At plan stance 3 or 4 only it also adds the province's own objective priority, 90 per plan-path province it is and 45 per one it touches (for both CUnit +0x244 and +0x258), 1000 when every operable neighbour is in agent->+0x1CC, **and agent->front_province_scores (+0x294)[province] through AIOrderedMap_SubscriptFloat at 0x4D5F6B - the single instruction that consumes CAIUnit::RebuildFrontAndApproaches's output, and its only reader in the image**; plus 125/250 for a thin enemy salient and 200/400 for a split approach, and x0.25/x0.5 for a redundant pocket approach (dropped outright below stance 3).\\n\\nPHASE 2 (0x4D6795-0x4D7CB9) walks the targets best first. A score of 500 or more promotes the local stance to 4. Candidate units are the agent's own leaf land units (slot 15) standing in the target's friendly neighbours, filtered on fuel, ai_held_back, slot 86, combat state and pending destination; each is scored enemyNeighbours*10 - slot89(target,unit)*10 (+100 when slot88 > 95, /10 when it belongs to another agent, /5 when it has a blocking order) into **CUnit +0x2B8**, with the number of garrisoned unattacked enemy neighbours in **CUnit +0x2BC**. **The candidates are kept in ascending order of that score** - each goes in before the first candidate scoring more (0x4D7182 `ja`, CList_InsertBefore at 0x4D71CB), ties after - **and are added lowest first**, so the score is a cost: a unit whose own province has fewer enemy neighbours, and whose terrain attack+movement modifier at the target's terrain (slot 89, CAIUnit::GetUnitTerrainModifier with attacking=1) is higher, is tried first, and a unit rated a garrison above 95 (slot 88, CAIUnit::RateUnitAsGarrison) is pushed to the back. Slot 86 (CAIUnit::IsUnitReservedForTransport) is asked again of each candidate in the commit loop (0x4D7579), as well as in the candidate filter (0x4D6DAD) and of the stand-in (0x4D7768). Units are added while 0x4D93B0's odds figure does not fall; the attack goes ahead when the figure reaches 3.0 (1.1 at stance 4, 5.0 at stance 2 for admitting more units) and at least one attacker is movable, and is called off below 0.8 - both bars collapsing to 0.2/0.01 when the target borders two or more region groups or when an attacker is unsupplied and the target has a port. **A unit that cannot be spared from its own province gets `support_attack` (0x4D7AD6); every other one gets CEU3AI::MoveUnit (0x4D7AAE).**\\n\\nPHASE 3 (0x4D7CBF-0x4D7F2C) sweeps agent->+0x11C's CUnit vector and stands down units whose attack is going badly - the combat's slot 17 (CCombat::GetAttackerStrengthShare, the attacker's share in thousandths) over 0.5 when the unit is on the defending side - i.e. its side is losing, the same sense as the naval body's complemented test, or a `support_attack` whose whole attacking side is pinned - but never one whose destination is on agent->+0x1BC. Standing down is CUnit::AIStandDown (0x49AAB0): a CSetOrderCommand for a null order where the order is not already null, the unit's movement_destination_province_id zeroed on the spot, and a CCancelMovementCommand - the unit halts in the province it stands in; nothing marches it back.",
+   "confidence": "inferred",
+   "evidence": "The candidate list's order off the bytes: the insertion walk 0x4D7162-0x4D718D starts at the head [ebp-0x9C] and follows +8; at 0x4D7182 `comisd xmm0(node unit's +0x2B8), xmm1(new score); ja 0x4D71B5` inserts before the first node scoring MORE, else the tail append 0x4D718F-0x4D71F2; the commit loop 0x4D73F3-0x4D7413 walks from the same head by +8. So ascending, lowest first. The slot-86 call at 0x4D7579 is in the commit loop (decoded from the known boundary 0x4D7404). Slot 17 is the recorded CCombat::GetAttackerStrengthShare; phase 3 tests it only after finding the unit in combat->+0x14 (defender) ->+0x40 (0x4D7DA1-0x4D7DBE). Wrong if the head at [ebp-0x9C] were the tail - the append writes the new node to [ebp-0x9C] only when the count was 0 and to [ebp-0x98] always.",
+   "revises": "Corrects 'units are added best first': the candidates are sorted ascending by the CUnit +0x2B8 score and taken lowest first, so the score is a cost; names slots 86, 88, 89 and the stand-down, adds the third slot-86 site, and says which way slot 17's test runs. Everything else kept word for word.",
+   "source": "reversing/findings/FINDINGS-moving.md"
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CUnit",
+   "offset": "0x2B8",
+   "name": "ai_attack_fitness",
+   "type": "float",
+   "comment": "**Per-pass scratch, written only by CAIUnit_ManageLandUnits (0x4D714A) and read only by its own insertion sort (0x4D716F).** The unit's cost as an attacker of one target province - **lower is taken first, despite the name**: the candidate list is kept ascending on it and the commit loop walks it from the head. `enemyNeighboursOfItsOwnProvince * 10 - CAIUnit::GetUnitTerrainModifier(target, unit, attacking = 1) * 10` - that is, less ten times the unit's terrain attack plus movement modifier at the target's terrain - plus 100.0 when CAIUnit::RateUnitAsGarrison(unit) exceeds 95.0f, then divided by 10 when the unit answers to another agent and by 5 when UnitHasBlockingOrder accepts it. It is recomputed for every target province of every pass, so a value read out of a live game is only meaningful during that pass.",
+   "evidence": "0x4D7182 `comisd xmm0, xmm1; ja` inserts before the first node whose +0x2B8 exceeds the new score; the commit loop at 0x4D73F3 starts at the same head. Slots 88 and 89 read whole this wave (their entries).",
+   "revises": "The name stays; the comment said nothing of the order and called it a fitness. It is a cost, taken lowest first, and its two slot terms are now named.",
+   "source": "reversing/findings/FINDINGS-moving.md"
+  },
+  {
+   "struct": "CAIUnit",
+   "offset": "0x12C",
+   "name": "committed_divisions_first",
+   "type": "CArmy**",
+   "comment": "The divisions committed to the line this pass (end +0x130): ManageSubordinates (slot 78) erases it at the top of its pass (0x4B1D87-0x4B1DAC) and pushes a land unit of oob_level 4 (CUnit +0x1F4) onto it, and onto +0x13C beside it, when the unit is neither claimed by slot 86 nor held back (0x4B2885); a recalled division is pushed again at 0x4B2CD4. Its count is `m` in CAIUnit::ScoreOpsAreaProvinces (0x4BD270): with n ops-area provinces, m mod n of them get the flat +20 - the divisions left over once every province has m div n. CAIUnit_ManageLandUnits does nothing while it is empty, and CAIUnit_GetFrontCoverage divides by min(exposed, its count).",
+   "evidence": "Disassembled (VAs in this evidence) ManageSubordinates 0x8B1D10 onward: `lea edi,[esi+0x12C]; call 0x86CC20` at 0x8B2885 after `cmp [ebx+0x1F4],4` at 0x8B2720 and the slot-86 skip at 0x8B270E, and again at 0x8B2CD4. The m-mod-n arithmetic is FINDINGS-opsarea.md section 2's reading; the 'left over' reading of why is inferred from the arithmetic, not from any comment in the binary.",
+   "revises": "Same name and type; the comment now says who fills it, with what, and what its count is for (FINDINGS-opsarea.md item 7).",
+   "source": "reversing/findings/FINDINGS-moving.md"
+  }
+ ],
+ "vftable_slots": {
+  "CAIUnit": {
+   "86": {
+    "name": "IsUnitReservedForTransport",
+    "signature": "bool __thiscall IsUnitReservedForTransport(CAIUnit* this, CUnit* unit)"
+   },
+   "88": {
+    "name": "RateUnitAsGarrison",
+    "signature": "float __thiscall RateUnitAsGarrison(CAIUnit* this, CUnit* unit)"
+   },
+   "89": {
+    "name": "GetUnitTerrainModifier",
+    "signature": "float __thiscall GetUnitTerrainModifier(CAIUnit* this, CMapProvince* province, CUnit* unit, bool attacking)"
+   }
+  }
+ },
+ "frontier": [
+  "0x49AEC0",
+  "0x1E1E70",
+  "0x2DD70",
+  "0x4C7AB0",
+  "0x4C8EE0",
+  "0x4C78E0"
+ ]
+}

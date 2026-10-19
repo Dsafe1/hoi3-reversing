@@ -103,13 +103,13 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CAIAgent` | `CAISubscriber` |  | 8 + 1 lua |  | 8 |  |  | read |  |
 | `CAIEspionageMinister` | `CAIAgent` |  | 1 lua |  | 3 |  | 107 | named |  |
 | `CAIForeignMinister` | `CAIAgent` |  | 2 lua |  | 10 |  | 107 | named |  |
-| `CAIInvasion` | `CAIAgent` |  | 18 |  | 14 |  | 4 | read |  |
+| `CAIInvasion` | `CAIAgent` |  | 18 |  | 15 |  | 4 | read |  |
 | `CAIPoliticsMinister` | `CAIAgent` | 0x5C | 1 lua |  | 4 |  | 107 | named |  |
 | `CAIProductionMinister` | `CAIAgent` |  | 2 lua |  | 6 |  | 107 | named |  |
 | `CAIStrategy` | `CPersistent` |  | 58 + 4 lua | 11/22 | 24 | CAIStrategy.hpp | 324 | read |  |
 | `CAISubscriber` | `CReferenceObject` |  |  |  |  |  |  | RTTI |  |
 | `CAITechMinister` | `CAIAgent` | 0x80 | 3 + 3 lua |  | 9 |  | 107 | part |  |
-| `CAIUnit` | `CAIAgent` |  | 100 |  | 40 |  | 99 | read |  |
+| `CAIUnit` | `CAIAgent` |  | 105 |  | 45 |  | 99 | read |  |
 | `CActiveMission` | `CPersistent` |  | 6 | 4/5 | 1 | CActiveMission.hpp | 108 | read |  |
 | `CAddPlayer` | `CCommand` |  |  |  | 1 |  | 1 | keys |  |
 | `CAddTraitEntry` | `CLeaderHistoryEntry` |  |  |  | 2 |  |  | RTTI |  |
@@ -120,9 +120,9 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CAirConvoyRaid` | `CAirOrder` |  |  |  | 3 |  |  | RTTI |  |
 | `CAirInterceptOrder` | `CAirOrder` |  |  |  | 11 |  | 208 | RTTI |  |
 | `CAirInterdictionOrder` | `CAirOrder` |  |  |  | 4 |  |  | RTTI |  |
-| `CAirOrder` | `COrder` |  | 12 |  | 17 | COrder.hpp | 2,493 | read |  |
+| `CAirOrder` | `COrder` |  | 12 |  | 18 | COrder.hpp | 2,493 | read |  |
 | `CAirPatrol` | `CAirOrder` |  |  |  | 7 |  |  | RTTI |  |
-| `CAirReserveOrder` | `CAirOrder` |  |  |  | 2 |  |  | keys |  |
+| `CAirReserveOrder` | `CAirOrder` |  |  |  | 3 |  |  | keys |  |
 | `CAlign` | `CRelation` |  | 1 | 5/5 | 4 |  | 9 | part |  |
 | `CAlignment` | `CPersistent` |  | 13 |  | 22 |  | 108 | read |  |
 | `CAlignmentPosition` | `CCountryHistoryEntry` | 0x20 | 4 |  | 5 |  |  | part |  |
@@ -166,7 +166,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CConvoyConstruction` | `CConstruction` |  | 1 | 1/1 | 6 | CConstruction.hpp | 40 | placed |  |
 | `CConvoyEscortOrder` | `CNavalOrder` |  |  | 1/3 | 6 |  |  | placed |  |
 | `CConvoyRaid` | `CNavalOrder` |  |  | 1/1 | 5 |  | 62 | placed |  |
-| `CCountry` | `CPersistent` |  | 278 + 71 lua | 69/126 | 168 | CCountry.hpp | 108 | read |  |
+| `CCountry` | `CPersistent` |  | 279 + 71 lua | 69/126 | 168 | CCountry.hpp | 108 | read |  |
 | `CCountryDate` | `CPersistent` |  |  | 1/2 | 1 |  |  | placed |  |
 | `CCountryHistory` | `CHistoryContainer` |  |  |  | 1 | CCountryHistory.hpp | 108 | keys | **read**: `history/countries`, where a date is a key. See GameClasses/CCountryHistory.hpp |
 | `CCountryValue` | `CPersistent` | 0x14 | 2 | 1/2 | 1 |  | 9,078 | placed |  |
@@ -308,7 +308,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CTraitGainTracker` | `CPersistent` |  | 4 |  | 6 | CTrait.hpp | 24,137 | keys |  |
 | `CTransportSuppliesOrder` | `CAirOrder` |  | 2 | 2/2 | 9 |  |  | placed |  |
 | `CUndeclaredWar` | `CPersistent` |  | 9 |  | 3 | CWar.hpp | 1 | read | **read**: the save's record of a war nobody declared |
-| `CUnit` | `PAVCSubUnit::__CList` `CSelectable` `CReferenceObject` |  | 106 + 1 lua |  | 108 | CUnit.hpp |  | read |  |
+| `CUnit` | `PAVCSubUnit::__CList` `CSelectable` `CReferenceObject` |  | 106 + 1 lua |  | 109 | CUnit.hpp |  | read |  |
 | `CUnitDeployment` | `CDeployment` |  |  | 3/4 | 4 |  | 49 | placed |  |
 | `CUnitPlan` | `CPersistent` | 0x90 | 15 | 10/16 | 13 |  | 8,827 | read | **read**: a battle plan as the save keeps it |
 | `CVariables` | `_0A::anon::PAUCVariable::__CTernary` `CPersistent` |  | 1 |  | 3 | CFlags.hpp | 216 | part |  |
@@ -516,7 +516,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CDivisionDesigner` | `CReloadableInterface` |  | 13 |  | 15 |  | 1 | read |  |
 | `CDriftItem` | `CStandardlistboxItem` | 0x88 | 3 |  | 2 |  |  | part |  |
 | `CDropAndAssignUnitDeploymentCallback` | `CUnitDeploymentCallback` |  |  |  | 1 |  | 1 | RTTI |  |
-| `CEU3AI` | `CReloadableInterface` |  | 24 + 5 lua |  | 32 |  | 108 | read |  |
+| `CEU3AI` | `CReloadableInterface` |  | 30 + 5 lua |  | 32 |  | 108 | read |  |
 | `CEU3DialogGui` | `CFixedWindow` |  |  |  | 2 |  |  | RTTI |  |
 | `CEU3DirectSound` | `CDirectSound` |  |  |  |  |  | 1 | RTTI |  |
 | `CEU3Idler` | `CIdler` |  |  |  | 4 |  |  | RTTI |  |
@@ -590,7 +590,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `COrgComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `COutLinerMember` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
 | `COwnedMicroItemMember` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
-| `COwnerArea` |  |  | 18 |  | 16 |  | 335 | read |  |
+| `COwnerArea` |  |  | 19 |  | 16 |  | 335 | read |  |
 | `CParentUnitEntry` | `CUnitViewBaseEntry` |  |  |  | 3 |  |  | RTTI |  |
 | `CPathFind` |  |  |  |  | 5 | CPathFind.hpp |  | RTTI |  |
 | `CPersistent` |  |  | 1 |  | 2 | CPersistent.hpp |  | part |  |
@@ -820,7 +820,7 @@ One class per effect, trigger, command and decision the event scripts can use. E
 | `CCanCreateVassalsTrigger` | `CBoolTrigger` | 0x44 |  | 2/153 | 2 |  |  | RTTI |  |
 | `CCancelConvoyCommand` | `CCommand` |  |  | 1/1 | 1 |  | 1 | placed |  |
 | `CCancelMissionCommand` | `CCommand` |  |  | 1/1 |  |  | 1 | RTTI |  |
-| `CCancelMovementCommand` | `CCommand` |  |  | 1/1 | 1 |  | 1 | RTTI |  |
+| `CCancelMovementCommand` | `CCommand` |  |  | 1/1 | 2 |  | 1 | RTTI |  |
 | `CCancelUnitConstructionCommand` | `CCommand` |  |  | 1/2 | 2 |  | 1 | placed |  |
 | `CCapitalEffect` | `CIntEffect` |  |  | 3/91 | 2 |  | 67 | RTTI |  |
 | `CCapitalTrigger` | `CIntTrigger` | 0x44 |  | 2/153 | 2 |  |  | RTTI |  |
@@ -916,7 +916,7 @@ One class per effect, trigger, command and decision the event scripts can use. E
 | `CDetachUnitCommand` | `CCommand` |  |  | 1/1 | 2 |  | 1 | RTTI |  |
 | `CDiplomaticActionCommand` | `CCommand` |  |  |  | 3 |  | 6 | keys |  |
 | `CDiplomaticEffect` | `CEffect` |  | 1 |  |  |  |  | part |  |
-| `CDisbandCommand` | `CCommand` |  |  | 1/1 | 2 |  | 1 | placed |  |
+| `CDisbandCommand` | `CCommand` |  |  | 1/1 | 3 |  | 1 | placed |  |
 | `CDisbandRegimentCommand` | `CCommand` |  |  | 1/1 |  |  | 1 | RTTI |  |
 | `CDissentChange` | `CCountryHistoryEntry` |  | 2 |  | 3 |  |  | part |  |
 | `CDissentEffect` | `CValueEffect` |  |  | 3/91 | 2 |  | 638 | RTTI |  |

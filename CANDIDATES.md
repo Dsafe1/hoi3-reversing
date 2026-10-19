@@ -794,7 +794,8 @@ units split and merged (`ManageNavalUnits`' and `ManageAirUnits`' regroup phases
 106 of 106 on three dates), focus areas, front coverage, embark and debark (`CSetPlanTransportStateCommand`) and `min`.
 Its corrections are listed at the head of the write-up. What it left:
 
-1. **The third piece - moving and attacking**: `CAIUnit_ManageLandUnits` (read, `FINDINGS-aiconsumer.md`) and the land
+1. ~~**The third piece - moving and attacking**~~ - read 2026-10-19 by the moving wave, `findings/FINDINGS-moving.md`
+   (below, *What the moving wave left*). As it was queued: `CAIUnit_ManageLandUnits` (read, `FINDINGS-aiconsumer.md`) and the land
    block's `0x4CC450`, `0x4D7F80`, `0x4CC690`, `0x4CC020`; `AssignAreaTargetsAndSealift`'s head (`0x4C4370`, decompiler
    only) and its pickers `0x4C3AF0`, `0x4C3940`, `0x4C3D50`, `0x4C38C0`; slot 86 (`0x4C7540`); the naval and air
    managers' other phases; `CAIInvasion`, `PlanAmphibiousInvasion`, `RankInvasionAreas`, `PruneInvasions`,
@@ -802,16 +803,71 @@ Its corrections are listed at the head of the write-up. What it left:
 2. ~~**The movers between theatres**, named by shape only~~ - read the same day by reader F (section F): all four whole,
    each a detach and an attach and no march. What F left: what fills `+0x25C` (sighted ships) and `+0xD8`
    (`submarine_want`) - `AssignSeaTargetsToAgents`, the third piece's - and whether a theatre carries `+0x365`.
-3. **`EstimateTheatreNeed` / `EstimateAreaNeed` again** - their_power, the exact interceptor want, and **the division need's
+3. ~~**`EstimateTheatreNeed` / `EstimateAreaNeed` again**~~ - read 2026-10-19 (`FINDINGS-moving.md` C): the weight sum
+   is rounded half to even and never divided, the /40 belongs to a second estimate of province values, and a capital
+   floor from naval bases gives every European Soviet theatre 18; their_power reproduced, France's 0.5% is toughness
+   counted twice, the first sub-1 post an inactive plan's direct write. As it was queued: their_power, the exact interceptor want, and **the division need's
    arithmetic** (the tail, VA `0x8B8F26`-`0x8B9098`: an integer sum of the scores divided by 1000.0 and rounded by `fistp`
    into `[esp+0x50]`, a float sum carried through the recursion into the areas of `+0x338`, and which of the two is divided
    by the area's provinces, at most 40). OpenHOI3's balancing of divisions between theatres (section F) waits on it: with
    the need near nought nothing moves, taken raw everything does, and the saves lie between. France's 0.5% in our_power;
    how a figure under 1.000 passed the whole-number gate on its first post (`0x4E1D00`?).
 4. `0xD52A0`'s war branch, `0xE1010` past its combat test, `0x4B4200`, which way `InsertUnitByRange` sorts, the order
-   kinds `0x4E5` and `0x56C`, and where the brigades' experience of 0.16 and 0.317 by day three comes from.
+   kinds `0x4E5` and `0x56C` - **all read 2026-10-19** (`FINDINGS-moving.md` D.3, D.4, A.8). Still open: where the
+   brigades' experience of 0.16 and 0.317 by day three comes from.
 5. A live count of agents at a new game's first screen, to set against `FINDINGS-aiconsumer.md`'s census (A.9).
 6. Slot 76's fallback double post (only the human's delegated AI uses slot 76).
+
+## What the moving wave left - 2026-10-19 `[game]`
+
+`findings/FINDINGS-moving.md` (six readers, A to F; fragments `land-block.json`, `attack-vetoes-and-standdown.json`,
+`division-need.json`, `sea-and-air-targets.json`, `invasions.json`, `sealift-and-leaders.json` - 72 address entries, 43
+new, 1 struct declared, 40 struct fields; apply `failed: 0`, `struct fields: 0`). For OpenHOI3's stage 5, the military AI's
+third piece: the land block whole, the attack's open ends, the division need, the sea and air targets, invasions and the
+sealift. Its corrections are listed at the head of the write-up. What it left:
+
+1. **`0x4BF8E0`'s pick against n, and what holds the balancing back** - two Soviet transfers between theatres come out one
+   too many with the need now read exactly (C.7); and OpenHOI3, with the need as read (2026-10-19), moves far more than the
+   original for Britain and France: the original gave Home Command (need about 31 against 18 divisions - the save's
+   aircraft want of 4 says so) and Port Harcourt and St. John's (needs of 8 to 11, no divisions) nothing by 4 January and
+   moved one division each from the Army of India (need 6, 13 divisions) to the Far East and East Africa, where
+   `FINDINGS-agents.md` F.1's ratios ask for seven to Home Command alone. Something in F.1-F.2 - the pick's candidates
+   (`UnitMayLeave`, the `+0x1CC` target provinces, `CountIdleDivisionsBesideWarCandidate`'s k), the takers' gate or when
+   the first balancing runs - holds the original back.
+2. **The record sort and its key** (`0x4DDFF0`, `0x4DE0E0`, `0x4DE890`, `0x4DE770`, `0x4DE840`, the byte at VA
+   `0x1B15244`): the order the line's supply cut hands out spare want (A).
+3. **`RebuildHoldProvinces` (slot 80, `0x4B3A50`, `inferred`)** whole - its scores pick the garrison targets (A.3); its
+   province score `0x4B4200` is read (D.4) and its second term `0x4B9710` too (C.3).
+4. **The transports' own steps**: `0x4D4070` (boarding, sets `CUnit +0x2CA`), `0x4D4D40` (unloading or merging),
+   `0x4D42D0` (the sailing step, recorded as `AIUnit_EstimateMoveTime`, a name now doubtful), `0x1A1630` (the embark
+   route search) (F, D).
+5. **`0x497B40`** - attaches a landed unit under a theatre headquarters (E's frontier); CAIUnit slot 70 `0x4D54A0`.
+6. **Slot 87 `0x4BE2C0`** - the 0-100 division figure the sealift weighs an enemy-held target by (F.5).
+7. The `/10` arm of the attack cost (`[ebp-0xA0]` at `0x4D7101`, the slot reused as scratch at VA `0x8D71B8`) (B).
+8. Smaller: `0x49AEC0` and `0x49AD00` (MoveUnit's order test, `IssueUnitOrder`'s tail); who sets `CArmy +0x2FC` (army
+   role) and what roles 0/3/4/5/7/8 mean; `CUnit +0xC0`; COrder slot 24 ("busy"); the province ids `0x2927`-`0x292A`
+   the convoy block skips; `0x4F8AB0` (IsMajor?); the `stdext::hash_map` iteration order behind three ties; the polarity
+   of gamestate `+0xD0C`; the negative MT index of the second-ring fallback (VA `0x8CA270`).
+9. **No positive oracle** for the invasion path, the paradrop planner or the fallback: the saves hold no invasion, no
+   `staging_province` and no battle. ~~Nor for the intercept~~ - **the 4 January save holds four of the AI's air
+   intercepts**, Italian, given at 05:00 and 06:00 on 1 January, and OpenHOI3's build of the air body (2026-10-19) makes the
+   one it can match by unit number again exactly: the scan's 36 provinces in id order, the first as the order's province,
+   120 hours, and **stance 1** - which says `CEU3AI::CreateUnitOrder` gives the defensive stance, `measured` and not read.
+10. **What OpenHOI3's build of the wave left open against the saves** (2026-10-19, `OpenHOI3/docs/mechanics/moving.md`
+    section 21): built as read, the naval body keeps fleets apart the original merges - 244 fleets to the 4 January save's
+    222, Italy at war 28 to 18 (21 without its patrols), Britain at peace 41 to 36; and the sealift's debark differs in most
+    of the save's 12 plans while the embark agrees in five. The naval body's order of phases against the regroup's merges,
+    and the vote's ties, are where to look.
+11. **The air body against the same save** (2026-10-19, the same section): air units stand where the original's do 51 of
+    57 once phase 2 rebases them, but **Japan keeps 9 air groups to the save's 6** - the original merged 1. Hikoutai, 1.
+    and 4. Nihon Koukuujieitai and 1 and 3 Zerosen no Hikodan into groups at 4691, 4986 and 5020 by 4 January, while a
+    group phase 2 sends is in listA and no partner for phase 3 in that pass, and worn by the flight after. Which pass the
+    original merged them on, and whether phase 2 sent them first, is the question. ~~And Italy's attack on Ethiopia runs
+    behind the original's~~ - settled the same evening: with the land block and the attack mended (`FINDINGS-moving.md`
+    A.4b and A.4c), OpenHOI3's Italy holds 9 Ethiopian provinces on 2 February to 8 in the Ireland game's save (the 20
+    April save, with none, is an outlier by the maintainer's word).
+12. **From A.4b**: `0x89AF00` (the pull's destination), `0x8AF4E0` (its depot test), ~~the map at `0x8DCF30`~~ (the
+    position map - read 2026-10-19), and whether the original's command queue runs a posted move before `CAIUnit_CheckLandMarches` reads the path.
 
 ## The planned next wave is in `WAVE.md`
 
@@ -1333,7 +1389,7 @@ of it.
 
 ## What has already been read
 
-168 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
+170 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
 header lives. This replaces the `Done` archive: the archive restated each file's headline and named
 only 40 of the 67 there were then, so it was both longer and less useful than a complete list.
 
@@ -1500,6 +1556,7 @@ the six it was missing were wave 15's.
 | `findings/FINDINGS-foreignminister.md` | **the foreign minister (2026-10-16)**, in two passes: `DoWork` in order - the cached proposal, the pruning of small war targets while a great one is prepared, and the walk of `WarTargets` that gives up transit rights into a target, puts each neighbour to the readiness test and posts a ready target's decision (no Lua score) or its war (`conquer`, or `vichy_war_goal`, `barbarossa_war_goal`, `japan_USA_goal`); `PrepareWarDecision` and its family; **the readiness test** on the theatre layer's fronts - units at 99% strength and organisation, 30% of front provinces empty, the enemy at 0.66 after three months, Japan's short front, a dead 0.33 branch; the decision score **rounded to the nearest**, correcting `LuaEvaluateDecision_CallInt` and `FINDINGS-eventfire.md` 2.4; and (section I) everything else `ForeignMinister_Tick` reaches - `Propose` keeping the day's best selectable offer and posting it above 50, `ProposeWar`, `PercOccupied`, the skip-once byte the constructor sets, `IsSelectable` from Lua reaching each kind's own slot 14 through a vcall thunk, and nine country, status, war and strategy methods |
 | `findings/FINDINGS-aistrategy.md` | **the AI strategy (2026-10-16)**: what fills the lists the Lua's `GetFriendliness`, `GetAntagonism`, `GetThreat` and `GetProtectionism` read - `CAIStrategy::Rebuild` in order, **every ten days for every country** through `CCountry_AfterDiplomacyChange` and at once on a change of war, faction or peace, and on entering a game before its two days; the personality from the government's ideology positions; the production shares and `max_subunits`; the victory-condition walk (a `faction` leaf antagonising a block's controller - Britain's `allied_*` countries) skipped for a played country; `conquer_prov` from strategic resources, `defend_prov`, `threat` (casus belli, faction groups, border share, strength, reach), `antagonize` and `rival` (the rival's reach halved by a stale 2.000), `befriend` and `vassal`, `protect`, each scaled to top at 400; the war targets rechecked; the constants; corrections to `g_theatre_split_threshold`, `max_subunits`, `rebuild_tick` and the rebuild's frequency |
 | `findings/FINDINGS-agents.md` | **the agent wave (2026-10-17)**: the unit agents - `ProcessAI` in order with every helper's hour, one agent per theatre and how it is made, bound and removed, the orphans attached; the order of battle built under a theatre (`floor(n/4)+1` commands a level, a level a day, five to a command, `CCreateHigherCommand`); slot 78 whole; fleets and air units split one ship at a time and merged by join orders; a plan's stance, powers, objectives, ops area (`SetArea`, 106 of 106), embark and debark, and `min` |
+| `findings/FINDINGS-moving.md` | **the moving wave (2026-10-19)**: the military AI moving and attacking - the land block (garrisons, the line at five a position, the rear ring, the fallback from a losing defence, the paradrop planner, long marches redeployed), the attack's candidates taken lowest cost first and a called-off attack halting in place, slots 86/88/89, the division need's arithmetic whole with the capital's naval floor, `their_power` and the first post, the sea targets handed out with no sighting, the naval body's patrol, intercept and submarine relocation, invasions from the ranking to the landing, the sealift's targets and its embark/debark vote, the recall of stranded units and the leader pass |
 | `findings/FINDINGS-theatres.md` | **the theatre wave (2026-10-17)**: fronts and theatres - an owner area's fronts and a country's of it, the front-worthy table with the cached tag slots past 28 read off the bytes, `BuildTheatres` whole with its seats, merge and match by overlap, the refresh, `MaintainTheatres` with a headquarters adopted or made by `CTheatre_PickHQProvince` and `CCreateNewHQCommand`, the priority, the disband, when theatres are marked dirty, and a unit name kept per country |
 | `findings/FINDINGS-selection.md` | **the selection wave (2026-10-16)**: the left button over the map - a drag at 2.0 map units, the white ground outline, the box taking the player's land units, else fleets, else air units, cleared first unless Shift with units selected; the input object's slots (10 Shift, 11 Alt, 12 Ctrl); a click and a Shift-click on a counter, a stack (the cycle), a port, an air base, a battle, a province; Ctrl taking an army's whole command; the right click sent to every selected unit in order, and several fleets or air units opening the window for the first only; the rings; selection groups on the digits; and the multi-unit panel - a row per unit in selection order, its layout and scroll, a row's deselect and select-this with Ctrl and Shift, the three checkboxes, upgrade-all, detach, higher command, reorganise, merge, disband and close |
 | `findings/FINDINGS-provinceview.md` | **the province-view wave (2026-10-15)**: the window a selected province opens - it follows the selection, its refresh and every-frame update, each element's figure, intelligence gate and tooltip, the weather strip, the `adj` list and the cores box; the building columns (`show_for_province`, split at the database's middle), the pips (working, damaged, queued), a row's shortcut letter and tooltip; the `underground` window and which mouse button steps its mission; the covert-operations panel and the allied-objectives panel with `CSetAlliedObjectiveCommand` |
@@ -1549,6 +1606,7 @@ the six it was missing were wave 15's.
 | `findings/FINDINGS-diplomacyview.md` | **the diplomacy screen element by element**: the five tabs and who each lists, one sort flag for nine buttons, a row with its threat and seven tinted icons and their tooltip, choosing a country; the chosen country's panel, its 19 kinds of status line, the relation list with its colours and the drift tooltip, the war goals, the influences, and every tooltip; the triangle's markers and where they stand, the faction boxes, a marker's drift tooltip sorted by faction, a faction's rules and modifier, the relation's breakdown and the war ceiling's lines |
 | `findings/FINDINGS-eventfire.md` | **an event firing, a decision taken, and the two windows**: `FireEvent` read whole - who answers, `immediate` first, the AI's option drawn on a wall-clock-seeded MT19937, a person's window answering itself with option 0 after four months - the option and decision commands, the already-fired registry, the on_actions (unweighted; the only way a province event fires), decisions (no taken-marker, `ai_will_do` never read, the AI's chance in Lua, only the diplomatic group offered), the event window by element and its `$VARIABLES$`, and the decision list |
 | `findings/FINDINGS-government.md` | **the politics wave**, five briefs. **A**: `CChangeLawCommand` and `CChangeMinisterCommand` whole - nothing checked in `Execute`, whoever posts is responsible; a law change charges `cost x 30 days of money at MaxIC` to a country a person plays, tells `LAW_APPOINTED`, rebuilds the modifier and cuts every brigade to its new ceiling; a minister change only writes the post and tells `MINISTER_APPOINTED`; `CCountry_FillMinisterPosts` (the **last** group-mate wins, 220/220 posts), the pool and the peace-time revert of disallowed laws; no minister ever dies. **B**: `CIdeologyData` and its five-slot tally; the **monthly** party drift (a tenth of the gap to organisation, `ruling_party_support`, a random 0..999 draw, the minister dissent penalty) - 101/101 null parties; `CCountry_AllotCabinetSeats` whole, 606/606 cabinets; the election's schedule (`g_NullDate` means "hold one now", elections never forced); the coup. **C**: dissent has no decay - consumer goods and script only; **national unity moves daily** by a thirtieth of a monthly figure, damped by the square root of the distance from 50, through `ChangeNationalUnity`'s three callers; strategic warfare's three lists; what both do elsewhere; the daily pass's unread helpers named. **D**: `CPoliticsView` element by element - the pie, the organisation bars, the legend, the elections line, the cabinet rows and the minister choice, the law rows, the cost and the confirmation, mobilisation, puppets and liberation, every tooltip, the top bar's button; the seven `C*Change` history classes, replayed at start and never in play. **E**: the AI's politics - `CAIPoliticsMinister` daily in hour `(id + 17) mod 24`, a C++ refill of empty posts on the 1st, 8th, 15th, 22nd and 29th, `PoliticsMinister_Tick`'s draws on the game state's own generator, `Laws()` run for every country (the player's too) while a new game is set up, free and silent, and the Lua API it reaches. Corrects `FINDINGS-politics.md` (phase 4's sentinel and forced election, `0x4F72F0`, `+0xBCC`'s call, the database names), `FINDINGS-luaapi.md` (`GetRulingIdeology`), `FINDINGS-ai.md` (the politics minister's constructor) and `RandomThousandths` |
+| `findings/FINDINGS-airreserve.md` | **an air reserve's day, and a player's crash in it**: `CAirReserveOrder::RunDaily` reinforces every unit at its base by priority without asking what order it holds, and the copy of `+0x34` it makes of each unit's order is a `CAirOrder`'s vector - so a non-air order there, or a corrupt one, throws `std::length_error` and ends the game (a BlackICE 15.1 dump, 2026-10-18). Which it was is not settled: the dump has no heap |
 
 ## A method worth reusing
 

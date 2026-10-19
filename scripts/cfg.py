@@ -52,6 +52,14 @@ def walk(entry, length):
                 edges[at] = []
                 break
 
+            # Nothing the compiler emits runs on into an `int3`: it is padding between
+            # functions, or the byte after a call that never returns. Walking on took
+            # std::_Xlength_error's single int3 after `call _CxxThrowException` and read the
+            # next function's `ret 4` as its own (2026-10-18).
+            if instruction.mnemonic == "int3":
+                edges[at] = []
+                break
+
             jump = capstone.CS_GRP_JUMP in instruction.groups
             if not jump:
                 at = after

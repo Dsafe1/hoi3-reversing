@@ -1,0 +1,37 @@
+{
+  "agent": "session 2026-10-19, against OpenHOI3's moving piece",
+  "question": "When the AI's MoveUnit posts a move to a unit already going where it is sent, and what the very safe finder refuses a land unit",
+  "source": "reversing/findings/FINDINGS-moving.md",
+  "addresses": [
+    {
+      "rva": "0x49A840",
+      "kind": "function",
+      "name": "CEU3AI::MoveUnit",
+      "signature": "void __stdcall CEU3AI::MoveUnit(CEU3AI* this@ECX, CUnit* unit, int provinceId, int recordOnly, bool safe, bool verySafe, CAIAgent* agent)",
+      "no_signature": null,
+      "confidence": "confirmed",
+      "comment": "**Renamed from `CMoveCommand::IssueFromInterface`, which was wrong about the class and about the caller.** The luabind registration table - the same table the whole Lua API was recovered from - carries this pointer (9021504 = 0x89A840) as `class CAI`, `cpp CEU3AI::MoveUnit`, `void MoveUnit(CEU3AI&, CUnit*, int, int, bool, bool, CAIAgent*)`. So it is **the AI's own move entry point, exposed to the mod's Lua as `CAI.MoveUnit`**, and `CAIUnit` slot 32 (0x8B0E60) calls it. The old name survived despite its own comment noting that the receiver in ECX is not a CMoveCommand; the seventh argument, recorded as an unread `int unused`, is the CAIAgent*, which accounts for both observations. Kept as an alias.\n\n**The gates, in order (0x89A8D7-0x89A9BC, read 2026-10-19):** (1) a unit retreating (+0x158) is not moved - return; (2) the unit's virtual +0x8C (slot 35) refuses the province - return; (3) `recordOnly` > 0 - only +0x2CC is written; (4) the province is the one the unit stands in: where its +0x2CC is above 0 or 0x49AEC0 answers true, the stand-down CUnit::AIStandDown (0x49AAB0); otherwise nothing; (5) d = 0x49AF00(unit), the unit's destination: where d is the province, nothing is posted **unless the unit holds ground (CUnit::IsHoldingGround, `push 0`) - a unit in a battle is ordered again, and SetUnitPath then takes it out of every battle**; (6) with `safe` and CEU3AI_ShouldRedeployStrategically, the strategic-redeployment order (0x5A4) through 0x49ABD0; (7) otherwise a 0x70-byte CMoveCommand (constructor 0x5D87F0: unit, province, mode68 = 1, safe, very safe) posted. The receiver in ecx is not a CMoveCommand - it is only ever handed on, as the first argument of 0x49ABD0 and of 0x499E50, which does `add ecx,0x20; call 0x402610`, so the object carries a CCountryTag at +0x20: the per-player interface the order is issued through. Its class was not identified. **So a caller that does not want a fighting unit re-ordered has to skip it itself** - which CAIUnit_ManageLandUnits's commit loop does, passing over every attacker whose pending destination is an enemy's province, the target included (FINDINGS-aiconsumer.md). See FINDINGS-moving.md, section A.4c.",
+      "revises": "The comment gave only the +0x158 gate, the reachability call and recordOnly; now every gate in order, among them that a unit already going to the province is ordered again while it holds ground, which takes it out of its battles.",
+      "evidence": "Disassembled 0x89A840-0x89AA9B with scripts/disasm.py on 2026-10-19: `cmp byte ptr [edi+0x158],0; jne 0x89aa9b` (the common return); `call [edx+0x8c]`, `test al,al; je 0x89aa9b`; `cmp dword ptr [ebp+0x10],0; jg 0x89aa95`; `cmp [eax+0xd0],ebx` against the current province (+0x130), then +0x2CC and 0x89AEC0, then `call 0x89aab0`; `call 0x89af00`, `cmp [eax+0xd0],ebx; jne 0x89a986`, then +0x158 and `push 0; push edi; call 0x5c0160; je 0x89aa9b` - the return when it does not hold ground; `cmp byte ptr [ebp+0x14],0` (safe) before 0x899E50 and `push 0x5a4`; then `push 0x70; call 0xb9602f` and `call 0x5d87f0` with `push 1` as the third argument. Positive control: OpenHOI3 re-posting a fighting attacker's move every three hours shows the symptom the maintainer saw in a game - Italian divisions joining an attack in Ethiopia, stopping and joining again - and skipping it as the commit loop does removes it. Wrong if 0x89AA9B is not the common return.",
+      "source": "reversing/findings/FINDINGS-moving.md",
+      "aliases": [
+        "CMoveCommand::IssueFromInterface"
+      ]
+    },
+    {
+      "rva": "0x1A2C40",
+      "kind": "function",
+      "name": "CVerySafePathFind::MayStep",
+      "signature": "bool __thiscall CVerySafePathFind::MayStep(CVerySafePathFind* this, CUnit* unit, CProvince* goal, CProvince* from, CProvince* to, ProvinceEdge* edge)",
+      "no_signature": null,
+      "confidence": "confirmed",
+      "comment": "CVerySafePathFind slot 2, the same shape as CSafePathFind's: forwards all five arguments to CPathFind::MayStep (0x5A2C5B-0x5A2C60), exempts the last step into the goal (`cmp edi, ebx`, goal against to), and refuses otherwise. **For a unit whose slot 16 and slot 17 both answer false - a land unit - it refuses as soon as `to`'s controller is at war with the unit's owner (CCountry::IsEnemyTag, 0x2F1B0, which counts REB on either side) or `to` has a battle of kind 1, a land battle (CMapProvince::HasCombatOfKind, 0x4A6010, with EDI = 1; CCombatManager::CreateCombat's jump table makes kind 1 CLandCombat).** When either slot does answer it compares rva 0x1D6900 over the destination's unit list (x1000) against the sum of +0x5C over CUnit +0xB8, exactly as the safe one does. CEU3AI::MoveUnit asks it with `verySafe` set, which every line, garrison, rear and reserve move of the land AI does.",
+      "revises": "The comment said 0xA6010 objects to the province without saying to what; it is a land battle there (kind 1), and the arm is the land unit's.",
+      "evidence": "Disassembled 0x5A2C40-0x5A2D12 on 2026-10-19: `call 0x5a2700; je` refuse; `cmp edi, ebx; je 0x5a2d10` allow; slots +0x40 and +0x44 each `jne 0x5a2cd5` (the weighing arm); `lea ecx,[ebx+0x334]; call 0x42f1b0; jne 0x5a2cca` refuse; `mov edi,1; mov eax,ebx; call 0x4a6010; je 0x5a2d10` allow, else refuse. Kind 1 as CLandCombat rests on the record's CreateCombat_KindJumpTable. Confidence raised from inferred to confirmed for the land arm, the other arm unchanged.",
+      "source": "reversing/findings/FINDINGS-moving.md"
+    }
+  ],
+  "structs": [],
+  "struct_fields": [],
+  "slots_noted": "CVerySafePathFind slot 2 is already recorded as MayStep in vftable_slots; only the body is revised."
+}

@@ -1,0 +1,383 @@
+{
+ "agent": "moving wave, reader E: invasions",
+ "question": "The CEU3AI side of amphibious invasions whole (PlanAmphibiousInvasion, RankInvasionAreas, PruneInvasions, RebuildWeakEnemyPorts, AbandonInvasionArea) and CAIInvasion's tick off the bytes: when an invasion is planned, against whom, with what, what kills one, the stages and the orders they post",
+ "source": "reversing/findings/FINDINGS-moving.md",
+ "addresses": [
+  {
+   "rva": "0x492190",
+   "kind": "function",
+   "name": "CEU3AI::PlanAmphibiousInvasion",
+   "signature": "void __stdcall CEU3AI::PlanAmphibiousInvasion(CEU3AI* ai, void* areasBeingInvaded, CAIUnit* agentOrNull)",
+   "no_signature": null,
+   "comment": "**Makes the CAIInvasion agents.** Read whole on the listing, 0x892190 to the one `ret 0xC` at 0x893C70. Callers: ProcessAI daily at hour id%24 for an AI-run country (agentOrNull = 0, 0x889AB5) and on even hours for each unit agent of the played country (0x889A39). (1) Gates: a played country needs an agent whose unit (slot 74) is set; an AI country needs agentOrNull = 0. Cap = 2 invasions, JAP 8, USA 4: an AI country with MORE than the cap plans nothing; the area loop stops once the count reaches it (no cap with an agent). While the strategy IsPreparingWar: for each Neighbours (+0xFD8) entry it IsPreparingWarWith, return unless we are major (CCountry::IsMajor: is_major or max_ic > 100) and the target is neither; and return while now < that WarTargets entry's date (+0x1C) plus one month. An AI country also returns when every ranked area (+0xC8) is already in areasBeingInvaded (PruneInvasions' list). With an agent, its +0x36C/+0x370 are zeroed. (2) Candidates, over CCountry +0xBAC in order: a unit with oob_level != 0, no agent of its own, whose topmost agent up +0x1E0 answers slot 65 (a CAIUnit) and is agentOrNull when one is given. A division (level 4): >= 2 brigades, not aboard (CArmy +0x300), its area real (slot 0), not landlocked (+0x68), and either in our acting capital's area or its region group (+0x6C) null or 0x80430 says that group borders no enemy; army_role not 5 or 8; organisation share (slot 26) >= 0.8 and strength share (slot 25) >= 0.75; then spare = CountDivisionsInArea(agent, area, , false) - (candidates already taken from that area) - need, need = EstimateAreaNeed(agent, area, , , true), halved (toward 0) in the acting capital's area unless COwnerArea_TouchesHostileArea(area) or 0x817E0(area); taken when spare > 0 or army_role == 7. Any other non-theatre unit: a fleet (slot 16) carrying nothing (CNavy +0x2EC < 1) is a transport candidate. No division -> return. lift = UnitList_SumTransportCapacity(transport candidates) (0x1D66D0) - never reduced as invasions take fleets; ref = 4 x infantry_brigade weight/1000. (3) Over the ranked areas from the head, stopping at the cap or when lift < ref: skip ENG and NZL/CAN/SAF/AST's 'liberation' areas only for dominions before 1942 - the areas of provinces 2613 Paris, 2137 Brugge, 1910 Amsterdam make an ENG/dominion target 'special' in years <= 1941 (dominions skip every area before 1942); GER without an agent skips London's (1964) area in years <= 1942; skip an area in areasBeingInvaded. **The AreaIsConnectedTo test at 0x892B9E is dead**: it is asked of g_null_owner_area, whose slot 0 answers false. Enemy area (first-province controller IsEnemy, not special): N = max(CountEnemyUnitsInArea(strategy, area, false), 1); skip when N x ref > 2 x lift or candidates < N. Otherwise (special or not enemy-held): N = 1 + CountEnemyUnitsInArea(.., true) over neighbour areas whose controller is an enemy, minus 1 for each of our land units with army_role != 0 already in the area's region group, each land unit we lent the controller (+0x290) there, and each land unit with role != 0 of our invasions whose objective is in that group; the supply use of all of them summed into S; N capped at 5 (special) or 20; skip when N < 1. (4) Landing: enemy area, or one with no port -> PickInvasionLandingProvince(ai, area, 0) (null skips); capacity = NavalBaseCapacity(it) + for every port q of the area (the landing port among them) within ProvinceDistanceSquared < 160000.0: floor(((1.0 - d2/160000.0) x cap(q)/1000 + 0.0005) x 1000). Friendly area with ports: the port minimising DistanceBetweenProvinces(true capital, port) x 3000 / level_current (the distance itself at level 0), capacity = the sum of the friendly ports' NavalBaseCapacity, or the chosen port's own where it is not friendly. N' = N, x3 where the area is an enemy major's acting capital area and not special. (5) Divisions, one at a time while picked < N' and S <= capacity + 2000: the candidate minimising NavalDistance(first port of its area, landing)/1000, halved for army_role 7, doubled for 4, doubled again when its weight would take the total past lift (an AI country skips such a unit); not one whose destination is already in the area's region group, not army_role 3 or 5 for an enemy area. S += its SupplyConsumption; total and smallest weight kept. (6) Enemy area and total > lift: agent +0x36C += (total - lift)/(transport_ship capability/1000) + 1; total > 2 x lift abandons the area. picked < 1, or enemy area and picked < N: agent +0x370 += N - picked. (7) Fleets: escort target = 0.5 x total; repeat while chosen lift < total or escort power < target: a fleet every ship of which has strength share >= 0.75 and organisation share >= 0.8; d = NavalDistance(its province, landing)/1000 + 500; with transport ships it is a transport candidate while chosen lift < total, without them an escort while escort power < target, d x100 with a submarine, /3 with a carrier, else /2 with a battleship; the nearest of each is taken, escort power += GetPower(fleet)/1000 for both. (8) At least one transport fleet and chosen lift >= the smallest division's weight: new CAIInvasion(&ai->tag, landing, ai), pushed on +0x50, AddUnit for every division, transport and escort (each taken off the candidate lists), slot 7, slot 52 (Enable). Worker thread.",
+   "confidence": "confirmed",
+   "evidence": "Annotated listing 0x892190-0x893C70 read in full (scratch plan.asm); constants read with image.read: 0.8 (double 0x160A3E0), 0.75 (0x17179A8), 160000.0 (float 0x160A9E0 and double 0x160A9D8), 1.0, 0.0005, 0.5 (0x160A308); tag slots per project.json's CCountryDataBase fields (+0x1C USA, +0x24 JAP, +0xF4/+0xFC/+0x104/+0x10C NZL/CAN/SAF/AST, +0xC ENG, +4 GER); provinces 2613/2137/1910/1964 out of tfh/map/definition.csv; g_null_owner_area's vftable 0x15BDB7C slot 0 is 0x592360 = ReturnFalse. Wrong if the stack slot [esp+0xC8] were rewritten before 0x892B7F (grep of the listing finds the one write at 0x892436).",
+   "revises": "Was likely and read for its shape; now read whole. Corrects the comment's 'skips any candidate area AreaIsConnectedTo says is joined overland' (dead: asked of the null area), 'SumTransportWeight (four sites)' (0x5D66D0 sums transport_capability, not weight) and the creation test (lift >= the SMALLEST picked division's weight, not the force's)."
+  },
+  {
+   "rva": "0x493756",
+   "kind": "instruction",
+   "name": "PlanAmphibiousInvasion_AddBrigadeNeed",
+   "signature": null,
+   "no_signature": "an instruction label inside CEU3AI::PlanAmphibiousInvasion, not a function",
+   "comment": "`agent->+0x370 += N - picked` - the writer of CAIUnit +0x370. N is CountEnemyUnitsInArea's count of enemy LAND UNITS in the target area (at least 1; untripled), or for a friendly target the count from the neighbouring enemy areas less our units already there; picked is how many of our divisions were chosen. Reached when none was chosen, or for an enemy-held area when fewer than N were. Both force planners then add it to a brigade demand (`+0x370 + round(need * shortage * 3)` at 0x4B626D, `+0x370 + need * 3` at 0x4B528B) - a count of units added to a count of brigades.",
+   "confidence": "confirmed",
+   "evidence": "0x893748-0x89375C: eax = [esp+0x18] (N), `sub eax, ecx` (picked, [esp+0x9C]), `add [esi+0x370], eax` with esi = the agent argument; entered from 0x893602 (picked < 1) and 0x893615 (enemy area and picked < N). Wrong if [esp+0x18] were a brigade count - its writers are CountEnemyUnitsInArea's answer (0x892C10) and the unit-by-unit decrements (0x892E1E, 0x892EBF, 0x892F54).",
+   "revises": "Said 'brigades wanted - brigades available'; it is land units (divisions) wanted less divisions picked, and only on the two failure arms."
+  },
+  {
+   "rva": "0x495530",
+   "kind": "function",
+   "name": "CEU3AI_RankInvasionAreas",
+   "signature": "void __stdcall CEU3AI_RankInvasionAreas(CEU3AI* ai, CAIUnit* agentOrNull)",
+   "no_signature": null,
+   "comment": "**Rebuilds the ranked areas to invade at CEU3AI +0xC8** (nodes {area, score, distance, prev +0xC, next +0x10, byte +0x14}, kept by descending score through 0x49C240). Read whole, 0x895530 to `ret 8` at 0x8971B2. The list is freed first; nothing more unless UnitList_SumTransportCapacity(country units +0xBAC) >= 4 x infantry_brigade weight/1000. Candidates: an AI country takes every area (CCountry +0xD30) of every country in its enemies list (+0x1008) that is in_scenario, the area not landlocked - except that GER, when COwnerArea_TouchesHostileArea (0x7FD90) says its acting capital's area borders an enemy, considers only NOR, SWE, FIN, DEN; and when both we and the enemy are in a real faction (slot 7), never FIN and never the acting capital area of ROM, BUL or YUG. With an agent: the areas of the agent unit's plan objectives (CUnit +0x234) that are real, not ours, held by a friend or an enemy, not landlocked and holding none of the agent's front provinces (+0xC0). Reach: our areas, plus every non_hostile_countries (+0xF98) country's areas unless our capital's area borders an enemy; range 2000 if it does, else 5000. For each candidate A (controller C): over its non-landlocked neighbour areas B - B ours: A 'touches us', and B (unless our acting capital's area) goes on a list of staging areas; B held by X != C where A is C's acting capital area, X a friend (IsFriend false-flag), at war with C (or REB, or an undeclared war covering B's first province), not played, in our faction where both are in real ones, B's region group not our capital's, and (X our subject, or we are not JAP and X not JAP/POL/DEN, X no one else's subject): A 'touches us' and B is a staging area. Then: A in the failed list (+0x94) skips; an AI country's A that touches us goes on the failed list; CEU3AI_MayInvadeArea false -> failed; some port of A must reach (0xD52A0, flag 0) a port q of a reach area within range (int(float(naval distance/1000)) < range), q in our area, in ENG's acting capital area, or reachable within range from one of our own ports - else failed. Score: 100001 for an area holding a priority province (+0x118); else, a small island (ports' level_max summing >= 1, < 5 provinces, no land neighbour +0x3C) gives GER -99 before 1944 and otherwise 10 x port levels + 51; C's acting capital area gives min(provinces,100) + 1, halved when C is a subject; else 1. +900 for C = GER when the Soviet Union owns provinces and has surrender progress > 300 or manpower < 90, we being major or max_ic > 100, and A GER's capital area; USA vs JAP +200 (+600 more for a small island) unless that Soviet test held; JAP: vs USA small island +600, HOL +200, PHI +100. Then g = 120 for each of the map defines GIBRALTAR_BLOCKER and SUEZ_BLOCKER whose province lies in A (ENG and USA only), plus over A's first 60 provinces: 8 x naval base level_max, +40 with victory points, +30 yielding crude oil/metal/energy/rare materials, +40 with a strategic resource (+0x18 slot 14), +5 owned by us; g / (n/20) when n/20 > 1. total = g + f; k = max(fistp(total/5), 5) (6 or more kept); score = total + MT19937Next(AI generator) % k, divided by (0x81880(A, our capital area)/200) when that is positive, rounded by fistp. Kept to 10 by dropping the tail. Then staging areas: the priority areas held by a same-side or non-hostile (CDiplomacyStatus +0x58) non-enemy country are added; each not failed must pass AreaPair_SeaRouteOpen (0xD5760) (some port of our capital area reaches one of its ports while we are at war; always at peace) or goes on the failed list; one of ours needs >= 40 provinces in enemy-held neighbour areas (25 when one of them is its controller's capital area); score 500, or 10500 for a priority area, + AI-generator draw % max(fistp(score/5),5) - 5 x provinces, x2 for a controller's acting capital area; inserted with distance 0. Finally, entries scoring under the head's score / 10 are dropped from the tail.",
+   "confidence": "confirmed",
+   "evidence": "Annotated listing 0x895530-0x8971B2 (scratch rank.asm) read in full; constants by image.read (100001.0 0x160AABC, -99.0 0x160AAB8, 10.0, 50.0, 1.0, 300.5 floored, 90.0, 900.0, 200.0, 600.0, 100.0, 120.0, 40.0, 30.0, 5.0, 500.0 0x1717BF8, 10500.0 0x160AA98, 2.0); GetDefines()+0xFC +0x24/+0x4 are GIBRALTAR_BLOCKER/SUEZ_BLOCKER by definesMap.py; 0x49C240 read (descending insert from the tail). Wrong if the +0x3C read at 0x896386 were not a count - see the COwnerArea +0x3C field.",
+   "revises": "Was inferred and read for its shape; now read whole. The transport test is transport capability (0x5D66D0), not weight; adds the candidate rules, the failed-list writes, the hardcoded tags and provinces, both scores and the staging areas."
+  },
+  {
+   "rva": "0x491BE0",
+   "kind": "function",
+   "name": "CEU3AI_PruneInvasions",
+   "signature": "void __stdcall CEU3AI_PruneInvasions(CEU3AI* ai, void* areasBeingInvaded)",
+   "no_signature": null,
+   "comment": "**Every hour, before the branch, keeps or drops each invasion agent (+0x50).** Read whole, 0x891BE0 to `ret 8` at 0x892182. Dropped: one finished (+0x3E); for an AI-run country (+0x2C) one whose objective's area (+0x84 -> +0x2B4) is neither a ranked area (+0xC8) nor a neighbour (+0x34 link) of one - an empty ranked list drops all; for the played country one with no unit agent whose unit's plan objective (CUnit +0x234) lies in the objective's area. A kept invasion's objective area is appended to areasBeingInvaded (and its fleets to a local list nobody reads). Each dropped one, last first: every fleet of its naval list (slot 61) whose order is not `none` gets IssueUnitOrder(none, its home base's province, +0x98 slot 0); a fleet in a land province (in port) carrying anything has a CUnloadArmyCommand posted for each land unit aboard; then CEU3AI_RemoveAgent.",
+   "confidence": "confirmed",
+   "evidence": "Annotated listing (scratch prune.asm) read in full; the CUnloadArmyCommand vftable 0x15C911C written at 0x891FE3 with the unit at +0x3C and its CID at +0x40/+0x44; posted through gamestate +0xBE8 slot 18 then +0x38 slot 6. Wrong if 0x891EA1's AppendAllNodes target ([ebp-0x44]) were read again - only its free at 0x892140 follows.",
+   "revises": "Was inferred and read for its shape; now read whole: an empty ranked list drops every AI invasion, the stop order goes to the fleet's home base, and troops are unloaded only from a fleet in port."
+  },
+  {
+   "rva": "0x4972E0",
+   "kind": "function",
+   "name": "CEU3AI_RebuildWeakEnemyPorts",
+   "signature": "void __fastcall CEU3AI_RebuildWeakEnemyPorts(CEU3AI* ai@ECX)",
+   "no_signature": null,
+   "comment": "ProcessAI at hour id%24 for an AI-run country (0x489AA2; Ghidra's RTTI pass labels it a CProvinceFloat constructor, which it is not). Read whole, bare `ret` at 0x8976D3. Clears CEU3AI +0xD8 and refills it, by descending score (0x89C330), with CProvinceFloat {province id, score} records: over our enemies (+0x1008) followed by our strategy's WarTargets (+0x5D4) - not deduplicated - each in_scenario target's TRUE capital (GetCapitalLocation) when no land brigade of anybody stands in it, and every port of each of its areas of at most 5 provinces where none stands; score = 100 x naval base level_max + 10 x air base level_current, +1000 where the province is its own supply depot (+0x48 == id), kept above 0. **Its reader is 0x4CC690**, the land block's call gated on the air-transport vector (a paradrop planner) - not the invasion planner: no read of +0xD8 occurs in 0x492190, 0x494CC0 or 0x495530.",
+   "confidence": "confirmed",
+   "evidence": "Annotated listing (scratch weak.asm) read in full; a displacement scan for +0xD8 over 0x887F40-0x8EA000 finds the CEU3AI-based read at 0x8CC753-0x8CC756 (`mov eax,[esi+0x60]` the agent's owner_ai, then `[eax+0xD8]`), and the writer, constructor and destructor; every other hit is CCountry +0xD8 or CAIUnit +0xD8. Positive control: the same scan finds this function's own `lea eax,[esi+0xD8]` at 0x897302.",
+   "revises": "Raised from inferred; corrects 'read by the invasion planner (0x494CC0)' to 0x4CC690, adds the WarTargets half and that the naval base counts its maximum level and the air base its current one."
+  },
+  {
+   "rva": "0x494C40",
+   "kind": "function",
+   "name": "CEU3AI::AbandonInvasionArea",
+   "signature": "void __stdcall CEU3AI::AbandonInvasionArea(CEU3AI* ai@ESI, COwnerArea* area@stack:4)",
+   "no_signature": null,
+   "comment": "Appends the area to the failed-invasion list (CEU3AI +0x94/+0x98/+0x9C) unless it is there already. Body 0x894C40-0x894CB0, two `ret 4`. One caller, CAIInvasion stage 3 (0x8A116A), when PickInvasionLandingProvince finds no landing in the objective's area; the invasion then sets +0x3E. RankInvasionAreas skips the area until the list is freed at hour 1 of the month's 1st.",
+   "confidence": "confirmed",
+   "evidence": "Listing read whole: membership walk from [esi+0x94] through +8, then node {area, prev, 0, 0} appended at +0x98 with +0x9C incremented. findRefs --callers: one, 0x8A116A. Wrong if ESI were not the CEU3AI at the call - 0x8A1163 loads it from invasion +0x8C.",
+   "revises": "Raised from inferred (the body was not read); the signature places both arguments."
+  },
+  {
+   "rva": "0x494CC0",
+   "kind": "function",
+   "name": "CEU3AI_MayInvadeArea",
+   "signature": "bool __stdcall CEU3AI_MayInvadeArea(CEU3AI* ai, COwnerArea* area)",
+   "no_signature": null,
+   "comment": "**The Allies' brake on invading an Axis heartland.** Body 0x894CC0-0x895134, `ret 8` twice. True at once where the area's first province is owned by us. A member of a real faction (slot 7) that is not its leader (0xF6C90): false with TotalIC (+0x604) under 50 while the AI runs its units (+0x2C), and false with no transport capability at all (UnitList_SumTransportCapacity over +0xBAC). True where gamestate +0xD0C is set, where the area's controller is not major (is_major clear and max_ic <= 100) or in no real faction, where it is JAP, or where our faction is not the one FindFactionByName(GetIdeologies(), \"allies\") answers. Otherwise - we are in the Allies and the controller is a non-Japanese major in a faction - true unless the area is its acting capital's (or, for ENG, the area of province 812 Oslo while GER holds it), and even then true when assault_ship is defined, its slot 9 answers true and our technology status allows it, or when some real neighbour (+0xFD8) of the controller owning provinces, not in exile, other than us, is at war with it. One caller, RankInvasionAreas (0x8960D9); a false puts the area on the failed list.",
+   "confidence": "confirmed",
+   "evidence": "Annotated listing (scratch allow.asm) read whole; the string at 0x15CA818 is 'allies'; province 812 = Oslo in tfh/map/definition.csv (index 0xCB0/4); CSubUnitDataBase +0x8C is assault_ship in project.json. Name is ours. Wrong if 0xF6C90 were not the faction-leader test - it compares the faction's first member (+0x28 list) with the country id."
+  },
+  {
+   "rva": "0x49F920",
+   "kind": "function",
+   "name": "CAIInvasion::CAIInvasion",
+   "signature": "CAIInvasion* __stdcall CAIInvasion::CAIInvasion(CAIInvasion* this@EAX, CCountryTag* tag@ECX, CProvince* objective@stack:4, CEU3AI* owner@stack:8) @EAX",
+   "no_signature": null,
+   "comment": "`ret 8`; the tag arrives in ECX and its two halves are forwarded to CAIAgent::CAIAgent (0x89C720, `this` in EAX, which returns the object). Writes vftable 0x15EBAE4 at 0x89F934, zeroes three CLists (+0x54 land, +0x64 naval, +0x74 air, each with a trailing byte), stores the **objective** (the landing province PlanAmphibiousInvasion chose in the target area) into +0x84 and `owner` into +0x8C, and zeroes +0x88 (the embarkation port) and +0x90. **CAIInvasion is 0x94 bytes** (`push 0x94` at 0x893AFB, its one allocation site).",
+   "confidence": "confirmed",
+   "evidence": "0x89F920-0x89F97D read; its one caller 0x893B18 pushes [esp+0x48], the answer of PickInvasionLandingProvince (0x8930CD) or the friendly area's chosen port (0x893066).",
+   "revises": "The second argument was called `staging`; it is the objective (FINDINGS-theatre2.md section 4)."
+  },
+  {
+   "rva": "0x49FB40",
+   "kind": "function",
+   "name": "CAIInvasion::DoTick",
+   "signature": "void __thiscall CAIInvasion::DoTick(CAIInvasion* this)",
+   "no_signature": null,
+   "comment": "Slot 73, bare `ret`. While the embarkation port (+0x88) is unset or not held by a friend (CCountry::IsFriend(country, &port->controller, true)), PickEmbarkationPort; if still none, finished (+0x3E) = 1. Otherwise the three stages in order: MarchLandForceToPort, SendCarrierAirSupport, SailAndIssueInvasionOrder. Reached hourly through Tick (slot 10) after IsInvasionOver.",
+   "confidence": "confirmed",
+   "evidence": "0x89FB40-0x89FBB5 read whole (two IsFriend tests at 0x89FB68 and 0x89FB8B, the three calls at 0x89FB95/0x89FB9B/0x89FBA1).",
+   "revises": "Raised from likely; the port it re-picks is the embarkation port, and the second stage is the carrier air support."
+  },
+  {
+   "rva": "0x49FBC0",
+   "kind": "function",
+   "name": "CAIInvasion::PickEmbarkationPort",
+   "signature": "void __stdcall CAIInvasion::PickEmbarkationPort(CAIInvasion* invasion)",
+   "no_signature": null,
+   "comment": "**Where the force boards** - written to +0x88 and its id to +0x90. Read whole, `ret 4` at 0x8A01E6. canTakeMore = land units (+0x5C) <= 5 and UnitList_SumTransportCapacity(naval list) >= SumTransportWeight(land list); the force's areas = the distinct real areas its land units not aboard stand in. limit = 1000 when our acting capital's area borders an enemy (COwnerArea_TouchesHostileArea, 0x7FD90), else 2000. Over every country of non_hostile_countries (+0xF98, us included) and each of its areas but the objective's: areaW = 1, or where the area borders an enemy 2 (its controller's acting capital area) or 4; for each port P: 0xD52A0(us, P, objective, 1) must hold; d = NavalDistance(P, objective)/1000, raised to 1000, refused above limit; s = (1.5 - (P naval base level_max/1000)/10.0) x (10 when P IsFrontProvince(false), else 1); x0.3 where the area's controller is us, then x0.75 in our acting capital's area; score = fistp(s x areaW x d), x3 when canTakeMore and the force stands nowhere in that area. Below the best (from 1000000) it is taken when the area is ours, is ENG's acting capital area, or one of our own ports reaches P (0xD52A0 flag 0) within limit.",
+   "confidence": "confirmed",
+   "evidence": "Annotated listing 0x89FBC0-0x8A01E6 (scratch inv1.asm): 0x5D66D0 on +0x64 against 0x5D6690 on +0x54 at 0x89FD00/0x89FD0A; distance multiplied in at 0x89FFDD; constants 1.0 0x171DBAC, 2.0 0x1718064, 4.0 0x171DF34, 10.0 0x171DBB0, 1.5, 0.3, 0.75. Wrong if +0x88 were the landing - DoTick requires a friend to hold it and stage 1 marches the land force there.",
+   "revises": "Renamed from PickLandingSite (FINDINGS-theatre2.md section 4). The comment omitted that the score is multiplied by the distance and the x3, had 4.0 for any non-capital area (it needs the area to border an enemy) and SumTransportWeight for the fleet side (it is capability)."
+  },
+  {
+   "rva": "0x4A01F0",
+   "kind": "function",
+   "name": "CAIInvasion::MarchLandForceToPort",
+   "signature": "void __stdcall CAIInvasion::MarchLandForceToPort(CAIInvasion* invasion)",
+   "no_signature": null,
+   "comment": "Stage 1, `ret 4` at 0x8A0602. Each land unit (+0x54) not aboard and standing on land: dropped (RemoveUnit, slot 64, after the walk) when UnitCanReachObjectiveOverland or when no longer ours (+0x128); else, its destination (or province) being the port: CArmy staging_province (+0x2E4) = port id; being its staging province already: noted as en route; otherwise, where FindProvinceRoute(tag, province, port) exists, MoveUnit(unit, port, 0, safe 1, very safe 1, this) and staging = port; failing a route, the port of its own area, else of a neighbour area held by a friend (IsFriend true), nearest by naval distance to the embarkation port that 0xD52A0(us, port, it, 0) allows - MoveUnit there, staging = it, and +0x90 = it where +0x90 was the port. When every unit was at the port or en route and +0x90 is the port, +0x90 becomes the last en-route unit's staging province.",
+   "confidence": "confirmed",
+   "evidence": "Annotated listing (scratch stage1.asm) read whole; MoveUnit's pushes at 0x8A034A-0x8A0351 and 0x8A0511-0x8A0519 (agent, 1, 1, 0, id, unit).",
+   "revises": "Raised from likely; adds the staging_province writes, the waypoint rule and the end-of-walk +0x90 rewrite."
+  },
+  {
+   "rva": "0x4A0610",
+   "kind": "function",
+   "name": "CAIInvasion::SendCarrierAirSupport",
+   "signature": "void __stdcall CAIInvasion::SendCarrierAirSupport(CAIInvasion* invasion)",
+   "no_signature": null,
+   "comment": "**Stage 2 loads nothing: it flies the fleet's carrier air groups over the beach.** `ret 4` at 0x8A09A8. Only with exactly one fleet (+0x6C == 1) on an `invasion` order (0x3A5), the objective held by an enemy, at least 3 hours of daylight left at the fleet's province (sunset - hour, with hour = (tick - 43800000) % 24; the 'hour past sunset and before sunrise' refusal can never fire), and CountEnemyLandUnitsInList(objective units) non-zero. Then up to 3 times: over every carrier ship (definition carrier_size +0x190 > 0) of the fleet, each air unit on its CShip +0xDC list in the fleet's province, not in combat (+0x110, +0x11C), not moving (+0x140), not yet chosen, with GetUnitAverageStrengthAndOrganisation organisation >= 0.5 and strength >= 0.33 - the one with the largest strength + organisation; each chosen gets CreateUnitOrder(ai, 0x6FB ground_attack, unit, objective id, {objective id}, now, sunset).",
+   "confidence": "confirmed",
+   "evidence": "Annotated listing (scratch stage2.asm) read whole: CUnit::GetRegimentList on the fleet at 0x8A0782, `cmp [ecx+0x190],0` on each ship's definition at 0x8A07B5, the list at ship +0xDC (CShip air, project.json) at 0x8A07C5; 0.5 at 0x15AB304 against the organisation out (+[ebp-0x1C]), 0.33 at 0x160A958 against strength. Wrong if +0xDC were not the carrier's wings - the record's CShip field says so, read live.",
+   "revises": "Renamed from LoadTransportsAtNight; FINDINGS-theatre2.md read the units as land units 'loaded in daylight'. They are the carrier's air groups, sent on ground attack until sunset."
+  },
+  {
+   "rva": "0x4A09B0",
+   "kind": "function",
+   "name": "CAIInvasion::SailAndIssueInvasionOrder",
+   "signature": "void __stdcall CAIInvasion::SailAndIssueInvasionOrder(CAIInvasion* invasion)",
+   "no_signature": null,
+   "comment": "Stage 3, `ret 4` at 0x8A11A8. (a) Each fleet: empty, with a busy order (COrder slot 24) -> IssueUnitOrder(none, +0x90); loaded, stationary, not at +0x90, its order support_attack/carrier_protection or not busy, carrying a stationary land unit likewise free -> transport to +0x90. (b) Each empty fleet not holding ground (CUnit::IsHoldingGround) and not retreating: heading elsewhere -> MoveUnit(fleet, +0x90, 0, 0, 0, this); at +0x90 -> listed; two or more listed that UnitList_MayMerge allows -> a CMergeCommand (0x5DB800) posted and the stage ends. (c) More than one fleet ends it. The fleet must be at +0x90, still, and not under a busy order (0x89AEC0). Each land unit not aboard whose destination is +0x90 outside the objective's area: still walking -> its weight counted as coming; standing there -> CLoadArmyCommand(unit, fleet) where CNavy::CanCarry. When something is coming and the smallest of it still fits (capability - weight aboard >= it), wait. (d) +0x90 not the port: transport to the port, +0x90 = port. At the port: objective enemy-held -> objective = PickInvasionLandingProvince(ai, its area, this); none -> AbandonInvasionArea, finished; else IssueUnitOrder(invasion 0x3A5, fleet, objective). Not enemy-held: under 4 provinces in its area and more than 10 x provinces land units not owned by an enemy there and PickNearestInvadableNeighbourProvince(ai, objective) -> invasion on THAT province; otherwise transport to the objective. IssueUnitOrder's window is from = to = now.",
+   "confidence": "confirmed",
+   "evidence": "Annotated listing (scratch stage3.asm) read whole; 0x5DB800 writes CMergeCommand's vftable 0x15C8D9C (hoi3_tfh-classes.json); 0x89AEC0 = false for 0x4E5/0x56C, else order slot 24; IssueUnitOrder (0x89ABD0) passes &tick twice.",
+   "revises": "Raised from likely; adds the empty fleets' merge, the loading by CLoadArmyCommand and its wait rule, and that the invasion in the not-enemy-held arm goes on PickNearestInvadableNeighbourProvince's province."
+  },
+  {
+   "rva": "0x4A11B0",
+   "kind": "function",
+   "name": "CAIInvasion::UnitCanReachObjectiveOverland",
+   "signature": "bool __fastcall CAIInvasion::UnitCanReachObjectiveOverland(CAIInvasion* this@ECX, CUnit* unit@EAX) @AL",
+   "no_signature": null,
+   "comment": "Bare `ret`. True where the unit stands on the objective (+0x84) or in its area. False where its province is not a front province (CProvince::IsFrontProvince(false)), where it stands in the embarkation port's area or our acting capital's area. True where its province has a passable edge into the objective's area (0xA6B00), or one of its area's neighbour areas is enemy-held (first province's controller) and touches the objective's area (AreaIsConnectedTo). Else false. Stage 1 drops a unit it answers true for; IsInvasionOver ends the invasion when it answers true for every land unit.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x8A11B0-0x8A12E9 read whole (scratch tail.asm).",
+   "revises": "Raised from likely; the comment's facts stand, plus the second caller (IsInvasionOver)."
+  },
+  {
+   "rva": "0x4A12F0",
+   "kind": "function",
+   "name": "CAIInvasion::IsInvasionOver",
+   "signature": "bool __stdcall CAIInvasion::IsInvasionOver(CAIInvasion* invasion)",
+   "no_signature": null,
+   "comment": "`ret 4`; true finishes the agent (Tick sets +0x3E). True when: no fleet (+0x6C < 1) or no land unit (+0x5C < 1); 'in position' (one fleet on an invasion order, carrying, enemy land units at the order's province +0xC) and some land unit fails CanFight (slot 33) or has strength share (slot 25) or organisation share (slot 26) under 0.33; every land unit UnitCanReachObjectiveOverland; the fleets' transport capability below the smallest land unit's weight; MayEnterProvince(us, objective, false) false, or (with +0x90 > 0) false for +0x90; the lone fleet on an invasion order, in port or at sea not next to the objective, with a transport ship under 0.33 strength share. Else false.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x8A12F0-0x8A167A read whole (scratch tail.asm): 0.33 at 0x160A958 three times; 0x5D66D0 on +0x64 at 0x8A149B against the minimum weight; CCountry::MayEnterProvince at 0x8A14BB and 0x8A156E; CProvinceTemplate::HasEdgeTo at 0x8A159A.",
+   "revises": "Raised from likely; the comment had only the first two tests and an `order +0x2EC` test that is the fleet's carrying count."
+  },
+  {
+   "rva": "0x4A1680",
+   "kind": "function",
+   "name": "CAIInvasion::AddUnit",
+   "signature": "bool __thiscall CAIInvasion::AddUnit(CAIInvasion* this, CUnit* unit)",
+   "no_signature": null,
+   "comment": "Slot 63, `ret 4`. By domain: IsAir -> the air list (+0x74), IsLand -> the land list (+0x54, and CArmy staging_province +0x2E4 zeroed), IsNaval -> the naval list (+0x64, its steal folded into 0x89CA60). Before appending, the unit's old agent (+0x198, if another) is told through its slot 64, and +0x198 = this unless +0x3D or +0x3E is set. Answers true when appended; a unit already in its list falls through to the other domains' tests and answers false, as does a unit of no domain. Called three times from PlanAmphibiousInvasion (0x893B84, 0x893BB6, 0x893BE8).",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x8A1680-0x8A1853 read whole: a duplicate found in +0x74 jumps to 0x8A172A (the IsLand test), one in +0x54 to 0x8A17DC (IsNaval), one in +0x64 to 0x8A184D (`xor al, al`).",
+   "revises": "Said it refuses duplicates by walking +0x74 for every unit and that a duplicate returns true; each domain checks its own list, a duplicate answers false, and the land branch zeroes staging_province."
+  },
+  {
+   "rva": "0x4A1860",
+   "kind": "function",
+   "name": "CAIInvasion::RemoveUnit",
+   "signature": "void __thiscall CAIInvasion::RemoveUnit(CAIInvasion* this, CUnit* unit)",
+   "no_signature": null,
+   "comment": "Slot 64, `ret 4`. Takes the unit out of the air (+0x74), land (+0x54) and naval (+0x64) lists (CList_RemoveNode 0x5D49D0 on each, found or not) and zeroes CUnit +0x198. Stage 1 calls it for the units it drops; AddUnit of another agent calls it through the unit's +0x198.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x8A1860-0x8A18D5 read; held by CAIInvasion's vftable at slot 64 (vtable.py), one holder."
+  },
+  {
+   "rva": "0x4A18E0",
+   "kind": "function",
+   "name": "CAIInvasion::OnUnitUnloaded",
+   "signature": "void __thiscall CAIInvasion::OnUnitUnloaded(CAIInvasion* this, CUnit* unit, CProvince* province)",
+   "no_signature": null,
+   "comment": "Slot 70, `ret 8`: the CAIAgent hook RemoveFromTransport (0x1CF120) calls on the first agent up a fleet's hierarchy when a land unit is taken off it. Unloading in the embarkation port's area is ignored; anywhere else the unit is handed to 0x497B40(owner, unit, province), which attaches it under a theatre's headquarters of ours (an AI-run country only) - the CAIUnit slot 70 (0x4D54A0) calls the same.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x8A18E0-0x8A1912 read; RemoveFromTransport's record says it calls slot 70 with (the CArmy, province); 0x897B40's callers are 0x8A190C and 0x8D54FC (findRefs).",
+   "revises": "Renamed from ReleaseUnitOutsidePortArea and raised from inferred: what the slot means is now known."
+  },
+  {
+   "rva": "0x817E0",
+   "kind": "function",
+   "name": "COwnerArea_IsWellPorted",
+   "signature": "bool __stdcall COwnerArea_IsWellPorted(COwnerArea* area@EAX) @AL",
+   "no_signature": null,
+   "comment": "True when the area's ports' naval bases' level_current, summed and divided by its province count (both thousandths), exceed floor(500.5) = 500 - more than half a naval base level per province. False for an area with no provinces. Its one caller is PlanAmphibiousInvasion (0x8927CB), where it stops the halving of the acting capital area's division need. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x4817E0-0x48187E read (two bare rets); 500.5 at 0x160A5E8."
+  },
+  {
+   "rva": "0x81880",
+   "kind": "function",
+   "name": "COwnerArea_MinPortDistance",
+   "signature": "int __stdcall COwnerArea_MinPortDistance(COwnerArea* area@EAX, COwnerArea* other@ECX) @EAX",
+   "no_signature": null,
+   "comment": "The least CMap::DistanceBetweenProvinces between a port of one area and a port of the other (both +0x48 lists), from 1000000 - so 1000000 when either has no port. One caller, RankInvasionAreas (0x896A47), which divides an area's score by this distance from our acting capital's area / 200.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x481880-0x4818E4 read (bare ret); the inner list is restarted from [ebp-4] for every outer port."
+  },
+  {
+   "rva": "0x80430",
+   "kind": "function",
+   "name": "RegionGroup_BordersEnemy",
+   "signature": "bool __stdcall RegionGroup_BordersEnemy(void* group@EAX) @AL",
+   "no_signature": null,
+   "comment": "COwnerArea_TouchesHostileArea (0x7FD90) over every real area (slot 0) of a region group - the object COwnerArea +0x6C points at, which holds a CList of its areas at +0. One caller, PlanAmphibiousInvasion (0x89261B): a division outside our capital's area is a candidate only where its region group has no hostile land border.",
+   "confidence": "confirmed",
+   "evidence": "Listing from 0x480430 (two bare rets at 0x48056E/0x480577) and its decompile: the same war/REB cascade as 0x47FD90 per area."
+  },
+  {
+   "rva": "0x49C240",
+   "kind": "function",
+   "name": "CList_InsertByDescendingIntAt4",
+   "signature": "void __stdcall CList_InsertByDescendingIntAt4(void* list@stack:4, const void* entry@EAX)",
+   "no_signature": null,
+   "comment": "Copies a 12-byte entry into a new 0x18-byte node {entry, prev +0xC, next +0x10, byte +0x14} and inserts it after the first node, walking back from the tail, whose int at +4 is at least the entry's - descending by that key, a new entry after its equals; first when it beats them all. A template body: RankInvasionAreas (CEU3AI +0xC8) and 0x489DE0 (CEU3AI +0x30, the production request queue) call it. Not to be named after either.",
+   "confidence": "confirmed",
+   "evidence": "Listing from 0x89C240 (four `ret 4`): `cmp [edi+4], ecx; jge` walking edi = [edi+0xC] from [list+4]."
+  },
+  {
+   "rva": "0xA6B00",
+   "kind": "function",
+   "name": "CMapProvince_HasEdgeIntoArea",
+   "signature": "bool __stdcall CMapProvince_HasEdgeIntoArea(CMapProvince* province@EAX, COwnerArea* area@stack:4) @AL",
+   "no_signature": null,
+   "comment": "True when an edge of the province (template +0x90 vector, 20 bytes each) not of kind 3 (impassable) leads to a province whose template +0x13D is set and whose area is the one given. Two callers: CAIInvasion::UnitCanReachObjectiveOverland (0x8A1257) and 0x8B115E.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x4A6B00-0x4A6B79 (`ret 4`) and its decompile."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CAIInvasion",
+   "offset": "0x84",
+   "name": "objective_province",
+   "type": "CProvince*",
+   "comment": "**The province the invasion lands on**, in enemy territory: the constructor's second argument (PlanAmphibiousInvasion's landing province in the target area), re-picked by stage 3 with PickInvasionLandingProvince(its area) as the fleet sails from the embarkation port. Stage 2, stage 3 and IsInvasionOver test IsEnemy on its controller; PruneInvasions keeps the invasion while its area stays ranked; another invasion pointing here costs a candidate 1000 in PickInvasionLandingProvince.",
+   "evidence": "FINDINGS-theatre2.md section 4, now confirmed by reading every stage: 0x8A1159 writes it, 0x8A0663/0x8A1061 test IsEnemy, 0x891CA8 reads its area.",
+   "revises": "Was staging_province, 'where the invasion sails from'; it is the objective."
+  },
+  {
+   "struct": "CAIInvasion",
+   "offset": "0x88",
+   "name": "embarkation_port",
+   "type": "CProvince*",
+   "comment": "**The friendly port the force boards in.** Null at construction; written only by PickEmbarkationPort (0x8A0176), re-picked by DoTick whenever no friend holds it. Stage 1 marches the land force here; stage 3 sends the loaded fleet here before the invasion order; OnUnitUnloaded ignores unloading in its area; UnitCanReachObjectiveOverland answers false in its area.",
+   "evidence": "0x89FB54-0x89FB8B (IsFriend on its controller), 0x8A0338 (MoveUnit to it), 0x8A1034 (transport order to it).",
+   "revises": "Was landing_province, 'where it lands'; it is the port of embarkation."
+  },
+  {
+   "struct": "CAIInvasion",
+   "offset": "0x90",
+   "name": "rendezvous_province_id",
+   "type": "int",
+   "comment": "The province id where the fleet and the land force meet: the embarkation port's id when it is picked (0x8A0186), switched by stage 1 to an intermediate port a unit with no land route marches to (0x8A04FF) or to an en-route unit's staging province (0x8A05B1), and set back to the port by stage 3 after loading there (0x8A1040). Fleets are sent and empty fleets moved to it; loading happens at it; IsInvasionOver asks MayEnterProvince of it.",
+   "evidence": "Every writer read: 0x8A0186, 0x8A04FF, 0x8A05B1, 0x8A1040; readers in stages 1 and 3 and 0x8A14C8.",
+   "revises": "Was landing_province_id, 'the landing province's id'."
+  },
+  {
+   "struct": "CAIInvasion",
+   "offset": "0x74",
+   "name": "air_units_first",
+   "type": "CUnit*",
+   "comment": "Head of the AIR list (last +0x78, count +0x7C, byte +0x80): AddUnit's IsAir branch. RemoveUnit walks it.",
+   "evidence": "0x8A1694-0x8A170B: reached only when CUnit slot 17 (IsAir) answers true; FINDINGS-theatre2.md section 2.",
+   "revises": "Was units_first, 'every unit committed'; the +0x78 record already says the list is the air one."
+  },
+  {
+   "struct": "CAIInvasion",
+   "offset": "0x54",
+   "name": "land_force_first",
+   "type": "CUnit*",
+   "comment": "Head of the land-force CList (last +0x58, count +0x5C, byte +0x60): AddUnit's IsLand branch (which zeroes the CArmy's staging_province). Stage 1 marches it to the embarkation port and drops a unit that can walk to the objective; stage 3 loads it; IsInvasionOver ends the invasion when it is empty, when every member can walk to the objective, or (in position) when one cannot fight; PickEmbarkationPort sums its weight and gives up the x3 'take more' test past 5 members.",
+   "evidence": "AddUnit 0x8A172A-0x8A17D0 (IsLand, slot 15); the stages read whole.",
+   "revises": "The comment called the land/transport split inferred and placed the appends in 'a small function between slots 63 and 64'; they are in AddUnit, by domain."
+  },
+  {
+   "struct": "CEU3AI",
+   "offset": "0x94",
+   "name": "failed_invasion_areas_first",
+   "type": "void*",
+   "comment": "Head of a CList of COwnerArea* (tail +0x98, count +0x9C; nodes {area, prev, next, byte}): areas not to be invaded until it is freed at hour 1 of the 1st of every month (ProcessAI 0x4899A2). Written by AbandonInvasionArea (stage 3 found no landing) and by RankInvasionAreas: an AI country's candidate area touching our own coastal area or a friend fighting at its owner's capital, one CEU3AI_MayInvadeArea refuses, one no port of ours or our friends can reach by sea within range, and a staging area our capital's ports cannot reach while at war. RankInvasionAreas skips them.",
+   "evidence": "Appends at 0x894C5D (AbandonInvasionArea), 0x896080 and 0x896C8B (RankInvasionAreas); reads at 0x89604F and 0x896C48.",
+   "revises": "Said only 'areas where an invasion found nowhere to land'; RankInvasionAreas fills it for five more reasons."
+  },
+  {
+   "struct": "CEU3AI",
+   "offset": "0xC8",
+   "name": "ranked_invasion_areas_first",
+   "type": "void*",
+   "comment": "Head of the ranked areas to invade (tail +0xCC, count +0xD0, lock byte +0xD4): nodes of 0x18 bytes {COwnerArea* +0, int score +4, int distance +8, prev +0xC, next +0x10, byte +0x14}, descending by score. Rebuilt by CEU3AI_RankInvasionAreas; read in order by PlanAmphibiousInvasion (one invasion an area at most) and by PruneInvasions (an AI invasion is kept while its objective's area is one of these or a neighbour of one).",
+   "evidence": "Freed and zeroed at 0x8955A8-0x8955D3, filled by 0x49C240 at 0x896ABF and 0x89709E; walked through +0x10 at 0x892958 and 0x891CB8."
+  },
+  {
+   "struct": "CEU3AI",
+   "offset": "0xCC",
+   "name": "ranked_invasion_areas_last",
+   "type": "void*",
+   "comment": "Tail of the ranked-areas list at +0xC8; the trims pop from here (0x896AE2, 0x8970C5).",
+   "evidence": "0x896AFC-0x896B0E and 0x89710B-0x89711F unlink [+0xCC] through its +0xC prev."
+  },
+  {
+   "struct": "CEU3AI",
+   "offset": "0xD0",
+   "name": "ranked_invasion_areas_count",
+   "type": "int",
+   "comment": "Count of the ranked-areas list at +0xC8: trimmed to 10 before the staging areas are added, and down to 1 at least by the tenth-of-the-best cut.",
+   "evidence": "`cmp [esi+0xD0], 0xA` at 0x896AD7; `cmp [ebx+0xD0], 1` at 0x8970B2."
+  },
+  {
+   "struct": "CEU3AI",
+   "offset": "0xD4",
+   "name": "ranked_invasion_areas_no_unlink",
+   "type": "uint8_t",
+   "comment": "The ranked-areas CList's deferred-deletion byte: while set a trim marks the tail node (+0x14) instead of freeing it.",
+   "evidence": "`cmp byte [esi+0xD4]` at 0x896AEE and 0x8970FC, the CList shape {first, last, count, byte}."
+  },
+  {
+   "struct": "CEU3AI",
+   "offset": "0xD8",
+   "name": "weak_enemy_ports_first",
+   "type": "void*",
+   "comment": "Head of a list of owned CProvinceFloat {province id +8, float score +0xC}, by descending score: our enemies' and war targets' undefended capitals and small-area ports, rebuilt daily by CEU3AI_RebuildWeakEnemyPorts. Read by 0x4CC690 (through CAIUnit +0x60), the land block's paradrop-shaped call - not by the invasion planner.",
+   "evidence": "Cleared by CListOfOwned_ClearByPointer and filled by 0x89C330 at 0x897302-0x897692; read at 0x8CC756. The +0xD8 displacement scan's other hits are CCountry and CAIUnit fields."
+  },
+  {
+   "struct": "COwnerArea",
+   "offset": "0x3C",
+   "name": "neighbour_areas_count",
+   "type": "int",
+   "comment": "Count of the neighbour-area CList whose head is +0x34 (tail +0x38) - the same {first, last, count} shape as provinces +0x24/+0x2C and ports +0x48/+0x50. Zero for an island area: RankInvasionAreas' 'small island' test (fewer than 5 provinces, no neighbour, a port) and CAIUnit::EstimateAreaNeed's skip of its two small-region clamps both read it so.",
+   "evidence": "RankInvasionAreas `cmp dword [esi+0x3C], 0` at 0x896386 and 0x896641 beside `cmp [esi+0x2C], 5`; and the writer: COwnerArea::AdjustNeighbour (0x47EAD0) takes esi = area + 0x34 and on an append stores the node at [esi+4] (+0x38) and increments [esi+8] (+0x3C) at 0x47EB6B-0x47EB74; a link whose edge count falls to 0 is unlinked through CList_RemoveNode.",
+   "revises": "Was unknown_3c."
+  },
+  {
+   "struct": "CAIUnit",
+   "offset": "0x370",
+   "name": "invasion_brigade_need",
+   "type": "int",
+   "comment": "What an amphibious plan is short of, in land UNITS: PlanAmphibiousInvasion zeroes it at 0x492483 when given this agent and adds N - picked at 0x493756 (N the enemy land units in an enemy target area, at least 1, or a friendly target's count) when it picked none, or fewer than N for an enemy area. **It is the additive term in both force planners' brigade demand**, so a unit count lands in a brigade count.",
+   "evidence": "0x893748-0x89375C read; the two planners per the existing record.",
+   "revises": "Said 'a brigade shortfall'; the shortfall is counted in units."
+  }
+ ],
+ "vftable_slots": {
+  "CAIInvasion": {
+   "63": "AddUnit",
+   "64": "RemoveUnit",
+   "70": "OnUnitUnloaded",
+   "73": "DoTick"
+  }
+ },
+ "frontier": [
+  "0x497B40",
+  "0xD52A0",
+  "0x1DB800",
+  "0x4CC690",
+  "0x1C6F40"
+ ],
+ "slots_noted": "CAIAgent slot 70 (the unit-unloaded hook) is left unrecorded on CAIAgent and CAIUnit: CAIUnit's body 0x4D54A0 was not read here."
+}

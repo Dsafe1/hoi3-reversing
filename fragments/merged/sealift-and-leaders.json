@@ -1,0 +1,175 @@
+{
+ "agent": "moving wave, reader F",
+ "question": "CAIUnit::AssignAreaTargetsAndSealift off the bytes (the per-division targets, the land-or-sea split, the embark/debark vote, the transports), its pickers, CEU3AI_RecallStrandedLandUnits and AI_ReassignLeaders, whole.",
+ "source": "findings/FINDINGS-moving.md",
+ "addresses": [
+  {
+   "rva": "0x4C4370",
+   "kind": "function",
+   "name": "CAIUnit::AssignAreaTargetsAndSealift",
+   "signature": "bool __stdcall CAIUnit::AssignAreaTargetsAndSealift(CAIUnit* agent, bool daily)",
+   "no_signature": null,
+   "comment": "**Which theatre area each land unit is bound for, and the plan's embark and debark.** Read whole on the listing, 0x4C4370 to the `ret 8` at 0x4C7530 (early `ret 8` at 0x4C43B4). One caller, CAIUnit::Tick at VA 0x8B0C38 (answer ignored), for the agent nearest above its unit, daily = (hour == (id+6)%24). Runs when the agent has a unit and (+0x5C is set - cleared here - or daily, or its CEU3AI does not run units). **Nothing at all unless the country owns at least one whole unit of transport capacity** (UnitList_SumTransportCapacity over CCountry +0xBAC >= 1). (1) Areas: the theatre's areas (+0x84) that are real, in order; per area need = EstimateAreaNeed(agent, area, .., relaxed) with relaxed = at war and not COwnerArea_TouchesHostileArea(area), halved (C division) when relaxed and the area is the acting capital's; have = CountDivisionsInArea(.., false) (divisions by Unit_GetAnchorProvince(.,1): target if set, else destination or position). (2) Each unit of +0x11C with a target whose area is real and not one of the theatre's: kept only if army_role 0 and the target is held by a country we CanOperateIn; else target cleared (CArmy +0x2E8 = 0 at once and CSetAIParamCommand(unit, 0, staging) posted) and, a division, counted where it stands. (3) Each theatre area with have > need: repeatedly the division (+0x300 clear) bound there that stands in a theatre area of positive need and is farthest from its target - or, with an embark set, any standing outside embark's area (10000) before those inside it (distance to embark) - is released the same way, until have <= need. (4) Each unit: a target that CAIUnit_MayShipUnitToArea no longer allows is released; one it allows is listed for sealift (weight += definition weight/1000), counting it toward the embark tally when bound for debark and standing in embark's area. A unit with no target standing in our own land outside the theatre's areas (or trespassing anywhere outside) is 'stranded' - a trespasser whose path ends in a friend's land has its target zeroed and is not. (5) Deficit list: per theatre area need-have, our areas sorted largest first (stable; an equal at the head with more provinces goes first), others' areas sorted the same way then pushed in front one by one (so reversed). Per area: want = max(deficit, stranded count where the area is not an enemy's and (touches a hostile area, or is the theatre's largest area, or with no theatre is first)); with want >= 1 the target province is CAIUnit_PickLandingProvince for an enemy-held area, else CAIUnit_PickPortNearestObjectives; then while want >= the next area's deficit (or the area is an enemy's and want > 0) the best unit gets it - CArmy +0x2E8 = province, CSetAIParamCommand(unit, province, staging) - marched with CEU3AI::MoveUnit(.., 0, 1, 1, 0) where CMapProvince::CanUnitReach(province, unit, 1, 1), else listed for sealift. Candidates: no target, anchor area real, CAIUnit_MayShipUnitToArea, not army_role 8 while the agent has air transports, not standing beside an enemy area that also touches the target area, not in a friend's land beside an enemy, own area not still needing it, the headquarters only to the largest area, a division; score = surplus of its own area (+10000 stranded; otherwise only while the deficit is >= 1), + slot 87 (enemy area) or slot 88 by the four touches-war cases (+x, +101-x), + 2 x slot 88 where the target area's +0x3C < 1, +100 where its parent is bound there and +50 per sibling bound there, x2 (CUnit +0x2C9 set) or x0.25 (standing on an ops-area province) where its own area borders an enemy; the strictly highest wins. (6) Every non-division of +0x14C with no target and not a theatre: target = CAIUnit_PickPortNearestObjectives of the area most of its land children stand in, where that is not its own, posted with staging 0 and no move. (7) Tail: +0xD4 = sealift weight; +0x58 = COwnerArea_LargestNavalBase of the theatre's largest area (no theatre: of the unit's area), 0 with no weight. Embark/debark cleared (CSetPlanTransportStateCommand(unit, 0, 0)) when only one is set or both are and nobody bound for debark stands in embark's area. While debark is unset, weight > 0 and the agent has naval transports (+0xEC): votes per listed unit for its target - 1, or 4 where its area's need < 1, +3 where its area holds a played-country objective (never for the AI), +10 where the target is not ours - the strictly best untried target is debark, embark = CAIUnit_PickEmbarkPort of the area (not debark's) where most of the units bound there stand, the strictly largest that yields a port; posted, or the target set aside and the vote repeated. With both set: every listed unit bound for debark standing in embark's area, not aboard, fighting or retreating, adds its weight and is boarded where it stands at embark (0x4D4070) or marched there; transports at embark with no busy order count their transport_capability/1000; while weight > capacity, the transport not at embark, with no blocking order, CUnit::CanMoveTo(embark), organisation >= 0.01, with the lowest ((1-strength)+(1-org))*2+1 times sea distance/1000 is sent (MoveUnit 0,0,0,0); the first idle transport in embark's port then runs 0x4D4D40 or, failing it, 0x4D42D0. Answers whether it posted the pair or moved/boarded anyone. Ghidra's own label on it, CSetAIParamCommand::CSetAIParamCommand_4, is wrong. See reversing/findings/FINDINGS-moving.md, section F.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled VA 0x8C4370-0x8C7530 end to end (scratch main.a.asm) and set beside the decompiler; every constant read off the image: 10000.0 (0x160A59C float, 0x160A370 double), -10.0 (0x160A588), 101.0 (0x160AA08), 2.0 (0x160A360), 100.0 (0x160A358), 50.0 (0x160A4C8), 0.25 (0x160A258), 1.0 (0x160A248), 0.01f (0x160A378), 1e6f (0x160A598); the vote weights 1/4/+3/+10 at 0x8C6A50-0x8C6B90; the sorted insert 0x4DD740 walks from the tail while d < new and inserts after (descending, stable); the region-group early-out of the predicate at 0x8C425A. Checked against the saves: all 29 embark/debark pairs in _01_04_12 (12), _01_08_07 (10) and _04_20_03 (7) have a unit under that theatre whose target is debark (E.6's '10 of 12' was wrong), and every saved target province has a naval base in the install's history, as the two target pickers require; only naval countries (ENG JAP FRA ITA HOL SPR AST NZL) have targets, as the transport-capacity gate predicts. Wrong if a save shows a country with no transport capacity holding a target, or a target without a naval base. Not checked: the hash-map iteration order that breaks ties in the vote and the embark choice.",
+   "source": "findings/FINDINGS-moving.md",
+   "revises": "Was inferred, with the head read on the decompiler only; now read whole off the bytes - the transport-capacity gate, the clearing and release passes, the deficit list and its ordering, the candidate score, the headquarters pass, the vote's +3 being the played country's alone, and the transport choice's formula."
+  },
+  {
+   "rva": "0x4C3940",
+   "kind": "function",
+   "name": "CAIUnit_PickPortNearestObjectives",
+   "signature": "CMapProvince* __stdcall CAIUnit_PickPortNearestObjectives(COwnerArea* area@EAX, CAIUnit* agent@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "The port of an area to send units to. Over the area's provinces (+0x24) in order, those with a sea link (template +0xA4 >= 1) and a naval base of level_max >= 1000: the mean of CMapProvince::NavalDistanceTo(port, p)/1000 over the agent's unit's plan objectives (CUnit +0x234, node +8 the province id), or with none over its ops area (+0x214), or with none the unit's own province; the smallest mean below 1e6 wins, the first of equals. Null when none. `ret 4`, the area in EAX. Callers: AssignAreaTargetsAndSealift at VA 0x8C5CFA (a friendly or neutral deficit area's target) and 0x8C66B1 (a headquarters' target). A sea distance is 0 where either end has no sea index, so a landlocked objective adds nothing.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled VA 0x8C3940-0x8C3AE8 whole: area from [eax+0x24], the 0xA4/0x300+0x20 tests, the three branches on +0x23C/+0x21C, the /1000.0 (0x160A300) and strict comisd against 1e6 (0x160A598). Two callers by findRefs. Wrong if a caller passes something other than a COwnerArea in EAX.",
+   "source": "findings/FINDINGS-moving.md"
+  },
+  {
+   "rva": "0x4C3AF0",
+   "kind": "function",
+   "name": "CAIUnit_PickEmbarkPort",
+   "signature": "CMapProvince* __stdcall CAIUnit_PickEmbarkPort(CAIUnit* agent, COwnerArea* area, CMapProvince* debark, void* listedUnits)",
+   "no_signature": null,
+   "comment": "**The embark port.** Over the area's provinces in order with a sea link and a naval base of level_max >= 1000: the mean sea distance (/1000) from the port to the listed units (a std::vector<CUnit*>) whose target (CArmy +0x2E8) is debark and whose current province lies in the area - **with none such it returns at once** - and of ports with a smaller mean than the best so far (from 1e6), the one taken is the first for which the route search 0x1A1630 (agent's tag, port -> the sea province by debark, template +0xA4) succeeds. Null when none. `ret 0x10`. One caller, AssignAreaTargetsAndSealift at VA 0x8C6E2C.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled VA 0x8C3AF0-0x8C3D4A whole: the target-id and current-area tests at 0x8C3BA7/0x8C3BB8, the early exit when no unit matched (0x8C3C0F), the route test at 0x8C3D00 on gamestate +0xB8C[debark template +0xA4]. One caller by findRefs. What 0x1A1630 is (an A*-shaped search gated by CCountry::MayEnterProvince) is inferred from its calls, not read.",
+   "source": "findings/FINDINGS-moving.md"
+  },
+  {
+   "rva": "0x4C3D50",
+   "kind": "function",
+   "name": "CAIUnit_PickLandingProvince",
+   "signature": "CMapProvince* __stdcall CAIUnit_PickLandingProvince(CAIUnit* agent, COwnerArea* area)",
+   "no_signature": null,
+   "comment": "**The province of an enemy-held area to send units at.** For each province p of the area: over its edges not of kind 3 to simulated provinces of p's own controller, n = how many, S = n x p's naval-base level_max/1000, and a flag 'every such edge is of kind 1' (a strait). p is considered only if it has a sea link and a naval base of level >= 1, or S >= 1.0; and only if CountEnemyLandUnitsInList(p's units, agent tag) e <= 5. avg = mean CMap distance from p to the plan objectives lying in the area, /10 when p is one of them (0 with none). score = avg - level - 0.5 S - 10 n (+1000 when the strait flag holds and n > 0) + 34 e; the lowest below 1e6 wins, first of equals. `ret 8`. One caller, AssignAreaTargetsAndSealift at VA 0x8C5CED.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled VA 0x8C3D50-0x8C41C3 whole: the edge loop (stride 0x14, kind at +0, neighbour id at +4, 0x13D and controller-id tests), S accumulated from [edi+0x300]+0x20 with edi = p, the 1.0f gate (0x171DBAC), the >5 enemy gate, /10.0 (0x160A340), 0.5 (0x160A308), n*10 (lea/add), +1000.0 (xmm1 still 0x160A300), e*34 (shl 4, add, add). Wrong if the S term is meant per neighbour's naval base: the register is p throughout.",
+   "source": "findings/FINDINGS-moving.md"
+  },
+  {
+   "rva": "0x4C41D0",
+   "kind": "function",
+   "name": "CAIUnit_MayShipUnitToArea",
+   "signature": "bool __stdcall CAIUnit_MayShipUnitToArea(CAIUnit* agent, CUnit* unit, COwnerArea* area)",
+   "no_signature": null,
+   "comment": "**Whether a unit may be given (or keep) a target in an area** - in effect, whether it has to cross water or hostile ground to get there. False when the area's region group (+0x6C, one side's land in one piece) is the group of the area of the unit's current province; when the area of its destination (or position) is real and landlocked (+0x68) or portless (+0x50 < 1) and CMapProvince::CanUnitReach(area's first province, unit, 1, 1) fails; when that destination is enemy-held, the unit CUnit::IsHoldingGround, retreats, or CAIUnit_UnitMayLeave(agent, unit, 0, 1, 1) refuses; when the area is enemy-held and army_role is 0 or 5; when it is not and army_role is 3 or 4 and (area +0x3C < 1 and it is not the acting capital's area, or the unit's own area COwnerArea_TouchesHostileArea). Otherwise AreaPair_SeaRouteOpen(own area, country, area). `ret 0xC`. Ghidra calls it CNullOwnerArea::CNullOwnerArea_3. Two callers in AssignAreaTargetsAndSealift (VA 0x8C584E keep-or-release, 0x8C5F98 candidates).",
+   "confidence": "confirmed",
+   "evidence": "Disassembled VA 0x8C41D0-0x8C4367 whole; the region-group compare at 0x8C425A reads the unit's current province (+0x130), not its destination; the role tests at 0x8C42FE-0x8C4324. Checked against the saves: every saved division target lies across water or across land of one level of infrastructure (Broome, Port Hedland, Exmouth from eastern Australia), never in the unit's own piece of land. Wrong if a save shows a division bound for a port in its own connected land.",
+   "source": "findings/FINDINGS-moving.md"
+  },
+  {
+   "rva": "0x498870",
+   "kind": "function",
+   "name": "CEU3AI_RecallStrandedLandUnits",
+   "signature": "void __stdcall CEU3AI_RecallStrandedLandUnits(CEU3AI* ai)",
+   "no_signature": null,
+   "comment": "**Brings home land units left standing in other countries' land.** ProcessAI (VA 0x889A57) on an AI-run country's first pass and at hour (id+16)%24. For each unit of CCountry +0xBAC in order: a land unit with a province, standing in a province another country controls whose area AreaMayWidenFrontSearch(us, area, &out, 0) refuses, not fighting (+0x11C), aboard (+0x300) or retreating, the province not an enemy's (area real), and its destination (if another province with a real area) neither an enemy's nor ours nor one AreaMayWidenFrontSearch allows. Where to: the province of our own areas (CCountry +0xD30) nearest by CMap distance, x0.25 in the acting capital's area, that CanUnitReach(p, unit, 0, 0) allows; else the province of a neighbouring area we CanOperateIn and that does not touch a hostile area, nearest with 10000 off where we control it (no reach test); else, for a division, the nearest province of its own area with a naval base of level >= 1; else the acting capital. A trespassing unit with a target goes only where that place is held by a friend (CCountry::IsFriend(.., 1)), its target then zeroed directly; otherwise it is left. MoveUnit(unit, id, 0, 1, 0, 0); with nowhere at all (no capital) a CDisbandCommand. `ret 4`.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled VA 0x898870-0x898EEC whole: the filters at 0x8988B9-0x8989FD, the three searches (0x898A03, 0x898B31, 0x898C3A), 0.25 (0x160A258), 10000.0 (0x160A370), the trespasser branch at 0x898D1E, the MoveUnit pushes (0,0,1,0) and CDisbandCommand::CDisbandCommand at 0x898E26 (vftable 0x15C8C9C, slot 6 = CDisbandCommand::Execute). Call site and hour gate confirmed at VA 0x889A47-0x889A57.",
+   "source": "findings/FINDINGS-moving.md",
+   "revises": "Was inferred and read for its shape; now read whole: the second search's 10000 bonus and lack of a reach test, the port search being for divisions only, the capital as the last resort, the trespasser rule, and the disband only when even the capital is missing."
+  },
+  {
+   "rva": "0x498EF0",
+   "kind": "function",
+   "name": "CEU3AI_AssignLeadersToLeaderlessUnits",
+   "signature": "void __stdcall CEU3AI_AssignLeadersToLeaderlessUnits(CEU3AI* ai)",
+   "no_signature": null,
+   "comment": "**Gives a leader to every unit that has none - and touches no unit that has one** (formerly AI_ReassignLeaders). ProcessAI (VA 0x889AD6) at hour (id+8)%24, after DeployFinishedUnits, AI-run countries only. Clears ai +0xA4; writes every unit's CUnit +0x2C0 = AI_LeaderFitForUnit of its leader (0 with none). Then for each unit of CCountry +0xBAC in order whose leader is not real (slot 8): best = none, bestFit = 0; over CCountry +0xE00 in order, each leader of rank > 0 commanding nothing and not already given this pass: fit = AI_LeaderFitForUnit(leader, unit); ratio = fit / bestFit (fit itself while bestFit is 0); taken when ratio >= 1.25 - so the first eligible leader with a fit of at least 1.25, replaced only by one at least a quarter better. A choice posts CAssignLeaderCommand(unit, leader, 1) (Execute: SetLeader with both flags, so the organisation hit) and marks the leader given. The branches for a leader already commanding (fit + 0.2 against the ratio) and for an old leader freed are dead - both filtered out earlier. `ret 4`.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled VA 0x898EF0-0x899272 whole: the slot-8 test on the unit's leader at 0x898FAB jumps past every unit with a real leader; the rank and +0x40 skips at 0x898FE3/0x898FF0 make the +0x40 branch at 0x899042 unreachable; 1.25 is the float at 0x1716190, 0.2 the double at 0x160A260. Call site and hour confirmed at VA 0x889ABF-0x889AD6. Not checked against a save: the saves' leader references change for reasons this pass does not explain (the played Germany's too), so they are no oracle here.",
+   "source": "findings/FINDINGS-moving.md",
+   "revises": "Renamed from AI_ReassignLeaders and raised from inferred: it only fills leaderless units (the reshuffle the old name and comment describe is dead code), with the 1.25 ratio rule and the first-found order; signature typed CEU3AI*."
+  },
+  {
+   "rva": "0x499500",
+   "kind": "function",
+   "name": "AI_LeaderFitForUnit",
+   "signature": null,
+   "no_signature": "The leader arrives in EAX and the unit in EDI, bare `ret`, and the answer is a float in xmm0 - no x86 signature here expresses it.",
+   "comment": "**How the AI rates a leader for a unit.** 0 unless the leader is real (slot 8) and CUnit::MayTakeLeader(unit, leader, onlyFree 0) (the exact rank for a land level). fit = max_skill (CLeader +0x74) x 100; then for every effect of every trait, by kind (FINDINGS-combatmods' enum): x1.2 for 1 surprise_chance, 3 defence_modifier, 4 offence_modifier, 21 encirclement_bonus, 22 envelopment_bonus; x1.5 for 9 combined_arms_bonus where base_ca_bonus > 0, for 10 out_of_supply_modifier where the unit's supplies (+0xFC) are not 1000, for 6 winter_attrition where its province shows a weather graphic (length > 1) and its temperature (+0x7C) is below -5.000; for 2 supply_consumption x 0.5 x (supply + fuel consumption per brigade, both without leaders, /1000); x1.1 for every other kind (0, 5, 7, 8, 11-20, 23-30). A land unit of army_role 5 then x0.5. Its one caller is CEU3AI_AssignLeadersToLeaderlessUnits (twice).",
+   "confidence": "confirmed",
+   "evidence": "Disassembled VA 0x899500-0x89973B whole; the byte table at 0x899754 (0,1,0,0,5,2,5,5,3,4,5x10,0,0) over kind-1 and the jump table at 0x89973C read off the image; constants 1.5 (0x160A6B8), 1.2 (0x160A570), 1.1 (0x160A840), 0.5 (0x160A308). Wrong if CLeader +0x74 is not max_skill (the record names it so).",
+   "source": "findings/FINDINGS-moving.md"
+  },
+  {
+   "rva": "0x7FD90",
+   "kind": "function",
+   "name": "COwnerArea_TouchesHostileArea",
+   "signature": "bool __stdcall COwnerArea_TouchesHostileArea(COwnerArea* area)",
+   "no_signature": null,
+   "comment": "True when some area beside this one (+0x34) is held by a country this area's controller is at war with (CDiplomacyStatus +0x20), or either of the two is REB; areas of the same controller are passed over. A controller is the first province's (+0x24), '---' with no provinces. `ret 4`, 16 call sites across the AI (theatres, invasions, the area need, sealift, recall).",
+   "confidence": "confirmed",
+   "evidence": "Disassembled VA 0x47FD90-0x47FE9E whole: the CCountryDataBase lookup of this area's controller, the +0xCA8 same-country skip, +0xE28[other]->+0x20, the two REB byte tests. 16 callers by findRefs.",
+   "source": "findings/FINDINGS-moving.md"
+  },
+  {
+   "rva": "0xD5760",
+   "kind": "function",
+   "name": "AreaPair_SeaRouteOpen",
+   "signature": "bool __stdcall AreaPair_SeaRouteOpen(COwnerArea* from@EAX, CCountry* country@stack:4, COwnerArea* to@stack:8) @AL",
+   "no_signature": null,
+   "comment": "True when the country is at peace (+0xACC clear), when the two areas are one, or when for some port of from (+0x48) and some port of to, 0xD52A0(country, port, port, 0) - the fleet-to-port route test - holds. `ret 8`. Callers: CAIUnit_MayShipUnitToArea and CEU3AI_RankInvasionAreas (VA 0x896C82).",
+   "confidence": "confirmed",
+   "evidence": "Disassembled VA 0x4D5760-0x4D57BF whole. Two callers by findRefs. What 0xD52A0 answers is not read here.",
+   "source": "findings/FINDINGS-moving.md"
+  },
+  {
+   "rva": "0x1D66D0",
+   "kind": "function",
+   "name": "UnitList_SumTransportCapacity",
+   "signature": "int __stdcall UnitList_SumTransportCapacity(CUnitList* units@EAX) @EAX",
+   "no_signature": null,
+   "comment": "Sum over a unit list of each unit's definition (+0xC8) transport_capability (+0x144) / 1000, truncated unit by unit. Bare `ret`. On CCountry +0xBAC it is the gate of CAIUnit::AssignAreaTargetsAndSealift (>= 1) and the tonnage CEU3AI_RankInvasionAreas compares (its record calls it SumTransportWeight; it is capability, not weight).",
+   "confidence": "confirmed",
+   "evidence": "Disassembled VA 0x5D66D0-0x5D670B whole: [unit+0xC8]+0x144 and the /1000 by 0x10624DD3. Eight call sites by findRefs.",
+   "source": "findings/FINDINGS-moving.md"
+  },
+  {
+   "rva": "0x1D99A0",
+   "kind": "function",
+   "name": "CDisbandCommand::CDisbandCommand",
+   "signature": "CDisbandCommand* __stdcall CDisbandCommand::CDisbandCommand(CDisbandCommand* self, CUnit* unit)",
+   "no_signature": null,
+   "comment": "Inlines the CCommand base (0x18D at +4, save token 0x380 at +0x2C and +0x30, 0xFFFF at +0x34), writes vftable 0x15C8C9C, builds the unit reference at +0x3C (0x2DD70). `ret 8`, returns self. CEU3AI_RecallStrandedLandUnits posts it for a unit with nowhere to go.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled VA 0x5D99A0-0x5D9A38 whole; the vftable it writes holds CDisbandCommand::Execute (0x1D9A40) at slot 6, read off 0x15C8C9C + 0x18.",
+   "source": "findings/FINDINGS-moving.md"
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CUnit",
+   "offset": "0x2C0",
+   "name": "ai_leader_fit",
+   "type": "float",
+   "comment": "AI_LeaderFitForUnit of the unit's leader, 0 with none, written for every unit of the country by CEU3AI_AssignLeadersToLeaderlessUnits (VA 0x898F49). Its only reads in the AI module are that pass's own - for a unit with no leader, where it was just written 0, and in a dead branch - so it decides nothing. See reversing/findings/FINDINGS-moving.md, section F.",
+   "source": "findings/FINDINGS-moving.md",
+   "evidence": "Chunk sweep of VA 0x880000-0x8EA000 for '+ 0x2c0]': the write at 0x898F49 and reads at 0x898FBB and 0x89905E are CUnit's; the others are CAIUnit +0x2C0 (ops-area records) and CProvince::GetNumberOfUnits (0x4E81D0).",
+   "revises": "The comment said it weighs the free leaders against the one in place; that path is dead and the field is read only where it is 0."
+  },
+  {
+   "struct": "CEU3AI",
+   "offset": "0xA4",
+   "name": "unknown_a4",
+   "type": "uint8_t",
+   "comment": "Cleared by CEU3AI_AssignLeadersToLeaderlessUnits (at entry and after each assignment) and by CEU3AI_PromoteLeadersForCommands (0x4994BF); the constructor's dword write at +0xA4 (0x10000) zeroes it too. Nothing in VA 0x880000-0x8EA000 sets it non-zero or reads it.",
+   "source": "findings/FINDINGS-moving.md",
+   "evidence": "Chunk sweep of VA 0x880000-0x8EA000 for byte accesses at '+ 0xa4]': the three clears and only stack-local hits besides; the control is that the sweep finds the known clears. A reader outside that range is not excluded."
+  }
+ ],
+ "vftable_slots": {},
+ "frontier": [
+  "0x4BE2C0 CAIUnit slot 87 - a 0..100 figure of a division (mean brigade strength fraction times a per-type weighting, weight-based, capped 100); scores candidates for an enemy-held area here. Unassigned.",
+  "0x4BE560 CAIUnit slot 88 - the float the candidate score uses for every other area (reader B).",
+  "0x4D4070 - boards a listed unit at embark onto a fleet there (CNavy::CanCarry, CLoadArmyCommand, sets CUnit +0x2CA); ret 8, (agent, unit).",
+  "0x4D4D40 - run on the first idle transport in embark's port; unloads (CUnloadArmyCommand) and merges (UnitList_MayMerge); also called from VA 0x8D5696.",
+  "0x4D42D0 AIUnit_EstimateMoveTime (inferred name) - called here as (agent, transport) when 0x4D4D40 answers false; probably the sailing order, not an estimate.",
+  "0x1A1630 - route search (A*-shaped, CCountry::MayEnterProvince-gated) from a port to the sea province by debark; the embark port's last test.",
+  "0xD52A0 - the fleet-to-port route test inside AreaPair_SeaRouteOpen (reader D).",
+  "0x4DD740 - the AI list's sorted insert (descending by the record's +4 int, stable); generic container.",
+  "COrder slot 24 (+0x60) - the 'busy' predicate both transport loops and UnitHasBlockingOrder ask; unnamed."
+ ]
+}
