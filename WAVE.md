@@ -17,6 +17,40 @@ truth.
 
 ---
 
+## The start technology wave - what brings a country's technology up to date before the first screen
+
+> **LANDED 2026-11-02.** Launched the same day on the maintainer's word "continue with your suggestion". Both readers
+> reached `0xD59D0`, `SetUpCountryLawsAndTechnologyForNewGame`, and each one's simulation reproduces all 476 levels; the
+> write-up is `findings/FINDINGS-starttech.md`, indexed in `CANDIDATES.md`, where what it left is queued. The function
+> also moves every country's laws before the first screen.
+
+**The question, for OpenHOI3**: a new game in the original gives countries technology levels their history files do
+not. In the start save `Germany1936_01_01_00.hoi3` **476 levels in 101 countries** stand above the history - Germany
+22, France and Britain 21, Japan 20, China 17 - and **453 of them are exactly the highest level of that technology due
+before 1936** (`start_year` for level 1, `first_offset` and `additional_offset` above it; `CTechnologyStatus::GetYear`,
+`CTechnology_YearPenalty`); the other 23, all small countries, part of the way there. They come in whole sets by kind
+of unit - militia equipment in 66 countries, agriculture, supply production, cavalry, artillery, anti-tank, anti-air,
+destroyers, light tanks, armoured cars, mountain infantry - and **some 12,000 levels as far behind are left alone**.
+No technology has progress or leadership on it in the save, and all 1316 abilities are the history's, so it is not
+research; no Lua command sets a level, so it is not the AI's script; the player's country gets it too. OpenHOI3 does
+not give it, and its China fights with level-0 infantry equipment against the original's level 1 and falls in six
+months to the original's thirteen and a half (`OpenHOI3/docs/mechanics/headless.md`, section 4).
+
+Already tried as the selection rule and **not** it (OpenHOI3's `SaveCheck techgap`, `resources.md` section 5): the
+levels the country's units or orders hold (29 of 476), the unit types it has (192, with over 500 raised that the save
+leaves), every level its history file gives at any later date (66), its own model files (47).
+
+| reader | brief | fragment |
+| --- | --- | --- |
+| **A** | **From the data.** Every writer of a country's technology level - `CTechnologyStatus`'s level array (`+0x218`, `CTechnologyStatus::GetLevel` at `0x133130`) - and which of them is not research, the history's `technology` block, an effect or a command. Read that one whole: the selection rule, the level given, the year it is reckoned against, what else it writes (abilities? models?). | `start-tech-writers.json` |
+| **B** | **From the timeline.** The new-game path from the history loaded to the first screen - the two days, the entry pass, `CInGameIdler::Enter` - and every call on it that touches technology; reach the same function by that road, say when it runs and for whom, and whether a loaded save runs it again. | `start-tech-path.json` |
+
+**The oracle**: `raised.txt` in the collecting session's scratchpad, one line a level - country, technology, the save's
+level, the history's, the level due - and the start save itself. A reading is right when it predicts China's 17 and
+Germany's 22 and leaves Germany's 36 behind ones alone.
+
+---
+
 ## The moving wave - the military AI's third piece: moving and attacking
 
 > **LANDED 2026-10-19.** Six readers, A to F below, on the maintainer's word "Ok lets go" (2026-10-17; relaunched on

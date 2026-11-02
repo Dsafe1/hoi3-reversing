@@ -516,9 +516,9 @@ frame. An extent walk ran through a `ret`. That is the fifth time in this folder
   level may be researched**, and the `jne` at `0x51F728` takes that case *to* the research,
   not past it. `FINDINGS-researchshare.md`, section 1, which also reads the whole of
   `CDistributeResearch::Distribute`.
-- **`0x4D59D0`**, the function holding two of `0x5333F0`'s callers, and the `0x81xxxx` callers
-  of `0x5333F0`, `0x5332B0` and `0x532B70`. Not in `luabind.json`, not in any vftable, not
-  read.
+- ~~**`0x4D59D0`**, the function holding two of `0x5333F0`'s callers~~ - **read whole on 2026-11-02**:
+  `SetUpCountryLawsAndTechnologyForNewGame`, a new game's laws and its head start in technology
+  (`FINDINGS-starttech.md`). Still open: the `0x81xxxx` callers of `0x5333F0`, `0x5332B0` and `0x532B70`.
 - **`0x5374F0`**, where `0x532970` hands the country-wide effects off. Guessed at from its
   neighbour `0x537DB0` (the 47-effect switch); its body was not read.
 - ~~**`[0x160A460]` and `[0x160A300]`**, the two doubles the ability recompute at `0x41FF44`

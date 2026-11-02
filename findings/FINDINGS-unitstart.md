@@ -370,7 +370,10 @@ What that settles beyond the sections above:
   each unit just after. `0x4D59D0` was looked at only as far as what it calls -
   `CTechnology::CheckResearchAllowed`, `CTechnologyStatus::GetResearchCost`,
   `CCountry::RebuildStaticModifiers` and the string `theory_folder` - which makes it the
-  country's starting technology and not its laws.
+  country's starting technology ~~and not its laws~~. **Read whole on 2026-11-02: it is both** - each law
+  moved up to the latest of its group whose `allow` holds, then technology levels bought with a budget
+  (`FINDINGS-starttech.md`, sections 3 and 4). That is one answer to the next item: the law pass runs
+  before the order of battle is read.
 - **What changes conscription before the units are made, and how the AI script comes to
   run before the first hour**: section 9.
 - **Whether a ship passes the unit's reserve flag down.** The case was not read to its end.

@@ -28,9 +28,9 @@ how many objects a census found (taken 2026-09-20).
 | `read` | 130 |
 | `placed` | 142 |
 | `keys` | 75 |
-| `part` | 140 |
+| `part` | 141 |
 | `named` | 5 |
-| `RTTI` | 649 |
+| `RTTI` | 648 |
 | **all** | **1141** |
 
 ## What to read next
@@ -1173,7 +1173,7 @@ One class per effect, trigger, command and decision the event scripts can use. E
 | `CSurrenderInheritEffect` | `CDiplomaticEffect` | 0x28 |  | 3/91 | 2 |  | 11 | RTTI |  |
 | `CSurrenderProgressTrigger` | `CValueTrigger` | 0x44 |  | 2/153 | 2 |  | 57 | RTTI |  |
 | `CTagTrigger` | `CTrigger` | 0x48 | 1 | 2/153 | 2 |  | 11,196 | part |  |
-| `CTechnologyChange` | `CCountryHistoryEntry` |  |  |  |  |  |  | RTTI |  |
+| `CTechnologyChange` | `CCountryHistoryEntry` | 0x1C | 3 |  | 3 |  |  | part |  |
 | `CTechnologyInvestmentEffect` | `CIntEffect` | 0x28 | 1 | 3/91 | 3 |  | 1,317 | part |  |
 | `CTechnologyTrigger` | `CIntTrigger` |  | 2 | 2/153 | 3 |  | 33,204 | part |  |
 | `CTerrainChange` | `CProvinceHistoryEntry` |  |  |  |  |  |  | RTTI |  |

@@ -168,7 +168,7 @@ allocation cluster another agent has. That is the connection: the sliders spend
 | call site | in | flag |
 | --- | --- | --- |
 | `0x4DB442` | `0x4DA530`, the per-country daily economy pass | **1** |
-| `0x4D633D` | `0x4D59D0`, reached once from `CInGameIdler::Enter` | 0 (`ebx`, the zero register) |
+| `0x4D633D` | ~~`0x4D59D0`~~ `SetUpCountryForNewGame` (`0x4D6230`), reached once from `CInGameIdler::Enter` - corrected 2026-11-02, a walk back over the unpadded `ret 4` at `0x4D622D` (`FINDINGS-starttech.md`, section 7) | 0 (`ebx`, the zero register) |
 | `0x65B2C5` | `CInGameIdler::Enter` itself (`0x25A2B0`) | 0 |
 
 `0x4DA530` takes a `CCountry*` and is called once, from `0x682E1A` - which is inside
@@ -290,8 +290,9 @@ Three reasons to drop it rather than keep it:
   bonus by what reads them here, and `+0x10` is something supply-related by
   `SupplyCapacity`. Nothing else about the 0x29C bytes.
 - **The eight pools the conversion block does not sum**, and why those fifteen.
-- `0x4D59D0`, the second caller, was read only far enough to establish that its `ebx` is
-  the zero register at the call. What the function as a whole is for is unread.
+- ~~`0x4D59D0`~~ `SetUpCountryForNewGame` (`0x4D6230`; corrected 2026-11-02, `FINDINGS-starttech.md`,
+  section 7), the second caller, was read only far enough to establish that its `ebx` is the zero
+  register at the call.
 
 ## One contradiction with the existing record
 

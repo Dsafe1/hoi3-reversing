@@ -1,0 +1,149 @@
+{
+  "agent": "wave reader A, start technology from the data side",
+  "question": "Who gives a new game's countries technology levels their history does not, and by what rule? Every writer of CTechnologyStatus +0x218 sorted, and the one that is none of research, history, script, commands or the custom game read whole.",
+  "source": "reversing/findings/FINDINGS-starttech.md",
+  "addresses": [
+    {
+      "rva": "0x133190",
+      "kind": "function",
+      "name": "CTechnologyStatus_SetLevel",
+      "signature": "void __fastcall CTechnologyStatus_SetLevel(int level@ECX, CTechnology* technology@EDX, CTechnologyStatus* status@stack:4, bool recordHistory@stack:8)",
+      "no_signature": null,
+      "comment": "**Sets a country's level of one technology, the history's way.** level_by_technology (+0x218)[technology->Index (+0x244)] = min(level, max_level (+0x2C4)). With recordHistory set it also builds a CTechnologyChange (0x1C bytes, CTechnologyChange::CTechnologyChange then SetLevel), stamps it with the current tick (CHistoryEntry +0x8 = gamestate +0xBDC) and hands it to the country's history (CCountry +0xCCC, slot 6). No ApplyTechnologyEffects, no progress, no ability. `ret 8` at VA 0x5332AC. Two callers, both in CTechnologyChange::Apply, both with recordHistory 0 - so a history file's `technology` block reaches the levels here.",
+      "confidence": "confirmed",
+      "evidence": "Disassembled 0x533190-0x5332AC; ecx and edx are used before being written (`mov edi, edx`, `mov esi, ecx`), the status is [ebp+8] and the flag [ebp+0xC], `ret 8`. The record's flag reading rests on the two callers passing 0 and the branch building a CTechnologyChange. Wrong if a third caller passed the arguments otherwise.",
+      "source": "reversing/findings/FINDINGS-starttech.md"
+    },
+    {
+      "rva": "0x1EEE40",
+      "kind": "function",
+      "name": "CTechnologyChange::CTechnologyChange",
+      "signature": "CTechnologyChange* __thiscall CTechnologyChange::CTechnologyChange(CTechnologyChange* this, CCountry* country, CTechnology* technology)",
+      "no_signature": null,
+      "comment": "Calls CCountryHistoryEntry::CCountryHistoryEntry with the country, writes vftable 0x15C9760 (VA), sets technology (+0x10) and zeroes level (+0x14) and previous_level (+0x18). `ret 8`. Two callers: CTechnologyStatus_SetLevel (VA 0x5331F2) and CCountryHistory::LoadEntry (VA 0x5EE448), which is how a history file's `technology` block becomes a change.",
+      "confidence": "confirmed",
+      "evidence": "Disassembled whole (0x5EEE40-0x5EEE7F); the table written is the one the RTTI export gives CTechnologyChange. The LoadEntry attribution is functionStart plus the record's entry for 0x1ECA90; the call's surroundings were not read.",
+      "source": "reversing/findings/FINDINGS-starttech.md"
+    },
+    {
+      "rva": "0x1EEE90",
+      "kind": "function",
+      "name": "CTechnologyChange::SetLevel",
+      "signature": "void __thiscall CTechnologyChange::SetLevel(CTechnologyChange* this, int level)",
+      "no_signature": null,
+      "comment": "`this->level (+0x14) = level`. `ret 4`.",
+      "confidence": "confirmed",
+      "evidence": "Disassembled whole, five instructions.",
+      "source": "reversing/findings/FINDINGS-starttech.md"
+    },
+    {
+      "rva": "0x1EEEB0",
+      "kind": "function",
+      "name": "CTechnologyChange::Apply",
+      "signature": "void __thiscall CTechnologyChange::Apply(CTechnologyChange* this, bool forward)",
+      "no_signature": null,
+      "comment": "Slot 7, the history change's Apply. forward: previous_level (+0x18) = the country's current level (CTechnologyStatus::GetLevel), then CTechnologyStatus_SetLevel(level +0x14, technology +0x10, country->technology_status, 0). Backward: SetLevel(previous_level, ...). So the history's `technology` levels are set and undone here, without effects - those come later from ReapplyAllTechnologies.",
+      "confidence": "confirmed",
+      "evidence": "Disassembled whole (0x5EEEB0-0x5EEF48, `ret 4`); vtable.py --holding puts it at CTechnologyChange slot 7 and nowhere else, as the other XChange::Apply are.",
+      "source": "reversing/findings/FINDINGS-starttech.md"
+    },
+    {
+      "rva": "0x132060",
+      "kind": "function",
+      "name": "CTechnologyStatus_Clear",
+      "signature": "void __stdcall CTechnologyStatus_Clear(CTechnologyStatus* status)",
+      "no_signature": null,
+      "comment": "For every technology of the database: level (+0x218), progress (+0x228, eight bytes) and assigned leadership (+0x238) set to 0. It then walks the unit-type database (0x1A886F0), which was not read. `ret 4` at VA 0x532223. One caller, CCountry_Reset (VA 0x4D483E).",
+      "confidence": "inferred",
+      "evidence": "Only the first loop (VA 0x532082-0x532114) was read; the rest of the body and so the whole of what it clears is not. The name rests on that loop and the caller.",
+      "source": "reversing/findings/FINDINGS-starttech.md"
+    },
+    {
+      "rva": "0x1334F0",
+      "kind": "function",
+      "name": "CTechnologyStatus_RevertDisallowedLevels",
+      "signature": "void __stdcall CTechnologyStatus_RevertDisallowedLevels(CTechnologyStatus* status, bool log)",
+      "no_signature": null,
+      "comment": "Custom game. For every technology whose current level CheckResearchAllowed refuses and that is above 0: level set to 0 (min(0, max_level)), progress zeroed, and its entry in the country's research list (CCountry +0x638) taken out; with `log` a line goes to technology.cpp. A changed flag suggests it repeats until nothing changes. `ret 8` at VA 0x533946. Four callers, all custom-game code: CCgmTechResearchChangeCommand, CCgmTechResearchResetCommand and CCgmTechResearchExecuteStackedCommand slot 6, and VA 0x419FD7.",
+      "confidence": "inferred",
+      "evidence": "The test and the write read (VA 0x533584-0x5338E4); the logging body and the loop's restart were not followed. Callers by findRefs; holders by vtable.py.",
+      "source": "reversing/findings/FINDINGS-starttech.md"
+    },
+    {
+      "rva": "0x1A320",
+      "kind": "function",
+      "name": "CgmTechSnapshot_RestoreTechnology",
+      "signature": "void __fastcall CgmTechSnapshot_RestoreTechnology(void* snapshot@ECX, CTechnology* technology@EDX)",
+      "no_signature": null,
+      "comment": "Custom game: puts one technology back from a stored copy - the country is snapshot +4 (an id), its level becomes min(snapshot +8 [index], max_level) and its progress snapshot +0x18 [index]. Bare `ret`. One caller, CCgmTechResearchResetCommand slot 6 (VA 0x42B1FF).",
+      "confidence": "inferred",
+      "evidence": "Disassembled whole (VA 0x41A320-0x41A3B5). What the snapshot object is was not read; its layout here is only what this body uses.",
+      "source": "reversing/findings/FINDINGS-starttech.md"
+    },
+    {
+      "rva": "0x1A3C0",
+      "kind": "function",
+      "name": "CgmTechSnapshot_RestoreAll",
+      "signature": "void __stdcall CgmTechSnapshot_RestoreAll(void* snapshot)",
+      "no_signature": null,
+      "comment": "Custom game: the same as CgmTechSnapshot_RestoreTechnology for every technology of the database. `ret 4` at VA 0x41A586. One caller, VA 0x41F836, after the custom-game settings getter 0x41F500.",
+      "confidence": "inferred",
+      "evidence": "The head and the write loop read (VA 0x41A3C0-0x41A520); the caller's purpose was not read.",
+      "source": "reversing/findings/FINDINGS-starttech.md"
+    }
+  ],
+  "structs": [
+    {
+      "name": "CTechnologyChange",
+      "size": "0x1C",
+      "inherits": "CCountryHistoryEntry",
+      "vftable_rva": "0x11C9760",
+      "comment": "A history change that sets one technology's level: what a `technology` block of a country history file becomes. Slot 7 is Apply.",
+      "evidence": "CTechnologyStatus_SetLevel allocates 0x1C for one (`push 0x1c` at VA 0x5331D7) before calling the constructor; the RTTI export gives CCountryHistoryEntry as its only base, at 0, and 0x15C9760 (VA) as its one table."
+    }
+  ],
+  "struct_fields": [
+    {
+      "struct": "CTechnologyChange",
+      "offset": "0x10",
+      "name": "technology",
+      "type": "CTechnology*",
+      "comment": "the technology whose level this change sets; the constructor's second argument",
+      "evidence": "Written by the constructor at VA 0x5EEE62; read by Apply and passed in edx to CTechnologyStatus_SetLevel."
+    },
+    {
+      "struct": "CTechnologyChange",
+      "offset": "0x14",
+      "name": "level",
+      "type": "int",
+      "comment": "the level set going forward; written by CTechnologyChange::SetLevel",
+      "evidence": "SetLevel writes it; Apply(forward) passes it in ecx to CTechnologyStatus_SetLevel."
+    },
+    {
+      "struct": "CTechnologyChange",
+      "offset": "0x18",
+      "name": "previous_level",
+      "type": "int",
+      "comment": "the level before this change, kept by Apply(forward) and set back by Apply(backward)",
+      "evidence": "Apply(forward) stores CTechnologyStatus::GetLevel's answer here (VA 0x5EEEE8); Apply(backward) passes it to SetLevel (VA 0x5EEF37)."
+    }
+  ],
+  "vftable_slots": {
+    "CTechnologyChange": {
+      "7": "Apply"
+    }
+  },
+  "frontier": [
+    "0x1EEF50",
+    "0x1EC760",
+    "0x2AB40",
+    "0x2B140",
+    "0x2B740",
+    "0x2BBB0",
+    "0x19F70"
+  ],
+  "notes": [
+    "Writers of CTechnologyStatus +0x218 entries, by a scan of every `mov reg, [x+0x218]` followed by a store through that register (callee-saved registers followed across calls): AdvanceResearch (research), CTechnologyStatus_SetLevel via CTechnologyChange::Apply (history), CTechnologyStatus::LoadKey 0x132230 (savegame), CTechnologyStatus_Clear (reset), ReleaseProvinces (a released country takes the oppressor's higher levels), SetUpCountryLawsAndTechnologyForNewGame (the new-game head start), and six custom-game bodies. No script effect and no Lua call writes a level. Positive control: the scan finds AdvanceResearch's `inc`, ReleaseProvinces and LoadKey, all known before.",
+    "reversing/findings/FINDINGS-script.md says 'the assigner at rva 0xD59D0 ... recomputes entry +0 from relations and faction when a game is entered'; that is SetUpCountryForNewGame (0xD6230), which never runs on a load. reversing/findings/FINDINGS-unitstart.md's 'the country's starting technology and not its laws' - it is both."
+  ]
+}

@@ -429,9 +429,12 @@ figure and the effect rightly leaves it alone.
 
 **This was built and confirmed working in game on 2026-09-29, then removed**: the keyword does
 what it says, and what it says is not worth a patch to the executable. One caveat found on the
-way, in case it is ever reconsidered: the assigner at rva `0xD59D0`, reached from
+way, in case it is ever reconsidered: ~~the assigner at rva `0xD59D0`, reached from
 `CInGameIdler::Enter`, recomputes entry +0 from relations and faction when a game is entered,
-so a value an event writes is unlikely to survive a save and reload.
+so a value an event writes is unlikely to survive a save and reload~~ - the first allocation is
+`SetUpCountryForNewGame`'s (rva `0xD6230`), from relations and faction, on a **new game only**, so a
+value an event writes does survive a reload; `0xD59D0` is the new game's law and technology pass and
+touches no spy figure (`FINDINGS-starttech.md`, section 7, 2026-11-02).
 
 ### `any_nearby_province` - `CAnyNearbyProvinceEffect`
 

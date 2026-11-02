@@ -869,6 +869,23 @@ sealift. Its corrections are listed at the head of the write-up. What it left:
 12. **From A.4b**: `0x89AF00` (the pull's destination), `0x8AF4E0` (its depot test), ~~the map at `0x8DCF30`~~ (the
     position map - read 2026-10-19), and whether the original's command queue runs a posted move before `CAIUnit_CheckLandMarches` reads the path.
 
+## What the start technology wave left - 2026-11-02 `[game]`
+
+`findings/FINDINGS-starttech.md` (two readers, A from the data and B from the timeline, meeting at the same function;
+fragments `start-tech-writers.json` and `start-tech-path.json`, the duplicate entry for `0xD59D0` and for `CCountry
++0x1160` kept once - 12 address entries, 10 landed new, 1 struct declared, 5 struct fields; apply `failed: 0`, `struct
+fields: 0`). For OpenHOI3, whose new game gave none of the 476 levels. Its corrections are in section 7. What it left:
+
+1. **The law half against a save.** The AI's Lua `Laws()` runs after it, so the start save cannot show it alone; a
+   console-started game with the AI off, or a hook on `0xD59D0`'s store, would. It bears on OpenHOI3's
+   `docs/compatibility.md` entry 6, which took Germany's `two_year_draft` on the first screen for the AI's doing alone.
+2. **Whether the order of battle's units take the raised levels**: `LoadOobFile` runs between the write and
+   `ReapplyAllTechnologies`; how a regiment copies its country's levels as it is made.
+3. **A start later than `start_date`** - the budget grows by 3650 a year of difference; no save to test it.
+4. The frontier the two fragments name: the rest of `CTechnologyStatus_Clear`, `CTechnologyStatus_RevertDisallowedLevels`'
+   tail, the custom game's commands, `CTechnologyChange` slots 2 and 6, the law and technology databases' constructors and
+   destructors.
+
 ## The planned next wave is in `WAVE.md`
 
 **It is not in this file any more.** `WAVE.md` holds the wave that is planned and has not launched,
@@ -1389,7 +1406,7 @@ of it.
 
 ## What has already been read
 
-171 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
+172 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
 header lives. This replaces the `Done` archive: the archive restated each file's headline and named
 only 40 of the 67 there were then, so it was both longer and less useful than a complete list.
 
@@ -1608,6 +1625,7 @@ the six it was missing were wave 15's.
 | `findings/FINDINGS-government.md` | **the politics wave**, five briefs. **A**: `CChangeLawCommand` and `CChangeMinisterCommand` whole - nothing checked in `Execute`, whoever posts is responsible; a law change charges `cost x 30 days of money at MaxIC` to a country a person plays, tells `LAW_APPOINTED`, rebuilds the modifier and cuts every brigade to its new ceiling; a minister change only writes the post and tells `MINISTER_APPOINTED`; `CCountry_FillMinisterPosts` (the **last** group-mate wins, 220/220 posts), the pool and the peace-time revert of disallowed laws; no minister ever dies. **B**: `CIdeologyData` and its five-slot tally; the **monthly** party drift (a tenth of the gap to organisation, `ruling_party_support`, a random 0..999 draw, the minister dissent penalty) - 101/101 null parties; `CCountry_AllotCabinetSeats` whole, 606/606 cabinets; the election's schedule (`g_NullDate` means "hold one now", elections never forced); the coup. **C**: dissent has no decay - consumer goods and script only; **national unity moves daily** by a thirtieth of a monthly figure, damped by the square root of the distance from 50, through `ChangeNationalUnity`'s three callers; strategic warfare's three lists; what both do elsewhere; the daily pass's unread helpers named. **D**: `CPoliticsView` element by element - the pie, the organisation bars, the legend, the elections line, the cabinet rows and the minister choice, the law rows, the cost and the confirmation, mobilisation, puppets and liberation, every tooltip, the top bar's button; the seven `C*Change` history classes, replayed at start and never in play. **E**: the AI's politics - `CAIPoliticsMinister` daily in hour `(id + 17) mod 24`, a C++ refill of empty posts on the 1st, 8th, 15th, 22nd and 29th, `PoliticsMinister_Tick`'s draws on the game state's own generator, `Laws()` run for every country (the player's too) while a new game is set up, free and silent, and the Lua API it reaches. Corrects `FINDINGS-politics.md` (phase 4's sentinel and forced election, `0x4F72F0`, `+0xBCC`'s call, the database names), `FINDINGS-luaapi.md` (`GetRulingIdeology`), `FINDINGS-ai.md` (the politics minister's constructor) and `RandomThousandths` |
 | `findings/FINDINGS-airreserve.md` | **an air reserve's day, and a player's crash in it**: `CAirReserveOrder::RunDaily` reinforces every unit at its base by priority without asking what order it holds, and the copy of `+0x34` it makes of each unit's order is a `CAirOrder`'s vector - so a non-air order there, or a corrupt one, throws `std::length_error` and ends the game (a BlackICE 15.1 dump, 2026-10-18). Which it was is not settled: the dump has no heap |
 | `findings/FINDINGS-extrainfra.md` | **a save that crashes on load, and `extra_infra`**: `MaxInfrastructure` is written by every building with the `infrastructure` effect, **the last one winning** - LoadKey and `SetProvinceBuildingLevel` alike - so BlackICE's `extra_infra` (0.05 a level, saved after `infra`) leaves 1,603 of a 1937 save's 1,666 such provinces at 100 or under; `RebuildOwnerAreas` runs only as a game is entered, so a **load** puts them in no area, and `CAIUnit_MayShipUnitToArea` reads the null area's empty province list for a unit bound for one (rva `0x4C42E1`). Read from a full-memory dump (2026-11-02): SOV's and CHI's role-5 divisions bound for Leningrad and Shanghai. Corrects the infrastructure gate ("the building `infra`"), `0x47F540`'s call in `SetProvinceBuildingLevel` (the area update, not a message) and `+0x5C`'s "one writer" |
+| `findings/FINDINGS-starttech.md` | **the start technology wave (2026-11-02)**: what a new game does to every country's laws and technology before the first screen - `SetUpCountryLawsAndTechnologyForNewGame` (`0xD59D0`), once per country from `CInGameIdler::Enter`'s new-game block, the player's too, never on a load: each law moved to the latest of its group whose `allow` holds, then technology levels bought with a budget of core-province leadership (held to 5) x 3650 x 1.917, cheapest due level first, not-yet-due levels at double, theories never, `notech` a candidate - reproducing all 476 levels the start save holds above the history in all 86 countries; with every writer of a technology level, `CTechnologyChange` and the history's route |
 
 ## A method worth reusing
 
