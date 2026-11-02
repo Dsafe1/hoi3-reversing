@@ -28,9 +28,9 @@ how many objects a census found (taken 2026-09-20).
 | `read` | 130 |
 | `placed` | 142 |
 | `keys` | 75 |
-| `part` | 139 |
+| `part` | 140 |
 | `named` | 5 |
-| `RTTI` | 650 |
+| `RTTI` | 649 |
 | **all** | **1141** |
 
 ## What to read next
@@ -835,7 +835,7 @@ One class per effect, trigger, command and decision the event scripts can use. E
 | `CCgmNeutralityChangeCommand` | `CCommand` |  |  | 2/2 | 2 |  | 1 | placed |  |
 | `CCgmOnPlayerDisconnectCommand` | `CCommand` |  |  |  | 1 |  | 1 | keys |  |
 | `CCgmPrompt` | `CEU3Dialog` |  |  |  |  |  |  | RTTI |  |
-| `CCgmResetCurrentStageCommand` | `CCommand` |  |  | 1/1 |  |  | 1 | RTTI |  |
+| `CCgmResetCurrentStageCommand` | `CCommand` |  |  | 1/1 | 1 |  | 1 | RTTI |  |
 | `CCgmSetBuildingLevelCommand` | `CCommand` |  |  | 1/3 | 2 |  | 1 | placed |  |
 | `CCgmSetConvoyEscortCommand` | `CCommand` |  |  | 1/2 | 1 |  | 1 | placed |  |
 | `CCgmSetStageCommand` | `CCommand` |  |  | 2/2 | 1 |  | 1 | placed |  |
@@ -1083,7 +1083,7 @@ One class per effect, trigger, command and decision the event scripts can use. E
 | `CRandomListEffect` | `CEffect` | 0x34 | 2 |  | 4 |  | 311 | keys |  |
 | `CRandomNeighborProvinceEffect` | `CMultipleTargetEffect` | 0x70 | 1 |  | 3 |  | 4 | part |  |
 | `CRandomOwnedEffect` | `CMultipleTargetEffect` | 0x70 | 1 |  | 3 |  | 797 | part |  |
-| `CRankChange` | `CLeaderHistoryEntry` |  |  |  | 3 |  | 24,547 | RTTI |  |
+| `CRankChange` | `CLeaderHistoryEntry` | 0x18 | 4 |  | 3 | CRankChange.hpp | 24,547 | part |  |
 | `CRareMaterialsPoolEffect` | `CIntEffect` |  |  | 3/91 | 2 |  | 1,201 | RTTI |  |
 | `CRareMaterialsTrigger` | `CValueTrigger` | 0x44 |  | 2/153 | 2 |  | 970 | RTTI |  |
 | `CRegionScopeEffect` | `CMultipleTargetEffect` | 0x64 | 1 |  | 2 |  | 1,609 | part |  |

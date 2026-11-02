@@ -481,6 +481,36 @@ his history says so. That the `rank` save token is `0x10A` comes from `fieldmap.
 `CLeader::LoadKey`; that `entry->+8` is the entry's date is **inference** from the equality
 test against `tick`.
 
+### Where the rank 1 is written, and what is lost by then
+
+Read 2026-11-02 for a BiceLib patch that gives a leader the rank his history names on that
+day, not 1. On the listing:
+
+    0xDAA6A  esi = leader->+0x90                 the first node of CLeaderHistory's entries
+    0xDAA80  edi = node->data; call [vftable+0x18]   slot 6, the save token
+    0xDAA8E  cmp eax, 0x10A; je 0xDAAFB
+    0xDAAFB  edi = [edi + 8]                     the entry's date - the entry is dropped here
+    0xDAA9F  cmp [ebp - 0x28], edi               today, read at 0xDA5CD
+    ...      the active_leaders walk, matched on the id pair (+0xC, +8)
+    0xDAACE  mov dword ptr [edi + 0x6C], 1       c7 47 6c 01 00 00 00; edi the leader
+    0xDAAD5  esi = [ebx + 0xE04]; the append     ebx the country
+
+So **the entry whose date was matched is no longer in any register at the write**: `edi`
+was turned into its date at `0xDAAFB` and is the leader again by `0xDAAAE`. The entry is the
+first node in the list whose slot 6 answers `0x10A`, and `CLeaderHistory::LoadEntry` builds
+nothing but a `CRankChange` for that key, so it can be found again by walking `leader +0x90`
+for the first node whose vftable is `CRankChange`'s (rva `0x11C9EB0`). Its rank is `+0x10`.
+
+The one branch in `RunCountryDailyPass` that lands in the seven bytes of `0xDAACE` is the
+`je` at `0xDAAB3`, the empty-list case of the walk, and it lands on the first byte. So a
+five-byte jump there with two `nop`s after it is reached by every path that reached the
+write.
+
+`CRankChange` (`0x18` bytes, `CLeaderHistory::LoadEntry`): `+0x8` the date (*inferred*, as
+above), `+0xC` the leader, `+0x10` the rank the line names, `+0x14` the rank `Apply` saved
+for its undo. **`CRankChange::Apply` is never what activates a leader** - the daily pass
+writes the rank itself - and Apply would also take a land leader off his unit.
+
 ---
 
 ## Corrections to the existing record

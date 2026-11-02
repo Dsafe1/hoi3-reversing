@@ -1,0 +1,44 @@
+{
+ "agent": "main session, 2026-11-01",
+ "question": "Does the `port` trigger test the naval base building or whether a province is coastal? Asked for the mod's docs/script/triggers.md, which said there is no `port` condition.",
+ "source": "reversing/findings/FINDINGS-seaair.md",
+ "summary": "Comments only: no name, signature, type or confidence changes. Two records still carried the account FINDINGS-seaair.md section 4 replaced - CProvince +0x354 said the port is built from the land/sea adjacency, and CMap::LoadBuildingPositions said the naval-base branch checks that the pixel belongs to this province. Both re-read off the bytes and brought into line with CMapProvince +0x354; CPortTrigger::Evaluate's comment now says where the port comes from.",
+ "addresses": [
+  {
+   "rva": "0x90390",
+   "kind": "function",
+   "name": "CMap::LoadBuildingPositions",
+   "signature": "void __stdcall CMap::LoadBuildingPositions(CMap* this, CProvinceTemplate* province, CParseContext* parse)",
+   "no_signature": null,
+   "comment": "positions.txt's `building_position` block, reached from CMap::LoadPositionsFile's switch at rva 0x902B1 on save token **0x6CC**. Per key: copy the parse state (0x41 dwords) to the stack, stop on token 4 or 0x13, build a Hoi3CString from the key text at `parse+0x24`, look the name up in `g_CBuildingDataBase` (rva 0xB8B60) to get a `CBuilding*`, construct a **stack** CMapPoint `{0x15BC65C, 0x18D, 0.0f, 0.0f}` and call its slot 3 (CPersistent::Load) to parse the `{ x= y= }` body, then store the two floats into `province->building_positions[building->index]`:\n\n    mov  eax, [esi+0x54]        ; CBuilding::index\n    shl  eax, 4                 ; * 0x10, rva 0x90541\n    add  eax, [ecx+0x258]       ; province->building_positions, rva 0x90544\n    movss [eax+8], xmm0         ; x\n    movss [eax+0xc], xmm0       ; y\n\nAfter the store it compares the building against `g_CBuildingDataBase +0x20` (naval_base) at rva 0x90559 and **only for the naval base** goes on; every other building type loops straight back. **That branch makes the province's port.** It looks up the province q whose pixel `(int)x, (int)y` is in the raster at `CMap +0x20E0`, indexed into `CMap +0x2A60`. Where q is land (`+0x22` set, rva 0x905AB), it walks four cumulative one-pixel steps - (+1,0), (0,+1), (-1,0), (0,-1), the floats 1.0 at rva 0x131DBAC and -1.0 at rva 0x130AC0C - each lookup overwriting the last with no test between them. So it ends on the pixel it started from, and the walk never finds water. Where q is sea and not MapProvinceIsLandlockedWater (called at rva 0x906B6), it sets the land province's `+0xA4` to q's id (rva 0x906CF), allocates a 0x1C-byte **CPort** (vftable 0x15BE4A4, RTTI `.?AVCPort@@`) with `+0x18` = q's id, stores it at `CProvince +0x354` (rva 0x90713), and gives q the next sea index `CMap +0x2A6C`. **It does not check that the pixel belongs to this province**, which this comment used to say. `ret 0xc` at rva 0x9074D. **Trap 2: rva 0x90750 begins at the very next byte with no padding** (`c2 0c 00 | 55 8b ec`), so a displacement scan attributes the `building_nudge` loader's work to this function. See reversing/findings/FINDINGS-seaair.md, section 4.",
+   "confidence": "confirmed",
+   "revises": "comment only: the naval-base branch was described as checking that the pixel belongs to this province; it makes the CPort from the sea province under the position, as FINDINGS-seaair.md section 4 has it",
+   "evidence": "disasm.py 0x490550 0x200 on 2026-11-01: rva 0x905A0 looks q up out of CMap +0x2A60 by the raster's 16-bit pixel; 0x905AB cmp [q+0x22],0; the loop at 0x90630-0x90693 accumulates xmm0/xmm1 and decrements a counter of 4 with no exit test, and reads 1.0/-1.0 at VA 0x171DBAC/0x170AC0C; 0x906B6 calls 0x4A9B70 (MapProvinceIsLandlockedWater); 0x906E6 allocates 0x1C bytes, 0x90703 stores vftable 0x15BE4A4, which hoi3_tfh-classes.json gives to .?AVCPort@@; 0x90709 stores q's +0x7C at +0x18; 0x90713 stores it at [provinces(CMap+0x2200)[province+0x7C]] + 0x354. A whole-image scan for stores to +0x354 found no other writer of a pointer into a province's +0x354: the only other province-shaped store is the zeroing at rva 0x94AF8 in the province constructor. Shown wrong by a pixel-ownership compare anywhere between 0x9055C and 0x90713."
+  },
+  {
+   "rva": "0x5E08E0",
+   "kind": "function",
+   "name": "CPortTrigger::Evaluate",
+   "signature": "bool __thiscall CPortTrigger::Evaluate(CPortTrigger* this, CEventScope* scope)",
+   "no_signature": null,
+   "comment": "**`port = yes|no`: whether the scope's province has a map port - in effect, whether it is coastal.** 0x5E08E0 to two `ret 4` at 0x5E09A7/0x5E09BB, slot 8 at 0x5E09C0. `return scope->province (+0x28) != 0 && ((provinces[province]->port (+0x354) != null) == this->value (+0x40))`. The port is the CPort that CMap::LoadBuildingPositions makes at map load for a land province whose positions.txt `naval_base` position lies on a pixel of a sea province that is not landlocked water. It is **not** the naval base building (+0x300): a coastal province with no naval base answers yes, a province on a lake alone answers no, and nothing built or destroyed in a game changes the answer. Province 0 (a country-only scope) is false for `yes` and for `no` alike. Operand from CBoolTrigger::LoadArgument (`= yes` is 1, anything else 0); no THIS/FROM. See reversing/findings/FINDINGS-triggerleaves.md.",
+   "confidence": "confirmed",
+   "revises": "comment only: says where the port comes from (the naval_base position over real sea), so that `port` reads as the coastal test it is",
+   "evidence": "disasm.py 0x9E08E0 0xE0 on 2026-11-01: 0x9E0902 cmp [scope+0x28],0 je false; 0x9E0985 loads provinces[province] out of the game state's +0xB8C; 0x9E0988 cmp [province+0x354],0; setne; cmp dl,[this+0x40]. The port's maker is the LoadBuildingPositions entry in this fragment. Shown wrong by another writer of a province's +0x354, which a whole-image scan for stores at that displacement did not find."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CProvince",
+   "offset": "0x354",
+   "name": "port",
+   "type": "CPort*",
+   "comment": "**The province's port, or null**: a 0x1C-byte CPort made at map load by CMap::LoadBuildingPositions for a land province whose positions.txt `naval_base` position lies on a pixel of a sea province that is not landlocked water. Its +0x18 is that sea province's id. It does not come from the land/sea adjacency or from buildings.txt. The naval base building is the separate thing at +0x300, and the sea hop tests both. The `port` trigger (CPortTrigger::Evaluate) tests this pointer. The same field as CMapProvince +0x354. See reversing/findings/FINDINGS-seaair.md, section 4.",
+   "source": "reversing/findings/FINDINGS-seaair.md",
+   "revises": "comment only: it said the port was built from the land/sea adjacency; its only writer builds it from the naval_base position in positions.txt",
+   "evidence": "the only store of a pointer to a province's +0x354 in the image is rva 0x90713 in CMap::LoadBuildingPositions (whole-image scan for the displacement 0x354, 2026-11-01); the province constructor zeroes it at rva 0x94AF8. Shown wrong by another writer."
+  }
+ ],
+ "vftable_slots": {"CPortTrigger": {"6": "Evaluate"}},
+ "frontier": []
+}

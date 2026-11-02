@@ -307,7 +307,7 @@ yes` gives 1, anything else 0), **int** is `CIntTrigger`, **string** a `Hoi3CStr
 
 | keyword | what it answers | scope part | missing part | comparison | THIS/FROM | unknown name | |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `port` | the province has a **map port**, not a naval base | province | province 0: false for `yes` and `no` | `(port != null) == bool` | - | - | confirmed |
+| `port` | the province has a **map port**, not a naval base - in effect, it is coastal: the port is made at map load where its `positions.txt` `naval_base` position lies over sea that is not a lake (`FINDINGS-seaair.md`, section 4) | province | province 0: false for `yes` and `no` | `(port != null) == bool` | - | - | confirmed |
 | `empty` | the province is unowned - true in every sea zone | province | province 0: false for both | `(owner == 0) == bool` | - | - | confirmed |
 | `is_blockaded` | the province's stored blockade flag (3.2) | province | province 0: false for both | `flag == bool` | - | - | confirmed |
 | `is_capital` | the province is its **owner's declared** capital, not the acting one | province | **no test**: province 0 is unowned, so `= no` is **true** | `== bool` | - | - | confirmed |

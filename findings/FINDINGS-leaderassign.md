@@ -61,6 +61,95 @@ set with `CUnit::SetLeader(leader, 0, 0)`. Nothing compares his country, his ran
 with the unit's. A block value (a save's `{ id type }`) goes through `ParseObjectReference`
 to the same setter. An unknown number jumps to `0x1B7F4E`, not read.
 
+### 3.1 Where an order of battle's leader can be caught
+
+Read 2026-11-01 for a BiceLib feature that raises a leader to the rank his command wants as an
+order of battle puts him on it. Three questions, each read off the listing.
+
+**The unit's level is set before its `leader` key is read.** Both places a unit block is
+built - `CCountry::LoadKey` (`0xCCDA0`) for a block at the top of a file or a save's country,
+and `CUnit::LoadKey` (`0x1B6E90`) for a block inside another unit - do the same, in this order
+(`CCountry` at `0xCD959`, `CUnit` at `0x1B7A8B`; one case for all five land tokens):
+
+    new CArmy (0x308 bytes; constructor 0x828C0)
+    +0x48 = 1
+    +0x1F4 oob_level = CUnit_OobLevelForToken(the block's own key token)   0xCD9A0 / 0x1B7AD2
+    slot 28 (+0x70) with the owner; 0x1BC460 with two fields of the parent
+    the new unit's CPersistent (+8) slot 3, CPersistent::Load          0xCD9D3 / 0x1B7B05
+
+and `Load` is what reads the block's keys, `leader` among them. So whenever the `leader` case
+runs, `oob_level` already says what the unit is. `CUnit_OobLevelForToken` (`0x1B8C70`, the token
+in EAX, bare `ret`) is a plain switch:
+
+| token | block | level |
+| --- | --- | --- |
+| 1125 | `theatre` | 0 |
+| 1126 | `armygroup` | 1 |
+| 592 | `army` | 2 |
+| 1127 | `corps` | 3 |
+| 1128 | `division` | 4 |
+| 593 | `navy` | 5 |
+| 1088 | `air` | 6 |
+| anything else | | 7 |
+
+The record's `oob_level` stopped at 5; `air` is 6.
+
+**The two calls to `CUnit::SetLeader` in the `leader` case.** `ebx` is the unit's `CPersistent`
+sub-object, so the unit is `ebx - 8` in both:
+
+| call | value | what writes it |
+| --- | --- | --- |
+| `0x1B7787` | a plain number, `atoi`ed and looked up as `{id = N, type = 0x25}` | an order of battle |
+| `0x1B77E7` | a block, through `ParseObjectReference` | a save |
+
+each as `SetLeader(unit@ECX, leader, 0, 0)`. `CUnit::LoadKey` is also what reads every unit
+out of a save, so neither call says by itself that an order of battle is being read.
+
+**`CCountry::LoadOobFile` (`0xFFED0`) is what does.** It has three callers and a save goes
+through none of them:
+
+| caller | what it is |
+| --- | --- |
+| `0x5BBD62` | `CLoadOOBEffect::Execute` - the `load_oob` effect |
+| `0x25B4EC` | `CInGameIdler::Enter`, the new game's history order of battle |
+| `0x1C3A6` | the custom game's setup, below |
+
+The third is reached from `CCgmResetCurrentStageCommand::Execute` (`0x2A7A0`, slot 6 of
+the table at rva `0x11B61B4`, `this` in ECX, bare `ret`). It is a command, and it asks `0x1F7C0` with the
+custom game settings' `+0x18` - the stage the setup is at, *inferred* from the command's name.
+For stage 2, `0x1F7C0` (`ret 8`) finds the country's record through `0x1F770` and calls
+`0x1BE20`, which calls `0x1B7D0`. That walks the country's theatres (`oob_level` 0, `+0xBAC`)
+and their leaders - not read in detail - then adds the six unit tokens 1125, 1128, 1126, 1127,
+1088 and 593 to a set through `0x221F0`, and calls `LoadOobFile`. So **resetting the units stage of
+a custom game's setup reloads the country's order of battle** - *inferred* for what the set of
+tokens is for. Stages 0 and 1 go elsewhere (`0x1F500`, `0x1A3C0`) and were not read. The builder
+windows reach the same record lookup, `0x1F770`, in a custom game's setup.
+
+So a flag raised for the length of `LoadOobFile` is up for exactly the three ways an order of
+battle file is read, and down for a save.
+
+**A leader not yet in service is undone by the daily pass.** An order of battle may name a
+leader whose history's first `rank` is dated after today. He is at rank 0 and not in
+`active_leaders`. On that date `DailyPass_ActivateLeaders` (`0xDAA51`) finds him absent from the
+list and writes `rank = 1` (`FINDINGS-leaders.md`, section 3). So a rank given to him earlier
+is thrown away unless he is also put in the list. `CCountry::AddActiveLeader` (`0xDDB80`,
+`__stdcall`, the country, the leader, a flag that also files a `CLeaderChange` in the country's
+history) is the way in. The leader's own country is `CLeader +0x44`, which need not be the
+unit's: section 3's `leader = N` looks the id up across the whole game.
+
+**In a new game each country's leaders are put in service before its own order of battle is
+loaded, and after the countries before it have loaded theirs.** Both calls are in one loop over
+the countries in `CInGameIdler::Enter`, from `0x25B152` back from `0x25B7EA`. The loop's country
+is `esi = [edi]` (`0x25B170`), copied to `[esp+0x50]` at `0x25B180`. `ActivateRankedLeaders`
+takes it in `esi` at `0x25B276`, and `LoadOobFile` takes the copy at `0x25B4EC`. And
+`ActivateRankedLeaders` appends every leader with a rank above 0 **without asking whether he is
+already in the list** (`0xDDCD0` to `0xDDD4A`, read whole). So a leader whom an earlier country's
+order of battle had already raised from 0 and put in service would be appended a second time
+when his own country's turn came. This can only happen with another country's leader, and only in a new game.
+
+**Not read:** the rest of `0x1B7D0` before the reload, which is a matter of what the
+custom game keeps of the old units, and `0x1B7F4E`.
+
 ## 4. The start's assignment
 
 `CInGameIdler::Enter`, the loop over a country's units at `0x25B661` - the one that adds up

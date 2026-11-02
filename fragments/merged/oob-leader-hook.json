@@ -1,0 +1,62 @@
+{
+ "agent": "main session, 2026-11-01",
+ "question": "For a BiceLib hook raising an order of battle's leader to the rank his command wants: is the unit's level known when its `leader` key is read, which calls put the leader on, and what reads an order of battle file as against a save?",
+ "source": "reversing/findings/FINDINGS-leaderassign.md",
+ "summary": "The unit's oob_level is written from the block's own token before the block's keys are read, in CCountry::LoadKey and CUnit::LoadKey alike, so the leader case can read it. The token-to-level switch (0x1B8C70) is new; oob_level's comment is revised to add air (6) and say where it is set. The two SetLeader calls in the leader case are recorded as instructions, the number form being an order of battle's. LoadOobFile's third caller is CCgmResetCurrentStageCommand::Execute, new.",
+ "addresses": [
+  {
+   "rva": "0x1B8C70",
+   "kind": "function",
+   "name": "CUnit_OobLevelForToken",
+   "signature": "int __fastcall CUnit_OobLevelForToken(int token@EAX)",
+   "no_signature": null,
+   "comment": "**A unit block's key token to its oob_level** (CUnit +0x1F4). 0x5B8C70 to the last bare `ret` at 0x5B8CC3, a switch on EAX: theatre (1125) 0, armygroup (1126) 1, army (592) 2, corps (1127) 3, division (1128) 4, navy (593) 5, air (1088) 6, anything else 7. Called by CCountry::LoadKey (0xCD99B) and CUnit::LoadKey (0x1B7ACD) with the block's own token, as each builds a new CArmy and before the block's keys are read. See reversing/findings/FINDINGS-leaderassign.md, section 3.1.",
+   "confidence": "confirmed",
+   "evidence": "disasm.py 0x5B8C70 0x60 on 2026-11-01: cmp eax,0x465 / jg / je -> xor eax,eax; sub 0x250 je -> 2; dec je -> 5; sub 0x1EF jne -> 6 path at 0x440 = 1088; above 0x465: sub 0x466 je -> 1, dec je -> 3, dec je -> 4; default 7. Callers read at 0x4CD99B and 0x5B7ACD, each followed by mov [esi+0x1F4], eax. Shown wrong by a token mapping to a different value in those branches."
+  },
+  {
+   "rva": "0x1B7787",
+   "kind": "instruction",
+   "name": "CUnit_LoadKey_SetLeaderByNumber",
+   "signature": null,
+   "no_signature": "an instruction: the call to CUnit::SetLeader in CUnit::LoadKey's leader case",
+   "comment": "**The call that puts an order of battle's leader on its unit**: CUnit::LoadKey's `leader` case where the value is a plain number (parse +0x228 == 0xC), atoi'd and looked up as {id = N, type = 0x25} across the whole game (0xA9D390), then `SetLeader(unit@ECX = ebx - 8, leader, 0, 0)`. An unknown id jumps to 0x1B7F4E instead. CUnit::LoadKey also reads saves, but a save writes the block form (CUnit_LoadKey_SetLeaderByReference); the unit's oob_level (+0x1F4) is already set here. See reversing/findings/FINDINGS-leaderassign.md, section 3.1.",
+   "confidence": "confirmed",
+   "evidence": "disasm.py 0x5B7747 0xC0 on 2026-11-01: cmp [edi+0x228],0xC / jne 0x5B77A3; call 0xB969F1 (atoi) on edi+0x22C; {0x25, eax} on the stack; call 0xA9D390; je 0x5B7F4E; push 0; push 0; push eax; lea ecx,[ebx-8]; call 0x5BFC10 at 0x5B7787. Shown wrong by the number form reaching SetLeader anywhere else."
+  },
+  {
+   "rva": "0x1B77E7",
+   "kind": "instruction",
+   "name": "CUnit_LoadKey_SetLeaderByReference",
+   "signature": null,
+   "no_signature": "an instruction: the call to CUnit::SetLeader in CUnit::LoadKey's leader case",
+   "comment": "CUnit::LoadKey's `leader` case where the value is a block (a save's `{ id type }`): read through ParseObjectReference (0x1EC150) and resolved by 0x10D210, then `SetLeader(unit@ECX = ebx - 8, leader, 0, 0)` when it resolves. The save form; an order of battle's `leader = N` takes CUnit_LoadKey_SetLeaderByNumber. See reversing/findings/FINDINGS-leaderassign.md, section 3.1.",
+   "confidence": "confirmed",
+   "evidence": "disasm.py 0x5B7747 0xC0 on 2026-11-01: the jne at 0x5B7751 lands at 0x5B77A3; call 0x5EC150 with ecx = parse; call 0x50D210, test, je over; push 0; push 0; push (0x50D210 again); lea ecx,[ebx-8]; call 0x5BFC10 at 0x5B77E7. Shown wrong by this block form being what an order of battle's number takes."
+  },
+  {
+   "rva": "0x2A7A0",
+   "kind": "function",
+   "name": "CCgmResetCurrentStageCommand::Execute",
+   "signature": "void __thiscall CCgmResetCurrentStageCommand::Execute(CCgmResetCurrentStageCommand* this)",
+   "no_signature": null,
+   "comment": "**The custom game setup's reset of the stage it is at.** Slot 6 of the class's table, bare `ret` at 0x42A871. Calls 0x1F7C0 (`ret 8`) on this + 0x3C with GetCustomGameSettings() and its +0x18 - the setup's current stage, inferred from the command's name. For stage 2, 0x1F7C0 finds the country's record (0x1F770) and calls 0x1BE20, which calls 0x1B7D0: a walk over the country's theatres and their leaders, then six unit tokens (1125, 1128, 1126, 1127, 1088, 593) added to a set through 0x221F0 and CCountry::LoadOobFile - so resetting the units stage reloads the country's order of battle (inferred for what the set is for). Stages 0 and 1 go through 0x1F500 and 0x1A3C0, not read. The third caller of LoadOobFile, beside the load_oob effect and the new game. See reversing/findings/FINDINGS-leaderassign.md, section 3.1.",
+   "confidence": "confirmed",
+   "evidence": "vtable.py --holding 0x42A7A0 on 2026-11-01: one table, CCgmResetCurrentStageCommand slot 6 (0x015B61B4), no direct callers; disasm 0x42A7A0: GetCustomGameSettings ([eax+0x18]), lea edi+0x3C, call 0x41F7C0; first ret a bare ret at 0x42A871. The chain 0x41F80A -> 0x41BE20 -> 0x41BEE0 -> 0x41B7D0 -> 0x41C3A6 call 0x4FFED0 read off findRefs --callers. Confirmed for the name and the call chain; what each stage is, inferred. Shown wrong by slot 6 not being Execute in this hierarchy."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CUnit",
+   "offset": "0x1F4",
+   "name": "oob_level",
+   "type": "int",
+   "comment": "The unit's level: 0 theatre, 1 armygroup, 2 army, 3 corps, 4 division, 5 navy, 6 air (7 for any other token). Written by CCountry::LoadKey and CUnit::LoadKey from the block's own key through CUnit_OobLevelForToken, as the unit is made and **before its block is read**, so its `leader` key sees it set. See reversing/findings/FINDINGS-leaderassign.md, section 3.1.",
+   "source": "reversing/findings/FINDINGS-leaderassign.md",
+   "revises": "comment only: it stopped at 5 navy; air is 6 and other tokens 7, and it now says where it is written",
+   "evidence": "the stores mov [esi+0x1F4], eax at 0x4CD9A0 and 0x5B7AD2, each right after CUnit_OobLevelForToken and before the new unit's CPersistent::Load call (0x4CD9D3, 0x5B7B05). Shown wrong by a write of +0x1F4 after the block is read."
+  }
+ ],
+ "vftable_slots": {"CCgmResetCurrentStageCommand": {"6": "Execute"}},
+ "frontier": ["0x1B7D0", "0x1BE20", "0x1F7C0", "0x1F770", "0x1F500", "0x1A3C0", "0x1B7F4E"]
+}

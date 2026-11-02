@@ -1902,9 +1902,11 @@
    "rva": "0x96128",
    "kind": "instruction",
    "name": "CProvince_LoadKey_InfrastructureGate",
-   "comment": "`cmp dword ptr [ecx + 0x24], 0xC` where `ecx = building->effect (CBuilding +0xC)`, loaded one instruction earlier at 0x496125, inside CProvince::LoadKey's default (building-name) arm. **This is a MODIFIER id, not a building index.** The identical shape is already recorded in project.json at CBuildingDataBase_RoleByModifierId (rva 0xB78AB), which reads `building->+0xC` and then compares `[eax+0x24]` against 0x2E, 0x2D, 0x4B, 0x0F and 0x66 - MODIFIER_AIR_CAPACITY, NAVAL_CAPACITY, LOCAL_AA, IC and LOCAL_UNDERGROUND - and the same comparison appears again in SetProvinceBuildingLevel at 0x4A3AED. Modifier 12 is MODIFIER_INFRASTRUCTURE (reversing/scripts/modifierIds.py), i.e. the building `infra`, so the write two instructions later makes `CMapProvince +0x5C` the province's infrastructure. This closes the blocker FINDINGS-power.md recorded as \"which building type index 12 is was not established\": `+0x24` was never a building index, so the mod's reordering of buildings.txt is irrelevant to it.",
+   "signature": null,
+   "no_signature": null,
+   "comment": "`cmp dword ptr [ecx + 0x24], 0xC` where `ecx = building->effect (CBuilding +0xC)`, loaded one instruction earlier at 0x496125, inside CProvince::LoadKey's default (building-name) arm. **This is a MODIFIER id, not a building index.** The identical shape is already recorded in project.json at CBuildingDataBase_RoleByModifierId (rva 0xB78AB), which reads `building->+0xC` and then compares `[eax+0x24]` against 0x2E, 0x2D, 0x4B, 0x0F and 0x66 - MODIFIER_AIR_CAPACITY, NAVAL_CAPACITY, LOCAL_AA, IC and LOCAL_UNDERGROUND - and the same comparison appears again in SetProvinceBuildingLevel at 0x4A3AED. Modifier 12 is MODIFIER_INFRASTRUCTURE (reversing/scripts/modifierIds.py), i.e. the building `infra`, so the write two instructions later makes `CMapProvince +0x5C` the province's infrastructure. This closes the blocker FINDINGS-power.md recorded as \"which building type index 12 is was not established\": `+0x24` was never a building index, so the mod's reordering of buildings.txt is irrelevant to it.\n\n**Not only `infra` - corrected 2026-11-02.** The gate passes every building whose effect is MODIFIER_INFRASTRUCTURE, and the store at 0x496152 is a plain `mov [edi+0x5C]` with no comparison against what is there, so each such building in a province's block overwrites the last and **the last one wins**. With one such building in the base game the two readings could not be told apart. A save writes a province's buildings in `common/buildings.txt` order (14,189 of 14,189 blocks of a 1937 BlackICE save), so BlackICE's `extra_infra` (no. 60, `infrastructure = 0.05`) always follows `infra` (no. 21, 0.1) and a loaded province's figure is `extra_infra`'s level x 50. Read live in a full dump: Shanghai (5542, infra 8, extra_infra 1) 50, Leningrad (782, infra 9, extra_infra 2) 100, province 46 (infra 4, none) 400. See reversing/findings/FINDINGS-extrainfra.md.",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-aifields.md"
+   "source": "reversing/findings/FINDINGS-extrainfra.md"
   },
   {
    "rva": "0x963F0",
@@ -2243,10 +2245,11 @@
    "rva": "0xA39B0",
    "kind": "function",
    "name": "SetProvinceBuildingLevel",
-   "comment": "0x4A39B0-0x4A3B59, `ret 0xC`, receiver in **ESI**, three stack arguments. Trap 3: its first `ret 0xC` is at 0x4A3AD2 and the main path is the block after it, reached by the `jne 0x4A3AD5` at 0x4A39E1. It sets `province->buildings[definition->index]->level_max (+0x20)` and `level_current (+0x24)` to `level`, and then - **when the definition's modifier is MODIFIER_INFRASTRUCTURE, `definition->effect(+0xC)->id(+0x24) == 12`** - recomputes `province->+0x5C = level * definition->effect_size(+0x8) / 1000`. With `notify` set it raises a message through 0x47F540 when the old value was under g_FixedPoint0_200 and the new one over g_FixedPoint0_100, and finally rebuilds the province's modifiers through 0x49F3E0. Eight callers. **One of five writers of `CMapProvince +0x5C`**, which FINDINGS-power.md recorded as having exactly one - the others are CProvince::CProvince (0x494767, zero), the province building reset 0x496480 (0x496680, zero), CProvince::LoadKey (0x496152) and CProvinceBuilding_OnLevelChanged (0x4B8024). Its opening also special-cases MODIFIER_NAVAL_CAPACITY (0x2D) on a province whose template +0xA4 is zero, reporting through 'province.cpp'. The name is from the body.",
-   "confidence": "likely",
-   "source": "reversing/findings/FINDINGS-aifields.md",
-   "signature": "void __fastcall SetProvinceBuildingLevel(CProvince* province@ESI, CBuilding* definition, int level, bool notify)"
+   "signature": "void __fastcall SetProvinceBuildingLevel(CProvince* province@ESI, CBuilding* definition, int level, bool notify)",
+   "no_signature": null,
+   "comment": "0x4A39B0-0x4A3B59, `ret 0xC`, receiver in **ESI**, three stack arguments. Trap 3: its first `ret 0xC` is at 0x4A3AD2 and the main path is the block after it, reached by the `jne 0x4A3AD5` at 0x4A39E1. It sets `province->buildings[definition->index]->level_max (+0x20)` and `level_current (+0x24)` to `level`, and then - **when the definition's modifier is MODIFIER_INFRASTRUCTURE, `definition->effect(+0xC)->id(+0x24) == 12`** - recomputes `province->+0x5C = level * definition->effect_size(+0x8) / 1000`. With `notify` set, when the old value was under g_FixedPoint0_200 and the new one over g_FixedPoint0_100, it calls **UpdateOwnerAreaOfProvince (0x47F540)** with the province's own controller as both the old and the new one (0x4A3B22-0x4A3B33) - which joins a province in no area to its controller's and does nothing to one already in a real area, so **a fall in the figure never takes a province out of its area**; this was recorded as raising a message until 2026-11-02. The +0x5C store is plain, the last infrastructure building set winning (see CProvince_LoadKey_InfrastructureGate and reversing/findings/FINDINGS-extrainfra.md), and finally rebuilds the province's modifiers through 0x49F3E0. Eight callers. **One of five writers of `CMapProvince +0x5C`**, which FINDINGS-power.md recorded as having exactly one - the others are CProvince::CProvince (0x494767, zero), the province building reset 0x496480 (0x496680, zero), CProvince::LoadKey (0x496152) and CProvinceBuilding_OnLevelChanged (0x4B8024). Its opening also special-cases MODIFIER_NAVAL_CAPACITY (0x2D) on a province whose template +0xA4 is zero, reporting through 'province.cpp'. The name is from the body.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-extrainfra.md"
   },
   {
    "rva": "0xA4050",
@@ -19993,9 +19996,9 @@
    "name": "CMap::LoadBuildingPositions",
    "signature": "void __stdcall CMap::LoadBuildingPositions(CMap* this, CProvinceTemplate* province, CParseContext* parse)",
    "no_signature": null,
-   "comment": "positions.txt's `building_position` block, reached from CMap::LoadPositionsFile's switch at rva 0x902B1 on save token **0x6CC**. Per key: copy the parse state (0x41 dwords) to the stack, stop on token 4 or 0x13, build a Hoi3CString from the key text at `parse+0x24`, look the name up in `g_CBuildingDataBase` (rva 0xB8B60) to get a `CBuilding*`, construct a **stack** CMapPoint `{0x15BC65C, 0x18D, 0.0f, 0.0f}` and call its slot 3 (CPersistent::Load) to parse the `{ x= y= }` body, then store the two floats into `province->building_positions[building->index]`:\n\n    mov  eax, [esi+0x54]        ; CBuilding::index\n    shl  eax, 4                 ; * 0x10, rva 0x90541\n    add  eax, [ecx+0x258]       ; province->building_positions, rva 0x90544\n    movss [eax+8], xmm0         ; x\n    movss [eax+0xc], xmm0       ; y\n\nAfter the store it compares the building against `g_CBuildingDataBase +0x20` (naval_base) at rva 0x90559 and **only for the naval base** goes on to check the raster at `CMap +0x20E0` that the pixel belongs to this province; every other building type loops straight back. `ret 0xc` at rva 0x9074D. **Trap 2: rva 0x90750 begins at the very next byte with no padding** (`c2 0c 00 | 55 8b ec`), so a displacement scan attributes the `building_nudge` loader's work to this function.",
+   "comment": "positions.txt's `building_position` block, reached from CMap::LoadPositionsFile's switch at rva 0x902B1 on save token **0x6CC**. Per key: copy the parse state (0x41 dwords) to the stack, stop on token 4 or 0x13, build a Hoi3CString from the key text at `parse+0x24`, look the name up in `g_CBuildingDataBase` (rva 0xB8B60) to get a `CBuilding*`, construct a **stack** CMapPoint `{0x15BC65C, 0x18D, 0.0f, 0.0f}` and call its slot 3 (CPersistent::Load) to parse the `{ x= y= }` body, then store the two floats into `province->building_positions[building->index]`:\n\n    mov  eax, [esi+0x54]        ; CBuilding::index\n    shl  eax, 4                 ; * 0x10, rva 0x90541\n    add  eax, [ecx+0x258]       ; province->building_positions, rva 0x90544\n    movss [eax+8], xmm0         ; x\n    movss [eax+0xc], xmm0       ; y\n\nAfter the store it compares the building against `g_CBuildingDataBase +0x20` (naval_base) at rva 0x90559 and **only for the naval base** goes on; every other building type loops straight back. **That branch makes the province's port.** It looks up the province q whose pixel `(int)x, (int)y` is in the raster at `CMap +0x20E0`, indexed into `CMap +0x2A60`. Where q is land (`+0x22` set, rva 0x905AB), it walks four cumulative one-pixel steps - (+1,0), (0,+1), (-1,0), (0,-1), the floats 1.0 at rva 0x131DBAC and -1.0 at rva 0x130AC0C - each lookup overwriting the last with no test between them. So it ends on the pixel it started from, and the walk never finds water. Where q is sea and not MapProvinceIsLandlockedWater (called at rva 0x906B6), it sets the land province's `+0xA4` to q's id (rva 0x906CF), allocates a 0x1C-byte **CPort** (vftable 0x15BE4A4, RTTI `.?AVCPort@@`) with `+0x18` = q's id, stores it at `CProvince +0x354` (rva 0x90713), and gives q the next sea index `CMap +0x2A6C`. **It does not check that the pixel belongs to this province**, which this comment used to say. `ret 0xc` at rva 0x9074D. **Trap 2: rva 0x90750 begins at the very next byte with no padding** (`c2 0c 00 | 55 8b ec`), so a displacement scan attributes the `building_nudge` loader's work to this function. See reversing/findings/FINDINGS-seaair.md, section 4.",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-mappoint.md"
+   "source": "reversing/findings/FINDINGS-seaair.md"
   },
   {
    "rva": "0x90750",
@@ -28020,9 +28023,9 @@
    "name": "RebuildOwnerAreas",
    "signature": "void __cdecl RebuildOwnerAreas(void)",
    "no_signature": null,
-   "comment": "**Makes every area afresh.** ClearOwnerAreas, then for every country in the database's order and every province of its controlled list: where the province is simulated, in no area and has MaxInfrastructure above g_min_area_infrastructure, a new COwnerArea is made, flooded from it (COwnerArea::Flood) and appended to the country's list (+0xD30). When all are made, COwnerArea::BuildNeighbours on each. One caller, 0x648D48. The name is ours. See reversing/findings/FINDINGS-supplynetwork.md, section 2.",
+   "comment": "**Makes every area afresh.** ClearOwnerAreas, then for every country in the database's order and every province of its controlled list: where the province is simulated, in no area and has MaxInfrastructure above g_min_area_infrastructure, a new COwnerArea is made, flooded from it (COwnerArea::Flood) and appended to the country's list (+0xD30). When all are made, COwnerArea::BuildNeighbours on each. One caller, 0x648D48, inside CInGameIdler::CInGameIdler (0x6474A0): **areas are made afresh only when a game is entered, new or loaded**; in play only UpdateOwnerAreaOfProvince moves a province. So a MaxInfrastructure overwritten in play (BlackICE's extra_infra) puts provinces in no area only at the next load - reversing/findings/FINDINGS-extrainfra.md. The name is ours. See reversing/findings/FINDINGS-supplynetwork.md, section 2.",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-supplynetwork.md"
+   "source": "reversing/findings/FINDINGS-extrainfra.md"
   },
   {
    "rva": "0x7D160",
@@ -30700,7 +30703,7 @@
    "name": "CCountry::ActivateRankedLeaders",
    "signature": "void __stdcall CCountry::ActivateRankedLeaders(CCountry* country@ESI)",
    "no_signature": null,
-   "comment": "**Who is in service as a new game starts**: every leader of country->leaders (+0xE10) whose rank (+0x6C) is not 0 is appended to active_leaders (+0xE00, a CList: last +0xE04, count +0xE08), in the leaders' order. Its one caller is CInGameIdler::Enter at 0x25B276, only where the session was not loaded from a save. The rank is what the leader's history has made it by the start date. See reversing/findings/FINDINGS-leaderassign.md, section 2.",
+   "comment": "**Who is in service as a new game starts**: every leader of country->leaders (+0xE10) whose rank (+0x6C) is not 0 is appended to active_leaders (+0xE00, a CList: last +0xE04, count +0xE08), in the leaders' order, **with no check that he is not in the list already** (0xDDCD0 to the bare `ret` at 0xDDD4A, read whole). Its one caller is CInGameIdler::Enter at 0x25B276, only where the session was not loaded from a save, inside the loop over the countries (0x25B152 back from 0x25B7EA) and before that country's CCountry::LoadOobFile at 0x25B4EC - so after every earlier country's order of battle. The rank is what the leader's history has made it by the start date. See reversing/findings/FINDINGS-leaderassign.md, sections 2 and 3.1.",
    "confidence": "confirmed",
    "source": "reversing/findings/FINDINGS-leaderassign.md"
   },
@@ -34390,9 +34393,9 @@
    "name": "CPortTrigger::Evaluate",
    "signature": "bool __thiscall CPortTrigger::Evaluate(CPortTrigger* this, CEventScope* scope)",
    "no_signature": null,
-   "comment": "**`port = yes|no`: whether the scope's province has a map port.** 0x5E08E0 to two `ret 4` at 0x5E09A7/0x5E09BB, slot 8 at 0x5E09C0. `return scope->province (+0x28) != 0 && ((provinces[province]->port (+0x354) != null) == this->value (+0x40))`. The port is the CPort map link a coastal province gets at map load, **not** the naval base building (+0x300), so a coastal province with no naval base answers yes. Province 0 (a country-only scope) is false for `yes` and for `no` alike. Operand from CBoolTrigger::LoadArgument (`= yes` is 1, anything else 0); no THIS/FROM. See reversing/findings/FINDINGS-triggerleaves.md.",
+   "comment": "**`port = yes|no`: whether the scope's province has a map port - in effect, whether it is coastal.** 0x5E08E0 to two `ret 4` at 0x5E09A7/0x5E09BB, slot 8 at 0x5E09C0. `return scope->province (+0x28) != 0 && ((provinces[province]->port (+0x354) != null) == this->value (+0x40))`. The port is the CPort that CMap::LoadBuildingPositions makes at map load for a land province whose positions.txt `naval_base` position lies on a pixel of a sea province that is not landlocked water. It is **not** the naval base building (+0x300): a coastal province with no naval base answers yes, a province on a lake alone answers no, and nothing built or destroyed in a game changes the answer. Province 0 (a country-only scope) is false for `yes` and for `no` alike. Operand from CBoolTrigger::LoadArgument (`= yes` is 1, anything else 0); no THIS/FROM. See reversing/findings/FINDINGS-triggerleaves.md.",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-triggerleaves.md"
+   "source": "reversing/findings/FINDINGS-seaair.md"
   },
   {
    "rva": "0x5E1530",
@@ -57280,9 +57283,9 @@
    "name": "CAIUnit_MayShipUnitToArea",
    "signature": "bool __stdcall CAIUnit_MayShipUnitToArea(CAIUnit* agent, CUnit* unit, COwnerArea* area)",
    "no_signature": null,
-   "comment": "**Whether a unit may be given (or keep) a target in an area** - in effect, whether it has to cross water or hostile ground to get there. False when the area's region group (+0x6C, one side's land in one piece) is the group of the area of the unit's current province; when the area of its destination (or position) is real and landlocked (+0x68) or portless (+0x50 < 1) and CMapProvince::CanUnitReach(area's first province, unit, 1, 1) fails; when that destination is enemy-held, the unit CUnit::IsHoldingGround, retreats, or CAIUnit_UnitMayLeave(agent, unit, 0, 1, 1) refuses; when the area is enemy-held and army_role is 0 or 5; when it is not and army_role is 3 or 4 and (area +0x3C < 1 and it is not the acting capital's area, or the unit's own area COwnerArea_TouchesHostileArea). Otherwise AreaPair_SeaRouteOpen(own area, country, area). `ret 0xC`. Ghidra calls it CNullOwnerArea::CNullOwnerArea_3. Two callers in AssignAreaTargetsAndSealift (VA 0x8C584E keep-or-release, 0x8C5F98 candidates).",
+   "comment": "**Whether a unit may be given (or keep) a target in an area** - in effect, whether it has to cross water or hostile ground to get there. False when the area's region group (+0x6C, one side's land in one piece) is the group of the area of the unit's current province; when the area of its destination (or position) is real and landlocked (+0x68) or portless (+0x50 < 1) and CMapProvince::CanUnitReach(area's first province, unit, 1, 1) fails; when that destination is enemy-held, the unit CUnit::IsHoldingGround, retreats, or CAIUnit_UnitMayLeave(agent, unit, 0, 1, 1) refuses; when the area is enemy-held and army_role is 0 or 5; when it is not and army_role is 3 or 4 and (area +0x3C < 1 and it is not the acting capital's area, or the unit's own area COwnerArea_TouchesHostileArea). Otherwise AreaPair_SeaRouteOpen(own area, country, area). `ret 0xC`. Ghidra calls it CNullOwnerArea::CNullOwnerArea_3. Two callers in AssignAreaTargetsAndSealift (VA 0x8C584E keep-or-release, 0x8C5F98 candidates).\n\n**It never tests the area's province count (+0x2C)**: it reads the head of `area`'s province list and dereferences it at 0x8C427B-0x8C4281 (for CanUnitReach, behind a slot-0 test of the destination's area, not this one) and at 0x8C42DB-0x8C42E1, unguarded. The keep-or-release caller (0x8C584E) passes the area of the unit's saved target with no test of its own, so a land unit bound for a province in no area - the CNullOwnerArea, empty - is a null read at rva 0x4C42E1. That is the load crash of 2026-11-02: two role-5 divisions, SOV's 27-y Ukrepl'onnyy Rayon bound for Leningrad (782) and CHI's Hubei Silingbu for Shanghai (5542), both put in no area by BlackICE's extra_infra. See reversing/findings/FINDINGS-extrainfra.md.",
    "confidence": "confirmed",
-   "source": "findings/FINDINGS-moving.md"
+   "source": "reversing/findings/FINDINGS-extrainfra.md"
   },
   {
    "rva": "0x499500",
@@ -57333,6 +57336,56 @@
    "comment": "Inlines the CCommand base (0x18D at +4, save token 0x380 at +0x2C and +0x30, 0xFFFF at +0x34), writes vftable 0x15C8C9C, builds the unit reference at +0x3C (0x2DD70). `ret 8`, returns self. CEU3AI_RecallStrandedLandUnits posts it for a unit with nowhere to go.",
    "confidence": "confirmed",
    "source": "findings/FINDINGS-moving.md"
+  },
+  {
+   "rva": "0x1B8C70",
+   "kind": "function",
+   "name": "CUnit_OobLevelForToken",
+   "signature": "int __fastcall CUnit_OobLevelForToken(int token@EAX)",
+   "no_signature": null,
+   "comment": "**A unit block's key token to its oob_level** (CUnit +0x1F4). 0x5B8C70 to the last bare `ret` at 0x5B8CC3, a switch on EAX: theatre (1125) 0, armygroup (1126) 1, army (592) 2, corps (1127) 3, division (1128) 4, navy (593) 5, air (1088) 6, anything else 7. Called by CCountry::LoadKey (0xCD99B) and CUnit::LoadKey (0x1B7ACD) with the block's own token, as each builds a new CArmy and before the block's keys are read. See reversing/findings/FINDINGS-leaderassign.md, section 3.1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-leaderassign.md"
+  },
+  {
+   "rva": "0x1B7787",
+   "kind": "instruction",
+   "name": "CUnit_LoadKey_SetLeaderByNumber",
+   "signature": null,
+   "no_signature": "an instruction: the call to CUnit::SetLeader in CUnit::LoadKey's leader case",
+   "comment": "**The call that puts an order of battle's leader on its unit**: CUnit::LoadKey's `leader` case where the value is a plain number (parse +0x228 == 0xC), atoi'd and looked up as {id = N, type = 0x25} across the whole game (0xA9D390), then `SetLeader(unit@ECX = ebx - 8, leader, 0, 0)`. An unknown id jumps to 0x1B7F4E instead. CUnit::LoadKey also reads saves, but a save writes the block form (CUnit_LoadKey_SetLeaderByReference); the unit's oob_level (+0x1F4) is already set here. See reversing/findings/FINDINGS-leaderassign.md, section 3.1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-leaderassign.md"
+  },
+  {
+   "rva": "0x1B77E7",
+   "kind": "instruction",
+   "name": "CUnit_LoadKey_SetLeaderByReference",
+   "signature": null,
+   "no_signature": "an instruction: the call to CUnit::SetLeader in CUnit::LoadKey's leader case",
+   "comment": "CUnit::LoadKey's `leader` case where the value is a block (a save's `{ id type }`): read through ParseObjectReference (0x1EC150) and resolved by 0x10D210, then `SetLeader(unit@ECX = ebx - 8, leader, 0, 0)` when it resolves. The save form; an order of battle's `leader = N` takes CUnit_LoadKey_SetLeaderByNumber. See reversing/findings/FINDINGS-leaderassign.md, section 3.1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-leaderassign.md"
+  },
+  {
+   "rva": "0x2A7A0",
+   "kind": "function",
+   "name": "CCgmResetCurrentStageCommand::Execute",
+   "signature": "void __thiscall CCgmResetCurrentStageCommand::Execute(CCgmResetCurrentStageCommand* this)",
+   "no_signature": null,
+   "comment": "**The custom game setup's reset of the stage it is at.** Slot 6 of the class's table, bare `ret` at 0x42A871. Calls 0x1F7C0 (`ret 8`) on this + 0x3C with GetCustomGameSettings() and its +0x18 - the setup's current stage, inferred from the command's name. For stage 2, 0x1F7C0 finds the country's record (0x1F770) and calls 0x1BE20, which calls 0x1B7D0: a walk over the country's theatres and their leaders, then six unit tokens (1125, 1128, 1126, 1127, 1088, 593) added to a set through 0x221F0 and CCountry::LoadOobFile - so resetting the units stage reloads the country's order of battle (inferred for what the set is for). Stages 0 and 1 go through 0x1F500 and 0x1A3C0, not read. The third caller of LoadOobFile, beside the load_oob effect and the new game. See reversing/findings/FINDINGS-leaderassign.md, section 3.1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-leaderassign.md"
+  },
+  {
+   "rva": "0xDAACE",
+   "kind": "instruction",
+   "name": "DailyPass_ActivateLeaders_SetRankOne",
+   "signature": null,
+   "no_signature": "an instruction: the store of rank 1 in the daily pass's leader activation",
+   "comment": "**Where a leader coming into service is given rank 1**: `mov dword ptr [edi + 0x6C], 1` (c7 47 6c 01 00 00 00), EDI the leader, EBX the country; the append to active_leaders follows at 0xDAAD5. The CRankChange whose date was matched is no longer held: the loop turned EDI into its date at 0xDAAFB. It is the first node of leader +0x90 whose slot 6 answers 0x10A, so the first whose vftable is CRankChange's, and its rank is +0x10. The only branch into these seven bytes is the je at 0xDAAB3, onto the first byte. See reversing/findings/FINDINGS-leaders.md, section 3.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-leaders.md"
   }
  ],
  "structs": [
@@ -61490,8 +61543,8 @@
      "offset": "0x5C",
      "name": "MaxInfrastructure",
      "type": "CFixedPoint",
-     "comment": "An int in thousandths that the unit AI uses as \"is this province worth holding a front over\". `CAIUnit::EstimateAreaNeed` requires a neighbour's value to be at least 200 before the province counts as a front (0x4B8830), and gives the province itself the floor weight 500 instead of 1000 when its own value is at or below 300 (0x4B8BF4). Eight more readers across the unit AI and the map code. **Written in exactly one place**: `CProvince::LoadKey`'s default arm, which treats an unknown key as a building name and, when the loaded building's definition `+0x24` is 12, sets `province->+0x5C = building->level(+0x20) * definition->+0x8 / 1000` (0x96132-0x96152). Which building type index 12 is was **not** established - the mod reorders `common/buildings.txt`, so it is not safe to count. The cheapest live check is `dumpStruct.py` on a province and a comparison against the province panel.\n\n**Confirmed live 2026-10-02, and renamed from `ai_front_value`.** Read on every province with an `infra` key in `history/provinces/`, and compared: **10,642 of 10,642 agree** with `infra * 100`, where `infra` is the file's 0-10 value. (A first pass scored 98.43% against the *first* `infra` key in each file; all 167 misses were files that repeat the key, and the engine is **last-wins** - the residual was the test, not the field.) This does not contradict 'an int in thousandths': `infra * 100` and a fraction in thousandths are the same number, since the file's 0-10 is 0-100%. Paris (2613) reads 1000 = infra 10.0 = 100%.\n\n**The old name named a use, not the field.** The unit AI reads infrastructure when deciding whether a province is worth holding a front over, which is why it looked like an AI value. The gain from the rename is that the thresholds become readable in the units a modder sees: the 200 at 0x4B8830 is **infrastructure 2.0** and the 300 at 0x4B8BF4 is **3.0**. A province under 2.0 does not count as a front; under 3.0 it gets the floor weight 500 instead of 1000.\n\n`+0x24 == 12` is untouched by this and is still not a building index - `infra` is building no.21 in the mod's `common/buildings.txt`, so 12 is an id of something else, as the record already says.\n\n**Renamed from `infrastructure` and retyped 2026-10-05, in step with CProvince +0x5C**, which is the same field: RTTI has CMapProvince deriving from CProvince at offset 0, and both structures carry it only because Ghidra has no inheritance. The game's own name is `MaxInfrastructure`, from `CProvince::GetMaxInfrastructure` (rva 0x6C360); the effective infrastructure is a different quantity computed by `CProvince::GetInfrastructure` (rva 0x94570) out of the modifier array at +0x114. The unit AI's use of this field - a neighbour needing at least 200 before a province counts as a front, the floor weight dropping to 500 at or below 300 - is unchanged by the rename and now reads as thresholds on 20% and 30% of full infrastructure, which is what the 1000 clamp in GetInfrastructure says the scale is.",
-     "source": "reversing/findings/FINDINGS-power.md"
+     "comment": "An int in thousandths that the unit AI uses as \"is this province worth holding a front over\". `CAIUnit::EstimateAreaNeed` requires a neighbour's value to be at least 200 before the province counts as a front (0x4B8830), and gives the province itself the floor weight 500 instead of 1000 when its own value is at or below 300 (0x4B8BF4). Eight more readers across the unit AI and the map code. **Written in five places** (CProvince +0x5C lists them; this said one until 2026-11-02); the load's is `CProvince::LoadKey`'s default arm, which treats an unknown key as a building name and, when the loaded building's definition `+0x24` is 12, sets `province->+0x5C = building->level(+0x20) * definition->+0x8 / 1000` (0x96132-0x96152). Which building type index 12 is was **not** established - the mod reorders `common/buildings.txt`, so it is not safe to count. The cheapest live check is `dumpStruct.py` on a province and a comparison against the province panel.\n\n**Confirmed live 2026-10-02, and renamed from `ai_front_value`.** Read on every province with an `infra` key in `history/provinces/`, and compared: **10,642 of 10,642 agree** with `infra * 100`, where `infra` is the file's 0-10 value. (A first pass scored 98.43% against the *first* `infra` key in each file; all 167 misses were files that repeat the key, and the engine is **last-wins** - the residual was the test, not the field.) This does not contradict 'an int in thousandths': `infra * 100` and a fraction in thousandths are the same number, since the file's 0-10 is 0-100%. Paris (2613) reads 1000 = infra 10.0 = 100%.\n\n**The old name named a use, not the field.** The unit AI reads infrastructure when deciding whether a province is worth holding a front over, which is why it looked like an AI value. The gain from the rename is that the thresholds become readable in the units a modder sees: the 200 at 0x4B8830 is **infrastructure 2.0** and the 300 at 0x4B8BF4 is **3.0**. A province under 2.0 does not count as a front; under 3.0 it gets the floor weight 500 instead of 1000.\n\n`+0x24 == 12` is untouched by this and is still not a building index - `infra` is building no.21 in the mod's `common/buildings.txt`, so 12 is an id of something else, as the record already says.\n\n**Renamed from `infrastructure` and retyped 2026-10-05, in step with CProvince +0x5C**, which is the same field: RTTI has CMapProvince deriving from CProvince at offset 0, and both structures carry it only because Ghidra has no inheritance. The game's own name is `MaxInfrastructure`, from `CProvince::GetMaxInfrastructure` (rva 0x6C360); the effective infrastructure is a different quantity computed by `CProvince::GetInfrastructure` (rva 0x94570) out of the modifier array at +0x114. The unit AI's use of this field - a neighbour needing at least 200 before a province counts as a front, the floor weight dropping to 500 at or below 300 - is unchanged by the rename and now reads as thresholds on 20% and 30% of full infrastructure, which is what the 1000 clamp in GetInfrastructure says the scale is.\n\n**The value is the last infrastructure building's, not `infra`'s** (2026-11-02): LoadKey and SetProvinceBuildingLevel both store `level x figure / 1000` for whichever building with MODIFIER_INFRASTRUCTURE they are handling, with no comparison, and a save writes buildings in `common/buildings.txt` order - so BlackICE's `extra_infra` (0.05 a level, after `infra`) leaves 1,603 of a 1937 save's 1,666 such provinces at 100 or under, which RebuildOwnerAreas then puts in no area. Live: Shanghai 50, Leningrad 100. See reversing/findings/FINDINGS-extrainfra.md.",
+     "source": "reversing/findings/FINDINGS-extrainfra.md"
     },
     {
      "offset": "0x60",
@@ -64359,8 +64412,8 @@
      "offset": "0x1F4",
      "name": "oob_level",
      "type": "int",
-     "comment": "0 theatre .. 4 division, 5 navy",
-     "source": "BiceLib/GameClasses/CUnit.hpp:49"
+     "comment": "The unit's level: 0 theatre, 1 armygroup, 2 army, 3 corps, 4 division, 5 navy, 6 air (7 for any other token). Written by CCountry::LoadKey and CUnit::LoadKey from the block's own key through CUnit_OobLevelForToken, as the unit is made and **before its block is read**, so its `leader` key sees it set. See reversing/findings/FINDINGS-leaderassign.md, section 3.1.",
+     "source": "reversing/findings/FINDINGS-leaderassign.md"
     },
     {
      "offset": "0x1FC",
@@ -69654,8 +69707,8 @@
      "offset": "0x5C",
      "name": "MaxInfrastructure",
      "type": "CFixedPoint",
-     "comment": "The same field project.json records on CMapProvince; both structures carry it because Ghidra has no inheritance between the two. It is written by CProvince's own code - zeroed in CProvince::CProvince at 0x494767 and in the province building reset at 0x496680, computed in CProvince::LoadKey at 0x496152, in SetProvinceBuildingLevel at 0x4A3B0A and in CProvinceBuilding_OnLevelChanged at 0x4B8024 - and the full account is on the CMapProvince entry.\n\n**Confirmed live 2026-10-02** against 10,642 provinces' `infra` keys in `history/provinces/` - 100.00% agree with `infra * 100`. `CMapProvince +0x5C`'s entry, which used to carry the name `ai_front_value`, is now named `infrastructure` to match this one.\n\n*This used to point at a `FINDINGS-infrastructure.md`, which has never existed - not in the tree and not anywhere in git history. The evidence for the name is the sentence above, not a document. Found 2026-10-05, when checkrefs.py learned to read this file; the dead pointer is removed rather than repaired because there is nothing to repair it to.*\n\n**Renamed from `infrastructure` and retyped 2026-10-05: it is the maximum, and the game has a separate accessor for the effective figure.** `CProvince::GetMaxInfrastructure` (rva 0x6C360) copies +0x5C out as a `CFixedPoint`, while `CProvince::GetInfrastructure` (rva 0x94570) is a different and much longer function that does not read +0x5C at all: it takes the province's modifier array at +0x114 and computes `values[MODIFIER_INFRASTRUCTURE] * (1000 + values[LOCAL_INFRASTRUCTURE] + values[GLOBAL_INFRASTRUCTURE]) / 1000`, floors it at a cached constant and clamps it at 1000. Two accessors, two quantities, and only one of them is this field. The clamp at 1000 also fixes the scale: with the recorded live check - 100.00% of 10,642 provinces' `infra` keys agreeing with `infra * 100` - the field is thousandths of full infrastructure, 1000 being 100%, and `infra = 10` in history is the maximum.",
-     "source": "reversing/findings/FINDINGS-aifields.md"
+     "comment": "The same field project.json records on CMapProvince; both structures carry it because Ghidra has no inheritance between the two. It is written by CProvince's own code - zeroed in CProvince::CProvince at 0x494767 and in the province building reset at 0x496680, computed in CProvince::LoadKey at 0x496152, in SetProvinceBuildingLevel at 0x4A3B0A and in CProvinceBuilding_OnLevelChanged at 0x4B8024 - and the full account is on the CMapProvince entry.\n\n**Confirmed live 2026-10-02** against 10,642 provinces' `infra` keys in `history/provinces/` - 100.00% agree with `infra * 100`. `CMapProvince +0x5C`'s entry, which used to carry the name `ai_front_value`, is now named `infrastructure` to match this one.\n\n*This used to point at a `FINDINGS-infrastructure.md`, which has never existed - not in the tree and not anywhere in git history. The evidence for the name is the sentence above, not a document. Found 2026-10-05, when checkrefs.py learned to read this file; the dead pointer is removed rather than repaired because there is nothing to repair it to.*\n\n**Renamed from `infrastructure` and retyped 2026-10-05: it is the maximum, and the game has a separate accessor for the effective figure.** `CProvince::GetMaxInfrastructure` (rva 0x6C360) copies +0x5C out as a `CFixedPoint`, while `CProvince::GetInfrastructure` (rva 0x94570) is a different and much longer function that does not read +0x5C at all: it takes the province's modifier array at +0x114 and computes `values[MODIFIER_INFRASTRUCTURE] * (1000 + values[LOCAL_INFRASTRUCTURE] + values[GLOBAL_INFRASTRUCTURE]) / 1000`, floors it at a cached constant and clamps it at 1000. Two accessors, two quantities, and only one of them is this field. The clamp at 1000 also fixes the scale: with the recorded live check - 100.00% of 10,642 provinces' `infra` keys agreeing with `infra * 100` - the field is thousandths of full infrastructure, 1000 being 100%, and `infra = 10` in history is the maximum.\n\n**The value is the last infrastructure building's, not `infra`'s** (2026-11-02): LoadKey and SetProvinceBuildingLevel both store `level x figure / 1000` for whichever building with MODIFIER_INFRASTRUCTURE they are handling, with no comparison, and a save writes buildings in `common/buildings.txt` order - so BlackICE's `extra_infra` (0.05 a level, after `infra`) leaves 1,603 of a 1937 save's 1,666 such provinces at 100 or under, which RebuildOwnerAreas then puts in no area. Live: Shanghai 50, Leningrad 100. See reversing/findings/FINDINGS-extrainfra.md.",
+     "source": "reversing/findings/FINDINGS-extrainfra.md"
     },
     {
      "offset": "0x68",
@@ -69948,8 +70001,8 @@
      "offset": "0x354",
      "name": "port",
      "type": "CPort*",
-     "comment": "the province's map port - the link to the sea province beside it - or null where it has none. Built at map load from the land/sea adjacency, not from buildings.txt; the naval base building is the separate thing at +0x300, and the sea hop tests both.",
-     "source": "reversing/findings/FINDINGS-definitions.md"
+     "comment": "**The province's port, or null**: a 0x1C-byte CPort made at map load by CMap::LoadBuildingPositions for a land province whose positions.txt `naval_base` position lies on a pixel of a sea province that is not landlocked water. Its +0x18 is that sea province's id. It does not come from the land/sea adjacency or from buildings.txt. The naval base building is the separate thing at +0x300, and the sea hop tests both. The `port` trigger (CPortTrigger::Evaluate) tests this pointer. The same field as CMapProvince +0x354. See reversing/findings/FINDINGS-seaair.md, section 4.",
+     "source": "reversing/findings/FINDINGS-seaair.md"
     },
     {
      "offset": "0x358",
@@ -88676,6 +88729,43 @@
      "source": "reversing/findings/FINDINGS-moving.md"
     }
    ]
+  },
+  {
+   "name": "CRankChange",
+   "vftable_rva": "0x11C9EB0",
+   "size": "0x18",
+   "comment": "A `rank = N` line of a leader's history: built only by CLeaderHistory::LoadEntry, 0x18 bytes. See reversing/findings/FINDINGS-leaders.md, section 3.",
+   "source": "reversing/findings/FINDINGS-leaders.md",
+   "fields": [
+    {
+     "offset": "0x14",
+     "name": "previous_rank",
+     "type": "int",
+     "comment": "The leader's rank before Apply wrote this one, kept for the undo; runtime scratch, never saved. See reversing/findings/FINDINGS-leaders.md, section 3.",
+     "source": "reversing/findings/FINDINGS-leaders.md"
+    },
+    {
+     "offset": "0x10",
+     "name": "rank",
+     "type": "int",
+     "comment": "The rank the line names - atoi of its value - and what CRankChange::SaveContents writes back as `rank = `. See reversing/findings/FINDINGS-leaders.md, section 3.",
+     "source": "reversing/findings/FINDINGS-leaders.md"
+    },
+    {
+     "offset": "0xC",
+     "name": "leader",
+     "type": "CLeader*",
+     "comment": "The leader the line is about; CRankChange::Apply writes his rank. See reversing/findings/FINDINGS-leaders.md, section 3.",
+     "source": "reversing/findings/FINDINGS-leaders.md"
+    },
+    {
+     "offset": "0x8",
+     "name": "date",
+     "type": "int",
+     "comment": "The entry's date, in the engine's hours - inferred from RunCountryDailyPass comparing it with today, the CHistoryEntry base's. See reversing/findings/FINDINGS-leaders.md, section 3.",
+     "source": "reversing/findings/FINDINGS-leaders.md"
+    }
+   ]
   }
  ],
  "equates": [
@@ -88716,6 +88806,9 @@
   }
  ],
  "vftable_slots": {
+  "CCgmResetCurrentStageCommand": {
+   "6": "Execute"
+  },
   "CAIInvasion": {
    "63": "AddUnit",
    "64": "RemoveUnit",
