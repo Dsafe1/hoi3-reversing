@@ -317,6 +317,20 @@ Their Finest Hour's `tfh/common/defines.lua`, `country` block:
 `prince_of_terror` 0.15 and `undistinguished_suit` 0.05, and event modifiers. **0.3 is +0.300 points of
 popularity a month.** There is no term for the press laws, for war, or for anything daily.
 
+**`drift_speed` is not a term of this drift**, although its text is "Tendency to drift due to internal
+factors" (`MODIFIER_DRIFT_SPEED`) and this drift's change is what the pie calls "Internal Factors"
+(`POL_PARTY_POP_FACTORS`, B.4). Modifier 36 has **one reader in the whole image**,
+`CAlignment::GetIdeologyTerm` (rva `0xC3B10`), where it scales the **alignment** drift's ideology weight
+by (1 + `DRIFT_SPEED`) - the pull towards the faction of the country's own ideology group
+(`FINDINGS-alignment.md` 1.6, 1.8; on the diplomacy screen, `FACTION_DRIFT_IDEOLOGY` "... due to
+ideological similarity"). Found by `fieldchain.py --holder 0xDA8 --index 36 --stride 8`, at the default
+window and at `0x200`; the positive control is the same sweep for index 69, `RULING_PARTY_SUPPORT`, which
+finds exactly one reader, at rva `0xF6EF2` inside this function. No Lua of Their Finest Hour or BlackICE
+reads `_MODIFIER_DRIFT_SPEED_`, and that is the only other way in: `CModifier::GetValue` (rva `0x179E0`)
+has **no direct caller** - `findRefs.py --callers`, whose control finds this function's one caller at
+`0x4DCD3E` - and its one reference is its Lua registration (`0x8FAC08`). So the press laws, `ideological_crusader`, `flamboyant_tough_guy`, `apologetic_clerk` and the
+static `neutrality` modifier move a country's alignment marker and **not** its party popularity.
+
 Every writer of a party figure - from a displacement sweep of `.text` for
 `+0x10BC`/`+0x10C4`/`+0x10D4`/`+0x10F4`/`+0x10FC`/`+0x110C`/`+0x111C` and the callers of the setter and
 the normalisers, the positive control being that it finds the effects and triggers already recorded on
