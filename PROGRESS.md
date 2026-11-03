@@ -109,7 +109,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CAIStrategy` | `CPersistent` |  | 58 + 4 lua | 11/22 | 24 | CAIStrategy.hpp | 324 | read |  |
 | `CAISubscriber` | `CReferenceObject` |  |  |  |  |  |  | RTTI |  |
 | `CAITechMinister` | `CAIAgent` | 0x80 | 3 + 3 lua |  | 9 |  | 107 | part |  |
-| `CAIUnit` | `CAIAgent` |  | 105 |  | 45 |  | 99 | read |  |
+| `CAIUnit` | `CAIAgent` |  | 105 |  | 46 |  | 99 | read |  |
 | `CActiveMission` | `CPersistent` |  | 6 | 4/5 | 1 | CActiveMission.hpp | 108 | read |  |
 | `CAddPlayer` | `CCommand` |  |  |  | 1 |  | 1 | keys |  |
 | `CAddTraitEntry` | `CLeaderHistoryEntry` |  |  |  | 2 |  |  | RTTI |  |
@@ -308,7 +308,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CTraitGainTracker` | `CPersistent` |  | 4 |  | 6 | CTrait.hpp | 24,137 | keys |  |
 | `CTransportSuppliesOrder` | `CAirOrder` |  | 2 | 2/2 | 9 |  |  | placed |  |
 | `CUndeclaredWar` | `CPersistent` |  | 9 |  | 3 | CWar.hpp | 1 | read | **read**: the save's record of a war nobody declared |
-| `CUnit` | `PAVCSubUnit::__CList` `CSelectable` `CReferenceObject` |  | 106 + 1 lua |  | 109 | CUnit.hpp |  | read |  |
+| `CUnit` | `PAVCSubUnit::__CList` `CSelectable` `CReferenceObject` |  | 106 + 1 lua |  | 110 | CUnit.hpp |  | read |  |
 | `CUnitDeployment` | `CDeployment` |  |  | 3/4 | 4 |  | 49 | placed |  |
 | `CUnitPlan` | `CPersistent` | 0x90 | 15 | 10/16 | 13 |  | 8,827 | read | **read**: a battle plan as the save keeps it |
 | `CVariables` | `_0A::anon::PAUCVariable::__CTernary` `CPersistent` |  | 1 |  | 3 | CFlags.hpp | 216 | part |  |

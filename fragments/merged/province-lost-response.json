@@ -1,0 +1,80 @@
+{
+  "agent": "session 2026-11-03, against OpenHOI3's China",
+  "question": "What CAIUnit slot 32, the other caller of CAIUnit_UnitMayLeave, does with a province lost",
+  "source": "reversing/findings/FINDINGS-moving.md",
+  "addresses": [
+    {
+      "rva": "0x4B0E60",
+      "kind": "function",
+      "name": "CAIUnit::OnProvinceControllerChanged",
+      "signature": "void __thiscall OnProvinceControllerChanged(CAIUnit* this, CCountry* oldController, CMapProvince* province)",
+      "no_signature": null,
+      "confidence": "confirmed",
+      "comment": "**CAIUnit slot 32: the agent told that a province has changed controller** - the CAISubscriber channel's call, whose caller is Province_SetController. VA 0x8B0E60 to the `ret 8` at 0x8B1473. **It answers only a province its own country lost** (oldController +0xCA8 against the agent's country's id, +0x38), **beside its theatre** - some edge not of kind 3 to a land, simulated province whose theatre id pair (+0x380/+0x384) is the agent's (+0x68/+0x6C) - **in a real area of 3 provinces or fewer** (+0x2B4, slot 0, +0x2C). Then: enemy = the brigades (+0x40) of the land units (slot 15) in the area's provinces of countries at war with it (+0xE28[owner]->+0x20), the rebels on either side, or under an undeclared war covering the province; ours = the brigades of the agent's land units (+0x11C) bound for or standing in the area or beside it (CMapProvince_HasEdgeIntoArea), each listed. **need = 2 x enemy - ours**; while it is above 0 the best of the agent's land units is sent: one CAIUnit_UnitMayLeave(this, unit, 0, 0, 1) allows, that slot 86 (IsUnitReservedForTransport) does not reserve, not listed, at a mean strength (CUnit::GetMeanStrengthShare) of at least g_AiAirMissionWeatherCap (330), with a speed (definition +0x108 / 1000) above 0; score = map distance to the province / speed, x10 with army_role (+0x2FC) 0, x max(10 - CAIUnit_CountIdleDivisionsBesideWarCandidate(this, unit, list), 1) - passed over with a count under 1 - and x2 in a battle (+0x11C); the lowest under 10,000,000 that CMapProvince::CanUnitReach(province, unit, 0, 0) and CAIUnit_UnitMayLeave(this, unit, 0, 1, 1) both pass. It is listed, need loses its brigades, and CEU3AI::MoveUnit(unit, province, 0, 0, 0, 0) - the plain way. None: done. **It never sends a unit defending a battle**: both may-leave calls pass notInBattleSide. The name is ours. See reversing/findings/FINDINGS-moving.md, section A.4e.",
+      "evidence": "vtable.py --holding 0x8B0E60: CAIUnit slot 32 only. VA 0x8B0E7E-0x8B0EA1: [ebp+8]->+0xCA8 against [this+0x38], `jne` to the epilogue. VA 0x8B0EF0-0x8B0FC6: the edge walk, kind 3 skipped, +0x22 and +0x13D, then [eax+0x380]/[eax+0x384] against [this+0x68]/[this+0x6C]. VA 0x8B0FF8-0x8B1019: the area's slot 0 and `cmp [eax+0x2c],3; jg` to the epilogue. VA 0x8B1036-0x8B10DD: the enemy sum of +0x40. VA 0x8B1132-0x8B11BF: ours, CUnit_GetPendingDestinationProvince or +0x130, the area compared or `call 0x4a6b00`. VA 0x8B11C7: `lea eax,[ecx+ecx]; sub eax,[esp+0x18]`. VA 0x8B11DE-0x8B13AA: the candidate loop, the floats 10000000.0 (0x160A7CC), 1000.0 (0x160A300), 10.0 (0x160A340), 2.0 (0x160A360), `mov ecx,0xa; sub ecx,eax` clamped at 1. VA 0x8B13CD-0x8B13EA: need less the unit's +0x40, MoveUnit with four zeros. What would show it wrong: oldController being the new one - Province_SetController passes the old (its record), and a country losing a province is the only one with a reason to answer.",
+      "source": "reversing/findings/FINDINGS-moving.md"
+    },
+    {
+      "rva": "0x1C6F40",
+      "kind": "function",
+      "name": "CUnit::GetMeanStrengthShare",
+      "signature": "int* __thiscall GetMeanStrengthShare(CUnit* this, int* out)",
+      "no_signature": null,
+      "confidence": "confirmed",
+      "comment": "CUnit slot 25, the same body in CArmy, CNavy and CAir: the mean over the unit's sub-units (+0x38) of strength (CSubUnit +0x5C) x 1000 / slot 12 (GetMaxStrength), -1 for one whose maximum is 0, each a 64-bit division where the product would overflow; the sum x 1000 / (count +0x40 x 1000), into *out, which it answers. In thousandths. A unit with no sub-units leaves 0. CAIUnit::OnProvinceControllerChanged holds a unit under 330 back. The name is ours. See reversing/findings/FINDINGS-moving.md, section A.4e.",
+      "evidence": "VA 0x5C6F40-0x5C7005 (`ret 4`): [edi] = 0, the +0x38 list walked, `call [eax+0x30]` (slot 12) with out and two zeros, `or eax,-1` where it answers 0, `imul eax,eax,0x3e8; idiv edi` or the 64-bit pair 0xB99AF0/0xB99980 past `cmp ecx,0x39580d`, `add [ecx],eax`; then +0x40 x 0x3E8 as divisor of [edi] x 1000. vtable.py CArmy CNavy CAir --all: slot 25 0x5C6F40 in all three. What would show it wrong: slot 12 not being GetMaxStrength - the record names it so on CSubUnit and CRegiment.",
+      "source": "reversing/findings/FINDINGS-moving.md"
+    },
+    {
+      "rva": "0x4BEC70",
+      "kind": "function",
+      "name": "CAIUnit_UnitMayLeave",
+      "signature": "bool __stdcall CAIUnit_UnitMayLeave(CAIUnit* agent, CArmy* unit, CList* exclude, bool strict, bool notInBattleSide)",
+      "no_signature": null,
+      "comment": "Whether the AI may take a unit away from where it stands. False when it is retreating (+0x158). In combat (+0x11C > 0): false when it is landing from the sea (CUnit::IsLandingFromSea) with progress below 1000; and for each of its combats (+0x114), past slot 8 - ReturnFalse in all three kinds - false where slot 12 answers false, which is only CNavalCombat::MayLeave in a sea battle's first four hours, the land and air battles holding ReturnTrue there; and false where notInBattleSide and the unit is on the combat's defender's (+0x14) unit list (+0x40). **So a land battle holds a unit only through notInBattleSide, and only one it defends.** Then over the unit's province's edges not of kind 3, to provinces with their +0x22 and +0x13D bytes set whose controller (+0x334) is the agent's country's enemy (CCountry::IsEnemy): enemies = their land units (slot 15) of a country at war with it, incoming = their land units of a country it may operate in (CCountry::CanOperateIn) whose destination (CUnit::GetMovementDestinationProvince) is the unit's province. True where !strict and incoming <= 0; otherwise k = CAIUnit_CountIdleDivisionsBesideWarCandidate(agent, unit, exclude): false where incoming > 0 and k < 1, false where strict and k - enemies < 1, else true. `ret 0x14`. Seven callers, with (exclude, strict, notInBattleSide): CAIUnit::OnProvinceControllerChanged (slot 32) twice, (0, 0, 1) and (0, 1, 1); CAIUnit_PickDivisionsToGive (list, 0, 1); CAIUnit_MayShipUnitToArea (0, 1, 1), after its own IsHoldingGround and retreat tests; CAIUnit_FillLinePositions twice - the send to a position and the pull - (0, the agent's unit's oob_level != 0, 0); CAIUnit_FillGarrisons (0, 1, 0), after its own IsHoldingGround and retreat tests. The name is ours. See reversing/findings/FINDINGS-moving.md, section A.4e.",
+      "confidence": "confirmed",
+      "source": "reversing/findings/FINDINGS-moving.md",
+      "revises": "The two calls at VA 0x8B1226 and 0x8B1397 were put in RebuildFocusOwnerAreas, which ends at 0x8B0E52; they are in CAIUnit slot 32, now read.",
+      "evidence": "RebuildFocusOwnerAreas' record gives its extent as 0x4B0D20 to the bare `ret` at 0x4B0E52; the next prologue after the padding is VA 0x8B0E60, CAIUnit slot 32 (vtable.py --holding 0x8B0E60), whose `ret 8` is at 0x8B1473 and which holds both calls. What would show it wrong: a second function between 0x8B0E60 and 0x8B1226 - there is no other int3-then-prologue in the range."
+    },
+    {
+      "rva": "0x4BF0E0",
+      "kind": "function",
+      "name": "CAIUnit_CountIdleDivisionsBesideWarCandidate",
+      "signature": "int __stdcall CAIUnit_CountIdleDivisionsBesideWarCandidate(CAIUnit* agent, CArmy* unit, CList* exclude)",
+      "no_signature": null,
+      "comment": "1000 unless some edge of the unit's province (+0x130 -> +0xD4 -> +0x90, 0x14 a record), not of kind 3, reaches a province with its +0x22 and +0x13D bytes set whose controller (+0x334/+0x338) the agent's country's strategy (+0x48C) accepts as a war candidate (CAIStrategy::IsWarCandidate); then the number of the other units in the unit's province (+0x2B8), **whoever's they are**, at oob_level 4 - divisions - with no movement destination (+0x2CC < 1) and no path left (+0x140 < 1), and not on the exclude list. `ret 0xC`. Callers: CAIUnit::OnProvinceControllerChanged (slot 32), CAIUnit_UnitMayLeave and CAIUnit_PickDivisionsToGive. The name is ours. See reversing/findings/FINDINGS-moving.md, section A.4e.",
+      "confidence": "confirmed",
+      "source": "reversing/findings/FINDINGS-moving.md",
+      "revises": "The caller at VA 0x8B130D is CAIUnit slot 32, not RebuildFocusOwnerAreas.",
+      "evidence": "As for CAIUnit_UnitMayLeave's: the call at 0x8B130D lies between slot 32's prologue at 0x8B0E60 and its `ret 8` at 0x8B1473."
+    },
+    {
+      "rva": "0x1715240",
+      "kind": "global",
+      "name": "g_AiAirMissionWeatherCap",
+      "signature": null,
+      "no_signature": "A global int, not a function.",
+      "comment": "**330, in thousandths.** The ceiling on `CWeather::AirCombatEffect` above which the AI will not fly: five readers in .text, four of them `cmp eax, [0x1B15240]` on that function's result, inside CAIUnit_ManageAirUnits' phase 4, 0x8CF4CF (ground attack on a battle province), 0x8CFC96 (logistical strike), 0x8CFF05 (strategic bomb / nuke) and 0x8D00AF (naval / port strike). **The fifth, 0x8B126F, is not about the weather**: it is in CAIUnit::OnProvinceControllerChanged (slot 32) and compares the unit's mean brigade strength (CUnit::GetMeanStrengthShare, slot 25) - a land unit under a third of its strength is not sent. The same 330 is reused.\n\n**It is not a define and a mod cannot move it.** findings/FINDINGS-reorganise.md recorded 'no writer in .text' and left it open as trap 8's second or third shape; it is the third. The writer is the static initialiser at 0xD11960, `mov [0x1B15240], (int)floorf(330.5f)` - the `(int)floor(N.5f)` .CRT$XCU shape, with the float literal at 0x160A6E0. The reason the earlier scan could not see it is that `image.findValue` over .text does find it - at 0xD1197C - but .text here runs to 0xD2B000, well past the 0x970000 the folder's notes assume, so the hit was in the list and read as a sixth reader.",
+      "confidence": "confirmed",
+      "source": "reversing/findings/FINDINGS-moving.md",
+      "revises": "The reader at 0x8B126F was described as a weather test; it compares a strength share.",
+      "evidence": "VA 0x8B125F-0x8B1275: `mov edx,[esi]; mov edx,[edx+0x64]` (slot 25 of the unit in esi), `lea eax,[esp+0x28]; push eax; call edx; mov eax,[eax]; cmp eax,[0x1b15240]; jl` the per-unit continue. Slot 25 of CArmy, CNavy and CAir is 0x5C6F40 (vtable.py --all), which sums CSubUnit +0x5C x 1000 / slot 12 (GetMaxStrength) over +0x38 and divides by +0x40 x 1000 / 1000. What would show it wrong: slot 25 differing in a land unit's table - it is the same body in all three."
+    }
+  ],
+  "vftable_slots": {
+    "CAIUnit": {
+      "32": {
+        "name": "OnProvinceControllerChanged",
+        "signature": "void __thiscall OnProvinceControllerChanged(CAIUnit* this, CCountry* oldController, CMapProvince* province)"
+      }
+    },
+    "CUnit": {
+      "25": {
+        "name": "GetMeanStrengthShare",
+        "signature": "int* __thiscall GetMeanStrengthShare(CUnit* this, int* out)"
+      }
+    }
+  },
+  "slots_noted": "CArmy, CNavy and CAir hold CUnit's own slot 25 body unchanged, so the record on CUnit names it in all three tables."
+}

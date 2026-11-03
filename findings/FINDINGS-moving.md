@@ -103,7 +103,7 @@ Then the tick calls `0x4D7F80`, `0x4CC690` (only while `+0x10C` is non-empty) an
 3. `CountUnitsAtPositions` (`0x4D9E30`): committed divisions, plus allies' units where they hold a focus area while at war.
 4. **The remainder.** If nothing was given out: every position wants 1, or 2 where the province's units have a `CUnit +0xC0` above 0. Otherwise, while the carry > 0.1: +1 to the position with the least want (+100 to its key if want + 1 > cap; first of equals).
 5. **Supply cut.** Where want > trunc(3.5 x cap) and the province's supplies are nought, or its supply need (`+0x24C`) is at least 5x its supplies (`+0x164`), want is cut to that; the excess goes to the other positions under their own 3.5 x cap - score >= 1 first in list order, then the rest in equal chunks.
-6. **Each committed division** (not a garrison, not airborne-with-transports), with d = where it is heading or standing: heading for a friendly non-depot province while in a battle, it is re-ordered to its next step. It **stays** if d is a position that wants it (in a target area only while d is beside a hostile-route province). Otherwise it goes to the reachable position (have < cap) with the lowest key: key = have/want x 100, plus the excess over 1 again; at war, key = distance x (have/want + 0.1); x0.66 for a land battle there, x0.66 for a depot, x0.66 beside a hostile-route province; -50 x its defensive terrain modifier there (slot 89, `GetUnitTerrainModifier`, section B); with the allied-soil budget spent, moves from the capital's area onto a friend's soil are skipped. With no position and d not a position: a second-ring province (`+0xA0`) chosen by an MT19937 seeded with the unit's id. **Incomplete - see A.4b**: a division bound for enemy land is passed over first, and the re-ordered one goes on.
+6. **Each committed division** (not a garrison, not airborne-with-transports), with d = where it is heading or standing: heading for a friendly non-depot province while in a battle, it is re-ordered to its next step. It **stays** if d is a position that wants it (want above nought and standing within cap - see A.4e), and otherwise moves only where `CAIUnit_UnitMayLeave` allows (A.4e) (in a target area only while d is beside a hostile-route province). Otherwise it goes to the reachable position (have < cap) with the lowest key: key = have/want x 100, plus the excess over 1 again; at war, key = distance x (have/want + 0.1); x0.66 for a land battle there, x0.66 for a depot, x0.66 beside a hostile-route province; -50 x its defensive terrain modifier there (slot 89, `GetUnitTerrainModifier`, section B); with the allied-soil budget spent, moves from the capital's area onto a friend's soil are skipped. With no position and d not a position: a second-ring province (`+0xA0`) chosen by an MT19937 seeded with the unit's id. **Incomplete - see A.4b**: a division bound for enemy land is passed over first, and the re-ordered one goes on.
 7. **Each position still short** pulls the best division by squared map distance x 16 + dig-in/100 + attack delay/1000 - 100 x terrain modifier here - x0.25 if its own position wants none, else +100 x its terrain modifier where it is bound. At war at plan stance < 2, a division not over-filling its own position only moves within two steps. It moves only from a position fuller than the target ((standing - k)/n > (have + not-depot)/want). Finding none: `CAIUnit_SendReservesToPosition` (`0x4CA9C0`) sends fit held-back divisions (strength >= 0.75, organisation >= 0.9, off the front, within distance 80), and only at war, to a position beside a hostile route or under a land attack whose attacker share is > 0.5; it clears `ai_held_back`. **Incomplete - see A.4b** for the candidates the pull may not take.
 
 ### A.4b The line's attackers and the pull's candidates (2026-10-19, a second reading)
@@ -217,6 +217,83 @@ province it stands in - is `d`:
 **Positive control**: built so, with the supply gate of `CPathFind` (A.4c's base) and the AI's pass run once an hour,
 OpenHOI3's Italian divisions stopped changing places, and the agents check moves 774 of 908 divisions or leaves them as
 the 4 January save does, against 767 before. *Hardcoded*: every figure here; nothing is a define.
+
+### A.4e Does the line order a defender away? `CAIUnit_UnitMayLeave` (2026-11-03, a fifth reading)
+
+Read off the listing on 2026-11-03 for OpenHOI3's China, which loses its army to Japan far faster than the original's:
+113 of its 395 retreats to the end of the war were the AI ordering a division out of a battle it was defending, not a
+battle lost. The question was whether the original's AI does that at all.
+
+**It does, but not freely.** Step 6's send to another position (VA `0x8C9DD5`-`0x8C9DFA`) and the pull's choice
+(VA `0x8CA890`-`0x8CA8AD`) both ask `CAIUnit_UnitMayLeave` (`0x4BEC70`) first, and a refusal is the per-unit continue.
+Neither asks it about the battle side:
+
+```
+strict = agent->unit (+0x64)->oob_level (+0x1F4) != 0        ; every agent below a theatre
+if (!CAIUnit_UnitMayLeave(agent, unit, 0, strict, notInBattleSide = 0)) continue
+```
+
+**`UnitMayLeave`, whole:**
+
+1. retreating (`+0x158`): no;
+2. in a battle: landing from the sea with progress under 1000, no; then each battle - slot 8 is `ReturnFalse` in all
+   three kinds, slot 12 `ReturnTrue` in a land or air battle and `CNavalCombat::MayLeave` (`duration >= 4`) at sea -
+   so a **sea battle's first four hours** hold a unit, and with `notInBattleSide` a battle it **defends** holds it
+   (the unit found on `CCombat::defender` `+0x14` -> `+0x40`). A land battle holds nothing else;
+3. **the border**: over the unit's province's edges not of kind 3, to land provinces whose controller is the agent's
+   country's enemy: **enemies** = their land units of a country at war with it; **incoming** = their land units of a
+   country it may operate in, bound for the unit's province;
+4. not strict and incoming 0: yes. Otherwise **k** = `CAIUnit_CountIdleDivisionsBesideWarCandidate`: no where incoming
+   > 0 and k < 1; no where strict and **k - enemies < 1**; else yes.
+
+**k**, read whole the same day: 1000 where no neighbour (edges not of kind 3, land) is held by a war candidate of the
+agent's country's strategy; otherwise **the other divisions in the unit's province, whoever's, with no destination and no
+path**, less those on the exclude list.
+
+So **a division of an agent below a theatre, beside enemy land with enemy units in it, is not sent elsewhere by the line
+unless more idle divisions stay in its province than there are enemy units across the border** - a lone defender facing
+an attacker is held. A theatre's own divisions are held only where friendly units out in the enemy's land are coming
+back to it.
+
+**And step 6's stay was read wrong.** The record had "it stays when d is a position that wants it". The bytes
+(VA `0x8C9CDA`-`0x8C9CFD`) keep it where the position's want (`+0xC`) is above nought and its **standing** (`+0x14`) is
+within its **cap** (`+0x18`) - not where its have is within its want.
+
+**The other callers**, for the arguments (exclude, strict, notInBattleSide): `CAIUnit::OnProvinceControllerChanged`
+(slot 32, below) twice, (0, 0, 1) and (0, 1, 1); `CAIUnit_PickDivisionsToGive` (the candidates, 0, 1), whose choosing
+loop then asks `CountIdleDivisionsBesideWarCandidate` again with the divisions picked so far excluded, passes over a
+count under 1 and scores by min(count / 100, 1); `CAIUnit_MayShipUnitToArea` (0, 1, 1), after refusing a unit whose
+destination - or, with none, the province it stands in - is enemy-held, one holding ground and one retreating;
+`CAIUnit_FillGarrisons` (0, 1, 0) after its own `IsHoldingGround` and retreat tests. The record's caller list had "the
+land manager", which has no call, and put slot 32's two calls in `RebuildFocusOwnerAreas`, which ends at `0x8B0E52`.
+
+**`MayShipUnitToArea`, read again for this**: its landlocked-or-portless test is of the area the unit is bound for or
+stands in (VA `0x8C4236`-`0x8C4279`, esi being that province's area), and only the reach that follows aims at the area
+asked about.
+
+**Slot 32, `CAIUnit::OnProvinceControllerChanged` (VA `0x8B0E60`-`0x8B1473`), read whole the same day.** The agent is
+told of every change of controller, and answers only a province **its own country lost**, **beside its theatre**, **in an
+area of three provinces or fewer**. It counts the enemy's brigades in that area and its own land units' brigades bound
+for or standing in it or beside it, and while twice the enemy's less its own is above nought sends the best of its land
+units in by the plain way: one `UnitMayLeave` allows without strictness, not reserved for transport, at a mean strength of
+a third or more (`CUnit::GetMeanStrengthShare`, slot 25, against the 330 of `g_AiAirMissionWeatherCap` - the one reader
+of it that is not about the weather), able to move; scored by distance over speed, x10 for army role 0, x max(10 -
+the idle divisions beside it, 1) - none at all and it is passed over - and x2 in a battle; the lowest that can reach it
+and that `UnitMayLeave` allows strictly. **Both may-leave calls hold a unit defending a battle**, so this is a
+counter-attack into a small area and never a defender taken away.
+
+**What would show this wrong**: an indirect call to `0x8BEC70` (none known; `findRefs.py --callers` finds the seven
+direct ones), or `0x8CA2B7` not being the per-unit continue (A.4b). **Positive control**: the same reading of the
+pull's call, which A.4d had already recorded by its address, gives the same five pushes.
+
+**The rear holds a defender too.** `CAIUnit_PlaceReserves` does not ask `UnitMayLeave`, but its own first tests (VA
+`0x8CBA93`-`0x8CBACE`) pass over a held-back division retreating or holding ground (`CUnit::IsHoldingGround`), before
+the blocking order and the garrison. The record had "not in a battle"; it is holding ground. In OpenHOI3, without it,
+the rear was the largest single mover of China's defenders out of their battles in 1937 - 80 of 194 such moves, the line
+75 (most of them the A.4b re-order to the next step, which is the original's), the fallback from losing defences 26 and
+the pull 11.
+
+*Hardcoded*: every figure here - the 1000, the four hours of a sea battle, kind 3, the oob levels.
 
 ### A.5 Garrisons placed (`CAIUnit_FillGarrisons`, `0x4CACB0`) and the rear (`CAIUnit_PlaceReserves`, `0x4CB840`)
 
