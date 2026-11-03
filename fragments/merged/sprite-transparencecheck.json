@@ -1,0 +1,129 @@
+{
+ "agent": "sprite-transparencecheck - read in the main session, 2026-11-03",
+ "question": "What a spriteType's transparencecheck does, for OpenHOI3's top bar, where the speed indicator lies over the speed-up button",
+ "source": "reversing/findings/FINDINGS-transparencecheck.md",
+ "structs": [
+  {
+   "name": "CSpriteType",
+   "evidence": "CSpriteType::LoadKey (rva 0x6B7A00) writes each of these offsets from its own `spriteType` keys, and IsTransparentAt (0x6B80E0) reads them back; RTTI names the class and its base C2dObjectType. No size and no table are declared: neither was read, and the RTTI export gives the class no table."
+  }
+ ],
+ "addresses": [
+  {
+   "rva": "0x6B7A00",
+   "kind": "function",
+   "name": "CSpriteType::LoadKey",
+   "signature": "void __thiscall CSpriteType::LoadKey(CSpriteType* this, CParseContext* parse, SaveToken key)",
+   "no_signature": null,
+   "comment": "**The keys of a `spriteType`**, 7 cases: `noOfFrames` (token 0x1B) to +0x94 through a sscanf of the parser's text, `textureFile` (0x24) to +0x78 and `effectFile` (0x59) to +0x5C through the string reader 0x67AFB0, `defaultAnimationTime` (0x41) through 0x67B640 to +0x9C, `transparencecheck` (0x13A) to the bool +0x170 through 0x67B410 and then +0x171 = 1, `clicksound` (0x143) to +0x17C, `allwaystransparent` (0x166) to the bool +0x178. Anything else goes to 0x6F9640. Slot 4 of the table at rva 0x12012F8, which the RTTI export does not name; CMaskedSpriteType::LoadKey (0x44C030) forwards its default here. See reversing/findings/FINDINGS-transparencecheck.md, section 1.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled whole, 0xAB7A00..0xAB7AEF, ret 8 on every exit. The case values were looked up in ghidra/saveTokens.json. Called from 0x84C04A, CMaskedSpriteType::LoadKey's default case. The class is inferred from the table, which holds 0xAB80E0 and 0xAB8310 and differs from CMaskedSpriteType's (0x15E1D44, RTTI-named, base CSpriteType) only in the slots the masked type overrides; a different class for the table would show it wrong."
+  },
+  {
+   "rva": "0x6B7B00",
+   "kind": "function",
+   "name": "CSpriteType::LoadResources",
+   "signature": "void __thiscall CSpriteType::LoadResources(CSpriteType* this, void* graphics)",
+   "no_signature": null,
+   "comment": "Slot 6 of the CSpriteType table: builds the sprite's texture and effect out of +0x78 and +0x5C. Read only across its middle: the loaded texture's level description is asked (IDirect3DTexture9 slot 17) and **where it is DXT1 or DXT5 and `transparencecheck` (+0x170) is set it logs `Texture <file> have forbidden compression, have you tried DXT3?` (spritetype.cpp, line 0x116) and clears +0x170** - so such a sprite is tested nowhere. The argument is used as a base 0x6BCFC below what it reaches, which is what the CGraphics-side registries are. Named after CWeatherBillboardType::LoadResources, also slot 6. See reversing/findings/FINDINGS-transparencecheck.md, section 3.",
+   "confidence": "inferred",
+   "evidence": "Read 0xAB7DC1..0xAB7EAC: the format compare against 0x31545844 and 0x35545844, the test of [edi+0x170], the two strings and the store of 0 to [edi+0x170]; ret 4 at 0xAB7F17. Likely, not confirmed, for the name and the argument's type: the rest of the body was not read. A second argument, or a caller that passes something other than the graphics object, would show the signature wrong."
+  },
+  {
+   "rva": "0x6B80E0",
+   "kind": "function",
+   "name": "CSpriteType::IsTransparentAt",
+   "signature": "bool __thiscall CSpriteType::IsTransparentAt(CSpriteType* this, short* point, ushort frame)",
+   "no_signature": null,
+   "comment": "**Slot 18: whether the sprite is see-through at a point of its texture**, true for see-through. True where `allwaystransparent` (+0x178) is set or there is no texture (+0x168); false where `transparencecheck` (+0x170) is clear. Otherwise the frame is held to 1..noOfFrames (+0x94, a nought taken as 1), the top level locked read-only, and the pixel's alpha read: for DXT3 the 4-bit nibble of its block (the block row from frame * width / noOfFrames and y/4 - the frame scales the row and not the column, kept as read); for DXT1 and DXT5 false, the texture left locked; for anything else the byte +3 of the four-byte pixel at y * pitch + 4 * ((frame - 1) * W / noOfFrames + x), W being +0xA4. True where the alpha is nought. point is {short x; short y} in the texture's pixels from the frame's corner. Who calls it was not read. See reversing/findings/FINDINGS-transparencecheck.md, section 4.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled whole, 0xAB80E0..0xAB826A, ret 8 on every exit; the texture calls are through [tex]+0x44 (GetLevelDesc), +0x4C (LockRect, flags 0x10 = D3DLOCK_READONLY) and +0x50 (UnlockRect). Slot 18 of the tables at rva 0x12012F8 and 0x1205D00, both unnamed by RTTI. The class is the table's, as for CSpriteType::LoadKey; +0xA4 as the texture's width is inferred from the arithmetic."
+  },
+  {
+   "rva": "0x6B8310",
+   "kind": "function",
+   "name": "CSpriteType::SetTransparenceCheckDefault",
+   "signature": "void __thiscall CSpriteType::SetTransparenceCheckDefault(CSpriteType* this, bool check)",
+   "no_signature": null,
+   "comment": "Slot 22: writes the argument to `transparencecheck` (+0x170) only where +0x171 is nought - where the file did not give the key - so the file's word wins over a caller's default. No direct caller; who calls it through the table was not read. In CSpriteType's table (rva 0x12012F8), CMaskedSpriteType's (0x11E1D44) and the unnamed one at 0x1205D00. See reversing/findings/FINDINGS-transparencecheck.md, section 2.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled whole, 0xAB8310..0xAB8326, ret 4. findRefs --callers finds no direct call. vtable.py --holding puts it at CMaskedSpriteType slot 22, inherited there: the masked type's LoadKey forwards to CSpriteType's, and the same body sits at slot 22 of the two unnamed sprite tables. A table where it sits that is not a sprite type's would show the class wrong."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CSpriteType",
+   "offset": "0x5C",
+   "name": "effect_file",
+   "type": "Hoi3CString",
+   "comment": "`effectFile` from the .gfx file. Written by CSpriteType::LoadKey's token 0x59 case through the string reader 0x67AFB0.",
+   "evidence": "The store in LoadKey's case 0x59 at 0xAB7A75..0xAB7A7E: add esi, 0x5C; push esi; call 0xA7AFB0. The 0x1C bytes to +0x78 are a Hoi3CString's size. A reader other than the string reader would show the type wrong."
+  },
+  {
+   "struct": "CSpriteType",
+   "offset": "0x78",
+   "name": "texture_file",
+   "type": "Hoi3CString",
+   "comment": "`textureFile` from the .gfx file. Written by CSpriteType::LoadKey's token 0x24 case through the string reader 0x67AFB0.",
+   "evidence": "The store in LoadKey's case 0x24 at 0xAB7A32..0xAB7A3B: add esi, 0x78; push esi; call 0xA7AFB0, and +0x94 starts 0x1C bytes later. Shown wrong by a non-string reader there."
+  },
+  {
+   "struct": "CSpriteType",
+   "offset": "0x94",
+   "name": "frame_count",
+   "type": "int",
+   "comment": "`noOfFrames`. Written by CSpriteType::LoadKey's token 0x1B case through sscanf; CSpriteType::IsTransparentAt holds the frame it is asked about to 1..this and divides the texture's width by it.",
+   "evidence": "LoadKey's case 0x1B at 0xAB7A45 passes esi+0x94 to the sscanf at 0xAB7A5B; IsTransparentAt clamps the frame against [esi+0x94] at 0xAB8128 and divides by it at 0xAB81B0 and 0xAB8220. Shown wrong if the sscanf's format were not an integer's."
+  },
+  {
+   "struct": "CSpriteType",
+   "offset": "0x168",
+   "name": "texture",
+   "type": "void*",
+   "comment": "The loaded texture, an IDirect3DTexture9: CSpriteType::IsTransparentAt asks its level description and locks its top level through it, and answers see-through where it is null.",
+   "evidence": "IsTransparentAt answers true where [esi+0x168] is nought (0xAB80FB) and calls [[esi+0x168]]+0x4C, +0x44 and +0x50 - LockRect, GetLevelDesc and UnlockRect of an IDirect3DTexture9 - with D3DLOCK_READONLY. void* because the D3D type is not declared in the record."
+  },
+  {
+   "struct": "CSpriteType",
+   "offset": "0x170",
+   "name": "transparence_check",
+   "type": "bool",
+   "comment": "`transparencecheck`: test the pixel's alpha for a click. Written by CSpriteType::LoadKey (token 0x13A), by SetTransparenceCheckDefault where the file was silent, and cleared by LoadResources for a DXT1 or DXT5 texture. Read by IsTransparentAt.",
+   "evidence": "LoadKey's case 0x13A at 0xAB7AD7 passes esi+0x170 to the bool reader 0xA7B410; byte compares at 0xAB8104 and 0xAB7DE6, byte stores at 0xAB831F and 0xAB7EA5. A wider read anywhere would show the type wrong."
+  },
+  {
+   "struct": "CSpriteType",
+   "offset": "0x171",
+   "name": "transparence_check_given",
+   "type": "bool",
+   "comment": "Set to 1 by CSpriteType::LoadKey with +0x170: the file gave `transparencecheck`, so SetTransparenceCheckDefault leaves it alone.",
+   "evidence": "mov byte ptr [esi+0x171], 1 at 0xAB7AE6 right after the 0x170 read, and cmp byte ptr [ecx+0x171], 0 in SetTransparenceCheckDefault at 0xAB8313. Its only two uses in the sprite code."
+  },
+  {
+   "struct": "CSpriteType",
+   "offset": "0x178",
+   "name": "always_transparent",
+   "type": "bool",
+   "comment": "`allwaystransparent`. Written by CSpriteType::LoadKey's token 0x166 case through 0x67B410; CSpriteType::IsTransparentAt answers see-through everywhere where it is set.",
+   "evidence": "LoadKey's case 0x166 at 0xAB7AAD passes esi+0x178 to the bool reader 0xA7B410; IsTransparentAt's first test is cmp byte ptr [esi+0x178], 0 at 0xAB80E9."
+  },
+  {
+   "struct": "CSpriteType",
+   "offset": "0x17C",
+   "name": "click_sound",
+   "type": "Hoi3CString",
+   "comment": "`clicksound`. Written by CSpriteType::LoadKey's token 0x143 case through the string reader 0x67AFB0. What plays it was not read.",
+   "evidence": "LoadKey's case 0x143 at 0xAB7AC1: add esi, 0x17C; push esi; call 0xA7AFB0, the same string reader as textureFile's."
+  }
+ ],
+ "vftable_slots": {
+  "CMaskedSpriteType": {
+   "22": "CSpriteType::SetTransparenceCheckDefault"
+  }
+ },
+ "frontier": [
+  "0x67B640",
+  "0x6F9640"
+ ],
+ "slots_noted": "CSpriteType's own table (rva 0x12012F8) and the sprite table at 0x1205D00 are not in the RTTI export, so only CMaskedSpriteType's slot 22 can be recorded; LoadKey, LoadResources and IsTransparentAt are in no RTTI-named table (CMaskedSpriteType overrides slots 4, 6 and 18)."
+}

@@ -25,12 +25,12 @@ how many objects a census found (taken 2026-09-20).
 
 | | classes |
 | --- | --- |
-| `read` | 136 |
+| `read` | 137 |
 | `placed` | 142 |
 | `keys` | 75 |
 | `part` | 144 |
 | `named` | 5 |
-| `RTTI` | 639 |
+| `RTTI` | 638 |
 | **all** | **1141** |
 
 ## What to read next
@@ -1265,7 +1265,7 @@ Windows, pages, sprites and the map's own drawing.
 | `CShareTechnologyDialog` | `CEU3Dialog` | 0x78 | 4 |  | 7 |  |  | part |  |
 | `CSingleUnitButtons` | `CUnitViewBaseEntry` |  |  |  | 7 |  |  | RTTI |  |
 | `CSprite` | `C2dVisibleObject` |  |  |  |  |  |  | RTTI |  |
-| `CSpriteType` | `C2dObjectType` |  |  |  |  |  |  | RTTI |  |
+| `CSpriteType` | `C2dObjectType` |  | 8 |  | 4 |  |  | read |  |
 | `CStratWarfareWindow` | `CReloadableInterface` |  |  |  | 1 |  | 1 | RTTI |  |
 | `CTextBlock` | `CPersistent` |  |  |  |  |  | 8 | RTTI |  |
 | `CTextBufferObserver` |  |  |  |  |  |  |  | RTTI |  |
