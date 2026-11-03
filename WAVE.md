@@ -17,6 +17,41 @@ truth.
 
 ---
 
+## The outliner wave - the list down the side of the in-game screen
+
+> **LANDED 2026-11-03.** Launched the same day on the maintainer's word "You can launch the wave", with three screenshots
+> of the original's outliner as the oracle, every figure in which the readings account for. Three fragments merged (114
+> address entries, 111 new; 11 structs declared, 67 struct fields; apply `failed: 0`, `struct fields: 0`); the write-up
+> is `findings/FINDINGS-outliner.md`, indexed in `CANDIDATES.md`. It explains the 30-widget leak of `FINDINGS-guilive.md`
+> and finds the province row of the file dead. For OpenHOI3's interface: the outliner is the first of the windows its files
+> declare that has no code there (`interface/outliner.gui`, window `outliner`). Nothing of it has been read: the record
+> has `CCombatMember::BuildTooltip` (`0x2A9E90`, inferred), `BuildOutlinerHeaderTooltip` (`0x2AE0D0`) and
+> `CTopBar::SyncOutliner` (`0x2CB920`, inferred, the top bar's `topbar_outlinerbutton`), and `FINDINGS-guilive.md` its
+> widgets live.
+
+**What is known before reading.** The code sits in VA `0x6A3000`-`0x6B6A00`: 121 function starts, 2 recorded. The rows
+are `COutLinerMember` and nine subclasses - `CTitleMember`, `CArmyMember`, `CNavyMember`, `CAirMember`, `CCombatMember`,
+`CNavalCombatMember`, `CAirCombatMember`, `CBombCombatMember`, `CAlliedObjectiveMember` - which override slots 0, 8 and
+12 to 16 (and 17 for the three unit rows). The file's elements: the nine view switches `outliner_view_landunits`,
+`_airunits`, `_navalunits`, `_landcombat`, `_aircombat`, `_navalcombat`, `_bombonus`, `_bombonthem`, `_ao`; the list
+`outliner_list`; the configuration window `outliner_configuration` with `outliner_configuration_entry` rows; and the row
+windows `outliner_header_entry`, `outliner_province_entry` (`occupied`, `siege`), `outliner_combat_entry`,
+`outliner_standard_entry`, `outliner_top_unit_entry` (`expand_button`, `movment`), `outliner_unit_entry` and
+`outliner_allied_objective_entry`. String references: `outliner` at VA `0x6A3588`, `outliner_configuration` `0x6A3695`,
+the view switches `0x6A3A06`-`0x6A3C66`, `outliner_list` `0x6A46C4`-`0x6A873F`, the combat entry `0x6A9B38`-`0x6B50F9`,
+the header entry `0x6ADF36`, the top unit entry `0x6AE955`-`0x6B2B53`, the allied objective entry `0x6B5706`.
+
+| reader | brief | fragment |
+| --- | --- | --- |
+| **A** | **The window and its list** (VA `0x6A3000`-`0x6A9A00`, and `CTopBar::SyncOutliner`): what builds it and where it is shown; the nine switches and the configuration window - what each shows or hides, its default, whether it is saved and where; **what the list holds and in what order** - which units, battles, provinces and objectives, grouped under which titles; when it is rebuilt (each frame, each hour, on a change); what a click, a double click and a right click on a row do (select, centre the map, open a window). | `outliner-window.json` |
+| **B** | **The unit rows** - `CArmyMember`, `CNavyMember`, `CAirMember`, the top-unit entry with its expand button and the unit entry under it: every override's slot, the text and `info_text` written (which figures, in what format), the `movment` icon's frames and what picks one, what expands and collapses, the tooltip, and what selecting one does. | `outliner-unit-rows.json` |
+| **C** | **The other rows** - `CTitleMember`, the four battle rows, `CAlliedObjectiveMember`, the province entry with `occupied` and `siege`, and the header's tooltip (`0x2AE0D0`): what each row says and shows, its tooltip, and what a click on it does. | `outliner-other-rows.json` |
+
+**The oracle**: the maintainer's eye, and a screenshot of the original's outliner with units, a battle and a besieged
+province in it, asked for before the build.
+
+---
+
 ## The start technology wave - what brings a country's technology up to date before the first screen
 
 > **LANDED 2026-11-02.** Launched the same day on the maintainer's word "continue with your suggestion". Both readers
