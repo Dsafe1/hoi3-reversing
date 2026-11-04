@@ -1,0 +1,344 @@
+{
+ "agent": "savegame wave, reader A (the load path)",
+ "question": "How the original loads a savegame, from LoadSaveFile and CGameState::LoadFromSave to the first hour of play: what is reset, how each top-level key is dispatched, the AfterLoads, what is recalculated before the first hour against a new game, the lobby and the tutorial, errors.",
+ "source": "reversing/findings/FINDINGS-savegame.md",
+ "addresses": [
+  {
+   "rva": "0x27CAE0",
+   "kind": "function",
+   "name": "LoadSaveFile",
+   "signature": "void __stdcall LoadSaveFile(CCurrentGameState* state, Hoi3CString* path)",
+   "no_signature": null,
+   "comment": "0x67CAE0..0x67CE2F, `ret 8` at 0x67CD74, with a catch funclet past it ending `ret` at 0x67CE2D (trap 3). **The second argument is the path, a std::string**: CGameSetup::Update (0x309C90) passes `save games/<name>` - `mod/<mod>/save games/<name>` while a mod is active - and the tutorial `tutorial/<file>`. The ordinary arm opens it with VirtualFile_Open (0xA6C1B0), asks the stream for its size (its slot 14), reads the whole file into a byte vector, wraps the vector in SaveStreamConstruct (0xAD0050) under a 0x114-byte Tokenizer (vftable 0x15FD1FC, 0xA69AD0) and an inline CParseContext named `UNNAMED_SESSION`, calls CGameState::LoadFromSave at 0x27CCF8 and closes the file (PHYSFS_close). **The catch arm (0x67CD77) opens the same path again and tokenizes straight off the file** (0xA6A2B0, CParseContext::CParseContext 0xA7A460) and calls LoadFromSave a second time at 0x27CE09 - a failed in-memory read retried by streaming; which exception it catches was not read. **There is no version, checksum or header test anywhere in it.** Three callers and no others: 0x30B08B (the server's load - a single-player game or a multiplayer host) and 0x30B73C (a multiplayer client loading its own matching copy), both inside CGameSetup::Update, and 0x31D933 inside CTutorialScreen::OnTutorialButtonPressed - so a savegame is loaded only from the lobby or the tutorial screen, neither of which has in_game set. A fourth way in bypasses this function: a multiplayer client parses the save it was sent from memory, calling LoadFromSave itself at 0x30BA34. **TRAP 2**: 0x67CAD0 is a separate 16-byte tail-call thunk ending `ret` at 0x67CADF and this function begins at the very next byte with no padding, so image.functionStart answers 0x67CAD0 for anything inside it. See reversing/findings/FINDINGS-session.md section 4 and reversing/findings/FINDINGS-savegame.md section A.1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-savegame.md",
+   "evidence": "Read whole on the listing (0x67CAE0..0x67CE2F) and in Ghidra's decompilation. The path type: every caller passes a std::string built from `save games/` (CGameSetup::Update, decompiled) or a string field (the tutorial), and the argument goes straight into VirtualFile_Open. The fallback arm is the bytes at 0x67CD77..0x67CE2D, reached only through the EH table (nothing jumps there). Callers: findRefs --callers 0x67CAE0 (3) and 0x67CE30 (3, one of them 0x70BA34). Wrong if the funclet is reached on success rather than failure, i.e. if it is a cleanup and not a catch.",
+   "revises": true
+  },
+  {
+   "rva": "0x27CE30",
+   "kind": "function",
+   "name": "CGameState::LoadFromSave",
+   "signature": "void __stdcall CGameState::LoadFromSave(CCurrentGameState* state, CParseContext* parse)",
+   "no_signature": null,
+   "comment": "0x67CE30..0x67CFB2, `ret 8`, with the catch arm past it out to 0x67D060 (trap 3). **The whole of loading a savegame into the game state**, in order: (1) CGameState::ResetSession(state) at 0x27CE58; (2) the history registry at [0x1A88BC0] got or made (HistoryDatabase_Construct 0x1F4880 and HistoryDatabase_SetGlobal 0x1FA950, dead once it exists) and **emptied**, HistoryDatabase_Clear (0x1F57C0) at 0x27CE98; (3) in_game_screen (+0xBE8) slot 64, which on the front end is CFrontEnd::GetApplication - a getter whose answer is thrown away; (4) ResetGlobalIdCounters (0x23A330), the rebel, unit, convoy and theatre counters back to 1; (5) **`loaded_from_save` (+0xD9C) = 1** at 0x27CEB9; (6) CGameState::SetInGameScreen with the screen read at 0x27CEB2; (7) RebuildStrategicResourceProvinces over the provinces the reset just emptied; (8) **virtual slot 3 on the state, CPersistent::Load**, which runs CGameState::LoadKey for every top-level key of the file; (9) the scenario list at [0x1A85564] got or made inline and ScenarioList_FindByName (0x5E690) asked for `scenario_name` (+0xD10), empty unless the save carried `scenario`; (10) MarkSimulatedProvinces(state, that scenario) at 0x27CF90, which sets scenario (+0xD0C) and every province's simulation switch; (11) RebuildStrategicResourceProvinces and UpdateStrategicResources (0x27CF96, 0x27CF9D). **Nothing in it replays the history files** - no call to ExecuteHistoryToDate - **and nothing tests a version.** The catch (the funclet at 0x67CFB5, entered while the file is being parsed) asks the exception for its text through its slot 1, logs `gamestate.cpp:570` on the error channel 0x10004 as `Failed to load save file ` + `File exception: ` + that text, and resumes at the epilogue 0x67CFA2 - **so steps 9 to 11 are skipped and loaded_from_save stays 1**; nothing tells the caller. **It never writes in_game (+0xDA4)** - re-confirmed 2026-10-02 by checking that none of the field's six writers falls inside 0x67CAE0..0x67CFB2. **Three callers, not two**: 0x27CCF8 and 0x27CE09 in LoadSaveFile, and 0x30BA34 in CGameSetup::Update, a multiplayer client loading the save the host sent it. See reversing/findings/FINDINGS-session.md section 4 and reversing/findings/FINDINGS-savegame.md sections A.1 and A.2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-savegame.md",
+   "evidence": "Every call in 0x67CE30..0x67CFB2 listed by a forward decode (skeleton of calls) and matched against Ghidra's decompilation; the catch arm read on the listing 0x67CFB5..0x67D060 (push 0x23A = 570, push 0x10004, the two strings, `mov eax, 0x67CFA2; ret`). findRefs --callers 0x67CE30 gives exactly 0x67CCF8, 0x67CE09 and 0x70BA34 - the record's 'two callers' was wrong by the third. Slot 64 resolved by reading CFrontEnd's vftable 0x15D458C + 0x100 = 0x6ED650. Wrong if in_game_screen during a load can be something other than a CFrontEnd (then slot 64 is another class's method).",
+   "revises": true
+  },
+  {
+   "rva": "0x27FCB0",
+   "kind": "function",
+   "name": "CGameState::LoadKey",
+   "signature": "void __thiscall CGameState::LoadKey(CGameState* this, CParseContext* parse, SaveToken key)",
+   "no_signature": null,
+   "comment": "**The dispatcher for every top-level key of a savegame** (and of a mod's gameplaysettings.txt, through CGameState_StartupResetAndLoadGameplaySettings). Slot 4 of CPersistent, this class's own. **36 keys**, read off the switch whole in Ghidra and the chained-`sub` arms checked on the listing - `definitions.py` had 31 and missed ai, convoy, theatre, strategic_warfare and sunk_ships (FINDINGS-session2.md). Where each goes: `date` -> tick (+0xBDC); `start_date` -> start_tick (+0xBE0); `unit` `leader` `rebel` `theatre` `convoy` -> the id counters g_unit_id, g_leader_id, g_rebel_id, g_theatre_id, g_convoy_id (atoi); `id` -> a {id type} pair whose type is this machine's high space (0x1268 + word[0x1A857EC]) hands its id to 0x69D4B0, any other type is dropped; `ai_seed` -> MT19937Seed of the AI generator and its draw count to 0; `flags` -> the state's CFlags; `gameplaysettings` -> +0xC90's Load; `victory_conditions`, `diplomacy` (+0xB24), `combat` (the combat manager), `weather`, `income_statistics`, `nation_size_statistics`, `inflation_statistics` -> each object's slot 3; `active_war` and `previous_war` -> a new CWar (0xAC) loaded and appended to its list, `undeclared_war` a new CUndeclaredWar (0x48), `rebel_faction` a new CRebelFaction (0xA4); `faction` -> each key of the block matched by token against the ideology groups' factions and that faction's Load, an unmatched one dropped; `sunk_ships` -> per country tag a new 0xF8-byte record loaded and listed; `fired_events` -> a list of id pairs pushed onto +0xC44 for ResolveSavedFiredEvents; `allied_objectives` -> CGameState_AddAlliedObjective per triple; `selectionGroups` through a CSelectionGroupReader; `battle_plan` -> a 0x260-byte plan loaded by its own reader and pushed onto battle_plans (+0xD58); `strategic_warfare` -> the +0xD68 object cleared and read by its own loop; `scenario` -> scenario_name (+0xD10), looked up and MarkSimulatedProvinces at once; `controller` -> the local CHuman's automation vector; and `automate_trade`, `automate_sliders`, `automate_tech_sliders` and `ai` (seven automation values) -> the local CHuman, each only while skip_automation_keys (+0xCF4) is clear. **`player` is read and thrown away** (`cmp eax, 0x3F6; je` to the epilogue at 0x680BAC): the played country is never taken from the save. **The default arm** (0x680AF4): atoi(key) between 1 and the province count - 1 sends the block to that province's slot 3; otherwise the key's first three letters through CCountryDataBase::GetTag, and a tag with an id sends it to countries[id]'s slot 3. **Anything else is dropped in silence, with no message** - which is what happens to the top-level `seed` and `count`: no case takes them (tokens 854 and 928 are compared only in CSetRandomSeed::LoadKey and in nested readers). Inherited by 2 classes in all. See reversing/findings/FINDINGS-savegame.md section A.3.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-savegame.md",
+   "evidence": "Ghidra's decompilation of the whole switch, every case's destination read; the arms Ghidra garbled re-read on the listing: `player` at 0x6800F4..0x6800FF, `start_date` storing through `lea esi,[ebx+0xBE0]` at 0x67FEE8 (Ghidra showed the date discarded), `id` at 0x67FD44..0x67FD79, the default arm 0x680AF4..0x680BC0. `seed`/`count`: imm scan for 0x356 and 0x3A0 over .text finds `sub eax, 0x356` only in CSetRandomSeed::LoadKey (0x2D7D40) and 0x3A0 only in nested loaders; positive control - the same scan finds this function's own `cmp eax, 0x3F6` for `player`. A chained-sub case for 854/928 would not show in that scan, but the decompiled switch has none. Wrong if a save's `seed` reaches some other reader before LoadFromSave (none was found in LoadSaveFile or the lobby).",
+   "revises": true
+  },
+  {
+   "rva": "0x67C050",
+   "kind": "function",
+   "name": "CPersistent::Load",
+   "signature": "void __thiscall CPersistent::Load(CPersistent* this, CParseContext* parse)",
+   "no_signature": null,
+   "comment": "**Slot 3 of CPersistent, and the load half of the persistence pair.** Renamed from `CParseContext::ReportMessages`, which described only its error tail. It sits in **748 vftable slots, every one of them slot 3, across 747 classes** - the same classes whose slot 1 is CPersistent::Save (rva 0x5BB10). `this` arrives in ECX (stored at 0xA7C074 and used for both virtual calls) and the CParseContext is the one stack argument, `ret 4` - so it is a __thiscall, which is how the CPersistent slot-3 record already writes it; the entry said __stdcall until 2026-11-04.\n\nExtent 0xA7C050..0xA7C39F with **two `ret 4` exits** and int3 padding at 0xA7C3A2: 0xA7C11A is the success path, and the cold path from 0xA7C11D shares the frame (trap 3).\n\n**What it does**: a loop - peek the tokenizer's next token (its slot 1 when +0x110 is clear, 0x13 when it answers null); stop on `}` (token 4) or end of file (0x13); otherwise ParseReadKeyValue and **this's slot 4, LoadKey(parse, key token)**. At the stop it consumes the token (the tokenizer's slot 1) and then, **only when the parse context holds no message (+0xC == 0), calls this's slot 5, AfterLoad**. So an AfterLoad runs **at the close of that object's own block**, a child's before its parent's, and there is no pass over the objects afterwards; a top-level game state's slot 5 is the empty stub 0xABF890. When messages are pending it instead joins them (CParseContext::MessagesAsText 0x67AB40), logs `persistent.cpp` line 39 `Error: \"` ... `\" in file: \"` ... `\" near line: `, builds `Error reading this file, check log: <file> <text>`, frees the messages (0xA7BAF0) and returns **without the AfterLoad** - so the object that was open when a parse error was recorded loses its AfterLoad, and the objects after it, the list being empty again, keep theirs. A key LoadKey does not take adds no message, so an unknown key never reaches this tail. Blocks a LoadKey reads by its own loop (a faction by name, `sunk_ships`, `fired_events`, `strategic_warfare`, `battle_plan`) do not come through here and get no AfterLoad from it. **Seven direct callers** - CGameState::LoadKey (a savegame), CUnitPlan::LoadKey, CSetPlanObjectivesCommand::LoadKey, the bookmarks loader at 0x1CBB0, and three DLC and competitive-mode paths - and every slot 3. See reversing/findings/FINDINGS-savegame.md section A.4 and reversing/findings/FINDINGS-script.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-savegame.md",
+   "evidence": "Read on the listing 0xA7C050..0xA7C11A and the call list of 0xA7C11D..0xA7C39F, against Ghidra's decompilation. The AfterLoad gate: `cmp dword ptr [esi+0xC], ebx; jne 0xA7C11D` at 0xA7C0F6 with esi the parse context and ebx 0, the slot-5 call `call [[ecx]+0x14]` at 0xA7C101 on the success side only. Wrong if parse+0xC is not the message count (the record names +0xC messages_count on CParseContext).",
+   "revises": true
+  },
+  {
+   "rva": "0x27BAF0",
+   "kind": "function",
+   "name": "CGameState::ResetSession",
+   "signature": "void __stdcall CGameState::ResetSession(CGameState* state)",
+   "no_signature": null,
+   "comment": "0x67BAF0..0x67CAA7, `ret 4`, 4026 bytes, one stack argument. The game state's own teardown-and-clear: at its head it zeroes supply_network_dirty (+0x50), +0xD9C (0x27BB26), +0xC8C, frame_time_accumulator (+0xBE4) and game_speed (+0xBEC), and at 0x27C99A it calls MarkSimulatedProvinces(state, 0), which is what **nulls scenario (+0xD0C)**. **It does not touch in_game (+0xDA4).** Three callers: the startup reset 0x27B240 (0x27B5F3), the savegame loader 0x27CE30 (its very first call, 0x27CE58), and 0x23A460 (0x23A505), which is itself reached from CGameSetup slot 11, CTutorialScreen::OnTutorialButtonPressed and a CInGameIdler method. Only the head of the function was read; the name is inference from what it clears and who calls it. See reversing/findings/FINDINGS-session.md sections 4 and 5.\n\n**Measured across a menu trip (live 2026-10-02, GER 1942 save, in-game then main menu, same process).** Returning to the main menu in the same process, the game-state pointer read **0x37BBD818 before and after, byte-identical** - so the object is reset and never replaced, which promotes FINDINGS-session.md section 5 from `likely` to observed. In the same action: `in_game` 1 -> 0, `loaded_from_save` 1 -> 0, `in_game_screen` from a `CInGameIdler` to a **`CFrontEnd`**, `player` from `GER` to the null tag `---`, and the tick reset to **60759360**, which is the 1936-01-01 00:00 epoch. Five separate static claims and one prediction, all confirmed by one observation.\n\n**The whole body, read 2026-11-04 (FINDINGS-savegame.md section A.2), in order**: the head's clears and the byte 0x1A855F7 = 0; every resource's list of strategic_resource_provinces (+0xF4) emptied; the list at +0xC and three vectors emptied; every rebel faction deleted; **every province through CProvince_ResetState and every country through CCountry_Reset**; the sunk-ships list freed and the last pride sunk and its sinker nulled; the provinces reset a second time; the relations list and the dated block at +0xB44..+0xB50 freed; **every combat deleted**; the state's flags emptied; +0xAF4 and +0xCF8 freed; **every war, active and previous, has each attacker and defender removed (CWar::RemoveAttacker/RemoveDefender with no history), is taken out of the two war lists of the history registry at [0x1A88BC0] (+0x38 and +0x48) and deleted**, and the active, previous and undeclared lists emptied; **every CEU3AI in ai_agents (+0x114) deleted** and the vector emptied; the three statistics objects cleared; the fired-events registry (+0xC38) cleared and fired_events_loaded (+0xC44) emptied; both allied-objective vectors resized empty; 0x28BA80 (per province, only while in_game_screen is set; not read); MarkSimulatedProvinces(state, 0) and scenario_name = \"\"; the selection groups reset; battle_plans (+0xD58) freed; the strategic warfare at +0xD68 cleared (0x462D60); 0x1A855F7 = 1. **It does not write tick (+0xBDC), start_tick (+0xBE0), player (+0xC30) or in_game (+0xDA4).** The clears are the decompiler's, cross-checked against a forward call listing; the body was not read instruction by instruction.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-savegame.md",
+   "evidence": "The new paragraph: Ghidra's decompilation of 0x67BAF0 against a forward call listing of 0x67BAF0..0x67CAA7 (every call target in the list above appears in it in that order: CProvince_ResetState 0x67BDCA, CCountry_Reset 0x67BDFC, CProvince_ResetState 0x67BE6A, CWar::RemoveAttacker/RemoveDefender 0x67C14D/0x67C17D and 0x67C30D/0x67C33D, 0x68BA80 0x67C992, MarkSimulatedProvinces 0x67C99A, 0x462D60 0x67CA6D). The negatives (tick, start_tick, player, in_game): no instruction in 0x67BAF0..0x67CAA7 has displacement 0xBDC, 0xBE0, 0xC30 or 0xDA4. Wrong if one of them is written through a register holding state+N, which a displacement scan cannot see.",
+   "revises": true
+  },
+  {
+   "rva": "0x25A2B0",
+   "kind": "function",
+   "name": "CInGameIdler::Enter",
+   "signature": "void __thiscall CInGameIdler::Enter(void)",
+   "no_signature": null,
+   "comment": "**What runs as a session comes up, for a new game and a loaded one alike.** Large; it walks every country of the game, and per country: UpdateTriggeredModifiers, RebuildStaticModifiers, RebuildRules, UpdateTotalLeadership, UpdateMaxManpower, UpdateIC, UpdateBlockadeLevel, UpdateAtWarAndEnemies and effective neutrality. **For a session not loaded from a save** it then calls SetUpCountryLawsAndTechnologyForNewGame (0x65B4E6 - the laws moved up and the technology bought to the start date, FINDINGS-starttech.md), reads the country's order of battle (CCountry::LoadOobFile, 0x65B4EC), calls SetUpCountryForNewGame and RecountUnitTotals, sets the shares of IC, counts the officers the units come with (0x65B651), and **sets up the build queue (0x65B749): for each line of +0xF40 it keeps the duration the file gave, calls slot 14, and sets progress to the new duration less the old, floored at 0** - so a file's `duration` is the days a line still has to go, and its `progress` and `cost` are thrown away. The arm beside it at 0x65B7C9 calls 0x4DCD70 and joins the same place; that it is a loaded session's is FINDINGS-unitstart.md's reading of the block and was not followed here. Then, for each of the country's units, what FINDINGS-unitstart.md section 6 has. The write that sets `in_game` is 0x4A92 bytes before the end. See reversing/findings/FINDINGS-unitstart.md, section 1, and FINDINGS-buildqueue.md, section 1. **The in-game menu is made at 0x65E676-0x65EC2C**: the window `menu` (menubar.gui) through the gui's slot 11, kept at +0x1CDC and hidden, its icon `menu` given slot 33 with 1, and the six buttons of `menu_panel` attached to the glues +0x1E8 (close), +0x450 (resign), +0x4A0 (quit), +0x288 (save), +0x2D8 (message settings) and +0x378 (options), whose handlers the constructor sets (reversing/findings/FINDINGS-ingamemenu.md, section A.1).\n\n**Load against new game, all thirteen reads of loaded_from_save (+0xD9C) read 2026-11-04** (FINDINGS-savegame.md section A.5). New game only: start_tick (+0xBE0) = tick (0x65A89B); CCountry::ActivateRankedLeaders (0x65B26D); the new-game country block (0x65B4D4, above); a unit with no name named and the starting experience (0x65B8B7); in the province pass the temperature seed, SpawnFullRevoltInProvince and the REB-province fix (0x65BF47); **the whole block at 0x65C7F0 - RebuildStrategicResourceProvinces, the weather pre-roll (not in a tutorial), AllocateProvinceIntelArrays (0x288000), the first RunDailyPass (0x65CB2E) and RunSupplyAndConvoyIterations (0x65CC64), i.e. a new game's two days and first hour**; GameStrategicWarfare_SetUpForNewGame (0x65D4C9). Loaded only: ResolveSavedFiredEvents (0x65ACA2), UpdateStrategicResources (0x65B06B), CCountry::UpdateManpowerAfterMobilising in place of the new-game block (0x65B7CA), each unit's CUnit_RefreshIntelLevel, RebuildAvatar, ShowMoving and EnterProvince (0x65B8B7), RecountBuildingProvinces (0x65CD14), CAIStrategy::RefreshTheatreProvinces(strategy, 1) and every theatre's CTheatre_StampProvinces and CTheatre_RebuildAreas (0x65D22D), **one ProcessAI for every country with a CEU3AI, unless multiplayer, theatres_dirty cleared first** (0x661935), and every loaded battle plan handed to the CBattlePlanManager (0x661A85). And UpdateAtWarAndEnemies is given loaded_from_save as its third argument (0x65B37F), so a loaded country mobilised at peace is not demobilised. Everything else in it runs for both: LoadEvents (the event files read again), each province's modifier, latitude, climate and night flag, the country rebuilds above, the neighbours, CAIStrategy::Rebuild only where the strategy is neither initialized nor static, the supply depots and CSupply::RebuildSupplyNetwork, RebuildConvoyIndexes, RemoveLandlessCountriesFromWars, RunIntelRefresh and ValidateProvinceData.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-savegame.md",
+   "evidence": "The thirteen sites from FINDINGS-session.md section 7, each decoded forward from the entry 0x65A2B0 and read with its branch and the calls it guards (a forward call listing of 0x65A2B0..0x661BB8 with every `+0xD9C` test marked); the block at 0x65C7F0 is `test cl,cl; jne 0x65CC6E` with 0x65CC69 `jmp 0x65CD19` jumping the new game past the call at 0x65CD14. The ProcessAI loop: 0x66193E..0x661974 (`mov byte [eax+0x580],0` before `cmp byte [ebx+0x68],0`). Wrong if one of the guarded calls is also reached by a path that bypasses its test, which the listing of each block did not show.",
+   "revises": true
+  },
+  {
+   "rva": "0x2ED650",
+   "kind": "function",
+   "name": "CFrontEnd::GetApplication",
+   "signature": "CEU3Application* __thiscall CFrontEnd::GetApplication(CFrontEnd* this)",
+   "no_signature": null,
+   "comment": "Slot 64 of CFrontEnd, its only holder: `mov eax, [ecx+0x210]; ret` - the CEU3Application the front end keeps at +0x210 (the same field CFrontEnd slot 3 reads to reach CEU3Application::InitialiseGraphicalMap and LaunchGame hands to the CInGameIdler). CGameState::LoadFromSave calls it through in_game_screen at 0x27CEAB and discards the answer, so on a load the call does nothing.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-savegame.md",
+   "evidence": "Two instructions read at 0x6ED650; vtable.py --holding 0x6ED650 answers one table, CFrontEnd slot 64. That +0x210 is the application rests on FINDINGS-startup.md section 3's `mov ecx,[esi+0x210]; call 0x634570`. Wrong if the front end's +0x210 is reassigned to something else."
+  },
+  {
+   "rva": "0x1F4880",
+   "kind": "function",
+   "name": "HistoryDatabase_Construct",
+   "signature": "void* __stdcall HistoryDatabase_Construct(void* db)",
+   "no_signature": null,
+   "comment": "**Builds the 0x5C-byte history registry [0x1A88BC0] points at** and returns it: +0x0..+0x8 and +0x10..+0x18 two vectors (the two collections of history containers ExecuteHistory replays - inferred from that function reading [EDX]..[EDX+4] and +0x10/+0x14), +0x24 a std::map head (a 0x34-byte sentinel node), +0x30 a fresh CDiplomaticHistory (0x20 bytes) and +0x34 a fresh CWarHistory (0x24), each laid out as CHistoryContainer (meta 0x18D at +4, g_NullDate at +8) and each counted on the global at 0x1A855F0, +0x38 and +0x48 two CLists (of CWar*, which CGameState::ResetSession takes a deleted war out of), +0x58 a word. `ret 4`. Twelve callers, every one a get-or-create of the global (GetHistoryDatabase 0x1FA7E0, LoadEverything, ResetGameStateToStartDate, the idler's constructor, ResetSession, LoadFromSave and three lobby handlers). The name is ours.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-savegame.md",
+   "evidence": "Ghidra's decompilation of 0x5F4880, extent to the `ret 4` at 0x5F49BB with padding at 0x5F49E2; the CDiplomaticHistory and CWarHistory vftables are written by name in it. Callers by findRefs --callers 0x5F4880. 'History registry' is inference from what it holds; what the two vectors contain at runtime was not looked at."
+  },
+  {
+   "rva": "0x1F57C0",
+   "kind": "function",
+   "name": "HistoryDatabase_Clear",
+   "signature": "void __stdcall HistoryDatabase_Clear(void* db)",
+   "no_signature": null,
+   "comment": "**Empties the history registry** without freeing it: every element of the two vectors at +0x0 and +0x10 released (slot 0 with 1) and the vectors emptied; for every node of the map at +0x24, the elements of its two vectors (node +0x10 and +0x20) released and emptied; the CDiplomaticHistory at +0x30 released and a fresh empty one put there; the lists at +0x38 and +0x48 freed and +0x58 zeroed; the CWarHistory at +0x34 emptied with g_NullDate. `ret 4` at 0x5F5A78. Three callers: CEU3Application::LoadEverything (0x62F513), ResetGameStateToStartDate (0x63A64D) and **CGameState::LoadFromSave (0x67CE98)** - so a load starts from an empty history registry. Whether the install's history files are kept here or in the countries and provinces themselves was not settled. Ghidra's RTTI pass labels the body CDiplomaticHistory::CDiplomaticHistory; it is not a constructor.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-savegame.md",
+   "evidence": "Ghidra's decompilation of 0x5F57C0 (its early `return`s after free() are the decompiler's, the listing runs on to the single `ret 4`); callers by findRefs --callers 0x5F57C0. Wrong if the registry is refilled from the install between the clear and Enter - nothing on the load path calls the history readers, by the call listings of LoadFromSave, CGameSetup::Update's load arms and CInGameIdler::Enter."
+  },
+  {
+   "rva": "0x1FA950",
+   "kind": "function",
+   "name": "HistoryDatabase_SetGlobal",
+   "signature": "void** __stdcall HistoryDatabase_SetGlobal(void* db)",
+   "no_signature": null,
+   "comment": "Installs `db` as the history registry: when it differs from [0x1A88BC0] and the old one exists, the old one is destroyed (0x5F4A50) and freed; [0x1A88BC0] = db; returns the global's address. `ret 4` on both exits (0x5FA98B, 0x5FA99B). **TRAP 2**: only two int3 follow, and 0x5FA9A0 is a separate function (`push esi`, bare `ret` at 0x5FA9B7), so a padding walk runs the two together. Twelve callers, all paired with HistoryDatabase_Construct.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-savegame.md",
+   "evidence": "Read whole on the listing 0x5FA950..0x5FA99B. Wrong if 0x5FA9A0 is reached by a jump from inside (no branch in the body targets it)."
+  },
+  {
+   "rva": "0x5E690",
+   "kind": "function",
+   "name": "ScenarioList_FindByName",
+   "signature": null,
+   "no_signature": "The list arrives in EAX and the name on the stack (`ret 4`): `void* ScenarioList_FindByName(Hoi3CString* name@stack:4, void* list@EAX)` - written here because the register list has no ordinary form.",
+   "comment": "Walks the scenario list in EAX (the global at [0x1A85564]: a CList whose node holds the scenario at +0, next at +8) and returns the first scenario whose name string (scenario +8) equals `name` exactly, or 0. Callers: CGameState::LoadFromSave (0x67CF12, over scenario_name +0xD10), CGameState::LoadKey's `scenario` case (0x680710), 0x6D558F, and CSavegameItem::CSavegameItem (0x7042D2), whose miss logs `loading scenario that doesnt exist: `. For an ordinary save scenario_name is empty and the answer is 0. The name is ours.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-savegame.md",
+   "evidence": "Ghidra's decompilation (a MemCompareRegs of the two strings and a length test); the EAX argument from LoadFromSave's listing, where eax holds [0x1A85564] at the call. Callers by findRefs. Wrong if +8 of a node's datum is not the scenario's name (MarkSimulatedProvinces' record has the scenario's `scenario=` key written from its +8)."
+  },
+  {
+   "rva": "0x5E5D0",
+   "kind": "function",
+   "name": "ScenarioList_GetOrCreate",
+   "signature": "void __cdecl ScenarioList_GetOrCreate(void)",
+   "no_signature": null,
+   "comment": "Makes the empty scenario list at [0x1A85564] (0x10 bytes: first, last, count, a byte) when there is none. Bare `ret`. Three callers: 0x5F7C06, the database stage (0x639616) and CGameState::LoadKey's `scenario` case (0x68070B). LoadFromSave has the same body inlined at 0x67CEDF.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-savegame.md",
+   "evidence": "Decompiled; callers by findRefs. Name is ours."
+  },
+  {
+   "rva": "0x283A50",
+   "kind": "function",
+   "name": "RecountBuildingProvinces",
+   "signature": "void __stdcall RecountBuildingProvinces(CCurrentGameState* state)",
+   "no_signature": null,
+   "comment": "For every building of the building database: provinces_built (CBuilding +0x98) = the number of provinces whose entry for it (CProvince +0x310[CBuilding +0x54]) has level_max above nought. `ret 4`. Two callers: CInGameIdler::Enter at 0x65CD14 - **only for a game loaded from a save** - and 0x683B50. Who reads +0x98 was not traced. The name is ours.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-savegame.md",
+   "evidence": "Ghidra's decompilation of 0x683A50 (zero loop, then a province x building double loop comparing against g_FixedZero); the Enter site's gate is the jne 0x65CD13 / jmp 0x65CD19 pair. Callers by findRefs. Wrong if the +0x20 it tests is not CProvinceBuilding level_max (the record names it so)."
+  },
+  {
+   "rva": "0x288000",
+   "kind": "function",
+   "name": "AllocateProvinceIntelArrays",
+   "signature": "void __fastcall AllocateProvinceIntelArrays(CCurrentGameState* state@ESI)",
+   "no_signature": null,
+   "comment": "Calls slot 6 (CProvince::AllocateIntel) on every province of the state in ESI. Bare `ret`. One caller, CInGameIdler::Enter at 0x65CA79, inside the block a game loaded from a save skips - so only a new game reallocates the intel bytes there. The name is ours.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-savegame.md",
+   "evidence": "Ghidra's decompilation and the bare `ret` at 0x688045; caller by findRefs."
+  },
+  {
+   "rva": "0x96330",
+   "kind": "function",
+   "name": "CProvince::AllocateIntel",
+   "signature": "void __thiscall CProvince::AllocateIntel(CProvince* this)",
+   "no_signature": null,
+   "comment": "Slot 6 of CProvince and CMapProvince: frees intel_by_country_ptr (+0x370), allocates one byte per country of the country database (+0x16C..+0x170), sets intel_country_count (+0x374) and fills it with 0 while g_FogOfWarEnabled is set and 9 while it is clear. Bare `ret`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-savegame.md",
+   "evidence": "Read whole on the listing 0x496330..0x4963E4 (`cmp byte [0x170AD30], cl; setne cl; dec ecx; and ecx, 9`, the ClearIntelFunctor idiom). vtable.py --holding 0x496330: CMapProvince slot 6 and CProvince slot 6."
+  },
+  {
+   "rva": "0x28A0A0",
+   "kind": "function",
+   "name": "RebuildConvoyIndexes",
+   "signature": "void __stdcall RebuildConvoyIndexes(CCurrentGameState* state)",
+   "no_signature": null,
+   "comment": "Empties every province's convoys vector (+0x38) and, for a province in a real area, the area's convoys_starting and convoys_ending vectors; then for every country owning a province, each of its convoys (+0xA0) is added to its start province's area's convoys_starting, its end province's area's convoys_ending, and the convoys vector of every province on its path. `ret 4`. Five callers: CInGameIdler::Enter (0x65CDCD, a new game and a loaded one alike), RunHourlyPass twice, RunDailyPass and ApplyCustomGameSettings. The name is ours.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-savegame.md",
+   "evidence": "Ghidra's decompilation of 0x68A0A0 (the COwnerArea and CConvoy fields come out named); callers by findRefs."
+  },
+  {
+   "rva": "0x283FD0",
+   "kind": "function",
+   "name": "ValidateProvinceData",
+   "signature": "void __stdcall ValidateProvinceData(CCurrentGameState* state)",
+   "no_signature": null,
+   "comment": "Logs inconsistencies in the provinces on `gamestate.cpp`: ` : There is too much IC defined for ` ... `, the maximum is only ` (a province's industry above the IC building's max_allowed_level), ` : Navalbase defined for #` ... ` but no port is set in this province. ` and ` : Inconsistency in owner/controller for #` ... ` when not at war.`. One caller, CInGameIdler::Enter at 0x660504, for a new game and a loaded one alike. Whether it also corrects what it reports was not read. `ret 4`. The name is ours.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-savegame.md",
+   "evidence": "The log strings by a forward listing of 0x683FD0..0x684C7A; the first test from Ghidra's decompilation. Caller by findRefs."
+  },
+  {
+   "rva": "0x62E20",
+   "kind": "function",
+   "name": "GameStrategicWarfare_SetUpForNewGame",
+   "signature": "void __stdcall GameStrategicWarfare_SetUpForNewGame(void* warfare, CCountryTag* player)",
+   "no_signature": null,
+   "comment": "Gives the game state's strategic-warfare record (+0xD68) the played country's tag and, when that country is at war, an entry per enemy it is at war with. `ret 8`. Two callers: CInGameIdler::Enter at 0x65D4DF with (state +0xD68, &state->player) - **only for a game not loaded from a save**, so a loaded game keeps the `player` the save's `strategic_warfare` block names - and 0x463016. The name is ours.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-savegame.md",
+   "evidence": "Ghidra's decompilation of 0x462E20 and the Enter site's listing (0x65D4D2..0x65D4DF). Wrong if +0xD68's first two words are not a country tag (the save's block is `player=\"IRE\" count=0`)."
+  },
+  {
+   "rva": "0x309C90",
+   "kind": "function",
+   "name": "CGameSetup::Update",
+   "signature": "void __thiscall CGameSetup::Update(CGameSetup* this)",
+   "no_signature": null,
+   "comment": "Slot 4 of CGameSetup, the pre-game lobby (gamesetup.cpp), and **where a savegame is loaded - in the lobby, before Play**; CFrontEnd::LaunchGame loads nothing. All three arms run only while +0x6C4 is set (a load pending, inferred) and clear the byte 0x1A857BF around the parse. (1) **The server - a single-player game, or a multiplayer host** (session +0x34 set, inferred to mean 'server'; 0x30B08B): once every other player's transfer reports done and while +0x6C5 (loaded) is clear, Session::PumpCommands, then LoadSaveFile on `save games/<+0x698>` (`mod/<mod>/save games/<name>` under a mod), CGameSetup_SyncOptionsFromGameState, and the lobby lines `SAVE_TRANSFER_DONE` and `SAVE_LOADED`. (2) **A multiplayer client whose own copy matches** - the transfer (+0x6D8) names the same file and its +0xB0 equals +0x6B4 (0x30B73C): LoadSaveFile on its local file, the sync, +0x6C5 and +0x6C7 set, RefreshAllCountries, the front end's map refreshed (0x641D90, 0x641D50), the settings' +0xF0 = 0xFF9A and +0xF4 = 2, +0x6C4 cleared and the transfer deleted. (3) **Any other client** (0x30BA34): logs `Received `, builds a stream over the bytes the transfer holds and calls CGameState::LoadFromSave on it directly, the same refreshes with Map_RefreshColourTextures, and **writes the received bytes to its own `save games/<name>`**. It also fills the lobby's labels (`selected_nation_label`, `head_of_state`, `wars_label`, `play_button`, `victoryconditions_button`). The played country is not set here: it comes from the CSetCountryControllerCommand the lobby posts, whose Execute (CSetCountryControllerCommand slot 6) writes state->player and played_countries. The name is inference: the body is the lobby's per-frame work by its PumpCommands and pending-flag shape.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-savegame.md",
+   "evidence": "Ghidra's decompilation of the whole function and the listing at each load site (0x70B046..0x70B099, 0x70B6C0..0x70B743, 0x70BA34). vtable.py --holding 0x709C90: CGameSetup slot 4 only (CFrontEndView's slot 4 is _purecall). Exits: bare `ret` at 0x70BD18 and 0x70C0A3. Wrong if slot 4 is called once rather than every frame - and which arm is the single-player one rests on session +0x34 meaning 'server', which was not read; a single-player load reaching arm (2) instead would change none of what is loaded."
+  },
+  {
+   "rva": "0x317880",
+   "kind": "function",
+   "name": "CGameSetup_SyncOptionsFromGameState",
+   "signature": "void __fastcall CGameSetup_SyncOptionsFromGameState(CGameSetup* setup@ECX)",
+   "no_signature": null,
+   "comment": "Called after every lobby load: copies the game state's difficulty and arcade_mode into the lobby (+0x714, +0x7E8), and the local human's automation values (the CHuman matched by session id, else +0x70) into the lobby's option rows (+0x8B4, 0x3C bytes each; row 2 from automate_tech_sliders), a value 0..3 or 7 mapped to the fog row (+0x144), then refreshes three of its windows. Bare `ret`. Five callers, three of them the load arms of CGameSetup::Update. The name is ours.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-savegame.md",
+   "evidence": "Ghidra's decompilation of 0x717880; callers by findRefs (0x707BA6, 0x70B099, 0x70B743, 0x70BA3B, 0x71A586)."
+  },
+  {
+   "rva": "0x303BF0",
+   "kind": "function",
+   "name": "CSavegameItem::CSavegameItem",
+   "signature": null,
+   "no_signature": "Four stack arguments (`ret 0x10` at 0x70455A), the object first and returned in EAX; the other three were not typed, so no signature is offered. A catch funclet sits inside at 0x7044F4 (trap 3).",
+   "comment": "**The lobby's save-list row, and the only reader of a save's header.** Writes CStandardlistboxItem's and then CSavegameItem's vftable, makes the `savegameentry` window, shows the file name before `.hoi3` as `title`, opens `save games/<file>` (`mod/<mod>/save games/` under a mod) and reads **positionally**: the first key=value's value is taken as the date whatever its key and shown as `date`; the second, when it is `scenario`, is looked up (ScenarioList_FindByName; a miss logs `loading scenario that doesnt exist: `) and the next pair read; then, when that pair is `player`, its tag gives the row's `shield` and is kept at +0x44/+0x48. So **a save whose first key is not `date`, or whose `player` is not second (third after `scenario`), shows a wrong date or no shield in the original's list.** One caller, 0x715A78, the lobby's `save_games_list` fill. See reversing/findings/FINDINGS-ingamemenu.md section C.2.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-savegame.md",
+   "evidence": "Forward listing of 0x703BF0..0x70455A: ParseReadKeyValue at 0x704182 then Date_SetFromString with no key test; the second read at 0x704224 and `cmp [ebp-0x420], 0x770` (scenario, 1904); the `player` test `cmp [ebp-0x420], 0x3F6` at 0x7043AE. The vftable 0x15D5C7C is CSavegameItem's by the RTTI export. Wrong if a later read loops over further keys (none follows the shield in the listing)."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CGameState",
+   "offset": "0xBE0",
+   "name": "start_tick",
+   "type": "int",
+   "comment": "The tick the game started on. Written by CGameState::LoadKey's `start_date` case (0x67FEE8) and, for a game not loaded from a save, by CInGameIdler::Enter from tick (0x65A8AA). CGameState::SaveContents does not write it and CGameState::ResetSession does not clear it, so a loaded game keeps whatever the object held. CCurrentGameState derives from CGameState and adds nothing at this offset, so the field is the base's.",
+   "source": "reversing/findings/FINDINGS-savegame.md",
+   "evidence": "The two writes read on the listing. A scan for displacement 0xBE0 within 0x40 bytes of a load of g_CCurrentGameState finds only the Enter write (its positive control); readers through a `this` register would not show, so 'no reader' is not claimed. No 0xBE0 displacement in 0x67E6F0+0x1200 (SaveContents) or in ResetSession."
+  },
+  {
+   "struct": "CCurrentGameState",
+   "offset": "0xBE0",
+   "name": "start_tick",
+   "type": "int",
+   "comment": "The tick the game started on: `start_date` in a save (never written by the writer), else set from tick by CInGameIdler::Enter for a new game (0x65A8AA). Not cleared by ResetSession.",
+   "source": "reversing/findings/FINDINGS-savegame.md",
+   "evidence": "As the CGameState record."
+  },
+  {
+   "struct": "CGameState",
+   "offset": "0xD58",
+   "name": "battle_plans",
+   "type": "void*",
+   "comment": "Begin of a vector (end +0xD5C) of the 0x260-byte battle plans: CGameState::LoadKey's `battle_plan` case pushes each one it reads, CGameState::ResetSession frees them, and CInGameIdler::Enter, for a loaded game only, gives each the idler (+0x1D0) and hands it to the CBattlePlanManager (0x661A85). CCurrentGameState adds nothing here.",
+   "source": "reversing/findings/FINDINGS-savegame.md",
+   "evidence": "The LoadKey arm and the Enter loop read on the listing (`mov ecx,[esi+0xd5c]; sub ecx,[esi+0xd58]`)."
+  },
+  {
+   "struct": "CCurrentGameState",
+   "offset": "0xD58",
+   "name": "battle_plans",
+   "type": "void*",
+   "comment": "Begin of the vector (end +0xD5C) of battle plans a save's `battle_plan` keys load; handed to the CBattlePlanManager by CInGameIdler::Enter for a loaded game.",
+   "source": "reversing/findings/FINDINGS-savegame.md",
+   "evidence": "As the CGameState record."
+  },
+  {
+   "struct": "CBuilding",
+   "offset": "0x98",
+   "name": "provinces_built",
+   "type": "int",
+   "comment": "How many provinces have at least one level of this building built (CProvinceBuilding level_max above nought): zeroed and counted by RecountBuildingProvinces (0x283A50), which CInGameIdler::Enter runs only for a loaded game. Readers not traced.",
+   "source": "reversing/findings/FINDINGS-savegame.md",
+   "evidence": "Ghidra's decompilation of 0x683A50: `+0x98 = 0` per building, then `+0x98 += 1` per province where the building's entry +0x20 > g_FixedZero."
+  }
+ ],
+ "vftable_slots": {
+  "CFrontEnd": {
+   "64": {
+    "name": "GetApplication",
+    "signature": "CEU3Application* __thiscall GetApplication(CFrontEnd* this)"
+   }
+  },
+  "CProvince": {
+   "6": {
+    "name": "AllocateIntel",
+    "signature": "void __thiscall AllocateIntel(CProvince* this)"
+   }
+  },
+  "CMapProvince": {
+   "6": {
+    "name": "AllocateIntel",
+    "signature": "void __thiscall AllocateIntel(CMapProvince* this)"
+   }
+  },
+  "CGameSetup": {
+   "4": {
+    "name": "Update",
+    "signature": "void __thiscall Update(CGameSetup* this)"
+   }
+  },
+  "CGameState": {
+   "4": {
+    "name": "LoadKey",
+    "signature": "void __thiscall LoadKey(CGameState* this, CParseContext* parse, SaveToken key)"
+   }
+  },
+  "CCurrentGameState": {
+   "4": {
+    "name": "LoadKey",
+    "signature": "void __thiscall LoadKey(CCurrentGameState* this, CParseContext* parse, SaveToken key)"
+   }
+  },
+  "CInGameIdler": {
+   "3": "Enter"
+  }
+ },
+ "frontier": [
+  "0x1F5450",
+  "0x1F4A50",
+  "0x1FA9A0",
+  "0x28BA80",
+  "0x408AF0",
+  "0x641D90",
+  "0x641D50",
+  "0x68A6B0",
+  "0x463016",
+  "0x683B50"
+ ]
+}

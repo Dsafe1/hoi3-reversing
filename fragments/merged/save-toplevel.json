@@ -1,0 +1,413 @@
+{
+ "agent": "savegame wave, reader B - the writer's top level, the id scheme, and the census of blocks outside the unit tree",
+ "question": "How the original writes a savegame's top level - every key in order with its writer and field, the order of the province and country blocks, the keys written only sometimes - how objects are identified across a save (the { id type } pairs, how ids are minted and kept), and which class writes each block outside the unit tree, with its SaveContents and LoadKey recorded.",
+ "source": "reversing/findings/FINDINGS-savegame.md",
+ "addresses": [
+  {
+   "rva": "0x27E6F0",
+   "kind": "function",
+   "name": "CGameState::SaveContents",
+   "signature": "void __thiscall CGameState::SaveContents(CGameState* this, CSaveWriter* writer)",
+   "no_signature": null,
+   "comment": "**The whole save's top level, in this order** (slot 2; CPersistent::Save calls it with the writer at depth -1, so these keys sit at column 0). 0x67E6F0 to the one `ret 4` at 0x67FCA1. Keys and sources: `date` (the tick +0xBDC as a date string, SaveWriteString); `scenario` (the string at +8 of +0xD0C) **only when +0xD0C is set** - none of the maintainer's 33 saves has it; `player` (+0xC30, quoted); then, **only when the in-game screen's +0x68 (multiplayer) is clear**, the local CHuman's settings - GetLocalPlayer inlined (the +0x60 chain on +0x54 matched by +0x1C against in_game_screen slot 18's +0x6C, else the CHuman at +0x70) - `ai` (its seven automation flags +0x38, element 5 replaced by +0x48, through SaveWriteIntVector), `automate_trade` (+0x34, yes/no), `automate_sliders` (+0x2C), `automate_tech_sliders` (+0x30); then the four id counters as plain ints: `rebel` (g_rebel_id), `convoy` (g_convoy_id), `theatre` (g_theatre_id), `unit` (g_unit_id); `flags` (the CFlags at +0xC4, its CPersistent at +0xE8); `gameplaysettings` (the embedded CGamePlaySettings at +0xC90, slot 1 with ECX = &+0xC90); `victory_conditions` (the CVictoryConditionManager *at [+0xD08]); `seed` (g_random_seed) and `count` (g_random_draws); **`id` blocks**: a 0x1267-entry stack array of {type 0x1268+i, 0} filled by PersistentIds_CollectHighest from both id registries, then raised by every country's military constructions (CCountry +0xF40, the ones whose slot 17 answers true - CMilitaryConstruction only): the line's own pair at +0x58/+0x5C and each brigade's at +0x10/+0x14 of the +0x7C list, each ignored below type 0x1268; one `id = { id=N type=T }` (SaveWriteIdPair) **for each entry whose serial is not 0, in ascending type** - a single-player save has exactly one, type 4713; one `rebel_faction` per CRebelFaction in the list at +0xC7C (slot 1); `fired_events = { id={...} ... }`, one id pair per node of the fire_only_once registry (+0xC3C buckets of +0xC40, walked bucket by bucket, the pair at the event's +8/+0xC); **then every province**: for each CProvince* of the vector +0xB8C in vector order whose id (+0xD0) is not 0 - the placeholder at index 0 is skipped - the id as an int key and slot 1 (so `1=` .. `14168=`, ascending); **then every country**: for index 1 to GetCountryCount()-1 - **index 0 is skipped** - the tag at +0xCA4 as a string key and the country (SaveWriteNamedObject), so the order is the countries vector's, which is common/countries.txt's from REB to VEN; `sunk_ships = { TAG={ship} ... }` over the list at +0x20, each ship under its own owner tag (CSubUnit +0x94); `weather` (the embedded CWeatherManager at +0xAEC); `faction={` written as raw tokens with no newline and no depth change, then for each CFaction of the list at +0xCE4 whose name token (+0xB8) is set, that token as the key and the faction, then `}`; `diplomacy` (the embedded CDiplomacy at +0xB24); `combat` (the embedded CCombatManager at +0xB5C); one `active_war` per CWar in the list at +0xC00, one `previous_war` per node of +0xC20, one `undeclared_war` per CUndeclaredWar of +0xC10 - **after** previous_war; `income_statistics`, `nation_size_statistics`, `inflation_statistics` (the CGraphStatistics at [+0xC6C], [+0xC70], [+0xC74]); `allied_objectives` - triples (province, q, country index) out of +0xB9C, SaveWriteIntVector, so absent when there are none; one `selectionGroups` per country index whose ten 0x10-byte groups at +0xD40 + index*0xA0 have any +8 set, written through a stack CSelectionGroupWriter (vftable VA 0x15CF694, the country's tag and id, the ten groups); `strategic_warfare = { ... }` (GameStrategicWarfare_SaveContents on [+0xD68]); and, only while the in-game screen's +0x1DE8 is set, one `battle_plan = { ... }` per plan in that object's per-country vectors (+0x350 + country id*0x10), each through BattlePlan_Serialize with full 1, the plan's byte +0x1CD set around the call. **Never written**, though CGameState::LoadKey reads them: `ai_seed`, `controller`, `leader`, `start_date` - none is among this function's key immediates. The root's own closing brace comes from CPersistent::Save's epilogue, which is why a save ends with one `}` too many (FINDINGS-save.md). See reversing/findings/FINDINGS-savegame.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Read whole on the listing with every key immediate named from ghidra/saveTokens.json (scratch annotation of 0x67E6F0..0x67FCA4); retsBefore(0x67E6F0, 0x67FCB0) is the single `ret 4` at 0x67FCA1 and 0x67FCB0 is CGameState::LoadKey, slot 4. vtable.py --holding 0x67E6F0: CGameState and CCurrentGameState slot 2 only. Checked against the maintainer's 33 saves (all of `save games`, scratch scan of the top-level keys): every one has exactly date player ai automate_trade automate_sliders automate_tech_sliders rebel convoy theatre unit flags gameplaysettings victory_conditions seed count id fired_events, 14168 province blocks 1..14168 ascending, 101 country blocks in common/countries.txt's order REB..VEN, sunk_ships weather faction diplomacy combat, 1-4 active_war, 2 previous_war, the three statistics and strategic_warfare - the order the code gives; none has scenario, rebel_faction, undeclared_war, allied_objectives, selectionGroups or battle_plan, each of which the code gates. The multiplayer gate: `mov eax,[edi+0xbe8]; mov al,[eax+0x68]; test al,al; jne 0x67EB6B` at 0x67E804, and 0x67EB6B is the `rebel` key. Index 0 skipped: `mov dword [esp+0x18], 1` at 0x67F602 before the country loop. What would show it wrong: a save of the original's with a top-level key outside this list, or with countries or provinces in another order."
+  },
+  {
+   "rva": "0x69D410",
+   "kind": "function",
+   "name": "PersistentIds_CollectHighest",
+   "signature": "void __fastcall PersistentIds_CollectHighest(int* slots)",
+   "no_signature": null,
+   "comment": "**Fills the table the save's `id` blocks come from.** `slots` (ECX) is an array of 0x1267 eight-byte entries {type, serial}; it is published in the globals 0x174DAAC (the array) and 0x174DAB0 (its count, 0x1267), every entry is set to {0x1268 + i, 0}, and then every object of both id registries - g_PersistentIdTable_HighTypes ([0x1A857F0]) and then g_PersistentIdTable_LowTypes ([0x1A857F4]), bucket by bucket, chain by chain - is handed to PersistentIds_NoteHighest, which keeps the largest serial seen per high type. So after it, entry i holds the highest serial any registered object of type 0x1268+i carries, or 0. One caller, CGameState::SaveContents (0x67EFDA). Bare `ret`. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Read whole, VA 0xA9D410 to the bare `ret` at 0xA9D4AB (four int3 after, 0xA9D4B0 a fresh SEH prologue). The init loop `lea edx,[eax+0x1268]; mov [ecx+eax*8],edx; mov [ecx+eax*8+4],edi(0)` for eax < 0x1267, then two walks `ebx=[0x1A857F0]` / `ebx=[0x1A857F4]` over `[ebx+8][i]` for i < `[ebx+4]`, each node `push [esi]; call 0xA9D3D0; esi=[esi+4]`. findRefs --callers 0xA9D410: 0x67EFDA only. What would show it wrong: another caller that uses the array for something other than the save."
+  },
+  {
+   "rva": "0x69D3D0",
+   "kind": "function",
+   "name": "PersistentIds_NoteHighest",
+   "signature": "void __cdecl PersistentIds_NoteHighest(CReferenceObject* object)",
+   "no_signature": null,
+   "comment": "One object's step of PersistentIds_CollectHighest: with the array at [0x174DAAC] and its count at [0x174DAB0], `i = object->id_type (+8) - array[0].type`; if the type is at least that first type (0x1268), i is below the count, and the object's serial (+0xC) is larger than array[i].serial, it replaces it. So objects of the fixed low types (units 41, leaders 37, convoys 42, theatres 45, events 40, rebels 39) never reach the save's `id` blocks. Bare `ret`; the caller pops its one argument. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Read whole, VA 0xA9D3D0 to the bare `ret` at 0xA9D403, twelve int3 after: `ecx=[obj+8]; esi=[obj+0xc]; edi=[0x174DAAC]; edx=[edi]; eax=ecx-edx; cmp ecx,edx; jb out; cmp eax,[0x174DAB0]; jge out; cmp esi,[edi+eax*8+4]; jbe out; mov [edi+eax*8+4],esi`. Both callers in 0xA9D410 do `push; call; add esp,4`. What would show it wrong: a caller handing it something whose +8/+0xC is not an id pair."
+  },
+  {
+   "rva": "0x69D4B0",
+   "kind": "function",
+   "name": "PersistentIds_SetSpace",
+   "signature": null,
+   "no_signature": "Register arguments only and a bare `ret`: the serial in ECX and the type offset in EDI (only DI is stored), nothing on the stack. Would be `void PersistentIds_SetSpace(int serial@ECX, int typeOffset@EDI)`.",
+   "comment": "**Chooses the id space new objects are minted in.** Stores DI into the word [0x1A857EC] - the offset CReferenceObject::AssignNewId adds to 0x1268 for the type of every fresh id - and 0x1268 + offset into [0x1B1670C]. With serial 0 it clears the high registry if it exists (rva 0x69D630) and zeroes the serial counter [0x1A857F8] and its copy [0x1B16710]; otherwise both are set to `serial`, so the next AssignNewId hands out serial + 1. Then it creates either registry that does not exist yet (0xC- and 0x10-byte objects, rva 0x69D930) and sets [0x1A857BD]. Four callers: **WinMain's startup (main.cpp, VA 0xA58E28) with offset 1 and serial 0** - so a single-player game mints in type 0x1269 = 4713; the multiplayer connection handler that names 'CONNECTED' (VA 0x7084C2) with offset = the session's local id (`mov edi,[eax+0x6C]` of in_game_screen slot 18) and serial 0, so **each peer mints ids in a type of its own and two peers can never collide**; the lazy initialiser at rva 0x69D670 with 0 and 0 when [0x1A857BD] is clear; and **CGameState::LoadKey's `id` arm (VA 0x67FD79)**, which reads the pair and calls this only when `type - 0x1268` equals the current offset, with the saved serial - that is how a loaded game goes on minting after the highest id it saved and does not reuse one. A saved pair of another type is ignored. Inferred, not checked: a multiplayer save loaded by a peer whose local id differs from the one it was written under would restore no counter at all, its own type's serials starting again from 0. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Read VA 0xA9D4B0 to 0xA9D5B5 on the listing: `mov word [0x1A857EC], di`, `cmp esi(=ecx),0; jne` to `mov [0x1A857F8],esi; mov [0x1B16710],esi`, else `call 0xA9D630` (if [0x1A857F0]) and zeroes, `lea eax,[edi+0x1268]; mov [0x1B1670C],eax`, the two `push 0xC`/`push 0x10` allocations. findRefs --callers 0xA9D4B0: 0x67FD79, 0x7084C2, 0xA58E28, 0xA9D685; the strings 'main.cpp', 'settings.txt' and 'HoI3 Version ' sit in the function around 0xA58E28 and 'CONNECTED' at 0x708360. The LoadKey arm: `call 0xA7B250` (the pair), `movzx eax, word [0x1A857EC]; add edi,0xffffed98; cmp edi,eax; jne`, `mov ecx,[esp+0x14]` (the serial), call, at 0x67FD44-0x67FD79. What would show it wrong: a writer of [0x1A857EC] other than this function (the 25 references to it in .text were listed and the rest read it)."
+  },
+  {
+   "rva": "0x6789F0",
+   "kind": "function",
+   "name": "SaveWriteIdPair",
+   "signature": "void __stdcall SaveWriteIdPair(int* pair@EAX, CSaveWriter* writer@ECX)",
+   "no_signature": null,
+   "comment": "**Writes an object id as the block `{ id=N type=T }`** - the caller has written the key. SaveBeginBlock, `id` (token 0xB) with pair[1] as an unsigned (token type 0x14), newline, `type` (token 0xD9) with pair[0], newline, then the open-coded close (depth-1, indent, `}` and newline unless depth is -1). **In memory the pair is {type, serial} - type first - and in the save the serial is written first.** The top-level `id` blocks, `fired_events`, CRebelFaction's `id` and `army`, the selection groups and many unit-tree keys go through it. Bare `ret`. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Read whole, VA 0xA789F0 to the bare `ret` at 0xA78AC8, seven int3 after: `esi=ecx; edi=eax; call SaveBeginBlock; ebx=[edi+4]; mov ecx,0xB; call SaveWriteKey; ... type 0x14 ... ; edi=[edi]; mov ecx,0xD9; call SaveWriteKey`. Callers set EAX to the address of a stack pair and ECX to the writer (e.g. 0x67F0C1/0x67F0C5, 0x67F377/0x67F37B). The save confirms the order: `id=\\n{\\n\\tid=106\\n\\ttype=4713\\n}`. What would show it wrong: a caller passing the pair the other way round."
+  },
+  {
+   "rva": "0x608D0",
+   "kind": "function",
+   "name": "SaveWriteIntVector",
+   "signature": "void __stdcall SaveWriteIntVector(SaveToken key@ECX, CSaveWriter* writer@EDX, int** vector@stack:4)",
+   "no_signature": null,
+   "comment": "Writes `key = { a b c ... }` from a std::vector<int> (begin/end at vector+0/+4): **nothing at all when the vector is empty**. The values go one line, each followed by a space, then the close at the writer's depth (so a save shows `ai=\\n{\\n0 0 0 0 0 7 0 }`). Used for the top-level `ai` and `allied_objectives`, the settings file's `categories` (FINDINGS-settingswindow.md), SGraphStatisticsItem's two ledgers, CGamePlaySettings, and a dozen country keys - `slider_locks`, `spy_priority`, `spy_mission`, `cabinet`, `shared_technologies`, `lendlease_targets`, `lend_lease_from`, `lend_lease_from_yesterday`. `ret 4` at 0x460A65. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Entry VA 0x4608D0: `ebx=[ebp+8]; eax=[ebx+4]-[ebx]; esi=edx; test eax,0xfffffffc; je` to the exit, else `push esi; call SaveWriteKey` with ECX untouched. retsBefore(0x4608D0, 0x461360) gives `ret 4` at 0x460A65 first. Call sites load `mov ecx,<token>; mov edx,<writer>` and push the vector (0x67E8D6..0x67E8DD for `ai`, 0x67FA6C..0x67FA73 for allied_objectives). The empty case agrees with the saves: no `allied_objectives` key in any of the 33. What would show it wrong: a caller passing something other than a vector<int>."
+  },
+  {
+   "rva": "0x678AF0",
+   "kind": "function",
+   "name": "SaveWriteNamedObject",
+   "signature": "void __stdcall SaveWriteNamedObject(Hoi3CString* key@EDI, CSaveWriter* writer@ESI, CPersistent* object@stack:4)",
+   "no_signature": null,
+   "comment": "Writes `<key> = { object }` where the key is a **string** rather than a token: indent (depth-1, text only), the string as a word token (type 0xF), `=`, then the object's slot 1 (CPersistent::Save) with the writer. How the save's country blocks get their tag keys (CGameState::SaveContents at 0x67F688), how sunk ships go under their owner's tag, how a country's CDiplomacyStatus records go under the other country's tag, and how a dated history entry goes under its date. `ret 4` at 0xA78B67. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Read VA 0xA78AF0 to `ret 4` at 0xA78B67: `cmp byte [esi+0xc],0` (binary) / `[esi+4]` (depth) before SaveWriteIndent, `cmp dword [edi+0x14],0x10` - the string's capacity, so EDI is a std::string - then the 0xFF snprintf of it, SaveWriteValue, SaveWriteToken(1, '='), `mov edx,[ebx]; mov eax,[edx+4]; mov ecx,ebx; call eax` with ebx = [ebp+8]. Call site 0x67F682..0x67F688: `lea edi,[esp+0x24]` (the tag string), `mov esi,ebx` (writer), `push ecx` (the country). What would show it wrong: a caller whose EDI is not a string."
+  },
+  {
+   "rva": "0x2FC00",
+   "kind": "function",
+   "name": "CCombatManager::SaveContents",
+   "signature": "void __thiscall CCombatManager::SaveContents(CCombatManager* this, CSaveWriter* writer)",
+   "no_signature": null,
+   "comment": "The save's `combat` block: for each CCombat of the list at +0x8 (the battles in progress), **the combat's own save token as its key** (slot 10, GetSaveToken - CLandCombat, CNavalCombat, CAirCombat and the three bombings each answer their own) and its slot 1; then `history` and the CCombatHistory at +0x18. `ret 4` at 0x42FC59.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled (scratch Ghidra copy) and the vftable: vtable.py --holding 0x42FC00 is CCombatManager slot 2 alone; retsBefore gives `ret 4` at 0x42FC59 and slot 4, CCombatManager::LoadKey, starts at 0x42FC60. The Ireland 1938 save's `combat={ history={ ... } }` is the empty-list case. What would show it wrong: a save with a battle in progress whose key is not one of the combat classes' tokens."
+  },
+  {
+   "rva": "0x16E210",
+   "kind": "function",
+   "name": "CCombat::SaveContents",
+   "signature": "void __thiscall CCombat::SaveContents(CCombat* this, CSaveWriter* writer)",
+   "no_signature": null,
+   "comment": "One battle in progress, slot 2 of all seven combat classes (CCombat, CLandCombat, CNavalCombat, CAirCombat, CGroundBombing, CLandBombing, CNavalBombing): `location` (the province's id, +0xD0 of the province), `day`, `duration` (plain ints), `attacker` and `defender` (each a combatant's slot 1 - CCombatant and its kinds, whose keys are the unit tree's), and `terrain` (the terrain's name through its slot 10) when the terrain is set. `ret 4` at 0x56E34E.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled (scratch Ghidra copy); vtable.py --holding 0x56E210 lists the seven combat classes at slot 2 - one family, inheritance not folding; retsBefore gives `ret 4` at 0x56E34E. What would show it wrong: a save's land battle block with keys in another order."
+  },
+  {
+   "rva": "0x2FAB0",
+   "kind": "function",
+   "name": "CCombatHistory::SaveContents",
+   "signature": "void __thiscall CCombatHistory::SaveContents(CCombatHistory* this, CSaveWriter* writer)",
+   "no_signature": null,
+   "comment": "The list of finished battles inside `combat`: hands its entry list (first_entry, +0x8: ECX = this + 8) to rva 0x33FE0, which writes nothing when the list is empty and otherwise `history = { ... }` with each CCombatHistoryEntry's slot 1, each followed by a word token - **so the entries are anonymous blocks** (`{ location=.. attacker=.. }`), which is what a save shows. So a save's `combat` holds `history = { history = { {...} {...} } }`: the outer key is CCombatManager's, the inner one 0x33FE0's. `ret 4` at 0x42FABF.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled (scratch Ghidra copy): the whole body is `FUN_00433fe0(&this->first_entry, writer)`; 0x433FE0 decompiled: `if (list[2] != 0) { SaveWriteKey(history); SaveBeginBlock; for each node (next at +0x2C) slot 1 ... }`. vtable.py --holding 0x42FAB0: CCombatHistory slot 2 alone. The Ireland 1938 save: `combat={ history={ history={ { location=5639 attacker=\"JAP\" ... } } } }`. What would show it wrong: a save whose combat history entries carry keys."
+  },
+  {
+   "rva": "0x2F410",
+   "kind": "function",
+   "name": "CCombatHistoryEntry::SaveContents",
+   "signature": "void __thiscall CCombatHistoryEntry::SaveContents(CCombatHistoryEntry* this, CSaveWriter* writer)",
+   "no_signature": null,
+   "comment": "One finished battle: `location` (province id, int), `attacker` and `defender` (tags, quoted), `end_date` (date string), `convoy` (yes) **only when its flag is set**, and `type` (the kind, an int - 1 to 5 in the maintainer's saves). `ret 4` at 0x42F5DF. CCombatHistoryEntry::LoadKey is rva 0x2F5F0.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled (scratch Ghidra copy); vtable.py --holding 0x42F410: CCombatHistoryEntry slot 2 alone; retsBefore `ret 4` at 0x42F5DF and slot 4 at 0x42F5F0. The Ireland 1938 save's entry has location, attacker, defender, end_date and type, and the September 1936 Germany save's entries carry types 1, 2, 4 and 5. Note the save's entry shows `type=5` and then `type=1` in one block, a second `type` this function does not write: **not explained** - the word token rva 0x33FE0 writes after each entry was not decoded and is the first place to look. What would show it wrong: an entry with keys this does not write."
+  },
+  {
+   "rva": "0x64EC90",
+   "kind": "function",
+   "name": "CWar::SaveContents",
+   "signature": "void __thiscall CWar::SaveContents(CWar* this, CSaveWriter* writer)",
+   "no_signature": null,
+   "comment": "One `active_war` / `previous_war` block: `name` (quoted), `limited` (yes/no), one `attacker` per tag of the attackers vector, one `defender` per tag of the defenders vector, `revolutionary_war = yes` **only when set**, `action` (the date, a string), `original_attacker` and `original_defender` (tags, `---` when null), then one `war_goal` per entry of its war-goal tree. `ret 4` at 0xA4F0A3. CWar::LoadKey is rva 0x64E610.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled (scratch Ghidra copy); vtable.py --holding 0xA4EC90: CWar slot 2 alone; retsBefore `ret 4` at 0xA4F0A3. The Ireland 1938 save's four active_war blocks carry name, limited, attacker/defender, action, original_attacker, original_defender in that order. What would show it wrong: a war block in a save with these keys in another order."
+  },
+  {
+   "rva": "0x75E70",
+   "kind": "function",
+   "name": "CUndeclaredWar::SaveContents",
+   "signature": "void __thiscall CUndeclaredWar::SaveContents(CUndeclaredWar* this, CSaveWriter* writer)",
+   "no_signature": null,
+   "comment": "One top-level `undeclared_war` block: one `attacker` per tag of its attackers vector, one `defender` per tag of its defenders vector, and one `region` per region it holds (the region's name, +0x18 of each). `ret 4` at 0x476037. CUndeclaredWar::LoadKey is rva 0x75A60.",
+   "confidence": "inferred",
+   "evidence": "Decompiled (scratch Ghidra copy); vtable.py --holding 0x475E70: CUndeclaredWar slot 2 alone; retsBefore `ret 4` at 0x476037 (the `ret 0xc` at 0x4760E2 is the next function). The order of the three loops is the decompiler's, which interleaves them badly here, and no save of the maintainer's has an undeclared_war to check it against - that is why this is inferred. What would show it wrong: a save with an undeclared war whose keys come in another order."
+  },
+  {
+   "rva": "0x1F3B10",
+   "kind": "function",
+   "name": "CGraphStatistics::SaveContents",
+   "signature": "void __thiscall CGraphStatistics::SaveContents(CGraphStatistics* this, CSaveWriter* writer)",
+   "no_signature": null,
+   "comment": "One of the three top-level statistics blocks (`income_statistics`, `nation_size_statistics`, `inflation_statistics`): one `ledger_data` per 0x44-byte SGraphStatisticsItem of the vector at +8, each its slot 1. An empty vector gives an empty block, which is what income and inflation are in every save of the maintainer's. `ret 4` at 0x5F3B87. CGraphStatistics::LoadKey is rva 0x1F3A70.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled (scratch Ghidra copy): the loop over `(+0xC - +8) / 0x44` with SaveWriteKey(ledger_data) and slot 1; vtable.py --holding 0x5F3B10: CGraphStatistics slot 2 alone; retsBefore `ret 4` at 0x5F3B87. The Ireland 1938 save: income_statistics={ } and nation_size_statistics with 102 ledger_data. What would show it wrong: a statistics block holding another key."
+  },
+  {
+   "rva": "0x1F35F0",
+   "kind": "function",
+   "name": "SGraphStatisticsItem::SaveContents",
+   "signature": "void __thiscall SGraphStatisticsItem::SaveContents(SGraphStatisticsItem* this, CSaveWriter* writer)",
+   "no_signature": null,
+   "comment": "One `ledger_data`: `ledger_data_y` (token 0x15D, the vector<int> at +0x24) and `ledger_data_x` (0x15C, at +0x34) through SaveWriteIntVector - so either is left out when empty - then `name` (the string at +8; a tag, `---` for the null country). `ret 4` at 0x5F3631. SGraphStatisticsItem::LoadKey is rva 0x1F35A0.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled (scratch Ghidra copy): two SaveWriteIntVector calls and SaveWriteKey(name)/SaveWriteString; vtable.py --holding 0x5F35F0: SGraphStatisticsItem slot 2 alone. The Ireland 1938 save: `ledger_data={ ledger_data_y={ 0 0 } ledger_data_x={ 1937 1938 } name=\"---\" }`, then name=\"REB\" and on. What would show it wrong: a ledger with keys in another order."
+  },
+  {
+   "rva": "0x123400",
+   "kind": "function",
+   "name": "CFaction::SaveContents",
+   "signature": "void __thiscall CFaction::SaveContents(CFaction* this, CSaveWriter* writer)",
+   "no_signature": null,
+   "comment": "One faction inside the top-level `faction={...}`: `progress` (+Progress, `%d.%03d`), then one `country` (quoted tag) per member of its list, in list order. The key is the faction's own name token (+0xB8), written by CGameState::SaveContents. Slot 2 of CFaction and of CNullFaction (inherited). `ret 4` at 0x52351F. CFaction::LoadKey is rva 0x1227E0.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled (scratch Ghidra copy); vtable.py --holding 0x523400: CFaction and CNullFaction slot 2 - CNullFaction derives from CFaction; retsBefore gives `ret 4` at 0x52351F first. The Ireland 1938 save: `axis=\\n{\\n\\tprogress=262.000\\n\\tcountry=\"GER\"...`. What would show it wrong: a faction block with another key."
+  },
+  {
+   "rva": "0x144AA0",
+   "kind": "function",
+   "name": "CVictoryConditionManager::SaveContents",
+   "signature": "void __thiscall CVictoryConditionManager::SaveContents(CVictoryConditionManager* this, CSaveWriter* writer)",
+   "no_signature": null,
+   "comment": "The top-level `victory_conditions` block: one `faction = { ... }` (token 0x6BB, through rva 0x10FEE0, a list of 0x1C-byte word entries) per faction - each victory condition's name followed by a date string, and the faction's own name last - then `game_finished` (yes/no). So a save shows `faction={ operation_sealion 0.1.0.0 ... axis }`, the date `0.1.0.0` standing for a condition not met. `ret 4` at 0x544CFC. CVictoryConditionManager::LoadKey is rva 0x144920.",
+   "confidence": "inferred",
+   "evidence": "Decompiled (scratch Ghidra copy): the per-faction loop builds a vector of names and dates (FUN_0044c710 for the date) and hands it to FUN_0050fee0 with token 0x6BB, then SaveWriteKey(game_finished) with a bool; vtable.py --holding 0x544AA0: CVictoryConditionManager slot 2 alone; retsBefore `ret 4` at 0x544CFC. The reading of the date as 'met at' is inferred from the start save's 0.1.0.0 on every condition; the loop's source fields were not tied to CVictoryConditionManager's record. What would show it wrong: a save with a met condition whose date is not where it was met."
+  },
+  {
+   "rva": "0x28A5E0",
+   "kind": "function",
+   "name": "CGamePlaySettings::SaveContents",
+   "signature": "void __thiscall CGamePlaySettings::SaveContents(CGamePlaySettings* this, CSaveWriter* writer)",
+   "no_signature": null,
+   "comment": "The top-level `gameplaysettings` block: rva 0x28A650 copies the settings into a vector<int> and SaveWriteIntVector writes it under `setgameplayoptions` (token 0x60D) - the start save's `setgameplayoptions={ 2 0 }`. `ret 4` at 0x68A645. CGamePlaySettings::LoadKey is rva 0x28A550.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled (scratch Ghidra copy): `FUN_0068a650(local); FUN_004608d0(0x60d, writer, local)`; vtable.py --holding 0x68A5E0: CGamePlaySettings slot 2 alone; retsBefore `ret 4` at 0x68A645. The start save: `gameplaysettings=\\n{\\n\\tsetgameplayoptions=\\n\\t{\\n2 0 \\t}\\n}`. Which setting each of the two numbers is was not read. What would show it wrong: a save with a gameplaysettings key other than setgameplayoptions."
+  },
+  {
+   "rva": "0xB91C0",
+   "kind": "function",
+   "name": "CRebelFaction::SaveContents",
+   "signature": "void __thiscall CRebelFaction::SaveContents(CRebelFaction* this, CSaveWriter* writer)",
+   "no_signature": null,
+   "comment": "One top-level `rebel_faction` block: `id` (its id pair, SaveWriteIdPair - type 39, from g_rebel_id), `type` (the rebel type's key), `name`, `country` (tag), one `target` per target tag, `independence` (tag), `government` (the government's key), `province` (an int), one `army` per army (an id pair each), then the province list under token 0x1DC through rva 0xA810. `ret 4` at 0x4B9410. CRebelFaction::LoadKey is rva 0xB9420.",
+   "confidence": "inferred",
+   "evidence": "Decompiled (scratch Ghidra copy); vtable.py --holding 0x4B91C0: CRebelFaction slot 2 alone; retsBefore `ret 4` at 0x4B9410. The rebel type 0x27 is from the minting site VA 0x4BAB19..0x4BAB31 (`eax=[g_rebel_id]; ... inc eax; mov [g_rebel_id],eax; mov dword [ebp-0x80],0x27`). No save of the maintainer's has a rebel_faction to check the order against, and token 0x1DC's name was not looked up, which is why this is inferred. What would show it wrong: a save with a rising whose rebel_faction keys come in another order."
+  },
+  {
+   "rva": "0x28D180",
+   "kind": "function",
+   "name": "CSelectionGroupWriter::SaveContents",
+   "signature": "void __thiscall CSelectionGroupWriter::SaveContents(CSelectionGroupWriter* this, CSaveWriter* writer)",
+   "no_signature": null,
+   "comment": "One top-level `selectionGroups` block, for one country: `tag` (quoted), then for each of the ten groups that holds units (rva 0x28DC70, which skips an empty one) the group's number as a word key and `{ id={...} ... }`, one SaveWriteIdPair per unit. The writer is a throwaway built on the stack by CGameState::SaveContents (vftable VA 0x15CF694, the tag and id, and a pointer to the ten groups); **it has no loader of its own** - its slot 4 is LoadKey_ReportUnknown - because the key is read back by CSelectionGroupReader::LoadKey (rva 0x28CFA0). `ret 4` at 0x68D2A2.",
+   "confidence": "inferred",
+   "evidence": "Decompiled (scratch Ghidra copy): SaveWriteKey(tag)/SaveWriteString, then a loop over 0x10-byte groups calling FUN_0068dc70, which writes a word, `=`, a block of SaveWriteIdPair; vtable.py CSelectionGroupWriter: slot 2 0x68D180, slot 4 0xA7C3B0 (LoadKey_ReportUnknown). The group key being the group's number is inferred from the loop's index, and no save of the maintainer's has a selectionGroups key. What would show it wrong: a save with selection groups keyed otherwise."
+  },
+  {
+   "rva": "0x130B20",
+   "kind": "function",
+   "name": "CStrategicWarfare::SaveContents",
+   "signature": "void __thiscall CStrategicWarfare::SaveContents(CStrategicWarfare* this, CSaveWriter* writer)",
+   "no_signature": null,
+   "comment": "A country's `strategic_warfare` block: three lists, alliance_entries, convoy_entries and bombing_entries, each through rva 0x130B60, which in a save come out as `alliance={ }`, `convoy={ }` and `ground_bombing={ }`, each followed by a blank line. `ret 4` at 0x530B5A. CStrategicWarfare::LoadKey is rva 0x1309B0. Not the top-level `strategic_warfare`, which is GameStrategicWarfare_SaveContents.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled (scratch Ghidra copy): three `FUN_00530b60(&list.first, writer)`; vtable.py --holding 0x530B20: CStrategicWarfare slot 2 alone; retsBefore `ret 4` at 0x530B5A. The Ireland 1938 save's GER block: `strategic_warfare={ alliance={ } (blank) convoy={ } (blank) ground_bombing={ } (blank) }`. The keys inside a non-empty list were not read. What would show it wrong: a country strategic_warfare block with another sub-key."
+  },
+  {
+   "rva": "0x65330",
+   "kind": "function",
+   "name": "GameStrategicWarfare_SaveContents",
+   "signature": null,
+   "no_signature": "thiscall-shaped - the object in ECX, the writer on the stack, `ret 4` - but the object's class is not established, so no Class::Method signature can be written; it would be `void __thiscall ?::SaveContents(void* this, CSaveWriter* writer)`.",
+   "comment": "**The top-level `strategic_warfare` block**, called directly (not through a vftable) by CGameState::SaveContents on the object at [state +0xD68]: `player` (the tag string at the object's +0), `count` (how many nodes of the std::map whose header is at +0xC hold a value at node +0x10), then each such value through rva 0x626F0, which writes `<its name at +0xC> = { end=yes/no start_date=.. end_date=.. (only when ended) years=N <three sub-lists> }`. Every save of the maintainer's has `player=\"<the player>\" count=0`. The object's class and what its entries are (strategic-warfare campaigns, inferred from the key) were not read. `ret 4` at 0x4654C6. The name is ours.",
+   "confidence": "inferred",
+   "evidence": "Decompiled (scratch Ghidra copy) both 0x465330 and 0x4626F0; vtable.py --holding 0x465330: in no table; call site `mov ecx,[esi+0xd68]; push ebx; call 0x465330` at 0x67FB29..0x67FB30 inside the SaveBeginBlock/close that CGameState::SaveContents writes for token 0x585. retsBefore `ret 4` at 0x4654C6. Every save: `strategic_warfare=\\n{\\n\\tplayer=\"IRE\"\\n\\tcount=0\\n}` (Ireland game) and \"GER\" in the Germany game. What would show it wrong: a save with count above 0 whose entries are not shaped so."
+  },
+  {
+   "rva": "0x47C0",
+   "kind": "function",
+   "name": "BattlePlan_Serialize",
+   "signature": "void __stdcall BattlePlan_Serialize(void* plan, CSaveWriter* writer, bool full)",
+   "no_signature": null,
+   "comment": "Writes one battle plan - the drawing of arrows, icons, texts and borders a player puts on the map - as keys: `title`, `country`, `arrows_count`, the arrows with their `text`, `icons_count`, `texts_count`, `is_battle_plan_shared`, `borders_count` and the rest; the third argument adds what only a full write carries. CGameState::SaveContents calls it with 1 inside a `battle_plan = { }` block for every plan of the in-game screen's battle-plan object (+0x1DE8), per country; the battle-plan commands (CBattlePlanSendCommand) are the likely other users - not checked. `ret 0xc` at 0x40696A. The name is ours.",
+   "confidence": "inferred",
+   "evidence": "Decompiled (scratch Ghidra copy) as `FUN_004047c0(int, int, char)` with SaveWriteKey of title, country, arrows_count, text, icons_count, texts_count, is_battle_plan_shared, borders_count on the second argument; vtable.py --holding: in no table; retsBefore gives `ret 0xc` at 0x40696A; the call at 0x67FC0B pushes 1, the writer and the plan and cleans nothing. Only the key names were read, not the order or the full list, and no save of the maintainer's has a battle_plan. What would show it wrong: a caller passing a non-plan first argument."
+  },
+  {
+   "rva": "0x4D740",
+   "kind": "function",
+   "name": "CFlags::SaveContents",
+   "signature": "void __thiscall CFlags::SaveContents(CPersistent* this, CSaveWriter* writer)",
+   "no_signature": null,
+   "comment": "Slot 2 of CFlags' CPersistent table, which sits at CFlags +0x24, so `this` is that subobject: `if (this[-0x20] /* the tree root, CFlags +4 */) rva 0x4D6E0(writer, root)` with ECX adjusted by -0x24. 0x4D6E0 is the in-order walk of the flag tree (low +8, the node, equal +0x10, high +0xC as a loop) that writes each flag as `name=yes` (rva 0x679640 with token 0x1F6) **only while its byte +0x1C is set** - so a cleared flag is not in the save, and the block comes out sorted by name. The same shape as CVariables::SaveContents. The game state's top-level `flags`, every country's and every province's go through it. `ret 4` at 0x44D758.",
+   "confidence": "confirmed",
+   "evidence": "Read whole, VA 0x44D740..0x44D758: `mov eax,[ecx-0x20]; test eax,eax; je; push eax; push [ebp+8]; add ecx,-0x24; call 0x44D6E0; ret 4`; 0x44D6E0 read whole to its `ret 8` at 0x44D736. vtable.py --holding 0x44D740: CFlags slot 2 at object offset 36 alone. The saves' flag blocks are alphabetical (GER 1938: annexation_of_austria, flag_AnschlussAustria, german_intervention_spanish_civil_war, ...). What would show it wrong: a save with a flag `=no`."
+  },
+  {
+   "rva": "0x4D760",
+   "kind": "function",
+   "name": "CFlags::LoadKey",
+   "signature": "void __thiscall CFlags::LoadKey(CPersistent* this, CParseContext* parse, SaveToken key)",
+   "no_signature": null,
+   "comment": "Slot 4 of CFlags' CPersistent table (at CFlags +0x24): **every key is a flag name** - a new 0x20-byte node gets the key's text, its byte +0x1C = (the value is `yes`), and the CFlags' slot 6 (through `this - 0x24`) inserts it. So a flag block in a save takes any name and `=no` loads a cleared flag. `ret 8` at 0x44D7CC.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled (scratch Ghidra copy): operator_new(0x20), the key text assigned, `this[0x1c] = (parse->value.type == yes)`, `(*(*(base-0x24)+0x18))(node,node)`; vtable.py --holding 0x44D760: CFlags slot 4 at object offset 36 alone; retsBefore `ret 8` at 0x44D7CC. What would show it wrong: a flag key that is refused."
+  },
+  {
+   "rva": "0x77060",
+   "kind": "function",
+   "name": "CVariables::SaveContents",
+   "signature": "void __thiscall CVariables::SaveContents(CPersistent* this, CSaveWriter* writer)",
+   "no_signature": null,
+   "comment": "Slot 2 of CVariables' CPersistent table (at CVariables +0x24): `if (this[-0x20]) CVariables::SaveSubtree(this - 0x24, writer, root)`, so a variable of value 0 is left out and the block is alphabetical (see CVariables::SaveSubtree). Already named in SaveSubtree's comment; recorded here. `ret 4` at 0x477078.",
+   "confidence": "confirmed",
+   "evidence": "Read whole, VA 0x477060..0x477078: the same five instructions as CFlags::SaveContents with `call 0x477000`. vtable.py --holding 0x477060: CVariables slot 2 at object offset 36 alone. What would show it wrong: nothing short of different bytes."
+  },
+  {
+   "rva": "0x77080",
+   "kind": "function",
+   "name": "CVariables::LoadKey",
+   "signature": "void __thiscall CVariables::LoadKey(CPersistent* this, CParseContext* parse, SaveToken key)",
+   "no_signature": null,
+   "comment": "Slot 4 of CVariables' CPersistent table (at CVariables +0x24): **every key is a variable name** - a new 0x20-byte node gets the key's text and its value (+0x1C) from TokenToFixedPoint of the value, and slot 6 of `this - 0x24` inserts it. `ret 8` at 0x4770F4.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled (scratch Ghidra copy): operator_new(0x20), key text, `*(int*)(node+0x1c) = *TokenToFixedPoint(&parse->value, ...)`, `(*(*(base-0x24)+0x18))(node,node)`; vtable.py --holding 0x477080: CVariables slot 4 at object offset 36 alone; retsBefore `ret 8` at 0x4770F4. What would show it wrong: a variables key that is refused."
+  },
+  {
+   "rva": "0x123BB0",
+   "kind": "function",
+   "name": "CGoodsPool::SaveContents",
+   "signature": "void __thiscall CGoodsPool::SaveContents(CGoodsPool* this, CSaveWriter* writer)",
+   "no_signature": null,
+   "comment": "One goods pool - a country's `pool`, `home`, `usage`, `to`, `back`, `convoyed_out`, `traded_for`, `traded_for_sans_allied`, `traded_away`, `traded_away_sans_allied`, and a province's seven pools: `supplies`, `money`, `crude_oil`, `fuel`, `metal`, `energy`, `rare_materials` in that order, each with SaveWriteFixed and **each left out when it equals the global at VA 0x1A87818** (zero) - `money` is compared with 0 directly. So an empty pool is an empty block. `ret 4` at 0x523C6F. Its loader is CGoodsPool::ReadSave (rva 0x123A90, slot 4).",
+   "confidence": "confirmed",
+   "evidence": "Decompiled (scratch Ghidra copy): seven `if (this->good != DAT_01a87818) SaveWriteFixed(good, writer, this->good)`, money against 0; vtable.py --holding 0x523BB0: CGoodsPool slot 2 alone; retsBefore `ret 4` at 0x523C6F. The Ireland 1938 GER block: `home={ supplies=367.182 money=4.075 crude_oil=4.400 metal=196.180 energy=717.850 rare_materials=48.480 }` (no fuel), `pool={ }`. What would show it wrong: a save pool listing a zero good."
+  },
+  {
+   "rva": "0x132430",
+   "kind": "function",
+   "name": "CTechnologyStatus::SaveContents",
+   "signature": "void __thiscall CTechnologyStatus::SaveContents(CTechnologyStatus* this, CSaveWriter* writer)",
+   "no_signature": null,
+   "comment": "A country's `technology` block: **every technology of the database, in the database's order**, as `<name> = { level progress leadership }` - the name is the technology's own save token (+0x208), level an int (level_by_technology), progress the 64-bit progress_by_technology written as a token of the five-decimal kind (`0.00000`), and the leadership spent as `%d.%03d`, with no newline and no indentation inside the braces: a save's line is `notech={1 0.00000 0.000}`. Its loader is CTechnologyStatus::LoadKey. `ret 4` at 0x53283B.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled (scratch Ghidra copy): a loop over g_CTechnologyDataBase->technologies writing token +0x208, `=`, `{`, `%d` of level_by_technology[i], a word, `%lld` of progress_by_technology[i] as the five-decimal token kind, a word, MakeFixedToken of leadership_by_technology[i], `}`, newline; vtable.py --holding 0x532430: CTechnologyStatus slot 2 alone; retsBefore `ret 4` at 0x53283B. The Ireland 1938 save's GER block: `technology={ notech={1 0.00000 0.000} single_engine_aircraft_design={1 0.00000 0.000} ...`, three figures of the three kinds. What would show it wrong: a save technology line with figures in another order."
+  },
+  {
+   "rva": "0x132230",
+   "kind": "function",
+   "name": "CTechnologyStatus::LoadKey",
+   "signature": "void __thiscall CTechnologyStatus::LoadKey(CTechnologyStatus* this, CParseContext* parse, SaveToken key)",
+   "no_signature": null,
+   "comment": "Reads one `<technology> = { level progress [leadership] }`: the key's text looked up in the technology database (StringHashFind_At20C), then the level (atoi), the progress (a 64-bit integer when the token is of type 399, else converted by rva 0x6697F0) **capped at 0x8000 when it is larger**, and, when a third token comes before `}`, the leadership into leadership_by_technology - which is then set to 0 whatever was read. An unknown technology name is skipped. `ret 8` at 0x532407.",
+   "confidence": "inferred",
+   "evidence": "Decompiled (scratch Ghidra copy) end to end; vtable.py --holding 0x532230: CTechnologyStatus slot 4 alone; retsBefore `ret 8` at 0x532407. The trailing `leadership_by_technology[...] = 0` after the optional read is the decompiler's and was not checked on the listing - that and the progress cap are why this is inferred. What would show it wrong: a loaded game keeping a technology's spent leadership."
+  },
+  {
+   "rva": "0x5B8C0",
+   "kind": "function",
+   "name": "CTimedModifier::SaveContents",
+   "signature": "void __thiscall CTimedModifier::SaveContents(CTimedModifier* this, CSaveWriter* writer)",
+   "no_signature": null,
+   "comment": "One `modifier` block of a country (the list at CCountry +0x648) or a province (CProvince +0x13C): `modifier` (the static modifier's name, the string at +0x2C of the object at +8) and `date` (its end, a date string). `ret 4` at 0x45B944. CTimedModifier::LoadKey is rva 0x5B7F0.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled (scratch Ghidra copy): SaveWriteKey(modifier)/SaveWriteString(+8 -> +0x2C), SaveWriteKey(date)/SaveWriteString; vtable.py --holding 0x45B8C0: CTimedModifier slot 2 alone; retsBefore `ret 4` at 0x45B944. 17 of the 101 country blocks of the Ireland 1938 save carry `modifier`. What would show it wrong: a save modifier block with another key."
+  },
+  {
+   "rva": "0x5C7BE0",
+   "kind": "function",
+   "name": "CActiveMission::SaveContents",
+   "signature": "void __thiscall CActiveMission::SaveContents(CActiveMission* this, CSaveWriter* writer)",
+   "no_signature": null,
+   "comment": "A country's `active_mission` block: `type` (the mission's name, +8 of +type), `scope` and `parent_scope` (each an event scope's slot 1 - CEventScope::SaveContents), `start_date` (a date string), and `owner` (a tag) **only when the owner's id is set**. `ret 4` at 0x9C7D05. CActiveMission::LoadKey is rva 0x5C7A20.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled (scratch Ghidra copy); vtable.py --holding 0x9C7BE0: CActiveMission slot 2 alone; retsBefore `ret 4` at 0x9C7D05. Not set beside a save: none of the maintainer's country blocks examined carries active_mission. What would show it wrong: a save mission block with keys in another order."
+  },
+  {
+   "rva": "0x1FCDA0",
+   "kind": "function",
+   "name": "CHistoryContainer::SaveContents",
+   "signature": "void __thiscall CHistoryContainer::SaveContents(CHistoryContainer* this, CSaveWriter* writer)",
+   "no_signature": null,
+   "comment": "A province's `history` block (and a country history's; slot 2 of CProvinceHistory and CCountryHistory): each entry of the container in order - one **without a date** (year below 2) through its slot 1 under the key the caller or entry gives, one **with a date** under that date as a string key (SaveWriteNamedObject). CProvince::SaveContents writes `history` only when the container holds entries (+0xEC positive). `ret 4` at 0x5FCECA. The loader is CHistoryContainer::LoadKey (rva 0x1FCC10), the same two tables at slot 4.",
+   "confidence": "inferred",
+   "evidence": "Decompiled (scratch Ghidra copy) as `FUN_005fcda0(writer)` with the year test `CGregorianDate::GetYear(entry+8) < 2` choosing slot 1 or FUN_00a78af0 with the date string; vtable.py --holding 0x5FCDA0: CCountryHistory and CProvinceHistory slot 2 - the same pair that hold CHistoryContainer::LoadKey at slot 4, which is why it takes that base's name. The undated arm's key was not traced, which is why this is inferred. What would show it wrong: a save province history block with an undated entry keyed other than by its kind."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CSaveWriter",
+   "offset": "0xD",
+   "name": "owns_stream",
+   "type": "bool",
+   "comment": "Set to 1 by both writers that build a CSaveWriter on the stack (SaveGameFromDialog, the autosave writer); when set, the stream at +8 is deleted through its slot 0 once the save is written - which is what closes the file. +0x0 is the writer's vftable, VA 0x15FD940, which both store before the save and again after it. See reversing/findings/FINDINGS-savegame.md, section B.",
+   "evidence": "Decompiled both (scratch Ghidra copy): autosaveWrite VA 0x64FF80 `local_30._0_4_ = &PTR_FUN_015fd940; local_30.depth = 0; local_23 = 1; local_30.binary = stream+0x13 != 0; ... depth = -1; Save(state, &local_30); ... if (stream != 0 && local_23 != 0) (**stream)()` with local_30 at -0x30 and local_23 at -0x23 = +0xD; SaveGameFromDialog VA 0x671370 the same with local_24 at +0 and local_17 = +0xD. What would show it wrong: a third writer construction that puts another field at +0xD."
+  },
+  {
+   "struct": "CGameState",
+   "offset": "0x60",
+   "name": "humans",
+   "type": "CHuman*",
+   "comment": "The head of the chain of CHuman player records (each chained on its own +0x54, matched on +0x1C), walked by CGameState::GetLocalPlayer and by CGameState::SaveContents' inlined copy of it; the record at +0x70 is the fallback when none matches. CCurrentGameState derives from CGameState and adds nothing at this offset, so the field is the base's.",
+   "evidence": "CGameState::SaveContents VA 0x67E841..0x67E874: `esi=[edi+0x60]; ... ecx=[esi+0x1c]; ... cmp ecx,[eax+0x6c]; je found; esi=[esi+0x54]; jne loop; lea esi,[edi+0x70]` - three times over; GetLocalPlayer's recorded comment describes the same walk. What would show it wrong: a write to +0x60 of something that is not a CHuman."
+  },
+  {
+   "struct": "CCurrentGameState",
+   "offset": "0x60",
+   "name": "humans",
+   "type": "CHuman*",
+   "comment": "CGameState's +0x60, carried here as the other base fields are: the head of the chain of CHuman player records, chained on +0x54. Both carry it because Ghidra has no inheritance between the two structures.",
+   "evidence": "As CGameState +0x60: CGameState::SaveContents is slot 2 of CCurrentGameState too (vtable.py --holding 0x67E6F0), and walks +0x60 on that receiver."
+  },
+  {
+   "struct": "CGameState",
+   "offset": "0xCE4",
+   "name": "factions_first",
+   "type": "void*",
+   "comment": "Head of the list of CFaction* (node: data +0, next +8) that CGameState::SaveContents writes as the top-level `faction={ <name>={...} ... }`, each under its own name token (CFaction +0xB8), skipping a faction whose token is 0. CCurrentGameState derives from CGameState and adds nothing at this offset.",
+   "evidence": "CGameState::SaveContents VA 0x67F801..0x67F837: `edi=[esi+0xce4]; ... eax=[edi]; ecx=[eax+0xb8]; test ecx,ecx; je; call SaveWriteKey; slot 1 of eax; edi=[edi+8]`. The save's faction block has axis, allies and comintern - three, as the base game's factions. What would show it wrong: another reader of +0xCE4 treating it as something else."
+  },
+  {
+   "struct": "CCurrentGameState",
+   "offset": "0xCE4",
+   "name": "factions_first",
+   "type": "void*",
+   "comment": "CGameState's +0xCE4, carried here as the other base fields are: the head of the CFaction* list the save's top-level `faction` block is written from. Both carry it because Ghidra has no inheritance between the two structures.",
+   "evidence": "As CGameState +0xCE4."
+  }
+ ],
+ "vftable_slots": {
+  "CGameState": {"2": {"name": "SaveContents", "signature": "void __thiscall SaveContents(CGameState* this, CSaveWriter* writer)"}},
+  "CCurrentGameState": {"2": "SaveContents"},
+  "CCombatManager": {"2": "SaveContents"},
+  "CCombat": {"2": "SaveContents"},
+  "CLandCombat": {"2": "SaveContents"},
+  "CNavalCombat": {"2": "SaveContents"},
+  "CAirCombat": {"2": "SaveContents"},
+  "CGroundBombing": {"2": "SaveContents"},
+  "CLandBombing": {"2": "SaveContents"},
+  "CNavalBombing": {"2": "SaveContents"},
+  "CNullFaction": {"2": "SaveContents"},
+  "CCombatHistory": {"2": "SaveContents"},
+  "CCombatHistoryEntry": {"2": "SaveContents"},
+  "CWar": {"2": "SaveContents"},
+  "CUndeclaredWar": {"2": "SaveContents"},
+  "CGraphStatistics": {"2": "SaveContents"},
+  "SGraphStatisticsItem": {"2": "SaveContents"},
+  "CFaction": {"2": "SaveContents"},
+  "CVictoryConditionManager": {"2": "SaveContents"},
+  "CGamePlaySettings": {"2": "SaveContents"},
+  "CRebelFaction": {"2": "SaveContents"},
+  "CSelectionGroupWriter": {"2": "SaveContents"},
+  "CStrategicWarfare": {"2": "SaveContents"},
+  "CFlags@0x24": {"2": "SaveContents", "4": "LoadKey"},
+  "CVariables@0x24": {"2": "SaveContents", "4": "LoadKey"},
+  "CGoodsPool": {"2": "SaveContents"},
+  "CTechnologyStatus": {"2": "SaveContents", "4": "LoadKey"},
+  "CTimedModifier": {"2": "SaveContents"},
+  "CActiveMission": {"2": "SaveContents"},
+  "CProvinceHistory": {"2": "SaveContents"},
+  "CCountryHistory": {"2": "SaveContents"}
+ },
+ "frontier": ["0x33FE0", "0x28DC70", "0x626F0", "0x10FD70", "0x10FEE0", "0xC8050", "0xA810", "0x130B60", "0x28A650", "0x4D6E0", "0x23A330", "0x69D630", "0x69D930", "0x308190"]
+}

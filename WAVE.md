@@ -17,6 +17,44 @@ truth.
 
 ---
 
+## The savegame wave - how a game is loaded and saved
+
+> **LANDED 2026-11-04**, launched on the maintainer's word ("Ok go ahead") after he chose for OpenHOI3 the original's
+> `.hoi3` format both ways. Three fragments merged (85 address entries new, 12 revised; 13 struct fields); the write-up is
+> `findings/FINDINGS-savegame.md`, indexed in `CANDIDATES.md`. **Corrected the list below**: the province and country
+> blocks stand between `fired_events` and `sunk_ships`. Left open there: whether a loaded game starts paused, Lua on the
+> load path, the class at `CGameState +0xD68`, the meaning of `setgameplayoptions`' numbers, and three embedded objects
+> the record types as pointers.
+
+**The question, for OpenHOI3**: everything a loader and a writer need beyond what the record holds piecemeal - the
+order of the top-level blocks and of every block's keys, the keys written only sometimes, the id scheme, what a load
+takes from the save and what from the install, and what the original recalculates after a load and before the first
+hour. The oracle is the maintainer's 45 saves in `Documents\Paradox Interactive\Hearts of Iron III\save games` (read
+only; never copy one), of which `Germany1936_01_01_00.hoi3` is the start date and the January 1936 ones have units on the
+move.
+
+**What is known before reading.** `LoadSaveFile` (rva `0x27CAE0`) builds a CParseContext over a file and calls
+`CGameState::LoadFromSave` (rva `0x27CE30`); its only callers are gamesetup.cpp (`0x30A5C6`, the lobby) and the tutorial
+screen. `CPersistent::Load` (rva `0x67C050`, slot 3 of 747 classes), `CPersistent::Save` (rva `0x5BB10`, slot 1), slot 2
+SaveContents and slot 5 AfterLoad (`CCountry`, `CUnit`, `CSubUnit`, `CLeader`, `CMilitaryConstruction`,
+`CStrategicWarfare`, `CTechnologyDataBase::AfterLoadAll`). Recorded SaveContents: CCountry, CProvince, CConvoy, CWeather,
+CWeatherManager, CWeatherFront, CDiplomacy, CDiplomacyStatus, CRelation and kin, CTradeRoute, CCasusBelli, CAIStrategy,
+CNavy, CArmy, CConstruction and its lines, CAlignment, CIdeologyData, CLeaderHistory, CTraitGainTracker, and the commands.
+`FINDINGS-save.md` has the value writers (`%d.%03d`, bools, quoted strings); `ghidra/saveTokens.json` the key tokens.
+`FINDINGS-session.md` and `FINDINGS-startup.md` have what a game's entry runs. A start save's top level, in order:
+`date player ai automate_trade automate_sliders automate_tech_sliders rebel convoy theatre unit flags gameplaysettings
+victory_conditions seed count id fired_events sunk_ships weather faction diplomacy combat active_war previous_war
+income_statistics nation_size_statistics inflation_statistics strategic_warfare`, then 101 country blocks and 14,168
+province blocks (their order to be read).
+
+| reader | brief | fragment |
+| --- | --- | --- |
+| **A** | **The load path**: `LoadSaveFile` and `CGameState::LoadFromSave` whole - what is reset, what the install is read for and what the save, how each top-level key is dispatched, the order the AfterLoads run in, and **everything recalculated after a load before the first hour** (modifiers, supply networks, intelligence, the AI's state, the two first days or not), and how that differs from a new game. What the lobby does around it. | `save-load.json` |
+| **B** | **The writer's top level and the id scheme**: the function that writes the whole save - every top-level key in order with its writer, the order of the country and province blocks, the counters (`rebel convoy theatre unit count id`), `seed`, `fired_events`, `sunk_ships`, `combat`, the wars and statistics - and the `{ id type }` pairs: what `type` numbers name, how ids are minted and kept. **A census**: for every block a save holds outside the unit tree, which class writes it and whether its SaveContents/LoadKey is recorded. | `save-toplevel.json` |
+| **C** | **The unit tree and the country's military blocks**: the SaveContents and LoadKey of CUnit and every unit level (theatre, army group, army, corps, division, navy, air), CSubUnit (regiment, ship, wing), the orders and air missions, leaders (`active_leaders`), `military_construction` and the other queue lines, `saved_templates` - every key in order, the ones written only sometimes, and what AfterLoad fills in. **A census** of the same kind for these. | `save-units.json` |
+
+---
+
 ## The game options wave - the in-game settings window
 
 > **LANDED 2026-11-04**, launched on the maintainer's word ("Ok continue with the options") after the in-game menu was
