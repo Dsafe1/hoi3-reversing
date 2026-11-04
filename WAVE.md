@@ -17,6 +17,54 @@ truth.
 
 ---
 
+## The game options wave - the in-game settings window
+
+> **LANDED 2026-11-04**, launched on the maintainer's word ("Ok continue with the options") after the in-game menu was
+> built in OpenHOI3 with Game Options greyed. Three fragments merged (61 address entries new, 5 revised; 5 structs
+> declared, 88 struct fields); the write-up is `findings/FINDINGS-settingswindow.md`, indexed in `CANDIDATES.md`. That Apply with
+> nothing needing a restart closes the whole menu the maintainer confirmed in the original the same day. Left open there:
+> what `simple` and `categories` mean, which `settings.txt` a mod reads, and the suspect "text colours" of `GameSettings_GetTextColours`.
+
+**The question, for OpenHOI3**: `interface/settings.gui`'s (and `tfh/interface/settings.gui`'s, which differs) window
+`menu_settings_ingame`, which the in-game menu's `menu_options_button` opens (`FINDINGS-ingamemenu.md`, A.4: the
+`CIngameSettingsScreen` at `CInGameIdler +0x1D2C`, 0x3E0 bytes, constructor VA `0x6FB710`, made by Enter at VA `0x66061D`;
+slot 1 shows it, slot 2 hides it, slot 3 answers whether it is shown, slot 5 (VA `0x6FB8D0`) closes it back through
+`CInGameIdler::CloseMenu`). It holds `settings_label`, `settings_bg`, four tabs `settings_tab_1`..`_4` with
+`gamesettings_label`, `videosettings_label`, `audiosettings_label`, `controlssettings_label`, and four windows:
+- `menu_settings_GAME`: `autosave_label`, `autosave_value`, `decrease_autosave_button`, `increase_autosave_button`,
+  `ApplyButton`; and `BackButton` beside the windows;
+- `menu_settings_VIDEO`: resolution, refresh rate and multisampling (`*_label`, `*_value`, `decrease_*_button`,
+  `increase_*_button`), the sliders `gamma_slider`, `counter_slider` (`slider_label`), `counter_scale_slider`, and the
+  checkboxes `counters_checkbox`, `hierarchy_checkbox`, `unit_name_checkbox`, `trees_checkbox`, `water_checkbox`;
+- `menu_settings_AUDIO`: `mastervolume_slider`, `effectvolume_slider`, `musicvolume_slider`;
+- `menu_settings_CONTROLS`: `scrollspeed_slider`, `zoomspeed_slider`, `legacy_camera_checkbox`;
+- and the file's `SettingsMustRestartWindow` (`MustRestartTextBox`, `MustRestart_OK_Button`).
+The front end's `menu_settings` is the same layout for `CFrontendSettingsScreen`. OpenHOI3 reads the player's
+`settings.txt` and has never written it (its `docs/compatibility.md`, entry 13).
+
+**What is known before reading.** RTTI: `CSettingsScreen` (6 slots, 5 introduced), its two children
+`CIngameSettingsScreen` (6 slots, 1 introduced: slot 5) and `CFrontendSettingsScreen` (also `CFrontEndView@0x3dc`, 20
+slots). `CIngameSettingsScreen`'s slots: 0 `0x6FB790`, 1 `0x6FB880`, 2 `0x6FB5E0`, 3 `0x6F6860`, 4 `0x6F6870`, 5
+`0x6FB8D0`. Nothing from VA `0x6F2860` (`CFrontEnd_FillRightClickMenu`) to `0x6FC000` is recorded. Element names are
+referenced at: `menu_settings_ingame` VA `0x6FB72E` (the constructor); `menu_settings` `0x6F3BC1`; `menu_settings_GAME`
+`0x6F6590` and five more; `settings_tab_1` `0x6F626D`; `ApplyButton` `0x6F6215` and three more; `BackButton` `0x6F61B8`
+and ten more; `autosave_value` `0x6F6928` and two more (beside a read of the settings' `+0x15C`, the autosave frequency);
+`resolution_value` `0x6F865C`; `legacy_camera_checkbox` `0x6F8442`. Recorded: `GetGameSettings` (rva `0x5FF30`, the
+0x18C-byte singleton `settings.txt` is read into), `CSettings::LoadKey` (rva `0x601D0`), `CMapRenderingOptions::LoadKey`
+(rva `0x5F630`), `AutosaveFrequency_FromString` / `_ToString` (rva `0x5FFB0` / `0x600C0`); `FINDINGS-autosave.md` has the
+frequencies, `FINDINGS-counters.md` and `FINDINGS-camera.md` the counter settings.
+
+| reader | brief | fragment |
+| --- | --- | --- |
+| **A** | **The window**: `CSettingsScreen` and `CIngameSettingsScreen` - construction, the six slots, show and hide, the four tabs (which window each shows, which is up first), **Apply** (what it does with every tab's choices, when the must-restart window comes up and what it says), **Back** and closing (are unapplied choices kept or dropped? Escape?), whether the game pauses, tooltips, greying; **the Game tab** whole (`autosave_value`: the values in order, wrapping, its text). How `CFrontendSettingsScreen` differs, in a paragraph. | `settings-window.json` |
+| **B** | **The Video tab** whole: resolution, refresh rate and multisampling - where each list comes from, its order, the text of a value, the buttons' ends and greying; `gamma_slider`, `counter_slider` and `counter_scale_slider` - range, step, text, the setting each holds; the five checkboxes - the setting each holds; **for each control: applied at once or only on Apply, and whether it needs a restart.** | `settings-video.json` |
+| **C** | **The Audio and Controls tabs** whole (the three volumes, scroll speed, zoom speed, `legacy_camera_checkbox`: range, step, the setting each holds, at once or on Apply) - and **the writer of `settings.txt`**: where and when it is written, the folder, every key in its order and format, which field of the settings object each is. | `settings-audio-controls.json` |
+
+**The oracle**: the maintainer's `settings.txt` (`Documents\Paradox Interactive\Hearts of Iron III\settings.txt`), which
+the original wrote - every key the writer is read to write should be in it, in that order.
+
+---
+
 ## The in-game menu wave - the menu, its save dialog and its message settings
 
 > **LANDED 2026-11-04.** Launched on the maintainer's screenshot of the original's menu, which the reading agrees with.

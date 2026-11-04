@@ -25,12 +25,12 @@ how many objects a census found (taken 2026-09-20).
 
 | | classes |
 | --- | --- |
-| `read` | 140 |
+| `read` | 141 |
 | `placed` | 142 |
-| `keys` | 75 |
-| `part` | 152 |
+| `keys` | 76 |
+| `part` | 154 |
 | `named` | 5 |
-| `RTTI` | 627 |
+| `RTTI` | 623 |
 | **all** | **1141** |
 
 ## What to read next
@@ -199,7 +199,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CGameState` | `CPersistent` |  | 69 | 14/33 | 14 |  |  | read |  |
 | `CGoodsPool` | `CPersistent` |  | 8 | 7/7 | 5 | CGoodsPool.hpp | 132,054 | read |  |
 | `CGraphStatistics` | `CPersistent` |  |  |  | 1 |  | 3 | keys |  |
-| `CGraphics` | `CFactory` `CPersistent` |  | 7 |  | 2 |  |  | read |  |
+| `CGraphics` | `CFactory` `CPersistent` |  | 10 |  | 2 |  |  | read |  |
 | `CGroundAttackOrder` | `CAirOrder` |  |  |  | 6 |  | 6 | RTTI |  |
 | `CGroundBombing` | `CBombing` |  |  | 4/6 | 2 |  |  | RTTI |  |
 | `CGroundTargetCombatant` | `CBombTargetCombatant` |  |  | 4/6 | 1 |  | 1 | RTTI |  |
@@ -228,7 +228,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CLoginHandler` | `TLoginInterface` `CLoginObservable` |  |  |  |  |  |  | RTTI |  |
 | `CMapPoint` | `CPersistent` | 0x10 | 2 |  | 2 |  | 879,780 | keys |  |
 | `CMapProvince` | `CProvince` |  | 87 | 14/26 | 14 | CMapProvince.hpp | 28,380 | read |  |
-| `CMapRenderingOptions` | `CPersistent` |  |  | 2/9 | 1 |  | 1 | placed |  |
+| `CMapRenderingOptions` | `CPersistent` |  |  | 2/9 | 2 |  | 1 | placed |  |
 | `CMessageHandlerInterface` | `CReferenceObject` |  |  |  |  |  |  | RTTI |  |
 | `CMessageType` | `CPersistent` | 0x38 | 9 | 1/7 | 2 |  | 185 | read |  |
 | `CMilitaryAccessAction` | `CDiplomaticAction` |  |  | 5/6 | 9 |  | 2 | RTTI |  |
@@ -288,7 +288,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CSetGamePlayOptions` | `CCommand` |  |  |  | 2 |  | 1 | keys |  |
 | `CSetHistoryDate` | `CCommand` |  |  | 1/1 | 2 |  | 1 | placed |  |
 | `CSetRandomSeed` | `CCommand` |  |  |  | 1 |  | 1 | keys |  |
-| `CSettings` | `CSystemSettings` |  |  | 5/10 | 1 |  | 1 | placed |  |
+| `CSettings` | `CSystemSettings` |  |  | 5/10 | 4 |  | 1 | placed |  |
 | `CShareTechnologyAction` | `CDiplomaticAction` |  |  | 1/1 | 7 |  |  | placed |  |
 | `CShip` | `CSubUnit` |  | 1 | 1/1 | 2 |  | 3,305 | placed |  |
 | `CSoundConfigurator` | `CPersistent` |  |  |  |  |  |  | RTTI |  |
@@ -299,7 +299,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CStringIntInt` | `CPersistent` | 0x2C | 3 |  | 1 |  |  | keys |  |
 | `CSubUnit` | `CReferenceObject` | 0xD8 | 31 | 8/13 | 22 |  |  | read |  |
 | `CSupportAttackOrder` | `COrder` |  | 1 |  | 8 | COrder.hpp |  | keys |  |
-| `CSystemSettings` | `CPersistent` |  |  |  |  |  |  | RTTI |  |
+| `CSystemSettings` | `CPersistent` |  |  |  | 3 |  |  | keys |  |
 | `CTechnologyStatus` | `CTechStatistics` `PAVCTechnology::__CArray` |  | 42 + 1 lua |  | 10 | CSubUnitDefinition.hpp | 108 | read |  |
 | `CTheatre` | `CReferenceObject` |  | 25 + 1 lua | 4/7 | 6 | CTheatre.hpp | 99 | read |  |
 | `CTimedModifier` | `CPersistent` |  |  | 2/2 | 1 |  | 6,176 | placed |  |
@@ -529,7 +529,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CFrontEnd` | `CEU3Idler` `CReloadDispatcher` |  | 3 |  | 4 |  |  | part |  |
 | `CFrontEndState` | `CFrontEndView` |  |  |  |  |  |  | RTTI |  |
 | `CFrontEndView` |  |  |  |  |  |  | 2 | RTTI |  |
-| `CFrontendSettingsScreen` | `CSettingsScreen` `CFrontEndView` |  |  |  |  |  |  | RTTI |  |
+| `CFrontendSettingsScreen` | `CSettingsScreen` `CFrontEndView` | 0x3E8 | 1 |  | 3 |  |  | part |  |
 | `CFuelConsumptionComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CGameNameMember` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
 | `CGoalEntry` | `CStandardlistboxItem` |  |  |  | 1 |  |  | RTTI |  |
@@ -543,8 +543,8 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CICCostComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CIcon` | `CButton` |  |  |  | 1 |  |  | RTTI |  |
 | `CIdler` |  |  |  |  |  |  |  | RTTI |  |
-| `CInGameIdler` | `CEU3Idler` `CLostDeviceInterface` `CReloadDispatcher` |  | 104 |  | 99 | CInGameIdler.hpp | 3 | read |  |
-| `CIngameSettingsScreen` | `CSettingsScreen` |  |  |  |  |  | 1 | RTTI |  |
+| `CInGameIdler` | `CEU3Idler` `CLostDeviceInterface` `CReloadDispatcher` |  | 104 |  | 100 | CInGameIdler.hpp | 3 | read |  |
+| `CIngameSettingsScreen` | `CSettingsScreen` | 0x3E0 | 1 |  | 2 |  | 1 | part |  |
 | `CLandOrdersView` | `COrdersView` | 0x198 | 10 |  | 10 |  |  | read |  |
 | `CLawEntry` | `CStandardlistboxItem` | 0x88 | 4 |  | 3 |  | 16 | part |  |
 | `CLeaderAssignmentEntry` | `CStandardlistboxItem` |  |  |  | 6 |  |  | RTTI |  |
@@ -642,7 +642,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CSelectedBrigadeEntry` | `CStandardlistboxItem` |  |  |  | 1 |  |  | RTTI |  |
 | `CSelectedShipEntry` | `CStandardlistboxItem` |  |  |  | 1 |  | 2 | RTTI |  |
 | `CSessionInfoObserver` |  |  |  |  |  |  | 1 | RTTI |  |
-| `CSettingsScreen` |  |  |  |  |  |  |  | RTTI |  |
+| `CSettingsScreen` |  | 0x3DC | 46 |  | 32 |  |  | read |  |
 | `CShield3dObject` | `C3dVisibleObject` |  |  |  |  |  | 23,393 | RTTI |  |
 | `CShieldObject` | `CSprite` |  |  |  |  |  | 187 | RTTI |  |
 | `CShipBuilder` | `CReloadableInterface` |  | 9 |  | 7 |  | 1 | read |  |

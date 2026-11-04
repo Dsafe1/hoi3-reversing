@@ -1,0 +1,605 @@
+{
+ "agent": "the game options wave, reader B (2026-11-04)",
+ "question": "The in-game settings window's Video tab (menu_settings_VIDEO) whole: resolution, refresh rate and multisampling - where each list comes from, its order, a value's text, the buttons' ends and greying; gamma_slider, counter_slider and counter_scale_slider - range, step, text, the setting each holds; the five checkboxes; for each control at once or on Apply, and whether it needs a restart.",
+ "source": "reversing/findings/FINDINGS-settingswindow.md",
+ "structs": [
+  {
+   "name": "DisplayMode",
+   "size": "0x18",
+   "comment": "One screen size the adapter offers, an element of the settings' display mode list (GameSettings +0x14 .. +0x18): the width and height and the refresh rates enumerated for that size, in the order the driver enumerated them. Made by GraphicsSettings_AddDisplayMode; no RTTI. The dword at +0x10 is the refresh vector's capacity end; +0x14 was not read. The name is ours. See reversing/findings/FINDINGS-settingswindow.md, section B.",
+   "evidence": "The 0x18 stride: every walk of the list divides by 24 (imul 0x2AAAAAAB; sar 2 at 0x6F735D, 0x6F93CA, 0xAA6D55) and steps `add ecx, 0x18` (0x6F7390, 0x6F93FA, 0xAA6D7D). The layout: GraphicsSettings_AddDisplayMode builds the new element on its stack as [ebp-0x28] width, [ebp-0x24] height, [ebp-0x20]/[ebp-0x1C]/[ebp-0x18] the int vector (0xAA6D86-0xAA6DBA). Shown wrong by any reader of +0x14 that uses it as something other than padding."
+  },
+  {
+   "name": "MultisampleLevel",
+   "size": "0xC",
+   "comment": "One entry of g_MultisampleLevels (15 of them, samples 2 to 16): the sample count, whether the adapter supports it, and its highest quality level. GraphicsSettings_DetectDevice fills the last two with IDirect3D9::CheckDeviceMultiSampleType at startup; the settings window's multisampling buttons step through the entries whose `supported` is set. No RTTI; the name is ours. See reversing/findings/FINDINGS-settingswindow.md, section B.",
+   "evidence": "The static image holds {2,0,0} .. {16,0,0} at 12-byte steps from VA 0x170A100 to 0x170A1B4 (read with image.read). The detection writes `mov byte [eax], 1` and `mov [eax+4], quality-1` with eax walking from 0x170A104 by 12 (0xAA4397, 0xAA43F6-0xAA4409, 0xAA4659). Shown wrong by a reader that treats +8 as anything but the quality count."
+  }
+ ],
+ "addresses": [
+  {
+   "rva": "0x2F6E00",
+   "kind": "function",
+   "name": "CSettingsScreen::InitVideoTab",
+   "signature": "void __thiscall CSettingsScreen::InitVideoTab(CSettingsScreen* this)",
+   "no_signature": null,
+   "comment": "**Finds the Video tab's sliders and checkboxes and hangs their observers on them**, from the constructor (0x6F6831, after the Game tab's 0x6F68F0). Each is looked up in `menu_settings_VIDEO` (the gui's slot 27 for the window, then the window's slot 18 for a checkbox or slot 19 for a scrollbar) and kept, and its observer registered through the element's +0x48 interface slot 1: trees_checkbox +0x328 (observer +0x260, OnTreesCheckbox), gamma_slider +0x338 (+0x280, OnGammaSlider), counter_slider +0x33C (+0x298, OnCounterSlider), counter_scale_slider +0x340 (+0x2B0, OnCounterScaleSlider), water_checkbox +0x32C (+0x2C8, OnWaterCheckbox), hierarchy_checkbox +0x330 (+0x2E8, OnHierarchyCheckbox), unit_name_checkbox +0x334 (+0x308, OnUnitNameCheckbox). The two counter sliders are null-checked before their observer goes on; the four checkboxes and the gamma slider are not, so a mod's settings.gui without one of those five likely crashes here (inferred: what the window's lookup answers for a missing name was not read). **`counters_checkbox` gets no observer** - StoreChoices reads its state directly. Bare `ret` at 0x6F72F1. See reversing/findings/FINDINGS-settingswindow.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled headless (DecompileAt, a copy of the project) and the element names checked against image strings: every name the function pushes is one of the seven, each `call [vt+0x48]` or `[vt+0x4C]` on the window result stored to the offsets above, each registration `call [[elem+0x48]+4]` with the observer address. Caller list: findRefs --callers 0x6F6E00 gives only 0x6F6831. Shown wrong by a second binding of any of these offsets elsewhere in the constructor (0x6F5C00-0x6F685B was read for its element names and has none)."
+  },
+  {
+   "rva": "0x2F8620",
+   "kind": "function",
+   "name": "CSettingsScreen_ShowDisplayMode",
+   "signature": "void __stdcall CSettingsScreen_ShowDisplayMode(CSettingsScreen* screen)",
+   "no_signature": null,
+   "comment": "**Writes resolution_value and refreshrate_value.** The resolution is the chosen display mode's (+0x110) width, `x`, height - `1920x1080` - built with itoa and no localisation; where g_SettingsPendingDisplayMode is not -1 (an OnApply has chosen a mode that needs a restart) it is the chosen one followed by the pending one in brackets, `1920x1080 (1600x900)`. The refresh rate is the chosen mode's rate at +0x114 and ` Hz` - `60 Hz` - or, where g_SettingsPendingRefreshRate is not -1, `60 Hz (75 Hz)` with the pending mode's pending rate. Both texts go into the instant text box's +0xD0. Called by the four resolution and refresh buttons' handlers and by CSettingsScreen_Refresh (0x6F9E56). `ret 4` at 0x6F9365. See reversing/findings/FINDINGS-settingswindow.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled headless; the string literals `x` (VA 0x15D4A6C), ` Hz`, ` Hz (` and ` Hz)` are referenced from inside it (0x6F8710, 0x6F8EFA, 0x6F9121, 0x6F90C4), the tests are `cmp [0x170AEB0], -1` (0x6F864C) and `cmp [0x170AEB4], -1` (0x6F8E82). The `ret 4` and the five callers (findRefs --callers) each `push esi` before the call. Shown wrong by a localisation key or format string referenced from 0x6F8620-0x6F9365, of which the range's string scan found none."
+  },
+  {
+   "rva": "0x2FA5B0",
+   "kind": "function",
+   "name": "CSettingsScreen::OnDecreaseResolution",
+   "signature": "void __thiscall CSettingsScreen::OnDecreaseResolution(CSettingsScreen* this)",
+   "no_signature": null,
+   "comment": "decrease_resolution_button (observer +0x08): the chosen display mode (+0x110) one back, **wrapping from the first to the last** of the settings' display mode list; the chosen refresh rate (+0x114) back to 0, the new mode's first; CSettingsScreen_ShowDisplayMode. Nothing is applied. Bare `ret`. See reversing/findings/FINDINGS-settingswindow.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x6FA5B0-0x6FA5F0: `dec [esi+0x110]; jns`, else the list's (end-begin)/24 - 1 stored; `mov [esi+0x114], 0`; `push esi; call 0x6F8620`. The binding: the constructor stores 0x6FA5B0 at +0x10 of the button observer at +0x08 (0x6F5C37) and registers that observer on the button it finds by the name decrease_resolution_button (0x6F6418-0x6F6454). The button observer glue's slot 1 (0x40C440, vftable 0x15D4B0C) is what calls it; that it fires on a press is inferred from the glue's name."
+  },
+  {
+   "rva": "0x2FA600",
+   "kind": "function",
+   "name": "CSettingsScreen::OnIncreaseResolution",
+   "signature": "void __thiscall CSettingsScreen::OnIncreaseResolution(CSettingsScreen* this)",
+   "no_signature": null,
+   "comment": "increase_resolution_button (observer +0x34): the chosen display mode (+0x110) one on, **wrapping from the last to the first**; the chosen refresh rate (+0x114) back to 0; CSettingsScreen_ShowDisplayMode. Bare `ret`. See reversing/findings/FINDINGS-settingswindow.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x6FA600-0x6FA646: `inc`, compare with (end-begin)/24, 0 where not below; +0x114 zeroed; `call 0x6F8620`. Bound at the observer +0x34 (handler stored at +0x3C, 0x6F5C5F) on increase_resolution_button (0x6F646D-0x6F64A9). Shown wrong by the observer at +0x34 being registered on another element."
+  },
+  {
+   "rva": "0x2FA650",
+   "kind": "function",
+   "name": "CSettingsScreen::OnDecreaseRefreshRate",
+   "signature": "void __thiscall CSettingsScreen::OnDecreaseRefreshRate(CSettingsScreen* this)",
+   "no_signature": null,
+   "comment": "decrease_refreshrate_button (observer +0x60): the chosen refresh rate (+0x114) one back **within the chosen display mode's own list of rates**, wrapping from the first to the last; CSettingsScreen_ShowDisplayMode. So a change of resolution narrows the rates to that mode's. Bare `ret`. See reversing/findings/FINDINGS-settingswindow.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x6FA650-0x6FA686: `dec [esi+0x114]; jns`, else (rates end - begin)/4 - 1 of the element at list + +0x110 * 24; `call 0x6F8620`. Bound at +0x60 (handler at +0x68, 0x6F5C84) on decrease_refreshrate_button (0x6F64C2-0x6F64FE)."
+  },
+  {
+   "rva": "0x2FA690",
+   "kind": "function",
+   "name": "CSettingsScreen::OnIncreaseRefreshRate",
+   "signature": "void __thiscall CSettingsScreen::OnIncreaseRefreshRate(CSettingsScreen* this)",
+   "no_signature": null,
+   "comment": "increase_refreshrate_button (observer +0x8C): the chosen refresh rate (+0x114) one on within the chosen display mode's list, wrapping from the last to the first; CSettingsScreen_ShowDisplayMode. Bare `ret`. See reversing/findings/FINDINGS-settingswindow.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x6FA690-0x6FA6CF: `inc [esi+0x114]`, compared with the chosen element's rate count, 0 where not below; `call 0x6F8620`. Bound at +0x8C (handler at +0x94, 0x6F5CB8) on increase_refreshrate_button (0x6F6517-0x6F6556)."
+  },
+  {
+   "rva": "0x2FA6D0",
+   "kind": "function",
+   "name": "CSettingsScreen::OnDecreaseMultisample",
+   "signature": "void __thiscall CSettingsScreen::OnDecreaseMultisample(CSettingsScreen* this)",
+   "no_signature": null,
+   "comment": "decrease_multisample_button (observer +0xB8): the chosen multisampling level (+0x118, a sample count, 0 for none) down to the next lower level g_MultisampleLevels marks supported, **and from the lowest to 0, and from 0 to the highest supported** - a cycle 0, highest, .., lowest, 0. A level not in the table counts as the first entry's. multisample_value is written as the bare number (itoa: `0`, `2`, `4`, `8`), no localisation. Nothing is applied. Bare `ret` at 0x6FA887. See reversing/findings/FINDINGS-settingswindow.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x6FA6EE-0x6FA764: the index search over 0x170A100..0x170A1B4 (not found leaves 0), 15 where the level is 0; `dec ecx; jns`, else 15 and the flag cleared; `cmp byte [edx*4+0x170A104], 0` repeats while unsupported and the flag is set; 15 stores 0, any other the entry's level. Then `__itoa(+0x118)` into multisample_value's +0xD0. Bound at +0xB8 (handler at +0xC0, 0x6F5CFE) on decrease_multisample_button in menu_settings_VIDEO (0x6F66B5-0x6F6721)."
+  },
+  {
+   "rva": "0x2FA890",
+   "kind": "function",
+   "name": "CSettingsScreen::OnIncreaseMultisample",
+   "signature": "void __thiscall CSettingsScreen::OnIncreaseMultisample(CSettingsScreen* this)",
+   "no_signature": null,
+   "comment": "increase_multisample_button (observer +0xE4): the chosen multisampling level (+0x118) up to the next higher supported level, from 0 to the lowest supported, and from the highest to 0 - a cycle 0, lowest, .., highest, 0. multisample_value written as the bare number. Bare `ret` at 0x6FAA3D. See reversing/findings/FINDINGS-settingswindow.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x6FA8B0-0x6FA919: the same index search; `inc eax; cmp eax, 15; jle`, past 15 to 0; exactly 15 stores 0 (0x6FA919); otherwise repeats while `byte [ecx*4+0x170A104]` is 0 and stores the entry's level. Bound at +0xE4 (handler at +0xEC, 0x6F5D44) on increase_multisample_button (0x6F6758-0x6F67C4)."
+  },
+  {
+   "rva": "0x2FAA40",
+   "kind": "function",
+   "name": "CSettingsScreen::OnWaterCheckbox",
+   "signature": "void __thiscall CSettingsScreen::OnWaterCheckbox(CSettingsScreen* this)",
+   "no_signature": null,
+   "comment": "water_checkbox, both its ticked and its cleared handler: flips the screen's +0x345, `advanced water`, which StoreChoices writes inverted into simpleWater (settings +0xE5). Ticked means advanced water. Bare `ret`. See reversing/findings/FINDINGS-settingswindow.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "The whole body: `cmp byte [ecx+0x345], 0; sete al; mov [ecx+0x345], al; ret` (0x6FAA40-0x6FAA50). The constructor stores 0x6FAA40 in both handler slots (+0x2D4, +0x2D8) of the CCheckBoxObserverGlue at +0x2C8 (0x6F604A-0x6F6067) and InitVideoTab registers it on water_checkbox. Shown wrong by a second holder of 0x6FAA40 (vtable.py --holding: in no table; findValue gives the one store)."
+  },
+  {
+   "rva": "0x2FAA60",
+   "kind": "function",
+   "name": "CSettingsScreen::OnHierarchyCheckbox",
+   "signature": "void __thiscall CSettingsScreen::OnHierarchyCheckbox(CSettingsScreen* this)",
+   "no_signature": null,
+   "comment": "hierarchy_checkbox, both handlers: flips the screen's +0x346, written by StoreChoices to render_hierarchy (settings +0xE8). Bare `ret`. See reversing/findings/FINDINGS-settingswindow.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Whole body `cmp byte [ecx+0x346],0; sete al; mov [ecx+0x346],al; ret`. Stored at +0x2F4 and +0x2F8 of the glue at +0x2E8 (0x6F607F-0x6F609C), registered on hierarchy_checkbox by InitVideoTab."
+  },
+  {
+   "rva": "0x2FAA80",
+   "kind": "function",
+   "name": "CSettingsScreen::OnUnitNameCheckbox",
+   "signature": "void __thiscall CSettingsScreen::OnUnitNameCheckbox(CSettingsScreen* this)",
+   "no_signature": null,
+   "comment": "unit_name_checkbox, both handlers: flips the screen's +0x347, written by StoreChoices to show_unit_names (settings +0xE9). Bare `ret`. See reversing/findings/FINDINGS-settingswindow.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Whole body `cmp byte [ecx+0x347],0; sete al; mov [ecx+0x347],al; ret`. Stored at +0x314 and +0x318 of the glue at +0x308 (0x6F60BA-0x6F60D1), registered on unit_name_checkbox by InitVideoTab."
+  },
+  {
+   "rva": "0x2FAAA0",
+   "kind": "function",
+   "name": "CSettingsScreen::OnTreesCheckbox",
+   "signature": "void __thiscall CSettingsScreen::OnTreesCheckbox(CSettingsScreen* this)",
+   "no_signature": null,
+   "comment": "trees_checkbox, both handlers: flips the screen's +0x344, written by StoreChoices to renderTrees (settings +0xE4) and bit 0 of the layer mask +0xEC. Bare `ret`. See reversing/findings/FINDINGS-settingswindow.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Whole body `cmp byte [ecx+0x344],0; sete al; mov [ecx+0x344],al; ret`. Stored at +0x26C and +0x270 of the glue at +0x260 (0x6F5F93-0x6F5FB5), registered on trees_checkbox by InitVideoTab."
+  },
+  {
+   "rva": "0x2FAAC0",
+   "kind": "function",
+   "name": "CSettingsScreen::OnGammaSlider",
+   "signature": "void __thiscall CSettingsScreen::OnGammaSlider(CSettingsScreen* this)",
+   "no_signature": null,
+   "comment": "gamma_slider's observer (+0x280): reads the bar's value (its +0x48 slot 4), clamps it to 0..100 and **puts it on the screen at once**: CGraphics_SetGamma(value / 50) on the screen's CGraphics (+0x124). It stores nothing - the settings' gamma is written only by StoreChoices - and neither Back nor closing undoes it (CIngameSettingsScreen::Close puts back the volumes and not the gamma); the saved gamma returns when the window is next opened, because CSettingsScreen_Refresh tells this observer. Bare `ret` at 0x6FABD8. See reversing/findings/FINDINGS-settingswindow.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x6FAB7D-0x6FABC3: `comiss` against 0 and `comisd [0x160A358]` (100.0) with 100.0f from 0x1717BFC above it, `divsd [0x160A4C8]` (50.0), `push [esi+0x124]; call 0xA76810`. The handler sits at +0x288 of the CScrollbarObserverGlue at +0x280 (0x6F5FDE), whose slot 1 (0x794570) is `mov ecx,[eax+4]; jmp [eax+8]`. CIngameSettingsScreen::Close read whole 0x6FB8D0-0x6FB96E: stores +0x80/+0x84/+0x88 only. Shown wrong by a gamma call in slot 2 (0x6FB5E0, read: none) or in the Back handler's path."
+  },
+  {
+   "rva": "0x2FABE0",
+   "kind": "function",
+   "name": "CSettingsScreen::OnCounterSlider",
+   "signature": "void __thiscall CSettingsScreen::OnCounterSlider(CSettingsScreen* this)",
+   "no_signature": null,
+   "comment": "counter_slider's observer (+0x298), the **counter distance** (`slider_label`, SM_COUNTER_SLIDER `Counter Dist.`): its value clamped to 0..100 into the screen's +0x3D4. StoreChoices makes it counter_distance = value / 100 * 500, so the bar covers 0 to 500 and a new game's 100 is the file's startValue 20. Nothing reaches the map before Apply. Two exits, `ret` at 0x6FACD5 and 0x6FACED. See reversing/findings/FINDINGS-settingswindow.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled headless: `if (0 <= v && v <= 100.0) +0x3D4 = v else +0x3D4 = (v < 0 ? 0 : 100.0f)` with the double at 0x160A358 = 100.0 and the float at 0x1717BFC = 100.0 (image.read). Handler at +0x2A0 of the glue at +0x298 (0x6F6006). The 500 is StoreChoices' `mulsd [0x160A538]`. Shown wrong by another writer of +0x3D4 in the window's code: CSettingsScreen_Refresh writes it (the raw distance, then this observer overwrites it), nothing else in 0x6F5B40-0x6FC000."
+  },
+  {
+   "rva": "0x2FACF0",
+   "kind": "function",
+   "name": "CSettingsScreen::OnCounterScaleSlider",
+   "signature": "void __thiscall CSettingsScreen::OnCounterScaleSlider(CSettingsScreen* this)",
+   "no_signature": null,
+   "comment": "counter_scale_slider's observer (+0x2B0), SM_COUNTER_SCALE `Counter hierarchy scale`: its value clamped to 0..2 into the screen's +0x3D8, which StoreChoices writes to counter_scale (settings +0x100) and g_CounterScale. Bare `ret` at 0x6FADE0. See reversing/findings/FINDINGS-settingswindow.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled headless: `if (v < 0 || 2.0 < v) v = (v < 0 ? 0 : 2.0)` then `+0x3D8 = v`; the 2.0 is the float Ghidra already labels fAiPowerRatio_2_0 (a shared constant, so the label says nothing about this use). Handler at +0x2B8 of the glue at +0x2B0 (0x6F602E)."
+  },
+  {
+   "rva": "0x676810",
+   "kind": "function",
+   "name": "CGraphics_SetGamma",
+   "signature": null,
+   "no_signature": "The gamma arrives in XMM0 as a float (every caller does `cvtpd2ps xmm0, xmm0` just before the call) and the CGraphics on the stack, `ret 4`; a float in XMM0 is not a storage the record's signatures place.",
+   "comment": "**The game's gamma: a straight ramp, scaled.** g = the float in XMM0 clamped to 0.1 .. 1.9; each of the 256 entries of all three channels = i * trunc(g * 65535) / 255, held to 0 .. 0xFFFF; then IDirect3DDevice9::SetGammaRamp(0, D3DSGR_CALIBRATE, ramp) on the device at CGraphics +0x64 (its slot 21). So the settings' `gamma` 50 is the identity, 0..5 are all 0.1, 95..100 all 1.9, and it is a brightness scale rather than a power curve. Callers: OnGammaSlider (0x6FABC3), StoreChoices (0x6F8285) and CGraphics' device setup (0xA6EFD4), each passing the settings' 0..100 value / 50. D3D9 applies a gamma ramp only in full screen (Direct3D's documentation, not this image). See reversing/findings/FINDINGS-settingswindow.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0xA76810-0xA768FD read whole: `comisd [0x160A3C0]` (0.1) and `[0x160A3B8]` (1.9) with the floats 0x15C05F8 = 0.1 and 0x160A3B0 = 1.9 as the clamps, `mulsd [0x160A3A8]` (65535.0), the `0x80808081` divide by 255 into three arrays at esp+8, +0x208, +0x408, and `push edx; push 1; push 0; push eax; call [ecx+0x54]` on [graphics+0x64]. Three callers from findRefs --callers, each `divsd [0x160A4C8]` (50.0) first. Shown wrong if +0x64 is not the device: slot 21 of IDirect3DDevice9 is SetGammaRamp by the SDK's vtable order."
+  },
+  {
+   "rva": "0x6A6570",
+   "kind": "function",
+   "name": "GraphicsSettings_LoadKey",
+   "signature": "void __fastcall GraphicsSettings_LoadKey(void* graphicsSettings@ECX, CParseContext* parse@stack:4, SaveToken key@stack:8)",
+   "no_signature": null,
+   "comment": "**The `graphics = { ... }` block of settings.txt**, the graphics settings object embedded at GameSettings +8 (vftable 0x1600624, no RTTI; slot 4). Offsets are the object's own, GameSettings' in brackets: `adapter` +0x34 [+0x3C] (sscanf); `size` +0x38/+0x3C [+0x40/+0x44] (x, y), **a width under 1024 made 1024 and a height under 768 made 768**; `fullScreen` +0x44 [+0x4C]; `refreshRate` +0x40 [+0x48]; `shadows` +0x50 [+0x58]; `gamma` +0x54 [+0x5C], a float; `vsync` +0x32 [+0x3A]; `debugmonitor` +0x33 [+0x3B]; `shadowSize` +0x58 [+0x60], under 1 made 256, over 4096 made 4096, then through 0xAF9580; `anisotropic_filtering` +0x48 [+0x50]; `multi_sampling` +0x4C [+0x54]. Read and thrown away: `firstRun`, `userAnisotropy`, `anti_alias_geometry`, `dynamic_lights`, `multisampling`, `anisotropicFiltering`. Anything else is reported as an unknown key. 16 exits, each `ret 8`. See reversing/findings/FINDINGS-settingswindow.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled headless; the switch's tokens resolved through ghidra/saveTokens.json (0x2E size, 0x2F fullScreen, 0x5F refreshRate, 0x60 firstRun, 0x61 userAnisotropy, 0x62 shadows, 0x6E anti_alias_geometry, 0x70 dynamic_lights, 0x75 gamma, 0x11D vsync, 0x11E debugmonitor, 0x155 adapter, 0x162 multisampling, 0x163 anisotropicFiltering, 0x168 shadowSize, 0x183 anisotropic_filtering, 0x184 multi_sampling); the gamma case is `lea eax, [ebx+0x54]; call 0xA7B640` (0xAA67C1) and size `lea edi, [ebx+0x38]; call 0xA7B670` (0xAA65C9). The object being GameSettings +8: the screen reads refresh at GameSettings +0x48 and multisampling at +0x54, 8 above this function's +0x40 and +0x4C, and CSystemSettings::CSystemSettings (0xAB16A0) builds it at +8 (`push eax; call 0xAA3B70` at 0xAB16CE). The slot: VA 0x1600634 holds 0xAA6570, four after the table's start 0x1600624. Shown wrong by the maintainer's settings.txt carrying a graphics key this does not name (it carries size, refreshRate, fullScreen, shadows, shadowSize, multi_sampling, anisotropic_filtering, gamma - all here)."
+  },
+  {
+   "rva": "0x6A3B70",
+   "kind": "function",
+   "name": "GraphicsSettings_Construct",
+   "signature": "void* __stdcall GraphicsSettings_Construct(void* self)",
+   "no_signature": null,
+   "comment": "Builds the graphics settings object at GameSettings +8 (from CSystemSettings::CSystemSettings at 0xAB16CE): vftable 0x1600624, CPersistent id 0x18D, the display mode list empty, refresh rate 60, full screen on, vsync on, anisotropic filtering 0, multisampling 0, shadows off, gamma 50.0, shadow size 2048, and the size **the desktop's** (GetSystemMetrics 0 and 1), a width under 1024 made 1024 and a height under 768 made 768 with a log line each. `ret 4` at 0xAA3D5F. Offsets as GraphicsSettings_LoadKey gives them. See reversing/findings/FINDINGS-settingswindow.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled headless: `param_1[0x10] = 0x3C`, `[0x11] = 1` (byte), `[0xC] = 0x10000` (the byte at +0x32), `[0x15] = DAT_015C0548` (read: 50.0f), `[0x16] = 0x800`, the two GetSystemMetrics with the 0x400 and 0x300 floors; one caller (findRefs --callers: 0xAB16CE, `push eax` before it) and the `ret 4`. Shown wrong by a later default overwritten before settings.txt is read - not looked for."
+  },
+  {
+   "rva": "0x6A6D30",
+   "kind": "function",
+   "name": "GraphicsSettings_AddDisplayMode",
+   "signature": "void __fastcall GraphicsSettings_AddDisplayMode(void* graphicsSettings@ECX, int height@ESI, int width@stack:4, int refreshRate@stack:8)",
+   "no_signature": null,
+   "comment": "Adds one enumerated mode to the display mode list (the object's +0xC .. +0x10, GameSettings +0x14 .. +0x18): where a DisplayMode of that width and height is already there, the refresh rate is appended to its rates (0x4221F0); otherwise a new DisplayMode {width, height, [refreshRate]} is appended (0xAA7A90). **No sorting and no duplicate test**: modes and rates stay in the order the driver enumerated them. Two exits, `ret 8`. See reversing/findings/FINDINGS-settingswindow.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0xAA6D30-0xAA6E04 read whole: `lea edi, [ecx+0xC]`, the 24-byte walk comparing `[edx]` with [ebp+8] and `[edx+4]` with ESI, the found path `lea edi, [ecx+eax*8+8]; lea eax, [ebp+0xC]; call 0x4221F0`, the new path building {[ebp+8], esi, vector} and `call 0xAA7A90`. That 0x4221F0 appends and 0xAA7A90 appends rather than inserts sorted is inferred from their arguments - neither was read."
+  },
+  {
+   "rva": "0x6A6E10",
+   "kind": "function",
+   "name": "GraphicsSettings_EnumerateDisplayModes",
+   "signature": "void __stdcall GraphicsSettings_EnumerateDisplayModes(void* graphicsSettings, void* d3d)",
+   "no_signature": null,
+   "comment": "**Where the settings window's resolutions and refresh rates come from.** IDirect3D9::GetAdapterModeCount(**adapter 0**, D3DFMT_X8R8G8B8) and EnumAdapterModes for each, and every mode **at least 1024 wide and 720 high** goes through GraphicsSettings_AddDisplayMode with its width, height and refresh rate, logged `Usable res: `. The adapter is 0 whatever settings.txt's `adapter` says, and only the 32-bit format is asked. Called once, from CGraphics::CGraphics (0xA6E05A) with CGraphics +0x60. `ret 8` at 0xAA700B. See reversing/findings/FINDINGS-settingswindow.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0xAA6E33-0xAA6E7D: `call [ecx+0x18]` with `push 0x16; push 0 (ebx); push esi`, then in the loop `call [ecx+0x1C]` with `push eax (&mode); push edi; push 0x16; push ebx; push esi`, `cmp [esp+0x10], 0x400; jb` and `cmp [esp+0x14], 0x2D0; jb`; the AddDisplayMode call at 0xAA6FDC with ECX = [ebp+8], ESI = the height, width and refresh pushed. Vtable slots 6 and 7 of IDirect3D9 are GetAdapterModeCount and EnumAdapterModes by the SDK's order. findRefs --callers: 0xA6E05A only, `push [ebx+0x60]; push [ebp+0x10]`."
+  },
+  {
+   "rva": "0x6A7010",
+   "kind": "function",
+   "name": "GraphicsSettings_ValidateResolution",
+   "signature": "int* __stdcall GraphicsSettings_ValidateResolution(void* graphicsSettings, int* out, int* wanted, bool lowestRefresh)",
+   "no_signature": null,
+   "comment": "CGraphics::CGraphics' check of the size it is about to make the device at (CGraphics +0x6B9BC/+0x6B9C0), at 0xA6E072 and at the retry 0xA6EC83. Where the display mode list has that exact size: with `lowestRefresh` the settings' refresh rate (+0x40) becomes the mode's lowest rate under 1000, 60 where it has none; without it GraphicsSettings_SnapRefreshRate; the size is kept. Where it has not and the settings are windowed (+0x44 clear), the size is kept as it is. Where it has not in full screen: modes of the same height and then of the same width are looked at (0xAA7A90 on each - read only this far), the line `The resolution \"WxH\" (or something similar) isn't supported by your screen. Please change resolution in settings.txt.` is logged and 1024x768 is answered. Two `ret 0x10`. See reversing/findings/FINDINGS-settingswindow.md, section B.",
+   "confidence": "inferred",
+   "evidence": "The found path and the windowed path read off the listing 0xAA7032-0xAA7178 (the 24-byte search, `cmp byte [edi+0x44], 0`, the `cmovl` minimum with 0x3E8 and 0x3C at 0xAA710E-0xAA7131, `call 0xAA7960` at 0xAA713C). The full-screen-not-found path rests on Ghidra's decompilation, which removed 50-odd unreachable blocks there, so what is answered in which case beyond the 1024x768 is inferred. Which caller passes which `lowestRefresh` was not read."
+  },
+  {
+   "rva": "0x6A7960",
+   "kind": "function",
+   "name": "GraphicsSettings_SnapRefreshRate",
+   "signature": "void __stdcall GraphicsSettings_SnapRefreshRate(void* graphicsSettings, DisplayMode* mode)",
+   "no_signature": null,
+   "comment": "Where the settings' refresh rate (+0x40, GameSettings +0x48) is not 0, replaces it with **the rate of `mode` nearest to it**, the first of equals. So the refresh rate the device is made with is always one the mode offers. `ret 8` at 0xAA79D5. See reversing/findings/FINDINGS-settingswindow.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0xAA7960-0xAA79D5 read whole: `test edx, edx` on [eax+0x40], the walk over the mode's +8..+0xC with `sub; cdq; xor; sub` (absolute difference) against a best starting at 100000, `jge` keeping the first of equals, and `mov [ecx+0x40], eax`. If the vector is empty the index stays -1 and the read is out of bounds - an empty mode cannot reach here from ValidateResolution's found path."
+  },
+  {
+   "rva": "0x6A3DD0",
+   "kind": "function",
+   "name": "GraphicsSettings_DetectDevice",
+   "signature": null,
+   "no_signature": "The receiver arrives in ECX (its first store is [ecx+8] = 0x53E); whether it takes stack arguments was not established - the function was not read to its end. It is slot 6 of the graphics settings object's table (VA 0x1600624, no RTTI), called through it.",
+   "comment": "graphicssettings.cpp's adapter and device check (`Graphic Adapters: `, `Using Adapter [`, multi-sampling), slot 6 of the graphics settings object (GameSettings +8, vftable VA 0x1600624, no RTTI). **Creates a test device with D3DCREATE_HARDWARE_VERTEXPROCESSING (0x40)** (0xAA47B8) and, failing that, **D3DCREATE_SOFTWARE_VERTEXPROCESSING (0x20)** (0xAA49D0), and writes whichever worked into the settings' behaviour flags (+0x1C, at 0xAA48BD and 0xAA4AD5) - never `D3DCREATE_FPU_PRESERVE` (0x2). Calls Direct3DCreate9 at 0xAA3EEC (VAs). An `adapter` not below the adapter count is set to 0 with `Error in settings.txt. \"adapter\" has an invalid value. Setting it to 0.` **It fills g_MultisampleLevels**: for each of the 15 sample counts 2 to 16, IDirect3D9::CheckDeviceMultiSampleType(adapter, HAL, D3DFMT_X8R8G8B8, windowed = not fullScreen, samples, &quality); where it succeeds the entry's `supported` is set and its `max_quality` is the quality count less one, and the highest such count is kept; where it fails for the count settings.txt asked for (the object's +0x4C, which is GameSettings +0x54 `multi_sampling`, the object standing at GameSettings +8), that is logged `... samples NOT supported, yet set as option. Changing to 2 samples.` and +0x4C made 2. After the loop +0x4C is held to the highest supported count. See reversing/findings/FINDINGS-luahost.md and reversing/findings/FINDINGS-settingswindow.md, section B.",
+   "confidence": "inferred",
+   "revises": true,
+   "evidence": "The multisampling loop read off the listing 0xAA4392-0xAA4678: `mov edi, 2; mov [esp+0x54], 0x170A104; mov [esp+0xA4], 0xF` (15 turns), `call [edx+0x2C]` with `push &quality; push [entry-4]; push (byte [esi+0x44] == 0); push 0x16; push 1; push adapter; push d3d`, on success `dec ecx; mov [eax+4], ecx; mov byte [eax], 1; mov [esp+0x14], edi` (the highest, with two pushes on the stack), on failure `cmp [esi+0x4C], edi; jne` and the log line at VA 0x1600040 then `mov [edx+0x4C], 2` (0xAA464D), after the loop `cmp [ecx+0x4C], eax; jle; mov [ecx+0x4C], eax` (0xAA466B-0xAA4678). The slot: VA 0x160063C holds 0xAA3DD0, six after 0x1600624. What it adds is the table and the slot; the earlier comment's content is kept whole. Still inferred as a whole because it was not read to its end."
+  },
+  {
+   "rva": "0x130A100",
+   "kind": "global",
+   "name": "g_MultisampleLevels",
+   "signature": null,
+   "no_signature": "A global, not a function.",
+   "type": "MultisampleLevel[15]",
+   "comment": "The 15 multisampling levels the game knows, sample counts 2 to 16 in order, each with whether the adapter supports it and its quality count, filled by GraphicsSettings_DetectDevice at startup. Device creation reads it for the settings' multisampling, and the settings window's two multisampling buttons step only through the supported ones; where none is, the window disables both (CSettingsScreen_Refresh). See reversing/findings/FINDINGS-settingswindow.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "The static bytes from VA 0x170A100: {2,0,0}, {3,0,0} .. {16,0,0} at 12-byte steps; readers found by image.findValue: 0x6FA706, 0x6FA752, 0x6FA8C6, 0x6FA90D (the level) and 0x6F745D, 0x6F955B, 0x6F95DA, 0x6FA73E, 0x6FA901, 0xA6E1DA, 0xA6E20C (the flag), the writer 0xAA439B. The end bound 0x170A1B4 at 0x6FA718 and 0x6FA8D8; 0x170A1B8 is past it and belongs to something else (0xAA2C00..)."
+  },
+  {
+   "rva": "0x130AEB0",
+   "kind": "global",
+   "name": "g_SettingsPendingDisplayMode",
+   "signature": null,
+   "no_signature": "A global, not a function.",
+   "type": "int",
+   "comment": "The display mode an Apply chose that waits for a restart, as an index into the settings' display mode list, or -1: written only by OnApply (0x6F7497 / 0x6F74A4), -1 where the chosen mode and refresh rate are the ones running, the chosen index otherwise. Starts -1 and lasts the process. CSettingsScreen_ShowDisplayMode shows it in brackets after the chosen resolution. See reversing/findings/FINDINGS-settingswindow.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Static value 0xFFFFFFFF. Every store found by a byte search over .text for `A3 B0 AE 70 01`, `89 0D ..` and `C7 05 ..`: 0x6F7497 and 0x6F74A4 only; readers 0x6F864C, 0x6F894B, 0x6F89D0, 0x6F90F3. The three hits in 0x7E0xxx-0x7E1xxx are `cmp reg, 0x170AEB0` end-of-array bounds of another table, not uses."
+  },
+  {
+   "rva": "0x130AEB4",
+   "kind": "global",
+   "name": "g_SettingsPendingRefreshRate",
+   "signature": null,
+   "no_signature": "A global, not a function.",
+   "type": "int",
+   "comment": "The refresh rate an Apply chose that waits for a restart, as an index into the pending display mode's rates, or -1; set beside g_SettingsPendingDisplayMode by OnApply (0x6F74B4), -1 when nothing waits. CSettingsScreen_ShowDisplayMode shows it in brackets after the chosen rate. See reversing/findings/FINDINGS-settingswindow.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Static value 0xFFFFFFFF; the one store `mov [0x170AEB4], eax` at 0x6F74B4, eax being -1 on the no-change path (0x6F7494 `or eax, -1`) and +0x114 otherwise; the read `cmp [0x170AEB4], -1` in ShowDisplayMode. The 0x7E0CD4 hit is a `cmp eax, 0x170AEB4` bound."
+  },
+  {
+   "rva": "0x130AF84",
+   "kind": "global",
+   "name": "g_CounterScale",
+   "signature": null,
+   "no_signature": "A global, not a function.",
+   "type": "float",
+   "comment": "counter_scale as the counters draw with it - every counter's scale is multiplied through it (CCounterObject::Render, _DrawShield, _DrawTexts, HitTest, _DrawBatch read it). Written by CSettings' constructor (1.0), by CMapRenderingOptions::LoadKey for `counter_scale`, and by CSettingsScreen::StoreChoices - so a change in the settings window shows on the next frame. See reversing/findings/FINDINGS-counters.md, section 3, and reversing/findings/FINDINGS-settingswindow.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "findValue(0x170AF84): writers 0x45F6EE (LoadKey, `movss [0x170AF84], xmm0`), 0x45FB2E (the constructor), 0x6F817C (StoreChoices); readers 0x838EFB, 0x838F94, 0x839171, 0x839650, 0x839847, each in a recorded CCounterObject function by functionStart. The record already names it in GameSettings +0x100's comment and nowhere as an address."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "DisplayMode",
+   "offset": "0x0",
+   "name": "width",
+   "type": "int",
+   "comment": "In pixels; at least 1024.",
+   "evidence": "AddDisplayMode compares [edx] with its first stack argument, the mode's Width (0xAA6D73); ShowDisplayMode prints it before the `x`; OnApply writes it to GameSettings +0x40 (size x)."
+  },
+  {
+   "struct": "DisplayMode",
+   "offset": "0x4",
+   "name": "height",
+   "type": "int",
+   "comment": "In pixels; at least 720.",
+   "evidence": "AddDisplayMode compares [edx+4] with ESI, the mode's Height (0xAA6D77); OnApply writes it to GameSettings +0x44."
+  },
+  {
+   "struct": "DisplayMode",
+   "offset": "0x8",
+   "name": "refresh_rates",
+   "type": "int*",
+   "comment": "The first of the size's refresh rates, in Hz, in enumeration order: an int vector's begin.",
+   "evidence": "AddDisplayMode's new element has its vector at [ebp-0x20] beside width [ebp-0x28] and height [ebp-0x24]; the refresh handlers count `(+0xC - +8) >> 2`; ShowDisplayMode reads `[[mode+8] + index*4]`."
+  },
+  {
+   "struct": "DisplayMode",
+   "offset": "0xC",
+   "name": "refresh_rates_end",
+   "type": "int*",
+   "comment": "The end of the refresh rates.",
+   "evidence": "As refresh_rates: the count is (+0xC - +8) / 4 in OnDecreaseRefreshRate and SnapRefreshRate (0xAA7976)."
+  },
+  {
+   "struct": "MultisampleLevel",
+   "offset": "0x0",
+   "name": "samples",
+   "type": "int",
+   "comment": "The sample count, 2 to 16.",
+   "evidence": "Static {2..16} at VA 0x170A100 by 12; the window's handlers store it as the chosen level."
+  },
+  {
+   "struct": "MultisampleLevel",
+   "offset": "0x4",
+   "name": "supported",
+   "type": "bool",
+   "comment": "Set by GraphicsSettings_DetectDevice where CheckDeviceMultiSampleType succeeded.",
+   "evidence": "`mov byte [eax], 1` with eax at 0x170A104 + 12n (0xAA4409); tested `cmp byte [..*4+0x170A104], 0` by both handlers."
+  },
+  {
+   "struct": "MultisampleLevel",
+   "offset": "0x8",
+   "name": "max_quality",
+   "type": "int",
+   "comment": "CheckDeviceMultiSampleType's quality count less one.",
+   "evidence": "`mov ecx, [esp+0xAC]; dec ecx; mov [eax+4], ecx` (0xAA43EB-0xAA43F9), eax at the flag."
+  },
+  {
+   "struct": "GameSettings",
+   "offset": "0x14",
+   "name": "display_modes",
+   "type": "DisplayMode*",
+   "comment": "The first of the screen sizes the adapter offers (the embedded graphics settings' +0xC), filled at startup by GraphicsSettings_EnumerateDisplayModes; the settings window steps through it. Not saved.",
+   "evidence": "The window reads `[settings+0x14]` as the list's begin and `[settings+0x18]` as its end in every handler (0x6FA5B0, 0x6F734F); AddDisplayMode works on `[ecx+0xC]` of the object at +8."
+  },
+  {
+   "struct": "GameSettings",
+   "offset": "0x18",
+   "name": "display_modes_end",
+   "type": "DisplayMode*",
+   "comment": "The end of display_modes.",
+   "evidence": "`mov ecx, [eax+0x18]; sub ecx, [eax+0x14]` then the divide by 24 (0x6F93C4)."
+  },
+  {
+   "struct": "GameSettings",
+   "offset": "0x40",
+   "name": "size_x",
+   "type": "int",
+   "comment": "settings.txt `graphics = { size = { x } }`: the width the device is made at the next start. The settings window's CSettingsScreen::OnApply writes the chosen mode's width here; the running screen is CGraphics +0x6B9BC.",
+   "evidence": "GraphicsSettings_LoadKey's `size` case reads into the object's +0x38 (GameSettings +0x40); OnApply stores the chosen DisplayMode's +0 here (0x6F7532)."
+  },
+  {
+   "struct": "GameSettings",
+   "offset": "0x44",
+   "name": "size_y",
+   "type": "int",
+   "comment": "settings.txt `size = { y }`: the height, as size_x.",
+   "evidence": "The `size` case's second int (+0x3C of the object); OnApply stores the chosen DisplayMode's +4 here (0x6F752F)."
+  },
+  {
+   "struct": "GameSettings",
+   "offset": "0x48",
+   "name": "refresh_rate",
+   "type": "int",
+   "comment": "settings.txt `refreshRate`, in Hz; snapped to the nearest the mode offers at device creation (GraphicsSettings_SnapRefreshRate). CSettingsScreen::OnApply writes the chosen rate.",
+   "evidence": "LoadKey's token 0x5F (refreshRate) writes the object's +0x40; the window's search compares rates with `[settings+0x48]` (0x6F7431, 0x6F9471) and OnApply stores here (0x6F75AC)."
+  },
+  {
+   "struct": "GameSettings",
+   "offset": "0x54",
+   "name": "multi_sampling",
+   "type": "int",
+   "comment": "settings.txt `multi_sampling`: the sample count, 0 for none; held at startup to what the adapter supports. CSettingsScreen::OnApply writes the chosen level where it differs, which asks for a restart.",
+   "evidence": "LoadKey's token 0x184 writes the object's +0x4C; the window reads `[esi+0x54]` (0x6F9547) and Apply writes `mov [edx+0x54], ecx` (0x6F7471)."
+  },
+  {
+   "struct": "GameSettings",
+   "offset": "0x5C",
+   "name": "gamma",
+   "type": "float",
+   "comment": "settings.txt `gamma`, 0 to 100, 50 the identity: CGraphics_SetGamma is given gamma / 50. Default 50.",
+   "evidence": "LoadKey's token 0x75 reads a float into the object's +0x54; StoreChoices stores the slider's value here (0x6F826A) and CSettingsScreen_Refresh reads it (0x6F992C); GraphicsSettings_Construct writes 50.0."
+  },
+  {
+   "struct": "GameSettings",
+   "offset": "0xE4",
+   "name": "render_trees",
+   "type": "bool",
+   "comment": "The `renderTrees` key of the map rendering options (+0xDC): trees_checkbox. StoreChoices also sets or clears bit 0 of the layer mask +0xEC with it, which the map objects' visibility reads each frame. Default yes.",
+   "evidence": "CMapRenderingOptions::LoadKey's token 0x1CD (renderTrees, saveTokens.json) is `add ecx, 8` on the options at +0xDC (0x45F66D); StoreChoices 0x6F80C8-0x6F80EA; CSettings' constructor writes 0x10001 to +0xE4."
+  },
+  {
+   "struct": "GameSettings",
+   "offset": "0xE5",
+   "name": "simple_water",
+   "type": "bool",
+   "comment": "The `simpleWater` key: water_checkbox's opposite - ticked (`Advanced Water`) writes 0. Read where the water is drawn (0x85FB0F, through a settings pointer held at +0x42E4 of the drawing object). Default no.",
+   "evidence": "LoadKey's token 0x404 (simpleWater) is `add ecx, 9` (0x45F67D); StoreChoices `sete` into +0xE5 (0x6F80FE); a sweep of .text for byte accesses at +0xE5 found 10, of which these, the window's read and 0x85FB0F are the only settings ones (positive control: the sweep finds both known accesses)."
+  },
+  {
+   "struct": "GameSettings",
+   "offset": "0xE6",
+   "name": "waves",
+   "type": "bool",
+   "comment": "The `waves` key; not on the settings window. Default yes.",
+   "evidence": "LoadKey's token 0x5C1 (waves) is `add ecx, 0xA` (0x45F698); read at 0x858859; CSettings' constructor's 0x10001 at +0xE4 leaves +0xE6 = 1."
+  },
+  {
+   "struct": "GameSettings",
+   "offset": "0xEA",
+   "name": "unit_names_changed",
+   "type": "bool",
+   "comment": "Set by CSettingsScreen::StoreChoices only where show_unit_names changed; the in-game frame (0x641D00, from 0x656F64) and a second reader (0x69EB00) see it, have 0x689E30 make every unit's counter name again (it calls CUnit_RefreshCounterName) and clear it.",
+   "evidence": "The one write of 1 at 0x6F812E behind `cmp cl, [eax+0xe9]; je`; the readers `cmp byte [eax+0xEA], 0` then `call 0x689E30` then `mov byte [eax+0xEA], 0` at 0x641D08-0x641D21 and 0x69EB2F-0x69EB48 (found by a scan of every GetGameSettings call); 0x689E30's only call is 0x5BE500. That it loops over every unit is inferred."
+  },
+  {
+   "struct": "CGraphics",
+   "offset": "0x60",
+   "name": "d3d",
+   "type": "void*",
+   "comment": "The IDirect3D9 the device is made from; GraphicsSettings_EnumerateDisplayModes asks its adapter modes.",
+   "evidence": "CGraphics::CGraphics pushes [ebx+0x60] to EnumerateDisplayModes (0xA6E052), which calls its slots 6 and 7 (GetAdapterModeCount, EnumAdapterModes); the record's CGraphics_CreateDevice comment calls CreateDevice through the object at +0x60."
+  },
+  {
+   "struct": "CGraphics",
+   "offset": "0x64",
+   "name": "d3d_device",
+   "type": "void*",
+   "comment": "The IDirect3DDevice9; CGraphics_SetGamma calls its slot 21, SetGammaRamp.",
+   "evidence": "`mov eax, [ebp+8]; mov eax, [eax+0x64]; ... call [ecx+0x54]` with (0, 1, ramp) at 0xA768E1-0xA768F6. Likely the device: slot 21 with those arguments is SetGammaRamp by the SDK's order; nothing else was checked."
+  },
+  {
+   "struct": "CGraphics",
+   "offset": "0x6BC48",
+   "name": "graphics_settings",
+   "type": "void*",
+   "comment": "The graphics settings object (GameSettings +8) the device was made from: GraphicsSettings_ValidateResolution is handed it and the device setup reads its gamma at +0x54.",
+   "evidence": "`mov ecx, [ebx+0x6BC48]; ... push ecx; call 0xAA7010` (0xA6E05F-0xA6E072) and `mov ecx, [ebx+0x6BC48]; movss xmm0, [ecx+0x54]` before CGraphics_SetGamma (0xA6EFB9). That it points at GameSettings +8 rather than a copy is inferred."
+  },
+  {
+   "struct": "CSettingsScreen",
+   "offset": "0x110",
+   "name": "chosen_display_mode",
+   "type": "int",
+   "comment": "The Video tab's resolution: an index into GameSettings' display_modes. Set to the running screen's on every opening; written to size_x/size_y by CSettingsScreen::OnApply. CSettingsScreen_Refresh sets it on every opening to the index of the mode whose size is the running screen's (CGraphics +0x6B9BC/+0x6B9C0), 0 where none is - so a windowed screen of a size the adapter does not list shows the first mode.",
+   "evidence": "Stored by CSettingsScreen_Refresh (0x6F93B8, 0x6F9403), stepped by the two resolution handlers, read by ShowDisplayMode and OnApply (0x6F7401)."
+  },
+  {
+   "struct": "CSettingsScreen",
+   "offset": "0x114",
+   "name": "chosen_refresh_rate",
+   "type": "int",
+   "comment": "An index into the chosen display mode's refresh_rates; 0 after any change of resolution. CSettingsScreen_Refresh sets it on every opening to the index of settings +0x48 **in the first display mode's rates**, bounded by the chosen mode's count (the walk starts at list[0] +8, 0x6F949E) - a slip, so where the two modes' rates differ the index shown is not the saved rate's; 0 where it is not found. OnApply makes the same search for the running rate.",
+   "evidence": "Zeroed by both resolution handlers, stepped by the refresh handlers, set by CSettingsScreen_Refresh (0x6F94D5), read by ShowDisplayMode and OnApply (0x6F754A). The slip: CSettingsScreen_Refresh 0x6F949E `mov eax, [edx+8]` with edx the list's first element, the bound reloaded from the chosen element at 0x6F94BF; OnApply's 0x6F7425-0x6F7428 the same."
+  },
+  {
+   "struct": "CSettingsScreen",
+   "offset": "0x118",
+   "name": "chosen_multisampling",
+   "type": "int",
+   "comment": "The chosen sample count, 0 for none. CSettingsScreen_Refresh sets it from settings +0x54 where that is 2 or more and g_MultisampleLevels marks it supported (no bound above 16), else 0, and **disables both multisampling buttons where no level is supported** (slot 47, 0x6F97BF and 0x6F9875).",
+   "evidence": "Set by CSettingsScreen_Refresh (0x6F9565), stepped by the multisample handlers, compared and written to GameSettings +0x54 by OnApply (0x6F7467). The greying: `call [edx+0xBC]` on the buttons found by the names decrease_/increase_multisample_button (0x6F9753, 0x6F9809) behind the any-supported loop over 0x170A104..0x170A1B8."
+  },
+  {
+   "struct": "CSettingsScreen",
+   "offset": "0x328",
+   "name": "trees_checkbox",
+   "type": "void*",
+   "comment": "trees_checkbox in menu_settings_VIDEO.",
+   "evidence": "InitVideoTab stores the window's slot-18 lookup of `trees_checkbox` here."
+  },
+  {
+   "struct": "CSettingsScreen",
+   "offset": "0x32C",
+   "name": "water_checkbox",
+   "type": "void*",
+   "comment": "water_checkbox.",
+   "evidence": "InitVideoTab, as trees_checkbox; CSettingsScreen_Refresh ticks it through +0x60/+0x100."
+  },
+  {
+   "struct": "CSettingsScreen",
+   "offset": "0x330",
+   "name": "hierarchy_checkbox",
+   "type": "void*",
+   "comment": "hierarchy_checkbox.",
+   "evidence": "InitVideoTab, as trees_checkbox."
+  },
+  {
+   "struct": "CSettingsScreen",
+   "offset": "0x334",
+   "name": "unit_name_checkbox",
+   "type": "void*",
+   "comment": "unit_name_checkbox.",
+   "evidence": "InitVideoTab, as trees_checkbox."
+  },
+  {
+   "struct": "CSettingsScreen",
+   "offset": "0x338",
+   "name": "gamma_slider",
+   "type": "void*",
+   "comment": "gamma_slider, a scrollbar.",
+   "evidence": "InitVideoTab stores the window's slot-19 lookup of `gamma_slider`; CSettingsScreen_Refresh sets its value through +0x48 slot 7."
+  },
+  {
+   "struct": "CSettingsScreen",
+   "offset": "0x33C",
+   "name": "counter_slider",
+   "type": "void*",
+   "comment": "counter_slider, may be null.",
+   "evidence": "InitVideoTab, as gamma_slider, with a null test before its observer goes on."
+  },
+  {
+   "struct": "CSettingsScreen",
+   "offset": "0x340",
+   "name": "counter_scale_slider",
+   "type": "void*",
+   "comment": "counter_scale_slider, may be null.",
+   "evidence": "InitVideoTab, as counter_slider."
+  },
+  {
+   "struct": "CSettingsScreen",
+   "offset": "0x344",
+   "name": "trees_ticked",
+   "type": "bool",
+   "comment": "The choice for renderTrees, flipped by OnTreesCheckbox.",
+   "evidence": "OnTreesCheckbox's whole body; CSettingsScreen_Refresh copies settings +0xE4 here; StoreChoices reads it (0x6F80C8)."
+  },
+  {
+   "struct": "CSettingsScreen",
+   "offset": "0x345",
+   "name": "advanced_water_ticked",
+   "type": "bool",
+   "comment": "The choice for water_checkbox - set means advanced water, simpleWater no.",
+   "evidence": "OnWaterCheckbox; CSettingsScreen_Refresh `sete` from settings +0xE5 (0x6F9C13); StoreChoices inverts it back."
+  },
+  {
+   "struct": "CSettingsScreen",
+   "offset": "0x346",
+   "name": "hierarchy_ticked",
+   "type": "bool",
+   "comment": "The choice for render_hierarchy.",
+   "evidence": "OnHierarchyCheckbox; CSettingsScreen_Refresh from +0xE8; StoreChoices to +0xE8."
+  },
+  {
+   "struct": "CSettingsScreen",
+   "offset": "0x347",
+   "name": "unit_names_ticked",
+   "type": "bool",
+   "comment": "The choice for show_unit_names.",
+   "evidence": "OnUnitNameCheckbox; CSettingsScreen_Refresh from +0xE9; StoreChoices to +0xE9."
+  },
+  {
+   "struct": "CSettingsScreen",
+   "offset": "0x3D4",
+   "name": "counter_distance_choice",
+   "type": "float",
+   "comment": "counter_slider's value, 0 to 100: the counter distance divided by five. StoreChoices writes value / 100 * 500 to counter_distance. CSettingsScreen_Refresh first writes the raw counter_distance here and then sets the slider and tells its observers, which puts the 0..100 value back; **a settings.gui without counter_slider leaves the raw distance, which StoreChoices then multiplies by five on every Apply.**",
+   "evidence": "OnCounterSlider's store; CSettingsScreen_Refresh writes the raw distance first (0x6F9A1A); StoreChoices' conversion before +0xFC."
+  },
+  {
+   "struct": "CSettingsScreen",
+   "offset": "0x3D8",
+   "name": "counter_scale_choice",
+   "type": "float",
+   "comment": "counter_scale_slider's value, 0 to 2.",
+   "evidence": "OnCounterScaleSlider's store; CSettingsScreen_Refresh (0x6F9B2A); StoreChoices to +0x100 and g_CounterScale."
+  }
+ ],
+ "frontier": [
+  "0x689E30",
+  "0x4221F0",
+  "0xAA7A90",
+  "0x85F6E0",
+  "0x641D00",
+  "0x69EB00",
+  "0xAA6AB0",
+  "0xAB1CE0"
+ ],
+ "slots_noted": "No function here is held by an RTTI vftable (vtable.py --holding for each: none). GraphicsSettings_LoadKey and GraphicsSettings_DetectDevice are slots 4 and 6 of the no-RTTI table at VA 0x1600624 (rva 0x1200624), which the record does not hold; its other slots are 0xAA3D70 (the destructor), 0x45BB10, 0xAA6AB0 (the graphics block's writer, reader C's), 0xA7C050, 0xABF890. The button, checkbox and scrollbar handlers are member pointers stored in CButtonObserverGlue / CCheckBoxObserverGlue / CScrollbarObserverGlue<CSettingsScreen> (VAs 0x15D4B0C, 0x15D4B38, 0x15D4B58), not virtuals."
+}
