@@ -681,9 +681,10 @@ control: the same search finds `disband_multiunit`'s four, among them the toolti
 - **Tooltip:** `MERGE_UNITS` "Merge the selected units", delayed `MERGE_UNITS_DRO` "Choosing the merge option will take
   the current selected units and convert them into a single unit."
 - **Click:** an AI agent anywhere in the chain of any selected unit -> **nothing**. Otherwise **one `CMergeCommand(all
-  selected units)`** and the `click` sound. In Execute (`inferred`), the unit merged into is the one with the highest
-  `brigades x 10 + strength share (0..10) + leader skill x 2` (first of equals); the others are merged into it and
-  removed. If it has no leader and the country auto-assigns leaders, the best one is assigned.
+  selected units)`** and the `click` sound. In Execute (**`confirmed` 2026-11-04**, `FINDINGS-merge.md`, which has
+  the terms exactly), the unit merged into is the one with the highest `brigades x 10 + strength share (0..10) +
+  leader skill x 2` (first of equals); the others are merged into it and removed. If it has no leader and the country
+  auto-assigns leaders, the best one is assigned. Execute tests nothing of its own.
 
 **`disband_multiunit`.**
 - **Enabled** as the checkboxes are.

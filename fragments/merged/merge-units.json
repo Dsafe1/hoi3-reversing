@@ -1,0 +1,46 @@
+{
+ "agent": "merge button (OpenHOI3 session, read directly)",
+ "question": "What CMergeCommand::Execute does, read off the bytes rather than inferred - the score that picks the unit merged into, what is re-tested, how the others are removed - and how CUnit_MergeInto settles the two units' leaders.",
+ "source": "reversing/findings/FINDINGS-merge.md",
+ "addresses": [
+  {
+   "rva": "0x1DB9E0",
+   "kind": "function",
+   "name": "CMergeCommand::Execute",
+   "signature": "void __thiscall CMergeCommand::Execute(CMergeCommand* this)",
+   "no_signature": null,
+   "revises": true,
+   "comment": "Slot 6. **Tests nothing**: no UnitList_MayMerge, no owner, no province - the button's greying is the only gate. Walks the command's list (+0x3C, each node an id pair resolved through the persistent tables, a unit gone skipped) and **chooses the unit merged into**: score = regiments_count (+0x40) x 10 + (share x 10000 / 1000) / 1000, where share = the sum of the brigades' strength (CSubUnit +0x5C) x 1000 / CUnit::GetTotalMaxStrength (slot 23, the sum of the brigades' definition max_strength) and -1 where that is 0 (so the term is 0) - **the share in tenths, cut toward nought** - plus, where the leader (+0x12C) is real (CLeader slot 8), its skill (+0x70) x 2000 / 1000. The highest, **strictly**, starting from 0: the first of equals, and the list's first unit where nobody scores above 0. Then every other unit found is CUnit_MergeInto(into, it) and CGameState::RemoveUnit(it, false, true) on the game state singleton (created if missing). Last, where `into` has no real leader and its owner's auto_assign_leaders (CCountry +0x74B) is set, CUnit::AssignBestLeader(into). No message. See reversing/findings/FINDINGS-merge.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-merge.md",
+   "evidence": "Disassembled 0x5DB9E0-0x5DBE12 (scripts/disasm.py). The score: `lea edi,[edi+edi*4]; add edi,edi` on +0x40 at 0x5DBAA3; the strength sum over +0x38 at 0x5DBAB4; slot 0x5C call at 0x5DBACA, which vtable.py CArmy --all gives as 0x5C6520, CUnit::GetTotalMaxStrength (sums definition +0xEC); `imul 0x3E8; idiv` at 0x5DBAFE (a 64-bit _allmul/_alldiv pair where the product would overflow); `_allmul 0x2710; _alldiv 0x3E8` and the /1000 magic 0x10624DD3 at 0x5DBB37-0x5DBB73; leader slot 8 at 0x5DBB75 and `imul 0x7D0` /1000 at 0x5DBB87; `cmp edi,[esp+0x14]; jle` at 0x5DBBA2 with [esp+0x14] zeroed at entry. The fallback: list head resolved at 0x5DBBF6. The merge loop 0x5DBC50-0x5DBDC8: CUnit_MergeInto at 0x5DBCF6, `push 1; push 0; push unit; call 0x684E40` at 0x5DBD80. The leader tail 0x5DBDD2-0x5DBE0D. No validity slot: vtable.py CMergeCommand gives slot 7 `mov eax,0x382; ret`, slot 13 a clone (0x5DBE40), slot 14 the save. Wrong if a path into the body skips the scoring - cfg.py would show it."
+  },
+  {
+   "rva": "0x1CDC90",
+   "kind": "function",
+   "name": "CUnit_MergeInto",
+   "signature": "void __stdcall CUnit_MergeInto(CUnit* into, CUnit* from)",
+   "no_signature": null,
+   "revises": true,
+   "comment": "**Merges one unit into another**; nothing where the two are one. Both marked busy (+0x48 = 1) for the length. Every brigade of `from`, first first, RemoveRegimentFromUnit / AddRegimentToUnit into `into`. Where both are fleets (slot 16), every land unit `from` carries (slot 11's +0x2E4 list) goes onto `into`'s list, each with carried_by (+0x300) = `into`, dig_in_level (+0x1C8) and staging_province (+0x2E4) zeroed; where both are air units (slot 17), what `from` carries (slot 13's +0x2E4) likewise, carried_by_air (+0x304) = `into` and target (+0x2E8) zeroed - **otherwise passengers stay on `from`**. **The leaders**: where `into` has no real leader (slot 8) and `from` has one, `into` takes `from`'s - CUnit::SetLeader(into, his, resetTraitHours 1, organisationHit 0) - and `from` gets CLeader::null(); where both have one and `from`'s skill (+0x70) is **strictly** higher, `into`'s is freed (CLeader_SetCommandedUnit(his, null)) and `into` takes `from`'s the same way; otherwise each keeps its own. Then busy cleared, CUnit::RebuildDefinition(into, 0), CUnit::RebuildAvatar(into), CUnit::EnterProvince(into, its province). Nothing checks `into`'s capacity - the next CheckTransportOverload does. Callers: CMergeCommand::Execute (0x5DBCF6), CJoinFleetOrder's slot 14 (0x59BCB1) and CJoinAirOrder's (0x597C4D), each removing `from` after. The name is ours. See reversing/findings/FINDINGS-merge.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-merge.md",
+   "evidence": "Disassembled 0x5CDC90-0x5CDFEE whole. The brigade loop 0x5CDCB3-0x5CDCDE (0x5BE630 GetRegimentList, 0x5BE9A0 RemoveRegimentFromUnit, 0x5BE640 AddRegimentToUnit). The fleet branch 0x5CDCE0-0x5CDE02 (slot 0x40 of both, the +0x300/+0x1C8/+0x2E4 writes at 0x5CDDE0); the air branch 0x5CDE08-0x5CDF1D (slot 0x44, the +0x304/+0x2E8 writes at 0x5CDF08). The leaders 0x5CDF23-0x5CDFC0: `push 0; push 1; push leader; mov ecx,into; call 0x5BFC10` and CLeader::null (0x57F510) for `from`; the skill test `imul 0x7D0` both sides and `cmp ecx,eax; jle` at 0x5CDF92; 0x5801E0 on into's leader. The tail 0x5CDFC5-0x5CDFE4: 0x5B5ED0, 0x5BDC70, 0x5BEFD0 with +0x130. Wrong if slot 8 of CLeader is not 'is real' - the record's other readers use it so."
+  },
+  {
+   "rva": "0x1801E0",
+   "kind": "function",
+   "name": "CLeader_SetCommandedUnit",
+   "signature": "void __stdcall CLeader_SetCommandedUnit(CLeader* leader@ESI, CUnit* unit@stack:4)",
+   "no_signature": null,
+   "comment": "Puts a leader on a unit by the leader's side: where he commands a unit (+0x40), +0x40 is cleared and that unit gets CUnit::SetLeader(CLeader::null(), 0, 0); then +0x40 = `unit`. `ret 4`. Its one caller, CUnit_MergeInto (0x5CDF9A), passes null, which frees the leader of the unit merged into before it takes the giver's. The name is ours. See reversing/findings/FINDINGS-merge.md.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x5801E0-0x58020F: `mov edi,[esi+0x40]; test; je`, `mov [esi+0x40],0`, CLeader::null (0x57F510), `mov ecx,edi; call 0x5BFC10`, `mov [esi+0x40],ebx`, `ret 4`. findRefs.py --callers 0x5801E0: one direct call, 0x5CDF9A. ESI is set by the caller at 0x5CDF98 (`mov esi,edx`, into's leader). Wrong if +0x40 is not the leader's commanded unit - the null-SetLeader on it says it is."
+  }
+ ],
+ "struct_fields": [],
+ "vftable_slots": {
+  "CMergeCommand": {"6": "Execute"}
+ },
+ "frontier": []
+}

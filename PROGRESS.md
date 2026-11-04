@@ -28,9 +28,9 @@ how many objects a census found (taken 2026-09-20).
 | `read` | 138 |
 | `placed` | 142 |
 | `keys` | 75 |
-| `part` | 144 |
+| `part` | 145 |
 | `named` | 5 |
-| `RTTI` | 637 |
+| `RTTI` | 636 |
 | **all** | **1141** |
 
 ## What to read next
@@ -290,7 +290,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CSetRandomSeed` | `CCommand` |  |  |  | 1 |  | 1 | keys |  |
 | `CSettings` | `CSystemSettings` |  |  | 5/10 | 1 |  | 1 | placed |  |
 | `CShareTechnologyAction` | `CDiplomaticAction` |  |  | 1/1 | 7 |  |  | placed |  |
-| `CShip` | `CSubUnit` |  | 1 | 1/1 | 1 |  | 3,305 | placed |  |
+| `CShip` | `CSubUnit` |  | 1 | 1/1 | 2 |  | 3,305 | placed |  |
 | `CSoundConfigurator` | `CPersistent` |  |  |  |  |  |  | RTTI |  |
 | `CStartGame` | `CCommand` |  |  |  | 1 |  | 1 | RTTI |  |
 | `CStrategicBombOrder` | `CAirOrder` |  |  |  | 6 |  | 1 | RTTI |  |
@@ -308,7 +308,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CTraitGainTracker` | `CPersistent` |  | 4 |  | 6 | CTrait.hpp | 24,137 | keys |  |
 | `CTransportSuppliesOrder` | `CAirOrder` |  | 2 | 2/2 | 9 |  |  | placed |  |
 | `CUndeclaredWar` | `CPersistent` |  | 9 |  | 3 | CWar.hpp | 1 | read | **read**: the save's record of a war nobody declared |
-| `CUnit` | `PAVCSubUnit::__CList` `CSelectable` `CReferenceObject` |  | 107 + 1 lua |  | 113 | CUnit.hpp |  | read |  |
+| `CUnit` | `PAVCSubUnit::__CList` `CSelectable` `CReferenceObject` |  | 108 + 1 lua |  | 113 | CUnit.hpp |  | read |  |
 | `CUnitDeployment` | `CDeployment` |  |  | 3/4 | 4 |  | 49 | placed |  |
 | `CUnitPlan` | `CPersistent` | 0x90 | 15 | 10/16 | 13 |  | 8,827 | read | **read**: a battle plan as the save keeps it |
 | `CVariables` | `_0A::anon::PAUCVariable::__CTernary` `CPersistent` |  | 1 |  | 3 | CFlags.hpp | 216 | part |  |
@@ -622,7 +622,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CRelationEntry` | `CStandardlistboxItem` | 0x38 | 2 |  | 3 |  |  | part |  |
 | `CReloadDispatcher` |  |  |  |  |  |  |  | RTTI |  |
 | `CReloadableInterface` | `CReloadDispatcher` |  |  |  |  |  |  | RTTI |  |
-| `CReorgEntry` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
+| `CReorgEntry` | `CStandardlistboxItem` | 0xC8 | 4 |  | 4 |  |  | part |  |
 | `CRightClickBuildUnitsItem` | `CRightClickItemInterface` `CStandardlistboxItem` |  |  |  |  |  | 1 | RTTI |  |
 | `CRightClickCloseItem` | `CRightClickItemInterface` `CStandardlistboxItem` |  |  |  |  |  | 1 | RTTI |  |
 | `CRightClickItemInterface` |  |  |  |  |  |  |  | RTTI |  |
@@ -692,7 +692,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CUnitArrow` | `C3dVisibleObject` | 0x160 | 5 |  | 2 |  |  | read |  |
 | `CUnitAttachmentEntry` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
 | `CUnitBase` |  |  |  |  | 1 |  |  | RTTI |  |
-| `CUnitBaseCarrier` | `CUnitBase` |  | 1 |  |  |  | 3,339 | part |  |
+| `CUnitBaseCarrier` | `CUnitBase` |  | 2 |  |  |  | 3,339 | part |  |
 | `CUnitBaseProvince` | `CUnitBase` `CSelectable` |  | 3 |  | 1 |  | 56,760 | part |  |
 | `CUnitDeploymentCallback` |  |  |  |  |  |  |  | RTTI |  |
 | `CUnitList` | `PAVCUnit::__CList` |  |  |  | 8 |  |  | RTTI |  |
@@ -1213,7 +1213,7 @@ One class per effect, trigger, command and decision the event scripts can use. E
 | `CUnitInBattleTrigger` | `CTrigger` |  |  | 2/153 | 2 |  |  | RTTI |  |
 | `CUnitOption` | `CStandardlistboxItem` | 0x58 | 4 |  | 2 |  |  | part |  |
 | `CUnitPlanCommand` | `CCommand` |  |  | 1/2 | 1 |  | 1 | placed |  |
-| `CUnitSplitCommand` | `CCommand` |  |  | 1/1 | 1 |  | 1 | placed |  |
+| `CUnitSplitCommand` | `CCommand` |  |  | 1/1 | 2 |  | 1 | placed |  |
 | `CUnitsInProvinceTrigger` | `CIntTrigger` | 0x44 |  | 2/153 | 2 |  | 94 | RTTI |  |
 | `CUnloadArmyCommand` | `CCommand` |  |  | 1/1 | 5 |  | 1 | RTTI |  |
 | `CUnloadFromPlaneCommand` | `CCommand` | 0x64 | 3 | 1/1 | 4 |  | 1 | part |  |
@@ -1263,7 +1263,7 @@ Windows, pages, sprites and the map's own drawing.
 | `CQuitDialog` | `CEU3Dialog` |  |  |  |  |  |  | RTTI |  |
 | `CRadioButtonGroupObserver` |  |  |  |  |  |  | 1 | RTTI |  |
 | `CShareTechnologyDialog` | `CEU3Dialog` | 0x78 | 4 |  | 7 |  |  | part |  |
-| `CSingleUnitButtons` | `CUnitViewBaseEntry` |  |  |  | 7 |  |  | RTTI |  |
+| `CSingleUnitButtons` | `CUnitViewBaseEntry` |  |  |  | 8 |  |  | RTTI |  |
 | `CSprite` | `C2dVisibleObject` |  |  |  |  |  |  | RTTI |  |
 | `CSpriteType` | `C2dObjectType` |  | 8 |  | 4 |  |  | read |  |
 | `CStratWarfareWindow` | `CReloadableInterface` |  |  |  | 1 |  | 1 | RTTI |  |

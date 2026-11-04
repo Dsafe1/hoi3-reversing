@@ -1,0 +1,75 @@
+{
+ "agent": "new unit button (OpenHOI3 session, read directly)",
+ "question": "What the single panel's newunitbutton does: when it is greyed, what a click and a Ctrl-click post, what CUnitSplitCommand::Execute does, and the tail of CSingleUnitButtons::Update that follows a new unit.",
+ "source": "reversing/findings/FINDINGS-newunit.md",
+ "addresses": [
+  {
+   "rva": "0x35E820",
+   "kind": "function",
+   "name": "CSingleUnitButtons::OnNewUnitButton",
+   "signature": "void __thiscall CSingleUnitButtons::OnNewUnitButton(CSingleUnitButtons* this, void* unused)",
+   "no_signature": null,
+   "comment": "**`newunitbutton`'s click** (the glue at +0x360, made at 0x75D212 and registered on the button at 0x75D3A9). A custom game's lock (0x4208B0) ends it. **With Ctrl held** (the in-game screen's keyboard +0x1C, slot 12): nothing unless CUnit_MaySplit(the panel's unit, +0x28); otherwise regiments_count - 1 fresh id pairs are taken from the persistent counter and **one CUnitSplitCommand(unit, ids, select 1)** is posted (constructor 0x5EAC80). **Without**: only where no new unit is waiting (+0x3B0/+0x3B4 both 0), a fresh id pair is taken and kept there, and **a CCreateUnitCommand** is posted - the unit's owner, that id, the unit's province, kind 0/1/2 by land/naval (slot 16)/air (slot 17), the unit's base's province (or -1) and is_allowed_empty 1: an empty unit beside it. What follows is in CSingleUnitButtons::Update's tail. See reversing/findings/FINDINGS-newunit.md.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x75E820-0x75EC2D. The handler is the one the constructor gives the glue built at +0x360 (`mov ecx,0x75E820` at 0x75D1FE before `lea eax,[esi+0x360]; call 0x76F560`), and newunitbutton's registration at 0x75D3A0-0x75D3B3 pushes +0x360. Ctrl: `mov ecx,[eax+0x1C]; call [edx+0x30]` at 0x75E8E2 - the keyboard's slot 12, which the record reads as Ctrl elsewhere. The split branch: 0x5EB540 at 0x75E8F7, the id loop 0x75E931-0x75E973 over regiments_count-1, `push 1; push unit; push object; call 0x5EAC80`. The create branch 0x75EA7D-0x75EB76: the +0x3B0/+0x3B4 test, the kind 0/1/2, `push 1` for is_allowed_empty, CCreateUnitCommand::CCreateUnitCommand at 0x75EB76. Both post through the screen's +0x48 -> +0x38 slot 6. Wrong if keyboard slot 12 is Shift - the record has it as Ctrl in four places."
+  },
+  {
+   "rva": "0x1EB540",
+   "kind": "function",
+   "name": "CUnit_MaySplit",
+   "signature": "bool __fastcall CUnit_MaySplit(CUnit* unit@EAX) @AL",
+   "no_signature": null,
+   "comment": "**Whether Ctrl and newunitbutton split a unit.** False for: regiments_count (+0x40) of 1 or less; in a battle (+0x11C > 0); a path (+0x140 > 0); an air (slot 17) or naval (slot 16) unit not CUnit_IsAtOwnBase; a land unit (slot 15) whose army_role (AsArmy +0x2FC) is 0, a headquarters. True otherwise. Called by CSingleUnitButtons::OnNewUnitButton only. The name is ours. See reversing/findings/FINDINGS-newunit.md.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x5EB540-0x5EB5A4 whole: `cmp [esi+0x40],1; jle`, `cmp [esi+0x11C],0; jg`, `cmp [esi+0x140],0; jg`, slots 0x44 and 0x40 then CUnit_IsAtOwnBase (0x5CDC30), slot 0x3C then slot 0x28 (AsArmy, the pair 9/10 of vtable.py's CArmy) and `cmp [eax+0x2FC],0; je` false. Role 0 is a headquarters by FINDINGS-ministers.md's list. Wrong if slot 10 is not AsArmy for a land unit."
+  },
+  {
+   "rva": "0x1EAD70",
+   "kind": "function",
+   "name": "CUnitSplitCommand::Execute",
+   "signature": "void __thiscall CUnitSplitCommand::Execute(CUnitSplitCommand* this)",
+   "no_signature": null,
+   "comment": "Slot 6. **Tests nothing of the button's.** The unit (+0x3C); n = regiments_count - 1; fewer id pairs in new_units_id (+0x64..+0x68, 8 bytes each) than n is logged ('insufficient unique IDs') and ends it. For each i < n: CUnitSplitCommand_MakeUnit(unit, id i), then CUnitSplitCommand_TakeSubUnit(that unit, **the old unit's first brigade**) - so a first brigade that may not go is tried and refused n times; a refusal is logged ('Failed to transfer subunit') and the new unit is left empty - and the new unit's is_allowed_empty (+0x159) cleared either way, so a new unit left empty goes in the hourly pass. Where the old unit is land (slot 15): it and every new unit get CUnit::SetLeader(the null leader, 0, 0). Where the unit's owner is the player's (CCurrentGameState +0xC34): the interface told of the old unit and each new one (0x739BC0, 0x739C30); and where select (+0x74) is set, the selection cleared (screen slot 46) and the old unit and each new unit added (slot 38) in turn. See reversing/findings/FINDINGS-newunit.md.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x5EAD70-0x5EB1F3 whole; the two log strings at 0x15C8B2C and 0x15C8B64 name the function. n: `mov esi,[eax+0x40]; dec esi` and `(+0x68 - +0x64) >> 3` at 0x5EADA4. The loop 0x5EAE7F-0x5EAF72: 0x5EB970 with the id pair, CUnit::GetRegimentList's head into 0x5EB620, `mov byte [esi+0x159],bl` with bl 0. The land test slot 0x3C at 0x5EAF85 and the two SetLeader loops. The player gate `cmp [edx+0x128],ecx` against +0xC34 at 0x5EB0B5 and 0x5EB189; +0x74 at 0x5EB105 (the constructor 0x5EAC80 stores its third argument there, `mov [esi+0x74],cl` at 0x5EAD1A); slots 0xB8 and 0x98 of the screen. Wrong if slots 46 and 38 are not clear and add - the reorganise follow-up uses 38 the same way."
+  },
+  {
+   "rva": "0x1EB970",
+   "kind": "function",
+   "name": "CUnitSplitCommand_MakeUnit",
+   "signature": "CUnit* __stdcall CUnitSplitCommand_MakeUnit(CUnit* unit, int idType, int idSerial)",
+   "no_signature": null,
+   "comment": "**A new unit beside one being split**, answered. Of the old unit's kind - CArmy (0x308), CNavy (0x2FC) or CAir (0x2F4) by slots 15/16/17 - at **its oob_level** (+0x1F4), with the id pair given, its owner (CUnit_SetOwner), is_allowed_empty 1, CUnit_MakeName(country, 0) - empty for a unit with no brigade; added to the country, entered into the old unit's province (twice, RebuildAvatar between), its intel level set, **the old unit's base** (+0x98) taken (CUnitBase::AddUnit), and **put under the old unit's parent** (+0x1E0) where CUnit_MayTakeSubordinate(parent, it, 0) - CUnit_AttachToParent. The AI is told as CCreateUnitCommand::Execute tells it (channel 6, 7 then 3, or 8). The global 0x1A857BF set for the length. `ret 0xC`. The name is ours. See reversing/findings/FINDINGS-newunit.md.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x5EB970-0x5EBDCD: the three allocations by slots 0x3C/0x40/0x44, `mov [edi+0x1F4],eax` from the old unit's +0x1F4 at 0x5EBA7D, CUnit_SetOwner at 0x5EBA99, `mov byte [edi+0x159],1`, CUnit_MakeName/CUnit_SetName at 0x5EBB71/0x5EBB82, CCountry::AddUnit, EnterProvince/RebuildAvatar/EnterProvince, the base swap 0x5EBC22-0x5EBC60, CUnit_MayTakeSubordinate `push 0; push new; mov eax,parent` and CUnit_AttachToParent at 0x5EBC77/0x5EBC82, BroadcastToListeners 6/7/3. The call at 0x5EAE9F pushes the old unit after an 8-byte id pair. Wrong if the third broadcast branch (air) differs from CCreateUnitCommand's - not read past 0x5EBD8D."
+  },
+  {
+   "rva": "0x1EB620",
+   "kind": "function",
+   "name": "CUnitSplitCommand_TakeSubUnit",
+   "signature": "bool __stdcall CUnitSplitCommand_TakeSubUnit(CUnit* receiver@ESI, CSubUnit* subUnit@stack:4) @AL",
+   "no_signature": null,
+   "comment": "**A brigade moved into a new unit of a split**; false and nothing done where CUnit_CanTakeSubUnit(receiver, its owner's country, subUnit, sameProvince 1) refuses. Otherwise as CTransferSubUnitCommand::Execute's move, **without its message and without its lone-brigade leader rule**: out of its unit, into the receiver (avatar_stale set); CUnit::AssignBestLeader where the receiver is not land or holds more than one brigade, has no real leader and its country auto-assigns; **the old unit only where left empty** gets the null leader; a naval old unit CheckTransportOverload; the receiver named CCountry::MakeUnitName(country, its first brigade's definition, oob_level, 0) where its name is shorter than two characters; a carrier's air units (CShip +0xDC) taken from their parent and put under the receiver; both units EnterProvince their province; **CCombatManager::CheckForCombat(receiver, its province) always**; the receiver's intel level. `ret 4`. The name is ours. See reversing/findings/FINDINGS-newunit.md.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x5EB620-0x5EB967: CUnit_CanTakeSubUnit `push 1; push sub; push country; mov eax,esi` at 0x5EB680 (the 'split helper' its comment names); RemoveRegimentFromUnit/AddRegimentToUnit; AssignBestLeader at 0x5EB6FC behind `cmp [esi+0x40],1; jle` for land; the old unit `cmp [edi+0x40],0; jne` (empty only) before SetLeader at 0x5EB71B; CheckTransportOverload 0x5EB737; the name test `cmp [eax+0x10],2; setl` at 0x5EB74D and MakeUnitName at 0x5EB7B4; carrier_size +0x190 and the +0xDC loop with LeaveParent/AttachToParent; CheckForCombat at 0x5EB8D5 with no count test; `mov al,1` / `xor al,al` exits, `ret 4` at 0x5EB948 and 0x5EB967."
+  },
+  {
+   "rva": "0x35EC40",
+   "kind": "function",
+   "name": "CSingleUnitButtons::Update",
+   "signature": "void __fastcall CSingleUnitButtons::Update(void* observer@ECX)",
+   "no_signature": null,
+   "revises": true,
+   "comment": "The strip of buttons, every frame; **read whole**. Opens by setting a lock where a custom game's local player is marked (0x4208B0). Shows one of `create_corps`, `create_army`, `create_armygroup`, `create_theatre`, `edit_theatre` by oob_level (4, 3, 2, 1, 0) and disables the four create buttons together where the unit has a parent no more than one level up, a custom game forbids it (0x420EB0) or manpower is short; `attach_button` for a unit with none above and `detach_button` for one with; the three checkboxes from +0xA4, +0xA6 and +0xA5. **Load and unload**: a land unit aboard a fleet (AsArmy +0x300) shows `unload_button`, hides `load_button`, and enables the unload where the province it is in is land (its template's is_land, +0xD4 -> +0x22) - **a fleet in port** - else disables it; a land unit aboard nothing shows `load_button` enabled where CSingleUnitButtons_FindFleetToBoard finds a fleet; anything else (not a land unit, or a land unit aboard an air unit) hides both. The plane pair the same way: aboard an air unit (+0x304) `unload_plane_button` shown and enabled where CUnit_IsAtOwnBase(that air unit); aboard nothing `load_plane_button` enabled where CSingleUnitButtons_FindPlanesToBoard finds one; otherwise both hidden. Then, under the lock, the checkboxes are locked and `disbandbutton` and `newunitbutton` disabled; otherwise `disbandbutton` is disabled for a land unit aboard a ship or a plane, a theatre with something at 0x5D2A00's +0x68, a unit with an AI agent (+0x198), one with +0x290 set or one in a battle. **`newunitbutton`** is disabled, at the first that holds: a land unit of regiments_count 1 or less - **2 or less where its leader is real** (slot 8); in a battle (+0x11C); an AI agent (+0x198) on it or on any unit above it (+0x1E0 walked); on loan (+0x290); a fleet or an air unit carrying anything (+0x2EC); a land unit aboard a fleet (+0x300) or a plane (+0x304); an attack delay (+0xD4 > 0); and otherwise **enabled only where the screen's slot 51 answers 1 and regiments_count is above 1**. **The tail** (observer +0x394/+0x398 - the strip's +0x3B0/+0x3B4, the new unit waiting from CSingleUnitButtons::OnNewUnitButton): once FindPersistentByIdPair finds it, the id is cleared, the new unit is added to the selection (screen slot 38), the reorganise window is opened (screen slot 49, CInGameIdler::OnReorganiseButton - the panel's unit first, the new one second), and where the panel's unit has a parent (+0x1E0) and CUnit_MayTakeSubordinate(parent, **the panel's unit**, 0) - not the new one - a CAttachUnitCommand(new unit, parent) is posted. See reversing/findings/FINDINGS-unitpanel.md, section 9, reversing/findings/FINDINGS-transport.md, section C.1, and reversing/findings/FINDINGS-newunit.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-transport.md",
+   "evidence": "The newunitbutton part, 0x760085-0x760416: `mov esi,1`, leader slot 0x20 then `mov esi,2`, slot 0x3C and `cmp [ecx+0x40],esi; jg`; +0x11C at 0x7601B1; the +0x1E0 walk with cmovne on +0x198 at 0x7601D4-0x760206; +0x290; slot 0x40 then slot 0x2C's +0x2EC; slot 0x44 then slot 0x34's +0x2EC; slot 0x3C then slot 0x24's +0x300 and +0x304; +0xD4 at 0x760334; the screen's +0xBE8 slot 0xCC `cmp eax,1` and `cmp [ecx+0x40],eax; jle` at 0x7603AB; button slot 0xB8 enables and 0xBC disables (the disband branch's enable at 0x760191 is the one case of 0xB8). The tail 0x760429-0x7605EC: FindPersistentByIdPair (0xA9D390), the clear, screen slots 0x98 and 0xC4, CUnit_MayTakeSubordinate `push 0; push [edi+0xC]; mov eax,parent`, CAttachUnitCommand::CAttachUnitCommand at 0x76057D. Slot 49 is OnReorganiseButton by FINDINGS-selection.md. Wrong if slot 51 is not the selection count: then the last clause gates on something else, and the unit panel is only up for one unit."
+  }
+ ],
+ "struct_fields": [],
+ "vftable_slots": {
+  "CUnitSplitCommand": {"6": "Execute"},
+  "CSingleUnitButtons@0x1C": {"9": "Update"}
+ },
+ "frontier": ["0x1EAC80", "0x739BC0", "0x739C30"]
+}

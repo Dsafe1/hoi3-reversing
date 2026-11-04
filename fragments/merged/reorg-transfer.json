@@ -1,0 +1,89 @@
+{
+ "agent": "reorganise wave, reader B (what may be moved)",
+ "question": "CUnit_CanTakeSubUnit (0xE1010) read whole - every kind of sub-unit against every kind of unit, the last brigade, sea, port and transport, its fourth argument, and who calls it - and what CTransferSubUnitCommand::Execute refuses or does beyond its record.",
+ "source": "reversing/findings/FINDINGS-reorgwindow.md",
+ "addresses": [
+  {
+   "rva": "0xE1010",
+   "kind": "function",
+   "name": "CUnit_CanTakeSubUnit",
+   "signature": "bool __stdcall CUnit_CanTakeSubUnit(CUnit* unit@EAX, CCountry* country@stack:4, CSubUnit* subUnit@stack:8, bool sameProvince@stack:0xC) @AL",
+   "no_signature": null,
+   "revises": true,
+   "comment": "**Whether a unit may receive a brigade, ship or wing**, read whole: 0xE1010 to the last `ret 0xC` at 0xE118C, one int3, then CanBuildDivision (0xE1190). The receiver in EAX; country, subUnit and sameProvince on the stack. False, in this order: (1) the receiver is fighting (combats_count +0x11C > 0); (2) the sub-unit's definition (+0x58) has is_buildable (+0x36) clear - in the base game the HQ and partisan brigades; (3) the sub-unit is land (CSubUnit slot 9) and the receiver is not (CUnit slot 15), or air (slot 11) and the receiver is not (slot 17), or naval (slot 10) and the receiver is not (slot 16); (4) the receiver answers CUnit_AllSubUnitsAreCag and the sub-unit is not a CAG (definition +0x32); (5) the sub-unit is a CAG, the receiver's base (+0x98) answers CUnitBase slot 1 (IsCarrier), that CUnitBaseCarrier's ship (+0x18) is set, and the ship's carrier_size (+0x190) / 1000 is **not above** UnitList_CountAirSubUnits(the base's units, +4) + the receiver's regiments_count (+0x40) - the receiver's own wings are counted twice where it is on its carrier's list, which is likely and not checked. Then, only where the sub-unit has a current unit (+0xB0): (6) the sub-unit is that unit's first brigade (+0x38's first node) and its oob_level (+0x1F4) is under 4 - a command's HQ brigade; (7) the receiver holds any sub-unit and AllSubUnitsAreCag answers differently for the two; (8) either is on loan (expeditionary_owner +0x290); (9) the current unit is fighting (+0x11C); (10) sameProvince and their current_province_ptr (+0x130) differ. Last, with or without a current unit: (11) the receiver is land (slot 15) and its regiments_count >= CCountry_GetMaxBrigadesInDivision(country) - at **any** oob_level, a command's unit as much as a division. Otherwise true. **Nothing else is asked**: no owner (the sub-unit's unit's, the receiver's and `country` are never compared), no count left behind (a unit's last brigade, ship or wing may leave), no province kind, port or transport, no movement, retreat, attack delay or AI agent, no limit on a fleet or an air unit, and no test that the current unit is not the receiver. **sameProvince gates test 10 and nothing else.** Five callers: CTransferSubUnitCommand::Execute (0x1DCCF3) and the split helper at 0x1EB620 (0x1EB680) pass the receiver's owner and 1; CMilitaryConstruction::Deliver (0x850A0) passes 0, for a finished line's target unit and the new unit's first brigade; UnitRows_HandleDrop (0x33AAC4) passes 1 unless a deployment callback is pending (the drag object's +0x98); UnitRow_UpdateSubUnitDragHover (0x336596) passes 1 unless its last argument is set. None is in the reorganise window (VA 0x763000-0x765200). The name is ours. See reversing/findings/FINDINGS-reorgwindow.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x4E1010-0x4E118C whole (scripts/disasm.py); every branch traced to its two exits (xor al,al at 0x4E1095/0x4E117D, mov al,1 at 0x4E1188). Slot meanings: vtable.py CSubUnit CRegiment CShip CWing shows slot 9 overridden by CRegiment alone, 10 by CShip alone, 11 by CWing alone, each with mov al,1;ret (VA 0xA92590) over the base's xor al,al;ret (VA 0x592360); CUnit 15/16/17 already IsLand/IsNaval/IsAir; CUnitBase slot 1 is the same pair, true in CUnitBaseCarrier, false in CUnitBaseProvince. Helpers: 0x5D1220 and 0x5D5CF0 decoded; 0x4E1360 already recorded. The fourth argument: `push 1` at 0x5DCCED and 0x5EB67A, `push 0` at 0x48509A, `sete` of [ebp+0x18]==0 at 0x73658D and of [drag+0x98]==0 at 0x73AAB8. findRefs.py --callers 0x4E1010 gives exactly those five. Wrong if a jump into the body from outside its extent exists (none of the five callers jumps in), or if the slot pairs mean something else - but the overriders are the three leaf classes one each. The double count is arithmetic on the bytes; that the receiver is on its carrier's list is the inference."
+  },
+  {
+   "rva": "0x1DCB40",
+   "kind": "function",
+   "name": "CTransferSubUnitCommand::Execute",
+   "signature": "void __thiscall CTransferSubUnitCommand::Execute(CTransferSubUnitCommand* this)",
+   "no_signature": null,
+   "revises": true,
+   "comment": "Slot 6, 0x1DCB40 to the bare `ret` at 0x1DD4CF (slot 7 is the next byte, 0x1DD4D0). Where client_only (+0x6C) is set it returns at once when the session's +0x34 is set. Resolves the receiving unit by +0x64/+0x68 and the sub-unit by +0x40/+0x44 (into +0x3C); either missing, nothing. The global byte 0x1A857BF is saved, set to 1, and put back on both ways out. **Refused, silently,** when CUnit_CanTakeSubUnit(receiver, the country of the receiver's owner, subunit, sameProvince 1) says no - its comment has the eleven tests - and nothing else is tested here: not the owners, not what the old unit keeps. Then: the sub-unit leaves its old unit (RemoveRegimentFromUnit) and joins this one (AddRegimentToUnit); avatar_stale (+0x10C) set; where the receiver is not land or now has more than one brigade, has no real leader (leader slot 8) and its country's auto_assign_leaders (+0x74B) is set, CUnit::AssignBestLeader. The old unit, if any: left empty, or a land unit left with one brigade, gets CUnit::SetLeader(CLeader::null(), 0, 0); a naval one, CheckTransportOverload(its slot 11). **The old unit is not removed here, however empty.** A receiver whose name (slot 7) is shorter than two characters is named now: CCountry::MakeUnitName(country, first brigade's definition, oob_level, 0) and CUnit_SetName - which is where `1st Navy` and `1st Air wing` come from. **Only where the receiver's owner id (+0x128) is the player's** (CCurrentGameState +0xC34, the id half of `player` +0xC30): the interface is poked for the old unit and the receiver (0x739BC0, on the object the game state's +0xBE8 slot 105 gives), and TRANSFEREDSUBUNIT is raised with SUB (the sub-unit's slot 8), OLD (the old unit's slot 7, read with no null test) and NEW (the receiver's). A ship with carrier_size (+0x190) > 0 that answers slot 10 brings the air units on its `air` list (CShip +0xDC): each CUnit_LeaveParent(air, 1) and CUnit_AttachToParent(air, receiver). Last, unless client-only: the old unit and the receiver each CUnit::EnterProvince their own province, a receiver of exactly one brigade gets CCombatManager::CheckForCombat(receiver, its province), and the receiver CUnit_RefreshIntelLevel. See reversing/findings/FINDINGS-reorgwindow.md, section B, and FINDINGS-agents.md for the AI's use.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x5DCB40-0x5DD4CF whole. The player gate: `mov ecx,[eax+0xC34]; cmp [ebx+0x128],ecx; jne 0x5DD37C` at 0x5DCF06 with eax the singleton 0x1A89790 (vftable 0x15CF674, 0xDA8 bytes = CCurrentGameState), skipping the 0x739BC0 pair and the whole message to the carrier block at 0x5DD37C. Only call to CUnit_CanTakeSubUnit is 0x5DCCF3, `push 1`. The old unit's name is read at 0x5DD084-0x5DD09D through [esp+0x34] with no test. 0x1A857BF restored at 0x5DD3CB and 0x5DD4B5. The empty old unit: no call to any removal between 0x5DCD7C and the end. Wrong if a branch I traced as skipped is reached another way - cfg.py on the body would show it."
+  },
+  {
+   "rva": "0xE0A30",
+   "kind": "function",
+   "name": "UnitList_MayReorganise",
+   "signature": "bool __fastcall UnitList_MayReorganise(CUnitList* units@EAX) @AL",
+   "no_signature": null,
+   "revises": true,
+   "comment": "**Whether a list of units may be reorganised** - reorganizebutton's rule, asked only of exactly two rows. Each unit: in no battle, not retreating, no path, not on loan, no attack delay, in the first's province, **no AI agent on it or on any unit above it**, 'all carrier air groups' as the first (CUnit_AllSubUnitsAreCag of the first, the same test inline for each), and **where the first unit is air and its base (+0x98) answers CUnitBase slot 1 (IsCarrier), the same base** - air groups on one carrier; a province base is not compared. And false where the brigades of the two together are exactly 2 - two one-brigade units cannot be reorganised. No oob_level test, and none of CUnit_CanTakeSubUnit's tests of a sub-unit. See reversing/findings/FINDINGS-selection.md, section B.4; the carrier clause corrected in FINDINGS-reorgwindow.md, section B.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-selection.md",
+   "evidence": "Only the base clause changes: 0x4E0B15-0x4E0B45 calls the first unit's slot 17 (+0x44), then its base's slot 1 (`mov edx,[eax+4]; call edx` at 0x4E0B30) and compares the bases only when that answers true. CUnitBase slot 1 is mov al,1;ret in CUnitBaseCarrier and xor al,al;ret in CUnitBaseProvince (vtable.py). The old text, 'with a base the same base', missed the slot 1 gate. Wrong if slot 1 of the two base classes is not as vtable.py prints."
+  },
+  {
+   "rva": "0x1D5CF0",
+   "kind": "function",
+   "name": "UnitList_CountAirSubUnits",
+   "signature": "int __fastcall UnitList_CountAirSubUnits(CUnitList* units@ECX) @EAX",
+   "no_signature": null,
+   "comment": "**The wings of the air units in a list**: walks a CList<CUnit*> (ECX the list; nodes {unit, -, next at +8}) and sums regiments_count (+0x40) over every unit answering slot 17 (IsAir). Bare `ret`. Seven callers; CUnit_CanTakeSubUnit asks it of a carrier's base (CUnitBaseCarrier +4) for the wings already on the carrier. The next function, 0x1D5D20, opens as its naval twin (slot 16) and was not read further. The name is ours. See reversing/findings/FINDINGS-reorgwindow.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x5D5CF0-0x5D5D1E: `mov esi,[ecx]`, loop over [esi] with [esi+8] next, `call [eax+0x44]` on each, `add ebx,[edi+0x40]` when true, `ret` with ebx in eax; int3 at 0x5D5D1F. findRefs.py --callers gives 7. Wrong if slot 17 is not IsAir on every CUnit subclass - it is recorded so for CArmy, CNavy and CAir."
+  },
+  {
+   "rva": "0x33A7C0",
+   "kind": "function",
+   "name": "UnitRows_HandleDrop",
+   "signature": "bool __stdcall UnitRows_HandleDrop(void* drag, void* rows, CUnit* unit, CSubUnit* subUnit, CLeader* leader, int x, int y)",
+   "no_signature": null,
+   "comment": "**A unit, a brigade or a leader dropped on a list of unit rows** - the second way a CTransferSubUnitCommand is posted from the interface (0x33AB6C). `ret 0x1C`. Walks the rows of the window given second (its +0x148); for each row whose element (+0x20) holds the point (x, y) strictly inside, by the element's slots 26 and 24, and whose unit (the reference at +0x28) is not the thing dropped's own: a **unit** - CUnit_MayTakeSubordinate(row's unit, unit, 0), and a CAttachUnitCommand(unit, row's unit), after handing the row's unit to any deployment callback the drag object holds (+0x98, then cleared); a **sub-unit** whose unit is not the row's - CUnit_CanTakeSubUnit(row's unit, its owner's country, subUnit, sameProvince = no deployment callback pending); refused, the callback is cleared and nothing is posted; allowed, a pending callback is asked (the slot 10 of the object at its +4 with the row's unit's province, then the callback's slot 0 with the row's unit) and cleared, and unless slot 10 refused, CTransferSubUnitCommand(row's unit, subUnit) is posted; a **leader** - CUnit::MayTakeLeader(row's unit, leader) and, where the row's unit has a real leader (slot 8), MayTakeLeader(the dropped leader's unit, +0x40, that leader); then CAssignLeaderCommand(row's unit, leader, 0) and, in the second case, CAssignLeaderCommand(the dropped leader's unit, the row's old leader, 0) - a swap. Answers true where the point was over a row, posted or not. Callers 0x339F67 and 0x339F89, in 0x339CA0, not read; the drag object is the in-game screen's slot-105 object (FINDINGS-outliner.md). The name is ours. See reversing/findings/FINDINGS-reorgwindow.md, section B.",
+   "confidence": "inferred",
+   "evidence": "Disassembled 0x73A7C0-0x73AE70 (`ret 0x1C`, int3 after). The argument roles are read off which branch each feeds: [ebp+0x10] into 0x5B96B0 and the 0x8C-byte CAttachUnitCommand (0x5DE890), [ebp+0x14] into 0x4E1010 and the 0x70-byte CTransferSubUnitCommand (0x5DCA90), [ebp+0x18] into 0x5BFBA0 and the 0x90-byte CAssignLeaderCommand (0x5D7430); [ebp+0x1C]/[ebp+0x20] are compared with the element's position and size. Inferred because the class of the drag object and of the rows window were not identified, the callback's slots 10 and 0 were not read, and the leader branch was read only to its calls. Wrong if 0x339CA0 passes these in another order."
+  },
+  {
+   "rva": "0x336490",
+   "kind": "function",
+   "name": "UnitRow_UpdateSubUnitDragHover",
+   "signature": "void __stdcall UnitRow_UpdateSubUnitDragHover(void* row, void* context, CSubUnit* subUnit, float elapsed, bool anyProvince)",
+   "no_signature": null,
+   "comment": "**A unit row's look while a brigade is dragged over the list.** `ret 0x14`. The row's unit (reference +0x28); none, nothing. Where 0x336810(row, context) answers true the hover time (+0x160) grows by `elapsed` and, past the float at VA 0x171DBAC with the row's +0x58 slot 19 answering 1, 0x33BAF0 is called (likely opening the row); otherwise the time is reset. Then the row's button (+0x5C) is set by its slot 18: 1 where the brigade is already the row's unit's; where it is not, CUnit_CanTakeSubUnit(row's unit, its owner's country, subUnit, sameProvince = !anyProvince) - true, 2 while hovered and 1 otherwise, and nothing more; false (or already the row's), 1, and then slot 47 unless slot 48 answers true - by CBuildingMember::Update's record slot 47 disables a button, so likely 'disabled unless already'. Called only by 0x336730, a row's drag dispatcher that sends a dragged unit to 0x3363A0, a brigade here and a leader to 0x336600. The name is ours. See reversing/findings/FINDINGS-reorgwindow.md, section B.",
+   "confidence": "inferred",
+   "evidence": "Disassembled 0x736490-0x7365EF and its caller 0x736730-0x7367B5 (which pushes [ebp+0x1C] as this function's last argument and [ebp+0x18] as the float). The sameProvince argument is `sete` of [ebp+0x18]==0 at 0x73658D. Inferred: what the button slots 18, 47 and 48 draw, what 0x336810 and 0x33BAF0 do, and which window the row belongs to were not read; the meaning of the last argument is read only off its effect on the test."
+  }
+ ],
+ "structs": [],
+ "struct_fields": [
+  {
+   "struct": "CUnitBaseCarrier",
+   "offset": "0x4",
+   "name": "units",
+   "type": "CList<CUnit*>",
+   "comment": "The air units based on the carrier (first node +4, last +8, count +0xC - CUnitBase::AddUnit's list, as on CUnitBaseProvince). CUnit_CanTakeSubUnit counts the wings on it with UnitList_CountAirSubUnits against the ship's carrier_size before a CAG may join an air unit based here.",
+   "evidence": "0x4E10BC-0x4E10C8: `mov eax,[esi+0x98]; lea ecx,[eax+4]; call 0x5D5CF0`, reached only after the base's slot 1 (true only in CUnitBaseCarrier's table) answered true, and 0x5D5CF0 walks [ecx] as a CList of units. CUnitBase::AddUnit (0x1D5520) is recorded appending at +4/+8/+0xC on a base object. Wrong if a CUnitBaseCarrier keeps its planes elsewhere and +4 is some other list - but it is the same base-class list."
+  }
+ ],
+ "vftable_slots": {
+  "CSubUnit": {"9": "IsLand", "10": "IsNaval", "11": "IsAir"},
+  "CUnitBaseCarrier": {"1": "IsCarrier"},
+  "CUnitBaseProvince": {"1": "IsCarrier"}
+ },
+ "slots_noted": "CSubUnit slots 9-11 and CUnitBase slot 1 are linker-folded bodies (VA 0xA92590 mov al,1;ret in 440 tables, VA 0x592360 xor al,al;ret in 836), so only the slots are named and the bodies stay unnamed (trap 4).",
+ "frontier": ["0x1D5D20", "0x1EB620", "0x339CA0", "0x339BC0", "0x336730", "0x336810", "0x3363A0", "0x336600", "0x33BAF0"]
+}

@@ -17,6 +17,42 @@ truth.
 
 ---
 
+## The reorganise wave - the window two units hand brigades between
+
+> **LANDED 2026-11-04.** Launched on the maintainer's word with two screenshots of the original's window (two land
+> divisions, two fleets), every figure on which the readings account for but a greyed "Select" button, taken to be a
+> selected unit's row beside the window. Two fragments merged (18 address entries new, 4 revised; 2 structs declared, 17
+> struct fields); the write-up is `findings/FINDINGS-reorgwindow.md`, indexed in `CANDIDATES.md`. Left open there: what
+> keeps an emptied unit alive until the close, and the row-moving template `0x370860`.
+
+**The question, for OpenHOI3**: `reorg_window` in `interface/unitpanel.gui`, which the multi-unit panel's
+`reorganizebutton` brings up with exactly two units selected - `CInGameIdler::OnReorganiseButton` (`0x26BC70`) gives the
+window at `CInGameIdler +0x1358` the first and the second in selection order, sets its byte `+0x39`, fills it (VA
+`0x764960`) and shows it; `CloseReorganiseWindow` (`0x256DF0`) shuts it when the window's own test (VA `0x7646D0`) fails;
+the button is greyed by `UnitList_MayReorganise` (`0xE0A30`; `FINDINGS-selection.md`, B.4). OpenHOI3 shows the button and
+builds nothing behind it. The brigade's move is `CTransferSubUnitCommand` (`0x1DCA90`, `Execute` `0x1DCB40`), already read
+for the AI's regrouping and built in OpenHOI3 - **its refusal test `0xE1010(unit, country, subunit, 1)` was read only to
+its battle check**.
+
+**What is known before reading.** The classes are `CReorgPanel` and `CReorgEntry` (RTTI; glue tables VA `0x15D99E8` and
+`0x15D99BC`, `CReorgEntry`'s own `0x15D9924`/`0x15D995C`). The code sits around VA `0x763000`-`0x765200`: the fill
+`0x764960`, the test `0x7646D0`, the close `0x764B90`, the transfer site `0x763C53` (one of the command's two interface
+callers; the other is `0x33AB6C`), and the recorded `CReorgWindow_ElementTooltip` (`0x364F40`). The file's elements:
+`reorg_bg`, `positioning_left` / `_right`, `ships_ratio_left` / `_right`, `reorg_label`, `unitname_1` / `_2`, `closebutton`,
+`left_list` / `right_list`; each row `reorg_entry` (left) or `reorg_entry_right` with `band_reorg_regiment`,
+`counter_type`, `counter_size`, `subunit_name`, `subunit_type`, `subunit_level`, `subunit_strength`, `org_bar`, `str_bar` and
+`transferbutton`.
+
+| reader | brief | fragment |
+| --- | --- | --- |
+| **A** | **The window** (`CReorgPanel`, `CReorgEntry`, VA `0x763000`-`0x765200`): the constructor and every slot; the fill - what `unitname_1`/`_2`, `reorg_label`, `positioning_*` and `ships_ratio_*` show and in what format, which list holds which unit, the order of the rows; each row's figures, its counter and band, its bars; **`transferbutton`** - when it is greyed and what it posts, for which brigade to which unit, and whether the lists are made again after; the test that shuts the window; `closebutton`; every tooltip (the recorded one included). | `reorg-window.json` |
+| **B** | **What may be moved**: `0xE1010(unit, country, subunit, 1)` read whole - every kind of brigade against every kind of unit (land, naval, air; headquarters; a division's limits), the last brigade, a unit at sea or in a port, and what its fourth argument changes - and whatever else `CTransferSubUnitCommand::Execute` refuses or does that the record does not yet say. **Do not record the window's functions**; they are A's. | `reorg-transfer.json` |
+
+**The oracle**: the maintainer's eye, and screenshots of the original's reorganise window - two land divisions in one
+province, and two fleets in one port - asked for before the build.
+
+---
+
 ## The land orders wave - the window a land unit is given a strategic redeployment or a support attack from
 
 > **LANDED 2026-11-04.** Launched on the maintainer's two screenshots of the original's window (Reppen, his own; Brodnica,
