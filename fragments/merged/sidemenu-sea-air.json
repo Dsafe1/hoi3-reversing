@@ -1,0 +1,522 @@
+{
+ "agent": "leftovers wave, reader C",
+ "question": "CSideMenuAir and CSideMenuNaval, the sidebar_air and sidebar_naval windows of tfh/interface/sidebar.gui, and their rows: which bases and units are listed and in what order, what basebrowse_entry's name and size show, what unitbrowse_entry's name, location, counter, expand and select_frame do, the tooltips, and when the lists are made again.",
+ "source": "reversing/findings/FINDINGS-leftovermenus.md",
+ "addresses": [
+  {
+   "rva": "0x424C20",
+   "kind": "function",
+   "name": "CSideMenuAir::CSideMenuAir",
+   "signature": "CSideMenuAir* __stdcall CSideMenuAir::CSideMenuAir(CSideMenuAir* this@ESI, CInGameIdler* screen@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "**The air side menu** (0x2C bytes, operator new at 0x65A1F0 in CInGameIdler::CInGameIdler, the one caller, 0x65A20E). CSideMenu's constructor (0x823E90) with the window name `sidebar_air` and no mouse observer (its fourth argument 0, so +0x28 stays null), then its own vftable. `ret 4`; the object arrives in ESI. CSideMenuNaval has no constructor of its own: the same three steps are inlined in CInGameIdler::CInGameIdler at 0x65A0ED-0x65A154 with `sidebar_naval`. In that constructor the menus are made provinces, army, naval, air, deploy in that order. See reversing/findings/FINDINGS-leftovermenus.md, section C.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x824C20-0x824C9A: `push 0xb; push 0x15dfe9c ('sidebar_air')`, the call to 0x823E90 with (esi, [ebp+8], &name, 0), `mov [esi], 0x15dfeac` (CSideMenuAir's table per the RTTI export), `ret 4`. findRefs --callers 0x824C20: one call, 0x65A20E, after `push 0x2c` and operator new. The naval inline: 0x65A0ED push 0x2c, 0x65A109 'sidebar_naval', 0x65A137 call 0x823E90, 0x65A14E `mov [esi], 0x15e0444` (CSideMenuNaval's table). Wrong if 0x15DFEAC is not CSideMenuAir's table."
+  },
+  {
+   "rva": "0x424CA0",
+   "kind": "function",
+   "name": "CSideMenuAir::~CSideMenuAir",
+   "signature": "CSideMenuAir* __thiscall CSideMenuAir::~CSideMenuAir(CSideMenuAir* this, unsigned int flags)",
+   "no_signature": null,
+   "comment": "Slot 1: puts back its own table, runs CSideMenu's destructor body (0x823F90) and frees the object when bit 0 of the flags is set. `ret 4`.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x824CA0-0x824CC4: `mov [esi], 0x15dfeac; call 0x823f90; test byte [ebp+8],1; ... call 0xb95f9b (operator delete)`, `ret 4`. vtable.py: CSideMenuAir slot 1 = 0x824CA0."
+  },
+  {
+   "rva": "0x424CD0",
+   "kind": "function",
+   "name": "CSideMenuAir::Rebuild",
+   "signature": "bool __thiscall CSideMenuAir::Rebuild(CSideMenuAir* this)",
+   "no_signature": null,
+   "comment": "Slot 0, the reloadable-interface rebuild: CSideMenu's slot 0 (0x824070 - the window destroyed and made again from its type, shown again if it was shown), then CSideMenuAir_BuildList. Returns 1. The name follows the views' slot 0 (CProvinceView::Rebuild).",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x824CD0-0x824CE1: `call 0x824070; push esi; call 0x825080; mov al,1; ret`. vtable.py: CSideMenuAir slot 0 = 0x824CD0, CSideMenu slot 0 = 0x824070. What 0x824070 does is reader B's (the frame); read here only far enough to see it ends in slot 2 or slot 3 by the shown state it saved."
+  },
+  {
+   "rva": "0x424CF0",
+   "kind": "function",
+   "name": "CSideMenuAir::Show",
+   "signature": "void __thiscall CSideMenuAir::Show(CSideMenuAir* this)",
+   "no_signature": null,
+   "comment": "Slot 2: shows the window (+0x24, the slot 13 of its sub-object at +0x18, which CSideMenu's own slot 2 at 0x824100 jumps to) and **makes the list** (CSideMenuAir_BuildList). Bare `ret`.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x824CF0-0x824D08: `mov ecx,[esi+0x24]; mov eax,[ecx+0x18]; mov edx,[eax+0x34]; add ecx,0x18; call edx; push esi; call 0x825080; ret`. The same three instructions are the whole of CSideMenu slot 2 (0x824100, a `jmp edx`). vtable.py: CSideMenuAir slot 2 = 0x824CF0."
+  },
+  {
+   "rva": "0x424D10",
+   "kind": "function",
+   "name": "CSideMenuAir::Update",
+   "signature": "void __thiscall CSideMenuAir::Update(CSideMenuAir* this)",
+   "no_signature": null,
+   "comment": "**Slot 7, and the menu's whole behaviour while it is open.** First what CSideMenu's slot 7 does (the mouse observer at +0x28 told, its slot 1 - null for this menu). Then `unit_queue` (the window's FindListBox) is asked how many rows it holds and CSideMenuAir_CountRows how many it should hold: **when they differ the list is made again whole** (CSideMenuAir_BuildList); when they agree each row is asked to update itself (its slot 8 - for a unit's row CAirUnitBrowserEntry::Update, which only enables or disables `expand`; for a base's row the empty default). So the list is made again only when the count of rows changes - a unit gained, lost or expanded - and **a row's text is never refreshed**: a unit that moves keeps its old `location` until something changes the count.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x824D10-0x824E48: `cmp [esi+0x28],0 / call [vt+4]`; 'unit_queue' and window slot 0x7C (31, CFixedWindow::FindListBox); listbox slot 0x2C then `[eax+8]` (the entries count) compared with `call 0x824FF0`; unequal -> `call 0x825080`; equal -> walks the entries CList (`[eax]` head, `[node+8]` next) calling each row's `[vt+0x20]` (slot 8). The two slot 8 bodies the rows can have: 0x8249B0 (unit rows) and 0xABF890 (the 1691-slot empty stub, base rows). Wrong if listbox slot 11's `+8` is not the row count - but the same comparison is CSideMenuDeploy::Update's, recorded from the other side."
+  },
+  {
+   "rva": "0x424E50",
+   "kind": "function",
+   "name": "SideMenu_CountUnitRows",
+   "signature": "int __stdcall SideMenu_CountUnitRows(void* menu@ECX, CList* units@stack:4, int depth@stack:8) @EAX",
+   "no_signature": null,
+   "comment": "How many rows a list of units makes in the air or naval side menu: one for each unit, plus, for a unit whose `outliner_expanded` (CUnit +0xB4) is set, what its `children` (+0x1E4) make one level deeper, recursively. At depth 0 a unit with a parent (+0x1E0) is skipped - but both menus call it at depth 2 only, so that test never applies. `ret 8`; ECX is the menu, only passed down. **Shared by the two menus**: the linker kept the air copy and CSideMenuNaval_CountRows calls it too (0x829BCE), so the name is class-free.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x824E50-0x824EA3: walks `[list]`/`[node+8]`; `test ebx,ebx / cmp [eax+0x1e0],ebx` skips only at depth 0; `inc edi`; `cmp byte [eax+0xb4],0` then recurses with `lea ecx,[ebx+1]` and `eax+0x1e4`; `ret 8`. findRefs --callers: 0x824E90 (itself), 0x82505E (air count), 0x829BCE (naval count). CUnit +0xB4, +0x1E0, +0x1E4 are recorded fields (outliner_expanded, higher_oob_unit_ptr, children)."
+  },
+  {
+   "rva": "0x424EB0",
+   "kind": "function",
+   "name": "CSideMenuAir::AddUnitRows",
+   "signature": "void __thiscall CSideMenuAir::AddUnitRows(CSideMenuAir* this, GuiListBox* list, CList* units, int depth)",
+   "no_signature": null,
+   "comment": "Adds a CAirUnitBrowserEntry (0x100 bytes) to `unit_queue` for each unit of the list, in the list's order, and straight after an expanded unit (CUnit +0xB4 outliner_expanded) the rows of its children (+0x1E4), recursively. The depth is not handed to the row and nothing indents it - `browser_offset` is not read by either menu (it is by CBrowserItem and CUnitBrowserEntry, reader B's). At depth 0 a unit with a parent is skipped, but the menu calls it at depth 1, so every unit on the base's list gets a row, **whoever's it is**: there is no test of the owner. `ret 0xC`. The row is added through the list's slot 4 with 1.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x824EB0-0x824FED: `push 0x100; call 0xb9602f`, the inlined CCurrentGameState get-or-create ([0x1A89790]), `call 0x824500` with (row, state->in_game_screen +0xBE8, this, unit), `call [list_vt+0x10]` with (row, 1), the expanded test and the recursion with depth+1 at 0x824FCF. No read of the unit's owner (+0x124/+0x128) anywhere in the body. browser_offset: its string at 0x15D9F8C is referenced only at 0x7755F8 and 0x8259B3 (findValue), inside CBrowserItem slot 8 (0x7753C0) and CUnitBrowserEntry slot 8 (0x8258A0) - the positive control that the search sees a use."
+  },
+  {
+   "rva": "0x424FF0",
+   "kind": "function",
+   "name": "CSideMenuAir_CountRows",
+   "signature": "int __stdcall CSideMenuAir_CountRows(CSideMenuAir* menu)",
+   "no_signature": null,
+   "comment": "How many rows the air menu should have: for each province of the player's `AirBases` (CCountry +0xD70), one for the base and one for each unit on its base object's list (CMapProvince +0x54 -> +4), plus SideMenu_CountUnitRows(children, 2) for each expanded unit. The player is the in-game screen's slot 23 (GetPlayer), indexed into the country database at [0x1A855A4] +0x16C. `ret 4`. What Update compares the list's count with.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x824FF0-0x825077: `call [screen_vt+0x5c]`, `mov ecx,[0x1a855a4]+0x16c; [ecx+eax*4]` with the returned id; `[edx+0xd70]`, per node `[eax+0x54]` then `[ecx+4]`; `push 2` before 0x824E50; `ret 4`. +0xD70 is the Lua API's AirBases (CCountry::GetAirBases), +0x54 home_base_ptr (a CUnitBaseProvince, its unit list at +4)."
+  },
+  {
+   "rva": "0x425080",
+   "kind": "function",
+   "name": "CSideMenuAir_BuildList",
+   "signature": "void __stdcall CSideMenuAir_BuildList(CSideMenuAir* menu)",
+   "no_signature": null,
+   "comment": "**Makes the air menu's list.** Empties `unit_queue` (its slot 23), then for each province of the player's `AirBases` (CCountry +0xD70), in that list's own order: a CAirBaseBrowserEntry (0x38 bytes) for the province, and CSideMenuAir::AddUnitRows(the province's base object +0x54 -> +4, depth 1) - every unit based at that air base, in the base's own order, with an expanded unit's children under it. So the list is air bases, each followed by the units based there; **an air unit on a carrier is in no row**, because a carrier's base is a CUnitBaseCarrier and no province's, and a unit is listed under its home base wherever it is now. The title `title_view_air` is never set (the string is not in the image), so it shows the file's own `text = \"Air Units\"`. `ret 4`.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x825080-0x82524B: 'unit_queue', FindListBox (window slot 0x7C), `call [list_vt+0x5c]`; player country as in CountRows; `[eax+0xd70]` walk; `push 0x38; call 0xb9602f`; `call 0x824200` with (row, state->+0xBE8, menu, province); `call [list_vt+0x10]` (row, 1); `mov ecx,[esi+0x54]; add ecx,4; push 1` then `call 0x824eb0`. title_view_air: image.findBytes finds no such string, where the same search finds title_view_deploy with two references (0x827E7E, 0x828801) - the positive control."
+  },
+  {
+   "rva": "0x424140",
+   "kind": "function",
+   "name": "_A0xaec99346::CAirBrowserEntry::CAirBrowserEntry",
+   "signature": null,
+   "no_signature": "__stdcall with this at stack:4, the menu at stack:8 and the window's name as a std::string passed by value (0x1C bytes) from stack:0xC, and the in-game screen in EDI; `ret 0x24`. A by-value string has no register-or-slot spelling the checker takes.",
+   "comment": "**A row of the air side menu, base or unit**: CStandardlistboxItem's constructor inlined (its tables 0x15FE808/0x15FE838), the row's window made by name through the in-game screen's gui factory (its slot 14, parent its slot 16) into +0x20, then its own tables, the in-game screen at +0x28 and the menu at +0x30. No element is touched here. CNavalBrowserEntry's constructor (0x828EB0) is the same body in the naval translation unit, not folded.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x824140-0x8241F8: `call [edi_vt+0x40]`, `call [edi_vt+0x38]`, the CStandardlistboxItem stores, `call [eax_vt+0x2c]` with (&name, parent) -> `[esi+0x20]`; `mov [esi], 0x15dfed4; mov [esi+0x1c], 0x15dff0c` (CAirBrowserEntry's two tables in the RTTI export); `[esi+0x28]=edi; [esi+0x30]=[ebp+0xc]`; `ret 0x24`. Both callers (0x82424F, 0x82454C) set EDI from their second argument just before."
+  },
+  {
+   "rva": "0x424200",
+   "kind": "function",
+   "name": "_A0xaec99346::CAirBaseBrowserEntry::CAirBaseBrowserEntry",
+   "signature": "_A0xaec99346::CAirBaseBrowserEntry* __stdcall _A0xaec99346::CAirBaseBrowserEntry::CAirBaseBrowserEntry(_A0xaec99346::CAirBaseBrowserEntry* this, CInGameIdler* screen, CSideMenuAir* menu, CMapProvince* province)",
+   "no_signature": null,
+   "comment": "**An air base's row**, window `basebrowse_entry`, 0x38 bytes. Keeps the province at +0x34. `name` is the province's name (its sub-object at +8, slot 7). **`size` is the air base's working level over its built level**: `FormatFixedPoint(air_base->level_current (+0x24), 2) + \"/\" + level_max (+0x20) / 1000` - e.g. `4.50/5` for a level 5 base bombed to 4.5. It is not a count of units and not a capacity. Both are written once, here; the row has no update of its own (slot 8 is the empty stub) and no click (slot 4 is the 85-table default that only marks the option chosen).",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x824200-0x8244FB: 'basebrowse_entry' to 0x824140; `[ebx+0x34]=[ebp+0x14]`; vftable 0x15DFF6C (CAirBaseBrowserEntry); 'name': `[ecx+8]` slot 0x1C into the instant text box (window slot 0x3C, 15, FindInstantTextBox) through 0x401BD0 and 0xB32880; 'size': `[prov+0x304]` (air_base) `+0x20` times 0x10624DD3 >> 6 (/1000) into _itoa base 10 (0xB9A0C4), `+0x24` into FormatFixedPoint (0xA5ACA0) with 2, the literal at 0x15B5180 is \"/\", and two std::string::operatorPlus (0xA5B0D0): fixed + \"/\" then + integer. vtable.py: slots 4 and 8 of CAirBaseBrowserEntry are 0xA7F7B0 and 0xABF890."
+  },
+  {
+   "rva": "0x424500",
+   "kind": "function",
+   "name": "_A0xaec99346::CAirUnitBrowserEntry::CAirUnitBrowserEntry",
+   "signature": "_A0xaec99346::CAirUnitBrowserEntry* __stdcall _A0xaec99346::CAirUnitBrowserEntry::CAirUnitBrowserEntry(_A0xaec99346::CAirUnitBrowserEntry* this, CInGameIdler* screen, CSideMenuAir* menu, CUnit* unit)",
+   "no_signature": null,
+   "comment": "**A unit's row**, window `unitbrowse_entry`, 0x100 bytes. Two button glues (VCAirUnitBrowserEntry::__CButtonObserverGlue, 0x825250): +0x38 on `expand` with CAirUnitBrowserEntry::OnExpandClicked, +0x88 on `select_frame` with the slot-4 thunk 0x67A310 (OnSelect). The unit kept as a CRef at +0xD8. `name` the unit's name (its slot 7); `location` the name of the province it is in now (+0x130). `counter_type`: the sprite `GFX_counter_` + the key of its first brigade's definition, **only where the screen's country knows the unit at intel_level (+0x1F8) 3 or more** and it has a brigade - otherwise `GFX_counter_` alone - and set only where that sprite exists, else the file's `GFX_temp_unit_icon` stays. `counter_size`: frame GetCounterSize + 1, inline (an air unit 1, a fleet 2). Ends with its own Update. The text is written once and never again (CSideMenuAir::Update).",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x824500-0x824982: 'unitbrowse_entry' to 0x824140; vftables 0x15E0004/0x15E003C; glue builds `mov eax,0x824a90; lea esi,[ebx+0x38]; call 0x825250` and `mov eax,0x67a310; lea edi,[ebx+0x88]; call 0x825250` (0x825250 writes vftable 0x15E009C, the RTTI's VCAirUnitBrowserEntry::__CButtonObserverGlue); FindButton (slot 0x34) 'expand' and 'select_frame' then `[button+0x48]` slot 1 with the glue; 0x42DD70 on +0xD8; 'name' slot 0x1C; 'location' `[edi+0x130]+8` slot 0x1C; 'GFX_counter_' with `cmp [edi+0x1f8],3 / jl`, `cmp [edi+0x40],0 / jle`, `[[edi+0x38]]+0x58 -> +8`, else 0x170D858 (an empty std::string); StringHashFind (0x9C7D60) over `[screen slot 17]+0xA0`, then FindIcon (slot 0x44) 'counter_type' slot 0xE4; 'counter_size' by the seven-way table at 0x824988 on +0x1F4, frame +1 via slot 0x48; `call 0x8249b0`; `ret 0x10`. The table: 0->5, 1->4, 2->3, 3->2, 4->(brigades>1), 5->1, 6->0, the recorded CUnit::GetCounterSize."
+  },
+  {
+   "rva": "0x4249B0",
+   "kind": "function",
+   "name": "_A0xaec99346::CAirUnitBrowserEntry::Update",
+   "signature": "void __thiscall _A0xaec99346::CAirUnitBrowserEntry::Update(_A0xaec99346::CAirUnitBrowserEntry* this)",
+   "no_signature": null,
+   "comment": "Slot 8 of both unit rows, air and naval - **one body the linker kept from the air unit**, which CNavalUnitBrowserEntry's table holds too and its constructor calls (0x82973A). Resolves the row's unit (CRef_ResolveAndCache on +0xD8); where it still exists, `expand` is **disabled** (button slot 47) when the unit has no children (children_count +0x1EC == 0) and enabled (slot 46) otherwise. Its `>` text never changes with the expanded state. Nothing else of the row is refreshed.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x8249B0-0x824A89: `lea esi,[edi+0xd8]; call 0x42de10`; `cmp [eax+0x1ec],ebx; jne`; FindButton 'expand' then `[vt+0xbc]` (zero children) or `[vt+0xb8]`; the record's reading of button slots 46 enable / 47 disable (CDiplomacyView::Update, CWarGoalDialog). vtable.py --holding 0x8249B0: CAirUnitBrowserEntry slot 8 and CNavalUnitBrowserEntry slot 8, nothing else. findRefs --callers: 0x82495A (air constructor), 0x82973A (naval constructor)."
+  },
+  {
+   "rva": "0x424A90",
+   "kind": "function",
+   "name": "_A0xaec99346::CAirUnitBrowserEntry::OnExpandClicked",
+   "signature": "void __thiscall _A0xaec99346::CAirUnitBrowserEntry::OnExpandClicked(_A0xaec99346::CAirUnitBrowserEntry* this)",
+   "no_signature": null,
+   "comment": "`expand`'s click, for the air and the naval unit rows alike (the naval constructor hands the same address to its glue, 0x82934D). Resolves the row's unit by its id (+0xDC/+0xE0, FindPersistentById inlined, the result less 8) into +0xD8 and **flips its `outliner_expanded` (CUnit +0xB4) - the same flag the outliner's expand_button flips**, so expanding a unit here expands it in the outliner and the other way round. The menu's next Update finds the row count changed and makes the list again with or without the children. Bare `ret`.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x824A90-0x824B4A: two inlined resolutions of `[esi+0xdc]/[esi+0xe0]` through 0xA9DA00 on [0x1A857F0] or [0x1A857F4] by `cmp eax,0x1268`, `add eax,-8`, `mov [esi+0xd8],eax`; `cmp byte [eax+0xb4],0; sete cl; mov [eax+0xb4],cl`; bare ret. The handler address is the `mov eax,0x824a90` before the glue at +0x38 in both constructors (0x82456D, 0x82934D). Not in any virtual table (vtable.py --holding answers none)."
+  },
+  {
+   "rva": "0x424B50",
+   "kind": "function",
+   "name": "_A0xaec99346::CAirUnitBrowserEntry::OnSelect",
+   "signature": "void __thiscall _A0xaec99346::CAirUnitBrowserEntry::OnSelect(_A0xaec99346::CAirUnitBrowserEntry* this)",
+   "no_signature": null,
+   "comment": "Slot 4 of both unit rows, air and naval (one body), reached from `select_frame` through the slot-4 thunk 0x67A310. Resolves the row's unit by its id (into +0xD8) and, where it exists, has the menu's in-game screen (+0x30 -> +0x20) **clear the selection (slot 46, ClearSelection) and select the unit (slot 38, Select)**. The map is not centred and no window opened. Whether a click on the row's background also reaches slot 4 is the list's and was not read.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x824B50-0x824C18: the same inlined resolution as OnExpandClicked; `mov esi,[esi+0x30]; mov ecx,[esi+0x20]; call [vt+0xb8]` then `push edi; call [vt+0x98]`; CInGameIdler slots 46 and 38 are 0x656CD0 and 0x656D10, recorded as ClearSelection and Select. vtable.py --holding 0x824B50: CAirUnitBrowserEntry slot 4 and CNavalUnitBrowserEntry slot 4. 0x67A310 is `mov eax,[ecx]; jmp [eax+0x10]`."
+  },
+  {
+   "rva": "0x428EB0",
+   "kind": "function",
+   "name": "_A0xfce85ce3::CNavalBrowserEntry::CNavalBrowserEntry",
+   "signature": null,
+   "no_signature": "__stdcall with this at stack:4, the menu at stack:8 and the window's name as a std::string passed by value (0x1C bytes) from stack:0xC, and the in-game screen in EDI; `ret 0x24`, as CAirBrowserEntry's.",
+   "comment": "**A row of the naval side menu, base or unit** - CAirBrowserEntry's constructor instruction for instruction, in the naval translation unit, with CNavalBrowserEntry's tables (0x15E046C/0x15E04A4): the window at +0x20, the in-game screen at +0x28, the menu at +0x30.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x828EB0-0x828F68 beside 0x824140-0x8241F8: the same instructions but for `mov [esi],0x15e046c; mov [esi+0x1c],0x15e04a4` (CNavalBrowserEntry in the RTTI export); `ret 0x24`. Callers 0x82902F and 0x82932C set EDI first."
+  },
+  {
+   "rva": "0x428FE0",
+   "kind": "function",
+   "name": "_A0xfce85ce3::CNavalBaseBrowserEntry::CNavalBaseBrowserEntry",
+   "signature": "_A0xfce85ce3::CNavalBaseBrowserEntry* __stdcall _A0xfce85ce3::CNavalBaseBrowserEntry::CNavalBaseBrowserEntry(_A0xfce85ce3::CNavalBaseBrowserEntry* this, CInGameIdler* screen, CSideMenuNaval* menu, CMapProvince* province)",
+   "no_signature": null,
+   "comment": "**A naval base's row**, window `basebrowse_entry`, 0x38 bytes: the air base row with the naval base. `name` the province's name; **`size` the naval base's working level over its built level**, `FormatFixedPoint(naval_base->level_current (+0x24), 2) + \"/\" + level_max (+0x20) / 1000`. Province at +0x34. Written once; no update and no click of its own.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x828FE0-0x8292DB: 'basebrowse_entry' to 0x828EB0; vftable 0x15E0504 (CNavalBaseBrowserEntry); 'name' as the air row; 'size' from `[prov+0x300]` (naval_base) +0x20 /1000 by _itoa and +0x24 by FormatFixedPoint(2), joined round the \"/\" at 0x15B5180; `ret 0x10`."
+  },
+  {
+   "rva": "0x4292E0",
+   "kind": "function",
+   "name": "_A0xfce85ce3::CNavalUnitBrowserEntry::CNavalUnitBrowserEntry",
+   "signature": "_A0xfce85ce3::CNavalUnitBrowserEntry* __stdcall _A0xfce85ce3::CNavalUnitBrowserEntry::CNavalUnitBrowserEntry(_A0xfce85ce3::CNavalUnitBrowserEntry* this, CInGameIdler* screen, CSideMenuNaval* menu, CUnit* unit)",
+   "no_signature": null,
+   "comment": "**A fleet's row**, window `unitbrowse_entry`, 0x100 bytes - the air unit row's constructor with the naval tables and VCNavalUnitBrowserEntry's glue (0x829DC0): `expand` to the air row's OnExpandClicked (0x824A90), `select_frame` to the slot-4 thunk; `name`, `location`, `counter_type` with the same intel test (3 or more), `counter_size` frame GetCounterSize + 1; then the air row's Update (0x8249B0).",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x8292E0-0x829762 beside 0x824500: 'unitbrowse_entry' to 0x828EB0; `mov eax,0x824a90` before 0x829DC0 for +0x38 and `mov eax,0x67a310` for +0x88 (0x829DC0 writes vftable 0x15E0634, VCNavalUnitBrowserEntry::__CButtonObserverGlue); vftables 0x15E059C/0x15E05D4; `cmp [edi+0x1f8],3` at 0x8295D1; the oob_level table at 0x829768; `call 0x8249b0` at 0x82973A; `ret 0x10`."
+  },
+  {
+   "rva": "0x429790",
+   "kind": "function",
+   "name": "_A0xfce85ce3::CNavalUnitBrowserEntry::ScalarDeletingDestructor",
+   "signature": "_A0xfce85ce3::CNavalUnitBrowserEntry* __thiscall _A0xfce85ce3::CNavalUnitBrowserEntry::ScalarDeletingDestructor(_A0xfce85ce3::CNavalUnitBrowserEntry* this, unsigned int flags)",
+   "no_signature": null,
+   "comment": "Slot 0 of both unit rows, naval and air - one body, the naval copy kept. The destructor body (0x8297C0), then operator delete where bit 0 of the flags is set. `ret 4`.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x829790-0x8297AF: `push esi; call 0x8297c0; test byte [ebp+8],1; ... call 0xb95f9b`, `ret 4`. vtable.py --holding 0x829790: CAirUnitBrowserEntry slot 0 and CNavalUnitBrowserEntry slot 0, nothing else."
+  },
+  {
+   "rva": "0x4297C0",
+   "kind": "function",
+   "name": "_A0xfce85ce3::CNavalUnitBrowserEntry::~CNavalUnitBrowserEntry",
+   "signature": "void __stdcall _A0xfce85ce3::CNavalUnitBrowserEntry::~CNavalUnitBrowserEntry(_A0xfce85ce3::CNavalUnitBrowserEntry* this)",
+   "no_signature": null,
+   "comment": "The unit row's destructor body, air and naval: frees the CRef's name string (+0xD8 + 0xC), puts the plain glue table (0x15B5554) back on both glues, then CStandardlistboxItem's part - the row's window (+0x20) destroyed (its slot 20) and COption's destructor (0xA7F830). `ret 4`; the object is on the stack.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x8297C0-0x829865: `mov esi,[ebp+8]`; `cmp [esi+0xf8],0x10` / free `[esi+0xe4]`; `mov [esi+0x88],0x15b5554; mov [esi+0x38],0x15b5554`; `mov [esi],0x15fe808`; `call [[esi+0x20]]+0x50`; `call 0xa7f830`; `ret 4`. One caller, 0x829797."
+  },
+  {
+   "rva": "0x429E40",
+   "kind": "function",
+   "name": "_A0xfce85ce3::CNavalUnitBrowserEntry::ScalarDeletingDestructorAt1C",
+   "signature": null,
+   "no_signature": "an adjustor thunk: `sub ecx, 0x1c; jmp 0x829790` - the receiver is the TListboxItem sub-object at +0x1C and the arguments are the target's.",
+   "comment": "Slot 0 of the unit rows' second table (the TListboxItem one at +0x1C), air and naval: steps back to the row and jumps to its scalar deleting destructor.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x829E40: `sub ecx,0x1c; jmp 0x829790`. vtable.py --holding 0x829E40: CAirUnitBrowserEntry slot 0 and CNavalUnitBrowserEntry slot 0, both tables at object offset 28."
+  },
+  {
+   "rva": "0x429870",
+   "kind": "function",
+   "name": "CSideMenuNaval::~CSideMenuNaval",
+   "signature": "CSideMenuNaval* __thiscall CSideMenuNaval::~CSideMenuNaval(CSideMenuNaval* this, unsigned int flags)",
+   "no_signature": null,
+   "comment": "Slot 1: its own table back, CSideMenu's destructor body (0x823F90), operator delete on bit 0. `ret 4`.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x829870-0x829894: `mov [esi],0x15e0444; call 0x823f90; test byte [ebp+8],1`, `ret 4`. vtable.py: CSideMenuNaval slot 1 = 0x829870."
+  },
+  {
+   "rva": "0x4298A0",
+   "kind": "function",
+   "name": "CSideMenuNaval::Rebuild",
+   "signature": "bool __thiscall CSideMenuNaval::Rebuild(CSideMenuNaval* this)",
+   "no_signature": null,
+   "comment": "Slot 0: CSideMenu's slot 0 (0x824070), then CSideMenuNaval_BuildList. Returns 1.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x8298A0-0x8298B1: `call 0x824070; push esi; call 0x829bf0; mov al,1; ret`. vtable.py: CSideMenuNaval slot 0 = 0x8298A0."
+  },
+  {
+   "rva": "0x4298C0",
+   "kind": "function",
+   "name": "CSideMenuNaval::Show",
+   "signature": "void __thiscall CSideMenuNaval::Show(CSideMenuNaval* this)",
+   "no_signature": null,
+   "comment": "Slot 2: shows the window and makes the list (CSideMenuNaval_BuildList).",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x8298C0-0x8298D8: the window's +0x18 slot 13, then `push esi; call 0x829bf0`. vtable.py: CSideMenuNaval slot 2 = 0x8298C0."
+  },
+  {
+   "rva": "0x4298E0",
+   "kind": "function",
+   "name": "CSideMenuNaval::Update",
+   "signature": "void __thiscall CSideMenuNaval::Update(CSideMenuNaval* this)",
+   "no_signature": null,
+   "comment": "Slot 7, CSideMenuAir::Update with the naval count and build: the mouse observer (+0x28, null) told; `unit_queue`'s row count against CSideMenuNaval_CountRows - unequal, the list made again; equal, each row's slot 8. A row's text is never refreshed.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x8298E0-0x829A18: `cmp [esi+0x28],0`; 'unit_queue' FindListBox, slot 0x2C `+8` against `call 0x829b60`; unequal `call 0x829bf0`; equal the walk with `call [vt+0x20]`. vtable.py: CSideMenuNaval slot 7 = 0x8298E0."
+  },
+  {
+   "rva": "0x429A20",
+   "kind": "function",
+   "name": "CSideMenuNaval::AddUnitRows",
+   "signature": "void __thiscall CSideMenuNaval::AddUnitRows(CSideMenuNaval* this, GuiListBox* list, CList* units, int depth)",
+   "no_signature": null,
+   "comment": "CSideMenuAir::AddUnitRows with CNavalUnitBrowserEntry (0x100 bytes): a row for each unit of the list, in order, an expanded unit's children after it, recursively; no owner test, no indent. `ret 0xC`.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x829A20-0x829B5D beside 0x824EB0: the same body but `call 0x8292e0` and the recursion `call 0x829a20`; `ret 0xc`."
+  },
+  {
+   "rva": "0x429B60",
+   "kind": "function",
+   "name": "CSideMenuNaval_CountRows",
+   "signature": "int __stdcall CSideMenuNaval_CountRows(CSideMenuNaval* menu)",
+   "no_signature": null,
+   "comment": "How many rows the naval menu should have: for each province of the player's `NavalBases` (CCountry +0xD80), one for the base and one for each unit on its naval base object's list (CMapProvince +0x58 -> +4), plus SideMenu_CountUnitRows(children, 2) for each expanded unit. `ret 4`.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x829B60-0x829BE7: the air count with `[edx+0xd80]` and `[eax+0x58]`, and `call 0x824e50` (the air copy). +0xD80 is the Lua API's NavalBases, +0x58 naval_base_station."
+  },
+  {
+   "rva": "0x429BF0",
+   "kind": "function",
+   "name": "CSideMenuNaval_BuildList",
+   "signature": "void __stdcall CSideMenuNaval_BuildList(CSideMenuNaval* menu)",
+   "no_signature": null,
+   "comment": "**Makes the naval menu's list**: `unit_queue` emptied, then for each province of the player's `NavalBases` (CCountry +0xD80) in that list's order, a CNavalBaseBrowserEntry and CSideMenuNaval::AddUnitRows(the province's naval base object +0x58 -> +4, depth 1) - every fleet based at that port, wherever it is, with an expanded fleet's children under it. A fleet with no home port is in no row. The title `title_view_naval` is never set; the file's `Naval Units` shows. `ret 4`.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x829BF0-0x829DBB beside 0x825080: `[eax+0xd80]`, `push 0x38`, `call 0x828fe0`, `mov ecx,[esi+0x58]; add ecx,4; push 1; call 0x829a20`. title_view_naval: not in the image (image.findBytes), against title_view_deploy found."
+  }
+ ],
+ "structs": [
+  {
+   "name": "CSideMenuAir",
+   "size": "0x2C",
+   "vftable_rva": "0x11DFEAC",
+   "comment": "The air side menu, window `sidebar_air` of tfh/interface/sidebar.gui: the player's air bases, each followed by the air units based there. Its fields are CSideMenu's (+0x20 the in-game screen, +0x24 the window, +0x28 the mouse observer, null here) - reader B's record. Nothing the shipped game shows opens it. See reversing/findings/FINDINGS-leftovermenus.md, section C.",
+   "evidence": "operator new 0x2C at 0x65A1F0 before the constructor call at 0x65A20E; vftable 0x15DFEAC (VA) is CSideMenuAir's in the RTTI export, 9 slots. No inherits declared: CSideMenu has no record yet, and reader B may declare it - the collecting session can add `inherits: CSideMenu` by hand.",
+   "inherits": "CSideMenu"
+  },
+  {
+   "name": "CSideMenuNaval",
+   "size": "0x2C",
+   "vftable_rva": "0x11E0444",
+   "comment": "The naval side menu, window `sidebar_naval`: the player's ports, each followed by the fleets based there. CSideMenu's fields only. Its constructor is inlined in CInGameIdler::CInGameIdler. See reversing/findings/FINDINGS-leftovermenus.md, section C.",
+   "evidence": "operator new 0x2C at 0x65A0ED, the inlined construction to 0x65A154 writing 0x15E0444, CSideMenuNaval's table in the RTTI export.",
+   "inherits": "CSideMenu"
+  },
+  {
+   "name": "_A0xaec99346::CAirBrowserEntry",
+   "vftable_rva": "0x11DFED4",
+   "comment": "The air side menu's row, a CStandardlistboxItem in an anonymous namespace; the parent of the base row and the unit row. It overrides nothing - every slot of both tables is CStandardlistboxItem's. Not a CBrowserItem: in the RTTI the two are siblings. See reversing/findings/FINDINGS-leftovermenus.md, section C.",
+   "evidence": "RTTI export: base CStandardlistboxItem, tables 0x15DFED4 (12 slots) and 0x15DFF0C at +0x1C (23); vtable.py --all and --index 1 against CBrowserItem: every slot the same as CBrowserItem's inherited ones except 0, 4 and 8, where CBrowserItem has its own and this class has the shared 0x71E820, 0xA7F7B0 and 0xABF890. Size not declared: no allocation of the parent alone."
+  },
+  {
+   "name": "_A0xaec99346::CAirBaseBrowserEntry",
+   "size": "0x38",
+   "inherits": "_A0xaec99346::CAirBrowserEntry",
+   "vftable_rva": "0x11DFF6C",
+   "comment": "An air base's row, `basebrowse_entry`: the province's name and its air base's working and built levels.",
+   "evidence": "`push 0x38; call 0xb9602f` at 0x82514C before the constructor 0x824200; vftable 0x15DFF6C written there; RTTI base CAirBrowserEntry at offset 0."
+  },
+  {
+   "name": "_A0xaec99346::CAirUnitBrowserEntry",
+   "size": "0x100",
+   "inherits": "_A0xaec99346::CAirBrowserEntry",
+   "vftable_rva": "0x11E0004",
+   "comment": "An air unit's row, `unitbrowse_entry`: name, location, counter, `expand` and `select_frame`. Slots 0, 4 and 8 are one body each with CNavalUnitBrowserEntry's.",
+   "evidence": "`push 0x100; call 0xb9602f` at 0x824EFE before the constructor 0x824500; vftable 0x15E0004; the last field, the CRef at +0xD8, is 0x28 bytes and ends at 0x100."
+  },
+  {
+   "name": "_A0xfce85ce3::CNavalBrowserEntry",
+   "vftable_rva": "0x11E046C",
+   "comment": "The naval side menu's row, the twin of CAirBrowserEntry in its own anonymous namespace; overrides nothing. See reversing/findings/FINDINGS-leftovermenus.md, section C.",
+   "evidence": "RTTI export: base CStandardlistboxItem, tables 0x15E046C and 0x15E04A4; vtable.py: slots 0/4/8 the shared 0x71E820/0xA7F7B0/0xABF890 as CAirBrowserEntry."
+  },
+  {
+   "name": "_A0xfce85ce3::CNavalBaseBrowserEntry",
+   "size": "0x38",
+   "inherits": "_A0xfce85ce3::CNavalBrowserEntry",
+   "vftable_rva": "0x11E0504",
+   "comment": "A port's row, `basebrowse_entry`: the province's name and its naval base's working and built levels.",
+   "evidence": "`push 0x38` at 0x829CBC before the constructor 0x828FE0; vftable 0x15E0504; RTTI base CNavalBrowserEntry at offset 0."
+  },
+  {
+   "name": "_A0xfce85ce3::CNavalUnitBrowserEntry",
+   "size": "0x100",
+   "inherits": "_A0xfce85ce3::CNavalBrowserEntry",
+   "vftable_rva": "0x11E059C",
+   "comment": "A fleet's row, `unitbrowse_entry`, the air unit row's layout with the naval glue.",
+   "evidence": "`push 0x100` at 0x829A6E before the constructor 0x8292E0; vftable 0x15E059C; CRef at +0xD8 to 0x100."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "_A0xaec99346::CAirBrowserEntry",
+   "offset": "0x20",
+   "name": "window",
+   "type": "void*",
+   "comment": "The row's window, `basebrowse_entry` or `unitbrowse_entry`, made by name through the in-game screen's gui factory.",
+   "evidence": "0x8241C0 `mov [esi+0x20],eax` with the result of the factory's slot 11 called with the name; read back as `[ebx+0x20]` before every FindButton/FindInstantTextBox/FindIcon in both row constructors."
+  },
+  {
+   "struct": "_A0xaec99346::CAirBrowserEntry",
+   "offset": "0x28",
+   "name": "in_game_screen",
+   "type": "CInGameIdler*",
+   "comment": "The in-game screen the row was made for (CCurrentGameState +0xBE8, in EDI at the constructor). Its slot 17's +0xA0 is the sprite table the counter is looked up in.",
+   "evidence": "0x8241D3 `mov [esi+0x28],edi`; both callers load EDI from their second argument, which the menus pass as `[0x1A89790]+0xBE8` (in_game_screen); read at 0x82483C `mov ecx,[ebx+0x28]; call [vt+0x44]`."
+  },
+  {
+   "struct": "_A0xaec99346::CAirBrowserEntry",
+   "offset": "0x30",
+   "name": "menu",
+   "type": "void*",
+   "comment": "The CSideMenuAir the row is in; OnSelect reaches the in-game screen through its +0x20.",
+   "evidence": "0x8241D6 `mov [esi+0x30],eax` from the constructor's second stack argument; AddUnitRows and BuildList pass the menu there; OnSelect reads `[esi+0x30]` then `+0x20` (0x824BF4-0x824BF7)."
+  },
+  {
+   "struct": "_A0xaec99346::CAirBaseBrowserEntry",
+   "offset": "0x34",
+   "name": "province",
+   "type": "CMapProvince*",
+   "comment": "The air base's province; its +0x304 (air_base) gives the `size` text.",
+   "evidence": "0x82425C `mov [ebx+0x34],ecx` from the fourth argument; read at 0x824340 `mov eax,[ebx+0x34]; mov eax,[eax+0x304]`."
+  },
+  {
+   "struct": "_A0xaec99346::CAirUnitBrowserEntry",
+   "offset": "0x38",
+   "name": "expand_observer",
+   "type": "void*",
+   "comment": "VCAirUnitBrowserEntry::__CButtonObserverGlue by value (0x50 bytes, vftable VA 0x15E009C, owner +4, handler +8 = OnExpandClicked), registered on `expand`.",
+   "evidence": "0x824572 `lea esi,[ebx+0x38]` into 0x825250 (which writes 0x15E009C at +0 and `ret 0x48`), pushed to the `expand` button's +0x48 slot 1 at 0x82460C; reset by the destructor at 0x829817."
+  },
+  {
+   "struct": "_A0xaec99346::CAirUnitBrowserEntry",
+   "offset": "0x88",
+   "name": "select_observer",
+   "type": "void*",
+   "comment": "The second glue by value, handler 0x67A310 (slot 4, OnSelect), registered on `select_frame`.",
+   "evidence": "0x8245A8 `lea edi,[ebx+0x88]` with `mov eax,0x67a310` into 0x825250; pushed to `select_frame`'s +0x48 slot 1 at 0x824665; reset at 0x829811."
+  },
+  {
+   "struct": "_A0xaec99346::CAirUnitBrowserEntry",
+   "offset": "0xD8",
+   "name": "unit",
+   "type": "CRef",
+   "comment": "The row's unit as a CRef: cached pointer +0xD8, id type +0xDC, id +0xE0, name +0xE4. Resolved again on each click and each Update, so a row whose unit is gone does nothing.",
+   "evidence": "0x8245C7 `call 0x42dd70` with (+0xD8, unit); CRef_ResolveAndCache (0x42DE10) on +0xD8 at 0x8249D6; the clicks read +0xDC/+0xE0 and write +0xD8; the destructor frees the string at +0xE4 (capacity +0xF8)."
+  },
+  {
+   "struct": "_A0xfce85ce3::CNavalBrowserEntry",
+   "offset": "0x20",
+   "name": "window",
+   "type": "void*",
+   "comment": "The row's window, as CAirBrowserEntry's.",
+   "evidence": "0x828F30 `mov [esi+0x20],eax` after the factory call, the same body as 0x824140."
+  },
+  {
+   "struct": "_A0xfce85ce3::CNavalBrowserEntry",
+   "offset": "0x28",
+   "name": "in_game_screen",
+   "type": "CInGameIdler*",
+   "comment": "The in-game screen, from EDI.",
+   "evidence": "0x828F43 `mov [esi+0x28],edi`; read at 0x82961C for the sprite table."
+  },
+  {
+   "struct": "_A0xfce85ce3::CNavalBrowserEntry",
+   "offset": "0x30",
+   "name": "menu",
+   "type": "void*",
+   "comment": "The CSideMenuNaval the row is in.",
+   "evidence": "0x828F46 `mov [esi+0x30],eax` from the second stack argument; the shared OnSelect reads it."
+  },
+  {
+   "struct": "_A0xfce85ce3::CNavalBaseBrowserEntry",
+   "offset": "0x34",
+   "name": "province",
+   "type": "CMapProvince*",
+   "comment": "The port's province; its +0x300 (naval_base) gives the `size` text.",
+   "evidence": "0x82903C `mov [ebx+0x34],ecx`; read at 0x829120 `mov eax,[ebx+0x34]; mov eax,[eax+0x300]`."
+  },
+  {
+   "struct": "_A0xfce85ce3::CNavalUnitBrowserEntry",
+   "offset": "0x38",
+   "name": "expand_observer",
+   "type": "void*",
+   "comment": "VCNavalUnitBrowserEntry::__CButtonObserverGlue by value (vftable VA 0x15E0634), handler 0x824A90 (the air row's OnExpandClicked), on `expand`.",
+   "evidence": "0x82934D `mov eax,0x824a90; lea esi,[ebx+0x38]` into 0x829DC0, which writes 0x15E0634."
+  },
+  {
+   "struct": "_A0xfce85ce3::CNavalUnitBrowserEntry",
+   "offset": "0x88",
+   "name": "select_observer",
+   "type": "void*",
+   "comment": "The second glue, handler 0x67A310 (slot 4), on `select_frame`.",
+   "evidence": "0x829383 `mov eax,0x67a310; lea edi,[ebx+0x88]` into 0x829DC0."
+  },
+  {
+   "struct": "_A0xfce85ce3::CNavalUnitBrowserEntry",
+   "offset": "0xD8",
+   "name": "unit",
+   "type": "CRef",
+   "comment": "The row's fleet as a CRef (pointer, id type +0xDC, id +0xE0, name +0xE4).",
+   "evidence": "0x8293A7 `call 0x42dd70` on +0xD8; the shared Update and clicks read it; the destructor frees +0xE4."
+  }
+ ],
+ "vftable_slots": {
+  "CSideMenuAir": {
+   "0": {
+    "name": "Rebuild",
+    "signature": "bool __thiscall Rebuild(CSideMenuAir* this)"
+   },
+   "1": {
+    "name": "~CSideMenuAir",
+    "signature": "CSideMenuAir* __thiscall ~CSideMenuAir(CSideMenuAir* this, unsigned int flags)"
+   },
+   "2": {
+    "name": "Show",
+    "signature": "void __thiscall Show(CSideMenuAir* this)"
+   },
+   "7": {
+    "name": "Update",
+    "signature": "void __thiscall Update(CSideMenuAir* this)"
+   }
+  },
+  "CSideMenuNaval": {
+   "0": {
+    "name": "Rebuild",
+    "signature": "bool __thiscall Rebuild(CSideMenuNaval* this)"
+   },
+   "1": {
+    "name": "~CSideMenuNaval",
+    "signature": "CSideMenuNaval* __thiscall ~CSideMenuNaval(CSideMenuNaval* this, unsigned int flags)"
+   },
+   "2": {
+    "name": "Show",
+    "signature": "void __thiscall Show(CSideMenuNaval* this)"
+   },
+   "7": {
+    "name": "Update",
+    "signature": "void __thiscall Update(CSideMenuNaval* this)"
+   }
+  },
+  "_A0xaec99346::CAirUnitBrowserEntry": {
+   "0": "ScalarDeletingDestructor",
+   "4": "OnSelect",
+   "8": "Update"
+  },
+  "_A0xfce85ce3::CNavalUnitBrowserEntry": {
+   "0": "ScalarDeletingDestructor",
+   "4": "OnSelect",
+   "8": "Update"
+  },
+  "_A0xaec99346::CAirUnitBrowserEntry@0x1C": {
+   "0": "ScalarDeletingDestructorAt1C"
+  },
+  "_A0xfce85ce3::CNavalUnitBrowserEntry@0x1C": {
+   "0": "ScalarDeletingDestructorAt1C"
+  }
+ },
+ "frontier": [
+  "0x425250",
+  "0x429DC0"
+ ],
+ "slots_noted": "Three unit-row bodies are one function for the air and the naval row (ICF across the two anonymous namespaces): 0x4249B0 (slot 8) and 0x424B50 (slot 4) sit in the air translation unit and are named for CAirUnitBrowserEntry; 0x429790 (slot 0) and 0x429E40 (slot 0 at +0x1C) sit in the naval one and are named for CNavalUnitBrowserEntry. Each is recorded in both classes' slot tables under the same slot name. The base rows and the parents CAirBrowserEntry/CNavalBrowserEntry hold only shared CStandardlistboxItem bodies (0x71E820 in 27 tables, 0xA7F7B0 in 85, 0xABF890 the empty stub) and get no record. CSideMenuAir/Naval slots 3-6 and 8 are CSideMenu's (slot 4 IsShown already recorded; 6 is the 192-table `xor al,al; ret 4`, 8 EmptyTooltip) - reader B's frame."
+}

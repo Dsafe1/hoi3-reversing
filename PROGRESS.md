@@ -25,12 +25,12 @@ how many objects a census found (taken 2026-09-20).
 
 | | classes |
 | --- | --- |
-| `read` | 138 |
+| `read` | 140 |
 | `placed` | 142 |
 | `keys` | 75 |
-| `part` | 145 |
+| `part` | 148 |
 | `named` | 5 |
-| `RTTI` | 636 |
+| `RTTI` | 631 |
 | **all** | **1141** |
 
 ## What to read next
@@ -458,7 +458,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CBrigadeSortInterface` |  |  |  |  |  |  |  | RTTI |  |
 | `CBrigadeStatsEntry` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
 | `CBrigadeView` | `CUpdateable` |  |  |  |  |  |  | RTTI |  |
-| `CBrowserItem` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
+| `CBrowserItem` | `CStandardlistboxItem` |  |  |  | 1 |  |  | RTTI |  |
 | `CBuildTimeComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CBuildingMember` | `CStandardlistboxItem` |  | 5 |  | 4 |  | 102 | read |  |
 | `CBuyConfirm` | `CEU3Dialog` |  |  |  |  |  |  | RTTI |  |
@@ -526,7 +526,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CEspionageView` | `CCountryView` | 0x37C | 27 |  | 55 |  | 1 | read |  |
 | `CFactory` |  |  |  |  |  |  |  | RTTI |  |
 | `CForeignMinisterItem` | `CStandardlistboxItem` | 0x38 | 4 |  | 1 |  |  | part |  |
-| `CFrontEnd` | `CEU3Idler` `CReloadDispatcher` |  |  |  | 4 |  |  | RTTI |  |
+| `CFrontEnd` | `CEU3Idler` `CReloadDispatcher` |  | 3 |  | 4 |  |  | part |  |
 | `CFrontEndState` | `CFrontEndView` |  |  |  |  |  |  | RTTI |  |
 | `CFrontEndView` |  |  |  |  |  |  | 2 | RTTI |  |
 | `CFrontendSettingsScreen` | `CSettingsScreen` `CFrontEndView` |  |  |  |  |  |  | RTTI |  |
@@ -543,7 +543,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CICCostComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CIcon` | `CButton` |  |  |  | 1 |  |  | RTTI |  |
 | `CIdler` |  |  |  |  |  |  |  | RTTI |  |
-| `CInGameIdler` | `CEU3Idler` `CLostDeviceInterface` `CReloadDispatcher` |  | 81 |  | 82 | CInGameIdler.hpp | 3 | read |  |
+| `CInGameIdler` | `CEU3Idler` `CLostDeviceInterface` `CReloadDispatcher` |  | 84 |  | 82 | CInGameIdler.hpp | 3 | read |  |
 | `CIngameSettingsScreen` | `CSettingsScreen` |  |  |  |  |  | 1 | RTTI |  |
 | `CLandOrdersView` | `COrdersView` | 0x198 | 10 |  | 10 |  |  | read |  |
 | `CLawEntry` | `CStandardlistboxItem` | 0x88 | 4 |  | 3 |  | 16 | part |  |
@@ -623,10 +623,10 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CReloadDispatcher` |  |  |  |  |  |  |  | RTTI |  |
 | `CReloadableInterface` | `CReloadDispatcher` |  |  |  |  |  |  | RTTI |  |
 | `CReorgEntry` | `CStandardlistboxItem` | 0xC8 | 4 |  | 4 |  |  | part |  |
-| `CRightClickBuildUnitsItem` | `CRightClickItemInterface` `CStandardlistboxItem` |  |  |  |  |  | 1 | RTTI |  |
-| `CRightClickCloseItem` | `CRightClickItemInterface` `CStandardlistboxItem` |  |  |  |  |  | 1 | RTTI |  |
-| `CRightClickItemInterface` |  |  |  |  |  |  |  | RTTI |  |
-| `CRightClickReloadItem` | `CRightClickItemInterface` `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
+| `CRightClickBuildUnitsItem` | `CRightClickItemInterface` `CStandardlistboxItem` | 0x90 | 6 |  | 4 |  | 1 | read |  |
+| `CRightClickCloseItem` | `CRightClickItemInterface` `CStandardlistboxItem` | 0x88 | 4 |  | 3 |  | 1 | part |  |
+| `CRightClickItemInterface` |  | 0x4 |  |  |  |  |  | RTTI |  |
+| `CRightClickReloadItem` | `CRightClickItemInterface` `CStandardlistboxItem` | 0xA0 | 5 |  | 3 |  |  | read |  |
 | `CRuleDefinition` |  |  |  |  | 1 |  | 4 | RTTI |  |
 | `CSafeAreaCostCallback` | `CAreaCostCallback` |  |  |  |  |  | 1 | RTTI |  |
 | `CSafeNavalPathFind` | `CPathFind` |  |  |  | 1 |  |  | RTTI |  |
@@ -647,14 +647,14 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CShieldObject` | `CSprite` |  |  |  |  |  | 187 | RTTI |  |
 | `CShipBuilder` | `CReloadableInterface` |  | 9 |  | 7 |  | 1 | read |  |
 | `CShipSortInterface` |  |  |  |  |  |  |  | RTTI |  |
-| `CSideMenu` | `CReloadableInterface` |  |  |  | 1 |  |  | RTTI |  |
-| `CSideMenuAir` | `CSideMenu` |  |  |  |  |  | 1 | RTTI |  |
-| `CSideMenuArmy` | `CSideMenu` |  |  |  |  |  | 1 | RTTI |  |
-| `CSideMenuCombat` | `CSideMenu` |  |  |  |  |  | 1 | RTTI |  |
+| `CSideMenu` | `CReloadableInterface` | 0x2C | 4 |  | 7 |  |  | part |  |
+| `CSideMenuAir` | `CSideMenu` | 0x2C |  |  | 6 |  | 1 | RTTI |  |
+| `CSideMenuArmy` | `CSideMenu` | 0x2C |  |  | 6 |  | 1 | RTTI |  |
+| `CSideMenuCombat` | `CSideMenu` | 0x2C |  |  | 2 |  | 1 | RTTI |  |
 | `CSideMenuDeploy` | `CSideMenu` |  | 8 |  | 6 |  | 2 | read |  |
 | `CSideMenuMouseObserver` |  |  |  |  |  |  | 1 | RTTI |  |
-| `CSideMenuNaval` | `CSideMenu` |  |  |  |  |  | 1 | RTTI |  |
-| `CSideMenuProvinces` | `CSideMenu` |  |  |  |  |  | 1 | RTTI |  |
+| `CSideMenuNaval` | `CSideMenu` | 0x2C |  |  | 5 |  | 1 | RTTI |  |
+| `CSideMenuProvinces` | `CSideMenu` | 0x2C |  |  | 1 |  | 1 | RTTI |  |
 | `CSmallAvatarBase` | `C3dObject` |  |  |  |  |  |  | RTTI |  |
 | `CSoftAttackComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CSoftnessComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
@@ -680,7 +680,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CTechnologyView` | `CCountryView` |  | 11 |  | 12 |  | 1 | read |  |
 | `CTheatreView` | `CCountryView` |  |  |  |  |  | 1 | RTTI |  |
 | `CTitleMember` | `COutLinerMember` |  | 1 |  | 3 |  | 220 | part |  |
-| `CTopBar` | `CReloadableInterface` | 0x384 | 20 |  | 14 |  | 1 | read |  |
+| `CTopBar` | `CReloadableInterface` | 0x384 | 26 |  | 20 |  | 1 | read |  |
 | `CToughnessComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CTradeCancelConfirm` | `CEU3Dialog` | 0xF0 | 1 |  | 3 |  |  | part |  |
 | `CTradeItem` | `CStandardlistboxItem` | 0xA8 | 7 |  | 8 |  | 58 | read |  |

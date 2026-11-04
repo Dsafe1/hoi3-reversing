@@ -17,6 +17,54 @@ truth.
 
 ---
 
+## The leftovers wave - the right-click menu and the five side menus
+
+> **LANDED 2026-11-04.** Three fragments merged (75 address entries new, 3 revised; 18 structs declared, 55 struct
+> fields); the write-up is `findings/FINDINGS-leftovermenus.md`, indexed in `CANDIDATES.md`. Both files are leftovers:
+> the right-click menu never shows in game and is a developer's reload in the front end (Shift and the right button,
+> inferred to show - a ten-second test in the original); the side menus' top-bar handlers are never attached, so none of
+> the five opens. Left open there: whether the front end's menu really draws, `0x41E510`, what fills `CCountry +0xD70`
+> / `+0xD80`.
+
+**The question, for OpenHOI3**: two interface files nothing in the base game's screens seems to reach. The maintainer's
+word, 2026-11-04: they "may be leftover from other games that used the same engine. Lets build them, but we may
+deactivate them again." **After this wave lands nothing is built until he says so** (his word, the same day).
+
+- **`interface/rightclickmenu.gui`**: `rightClickMenu` with `options`, rows `right_click_entry` (a `button`) and
+  `empty_right_click_entry`. Classes `CRightClickItemInterface` and its three items `CRightClickBuildUnitsItem`,
+  `CRightClickCloseItem`, `CRightClickReloadItem` (RTTI, each also a `CStandardlistboxItem` at +4). The window's name is
+  referenced at VA `0x6494D4` (inside `CInGameIdler::CInGameIdler`, `0x2474A0`) and `0x6EFFDF` (inside
+  `CFrontEnd::Enter`); `right_click_entry` at VA `0x697EC6`, `0x6982B8`, `0x6986B6` (functions starting `0x697EA0`,
+  `0x698290`, `0x698690`); `empty_right_click_entry` at VA `0x675582`/`0x675692` (function `0x6754B0`) and
+  `0x6F2932`/`0x6F2A42` (function `0x6F2860`).
+- **`tfh/interface/sidebar.gui`**: six windows; `sidebar_deploy` is the deploy menu, **already read and built** and not
+  part of this wave. The other five - `sidebar_provinces`, `sidebar_army`, `sidebar_air`, `sidebar_naval`,
+  `sidebar_combat` - each a `sidebar_view_*` icon and `title_view_*` text, the army, air and naval ones a `unit_queue`
+  list; rows `unitbrowse_entry` (`expand`, `select_frame`, `counter_type`, `counter_size`, `name`, `location`) and
+  `basebrowse_entry` (`name`, `size`); `browser_offset`. Classes `CSideMenu` (9 slots) and `CSideMenuProvinces`,
+  `CSideMenuArmy`, `CSideMenuAir`, `CSideMenuNaval`, `CSideMenuCombat`, `CSideMenuMouseObserver`; rows `CBrowserItem`,
+  `CUnitBrowserEntry`, `CAirBrowserEntry` / `CAirBaseBrowserEntry` / `CAirUnitBrowserEntry`, `CNavalBrowserEntry` /
+  `CNavalBaseBrowserEntry` / `CNavalUnitBrowserEntry`. Recorded already: `CSideMenu::IsShown` (`0x424120`, slot 4),
+  `CInGameIdler_OpenSideMenu` (`0x2655C0`, *inferred*, by number, 5 the deploy menu) and `CInGameIdler_CloseSideMenus`
+  (`0x265320`, *inferred*, the vector at `CInGameIdler +0xD10`).
+- **What opens them**: `CInGameIdler_OpenSideMenu` has seven callers - `CInGameIdler::OnAlertClicked` (VA `0x64AEB2`) and
+  **six top-bar handlers just after `CTopBar::OnTheatreButton`** (VA `0x6CF0D6` ... `0x6CFC75`). **The buttons those
+  would answer, `button_viewprovinces`, `_viewarmy`, `_viewair`, `_viewnaval`, `_viewcombat` and `_viewdeploy`, are
+  commented out in the base game's `topbar.gui`, in Their Finest Hour's and in BlackICE's.** So in play, as shipped,
+  nothing of the player's may reach them - which the wave should confirm or refute (a key, another caller, a console
+  command).
+
+| reader | brief | fragment |
+| --- | --- | --- |
+| **A** | **The right-click menu**: who makes it (`CInGameIdler`'s constructor, `CFrontEnd::Enter`) and **what shows it** - which click, where, under what gate (a developer switch?); its rows and their order, what `empty_right_click_entry` is and why `PopMapMode` and `LaunchGame` ask for it; each of the three items - its text, what a click does (build units, close, reload: of what?), when it is shown or greyed; tooltips; how it closes. | `rightclick-menu.json` |
+| **B** | **The side menus' frame, and the provinces, army and combat menus**: `CSideMenu`'s nine slots and the frame (the window, its title and icon, show, hide, the mouse observer, `browser_offset`); `CInGameIdler_OpenSideMenu` and `CloseSideMenus` read whole - which number is which menu, one at a time or not; **the six top-bar handlers** - which button each is bound to, and whether anything reaches them with the buttons absent (a shortcut, the glue's registration on a missing button); then `CSideMenuProvinces`, `CSideMenuArmy` and `CSideMenuCombat` - what each lists, in what order, how `unitbrowse_entry` (`CUnitBrowserEntry`) is filled - name, location, counter, the `expand` tree - what a click on a row, `expand` and `select_frame` does, every tooltip. | `sidemenu-land.json` |
+| **C** | **The air and naval side menus**: `CSideMenuAir`, `CSideMenuNaval` and their rows - `basebrowse_entry` for a base (`name`, `size`: what size?) and `unitbrowse_entry` for a unit under it (`CAirBaseBrowserEntry`, `CAirUnitBrowserEntry`, `CNavalBaseBrowserEntry`, `CNavalUnitBrowserEntry`, and their parents `CAirBrowserEntry`, `CNavalBrowserEntry`) - which bases are listed and in what order, which units under each, what a click does, every tooltip. **The frame and `CBrowserItem`/`CUnitBrowserEntry` are B's**; say where C's rows lean on them. | `sidemenu-sea-air.json` |
+
+**The oracle**: none in play - the menus cannot be opened in the shipped game, by the reading so far. The maintainer
+knows the original; ask him only what the bytes leave open.
+
+---
+
 ## The reorganise wave - the window two units hand brigades between
 
 > **LANDED 2026-11-04.** Launched on the maintainer's word with two screenshots of the original's window (two land
