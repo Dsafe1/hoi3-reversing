@@ -25,12 +25,12 @@ how many objects a census found (taken 2026-09-20).
 
 | | classes |
 | --- | --- |
-| `read` | 137 |
+| `read` | 138 |
 | `placed` | 142 |
 | `keys` | 75 |
 | `part` | 144 |
 | `named` | 5 |
-| `RTTI` | 638 |
+| `RTTI` | 637 |
 | **all** | **1141** |
 
 ## What to read next
@@ -233,7 +233,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CMessageType` | `CPersistent` | 0x38 | 9 | 1/7 | 2 |  | 185 | read |  |
 | `CMilitaryAccessAction` | `CDiplomaticAction` |  |  | 5/6 | 9 |  | 2 | RTTI |  |
 | `CMilitaryConstruction` | `CConstruction` |  | 13 + 1 lua | 4/8 | 14 | CConstruction.hpp | 805 | read |  |
-| `CMoveOrder` | `COrder` |  |  | 5/10 | 6 |  |  | RTTI |  |
+| `CMoveOrder` | `COrder` |  |  | 5/10 | 7 |  |  | RTTI |  |
 | `CNap` | `CRelation` | 0x30 | 3 |  | 5 |  | 13 | keys |  |
 | `CNapAction` | `CDiplomaticAction` |  |  | 5/6 | 9 |  | 904 | RTTI |  |
 | `CNavalBombing` | `CBombing` |  |  | 4/6 | 2 |  | 2 | RTTI |  |
@@ -294,11 +294,11 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CSoundConfigurator` | `CPersistent` |  |  |  |  |  |  | RTTI |  |
 | `CStartGame` | `CCommand` |  |  |  | 1 |  | 1 | RTTI |  |
 | `CStrategicBombOrder` | `CAirOrder` |  |  |  | 6 |  | 1 | RTTI |  |
-| `CStrategicRedeploymentOrder` | `COrder` |  | 2 | 5/10 | 3 | CStrategicRedeploymentOrder.hpp | 1,197 | part |  |
+| `CStrategicRedeploymentOrder` | `COrder` |  | 2 | 5/10 | 7 | CStrategicRedeploymentOrder.hpp | 1,197 | part |  |
 | `CStrategicWarfare` | `CPersistent` |  | 4 + 3 lua |  | 6 |  | 108 | keys |  |
 | `CStringIntInt` | `CPersistent` | 0x2C | 3 |  | 1 |  |  | keys |  |
 | `CSubUnit` | `CReferenceObject` | 0xD8 | 31 | 8/13 | 22 |  |  | read |  |
-| `CSupportAttackOrder` | `COrder` |  | 1 |  | 2 | COrder.hpp |  | keys |  |
+| `CSupportAttackOrder` | `COrder` |  | 1 |  | 8 | COrder.hpp |  | keys |  |
 | `CSystemSettings` | `CPersistent` |  |  |  |  |  |  | RTTI |  |
 | `CTechnologyStatus` | `CTechStatistics` `PAVCTechnology::__CArray` |  | 42 + 1 lua |  | 10 | CSubUnitDefinition.hpp | 108 | read |  |
 | `CTheatre` | `CReferenceObject` |  | 25 + 1 lua | 4/7 | 6 | CTheatre.hpp | 99 | read |  |
@@ -308,7 +308,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CTraitGainTracker` | `CPersistent` |  | 4 |  | 6 | CTrait.hpp | 24,137 | keys |  |
 | `CTransportSuppliesOrder` | `CAirOrder` |  | 2 | 2/2 | 9 |  |  | placed |  |
 | `CUndeclaredWar` | `CPersistent` |  | 9 |  | 3 | CWar.hpp | 1 | read | **read**: the save's record of a war nobody declared |
-| `CUnit` | `PAVCSubUnit::__CList` `CSelectable` `CReferenceObject` |  | 107 + 1 lua |  | 112 | CUnit.hpp |  | read |  |
+| `CUnit` | `PAVCSubUnit::__CList` `CSelectable` `CReferenceObject` |  | 107 + 1 lua |  | 113 | CUnit.hpp |  | read |  |
 | `CUnitDeployment` | `CDeployment` |  |  | 3/4 | 4 |  | 49 | placed |  |
 | `CUnitPlan` | `CPersistent` | 0x90 | 15 | 10/16 | 13 |  | 8,827 | read | **read**: a battle plan as the save keeps it |
 | `CVariables` | `_0A::anon::PAUCVariable::__CTernary` `CPersistent` |  | 1 |  | 3 | CFlags.hpp | 216 | part |  |
@@ -545,7 +545,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CIdler` |  |  |  |  |  |  |  | RTTI |  |
 | `CInGameIdler` | `CEU3Idler` `CLostDeviceInterface` `CReloadDispatcher` |  | 81 |  | 82 | CInGameIdler.hpp | 3 | read |  |
 | `CIngameSettingsScreen` | `CSettingsScreen` |  |  |  |  |  | 1 | RTTI |  |
-| `CLandOrdersView` | `COrdersView` |  |  |  |  |  |  | RTTI |  |
+| `CLandOrdersView` | `COrdersView` | 0x198 | 10 |  | 10 |  |  | read |  |
 | `CLawEntry` | `CStandardlistboxItem` | 0x88 | 4 |  | 3 |  | 16 | part |  |
 | `CLeaderAssignmentEntry` | `CStandardlistboxItem` |  |  |  | 6 |  |  | RTTI |  |
 | `CLendLeaseDistribution` | `CReloadableInterface` | 0xA4 | 4 |  | 9 |  | 1 | part |  |

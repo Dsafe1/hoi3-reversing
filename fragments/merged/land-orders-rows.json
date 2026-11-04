@@ -1,0 +1,143 @@
+{
+ "agent": "land orders wave, reader B: the rows of the land orders window",
+ "question": "For every order the land orders window (CLandOrdersView, land_unit_order) offers - CMoveOrder, CSupportAttackOrder, CStrategicRedeploymentOrder - its row text, what decides whether it may be given on the clicked province, and what it does once given as far as the record did not already say.",
+ "source": "reversing/findings/FINDINGS-landorders.md",
+ "addresses": [
+  {
+   "rva": "0x1836A0",
+   "kind": "function",
+   "name": "CMoveOrder::CMoveOrder",
+   "signature": "CMoveOrder* __stdcall CMoveOrder::CMoveOrder(CMoveOrder* this@EAX, CUnit* unit@ECX, CMapProvince* province@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "**CMoveOrder's constructor**, 0x5836A0 to the `ret 4` at 0x583700: the object in EAX (answered in EAX unchanged), the unit in ECX, the province on the stack. Writes the COrder defaults every order constructor in this family writes - CPersistent token +0x4 = 0x18D `none`, unit +0x8, province +0xC, target +0x10/+0x14 = 0, return_to_base +0x18 = 0, priority +0x1C = 0, stance +0x20 = 1, stop +0x24 = -1000 (-1.0), start_date +0x28 and death_date +0x2C = the null date (the dword at VA 0x170C2B8), time +0x30 = 2 - then the CMoveOrder vftable (rva 0x11C59BC). 0x34 bytes. Three callers: CreateOrder (0x583B60, where the unit comes from the factory's EDI and the province is its stack argument), the land orders window's constructor (0x73C7E1) and the naval one's (0x73E21F). The name is ours. See reversing/findings/FINDINGS-landorders.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Read whole off the listing; the vftable written last is rva 0x11C59BC, which COrder.hpp and the CMoveOrder struct record name CMoveOrder, and `vtable.py CMoveOrder` resolves to that table. findRefs --callers 0x5836A0 gives the three sites. Wrong if the table at 0x11C59BC were not CMoveOrder's."
+  },
+  {
+   "rva": "0x183710",
+   "kind": "function",
+   "name": "CSupportAttackOrder::CSupportAttackOrder",
+   "signature": "CSupportAttackOrder* __stdcall CSupportAttackOrder::CSupportAttackOrder(CSupportAttackOrder* this@EAX, CUnit* unit@ECX, CMapProvince* province@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "**CSupportAttackOrder's constructor**, 0x583710 to the `ret 4` at 0x583775: the COrder defaults of CMoveOrder::CMoveOrder (stance 1, stop -1.0, time 2, null dates), the CSupportAttackOrder vftable (rva 0x11C5A4C), and `combat` (+0x34) = 0. 0x38 bytes. One direct caller, CreateOrder (0x583C12); the land orders window's constructor builds one with an inlined copy of the same body (0x73C7F1-0x73C861). The name is ours. See reversing/findings/FINDINGS-landorders.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Read whole; vftable rva 0x11C5A4C is the CSupportAttackOrder struct record's vftable_rva. findRefs --callers 0x583710 gives one site; the view's copy writes the same twelve stores and the same table. Wrong if 0x11C5A4C were another class's table."
+  },
+  {
+   "rva": "0x183790",
+   "kind": "function",
+   "name": "CStrategicRedeploymentOrder::CStrategicRedeploymentOrder",
+   "signature": "CStrategicRedeploymentOrder* __stdcall CStrategicRedeploymentOrder::CStrategicRedeploymentOrder(CStrategicRedeploymentOrder* this@EAX, CUnit* unit@ECX, CMapProvince* province@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "**CStrategicRedeploymentOrder's constructor**, 0x583790 to the `ret 4` at 0x5837F0: the COrder defaults (stance 1, stop -1.0, time 2, null dates) and the CStrategicRedeploymentOrder vftable (rva 0x11C5ADC); it adds no field of its own. 0x34 bytes. Two callers: CreateOrder (0x583D0F) and the land orders window's constructor (0x73C881). The name is ours. See reversing/findings/FINDINGS-landorders.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Read whole; the last store is `mov [eax], 0x15C5ADC`, VA of the recorded CStrategicRedeploymentOrder table rva 0x11C5ADC. findRefs --callers 0x583790 gives the two sites."
+  },
+  {
+   "rva": "0x188370",
+   "kind": "function",
+   "name": "CSupportAttackOrder::SaveContents",
+   "signature": "void __thiscall CSupportAttackOrder::SaveContents(CSupportAttackOrder* this, CSaveWriter* writer)",
+   "no_signature": null,
+   "comment": "CSupportAttackOrder slot 2. COrder's save (0x587530, slot 2 of every other order of the family) and then `combat=yes` (SaveWriteBool, token 0x2D0) **only where +0x34 is set** - a support attack that has not yet joined its battle writes no `combat` line at all, never `combat=no`. The name follows the CPersistent slot 2 convention. See reversing/findings/FINDINGS-landorders.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Read whole, 0x588370-0x588396, `ret 4`. vtable.py COrder CSupportAttackOrder: slot 2 is 0x587530 in COrder and every sibling and 0x588370 only here. The token 0x2D0 is the one CSupportAttackOrder::LoadKey (0x188340) reads `combat` under."
+  },
+  {
+   "rva": "0x187F30",
+   "kind": "function",
+   "name": "CSupportAttackOrder::MayBeGiven",
+   "signature": "bool __thiscall CSupportAttackOrder::MayBeGiven(CSupportAttackOrder* this)",
+   "no_signature": null,
+   "comment": "Slot 11: **whether a support attack on the order's province can be given** - the test the land orders window's row asks of every selected unit. Three things and nothing else: CCountry::IsEnemy(the province's controller, the unit's owner, the province) - so the controller must be an enemy, an undeclared war covering the province or REB on either side counting; the unit is in no battle (combats_count +0x11C not > 0); and the province the unit stands in has an edge to the target (CProvinceTemplate::HasEdgeTo). **Not asked**: whether there is a battle in the target, whether any enemy unit is there, CanMoveTo (slot 35), the range (slot 8 is ReturnTrue), or whether the unit is a land unit. The name is ours. See reversing/findings/FINDINGS-landorders.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Read whole, 0x587F30-0x587FA5, both exits bare `ret`. The callee registers match CCountry::IsEnemy's recorded signature (country@ESI from CCountryDataBase +0x16C[province +0x338], tag@EDX = &unit +0x124, province@EDI) and HasEdgeTo's (template@EDI = current province +0xD4, the target's id +0xD0 pushed). Held at slot 11 by CSupportAttackOrder's table alone (vtable.py)."
+  },
+  {
+   "rva": "0x187FB0",
+   "kind": "function",
+   "name": "CSupportAttackOrder::Start",
+   "signature": "void __thiscall CSupportAttackOrder::Start(CSupportAttackOrder* this)",
+   "no_signature": null,
+   "comment": "Slot 13, what CSetOrderCommand::Execute runs on the order it has just installed: **a unit that has a path (+0x140 > 0) is stopped where it stands** - CUnit::CancelMovement(unit, false), keeping the order. Nothing is routed here; CSupportAttackOrder::IsActive does that once there is a battle to join. The name is ours. See reversing/findings/FINDINGS-landorders.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Five instructions, 0x587FB0-0x587FC4: `mov eax,[ecx+8]; cmp [eax+0x140],0; jle; push 0; push eax; call 0x5C9430; ret`. CancelMovement's recorded signature is (unit, resetOrder). Slot 13 of CSupportAttackOrder's table only."
+  },
+  {
+   "rva": "0x187FD0",
+   "kind": "function",
+   "name": "CSupportAttackOrder::IsActive",
+   "signature": "bool __thiscall CSupportAttackOrder::IsActive(CSupportAttackOrder* this)",
+   "no_signature": null,
+   "comment": "Slot 14, asked each hour by CUnit::CheckOrderAndCombat; false ends the order. In order: (1) the hour is before the unit's move_not_before (+0xCC): true, wait. (2) **in a battle** (combats_count +0x11C > 0): the first such hour (combat +0x34 clear) CUnit::StartAttackDelay; combat set to 1; hours_attacking (+0xD8) +1; true. (3) not in a battle but combat already set - **the battle it joined is over**: CUnit::CancelMovement(unit, true) and false. (4) an attack delay running (combat_cooldown +0xD4 > 0): true, wait. (5) the target province has a **land** battle (CMapProvince::HasCombatOfKind(province, 1), CLandCombat's slot 11 being 1): with a path already, true; otherwise a one-off plain CPathFind (vftable 0x15BE414) from the unit's province to the target and SetUnitPath(unit, path, clear), found or not, and true - the unit's hourly CheckForCombat in the next province is then what joins it to the battle. (6) no land battle there: a unit with a path is stopped with CancelMovement(unit, **true**), which takes the order away; true. So **a support attack waits, indefinitely, beside the province until a land battle starts in it**, never adds movement progress (CUnit::AdvanceMovement adds none under type 0x4E5), and ends the hour its battle is over or, if it had been routed in and the battle is gone before it joined, the order is dropped. The name is ours. See reversing/findings/FINDINGS-landorders.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Read whole on the listing, 0x587FD0-0x5881A5, four exits. The singleton made at 0x588009 is CCurrentGameState (0xDA8 bytes, vftable rva 0x11CF674) and +0xBDC is its tick. HasCombatOfKind's kind arrives in EDI = 1; `vtable.py CLandCombat CNavalCombat CAirCombat` gives slot 11 bodies answering 1, 2 and the air one, so 1 is land. Finder table 0x15BE414 is CPathFind's in hoi3_tfh-classes.json. The CancelMovement at 0x58818D pushes 1. Slot 14 of CSupportAttackOrder's table only. What would show it wrong: a second writer of +0x34 outside LoadKey and this function."
+  },
+  {
+   "rva": "0x1881B0",
+   "kind": "function",
+   "name": "CSupportAttackOrder::Describe",
+   "signature": "void* __thiscall CSupportAttackOrder::Describe(CSupportAttackOrder* this, void* out)",
+   "no_signature": null,
+   "comment": "Slot 15, the line the unit panel shows for the order: `SUPPORT_ATTACK_D` (\"Support Attack on $WHERE$.\") with WHERE the order's province's name (its +0x8 sub-object's slot 7), rendered with the settings' colours. The shape of CMoveOrder::Describe. The name is ours. See reversing/findings/FINDINGS-landorders.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Read whole, 0x5881B0-0x588336, `ret 4`, answers out in EAX. String references SUPPORT_ATTACK_D and WHERE at 0x5881DC and 0x58821E; GetText (rva 0x682490), CInternationalizedText::Render (rva 0x682E40). Text from localisation/orders.csv line 6."
+  },
+  {
+   "rva": "0x1883A0",
+   "kind": "function",
+   "name": "CStrategicRedeploymentOrder::MayBeGiven",
+   "signature": "bool __thiscall CStrategicRedeploymentOrder::MayBeGiven(CStrategicRedeploymentOrder* this)",
+   "no_signature": null,
+   "comment": "Slot 11: **whether a strategic redeployment to the order's province can be given** - the land orders window's row test. False where: CCountry::IsEnemy(the province's controller, the unit's owner, the province) - an enemy-held destination; CUnit::PathCrossesEnemyProvince - the path the unit already has runs through enemy-held ground; the unit is in a battle (+0x11C > 0); either the unit's province or the target has no owner area (CMapProvince +0x2B4) or an area with no provinces (COwnerArea +0x2C). Otherwise true. **Not asked**: distance (a neighbour is accepted), whether a way exists, CanMoveTo (slot 35), the unit's kind, peace or war. **A test whose answer is thrown away**: where the unit's area has a region group (+0x6C), CList_Contains(group, the target's area) is called and its answer discarded - `mov al,1` follows whatever it says - so a same-region test the code once made no longer decides anything. The name is ours. See reversing/findings/FINDINGS-landorders.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Read whole, 0x5883A0-0x58843E, bare `ret`. IsEnemy's registers as in CSupportAttackOrder::MayBeGiven but the branch inverted (`jne` to the false exit). The discarded call: 0x588428 `call 0x44EE90` then 0x58842D `mov al, 1` with no test between; 0x44EE90 is CList_Contains, read again here (27 bytes, no store), so it has no side effect. Slot 11 of this table only. What would show it wrong: a caller reading something CList_Contains leaves behind - there is none, it writes only EAX and EDX."
+  },
+  {
+   "rva": "0x188450",
+   "kind": "function",
+   "name": "CStrategicRedeploymentOrder::IsActive",
+   "signature": "bool __thiscall CStrategicRedeploymentOrder::IsActive(CStrategicRedeploymentOrder* this)",
+   "no_signature": null,
+   "comment": "Slot 14, each hour. (1) The unit is in the order's province: false - arrived, the order ends. (2) Otherwise **CUnit::StartAttackDelay every hour of the journey**, so a redeploying unit always carries a fresh attack delay (UNIT_ATTACK_DELAY and its random part, at least 12 hours) and arrives with one; CUnit::AdvanceMovement lets a unit under 0x5A4 walk on through it. (3) With a path, the next province: where its controller is an enemy of the unit's owner (the expeditionary owner's country where +0x290 is set; CCountry::IsEnemyTag) **or a battle is going on in it** (CMapProvince combats count +0x2F4 > 0): if that next province is the destination, CancelMovement(unit, false) and false - the order ends; otherwise CancelMovement(unit, false) and CStrategicRedeploymentOrder::RouteUnit (a CVerySafePathFind from where it stands) - no way found, false. (4) In a battle: false. (5) With a path: true; with none: RouteUnit's answer. The name is ours. See reversing/findings/FINDINGS-landorders.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Read whole, 0x588450-0x588562, every exit a bare `ret`. StartAttackDelay (0x5BAE20) takes the unit in ESI, loaded at 0x58845C; its other callers are this, CSupportAttackOrder::IsActive (0x5880A9), CheckOrderAndCombat (0x5BA93F) and 0x5D0B00. The path's next province is map +0x2200[*(+0x138)], its last map +0x2200[*(+0x13C)], compared by id +0xD0. RouteUnit's three callers (0x588443, 0x58850D, 0x588552) are the thunk and this. Slot 14 of this table only."
+  },
+  {
+   "rva": "0x188570",
+   "kind": "function",
+   "name": "CStrategicRedeploymentOrder::Describe",
+   "signature": "void* __thiscall CStrategicRedeploymentOrder::Describe(CStrategicRedeploymentOrder* this, void* out)",
+   "no_signature": null,
+   "comment": "Slot 15: `STRAT_REDEP_D` (\"Strategic Redeployment($UNIT$)\") with **UNIT the destination province's name**, not a unit's - the variable is misnamed in the key. The shape of CMoveOrder::Describe. The name is ours. See reversing/findings/FINDINGS-landorders.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Read whole, 0x588570-0x5886F6, `ret 4`. String references STRAT_REDEP_D at 0x58859C and UNIT at 0x5885DE; the value is [order +0xC] +8's slot 7, the same name call CSupportAttackOrder::Describe makes for WHERE. Text from tfh/localisation/orders.csv line 123."
+  },
+  {
+   "rva": "0x1D3A30",
+   "kind": "function",
+   "name": "CUnit::PathCrossesEnemyProvince",
+   "signature": "bool __stdcall CUnit::PathCrossesEnemyProvince(CUnit* unit)",
+   "no_signature": null,
+   "comment": "**Whether any province on the unit's path is held by an enemy of its owner**: walks the path list (+0x138, province ids into map +0x2200) and answers true on the first whose controller counts the unit's owner an enemy there - CCountry::IsEnemy inlined with its province branch: not the same country, at war (diplomacy status +0x20), REB on either side, or an undeclared war covering the province (UndeclaredWarCoversProvince). False with no path. One caller, CStrategicRedeploymentOrder::MayBeGiven. **Trap 2**: its `ret 4` at 0x5D3B0D is followed by the next function's `push ebp` at 0x5D3B10 with no padding. The name is ours. See reversing/findings/FINDINGS-landorders.md, section B.",
+   "confidence": "confirmed",
+   "evidence": "Read whole, 0x5D3A30-0x5D3B0D, two exits `ret 4`; retsBefore(0x5D3A30, 0x5D3B0D) gives only the inner exit 0x5D3B02. The tests are the IsEnemy body byte for byte (+0xCA8 id, +0xE28 status, +0x20, the three REB compares, +0x24 into 0x4763A0 with the province in ECX). findRefs --callers: one site, 0x5883E1."
+  }
+ ],
+ "struct_fields": [],
+ "vftable_slots": {
+  "CSupportAttackOrder": {
+   "2": "SaveContents",
+   "11": "MayBeGiven",
+   "13": "Start",
+   "14": "IsActive",
+   "15": "Describe"
+  },
+  "CStrategicRedeploymentOrder": {
+   "11": "MayBeGiven",
+   "14": "IsActive",
+   "15": "Describe"
+  }
+ },
+ "frontier": ["0x187530", "0x6832B0"]
+}

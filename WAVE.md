@@ -17,6 +17,39 @@ truth.
 
 ---
 
+## The land orders wave - the window a land unit is given a strategic redeployment or a support attack from
+
+> **LANDED 2026-11-04.** Launched on the maintainer's two screenshots of the original's window (Reppen, his own; Brodnica,
+> an enemy's), every figure on which the readings account for. Two fragments merged (24 address entries new, 2 revised in
+> their comments; 1 struct declared, 10 struct fields); the write-up is `findings/FINDINGS-landorders.md`, indexed in
+> `CANDIDATES.md`. Left open there: `CreateOrder`'s arguments, the radio observer's wiring, the date formatter.
+
+**The question, for OpenHOI3**: `land_unit_order` in `interface/orders.gui`, the original's `CLandOrdersView`, which a
+land unit's right click brings up with Ctrl held (the maintainer's word, 2026-10-19) - `CInGameIdler::OpenOrdersView`
+(`0x277260`) makes it as mode 2, 0x198 bytes (`FINDINGS-seaair.md`, section 1, whose table gives the three constructors
+as VAs: the land one is **VA `0x73C270`, rva `0x33C270`**). It is the only way a player gives a land unit a strategic
+redeployment or a support attack, and OpenHOI3 has neither window nor rows. The naval and air views are read whole
+(`CNavalOrdersView` at `0x33DB50`, `CAirOrdersView` at `0x3400C0`), so the land one is expected to follow their shape.
+
+**What is known before reading.** The land view's code is VA `0x73C270`-`0x73DB50`, just above the naval constructor.
+Two of its functions are recorded: `LandOrdersView_IsMoveOrder` (`0x33CB00`, whether the chosen order at `+0x140` is
+`move_order`) and `LandOrdersView_EstimateArrival` (`0x33D460`, the *Synchronise Arrival* estimate - the latest hour any
+selected unit would arrive at the view's province `+0x34`; `FINDINGS-weathersim.md`, C.4). The file's elements:
+`background`, `title`, the list `orders_list` filled from the `order_entry` template, `sync_checkbox` and `sync_title`,
+`daytime_title`, `daytime_icon` (`GFX_prov_daynight`) and `daytime_icondesc`, `cancel` and `accept`. The orders the
+record has on the land side: `CMoveOrder`, `CStrategicRedeploymentOrder` (type 0x5A4, table rva `0x11C5ADC`),
+`CSupportAttackOrder` (type 0x4E5); `CSetOrderCommand` is what the other two views' accept posts.
+
+| reader | brief | fragment |
+| --- | --- | --- |
+| **A** | **The window** (VA `0x73C270`-`0x73DB50`, and the land branch of `OpenOrdersView`): the constructor - what it wires, what it writes into `title`, which orders it makes and in what order, and which it lists greyed or leaves out; its `AddOrder`, the radio group's observer, `Update` (slot 2), `accept` - which command per selected unit, with what fields, for which units of the selection - and `cancel`; **`sync_checkbox`** - its default, what it changes in the command (the arrival hour of `EstimateArrival`?), and whether it is kept between windows; **the daytime row** - what `daytime_icondesc` says and which frame the icon shows; the tooltips (slot 6) of every element; which key brings the window up (the `CInGameIdler +0x1C` slot 12 of `FINDINGS-seaair.md`, section 1). | `land-orders-view.json` |
+| **B** | **The rows**: for every order class the constructor offers (from A's list, or the constructor's `CreateOrder` calls if read first - **do not record the constructor itself**, it is A's) - its slot 6 name and localisation key, what decides whether it may be given here (valid target, range, the unit's state, a province of the enemy's or our own), the tooltip of a row that cannot be given, and what the order does once given only as far as OpenHOI3's `moving.md` and `movement.md` do not already say. Start from `CStrategicRedeploymentOrder` and `CSupportAttackOrder`. | `land-orders-rows.json` |
+
+**The oracle**: the maintainer's eye, and a screenshot of the original's land orders window, a unit selected and Ctrl
+and the right click given on a province of its own country and on an enemy's, asked for before the build.
+
+---
+
 ## The outliner wave - the list down the side of the in-game screen
 
 > **LANDED 2026-11-03.** Launched the same day on the maintainer's word "You can launch the wave", with three screenshots

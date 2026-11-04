@@ -1406,7 +1406,7 @@ of it.
 
 ## What has already been read
 
-174 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
+175 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
 header lives. This replaces the `Done` archive: the archive restated each file's headline and named
 only 40 of the 67 there were then, so it was both longer and less useful than a complete list.
 
@@ -1559,6 +1559,7 @@ the six it was missing were wave 15's.
 | `findings/FINDINGS-gui.md` | the GUI framework: finding a thing by name, and what the combat-status window is |
 | `findings/FINDINGS-guilive.md` | the live GUI: from a window name to the object holding the number |
 | `findings/FINDINGS-outliner.md` | **the outliner wave (2026-11-03)**: the list down the side of the in-game screen - its nine sections and switches kept in `settings.txt`, what each holds and in what order, the per-frame rebuild, the unit rows (strength %, ships, wings, the expand byte on the unit, never saved), the battle rows and their tooltips, allied objectives, the clicks, the 30-widget leak explained, and the province row that is dead |
+| `findings/FINDINGS-landorders.md` | **the land orders wave (2026-11-04)**: `land_unit_order`, a land unit's Ctrl and right click - always Move Order, Support Attack and Strategic Redeployment, each greyed by its order's slot 11 for any selected unit, the first of support, move and redeployment ticked; the date widget the order does not start before, *Synchronise Arrival* only under Move Order, the day or night at the widget's hour; accept a `CSetOrderCommand` per land unit not retreating, defensive stance, nothing remembered; only the daytime elements speak. What each order may be given on and does: move and support only beside the unit, support waiting beside until a land battle and joining it without moving in, redeployment anywhere not enemy-held and restarting the attack delay hourly. Corrects `OpenOrdersView`'s key (Ctrl) and `LandOrdersView_IsMoveOrder`'s `+0x140` |
 | `findings/FINDINGS-transparencecheck.md` | **a sprite's `transparencecheck` (2026-11-03)**: `CSpriteType::LoadKey`'s seven keys, the test `IsTransparentAt` - see-through where the frame's pixel has no alpha, everywhere for `allwaystransparent`, nowhere without the key - the default a caller may set where the file is silent, and DXT1 and DXT5 refused as the texture loads; who asks the test was not found |
 | `findings/FINDINGS-history.md` | the history subsystem: a do/undo replay log, read every day, and what it costs |
 | `findings/FINDINGS-guicontainers.md` | the subwindow map, and every `CWindowType::LoadKey` token's container |
