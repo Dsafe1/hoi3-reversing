@@ -1,0 +1,275 @@
+{
+ "agent": "in-game menu wave, reader C - the save dialog (menu_save)",
+ "question": "The save dialog the in-game menu's menu_save_button opens (interface/menubar.gui `menu_save`): how it opens and closes, what `games` lists and in what order, what a row shows and a click on it does, the name `game_name` offers, and what `save` and `cancel` do, up to the call into the save writer.",
+ "source": "reversing/findings/FINDINGS-ingamemenu.md",
+ "structs": [
+  {
+   "name": "CConfirmSave",
+   "size": "0x88",
+   "inherits": "CEU3Dialog",
+   "vftable_rva": "0x11CF084",
+   "comment": "The `DefaultConfirm` dialog the save dialog's `save` raises when the file already exists: title CONFIRMSAVETITLE ('Save Game'), text CONFIRMSAVETEXT ('Are you sure you wish to overwrite the file $NAME$?') with NAME the file name with its `.hoi3`. RTTI's class, base CEU3Dialog at 0; 17 slots, its own slot 0 (destructor) and slot 5 (OnConfirm); slot 6 is CEU3Dialog::Close. The file name at +0x68, the in-game screen at +0x84. See reversing/findings/FINDINGS-ingamemenu.md, section C.",
+   "evidence": "RTTI export: CConfirmSave, base CEU3Dialog at offset 0, one 17-slot table at VA 0x15CF084, introduces slot 0 (0x670BD0) and slot 5 (0x670A00); slot 6 of the table reads 0x670BC0, CEU3Dialog::Close. Size: `push 0x88; call 0xB9602F` at 0x67199D in CInGameIdler::OnSaveDialogSave, whose result goes straight to the constructor 0x6705B0, which writes 0x15CF084 at +0 (0x670621). What would show it wrong: a second allocation site with another size."
+  }
+ ],
+ "addresses": [
+  {
+   "rva": "0x271370",
+   "kind": "function",
+   "name": "SaveGameFromDialog",
+   "revises": true,
+   "signature": "void __stdcall SaveGameFromDialog(CInGameIdler* idler, Hoi3CString* path)",
+   "no_signature": null,
+   "comment": "**Writes a save to `path` and returns the player to the menu panel.** Called by CInGameIdler::OnSaveDialogSave (0x2715E0) when the file does not exist yet and by CConfirmSave::OnConfirm (0x270A00) when the player agrees to overwrite it - no other caller - with `path` a `save games/<name>.hoi3` path relative to the file system's write directory. In order: the inert suspend bracket [[idler+0x1790]+0xE4] slot 4 with 1 (the shared `ret 4` 0x20CD50 - see InertSuspendCallInResetWindow); a 0x3C-byte file object VirtualFile_Open(file, path, write 1, mode \"\", text 1 in ECX), which opens it with PHYSFS_openWrite - **an existing file is truncated** - and gives it +0x13 = 0, so **the save is text**; VirtualFile_SetWriteBuffer (a 1 MiB PhysFS buffer); a CSaveWriter on the stack (vftable VA 0x15FD940, depth -1, stream the file, binary = file +0x13); the game state got or made (the inlined accessor, dead after startup) and **its slot 1, CPersistent::Save, with the writer - the whole save** (rva 0x2714A1); the file deleted through its slot 0, which closes it. **A throw anywhere in that** (VirtualFile_Open throws 'Could not open file: <path>, error: <PhysFS error>' when PhysFS refuses the path) is caught by the funclet rva 0x2714C5..0x2715A4 (trap 3: its bare `ret` hands back the continuation 0x2715A5), which logs `Failed to write save file File exception: <what>` (eu3idler.cpp line 9261, channel 0x10004), closes the bracket and hides the `menu` window (+0x1CDC, its +0x18 slot 14). Either way it ends with the bracket's slot 4 with 0 and CInGameIdler::ToggleMenu(idler, 0) (0x26BD10), which brings the player back to the menu panel (`menu` open: through CInGameIdler::CloseMenu because menu_save is up; `menu` hidden by the catch: opened afresh). **No message is shown, nothing tests multiplayer, and nothing reports success.** `ret 8`. See reversing/findings/FINDINGS-ingamemenu.md, section C.6.",
+   "confidence": "confirmed",
+   "evidence": "Read whole on the listing, VA 0x671370 to the `ret 8` at 0x6715D6; retsBefore reports one bare `ret` at 0x6715A4, which is the catch funclet's `mov eax, 0x6715A5; ret` - jumped over by `jmp 0x6715A7` at 0x6714C0 and reached only through the EH tables. Two stack arguments: [ebp+8] is read as the idler (+0x1790, +0x1CDC, ECX for 0x66BD10), [ebp+0xC] is pushed as the path to 0xA6C1B0. findRefs --callers 0x671370: 0x67198E and 0x670B7E only. The text mode: 0xA6C1B0 writes `sete dl` of (ECX == 0) into +0x13 (0xA6C22E) and this function enters it with `lea ecx,[ebx+1]` = 1; the writer's binary byte is `cmp byte [esi+0x13], bl; setne` at 0x671412. What would show it wrong: a caller passing a path that is not under `save games/`, or a third caller."
+  },
+  {
+   "rva": "0x26C090",
+   "kind": "function",
+   "name": "CInGameIdler::OpenSaveDialog",
+   "signature": "void __thiscall CInGameIdler::OpenSaveDialog(CInGameIdler* this)",
+   "no_signature": null,
+   "comment": "**`menu_save_button`'s click: opens the save dialog `menu_save` over the menu.** The handler of the CButtonObserverGlue at +0x288, which CInGameIdler::Enter attaches to menu_save_button (rva 0x25EA75). Each time: the `menu` window (+0x1CDC) shown (its +0x18, slot 13) and every sub-window of it hidden (CFixedWindow::HideSubWindows, slot 28) - so the six-button panel goes; the list `games` cleared (slot 23); the folder `save games/`, or `mod/<X>/save games/` where the string the settings keep at +0xA4 (copied by rva 0xC600, elsewhere in the record the mod name) is not empty; ListFilesWithExtensionSorted(folder, \"hoi3\", newest first); **one row per file, newest first**: a bare 0x28-byte CStandardlistboxItem (its tables VA 0x15FE808/0x15FE838 - **not CSavegameItem**, which is the front end's load list) with the window `save_game_entry` made through the gui (+0x60, slot 11) into +0x20, its checkbox `game` given as text **the file name cut at its first `.hoi3`** and observed by the glue at +0x418 (CInGameIdler::OnSaveDialogRowClick), added with the list's slot 4. Then the **name offered**: the player's country's name (CountryNameOfTag of GetPlayer, slot 23) with **its first space only** turned to `_`, followed by FormatDateFileStamp of the game state's tick - `Germany1936_01_01_00` - and with `mp_` in front where +0x68 (multiplayer) is set; written into `game_name` (the edit box's text holder +0x48, slot 16), then rva 0x690140 on the box (unread, an edit-box routine the row click calls too) and the box's word +0x40 set to 1 (unread; inferred the keyboard focus). Last, menu_save shown (+0x18 slot 13) and `menu`'s slot 11 (rva 0x6C11D0, unread). **Nothing here pauses the game** - the menu did that as it opened - and nothing touches `save`, `cancel` or `filename_label`. Bare `ret`. See reversing/findings/FINDINGS-ingamemenu.md, sections C.1-C.3.",
+   "confidence": "confirmed",
+   "evidence": "Read whole on the listing, VA 0x66C090 to the bare `ret` at 0x66CC9F (retsBefore empty; 0x66CCA0 begins after it with `push esi`). The constructor stores 0x66C090 as the handler of the glue at +0x288 (`mov eax, 0x66C090; lea eax,[ebx+0x288]` at 0x647655), and the only other `lea r,[r+0x288]` in 0x640000-0x680000 is Enter's at 0x65EA75, just after `push 'menu_save_button'` (0x65E9FC) - the same scan finds +0x198 and +0x328 at their two sites each, the positive control. 'save_game_entry' at 0x66C448, 'games' at 0x66C0E5, '.hoi3' cut at 0x66C517 (find from 0, then substr(0, pos)), 'mp_' at 0x66C90D under `cmp byte [esi+0x68], 0`. What would show it wrong: a second binding of +0x288 outside that range."
+  },
+  {
+   "rva": "0x2715E0",
+   "kind": "function",
+   "name": "CInGameIdler::OnSaveDialogSave",
+   "signature": "void __thiscall CInGameIdler::OnSaveDialogSave(CInGameIdler* this)",
+   "no_signature": null,
+   "comment": "**The save dialog's `save` (MENU_BAR_SAVE 'Save').** The handler of the glue at +0x328, attached to `save` by CInGameIdler::Enter (rva 0x25EDD1). The name is game_name's text (the box's +0x48, slot 19). TrimWhitespace is run on it and **its answer thrown away** (the length tested is the untrimmed one's), so only an **empty** box does nothing - a name of blanks is saved. The extension: where the **last** `.` stands after the first character and the rest is exactly `.hoi3` (case and all) the name is kept, otherwise `.hoi3` is appended - `my.save` becomes `my.save.hoi3`, `x.HOI3` becomes `x.HOI3.hoi3`. **No character is refused or replaced.** The path is `save games/` + name, or `mod/<X>/save games/` + name where the settings' +0xA4 string is not empty. FileExists (PHYSFS_exists, over the whole search path) on it: **where it exists a CConfirmSave (0x88 bytes) is made with the name** and handed to the idler's dialog list (CEU3Idler::AddDialog), and nothing else happens until it is answered; otherwise SaveGameFromDialog(this, path) at once. No test of multiplayer, of the game's state or of anything greying the button; the dialog stays open behind the question. Bare `ret`. See reversing/findings/FINDINGS-ingamemenu.md, section C.5.",
+   "confidence": "confirmed",
+   "evidence": "Read whole on the listing, VA 0x6715E0 to the bare `ret` at 0x671A0E (retsBefore empty). Constructor: `mov eax, 0x6715E0 ... lea eax,[ebx+0x328]` at 0x6476A8; Enter: `lea edx,[ebx+0x328]` at 0x65EDD1 after `push 'save'` (0x65ED58) and `push 'menu_save'`. The discarded trim: `lea eax,[ebp-0x34]; lea esi,[ebp-0x6C]; call TrimWhitespace`, the result freed at 0x671701, then `mov esi,[ebp-0x5C]` - the size of [ebp-0x6C], the original - and `je` to the exit at 0x67170E. The extension: 0xA5C230 (rfind of '.' from npos) then `jle` on pos <= 0, substr(pos, end) through 0xA5B600 and String_EqualsCString('.hoi3'). The branch: FileExists at 0x671977, `jne` to the CConfirmSave arm at 0x67199D. What would show it wrong: a reader of the trimmed copy later in the function (there is none - [ebp-0x34] is reused for the settings copy at 0x671810)."
+  },
+  {
+   "rva": "0x270260",
+   "kind": "function",
+   "name": "CInGameIdler::OnSaveDialogRowClick",
+   "signature": "void __thiscall CInGameIdler::OnSaveDialogRowClick(CInGameIdler* this, void* checkbox)",
+   "no_signature": null,
+   "comment": "**A click on a row of the save dialog's `games` list puts that save's name in `game_name`.** The handler at +0x20 of the CCheckBoxObserverGlue<CInGameIdler> at +0x418 (written at rva 0x247739), which CInGameIdler::OpenSaveDialog attaches to every row's checkbox `game`; it is passed the checkbox. Walks the list's rows (slot 11, nodes {item, +8 next}): the row whose `game` is the one clicked gives its text (+0x104 - the file name without `.hoi3`); every other row's checkbox, where its byte +0xD8 is 0 or its byte +0x136 is not, has +0x60 and +0x100 cleared (inferred: unticked, so one row at a time shows chosen; the two bytes were not read). Then game_name's text (+0x48, slot 16) is that name and rva 0x690140 runs on the box. Nothing is saved or loaded: pressing `save` afterwards appends `.hoi3` again, finds the file and asks CConfirmSave's question. `ret 4`. See reversing/findings/FINDINGS-ingamemenu.md, section C.4.",
+   "confidence": "confirmed",
+   "evidence": "Read whole, VA 0x670260 to `ret 4` at 0x67059E (retsBefore empty; padding then 0x6705B0). [ebp+8] is compared with each row's FindCheckbox('game') answer (`cmp [ebp+8], eax; sete` at 0x67038C). The glue: the constructor writes 0x15CED90 (RTTI: CCheckBoxObserverGlue<CInGameIdler>) at +0x418, the idler at +0x41C and 0x670260 at +0x438 (0x647730-0x647746); OpenSaveDialog passes idler+0x418 to each checkbox's +0x48 slot 1 (0x66C67C). findRefs: no direct caller, the one address reference is the constructor's. What would show it wrong: the +0x438 handler being called with something other than the checkbox (the glue's own slots were not read)."
+  },
+  {
+   "rva": "0x26BD00",
+   "kind": "function",
+   "name": "CInGameIdler::OnSaveDialogCancel",
+   "signature": "void __thiscall CInGameIdler::OnSaveDialogCancel(CInGameIdler* this)",
+   "no_signature": null,
+   "comment": "**The save dialog's `cancel` (MENU_BAR_CLOSE 'Close', shortcut ESCAPE).** `push ecx; push 0; call 0x26BD10; pop ecx; ret` - CInGameIdler::ToggleMenu(0), which with `menu` open goes through CInGameIdler::CloseMenu (0x26BE80): menu_save being up, `menu` is hidden and opened again at its panel. So **Close returns to the six-button menu, not to the map**. The handler of the glue at +0x198, attached to menu_save's `cancel` by CInGameIdler::Enter (rva 0x25ECFA). See reversing/findings/FINDINGS-ingamemenu.md, section C.7.",
+   "confidence": "confirmed",
+   "evidence": "Five instructions, VA 0x66BD00-0x66BD09, bare `ret`; `push ecx` only saves a scratch slot (the pushed 0 is the toggle's one argument, `ret 4` at 0x66BE52/0x66BE6F). Bound: `mov eax, 0x66BD00; lea eax,[ebx+0x198]` at 0x6475D7 in the constructor; Enter's `lea edx,[ebx+0x198]` at 0x65ECFA after `push 'cancel'` (0x65EC81) and `push 'menu_save'`. A lea scan of 0x640000-0x680000 finds +0x198 at those two sites only; no call to 0x66BD00 anywhere. What ToggleMenu/CloseMenu (VA 0x66BD10/0x66BE80) do is reader A's reading (ingame-menu.json); the behaviour stated rests on their listing (0x66BD35 tests `menu` +0x5B, 0x66BEE6 tests menu_save +0x5B)."
+  },
+  {
+   "rva": "0x2705B0",
+   "kind": "function",
+   "name": "CConfirmSave::CConfirmSave",
+   "signature": "CConfirmSave* __stdcall CConfirmSave::CConfirmSave(CConfirmSave* this, CInGameIdler* host, Hoi3CString* fileName)",
+   "no_signature": null,
+   "comment": "CEU3Dialog's constructor (0x23D4B0, host in ECX) on the window **`DefaultConfirm`** (eu3dialog.gui: OK on ENTER, CANCEL on ESCAPE), its own table, a copy of `fileName` - the name with `.hoi3` - at +0x68 and the host at +0x84; `Title` = CONFIRMSAVETITLE 'Save Game' and `Description` = CONFIRMSAVETEXT 'Are you sure you wish to overwrite the file $NAME$?' with NAME = that name, both rendered in the settings' colours and set on the text boxes directly (not through CEU3Dialog_SetDescription); then **centred on the screen** (half the screen less half the window, through slot 42). The buttons keep the file's texts. `ret 0xC`. One caller, CInGameIdler::OnSaveDialogSave. See reversing/findings/FINDINGS-ingamemenu.md, section C.5.",
+   "confidence": "confirmed",
+   "evidence": "Read whole, VA 0x6705B0 to `ret 0xC` at 0x6709F8. `push 'DefaultConfirm'; push edi (= [ebp+8]); mov ecx,[ebp+0xC]; call 0x63D4B0`; `mov [edi], 0x15CF084` at 0x670621; assignString into edi+0x68 from [ebp+0x10]; `mov [edi+0x84], [ebp+0xC]` at 0x670650; 'CONFIRMSAVETITLE'/'Title', 'CONFIRMSAVETEXT'/'NAME'/'Description' (0x670648-0x670829); screen size from the in-game screen's graphics +0x6B9BC/+0x6B9C0 and the window's slot 42 (+0xA8) at 0x670967. Localisation from localisation/misc.csv. Caller: findRefs --callers 0x6705B0 gives 0x6719BE only."
+  },
+  {
+   "rva": "0x270A00",
+   "kind": "function",
+   "name": "CConfirmSave::OnConfirm",
+   "signature": "void __thiscall CConfirmSave::OnConfirm(CConfirmSave* this)",
+   "no_signature": null,
+   "comment": "Slot 5 - **OK on the overwrite question: the save is written over the old file.** The folder is worked out again as OnSaveDialogSave works it (`save games/`, or `mod/<X>/save games/` with the settings' +0xA4 string), SaveGameFromDialog(host +0x84, folder + the name at +0x68) runs, and the dialog is marked closed (+0x64 = 1). No second existence test. CANCEL is CEU3Dialog::Close (slot 6), which only closes the question and leaves the save dialog as it was. Bare `ret`. See reversing/findings/FINDINGS-ingamemenu.md, section C.5.",
+   "confidence": "confirmed",
+   "evidence": "Read whole, VA 0x670A00 to the bare `ret` at 0x670BB9; vtable.py --holding 0x670A00: CConfirmSave slot 5 alone. The call `push eax (the path); push [ebx+0x84]; call 0x671370` at 0x670B76, then `mov byte [ebx+0x64], 1` at 0x670B99. CEU3Dialog's constructor binds AgreeButton to slot 5 and DeclineButton to slot 6 (record, CEU3Dialog). Slot 6 of 0x15CF084 reads 0x670BC0 = CEU3Dialog::Close. What would show it wrong: the dialog's buttons bound some other way than through CEU3Dialog's constructor."
+  },
+  {
+   "rva": "0x270BD0",
+   "kind": "function",
+   "name": "CConfirmSave::ScalarDeletingDestructor",
+   "signature": "CConfirmSave* __thiscall CConfirmSave::ScalarDeletingDestructor(CConfirmSave* this, unsigned int flags)",
+   "no_signature": null,
+   "comment": "Slot 0: frees the file name at +0x68 (when on the heap), runs CEU3Dialog's destructor (0x23D6B0) and frees the object when flags bit 0 is set. `ret 4`. Run by the idler's dialog list once the dialog answers closed.",
+   "confidence": "confirmed",
+   "evidence": "VA 0x670BD0 to `ret 4` at 0x670C11; `cmp [esi+0x7C], 0x10` (+0x68's capacity) and free, `call 0x63D6B0`, `test byte [ebp+8], 1` then free. vtable.py --holding 0x670BD0: CConfirmSave slot 0 alone; the RTTI export lists it as introduced at slot 0."
+  },
+  {
+   "rva": "0x23AA10",
+   "kind": "function",
+   "name": "ListFilesWithExtensionSorted",
+   "signature": "void __cdecl ListFilesWithExtensionSorted(void* out@ECX, Hoi3CString directory@stack:4, Hoi3CString extension@stack:0x20, bool newestFirst@stack:0x3C)",
+   "no_signature": null,
+   "comment": "`out` (a vector of Hoi3CString, 0x1C each) = ListFilesWithExtension(directory, out, extension) - the bare names of the folder's files, over the whole PhysFS search path - and, when `newestFirst`, **sorted newest first by modification time** (SortFilesNewestFirst with SaveFileIsNewer). The two strings come by value and are freed here. Four callers: CInGameIdler::OpenSaveDialog (\"save games/\", \"hoi3\", true) at 0x26C3C5, and 0x315A2B (the front end's save list), 0x440CED and 0x4E75EF (not read). Bare `ret`, the caller drops 0x3C bytes. See reversing/findings/FINDINGS-ingamemenu.md, section C.2.",
+   "confidence": "confirmed",
+   "evidence": "Read whole, VA 0x63AA10 to the bare `ret` at 0x63AB43 (retsBefore empty; preceded by 0x63A840's `ret 0xC` and int3 padding). `push ext c_str; push esi (= ECX at entry); push dir c_str; call 0xA6BCB0; add esp, 0xC`; `cmp byte [ebp+0x40], 0; je` around the sort; the sort gets [out]/[out+4] and a by-value copy of the directory (0x63AAE3). OpenSaveDialog's call: `push 1`, a 0x1C string 'hoi3', a 0x1C copy of the folder, `lea esi/ecx` = the local vector, `add esp, 0x3C` after. Callers by findRefs --callers 0x63AA10."
+  },
+  {
+   "rva": "0x23A840",
+   "kind": "function",
+   "name": "SaveFileIsNewer",
+   "signature": "bool __stdcall SaveFileIsNewer(Hoi3CString* directory, Hoi3CString* a, Hoi3CString* b)",
+   "no_signature": null,
+   "comment": "The order of ListFilesWithExtensionSorted: **true when `directory/a` was modified later than `directory/b`** - PHYSFS_getLastModTime of each (`directory` + `/` + name), compared as signed 64-bit. So the save list is newest first; two files of the same second, or two that PhysFS cannot date (-1 each), compare equal and std::sort leaves them in no defined order. `ret 0xC`. See reversing/findings/FINDINGS-ingamemenu.md, section C.2.",
+   "confidence": "confirmed",
+   "evidence": "Read whole, VA 0x63A840 to `ret 0xC` at 0x63AA01 (the trap-2 neighbour of 0x63A460, already in the record's prose). Two paths built with operatorPlus from [ebp+8] and the literal '/' (0x15B5180) and [ebp+0xC] / [ebp+0x10]; `call 0xB84A40` twice; `cmp edi, edx; jl false; jg true; cmp [ebp-0x30], eax; jbe false` - a > b on the 64-bit pair. Called four times from 0x63B3FC-0x63B441 inside the sort's loop 0x63B160."
+  },
+  {
+   "rva": "0x23B0D0",
+   "kind": "function",
+   "name": "SortFilesNewestFirst",
+   "signature": "void __cdecl SortFilesNewestFirst(Hoi3CString* begin, Hoi3CString* end, Hoi3CString directory)",
+   "no_signature": null,
+   "comment": "std::sort over [begin, end) of 0x1C-byte strings with SaveFileIsNewer bound to `directory`: the count (end - begin) / 0x1C and the loop 0x23B160 with a copy of the directory. Not stable. Inferred to be std::sort's instantiation from its shape; the loop 0x23B160 and its helpers (0x23B360, 0x23B7B0, 0x23B840, 0x23B8B0, 0x23B920) were not read. Bare `ret`. One caller, ListFilesWithExtensionSorted.",
+   "confidence": "inferred",
+   "evidence": "VA 0x63B0D0 to the bare `ret` at 0x63B15B: `imul 0x92492493; sar edx, 4` is division by 0x1C; `push count; push end; push begin; call 0x63B160` with a by-value string beneath; 0x63B160 recurses into itself twice (0x63B261, 0x63B279) and calls the predicate through 0x63B360 - the introsort shape. What would show it wrong: 0x63B160 turning out to be a stable merge."
+  },
+  {
+   "rva": "0x4C830",
+   "kind": "function",
+   "name": "FormatDateFileStamp",
+   "signature": "Hoi3CString* __stdcall FormatDateFileStamp(int* tick@EAX, Hoi3CString* out@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "**A game hour as the date part of a save's name: `%d_%02d_%02d_%02d`, year, month, day, hour** - `1936_01_01_00`. days = (tick - 43800000) / 24 with the hour the remainder; year = (int)(days / 365.0); the day of the year = days less (int)(float)(year x 365.0); the month and day by walking the month lengths at VA 0x1713294 (MonthLengthTable), both from 1. Two callers: CInGameIdler::OpenSaveDialog (the name it offers) and the autosave writer's debug_saves branch at 0x250377. `ret 4`. See reversing/findings/FINDINGS-ingamemenu.md, section C.3.",
+   "confidence": "confirmed",
+   "evidence": "Read whole, VA 0x44C830 to `ret 4` at 0x44C941: `mov eax,[eax]; add eax, 0xFD63AA40` (= -43800000); `idiv 24`; `divsd [0x160A550]` (365.0); the month loop over [0x1713294]; `push '%d_%02d_%02d_%02d'` (0x15BB404, its only reference) and sprintf 0xB9625D with year, month, day, hour; assign into [ebp+8], returned in EAX. Callers by findRefs --callers 0x44C830: 0x650377, 0x66C886. The maintainer's saves are named Germany1936_01_01_00.hoi3 and so on."
+  },
+  {
+   "rva": "0x6C2DE0",
+   "kind": "function",
+   "name": "CFixedWindow::HideSubWindows",
+   "signature": "void __thiscall CFixedWindow::HideSubWindows(CFixedWindow* this)",
+   "no_signature": null,
+   "comment": "Primary slot 28: **hides every sub-window** - for each entry of the subwindow map (+0x414 to +0x418, 0x20 bytes each) the window at entry +0x1C is hidden through its CGuiObject (+0x18) slot 14. The window itself stays as it is. The in-game menu calls it right after showing `menu`, so that opening the save dialog or the panel shows only the one sub-window asked for. Bare `ret`. One of the +0x414 walkers reversing/findings/FINDINGS-guicontainers.md left unread.",
+   "confidence": "confirmed",
+   "evidence": "Read whole, VA 0xAC2DE0 to the bare `ret` at 0xAC2E18: `mov esi,[edi+0x414]` ... `cmp esi,[edi+0x418]`, `mov ecx,[esi+0x1C]; mov edx,[[ecx+0x18]+0x38]; add ecx,0x18; call edx`, `add esi, 0x20`. Slot 14 of the CGuiObject subobject is Hide (record: CEU3Dialog::Hide). vtable.py --holding 0xAC2DE0: CEU3DialogGui slot 28 only; read out of CFixedWindow's own table, 0x1601F88 + 28 x 4 gives the same address. Called through `[eax+0x70]` on `menu` at 0x66C0DC and 0x66BD89."
+  },
+  {
+   "rva": "0x66BCB0",
+   "kind": "function",
+   "name": "ListFilesWithExtension",
+   "revises": true,
+   "signature": "void __cdecl ListFilesWithExtension(const char* directory, void* out, const char* extension)",
+   "no_signature": null,
+   "comment": "The directory enumerator the engine uses whenever a stage reads a whole folder rather than a named file: called twice with '.gfx' (0x631321, 0x631370), twice with '.gui' (0x631CFC, 0x631D45), twice with '.txt' by technology phase 2 (0x540FD8, 0x541027), and once each for music/ (0x638B7F) and scenarios/ (0x63941D); and with \"hoi3\" through ListFilesWithExtensionSorted for the save dialog. Twice each time because there are two search directories, the mod's and vanilla's; 0x794A40 merges the two lists. **The body, read 2026-11-04 for the save dialog**: `out` (a vector of Hoi3CString) is emptied and given room for 1024; PHYSFS_enumerateFiles(directory); for each name - **kept only where it ends in `extension`** (a byte compare of the tail, case and all, no dot implied), **a name with any byte of 0x80 or more is logged `Invalid filename found: <name>` and left out**, `directory/name` must not be a directory (PHYSFS_isDirectory), and where the directory is registered in the table at VA 0x1B165D4 (the replace/extend folders, not read further) its real directory (PHYSFS_getRealDir) must be one of the search-path entries up to that registration's - the bare name is pushed. Its first argument is a C string: every call site passes a literal or a string's c_str. See reversing/findings/FINDINGS-ingamemenu.md, section C.2.",
+   "confidence": "confirmed",
+   "evidence": "Body read from VA 0xA6BCB0 to 0xA6C182: [ebp+0xC] cleared with 0x414C60(begin, end) and reserved 0x400 by 0x417780; [ebp+8] goes to PHYSFS_enumerateFiles (0xB85900, the export) at 0xA6BE02 and is strcmp'd against the table's strings; [ebp+0x10] is the tail compared at 0xA6BE53-0xA6BE7A; `js 0xA6C0BB` on a byte with the top bit set leads to 'Invalid filename found: ' (0x15FD2C4) and no push; PHYSFS_isDirectory (0xB84BE0) at 0xA6BF74; PHYSFS_getRealDir (0xB84660) at 0xA6BFFD. Call sites 0x631321, 0x638B7F, 0x540FD8 and 0x63AA55 all push either a literal (0x15CD0A0) or the `cmp [s+0x14],0x10; jae; lea` c_str of a string - so the old `Hoi3CString* directory` was wrong. Revises: the signature's first parameter type and the confidence (the order was inferred from call sites; it is now read off the body)."
+  },
+  {
+   "rva": "0x784A40",
+   "kind": "function",
+   "name": "PHYSFS_getLastModTime",
+   "signature": "__int64 __cdecl PHYSFS_getLastModTime(const char* filename)",
+   "no_signature": null,
+   "comment": "PhysicsFS's PHYSFS_getLastModTime, linked into the exe: the file's modification time over the search path, the first entry that has it, or -1 ('Invalid argument', or nothing found). What orders the save dialog's list (SaveFileIsNewer). Bare `ret`, the answer in EDX:EAX.",
+   "confidence": "confirmed",
+   "evidence": "The exe's export table names VA 0xB84A40 PHYSFS_getLastModTime. The body: `or esi, -1` as the default answer returned in both EAX and EDX, 'Invalid argument' (0x15A014C) on a null name, 'Out of memory', and a walk of the search path at [0x174C6A0] calling each archiver's +0x1C entry. Bare `ret` at 0xB84A87."
+  },
+  {
+   "rva": "0x66B200",
+   "kind": "function",
+   "name": "GetDocumentsGameFolder",
+   "signature": "bool __cdecl GetDocumentsGameFolder(const char* game, char* out)",
+   "no_signature": null,
+   "comment": "**The default user directory: `<My Documents>\\Paradox Interactive\\<game>`**, made if it is not there. SHGetFolderPathW(CSIDL_PERSONAL); PathAppendW with L\"Paradox Interactive\\\" and then `game` (converted from UTF-8); PathFileExistsW, else SHCreateDirectoryExW; the path written to `out` as UTF-8 (PHYSFS_utf8FromUcs2, 0x208 bytes). False when the folder cannot be had. Bare `ret`. One caller, GetDefaultUserDir, with \"Hearts of Iron III\". See reversing/findings/FINDINGS-ingamemenu.md, section C.2.",
+   "confidence": "confirmed",
+   "evidence": "Read whole, VA 0xA6B200 to the bare `ret`s at 0xA6B2A7 (true) and 0xA6B2AE (false). Imports by address: 0xD2B26C SHGetFolderPathW, called with 5 (CSIDL_PERSONAL); 0xD2B144 MultiByteToWideChar with 0xFDE9 (CP_UTF8); 0xD2B27C PathFileExistsW; 0xD2B270 SHCreateDirectoryExW; the wide literal at 0x15FD260 reads 'Paradox Interactive\\'; 0xB8D850 is the export PHYSFS_utf8FromUcs2. The maintainer's saves are in Documents\\Paradox Interactive\\Hearts of Iron III\\save games."
+  },
+  {
+   "rva": "0x66B2B0",
+   "kind": "function",
+   "name": "GetDefaultUserDir",
+   "signature": "Hoi3CString* __fastcall GetDefaultUserDir(Hoi3CString* out@ESI) @EAX",
+   "no_signature": null,
+   "comment": "`out` = GetDocumentsGameFolder(\"Hearts of Iron III\"), or empty when that fails. The startup's PhysFS set-up (the function at 0x656470) uses it where neither `userdir=` on the command line nor `userdir.txt` (read by 0x66ADB0, not read here) gives a directory, then mounts that directory at the front of the search path (0x656EDA) and **makes it PhysFS's write directory** (PHYSFS_setWriteDir, 0x656EE0) - so `save games/` is `Documents\\Paradox Interactive\\Hearts of Iron III\\save games`. With a mod a second directory is mounted and made the write directory (0x6572FD/0x657303); the BlackICE saves on disk are under `...\\Hearts of Iron III\\<mod name>\\save games`, so that is inferred to be the mod's own user folder. Bare `ret`.",
+   "confidence": "confirmed",
+   "evidence": "VA 0xA6B2B0 to the bare `ret` at 0xA6B30F: `push 'Hearts of Iron III'; call 0xA6B200`, `[esi+0x14] = 0xF`, `[esi+0x10] = 0`, assign the buffer when AL is set, `mov eax, esi`. Caller 0xA56E77 (`lea esi,[ebp-0x38]`), after 0xA6ADB0 and a test of the userdir string; then `push esi; call 0xB84350` (PHYSFS_mount, append 0) and `push esi; call 0xB842C0` (PHYSFS_setWriteDir) at 0xA56EDA/0xA56EE0. The mod-folder reading of the second pair is inferred from the disk (Documents\\Paradox Interactive\\Hearts of Iron III\\BlackICE GitHub\\save games holds autosave.hoi3 and others), not from the bytes."
+  },
+  {
+   "rva": "0x66C1B0",
+   "kind": "function",
+   "name": "VirtualFile_Open",
+   "signature": "void* __stdcall VirtualFile_Open(void* file@stack:4, Hoi3CString* path@stack:8, bool write@stack:0xC, Hoi3CString mode@stack:0x10, int text@ECX) @EAX",
+   "no_signature": null,
+   "comment": "**The game's file object over PhysFS** (virtualfilesystem.cpp; table VA 0x15FD378, no RTTI name), 0x3C bytes: +0x11 = `write`, **+0x13 = (text == 0)** - the byte CSaveWriter takes as `binary` - and +0x30 the PHYSFS_File*: for writing, PHYSFS_openAppend where `mode` holds a `+`, else **PHYSFS_openWrite** (under the write directory, truncating); for reading PHYSFS_openRead (not read here). +0x34 = PHYSFS_getRealDir(path). A file that will not open is logged 'Could not open file: <path>, error: <PhysFS's error>' (unless the name holds `.log`) and **thrown** as an exception object (table VA 0x1607F74). SaveGameFromDialog passes write 1, mode \"\", text 1; the Lua runner and the tokenizer open with text 0. `ret 0x28`. Inferred in part: the read branch and the exception's class were not read.",
+   "confidence": "inferred",
+   "evidence": "VA 0xA6C1B0 to `ret 0x28` at 0xA6C6BF (4 + 4 + 4 + a 0x1C string). `mov edi, ecx` at entry and `cmp edi, ebx; sete dl; mov [esi+0x13], dl` at 0xA6C20E-0xA6C22E; `mov [esi+0x11], al` from [ebp+0x10]; the '+' count over [ebp+0x14] (0xA6C26C) choosing 0xB85120 (PHYSFS_openAppend) or 0xB85100 (PHYSFS_openWrite), stored at +0x30 (0xA6C2AE); on null, PHYSFS_getLastError (0xB82AE0), 'Could not open file: ' / ', error: ' and a throw through 0xB9894B with the table 0x1607F74 at 0xA6C48C; PHYSFS_getRealDir into +0x34 at 0xA6C698. The export table names every PHYSFS_ call."
+  },
+  {
+   "rva": "0x66D3E0",
+   "kind": "function",
+   "name": "VirtualFile_SetWriteBuffer",
+   "signature": "void __fastcall VirtualFile_SetWriteBuffer(void* file@EAX)",
+   "no_signature": null,
+   "comment": "PHYSFS_setBuffer(file +0x30, 0x100000): a 1 MiB buffer on the file before a save is written into it. Two callers, the autosave writer (0x2504A8) and SaveGameFromDialog. Bare `ret`.",
+   "confidence": "confirmed",
+   "evidence": "VA 0xA6D3E0 to the bare `ret` at 0xA6D3FC: `mov ecx,[eax+0x30]; push 0; push 0x100000; push ecx; call 0xB85630` (the export PHYSFS_setBuffer). Callers by findRefs: 0x6504A8, 0x6713FE."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CConfirmSave",
+   "offset": "0x68",
+   "name": "file_name",
+   "type": "Hoi3CString",
+   "comment": "The save's file name with its `.hoi3` - what CONFIRMSAVETEXT names and what OnConfirm appends to the folder.",
+   "evidence": "Constructor: assignString into edi+0x68 from the third argument (0x67061E-0x67063A), the caller passing OnSaveDialogSave's name after the extension step (`lea ecx,[ebp-0x6C]; push ecx` at 0x6719B8). OnConfirm: `lea eax,[ebx+0x68]; push eax` into operatorPlus at 0x670B63. Destructor: the capacity at +0x7C tested and the heap buffer freed."
+  },
+  {
+   "struct": "CConfirmSave",
+   "offset": "0x84",
+   "name": "host",
+   "type": "CInGameIdler*",
+   "comment": "The in-game screen, which SaveGameFromDialog is given.",
+   "evidence": "Constructor: `mov eax,[ebp+0xC]; mov [edi+0x84], eax` at 0x670643/0x670650, the caller pushing its `this` ([ebp-0x18], the idler). OnConfirm: `push [ebx+0x84]` as SaveGameFromDialog's first argument at 0x670B76."
+  },
+  {
+   "struct": "CInGameIdler",
+   "offset": "0x198",
+   "name": "save_cancel_observer",
+   "type": "void*",
+   "comment": "The first dword of an embedded CButtonObserverGlue<CInGameIdler> (0x50 bytes to the next) whose plain click handler (glue +8) is CInGameIdler::OnSaveDialogCancel; Enter attaches it to menu_save's `cancel`. See reversing/findings/FINDINGS-ingamemenu.md, section C.7.",
+   "evidence": "Constructor: `mov eax, 0x66BD00; lea eax,[ebx+0x198]; call 0x679650` at 0x6475D7; the next glue is at +0x1E8 (0x647607), 0x50 on, as all seven that follow are. Enter attaches it: `lea edx,[ebx+0x198]` passed to `cancel`'s +0x48 slot 1 at 0x65ECFA, the element found in `menu_save`."
+  },
+  {
+   "struct": "CInGameIdler",
+   "offset": "0x328",
+   "name": "save_button_observer",
+   "type": "void*",
+   "comment": "The first dword of an embedded CButtonObserverGlue<CInGameIdler> whose plain click handler (glue +8) is CInGameIdler::OnSaveDialogSave; Enter attaches it to menu_save's `save`. See reversing/findings/FINDINGS-ingamemenu.md, section C.5.",
+   "evidence": "Constructor: `mov eax, 0x6715E0; lea eax,[ebx+0x328]; call 0x679650` at 0x6476A8; the glues at +0x2D8 and +0x378 either side. Enter: `lea edx,[ebx+0x328]` for `save` in `menu_save` at 0x65EDD1."
+  },
+  {
+   "struct": "CInGameIdler",
+   "offset": "0x418",
+   "name": "save_row_observer",
+   "type": "void*",
+   "comment": "The first dword of an embedded CCheckBoxObserverGlue<CInGameIdler> (vftable VA 0x15CED90, 0x38 bytes: the idler at +4, CInGameIdler::OnSaveDialogRowClick at +0x20, which is passed the checkbox) that every row checkbox of the save dialog's `games` list reports to. See reversing/findings/FINDINGS-ingamemenu.md, section C.4.",
+   "evidence": "Constructor 0x647710-0x647770: +0x418 = 0x15CED90 (RTTI: CCheckBoxObserverGlue<CInGameIdler>), +0x41C = the idler, +0x438 = 0x670260, the rest zero; the next object begins at +0x450 (0x64778D). OpenSaveDialog: `add edx, 0x418; push edx` into each `game` checkbox's +0x48 slot 1 at 0x66C67C."
+  }
+ ],
+ "vftable_slots": {
+  "CConfirmSave": {
+   "0": {
+    "name": "ScalarDeletingDestructor",
+    "signature": "CConfirmSave* __thiscall ScalarDeletingDestructor(CConfirmSave* this, unsigned int flags)"
+   },
+   "5": {
+    "name": "OnConfirm",
+    "signature": "void __thiscall OnConfirm(CConfirmSave* this)"
+   }
+  },
+  "CEU3DialogGui": {
+   "28": "CFixedWindow::HideSubWindows"
+  }
+ },
+ "frontier": [
+  "rva 0x690140 - an edit-box routine run after game_name's text is set (caret?)",
+  "the edit box's word +0x40 set to 1 by OpenSaveDialog",
+  "settings +0xA4 - the string `mod/<X>/save games/` is built from; what writes it",
+  "0x66ADB0 - reads userdir.txt for the user directory",
+  "0x23B160 and its helpers - the sort loop",
+  "0x315A2B, 0x440CED, 0x4E75EF - the other callers of ListFilesWithExtensionSorted",
+  "CGotoProvinceItem (table VA 0x15CF80C) - the only other user of the window save_game_entry, a goto-province list (0x28FA30)"
+ ]
+}

@@ -208,7 +208,8 @@ Six, kept as an index, for **the log's filters** - six checkboxes, all on at the
 ## 8. A player's settings, and where they are kept
 
 - **The settings window** (`messagesettings.gui`, `MessageSettingWindow`), opened by a right click on a
-  popup or a log row, or from the panel: `title_text` is `<TYPE>_SETUP`; checkboxes for log
+  popup or a log row ~~, or from the panel~~ - **not from the panel: corrected 2026-11-04**
+  (`FINDINGS-ingamemenu.md`, B.4; the panel's row click is attached to no element): `title_text` is `<TYPE>_SETUP`; checkboxes for log
   (LOG_SETTING_LOG "Display in log."), popup ("Open popup window."), onmap ("Show on map.") and pause
   (LOG_SETTING_PAUSE "Popup and Pause", `pausepopup`). **Its constructor sets `onmap_button` twice; there
   is no `idle` box.** OK writes the four into the type and **writes `messagetypes_custom.txt` at once**;
@@ -217,7 +218,8 @@ Six, kept as an index, for **the log's filters** - six checkboxes, all on at the
   for **every** type (`option` plays no part), in the registry's - the file's - order, each with its
   `_SETUP` text and four icon checkboxes (`messageicon_log`, `_dialog`, `_map`, `_pause`) **ticked where
   the setting is off**. A box writes the type at once; the file is written when the panel closes
-  (`CloseMessageSettings`, `inferred` the close button). `reset` ("Reset  defaults") deletes the player's
+  (`CloseMessageSettings`, ~~`inferred` the close button~~ the save routine the close button's handler calls -
+  `confirmed` 2026-11-04, `FINDINGS-ingamemenu.md`, B.1). `reset` ("Reset  defaults") deletes the player's
   file and reads `interface/messagetypes.txt` again.
 - **The file**, `messagetypes_custom.txt`: every type, whole (log, onmap, popup, idle, option,
   pausepopup, categories), in the user folder of the mod being played - here

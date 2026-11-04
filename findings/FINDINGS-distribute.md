@@ -281,6 +281,59 @@ double 1000.0, an add of 0.0005, a multiply by 1000.0, then the floor-and-conver
 `0x401FD0` / `0xC08870`. It is round-to-nearest-thousandth dressed up; a reimplementation in
 integers should reproduce it for any value a stockpile can hold, but that was not proved.
 
+## 7. Where a hook can take over either conversion
+
+Read 2026-11-04 for BiceLib's `Hooks/ResourceConversion`, which lets a played country set
+both conversions itself. The question was narrower than sections 4 and 6: at which
+instructions can the *decision* be replaced while the game's own code still moves the goods,
+records them in `conversion_used` / `conversion_made`, applies the yields and spreads the fuel.
+
+**Energy into crude oil.** Inside `CCountry::UpdateIC`, the country in `ebx` throughout and
+`applyDailyEffects` the byte at `[ebp+0xC]`. `[ebp+8]`, the country argument, is dead by
+here and the block reuses it (`mov [ebp+8], eax` at `0x4F1056`).
+
+    0x4F0FF5  8b bb 04 06 00 00   mov edi, [ebx+0x604]     the block's first instruction
+    0x4F13BA  89 7d 08            mov [ebp+8], edi         crude oil in edi, energy in esi:
+    0x4F13BD  85 ff 7e 27         test edi, edi ; jle      the stockpile and the two pool
+                                                           writes follow, to 0x4F13E2
+    0x4F13E8  8b 83 04 06 00 00   mov eax, [ebx+0x604]     the industry need
+
+**Every skip in the block lands on `0x4F13E8`** - the flag test at `0x4F106F`, `spare <= 0`
+at `0x4F1077`, and the four `jle`s at `0x4F1271`, `0x4F1284`, `0x4F1398` and `0x4F13BF` - so
+nothing after it depends on what the block left in a register. The stack is at the same depth
+at all three addresses: every push inside the block is an argument to the callee-cleaned
+`0xB99980` / `0xB99AF0`, or a `push ecx` undone by `add esp, 4`. And the rest of `UpdateIC`
+writes each local before it reads it: `[ebp+0xC]` at `0x4F14CD`, `[ebp-0x20]` at `0x4F1548`,
+`[ebp+8]` at `0x4F157D` before its read at `0x4F1556` on the next pass of that loop.
+
+**Crude oil into fuel.** Inside `CCountry::ConvertCrudeOilToFuel`, the country in `esi`:
+
+    0x4F1A2B  81 78 0c c0 9e e6 05   cmp [eax+0xC], 0x5E69EC0  the 99,000 fuel stop, eax the
+    0x4F1A32  0f 8d af 03 00 00      jge 0x4F1DE7              stockpile
+    0x4F1BA4  8b df f7 db            mov ebx, edi ; neg ebx    crude oil to refine in edi,
+                                                               capped at the stock just above
+    0x4F1DE7  8b 4d f4               mov ecx, [ebp-0xC]        the epilogue both stops reach
+
+`edi` is free at `0x4F1A2B`: `0x4F1A38` loads it, and the epilogue pops the caller's.
+Everything after `0x4F1BA4` writes its locals - `[ebp-0x10]` at `0x4F1C1B`, `[ebp-0x1C]` at
+`0x4F1C31`, `[ebp-0x14]` and `[ebp-0x18]` at `0x4F1CA4` - before reading them. `0x4F1BA4` is
+reached from `0x4F1B82` and by falling through from `0x4F1BA1`; the stops ahead of it are the
+only gate on the amount.
+
+**Nothing branches into either hooked range after its first byte.** A scan of every rel8 and
+rel32 branch encoding in `.text` (the bytes `70`-`7F`, `EB`, `E8`, `E9` and `0F 80`-`8F`)
+finds none landing in `0x4F0FF6`-`0x4F0FFA` or `0x4F1A2C`-`0x4F1A37`, and finds the two known
+jumps onto the first bytes, `0x4F0FE9 jge 0x4F0FF5` and `0x4F1A1D jmp 0x4F1A2B`, as its
+positive control.
+
+**And who is played, read for the hook's gate.** `CCurrentGameState +0xBCC` is not an array
+held in the game state but **the begin of a vector**, `+0xBD0` its end: `CIsAiTrigger::Evaluate`
+loads `mov ecx, [ecx+0xBCC]` and then tests `[ecx+eax*4]` (`0x9ED450`), and
+`CGameState::AssignHumanControllers` sizes it as `[esi+0xBD0] - [esi+0xBCC]` (`0x686916`) and
+indexes it with the same counter it walks the country vector (`+0xBBC`) with. So an entry is a
+dword per country, non-zero where a person plays it - what the `ai` trigger answers - and the
+same on every machine of a multiplayer game.
+
 ## What is not established
 
 - **What sets a country's shares at the start.** In the save, every country that does not
@@ -323,6 +376,12 @@ Section 6 followed through `fragments/merged/oil-conversion.json`: the label
 `UpdateIC_EnergyToCrudeOil` (`0xF0FF5`), `InitBaseOilConversionRate` (`0x8B6650`),
 `CCountry::GetOilConversionRate` revised from `likely` to `confirmed` with its base rate, and
 `CTechnologyStatus +0x98`'s comment corrected.
+
+Section 7 followed through `fragments/merged/conversion-seams.json`: five labels -
+`UpdateIC_EnergyToCrudeOil_Apply` (`0xF13BA`), `UpdateIC_IndustryNeed` (`0xF13E8`),
+`ConvertCrudeOilToFuel_FuelStop` (`0xF1A2B`), `ConvertCrudeOilToFuel_Apply` (`0xF1BA4`) and
+`ConvertCrudeOilToFuel_Exit` (`0xF1DE7`) - `CCurrentGameState +0xBCC` revised from an
+`undefined4` to the begin of a vector, and `+0xBD0`, its end, added.
 
 Applied headless to a copy of the Ghidra project after each: `failed: 0`, and
 `struct fields: 0` on the second run.

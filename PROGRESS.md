@@ -28,9 +28,9 @@ how many objects a census found (taken 2026-09-20).
 | `read` | 140 |
 | `placed` | 142 |
 | `keys` | 75 |
-| `part` | 148 |
+| `part` | 152 |
 | `named` | 5 |
-| `RTTI` | 631 |
+| `RTTI` | 627 |
 | **all** | **1141** |
 
 ## What to read next
@@ -171,7 +171,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CCountryHistory` | `CHistoryContainer` |  |  |  | 1 | CCountryHistory.hpp | 108 | keys | **read**: `history/countries`, where a date is a key. See GameClasses/CCountryHistory.hpp |
 | `CCountryValue` | `CPersistent` | 0x14 | 2 | 1/2 | 1 |  | 9,078 | placed |  |
 | `CCountryWarTargetValue` | `CPersistent` | 0x20 | 5 | 2/5 | 1 |  | 1 | read |  |
-| `CCurrentGameState` | `CGameState` | 0xDA8 | 92 | 14/33 | 5 | CCurrentGameState.hpp | 1 | read |  |
+| `CCurrentGameState` | `CGameState` | 0xDA8 | 93 | 14/33 | 5 | CCurrentGameState.hpp | 1 | read |  |
 | `CDebtAction` | `CDiplomaticAction` |  |  | 5/6 | 8 |  | 1,759 | RTTI |  |
 | `CDeclareWarAction` | `CWarGoalBaseAction` | 0x74 | 3 |  | 7 |  | 1 | part |  |
 | `CDependency` | `CRelation` |  |  | 5/5 | 2 |  |  | RTTI |  |
@@ -478,9 +478,9 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CConfirmDisbandAll` | `CEU3Dialog` |  | 2 |  | 3 |  |  | part |  |
 | `CConfirmMakePride` | `CEU3Dialog` |  |  |  |  |  |  | RTTI |  |
 | `CConfirmRemoveAll` | `CEU3Dialog` |  |  |  | 2 |  |  | RTTI |  |
-| `CConfirmSave` | `CEU3Dialog` |  |  |  |  |  |  | RTTI |  |
+| `CConfirmSave` | `CEU3Dialog` | 0x88 | 2 |  | 3 |  |  | part |  |
 | `CConfirmSavePlan` | `CEU3Dialog` |  |  |  |  |  |  | RTTI |  |
-| `CConfirmVictoryConditionResign` | `CEU3Dialog` |  |  |  |  |  |  | RTTI |  |
+| `CConfirmVictoryConditionResign` | `CEU3Dialog` | 0x6C | 1 |  | 1 |  |  | part |  |
 | `CConvoyDetails` | `CReloadableInterface` |  |  |  |  |  | 1 | RTTI |  |
 | `CConvoyProvinceEntry` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
 | `CConvoySettings` | `CReloadableInterface` |  |  |  |  |  | 1 | RTTI |  |
@@ -543,7 +543,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CICCostComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CIcon` | `CButton` |  |  |  | 1 |  |  | RTTI |  |
 | `CIdler` |  |  |  |  |  |  |  | RTTI |  |
-| `CInGameIdler` | `CEU3Idler` `CLostDeviceInterface` `CReloadDispatcher` |  | 84 |  | 82 | CInGameIdler.hpp | 3 | read |  |
+| `CInGameIdler` | `CEU3Idler` `CLostDeviceInterface` `CReloadDispatcher` |  | 104 |  | 99 | CInGameIdler.hpp | 3 | read |  |
 | `CIngameSettingsScreen` | `CSettingsScreen` |  |  |  |  |  | 1 | RTTI |  |
 | `CLandOrdersView` | `COrdersView` | 0x198 | 10 |  | 10 |  |  | read |  |
 | `CLawEntry` | `CStandardlistboxItem` | 0x88 | 4 |  | 3 |  | 16 | part |  |
@@ -560,7 +560,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CMPCostComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CMasked3dFlag` | `C3dVisibleObject` |  |  |  |  |  |  | RTTI |  |
 | `CMessage` |  | 0x78 | 10 |  | 4 |  | 137 | read |  |
-| `CMessageSettingsItem` | `CStandardlistboxItem` |  |  |  | 1 |  |  | RTTI |  |
+| `CMessageSettingsItem` | `CStandardlistboxItem` | 0x68 | 3 |  | 2 |  |  | part |  |
 | `CMetaserverInterface` | `CLoginObserver` `CSessionInfoObserver` `CFrontEndView` |  |  |  |  |  |  | RTTI |  |
 | `CMicroAvailableItemsTab` | `CMicroItemsTab` |  |  |  |  |  |  | RTTI |  |
 | `CMicroDownloader` | `TRunnable` |  |  |  |  |  |  | RTTI |  |
@@ -680,7 +680,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CTechnologyView` | `CCountryView` |  | 11 |  | 12 |  | 1 | read |  |
 | `CTheatreView` | `CCountryView` |  |  |  |  |  | 1 | RTTI |  |
 | `CTitleMember` | `COutLinerMember` |  | 1 |  | 3 |  | 220 | part |  |
-| `CTopBar` | `CReloadableInterface` | 0x384 | 26 |  | 20 |  | 1 | read |  |
+| `CTopBar` | `CReloadableInterface` | 0x384 | 26 |  | 21 |  | 1 | read |  |
 | `CToughnessComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CTradeCancelConfirm` | `CEU3Dialog` | 0xF0 | 1 |  | 3 |  |  | part |  |
 | `CTradeItem` | `CStandardlistboxItem` | 0xA8 | 7 |  | 8 |  | 58 | read |  |
@@ -829,7 +829,7 @@ One class per effect, trigger, command and decision the event scripts can use. E
 | `CCasusBelliTrigger` | `CTrigger` | 0x48 | 1 | 2/153 | 2 |  |  | part |  |
 | `CCategoryChange` | `CCountryHistoryEntry` |  |  |  |  |  |  | RTTI |  |
 | `CCgmAlignmentChangeCommand` | `CCommand` |  |  | 2/2 | 2 |  | 1 | placed |  |
-| `CCgmBar` | `CReloadableInterface` |  |  |  |  |  |  | RTTI |  |
+| `CCgmBar` | `CReloadableInterface` |  |  |  | 1 |  |  | RTTI |  |
 | `CCgmDiploSlider` | `CReloadableInterface` |  |  |  |  |  |  | RTTI |  |
 | `CCgmLeaveFactionCommand` | `CCommand` | 0x48 | 2 | 1/2 | 2 |  | 1 | placed |  |
 | `CCgmNeutralityChangeCommand` | `CCommand` |  |  | 2/2 | 2 |  | 1 | placed |  |
@@ -1248,10 +1248,10 @@ Windows, pages, sprites and the map's own drawing.
 | `CButtonObserver` |  |  |  |  |  |  | 2,540 | RTTI |  |
 | `CConvoyCreationWindow` | `CStandardlistboxItem` |  |  |  |  |  | 2 | RTTI |  |
 | `CDiplomacyDialog` | `CEU3Dialog` | 0x70 | 2 |  | 5 |  |  | part |  |
-| `CEU3Dialog` | `CUpdateable` |  | 2 |  | 8 |  |  | part |  |
+| `CEU3Dialog` | `CUpdateable` |  | 3 |  | 8 |  |  | part |  |
 | `CEventWindow` | `CUpdateable` | 0xA0 | 12 |  | 4 |  |  | read |  |
 | `CExpeditionaryForceDialog` | `CEU3Dialog` |  |  |  |  |  |  | RTTI |  |
-| `CFixedWindow` | `TWindow` |  | 32 |  | 18 |  |  | read |  |
+| `CFixedWindow` | `TWindow` |  | 32 |  | 19 |  |  | read |  |
 | `CFont` | `CPersistent` |  |  |  |  |  |  | RTTI |  |
 | `CGui` | `TGui` `CPersistent` `CFactory` |  | 8 |  | 1 |  |  | read |  |
 | `CGuiObject` | `TCollisionObserver` |  | 4 |  |  |  |  | part |  |
@@ -1260,7 +1260,7 @@ Windows, pages, sprites and the map's own drawing.
 | `CLicenceTechnologyDialog` | `CEU3Dialog` | 0x138 | 7 |  | 10 |  |  | read |  |
 | `CMessageListboxItem` | `CStandardlistboxItem` |  |  |  |  |  | 264 | RTTI |  |
 | `CMessageSettingWindow` | `CUpdateable` |  |  |  | 4 |  |  | RTTI |  |
-| `CQuitDialog` | `CEU3Dialog` |  |  |  |  |  |  | RTTI |  |
+| `CQuitDialog` | `CEU3Dialog` | 0x84 | 1 |  | 3 |  |  | part |  |
 | `CRadioButtonGroupObserver` |  |  |  |  |  |  | 1 | RTTI |  |
 | `CShareTechnologyDialog` | `CEU3Dialog` | 0x78 | 4 |  | 7 |  |  | part |  |
 | `CSingleUnitButtons` | `CUnitViewBaseEntry` |  |  |  | 8 |  |  | RTTI |  |

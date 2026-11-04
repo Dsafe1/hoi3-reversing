@@ -136,9 +136,12 @@ The name depends on `debug_saves` (**read**, and the files on disk agree):
   `olderautosave.hoi3`, shifted along on each save.
 - otherwise - `<gameState+0xC30>` + `autosave_` + ... + `.hoi3`, one file per save.
 
-`0x271370` also writes a save and also owns the string `Failed to write save file `,
-but it takes the save dialog rather than a name, so it is not a usable "save as this
-name" entry point.
+`0x271370` also writes a save and also owns the string `Failed to write save file `.
+~~It takes the save dialog rather than a name, so it is not a usable "save as this name"
+entry point.~~ **Corrected 2026-11-04** (`FINDINGS-ingamemenu.md`, section C.6): it is
+`SaveGameFromDialog(idler, path)`, `ret 8`, so a caller may name the file - but on the
+way out it always calls `CInGameIdler::ToggleMenu(0)`, so called with the menu shut it
+opens the menu (and pauses a single-player game).
 
 ## The class
 

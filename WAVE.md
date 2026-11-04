@@ -17,6 +17,48 @@ truth.
 
 ---
 
+## The in-game menu wave - the menu, its save dialog and its message settings
+
+> **LANDED 2026-11-04.** Launched on the maintainer's screenshot of the original's menu, which the reading agrees with.
+> Three fragments merged (40 address entries new, 9 revised; 4 structs declared, 28 struct fields); the write-up is
+> `findings/FINDINGS-ingamemenu.md`, indexed in `CANDIDATES.md`, with corrections carried into
+> `FINDINGS-autosave.md` and `FINDINGS-messageshow.md`. Left open there: what `CBackEndIdler` shows and which of two
+> handlers takes Escape. That closing the menu after a subwindow leaves the game paused the maintainer confirmed in the
+> original the same day.
+
+**The question, for OpenHOI3**: `interface/menubar.gui`'s (and `tfh/interface/menubar.gui`'s, the same in this part)
+window `menu` - an icon `menu` and `menu_panel` with six buttons, `menu_save_button` (`MENU_BAR_SAVE_GAME`),
+`menu_options_button` (`MENU_BAR_GAME_OPTIONS`), `menu_resign_button` (`MENU_BAR_GAME_RESIGN`), `menu_message_button`
+(`MENU_BAR_MESSAGE_SETTINGS`), `menu_quit_button` (`MENU_BAR_QUIT`) and `menu_close_button` (`MENU_BAR_CLOSE`, shortcut
+`ESCAPE`) - and the two windows of the same file it opens: `menu_save` (list `games` of `save_game_entry` rows, the
+checkbox `game`; `filename_label`, edit box `game_name`, `save`, `cancel` on `ESCAPE`) and `menu_message_settings`
+(`messagesettings_label`, seven category tabs `messagecat_*` with their texts, list `settings` of `message_entry` rows -
+`message`, `text`, the checkboxes `messageicon_pause`, `_log`, `_dialog`, `_map` - and `reset`, `close`). OpenHOI3 builds
+none of it; it has no saving, loading or main menu, and its messages are built (`docs/mechanics/messages.md`).
+
+**What is known before reading.** The menu's names are referenced in `CInGameIdler::Enter` (rva `0x25A2B0`, *inferred*):
+`menu` at VA `0x65E677`/`0x65E714`, `menu_panel` at `0x65E79F` ... `0x65EBD2` beside each button's name (`menu_close_button`
+`0x65E778`, `menu_resign_button` `0x65E84F`, `menu_quit_button` `0x65E926`, `menu_save_button` `0x65E9FD`,
+`menu_message_button` `0x65EAD4`, `menu_options_button` `0x65EBAB`); `menu_panel` and `menu_save_button` again in
+`CInGameIdler::Update` (rva `0x2559D0`, VA `0x655D3C`/`0x655D64`) and `menu_panel` at VA `0x66BD91` (a function from VA
+`0x66BD10`); `menu_save` and `menu_message_settings` at `0x66BE80` (called after a country view shuts,
+`FINDINGS-outliner.md`). Classes (RTTI): `CQuitDialog`, `CConfirmVictoryConditionResign`, `CSavegameItem`,
+`CMessageSettingsItem`, `CMessageSettingWindow`, `CSettingsScreen`. Recorded: `CInGameIdler_FillMessageSettings`
+(`0x26F710`), `CInGameIdler::OnMessageSettingsRowClick` (`0x26FE50`), `CMessageSettingsItem::OnCheckbox` (`0x26DDF0`),
+`CInGameIdler::CloseMessageSettings` (`0x2701B0`, *inferred*), `CMessageSettingWindow` (`0x299CD0`, `OnOk`, `OnCancel`,
+`Update`), `SaveGameFromDialog` (`0x271370`); `FINDINGS-messageshow.md` has the settings panel's list.
+
+| reader | brief | fragment |
+| --- | --- | --- |
+| **A** | **The menu**: what makes it and **what opens it** (a key, a button of the menu bar, Escape?) and whether the game pauses; each of the six buttons - what a press does, when it is greyed or hidden (`CInGameIdler::Update`'s `menu_save_button`: multiplayer, ironman?), its tooltip; **Resign** (`CConfirmVictoryConditionResign`: its text, its two answers, what resigning does to the game) and **Quit** (`CQuitDialog`: its text, where it goes - the desktop, the front end); Close and Escape; what `0x66BD10` does with `menu_panel`. **Game Options**: say only what it opens and how - the settings window itself is the next wave's. | `ingame-menu.json` |
+| **B** | **The message settings window** (`menu_message_settings`) whole: how it opens and closes (revise `CloseMessageSettings`), the seven category tabs and what each filters, the `settings` list's rows - which types, in what order, each checkbox's meaning and what a click changes, `message` and `CMessageSettingWindow` (a type's own dialog?) - `reset`, and **where the choices are kept** (a file such as `messagetypes_custom.txt`? read or written when?). Extend, do not repeat, what the record and `FINDINGS-messageshow.md` hold. | `message-settings.json` |
+| **C** | **The save dialog** (`menu_save`): how it opens, what `games` lists (which folder, which files, in what order) and a `save_game_entry` row (`CSavegameItem`), what `filename_label` and `game_name` show and the name offered, what `save` does up to the writer (`SaveGameFromDialog`: the file name, the folder, an existing file, multiplayer) and `cancel`; whether the game pauses. **Not the save writer itself**, and not loading. | `save-dialog.json` |
+
+**The oracle**: the maintainer's screenshot of the original's menu over the map - the picture `GFX_menu` at its head and
+the six buttons in the file's order, Close apart below.
+
+---
+
 ## The leftovers wave - the right-click menu and the five side menus
 
 > **LANDED 2026-11-04.** Three fragments merged (75 address entries new, 3 revised; 18 structs declared, 55 struct

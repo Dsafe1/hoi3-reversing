@@ -1,0 +1,80 @@
+{
+ "agent": "conversion-seams",
+ "question": "At which instructions can a hook replace the decision of each daily resource conversion - energy into crude oil in CCountry::UpdateIC, crude oil into fuel in CCountry::ConvertCrudeOilToFuel - and hand its own amounts to the game's own writes; and how a daily hook tells a played country from the AI's alike on every machine.",
+ "source": "reversing/findings/FINDINGS-distribute.md",
+ "addresses": [
+  {
+   "rva": "0xF13BA",
+   "kind": "instruction",
+   "name": "UpdateIC_EnergyToCrudeOil_Apply",
+   "signature": null,
+   "no_signature": null,
+   "comment": "**Where the energy-to-crude-oil block of CCountry::UpdateIC writes what it decided.** `mov [ebp+8], edi; test edi, edi; jle UpdateIC_IndustryNeed`, then pool.crude_oil += edi, pool.energy -= esi, conversion_used.energy (+0x8F4) += esi and conversion_made.crude_oil (+0x8C8) += [ebp+8], ending at 0xF13E2. So on arrival **edi is the crude oil made and esi the energy spent**, thousandths, the country in ebx; nothing else is live. BiceLib's ResourceConversion jumps here from UpdateIC_EnergyToCrudeOil with its own pair.",
+   "confidence": "confirmed",
+   "evidence": "scripts/disasm.py 0x4F13B0 0x48: `89 7d 08 85 ff 7e 27` at 0x4F13BA, the two `call 0x4f4de0` (CCountry::GetPool) with `add [eax+0x14], edi` and `add [eax+0x1c], edi` after `mov edi, esi; neg edi`, and the two pool adds at 0x4F13DC / 0x4F13E2. The stack depth equals the block's entry: every push in 0x4F0FF5..0x4F13BA is an argument to the callee-cleaned 0xB99980 / 0xB99AF0, or a push ecx undone by add esp, 4. What would show it wrong: a read of esi or edi between here and the end of UpdateIC that is not preceded by a write."
+  },
+  {
+   "rva": "0xF13E8",
+   "kind": "instruction",
+   "name": "UpdateIC_IndustryNeed",
+   "signature": null,
+   "no_signature": null,
+   "comment": "**The industry need block of CCountry::UpdateIC, and where every skip of the energy-to-crude-oil block lands.** `mov eax, [ebx+0x604]`, then +0x968 (resources_needed) is filled with TotalIC x 1.0 metal, x 2.0 energy and x 0.5 rares (reversing/findings/FINDINGS-ic.md). Six jumps reach it: the applyDailyEffects test at 0xF106F, spare <= 0 at 0xF1077, and the jle's at 0xF1271, 0xF1284, 0xF1398 and 0xF13BF - so nothing after it depends on what the conversion left in a register. BiceLib's ResourceConversion jumps here to convert nothing.",
+   "confidence": "confirmed",
+   "evidence": "Every conditional and unconditional jump decoded in 0x4F0FF5..0x4F13E8 was listed with its target: six go to 0x4F13E8 and none leaves the range. The rest of UpdateIC writes each local before reading it: [ebp+0xC] at 0x4F14CD, [ebp-0x20] at 0x4F1548, [ebp+8] at 0x4F157D before its read at 0x4F1556 on the loop's next pass. What would show it wrong: a jump out of the block to any other address."
+  },
+  {
+   "rva": "0xF1A2B",
+   "kind": "instruction",
+   "name": "ConvertCrudeOilToFuel_FuelStop",
+   "signature": null,
+   "no_signature": null,
+   "comment": "**The first stop of CCountry::ConvertCrudeOilToFuel**: `cmp [eax+0xC], 0x5E69EC0; jge ConvertCrudeOilToFuel_Exit` - no refining at 99,000.000 fuel. eax the stockpile (CCountry::GetPool or the exile pool), esi the country; edi is free, the next instruction loading it and the epilogue popping the caller's. 13 bytes, reached from 0xF1A1D and by falling through from 0xF1A26, and no branch lands inside them. BiceLib's ResourceConversion hooks it.",
+   "confidence": "confirmed",
+   "evidence": "scripts/disasm.py 0x4F1A2B 13 --bytes: `81 78 0c c0 9e e6 05 0f 8d af 03 00 00`. A scan of every rel8 and rel32 branch encoding in .text found none landing in 0x4F1A2C..0x4F1A37, and found 0x4F1A1D jmp 0x4F1A2B as its positive control. What would show it wrong: a branch into the jge."
+  },
+  {
+   "rva": "0xF1BA4",
+   "kind": "instruction",
+   "name": "ConvertCrudeOilToFuel_Apply",
+   "signature": null,
+   "no_signature": null,
+   "comment": "**Where CCountry::ConvertCrudeOilToFuel turns what it decided into fuel.** `mov ebx, edi; neg ebx`: on arrival **edi is the crude oil to refine**, thousandths, already capped at the stock (0xF1B7F) - then pool.crude_oil -= it, conversion_used.crude_oil (+0x8EC) += it, the yield by technology_status->fuel_refining_bonus and MODIFIER_FUEL_CONVERSION, and the spread of the fuel over the capital's area. Reached from 0xF1B82 and by falling through from 0xF1BA1. BiceLib's ResourceConversion jumps here with its own amount.",
+   "confidence": "confirmed",
+   "evidence": "scripts/disasm.py 0x4F1B4F 0x90: edi = (TotalIC / 2) x 1000 at 0x4F1B5C, replaced by pool.crude_oil when larger (0x4F1B7F..0x4F1BA1), then `8b df f7 db` and `add [eax+0x14], ebx` / `add [esi+0x8ec], edi` at 0x4F1BC5 / 0x4F1BC8. Every local after it is written before it is read: [ebp-0x10] at 0x4F1C1B, [ebp-0x1C] at 0x4F1C31, [ebp-0x14] and [ebp-0x18] at 0x4F1CA4. What would show it wrong: a read of a local in 0x4F1BA4..0x4F1DF6 that nothing in that range wrote first."
+  },
+  {
+   "rva": "0xF1DE7",
+   "kind": "instruction",
+   "name": "ConvertCrudeOilToFuel_Exit",
+   "signature": null,
+   "no_signature": null,
+   "comment": "The epilogue of CCountry::ConvertCrudeOilToFuel that both early stops reach - ConvertCrudeOilToFuel_FuelStop's jge and the year-of-income test's jg at 0xF1B49: `mov ecx, [ebp-0xC]; pop edi; mov fs:[0], ecx; pop ebx; mov esp, ebp; pop ebp; ret`. The function's second exit; the first, at 0xF1DD7, ends the converting path.",
+   "confidence": "confirmed",
+   "evidence": "scripts/disasm.py 0x4F1DD0 0x30: the sequence ends in the bare `ret` at 0x4F1DF6 that the record's own CCountry::ConvertCrudeOilToFuel entry names as its second exit, and 0x4F1A32 and 0x4F1B49 both target 0x4F1DE7. What would show it wrong: a stop that reaches another address."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CCurrentGameState",
+   "offset": "0xBCC",
+   "name": "played_countries_array",
+   "type": "void**",
+   "comment": "**The begin of a vector**, one dword per country, non-zero where a person plays it - the end at +0xBD0. What the `ai` trigger answers: CIsAiTrigger::Evaluate (0x5ED3B0) loads `mov ecx, [ecx+0xBCC]` and tests `[ecx+eax*4]` by the scope's country id. CGameState::AssignHumanControllers (0x2868F0) sizes it from begin and end and walks it with the counter it walks the country vector (+0xBBC) with. The same on every machine of a multiplayer game, so a daily hook may ask it.",
+   "revises": "Was `undefined4`, 'one entry per country id', which reads as entries held at +0xBCC itself. It is a pointer to them; the name is kept.",
+   "evidence": "scripts/disasm.py 0x9ED3B0: `mov ecx, dword ptr [ecx + 0xbcc]; cmp dword ptr [ecx + eax*4], ebx` at 0x9ED450. scripts/disasm.py 0x6868F0: `mov eax, [esi+0xbd0]; sub eax, [esi+0xbcc]; test eax, 0xfffffffc` at 0x686916, and `mov edx, [esi+0xbcc]; cmp [edx+edi*4], ebx` at 0x686994. What would show it wrong: a write of a value other than a pointer at +0xBCC itself."
+  },
+  {
+   "struct": "CCurrentGameState",
+   "offset": "0xBD0",
+   "name": "played_countries_array_end",
+   "type": "void**",
+   "comment": "The end of the played_countries_array vector (+0xBCC). CGameState::AssignHumanControllers (0x2868F0) takes its size as the difference.",
+   "evidence": "`mov eax, [esi+0xbd0]; sub eax, [esi+0xbcc]` at 0x686916, the count tested with `test eax, 0xfffffffc` - the shape of a vector of four-byte entries. What would show it wrong: +0xBD0 read anywhere as something other than this vector's end."
+  }
+ ],
+ "vftable_slots": {},
+ "frontier": [],
+ "slots_noted": "None: all five are instructions inside two functions already recorded, neither of them virtual.",
+ "notes": "Read for BiceLib's Hooks/ResourceConversion (2026-11-04). The energy block's own entry, UpdateIC_EnergyToCrudeOil (0xF0FF5), is already recorded and is where that hook sits."
+}
