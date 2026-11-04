@@ -1,0 +1,62 @@
+{
+ "agent": "ledger-building-icons - read in the collecting session, 2026-11-04",
+ "question": "Why the statistics ledger's building page crashed with BlackICE's new extra_infra building",
+ "source": "reversing/findings/FINDINGS-ledgericons.md",
+ "addresses": [
+  {
+   "rva": "0x39F500",
+   "kind": "function",
+   "name": "LedgerPage_Buildings",
+   "signature": "void __stdcall LedgerPage_Buildings(void* ledgerWindow)",
+   "no_signature": null,
+   "comment": "Ledger page 7, LEDGER_BUILDING_TITLE; called from LedgerPage_Update. 0x79F500..0x7A05C4, ret 4. Walks the building database and, for every building whose slot 8 answers true - CBuilding's slot 8 is the shared `mov al,1; ret`, so every building, visibility or not - builds `CBuilding +0x1C` name + \"_icon\" and adds a column with it through 0x7BEB80. Then constructs the page's CGraphicalTableLedger (0x391970), which instantiates each column's icon by that name. **A building with no `<name>_icon` gui type crashes this page** (IconType_CreateIcon). Tail: ledger_UL, ledger_LR, graph_background, no_graph_data. See reversing/findings/FINDINGS-ledgericons.md.",
+   "confidence": "confirmed",
+   "evidence": "Page 7 in LedgerPage_Update's page table (FINDINGS-uinumbers2.md section 2); disassembled the loop 0x79F870..0x79F9B8: [list+eax*4] slot +0x20 tested, '_icon' pushed at 0x79F8B5 beside lea ecx,[eax+0x1C]; vtable.py CBuilding --all gives slot 8 = 0xA92590, `mov al,1; ret`, in 440 tables. Return address 0x3A0426 on the crash stack. A building with no column on the page would show the slot reading wrong."
+  },
+  {
+   "rva": "0x391970",
+   "kind": "function",
+   "name": "CGraphicalTableLedger::CGraphicalTableLedger",
+   "signature": null,
+   "no_signature": "the object is the first STACK argument ([ebp+8], kept in EBX) and not ECX, followed by 0x44 more bytes - two 0x10-byte by-value copies made with 0x7943F0 among them - which have not been separated into parameters; ret 0x48",
+   "comment": "Constructs a 0x150-byte CGraphicalTableLedger: vftable 0x15DB474, the string GraphicalTableLedger at +0x54, the ledger window at +0x70, the column list at +0x74, two graph objects of 0x12C bytes at +0xCC and +0xD0, the slider standardlistbox_slider at +0x128, ledger_scrollbar_offset. Then walks its columns (+0x74, from +4 to +8) and for each with the byte +0x38 set calls the gui's slot 31, CEU3Gui::CreateIcon, with the column's string at +0x1C and +0x114 - which is where a column named for a building with no icon type crashes. Built by LedgerPage_Buildings (0x3A0421) among others not surveyed. See reversing/findings/FINDINGS-ledgericons.md.",
+   "confidence": "confirmed",
+   "evidence": "Vftable 0x15DB474 is written to the object at 0x7919E9, and ghidra/hoi3_tfh-classes.json gives that table (offset 0, 49 slots) to CGraphicalTableLedger alone; the string GraphicalTableLedger is assigned at 0x7919FA. A second class writing the same table first would make this a base's constructor. The call through [[+0x70]]+0x7C at 0x7920C8 and its return 0x3920CA on the crash stack are confirmed."
+  },
+  {
+   "rva": "0x67CD60",
+   "kind": "function",
+   "name": "CEU3Gui::CreateIcon",
+   "signature": "void* __thiscall CEU3Gui::CreateIcon(CEU3Gui* this, Hoi3CString* name, void* param2)",
+   "no_signature": null,
+   "comment": "CEU3Gui slot 31 (+0x7C), held by CEU3Gui's table 0x15CD754 alone. Looks `name` up through slot 1 of the gui-type registry at +0x34 - the same lookup as CEU3Gui::GetGuiType, which returns null on a miss - and hands the result to IconType_CreateIcon in ESI **without testing it**, with param2 and the two screen dimensions at [+0x30]+0x6B9BC/+0x6B9C0; then adds the new icon to the list at +0x5C (0x86CC20) and returns it. So a name that is no declared gui type is a crash, not a null. The name is ours, from the callee. See reversing/findings/FINDINGS-ledgericons.md.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0xA7CD60..0xA7CDC6, ret 8, ECX kept in EDI as this; vtable.py --holding 0xA7CD60: CEU3Gui slot 31 only. In BiceLibCrash_011 its first argument, read out of Windows' full dump of the same crash, is the Hoi3CString 'extra_infra_icon', and the return address 0x67CDAA is on the stack above the fault. The 'Icon' in the name rests on IconType_CreateIcon's reading and would be wrong if that function makes some other element."
+  },
+  {
+   "rva": "0x6C8560",
+   "kind": "function",
+   "name": "IconType_CreateIcon",
+   "signature": "void* __stdcall IconType_CreateIcon(void* type@ESI, void* owner@ECX, void* param2@stack:4, int screenWidth@stack:8, int screenHeight@stack:0xC)",
+   "no_signature": null,
+   "comment": "Makes a live icon from an iconType's declaration in ESI: `cmp byte [esi+0x9C],0` picks one of two 0xF0-byte objects, built from the type's +0x64, +0x68, +0x6C and +0x88..+0xAC through 0xAA1C00; null if the allocation fails. **It does not test ESI**: called from CEU3Gui::CreateIcon with the result of a failed name lookup it reads address 0x9C and the game crashes - the statistics ledger's building page did exactly that for a building with no `<name>_icon` (2026-11-04). The class of the declaration and the two objects are not read; iconType is inferred from its place beside the iconType loader at 0x6C81F0 and from the names it is asked for. See reversing/findings/FINDINGS-ledgericons.md.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0xAC8560..0xAC870C, three exits each ret 0xC; ECX is copied to EDI and passed on, so it is a parameter (CEU3Gui::CreateIcon passes 0). BiceLibCrash_011: access violation reading 0x9C at rva 0x6C857E, the cmp, with ESI = 0. The iconType reading is inferred: a non-icon element made here would show the name wrong, not the null test."
+  }
+ ],
+ "struct_fields": [],
+ "vftable_slots": {
+  "CEU3Gui": {
+   "31": {
+    "name": "CreateIcon",
+    "signature": "void* __thiscall CreateIcon(CEU3Gui* this, Hoi3CString* name, void* param2)"
+   }
+  }
+ },
+ "frontier": [
+  "0x7BEB80",
+  "0x86CC20",
+  "0xAA1C00",
+  "0x7943F0"
+ ]
+}

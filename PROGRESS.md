@@ -353,7 +353,7 @@ Definitions out of `common/` and the rest of the mod. Their `LoadKey` is the gra
 | `CEU3BitmapFont` | `CBitmapFont` |  | 2 | 1/6 | 9 |  | 126 | placed |  |
 | `CEU3DialogGuiType` | `CWindowType` |  |  | 1/1 | 1 |  | 30 | placed |  |
 | `CEU3Graphics` | `CGraphics` |  |  |  | 2 |  | 2 | keys |  |
-| `CEU3Gui` | `CGui` |  |  |  | 1 |  | 3 | RTTI |  |
+| `CEU3Gui` | `CGui` |  |  |  | 2 |  | 3 | RTTI |  |
 | `CEU3SoundConfigurator` | `CSoundConfigurator` |  |  |  | 1 |  |  | keys | plumbing |
 | `CFactionModifier` | `CModifier` |  |  | 1/2 |  |  | 4 | RTTI |  |
 | `CFlagType` | `C3dObjectType` |  |  | 1/1 | 1 |  | 1 | placed |  |
@@ -536,7 +536,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CGotoBox` | `CUpdateable` |  |  |  |  |  | 1 | RTTI |  |
 | `CGotoProvinceItem` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
 | `CGraphicalObject` |  |  |  |  |  |  |  | RTTI |  |
-| `CGraphicalTableLedger` | `CGuiObject` |  |  |  |  |  |  | RTTI |  |
+| `CGraphicalTableLedger` | `CGuiObject` |  |  |  | 1 |  |  | RTTI |  |
 | `CHardAttackComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CHoiAvatar` | `CSmallAvatarBase` | 0x154 | 8 |  | 4 |  | 8,642 | read |  |
 | `CHumanItem` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
