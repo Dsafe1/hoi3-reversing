@@ -286,7 +286,7 @@ narrow one found, plus five more. Stack displacements were discarded (trap 12).
 | `CProvinceTemplate::GetAirBasePosition` (`0xA9DF0`), 1 caller | runtime | `&positions[air_base.index]` |
 | `0xA9E70`, called from `CMap::LoadMapFiles` at `0x8AE99` | load | the naval-base position, as the measuring point for a land↔sea neighbour distance |
 | `0x23F790` (at `0x23FB06`), 2 callers | display build | `positions[index]` for an **arbitrary** building, minus `label_x`/`label_y`, into a 3-float vector handed to an object factory — the building graphics |
-| `0x242010` (at `0x642230`), 1 caller | display build | the same shape, plus the nudge float |
+| `0x242010` (at `0x642230`), 1 caller | display build | the same shape, plus the nudge float - the **resource icons**, at the position of database slots 3 to 6; `FINDINGS-resourceicons.md` |
 | `0x29ED40`, `0x29EF50`, `0x29F120` | editor | read **and write** both vectors by arbitrary index, comparing the building's name against the literal `'naval_base'`; the nudge float is read, a constant subtracted, and written back. No direct caller and no virtual table for any of the three, so **how they are reached is not settled** |
 | `CProvinceTemplate::Save` (`0xAA300`, slot 1) | save | walks both vectors whole; holds the image's only reference to the `'building_nudge'` literal |
 

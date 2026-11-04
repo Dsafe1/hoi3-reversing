@@ -1406,7 +1406,7 @@ of it.
 
 ## What has already been read
 
-182 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
+183 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
 header lives. This replaces the `Done` archive: the archive restated each file's headline and named
 only 40 of the 67 there were then, so it was both longer and less useful than a complete list.
 
@@ -1428,6 +1428,7 @@ the six it was missing were wave 15's.
 | `findings/FINDINGS-resetpath.md` | the deferred session-exit path, and whether `Update` can reach the reset with `in_game` set |
 | `findings/FINDINGS-startup.md` | how the engine boots, stage by stage, and which loader claims each `common/` file |
 | `findings/FINDINGS-mappoint.md` | 879,780 map points: 14,190 x 62 exactly, and the 13 MiB they cost |
+| `findings/FINDINGS-resourceicons.md` | **where the map's resource icons stand**: no key of their own - crude oil, metal, energy and rare materials are drawn at the position of the building in database slot 3 to 6 (so BlackICE's `coastal_fort`, `beach_defence`, `land_fort`, `fortress`, two of them all but undeclared), an undeclared position is (0, 0), and the strategic resource icon stands on the label point |
 | `findings/FINDINGS-mapbuild.md` | the map build, its cache, and how the frontend is reached |
 | `findings/FINDINGS-allocator.md` | the allocator, and what a call site gives away |
 | `findings/FINDINGS-save.md` | how the game writes a save |
