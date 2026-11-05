@@ -1406,7 +1406,7 @@ of it.
 
 ## What has already been read
 
-185 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
+186 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
 header lives. This replaces the `Done` archive: the archive restated each file's headline and named
 only 40 of the 67 there were then, so it was both longer and less useful than a complete list.
 
@@ -1639,6 +1639,7 @@ the six it was missing were wave 15's.
 | `findings/FINDINGS-airreserve.md` | **an air reserve's day, and a player's crash in it**: `CAirReserveOrder::RunDaily` reinforces every unit at its base by priority without asking what order it holds, and the copy of `+0x34` it makes of each unit's order is a `CAirOrder`'s vector - so a non-air order there, or a corrupt one, throws `std::length_error` and ends the game (a BlackICE 15.1 dump, 2026-10-18). Which it was is not settled: the dump has no heap |
 | `findings/FINDINGS-extrainfra.md` | **a save that crashes on load, and `extra_infra`**: `MaxInfrastructure` is written by every building with the `infrastructure` effect, **the last one winning** - LoadKey and `SetProvinceBuildingLevel` alike - so BlackICE's `extra_infra` (0.05 a level, saved after `infra`) leaves 1,603 of a 1937 save's 1,666 such provinces at 100 or under; `RebuildOwnerAreas` runs only as a game is entered, so a **load** puts them in no area, and `CAIUnit_MayShipUnitToArea` reads the null area's empty province list for a unit bound for one (rva `0x4C42E1`). Read from a full-memory dump (2026-11-02): SOV's and CHI's role-5 divisions bound for Leningrad and Shanghai. Corrects the infrastructure gate ("the building `infra`"), `0x47F540`'s call in `SetProvinceBuildingLevel` (the area update, not a message) and `+0x5C`'s "one writer" |
 | `findings/FINDINGS-starttech.md` | **the start technology wave (2026-11-02)**: what a new game does to every country's laws and technology before the first screen - `SetUpCountryLawsAndTechnologyForNewGame` (`0xD59D0`), once per country from `CInGameIdler::Enter`'s new-game block, the player's too, never on a load: each law moved to the latest of its group whose `allow` holds, then technology levels bought with a budget of core-province leadership (held to 5) x 3650 x 1.917, cheapest due level first, not-yet-due levels at double, theories never, `notech` a candidate - reproducing all 476 levels the start save holds above the history in all 86 countries; with every writer of a technology level, `CTechnologyChange` and the history's route |
+| `findings/FINDINGS-recomp.md` | **a census of the image for static recompilation (2026-11-05)**: 23,686 functions of code and 2.44 million instructions under Ghidra's 73,884 (49,384 are `Unwind@` funclets); what lies outside the bodies - exception state handlers and catch continuations; computed calls and jumps, every scaled jump table resolved; 4,374 `FuncInfo`, 805 try blocks and what is thrown and caught; SSE in 2,433 functions and x87 in 847; 27 `lock` instructions; every import DLL by sites; no code made at run time. With **`WinThread`** read whole: a thread class with no RTTI, seven slots, whose destructor calls `ExitThread` on the calling thread when its wait times out |
 
 ## A method worth reusing
 

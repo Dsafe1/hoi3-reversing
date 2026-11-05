@@ -17,6 +17,7 @@ from `bicelib_findings.json`, which sits next to it.
 | `ExportClassHierarchy.java` | writes the two files below; takes the output folder as its argument |
 | `hoi3_tfh-classes.json` | every RTTI class with its bases and vftable addresses; generated, do not edit. `scripts/hoi3.py` and `luabindExtract.py` read it |
 | `hoi3_tfh-class-hierarchy.txt` | the same as an indented tree, names only - 1212 application classes under 58 roots; generated |
+| `DumpRecompStats.java` | read-only census of every function, indirect flow and stray instruction, into TSV files in the folder given; run with `-readOnly`. `findings/FINDINGS-recomp.md` is what it was for |
 
 The last four came from OpenHOI3's `tools/ghidra/` and `docs/` on 2026-10-07. The rewrite
 had two more scripts there, `ChaseConstructorsAndDestructors` and `ApplyKnownNames`, which

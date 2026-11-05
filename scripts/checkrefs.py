@@ -59,6 +59,7 @@ REVERSING = roots.REVERSING
 BICE = roots.BICE
 MOD = roots.MOD
 OPENHOI3 = roots.OPENHOI3
+RECOMP = roots.RECOMP
 
 # Only a reference carrying a folder is a path; see the rule above.
 FINDING = re.compile(r"`?([\w./-]+/FINDINGS-[a-z0-9]+\.md)`?")
@@ -99,7 +100,7 @@ SKIP_FILES = {"bicelib_findings.json"}
 # Where a reference may resolve from. Loose on purpose - see the docstring. A root that
 # `roots.py` could not find is dropped rather than joined, because joining `None` throws and
 # joining a guess is worse than reporting the reference.
-ROOTS = [folder for folder in (REVERSING, BICE, MOD, OPENHOI3) if folder]
+ROOTS = [folder for folder in (REVERSING, BICE, MOD, OPENHOI3, RECOMP) if folder]
 
 # A reference carrying the tree's own name on the front used to resolve because that name was
 # a real folder inside the BiceLib project, one level under `BICE`. Once the tree is its own
@@ -156,8 +157,11 @@ def trees():
     `OPENHOI3` is in the list because the rewrite cites findings for its mechanics - it is
     forbidden the offsets, so the prose is the whole of what it reads from here, which makes
     those references the only link it has to the evidence.
+
+    `RECOMP`, Hoi3Recomp, is in it from 2026-11-05 for the same reason: its design cites the
+    findings it rests on, and a citation there that stops resolving should be reported here.
     """
-    wanted = [folder for folder in (MOD, REVERSING, OPENHOI3) if folder]
+    wanted = [folder for folder in (MOD, REVERSING, OPENHOI3, RECOMP) if folder]
     kept = []
     for folder in wanted:
         full = os.path.abspath(folder)
