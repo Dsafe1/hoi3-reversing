@@ -275,6 +275,35 @@ Being faithful to the original means reproducing items 1-3 of A.8. Deliberately 
 - When the province-entry step, run during a load, puts a fleet's passengers ashore and checks them for combat (not followed).
 - Air units' "no battle for N hours" count on the unit is not saved (per FINDINGS-savegame C.2's key list); what that does to a loaded air battle was not followed.
 
+### A.11 The side's `retreat` list is filled by nothing but a load
+
+*Added 2026-11-05 by the collecting session, statically, after the maintainer ordered a division in a battle to retreat
+by hand and saved (`Soviet_Union1941_07_16_19` to `_21`, province 1529) and no `retreat` key appeared.*
+
+**Nothing in the executable puts a unit on a land side's retreat list (+0xD0) but CLandCombatant::LoadKey** [exe]. Three
+scans of the whole `.text`:
+
+1. **Inlined appends** - the list append the loader uses is open-coded: a 0x10-byte node, the tail at +0xD4 replaced,
+   the count at +0xD8 raised. Every `mov [reg+0xD4], r` followed within 48 bytes by `mov [reg+0xD8], r` on the same
+   base register: 58 functions in the image, of which the only ones on a combatant are CLandCombatant's constructor
+   (the empty list) and CLandCombatant::LoadKey's `retreat` arm - **the positive control**.
+2. **Through a helper** - every `lea reg, [reg+0xD0]` whose function is named for combat, a retreat, the front or the
+   reserves, or lies in the battle code (VA 0x55E000-0x580000): only CLandCombatant::RemoveUnit (twice, to
+   CList_RemoveNode); the rest are another class's field at that offset in the battle window's views.
+3. **Every read** of +0xD0, +0xD4 or +0xD8 and every `add reg, 0xD0` in the battle code: the list's own touches are
+   CLandCombatant::UpdateFrontLine (the list walked, a unit that can fight unlinked, freed and the count lowered at
+   0x56C1A9), CLandCombatant::IsSpent (averaged with the front), RemoveUnit, SaveContents, AfterLoad and LoadKey. The
+   +0xD0 CUnit::RetreatFromCombat reads (0x565823) is a province's id, not the list.
+
+**So the list is a vestige**: in a game it is always empty, a save never holds one, and a retreat ordered by hand -
+which takes the unit off its side at once and marches it out with the unit's own `retreat=yes`, as the maintainer's
+saves show - never touches it. A loaded save that held one would have its units moved to the reserves at the next
+hour where they can fight. A rewrite that holds no such list behaves as the original does in every game that can
+arise; it needs only to read `retreat` without fault.
+
+**What is not settled**: an append through a pointer computed some other way - a stack copy of `this + 0xD0`, or an
+offset reached by a register sum - is not excluded by these scans; none was seen in the functions read.
+
 ## B. Bombings, finished battles and sunk ships in a save
 
 *Reader B, saved-battle wave, 2026-11-05. Read statically out of `hoi3_tfh.exe` with `disasm.py`, `findRefs.py` and `vtable.py`, and set against the 33 saves in the maintainer's `save games` folder. **[exe]** is hardcoded in the executable, **[mod: file]** a file may change it. Reader A has the shared combat keys (`location`, `day`, `duration`, `terrain`, `dice`, `unit`, `losses`, `size`, `tactic`) and the general rebuild of a battle; this section says where a bombing differs.*

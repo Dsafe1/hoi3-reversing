@@ -227,6 +227,18 @@ So **a patrol visits the sea provinces around its province one after the other, 
 the province's edges, coming back to the middle after the last**, taking one step each hour it
 finds itself with no path.
 
+**When there is no way** (added 2026-11-05, read from `0x59CCD7`-`0x59CD7B`): the "go to its
+province" arm asks the fleet's slot 35 (`CUnit::CanMoveTo`) twice - once before reading the
+fleet's province and once after - and does nothing if either says no; past that it runs the safe
+naval search into a list on the stack and hands that list to `SetUnitPath(fleet, list, clear = 1)`
+**whether or not a way was found**. And `SetUnitPath` with `clear` zeroes `movement_progress` and
++0x154 where the unit's old path is empty or the new one is (`0x5C9B25`-`0x5C9B49`: `+0x140`
+nought, or the new list's count nought, jumps straight to the zeroing). So a patrol whose fleet may
+go but finds no way loses the progress left from its last voyage, every hour; one told no by
+`CanMoveTo` keeps it. The Ireland game's saves of 16 July 1941 show the second: the Soviet Red
+Banner Baltic Fleet at Murmansk, patrolling the Gulf of Riga, keeps 0.916 all day. What in
+`CanMoveTo` refuses that fleet was not read.
+
 **Shadowing** - `0x59CE10` (`(order)`, `ret 4`), every hour after the move:
 
     the fleet it shadowed, if any: that fleet's byte +0x95 is cleared, the reference emptied
