@@ -229,11 +229,13 @@ reading reached:
 
 ## Not established
 
-- **What the gui's `+0x98` is, exactly.** It is read as the element under the mouse because that is
-  what is asked for its tooltip and its shortcut; its writer was not read.
+- ~~**What the gui's `+0x98` is, exactly.** It is read as the element under the mouse because that is
+  what is asked for its tooltip and its shortcut; its writer was not read.~~ **Settled 2026-11-05**
+  (`FINDINGS-editbox.md`, section 9): its writer is `CGuiObject::OnPointerOver` (slot 0), cleared each pass.
 - **Whether slot 24's corner is in screen coordinates** (section 5) - `inferred`.
 - **What `+0xAC` of a text box is** - `inferred` the border.
-- **How the layout at `0xACBB90` breaks lines** - at spaces, presumably, as the box's own layout
-  does; not read.
+- ~~**How the layout at `0xACBB90` breaks lines** - at spaces, presumably, as the box's own layout
+  does; not read.~~ **Settled 2026-11-05** (`FINDINGS-editbox.md`, section 6): it is `CTextLayout`, which wraps at the
+  last space that fits against its width less one `O` (*likely*).
 - **Who reads `CGuiType +0x5C`/`+0x60`** at hover time. Moot while no file sets them.
 - **`CFrontEnd` slot 20**, and the branches of section 5's steps 1 to 6.

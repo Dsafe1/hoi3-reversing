@@ -366,7 +366,8 @@ fleet in it (only the army should be selected); Shift+drag after selecting a pro
 then 1, then 1 again.
 
 **Frontier** (rvas): `0x92850` (CMap screen-to-ground), `0x2754B0` (the right-click menu), `0x266680` (slot 110),
-`0x24C020` (slot 47, Home), `0x1CB630`, `0x6800D0` (which key downs are queued), `0x4558F0` (the province under the
+`0x24C020` (slot 47, Home), `0x1CB630`, ~~`0x6800D0` (which key downs are queued)~~ (read, `FINDINGS-editbox.md`
+section 3, `KeyEvent_IsNavigationKey`), `0x4558F0` (the province under the
 pointer), `0x1D2A00` (the theatre of the selected unit, mode 17), ~~`0x34DB5B` and `0x3572C8` (the other callers of
 `CUnit::SelectSubordinates`)~~ (read, A.12), `0xB88C0` (`CProvinceBuilding::OnSelected`, read only as far as the
 picture highlight).

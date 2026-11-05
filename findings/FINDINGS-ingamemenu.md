@@ -470,8 +470,11 @@ builds the front end's `savegameentry` rows in the lobby's `save_games_list` (VA
   `debug_saves` branch uses the same function;
 - **multiplayer [exe]**: where `CInGameIdler +0x68` is set, `mp_` in front.
 
-After writing it the box is given an unread edit-box routine (`0x690140`) and its word `+0x40` set to 1 (*inferred*: the
-caret and the keyboard's focus). **`filename_label`** shows its file text MENU_BAR_SAVE_GAME_FILENAME ("Saved game
+After writing it the box is given ~~an unread edit-box routine (`0x690140`) and its word `+0x40` set to 1 (*inferred*: the
+caret and the keyboard's focus)~~ **corrected 2026-11-05 by `FINDINGS-editbox.md`**: `0x690140` is
+`EditBox_RefreshText`, which hands the box's display the line the caret is on, and the word `+0x40` = 1 is `clicked`,
+the request for the keyboard the gui's input pass grants at the end of the frame - the store is how the dialog gives
+`game_name` the focus. **`filename_label`** shows its file text MENU_BAR_SAVE_GAME_FILENAME ("Saved game
 filename:") [mod: menubar.gui, localisation]; the exe holds neither the element's name nor the key, so no code touches
 it.
 
@@ -547,7 +550,8 @@ saves locally).
 
 ### C.10 Not established
 
-- What writes settings `+0xA4`; `0x690140` and the edit box's `+0x40`; the row checkbox's bytes `+0xD8` and `+0x136`.
+- What writes settings `+0xA4`; ~~`0x690140` and the edit box's `+0x40`~~ (read, `FINDINGS-editbox.md`); the row
+  checkbox's bytes `+0xD8` and `+0x136`.
 - Which of `cancel` and the key handler takes Escape.
 - `userdir.txt`'s reader (`0x66ADB0`); how a name of high bytes or of illegal characters fares in `PHYSFS_openWrite`;
   `VirtualFile_Open`'s read branch; the sort loop at `0x23B160`.

@@ -25,10 +25,10 @@ how many objects a census found (taken 2026-09-20).
 
 | | classes |
 | --- | --- |
-| `read` | 141 |
+| `read` | 142 |
 | `placed` | 142 |
 | `keys` | 78 |
-| `part` | 152 |
+| `part` | 151 |
 | `named` | 5 |
 | `RTTI` | 623 |
 | **all** | **1141** |
@@ -1253,8 +1253,8 @@ Windows, pages, sprites and the map's own drawing.
 | `CExpeditionaryForceDialog` | `CEU3Dialog` |  |  |  |  |  |  | RTTI |  |
 | `CFixedWindow` | `TWindow` |  | 32 |  | 19 |  |  | read |  |
 | `CFont` | `CPersistent` |  |  |  |  |  |  | RTTI |  |
-| `CGui` | `TGui` `CPersistent` `CFactory` |  | 8 |  | 1 |  |  | read |  |
-| `CGuiObject` | `TCollisionObserver` |  | 4 |  |  |  |  | part |  |
+| `CGui` | `TGui` `CPersistent` `CFactory` |  | 11 |  | 2 |  |  | read |  |
+| `CGuiObject` | `TCollisionObserver` |  | 9 |  | 2 |  |  | read |  |
 | `CGuiType` | `CPersistent` |  | 3 |  | 1 |  |  | keys |  |
 | `CLawChangeConfirmDialog` | `CEU3Dialog` | 0x74 | 3 |  | 4 |  |  | part |  |
 | `CLicenceTechnologyDialog` | `CEU3Dialog` | 0x138 | 7 |  | 10 |  |  | read |  |

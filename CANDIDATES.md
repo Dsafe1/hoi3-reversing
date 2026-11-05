@@ -1406,7 +1406,7 @@ of it.
 
 ## What has already been read
 
-186 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
+187 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
 header lives. This replaces the `Done` archive: the archive restated each file's headline and named
 only 40 of the 67 there were then, so it was both longer and less useful than a complete list.
 
@@ -1611,6 +1611,7 @@ the six it was missing were wave 15's.
 | `findings/FINDINGS-triggereval.md` | how a condition **answers**: slot 6, `CEventScope`, and the absence of any cache |
 | `findings/FINDINGS-script.md` | the event script language: 152 trigger keywords and 91 effect keywords |
 | `findings/FINDINGS-fieldmap.md` | which field each key lands in |
+| `findings/FINDINGS-editbox.md` | the edit box: how it takes the keyboard, the characters it refuses and its 250-byte cap, the six editing keys, the caret's half-second blink, and the one wrapped line it shows |
 | `findings/FINDINGS-effects.md` | the effect half: what each of the 91 effect keywords does when it fires |
 | `findings/FINDINGS-numtriggers.md` | the 78 numeric leaves, what they compare, and the three scales their operands are on |
 | `findings/FINDINGS-scopetriggers.md` | the scope and set triggers, and what `ally` really scopes to |
