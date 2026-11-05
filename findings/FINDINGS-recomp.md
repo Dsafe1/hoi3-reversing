@@ -210,6 +210,38 @@ returns to the kernel without popping the 4 bytes a `WINAPI` routine owes. That 
 Not read: who writes `+0xC`, who derives from `WinThread`, and which objects are its runnables.
 Neither of `Start`'s callers was found; its only reference is the table.
 
+## 10. Live: what one session raised
+
+Measured 2026-11-05 with BiceLib's `BiceLib.Reversing.countThrows()`, a vectored exception
+handler that records and passes everything on. The session: BlackICE, the maintainer's test
+game, "over a year" of play. The handler was switched on from `bicelib_lua.lua` outside a
+game. **The probe is gone**: the maintainer took it out of BiceLib again the same day, so the mod
+does not carry it, and it is in neither the mod's history nor this repository. Measuring again
+means writing it again. `BiceLibThrows.csv` was last written 427.9 s after that, and the file is rewritten
+only when something new is counted. **So nothing was raised in the rest of the session.**
+
+| code | what | raised in | from | count | in game | render thread | first, last (s) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `0x40010006` | debug print | `0x70B7DF` | `0x70B2A9` | 152,117 | 33 | 152,115 | 0.2, 427.9 |
+| `0xE06D7363` | C++ `luabind::error` | `0x798993` | `0x49E589` | 1 | 1 | 0 | 134.9 |
+
+- **The one C++ throw is a script error.** `0x49E589` is in `LuaForeignMinisterTick_Call`
+  (`0x49E530`), whose record already says a Lua error there throws `luabind::error`, caught by
+  `DoWork` and reported. It came off the render thread - the AI's ministers run on TBB's
+  workers (`FINDINGS-aisched.md`) - and the game went on.
+- **The positive control holds**: `raised_in` `0x798993` is inside `_CxxThrowException`
+  (`0x79894B`), 0x48 bytes in, so the walk reached the throw site.
+- **The debug prints are the game's log, mirrored to the debugger.** `0x70B7D9` is
+  `call OutputDebugStringA` in `0x70B3B0`, reached through a virtual call at `0x70B2A7` in
+  `0x70B260`. Windows raises and handles that exception inside `OutputDebugStringA`, so it
+  never reaches a game frame. 152,084 of them came outside a game - the start-up and the load.
+  Neither function was read further, and neither is in `project.json`.
+- **No fault was raised at all** - no access violation, so nothing in the session leaned on a
+  `__try`.
+
+Not covered: anything before `bicelib_lua.lua` ran. A `CDatabaseException` while the
+databases load would be missed if it came earlier.
+
 ## What would show this wrong
 
 The counts are the Ghidra project's. A function it never found is missing from every row, and a
