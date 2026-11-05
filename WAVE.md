@@ -17,6 +17,34 @@ truth.
 
 ---
 
+## The saved-battle wave - what a battle in a save holds, and what a load rebuilds of it
+
+> **LANDED 2026-11-05**, launched on the maintainer's word ("Go ahead") for OpenHOI3's savegame loader, whose third
+> increment had read everything of a save but the battles. Two fragments merged (20 address entries new, 14 revised; 22
+> struct fields); the write-up is `findings/FINDINGS-savedbattle.md`, indexed in `CANDIDATES.md`. **Corrected**:
+> `CLandCombatant::LoadKey` reads `retreat` too, naval `positioning` is fixed point, the battle's AfterLoad sets up the
+> attacker's front twice and the defender's never, and the "second `type=`" in a history entry was a census artefact.
+> Left open: readers of a side's own-countries list and casualty vectors, what sets a side's "lost" byte, and whether a
+> new game (not a load) empties the finished battles.
+
+**The question, for OpenHOI3**: the savegame wave named every key the battle readers' switches take
+(`CCombat::LoadKey` rva `0x16E0B0`, `CCombatant::LoadKey` `0x164DD0`, the land, naval, air and bomber combatants'
+`0x169040`, `0x168D80`, `0x16DED0`, `0x15FDF0`, `CCombatHistoryEntry::LoadKey` `0x2F5F0`) and recorded the writers
+(`CCombatManager::SaveContents` `0x2FC00`, `CCombat::SaveContents` `0x16E210`, the history's `0x2FAB0`, `0x2F410`), but
+not **which field each key fills, what index orders each array, when each key is written, and what a load rebuilds**
+of everything a battle holds that the save does not. `CCombat` and `CCombatant` are already well fielded in the record.
+The oracle is the maintainer's saves: `Ireland1938_08_03_14.hoi3` has 4 land battles and 3 land bombings,
+`Germany1936_09_02_21.hoi3` a ground bombing, `Ireland1936_02_02_04.hoi3` an air battle, a land bombing and a land
+battle, `Ireland1937_07_05_02.hoi3` and `_11_02_21` a naval battle; no save has a naval bombing. The finished battles'
+`type` runs 1 to 6 across them.
+
+| reader | brief | fragment |
+| --- | --- | --- |
+| **A** | **A live battle and its sides**: CCombat's and CCombatant's keys to fields (`day`, `duration`, `dice`, `unit`, `losses`, `size` and its index, `tactic` and what it indexes, `sunk_ship`), the land side's `front` and `reserves`, the naval and air sides' `positioning`; each combatant's SaveContents in order with its conditions; how `CCombatManager::LoadKey` makes each kind; and **every AfterLoad and Enter-time step that rebuilds what is not saved** - a unit's own list of battles, the retreat list, `front_set_up`, the tactic figures, `begun`/`concluded`/`ended`, `is_convoy_battle`, the casualty vectors, the target lists, `positioning_roll`, the combat modifiers. | `saved-battle.json` |
+| **B** | **Bombings, finished battles and sunk ships**: CBomberCombatant's `strength`, `building`, `pool` and `current_producing` - field, length and index order of each; which bombing kind is which and how a bombing's sides differ from a battle's; `CCombatHistoryEntry`'s `type` numbering (1 to 6) and `convoy`, how its list is kept and pruned; and the top-level `sunk_ships` block, writer and reader, what each entry holds and what refers to it. | `saved-bombing.json` |
+
+---
+
 ## The savegame wave - how a game is loaded and saved
 
 > **LANDED 2026-11-04**, launched on the maintainer's word ("Ok go ahead") after he chose for OpenHOI3 the original's

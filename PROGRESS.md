@@ -116,7 +116,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CAddWarGoalAction` | `CWarGoalBaseAction` |  |  |  | 5 |  |  | RTTI |  |
 | `CAir` | `CUnit` |  |  |  | 13 |  | 2,052 | keys |  |
 | `CAirCombat` | `CCombat` |  |  | 4/6 | 4 |  | 4 | RTTI |  |
-| `CAirCombatant` | `CCombatant` | 0x10B4 | 2 |  | 7 |  | 28 | keys |  |
+| `CAirCombatant` | `CCombatant` | 0x10B4 | 2 |  | 8 |  | 28 | keys |  |
 | `CAirConvoyRaid` | `CAirOrder` |  |  |  | 3 |  |  | RTTI |  |
 | `CAirInterceptOrder` | `CAirOrder` |  |  |  | 11 |  | 208 | RTTI |  |
 | `CAirInterdictionOrder` | `CAirOrder` |  |  |  | 4 |  |  | RTTI |  |
@@ -138,7 +138,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CBombLogisiticsOrder` | `CAirOrder` |  |  |  | 5 |  |  | RTTI |  |
 | `CBombRunwayOrder` | `CAirOrder` |  |  |  | 5 |  |  | RTTI |  |
 | `CBombTargetCombatant` | `CCombatant` |  |  |  |  |  |  | RTTI |  |
-| `CBomberCombatant` | `CCombatant` | 0x10E8 | 6 | 1/4 | 5 |  | 24 | read |  |
+| `CBomberCombatant` | `CCombatant` | 0x10E8 | 6 | 1/4 | 7 |  | 24 | read |  |
 | `CBombing` | `CCombat` |  |  |  |  |  |  | RTTI |  |
 | `CBookmark` | `CPersistent` |  |  | 3/7 | 1 |  | 4 | placed | **read**: `bookmarks.txt`, 7 keys |
 | `CBrigadeConstructionDefinition` | `CPersistent` |  | 9 + 1 lua | 5/7 | 5 | CConstruction.hpp | 4,192 | read |  |
@@ -160,7 +160,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CCombatHistory` | `CPersistent` |  | 4 |  | 4 | CCombatManager.hpp | 1 | keys |  |
 | `CCombatHistoryEntry` | `CPersistent` |  | 10 | 5/6 | 3 |  | 413 | read |  |
 | `CCombatManager` | `CPersistent` |  | 3 | 1/7 | 9 | CCombatManager.hpp | 1 | placed |  |
-| `CCombatant` | `CPersistent` |  | 23 | 4/6 | 20 | CCombat.hpp |  | read |  |
+| `CCombatant` | `CPersistent` |  | 23 | 4/6 | 21 | CCombat.hpp |  | read |  |
 | `CConstruction` | `CReferenceObject` |  | 13 + 2 lua |  | 6 | CConstruction.hpp |  | read |  |
 | `CConvoy` | `CReferenceObject` |  | 22 + 3 lua | 6/13 | 18 | CConvoy.hpp | 839 | read |  |
 | `CConvoyConstruction` | `CConstruction` |  | 1 | 1/1 | 6 | CConstruction.hpp | 40 | placed |  |
@@ -201,7 +201,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CGraphStatistics` | `CPersistent` |  |  |  | 2 |  | 3 | keys |  |
 | `CGraphics` | `CFactory` `CPersistent` |  | 10 |  | 2 |  |  | read |  |
 | `CGroundAttackOrder` | `CAirOrder` |  |  |  | 6 |  | 6 | RTTI |  |
-| `CGroundBombing` | `CBombing` |  |  | 4/6 | 2 |  |  | RTTI |  |
+| `CGroundBombing` | `CBombing` |  |  | 4/6 | 3 |  |  | RTTI |  |
 | `CGroundTargetCombatant` | `CBombTargetCombatant` |  |  | 4/6 | 1 |  | 1 | RTTI |  |
 | `CGuarantee` | `CRelation` |  | 1 | 5/5 | 2 |  | 79 | part |  |
 | `CGuaranteeAction` | `CDiplomaticAction` |  |  | 5/6 | 7 |  | 1,737 | RTTI |  |
@@ -214,9 +214,9 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CJoinAirOrder` | `CAirOrder` |  |  | 1/1 | 4 |  | 4 | placed |  |
 | `CJoinFactionGoalAction` | `CWarGoalBaseAction` | 0x5C | 1 | 1/1 | 6 |  |  | placed |  |
 | `CJoinFleetOrder` | `CNavalOrder` |  |  |  | 4 |  | 7 | keys |  |
-| `CLandBombing` | `CBombing` |  |  | 4/6 | 2 |  | 6 | RTTI |  |
+| `CLandBombing` | `CBombing` |  |  | 4/6 | 3 |  | 6 | RTTI |  |
 | `CLandCombat` | `CCombat` |  |  | 4/6 | 4 |  | 80 | RTTI |  |
-| `CLandCombatant` | `CCombatant` | 0xE4 | 3 | 2/2 | 15 |  | 324 | placed |  |
+| `CLandCombatant` | `CCombatant` | 0xE4 | 3 | 2/2 | 17 |  | 324 | placed |  |
 | `CLandTargetCombatant` | `CBombTargetCombatant` |  |  | 4/6 | 1 |  | 13 | RTTI |  |
 | `CLargefileHandlerInterface` | `CReferenceObject` |  |  |  |  |  |  | RTTI |  |
 | `CLeader` | `CReferenceObject` | 0xD0 | 17 | 10/16 | 12 | CLeader.hpp | 24,137 | read |  |
@@ -236,9 +236,9 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CMoveOrder` | `COrder` |  |  | 5/10 | 7 |  |  | RTTI |  |
 | `CNap` | `CRelation` | 0x30 | 3 |  | 5 |  | 13 | keys |  |
 | `CNapAction` | `CDiplomaticAction` |  |  | 5/6 | 9 |  | 904 | RTTI |  |
-| `CNavalBombing` | `CBombing` |  |  | 4/6 | 2 |  | 2 | RTTI |  |
+| `CNavalBombing` | `CBombing` |  |  | 4/6 | 3 |  | 2 | RTTI |  |
 | `CNavalCombat` | `CCombat` |  |  | 4/6 | 7 |  |  | RTTI |  |
-| `CNavalCombatant` | `CCombatant` |  | 2 | 1/1 | 7 |  | 4 | placed |  |
+| `CNavalCombatant` | `CCombatant` |  | 2 | 1/1 | 8 |  | 4 | placed |  |
 | `CNavalInterceptOrder` | `CNavalOrder` |  |  | 1/1 | 5 |  | 2 | RTTI |  |
 | `CNavalInvasionOrder` | `CNavalOrder` | 0x4C | 1 | 1/2 | 6 |  | 1 | placed |  |
 | `CNavalOrder` | `COrder` |  | 5 | 1/5 | 8 | COrder.hpp |  | read |  |
@@ -290,7 +290,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CSetRandomSeed` | `CCommand` |  |  |  | 1 |  | 1 | keys |  |
 | `CSettings` | `CSystemSettings` |  |  | 5/10 | 4 |  | 1 | placed |  |
 | `CShareTechnologyAction` | `CDiplomaticAction` |  |  | 1/1 | 7 |  |  | placed |  |
-| `CShip` | `CSubUnit` |  | 1 | 1/1 | 3 |  | 3,305 | placed |  |
+| `CShip` | `CSubUnit` |  | 1 | 1/1 | 4 |  | 3,305 | placed |  |
 | `CSoundConfigurator` | `CPersistent` |  |  |  |  |  |  | RTTI |  |
 | `CStartGame` | `CCommand` |  |  |  | 1 |  | 1 | RTTI |  |
 | `CStrategicBombOrder` | `CAirOrder` |  |  |  | 6 |  | 1 | RTTI |  |
@@ -372,7 +372,7 @@ Definitions out of `common/` and the rest of the mod. Their `LoadKey` is the gra
 | `CLawGroup` | `PAVCLaw::__CList` `CPersistent` |  | 4 + 2 lua |  | 1 |  | 8 | keys |  |
 | `CLocalIntelBoost` | `CIntEffect` |  |  | 3/91 | 2 |  | 9 | RTTI |  |
 | `CMTTHModifier` | `CAndTrigger` |  | 1 | 1/1 | 1 |  | 650 | placed |  |
-| `CMap` | `CPersistent` `CReloadableInterface` |  | 42 | 15/22 | 17 | CMap.hpp | 2 | read | the map load rather than a `common/` file |
+| `CMap` | `CPersistent` `CReloadableInterface` |  | 42 | 15/22 | 18 | CMap.hpp | 2 | read | the map load rather than a `common/` file |
 | `CMasked3dFlagType` | `C3dObjectType` |  |  | 1/4 | 1 |  | 1 | placed |  |
 | `CMaskedSpriteType` | `CSpriteType` |  |  |  | 1 |  | 12 | keys |  |
 | `CMeanTimeToHappen` | `CPersistent` | 0x1C | 2 | 5/5 | 3 |  | 9,821 | placed | **read**: the MTTH grammar every event and decision is timed by |
@@ -917,7 +917,7 @@ One class per effect, trigger, command and decision the event scripts can use. E
 | `CDiplomaticActionCommand` | `CCommand` |  |  |  | 3 |  | 6 | keys |  |
 | `CDiplomaticEffect` | `CEffect` |  | 1 |  |  |  |  | part |  |
 | `CDisbandCommand` | `CCommand` |  |  | 1/1 | 3 |  | 1 | placed |  |
-| `CDisbandRegimentCommand` | `CCommand` |  |  | 1/1 |  |  | 1 | RTTI |  |
+| `CDisbandRegimentCommand` | `CCommand` |  |  | 1/1 | 1 |  | 1 | RTTI |  |
 | `CDissentChange` | `CCountryHistoryEntry` |  | 2 |  | 3 |  |  | part |  |
 | `CDissentEffect` | `CValueEffect` |  |  | 3/91 | 2 |  | 638 | RTTI |  |
 | `CDissentTrigger` | `CValueTrigger` | 0x44 |  | 2/153 | 2 |  | 50 | RTTI |  |
