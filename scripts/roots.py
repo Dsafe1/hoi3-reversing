@@ -1,4 +1,4 @@
-"""The six roots the fact base resolves things against, found rather than counted.
+"""The five roots the fact base resolves things against, found rather than counted.
 
     python scripts/roots.py            # what resolved, and how each one was found
     python scripts/roots.py --json
@@ -15,7 +15,7 @@ So the roots are found by **marker**: a folder is the mod if it holds `history/c
 install if it holds `hoi3_tfh.exe`. A marker survives a move, a rename and a differently
 nested checkout, and when it finds nothing it says so instead of guessing.
 
-## The six
+## The five
 
 | root | marker | who needs it |
 | --- | --- | --- |
@@ -24,10 +24,6 @@ nested checkout, and when it finds nothing it says so instead of guessing.
 | `MOD` | `history/countries` | `dupekeys.py`, `definesMap.py` read the mod's own data |
 | `GAME` | `hoi3_tfh.exe` + `tfh` + `common` + `history` | `image.py` and friends read the executable |
 | `OPENHOI3` | `project.godot` | `checkrefs.py` checks the findings citations written there |
-| `RECOMP` | `recomp-target.json` | `checkrefs.py` checks Hoi3Recomp's citations too; added 2026-11-05 |
-
-`RECOMP`'s marker is the file pinning the one executable that project lifts, so it describes
-that project and nothing else.
 
 `MOD` is derived from `BICE` by walking up rather than searched for, because the install also
 has a `common/` and a `history/` and would match a looser marker. The DLL project sits inside
@@ -37,7 +33,7 @@ old `..` count meant, said in a way that survives the project moving.
 ## Precedence, highest first
 
 1. an environment variable - `HOI3_REVERSING`, `HOI3_BICE`, `HOI3_MOD`, `HOI3_GAME`,
-   `HOI3_OPENHOI3`, `HOI3_RECOMP`. `HOI3_EXE` is still honoured and names the executable, not its folder.
+   `HOI3_OPENHOI3`. `HOI3_EXE` is still honoured and names the executable, not its folder.
 2. `roots.json` beside `ghidra/`, which is git-ignored because it is machine-specific.
    `roots.example.json` is committed and shows the shape.
 3. discovery by marker, over this tree's ancestors and their immediate children - which is
@@ -76,7 +72,6 @@ MARKERS = {
     "MOD": (os.path.join("history", "countries"), ".git"),
     "GAME": ("hoi3_tfh.exe", "tfh", "common", "history"),
     "OPENHOI3": ("project.godot",),
-    "RECOMP": ("recomp-target.json",),
 }
 
 # Folders not worth descending into when searching *inside* an identified root: the mod's and
@@ -261,7 +256,6 @@ BICE = _FOUND["BICE"]
 MOD = _FOUND["MOD"]
 GAME = _FOUND["GAME"]
 OPENHOI3 = _FOUND["OPENHOI3"]
-RECOMP = _FOUND["RECOMP"]
 
 
 def root(name):

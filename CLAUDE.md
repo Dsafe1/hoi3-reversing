@@ -34,15 +34,8 @@ to both.
     BiceLib            depends on this one - offsets and prose both
     OpenHOI3           depends on this one - PROSE ONLY, never a build-specific offset
     OpenHOI3           never depends on BiceLib
-    Hoi3Recomp         depends on this one - offsets and prose both, as BiceLib does
-    OpenHOI3           never depends on Hoi3Recomp
 
-**Hoi3Recomp is the third consumer, added 2026-11-05**: a static recompilation of the shipped
-executable to C, for Windows. It reads offsets here, never in BiceLib's headers. What it needs
-read is read here and entered in `project.json` like anything else.
-`findings/FINDINGS-recomp.md` is the census it was started on.
-
-The fourth line of the rule is the one worth stating, because the tempting shortcut - "the DLL already worked
+The last line is the one worth stating, because the tempting shortcut - "the DLL already worked
 this out, read its header" - imports build-specific offsets into a project whose whole premise
 is its own technology.
 
@@ -54,7 +47,7 @@ the evidence for it.
 
 ## Where the other repositories are
 
-`python scripts/roots.py` prints it. Six roots, each found by a **marker** rather than by
+`python scripts/roots.py` prints it. Five roots, each found by a **marker** rather than by
 counting `..` levels, because counting is exactly what a move breaks and it breaks it silently -
 the join still yields a path, just the wrong one.
 
@@ -65,7 +58,6 @@ the join still yields a path, just the wrong one.
 | `MOD` | `history/countries` + `.git` | `scripts/dupekeys.py`, `scripts/definesMap.py` read the mod's data |
 | `GAME` | `hoi3_tfh.exe` + `tfh` + `common` + `history` | `scripts/image.py` and friends read the executable |
 | `OPENHOI3` | `project.godot` | `scripts/checkrefs.py` checks the findings citations written there |
-| `RECOMP` | `recomp-target.json` | the same, for Hoi3Recomp's; added 2026-11-05 |
 
 `$HOI3_<NAME>` overrides any of them, then `roots.json` (git-ignored; `roots.example.json` is
 the template), then discovery. **A marker has to describe the real thing, not merely appear in
