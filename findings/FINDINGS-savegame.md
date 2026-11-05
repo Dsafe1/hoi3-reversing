@@ -645,11 +645,15 @@ The order is fixed [exe]; bracketed keys only when the condition holds:
 [`path` {ids} - when not empty]; [`location`]; [`retreat=yes`]; [`dig_in` - when above 0]; [`attack_delay` - when above
 0]; [`combat_hours` - when above 0]; `is_prioritized`, `can_reinforce`, `can_upgrade` (yes/no), `fuel`, `supplies`
 (fixed); the brigades - `regiment`, `ship` or `wing`, each by its own Save; the child units (C.3); [the order, under its
-own key]; [`start_date`, `end_date` - date strings, when not the null date]; [`disengage` + `possible_retreat` - when
-disengage above 0]; [`track=yes` - CUnit +0x95, shadowed by a patrol]; [`was_paradropped=yes`]; [`plan` - only while the
+own key]; [`start_date` - a date string, when not the null date]; [`disengage` + `possible_retreat` - when disengage
+above 0]; [`end_date` - when not the null date]; [`track=yes` - CUnit +0x95, shadowed by a patrol]; [`was_paradropped=yes`]; [`plan` - only while the
 plan is active and the unit is a corps or above; in all saves only theatres have one]; [`expeditionary_owner` +
 `expeditionary_date`]; [`aggression_enabled=yes` + `aggression_setting`]; [`country_intel` { flattened (country,
 duration, level) triples }]. **`is_reserve` is read but never written at unit level.**
+
+*Corrected 2026-11-05, measured and not re-read in the bytes*: this said `start_date` and `end_date` came together and
+the disengage pair after both. In every save where a unit has all four - 14 fleets in four saves of 1936 to 1941, found
+by OpenHOI3's writer setting its output beside them - the pair stands **between** the two dates.
 
 Each level's own tail: **CArmy** [`target` above 0], [`staging_province` above 0], [`parent` {id type} - only when
 carried by a fleet or by air]; **CNavy** each carried unit under its level key, then `at_sea` (the after-battle wait),
@@ -697,15 +701,20 @@ Every order writes COrder's keys: [`province`], [`target` - when not the null pa
 **Naval orders** add their own `return_to_base` and `priority` again, then `capital`, `sub_unit`, `other` (on load both
 copies go into CNavalOrder's own fields). Tails: `patrol` - `provinces`, an {id type} reference to the fleet it shadows,
 always written, followed by a blank line; `convoy_raid` - `attack`; `join_fleet` - `join_fleet` {id type}; `intercept` -
-`provinces` {id type}, only if the target resolves; `sortie` - `start`, one `provinces` line each, `current`;
+`provinces` {id type} - its own reference, the fleet its search found, not COrder's `target` - only where that resolves, followed by a blank line too; `sortie` - `start`, one `provinces` line each, `current`;
 `convoy_escort` - `province`, `direction`, `convoy`; `rebase`, `reserves`, `transport` - nothing more; `invasion` -
 `transport` (recorded).
 
 **Air orders** add `return_to_base` and `priority` a second time (the same fields), then one `provinces = N` line each,
 then `<air type>=N.000` for every type with `type = air` [mod: units], the int times 1000, read back with `%i`. Tails:
 `paradrop_mission` - **`message` first, before the base keys**; `rebase_to_carrier` - `carrier_target`; `join_air` - a
-second `target`, which on load takes both; `nuke_mission` - `nukes`; `transport_supplies_mission` - `supplies` and
+second `target`, which on load takes both, followed by a blank line; `nuke_mission` - `nukes`; `transport_supplies_mission` - `supplies` and
 `fuel`.
+
+*The two blank lines added 2026-11-05 are measured in the saves, not read in the bytes*: all 28 `join_air` blocks of the
+maintainer's 45 saves end in one, and the 3 of 6 naval `intercept` blocks that write `provinces`, where none of the
+other order blocks - 7,198 of 14 kinds, the other intercepts among them - but `patrol`'s 1,230 has one. What an
+intercept's `provinces` is, and why three write none, is C.11.
 
 Others: `support_attack` - `combat=yes` only after it has joined its battle; `strategic_redeployment` - the plain COrder
 keys; `none` is never written; `move_order` would be written but is in none of the 45 saves, a right-click move setting a
@@ -777,3 +786,80 @@ AfterLoads: CUnit `0x1B80D0` (revised), CSubUnit `0x1A9130`, CMilitaryConstructi
 - For OpenHOI3: `historical_model` is absent from every save, so a save's brigades must not have their historical model
   applied again.
 - Frontier: the date formatter `0x4C710` and the decimal-to-15-bit converter `0x6697F0`.
+
+### C.11 Three questions from the writer: the order keys nothing holds, a deployment's number, an intercept's fleet
+
+*Read 2026-11-05, statically, for OpenHOI3's save writer, and set against the maintainer's 45 saves.*
+
+**Synopsis.** OpenHOI3's writer left out the order keys it holds nothing of, and asked what the original does without
+them and whether anything reads them; what number a deployment needs; and when an intercept writes its fleet. **The
+naval order's `capital`, `sub_unit` and `other` are nought for good**: the constructor zeroes them and the routine meant
+to count a fleet's ships into them counts into a by-value copy and keeps nothing. **An air order's figure per unit type
+is a vector of noughts** the constructor sizes to the unit database. **`stop` is -1.000 from every constructor**, the
+stance's organisation limit where CSetOrderCommand gives the order, and **read by nothing found but the writer**. A
+deployment's number was already in the record (section 4 of `FINDINGS-buildqueue.md`): its unit's number and one,
+and one loaded with none is never registered and cannot be found. **Corrected**: an intercept's `provinces` is not its
+target resolving or not - it is a reference of its own, the fleet its search found, apart from COrder's `target`.
+
+| rva | name | new or revised | confidence | one line |
+| --- | --- | --- | --- | --- |
+| 0x19A900 | CNavalOrder::CNavalOrder | new | confirmed | every naval order's constructor: stop -1000, capital, sub_unit and other nought, then the count that keeps nothing |
+| 0x19B170 | CNavalOrder_CountShipsByKind | new | confirmed | counts capital ships, submarines and the rest but transports into its own by-value arguments; the counts are lost |
+| 0x188D40 | CAirOrder::CAirOrder | new | confirmed | every air order's constructor: stop -1000, by_unit_type made at the database's size |
+| 0x1888B0 | CAirOrder_MakeByUnitType | new | confirmed | a vector of one int per unit type, every one nought |
+| 0x19E130 | CNavalInterceptOrder::SaveContents | revised | confirmed | `provinces` is the intercept's own reference (+0x48, its pair +0x4C/+0x50), not COrder's `target` |
+
+| struct | offset | name | type | new or revised |
+| --- | --- | --- | --- | --- |
+| COrder | 0x24 | stop | int | revised - every constructor's -1000, the command's stance limit, the engine's own orders, no reader found |
+| CNavalOrder | 0x3C | capital | int | revised - nought for good but from a save |
+| CNavalOrder | 0x40 | sub_unit | int | revised - the same |
+| CNavalOrder | 0x44 | other | int | revised - the same |
+| CAirOrder | 0x34 | by_unit_type | int* | revised - the begin of a vector at the database's size, all nought; the live "null" not reconciled |
+
+**`capital`, `sub_unit`, `other`** [exe]. `CNavalOrder::CNavalOrder` writes COrder's defaults, then nought into all
+three, copies the three onto the stack and calls `CNavalOrder_CountShipsByKind` with them. That walks the fleet's
+ships and adds one to the first for a capital ship (`is_capital`), else to the second for a submarine (`is_sub`), else to
+the third for anything not a transport (`is_transport`), each `add [ebp+N], 1` into its own argument slot, and returns
+with `ret 0xC`. Nothing stores the counts back. So outside a save the three are nought for ever, which every one of the
+1,594 naval orders in the saves bears out, and **a block that leaves them out loads the same as one that writes them
+nought**.
+
+**The air order's figure per unit type** [exe]. `CAirOrder::CAirOrder` makes `by_unit_type` through
+`CAirOrder_MakeByUnitType`: the vector resized to the unit database's definition count and every entry set to nought.
+The loader stores a `<type>=` line at that type's index; the writer writes one line per air type. All 2,546 air orders
+in the saves write nought for all eleven, so **leaving the lines out loads the same**. The record's live reading, "null
+on 356 of 357 air orders", cannot be the begin pointer of a vector made at the database's size; the two are not
+reconciled.
+
+**`stop`** [exe]. Every order constructor writes -1000 (six immediate stores, one per constructor: COrder's,
+CMoveOrder's, CSupportAttackOrder's, CStrategicRedeploymentOrder's, CAirOrder's, CNavalOrder's). `CSetOrderCommand::Execute`
+then writes the command's figure, or where that is nought or less `AGGRESSIVE_`, `DEFENSIVE_` or
+`PASSIVE_ORGANISATION_LIMIT` by the stance [mod: common/defines.lua - TFH 0.20, 0.30, 0.50]. The factory's other 19 call
+sites make null orders (token 0x18D) but two: `CUnit::CheckOrderAndCombat`'s move order (0x255) and its carrier
+protection (0x56C), given unasked to an air unit based on a carrier with a null order (`FINDINGS-transport.md`). Those
+keep -1.000 - which is why, in the saves, 1,553 carrier protections have -1.000 and null dates and the 101 commanded ones
+0.300, and every other order 0.300 (or 0.200, three times, an aggressive one). **What reads it**: nothing found but
+COrder::SaveContents. Three searches, each with a positive control: no slot of any of the 34 order classes' vftables
+reads `[ecx+0x24]` (slot 19's stance getter, `[ecx+0x20]`, is found in all 34); no recorded function of an order class
+reads `[reg+0x24]` but the writer; and no code that loads a unit's order (`+0xB0`) reads its `+0x24` within ten
+instructions (the same scan finds eight reads of the order's province, `+0xC`). *Inferred*, then, that a missing `stop`
+- the constructor's -1.000 - changes nothing in play; an unrecorded function reading it through another path is not
+ruled out.
+
+**A deployment's number** [exe], already recorded: `CMilitaryConstruction::Deliver` makes its `CUnitDeployment` with
+the id (the unit's type, the unit's number + 1), and moves the line's unit number on by two for the next of a series.
+`AfterLoad_KeepLoadedId` registers a loaded deployment's id only where it is not 0/0 and mints none, and the deploy menu
+(`CDeploymentEntry::OnSelect`), `CInGameIdler::GetDeploymentBeingPlaced` and `CDeployUnitCommand` all find a deployment
+by its id. So **a `unit_deployment` written with no `id` loads as a deployment nothing can find, and its unit can never be
+placed**. Every line the original makes leaves the number after the unit's free for it: a file's line passes over two
+(CMilitaryConstruction::AfterLoad), and the player's own in the saves do too - unit 4940, deployment 4941, first brigade
+4944 in `Ireland1938_08_25_03`.
+
+**An intercept's `provinces`** [exe, and the saves]. `CNavalInterceptOrder::SaveContents` resolves the pair at
+`+0x4C/+0x50` - the reference `+0x48` that `CNavalInterceptOrder::IsActive` fills with the first enemy fleet its search
+finds (`FINDINGS-navalmissions.md`, section 6) - and writes it only where it resolves. That is not COrder's `target`, which
+COrder::SaveContents writes beside it. So an intercept still waiting in port writes `target` and no `provinces`, however
+long it has waited: `Ireland1937_07_05_02` (given that hour) and `_10_03_21` (given the day before) both do, and so does
+`Ireland1940_05_23_17` in its first hour, where `_18` to `_20` write `provinces` - the same fleet as `target`, which the
+search found.

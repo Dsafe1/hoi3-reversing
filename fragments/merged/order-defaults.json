@@ -1,0 +1,121 @@
+{
+  "agent": "collecting session, 2026-11-05",
+  "question": "What does the original hold of an order's stop, a naval order's capital, sub_unit and other, and an air order's figure per air type where a save leaves them out, and does anything read them?",
+  "source": "reversing/findings/FINDINGS-savegame.md",
+  "addresses": [
+    {
+      "rva": "0x19E130",
+      "name": "CNavalInterceptOrder::SaveContents",
+      "signature": "void __thiscall CNavalInterceptOrder::SaveContents(CNavalInterceptOrder* this, CSaveWriter* writer)",
+      "confidence": "confirmed",
+      "comment": "Slot 2 of CNavalInterceptOrder: CNavalOrder::SaveContents, then it resolves **the intercept's own reference** - the id pair at +0x4C/+0x50 behind the pointer +0x48, the fleet CNavalInterceptOrder::IsActive's search has found - with FindPersistentById, caches the answer at +0x48, and writes it as `provinces` {id type} **only where it resolves**, followed by an empty line. **It is not COrder's `target`** (+0x10/+0x14), which COrder::SaveContents writes beside it: an intercept still waiting has found nobody and writes no `provinces`. In the maintainer's saves: `Ireland1937_07_05_02` and `_10_03_21`, an intercept ordered a day apart, both `target` and no `provinces`; `Ireland1940_05_23_17` the same in the hour it was given, and `_18` to `_20` `provinces` the same fleet as `target`. Read back by CPatrolOrder::LoadKey, which it inherits. 0x59E130 to the `ret 4` at 0x59E1BA. See reversing/findings/FINDINGS-savegame.md, section C.11.",
+      "evidence": "The six `intercept` blocks of the maintainer's 45 saves, each `target` and `provinces` pair set beside the order's start_date; the record's reading of 0x59E130.",
+      "source": "reversing/findings/FINDINGS-savegame.md",
+      "revises": true,
+      "kind": "function",
+      "no_signature": null
+    },
+    {
+      "rva": "0x19A900",
+      "name": "CNavalOrder::CNavalOrder",
+      "signature": "CNavalOrder* __stdcall CNavalOrder::CNavalOrder(CNavalOrder* this@ESI, CUnit* unit@EAX, CMapProvince* province@ECX) @EAX",
+      "confidence": "confirmed",
+      "comment": "**The constructor every naval order runs first**, `this` in ESI, the unit in EAX, the province in ECX, answered in EAX, bare `ret`; 17 callers. COrder's defaults - token +4 = 0x18D, unit +8, province +0xC, target +0x10/+0x14 = 0, return_to_base +0x18 = 0, priority +0x1C = 0, stance +0x20 = 1, **stop +0x24 = -1000**, start_date and death_date +0x28/+0x2C = the clock's tick at 0x170C2B8, time +0x30 = 2 - then CNavalOrder's vftable, its own return_to_base +0x34 and priority +0x38 = 0, and **capital, sub_unit and other (+0x3C/+0x40/+0x44) = 0**. Last it copies those three onto the stack and calls CNavalOrder_CountShipsByKind with them, which counts into the copies and keeps nothing - so the three stay nought. See reversing/findings/FINDINGS-savegame.md, section C.11.",
+      "evidence": "0x59A900-0x59A985: `mov [esi+0x24], 0xFFFFFC18` at 0x59A928; `mov [esi+0x3C/+0x40/+0x44], eax` with eax = 0 at 0x59A95F-0x59A965; `movq xmm0,[esi+0x3C]` and `mov edx,[esi+0x44]` copied to a 12-byte stack block, `call 0x59B170`, `mov eax, esi; ret`.",
+      "source": "reversing/findings/FINDINGS-savegame.md",
+      "kind": "function",
+      "no_signature": null
+    },
+    {
+      "rva": "0x19B170",
+      "name": "CNavalOrder_CountShipsByKind",
+      "signature": "void __stdcall CNavalOrder_CountShipsByKind(CNavalOrder* order@EAX, int capital@stack:4, int subUnit@stack:8, int other@stack:12)",
+      "confidence": "confirmed",
+      "comment": "**Counts a fleet's ships into its own arguments and keeps nothing.** `ret 0xC`, the order in EAX, three ints **by value** on the stack. Over the order's unit's brigades (unit +0x38), for each whose slot 10 answers yes: a capital ship (definition +0x58 -> is_capital +0x2F) adds one to the first argument, else a submarine (is_sub +0x31) to the second, else anything not a transport (is_transport +0x30 clear) to the third. Nothing is stored anywhere but the argument slots, and its one caller, CNavalOrder::CNavalOrder, passes a copy of the order's capital, sub_unit and other - so **the counts are lost and those three fields are nought for good**, but where a save gives them. Every naval order in the maintainer's 45 saves, 1,594 of them, has all three nought. What the brigade's slot 10 asks was not read. The name is ours, from the three save keys it was evidently meant to fill. See reversing/findings/FINDINGS-savegame.md, section C.11.",
+      "evidence": "0x59B170-0x59B1CB: `add [ebp+8], edi` (is_capital), `add [ebp+0xC], edi` (is_sub), `add [ebp+0x10], edi` (not is_transport) with edi = 1; no store through the order; `ret 0xC`. Caller 0x59A97E passes the copy made at 0x59A968-0x59A979.",
+      "source": "reversing/findings/FINDINGS-savegame.md",
+      "kind": "function",
+      "no_signature": null
+    },
+    {
+      "rva": "0x188D40",
+      "name": "CAirOrder::CAirOrder",
+      "signature": "void __stdcall CAirOrder::CAirOrder(CAirOrder* this@stack:4, CUnit* unit@stack:8, CMapProvince* province@ECX)",
+      "confidence": "confirmed",
+      "comment": "**The constructor every air order runs first**, `this` and the unit on the stack and the province in ECX, `ret 8`. COrder's defaults as CNavalOrder::CNavalOrder writes them - **stop +0x24 = -1000**, stance 1, time 2, both dates the clock's tick - then CAirOrder's vftable, **by_unit_type (+0x34) made by CAirOrder_MakeByUnitType** - one int per unit type, every one nought - the area list (+0x44..+0x50) and +0x54..+0x64 nought, and the area's floats from +0x70. See reversing/findings/FINDINGS-savegame.md, section C.11.",
+      "evidence": "0x588D40 prologue; `mov [esi+0x24], 0xFFFFFC18` at 0x588D88; `lea edi,[esi+0x34]; push edi; call 0x5888B0` at 0x588DAC-0x588DBD; `ret 8` at 0x588E51.",
+      "source": "reversing/findings/FINDINGS-savegame.md",
+      "kind": "function",
+      "no_signature": null
+    },
+    {
+      "rva": "0x1888B0",
+      "name": "CAirOrder_MakeByUnitType",
+      "signature": "void* __stdcall CAirOrder_MakeByUnitType(void* out@stack:4) @EAX",
+      "confidence": "confirmed",
+      "comment": "**Builds an air order's by_unit_type**: the three-pointer vector at `out` emptied, then resized (0x84AFB0) to the count of the CSubUnitDataBase's definition array (singleton 0x1A886F0, made where missing; +0x20 - +0x1C, over 4), and every entry set to nought. Answers `out`, `ret 4`. So a loaded air order a save gives no `<air type>=` line keeps nought for that type - which is what all 2,546 air orders of the maintainer's 45 saves write for all eleven. The name is ours. See reversing/findings/FINDINGS-savegame.md, section C.11.",
+      "evidence": "0x5888CD-0x5888D5 zero the vector; 0x588914-0x58891E the count `([db+0x20]-[db+0x1C]) >> 2` pushed to 0x84AFB0; the loop 0x588932-0x588942 `mov [ecx+eax*4], ebx` with ebx = 0; `ret 4` at 0x588955.",
+      "source": "reversing/findings/FINDINGS-savegame.md",
+      "kind": "function",
+      "no_signature": null
+    }
+  ],
+  "struct_fields": [
+    {
+      "struct": "COrder",
+      "offset": "0x24",
+      "name": "stop",
+      "type": "int",
+      "comment": "Saved as `stop`, x1000 - the order's halt figure. **Every order constructor writes -1000** (CNavalOrder::CNavalOrder, CAirOrder::CAirOrder, CMoveOrder, CSupportAttackOrder and CStrategicRedeploymentOrder's, and COrder's own); CSetOrderCommand::Execute then gives the command's figure, or where that is nought or less the stance's AGGRESSIVE_, DEFENSIVE_ or PASSIVE_ORGANISATION_LIMIT. **An order the engine makes itself keeps -1000**: CreateOrder is otherwise called only for null orders, CUnit::CheckOrderAndCombat's move order (0x255) and its carrier protection (0x56C) given unasked to an air unit based on a carrier - which is why 1,553 of 1,654 saved carrier protections have -1.000 and the commanded rest 0.300. **No reader was found but COrder::SaveContents**: no slot of any order class's vftable reads +0x24 (the same search finds slot 19's stance getter in all 34 order classes), no recorded function of an order class reads [this+0x24], and no code that loads a unit's order (+0xB0) reads its +0x24 within ten instructions (the same scan finds 8 reads of +0xC). **Read live**: 0.7 on redeployments and support attacks, -1.0 on move and null orders. See reversing/findings/FINDINGS-savegame.md, section C.11.",
+      "source": "reversing/findings/FINDINGS-savegame.md",
+      "revises": true,
+      "evidence": "Immediate stores of -1000 into [reg+0x24]: 0x5835B8, 0x5836CE, 0x58373E, 0x5837BE, 0x588D88, 0x59A928 (and two in unrelated classes); the 21 CreateOrder call sites' tokens; reader scans as described."
+    },
+    {
+      "struct": "CNavalOrder",
+      "offset": "0x3C",
+      "name": "capital",
+      "type": "int",
+      "comment": "Saved as `capital`. **Nought for good but where a save gives it**: the constructor zeroes it and CNavalOrder_CountShipsByKind counts a fleet's capital ships into a copy of it that is thrown away. Nought on all 1,594 naval orders of the maintainer's 45 saves. See reversing/findings/FINDINGS-savegame.md, section C.11.",
+      "source": "reversing/findings/FINDINGS-savegame.md",
+      "revises": true,
+      "evidence": "CNavalOrder::CNavalOrder 0x59A95F; CNavalOrder_CountShipsByKind 0x59B1A8."
+    },
+    {
+      "struct": "CNavalOrder",
+      "offset": "0x40",
+      "name": "sub_unit",
+      "type": "int",
+      "comment": "Saved as `sub_unit`. Nought for good but where a save gives it, as `capital` (+0x3C): the count of submarines meant for it is lost. See reversing/findings/FINDINGS-savegame.md, section C.11.",
+      "source": "reversing/findings/FINDINGS-savegame.md",
+      "revises": true,
+      "evidence": "CNavalOrder::CNavalOrder 0x59A962; CNavalOrder_CountShipsByKind 0x59B1B3."
+    },
+    {
+      "struct": "CNavalOrder",
+      "offset": "0x44",
+      "name": "other",
+      "type": "int",
+      "comment": "Saved as `other`. Nought for good but where a save gives it, as `capital` (+0x3C): the count of ships neither capital, submarine nor transport meant for it is lost. See reversing/findings/FINDINGS-savegame.md, section C.11.",
+      "source": "reversing/findings/FINDINGS-savegame.md",
+      "revises": true,
+      "evidence": "CNavalOrder::CNavalOrder 0x59A965; CNavalOrder_CountShipsByKind 0x59B1BE."
+    },
+    {
+      "struct": "CAirOrder",
+      "offset": "0x34",
+      "name": "by_unit_type",
+      "type": "int*",
+      "comment": "**The begin pointer of a vector** (end +0x38, capacity +0x3C) of one int per unit type, indexed by `CSubUnitDefinition::Index`: CAirOrder::CAirOrder makes it through CAirOrder_MakeByUnitType at the size of the unit database's definition array, every entry nought. **CAirOrder's loader looks an unknown key up as a unit type** and stores the value at that type's index; CAirOrder::SaveContents writes one line per air type. Every one of the 2,546 air orders in the maintainer's 45 saves writes nought for all eleven air types. **Read live**: null on 356 of 357 air orders - which a vector made at the database's size cannot be, so that reading and this one are not reconciled. See reversing/findings/FINDINGS-savegame.md, section C.11.",
+      "source": "reversing/findings/FINDINGS-savegame.md",
+      "revises": true,
+      "evidence": "CAirOrder::CAirOrder 0x588DAC-0x588DBD; CAirOrder_MakeByUnitType 0x588914-0x588942."
+    }
+  ],
+  "vftable_slots": {
+    "CNavalInterceptOrder": {
+      "2": "SaveContents"
+    }
+  },
+  "frontier": []
+}

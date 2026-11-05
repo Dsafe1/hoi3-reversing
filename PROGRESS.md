@@ -120,7 +120,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CAirConvoyRaid` | `CAirOrder` |  |  |  | 3 |  |  | RTTI |  |
 | `CAirInterceptOrder` | `CAirOrder` |  |  |  | 11 |  | 208 | RTTI |  |
 | `CAirInterdictionOrder` | `CAirOrder` |  |  |  | 4 |  |  | RTTI |  |
-| `CAirOrder` | `COrder` |  | 12 |  | 19 | COrder.hpp | 2,493 | read |  |
+| `CAirOrder` | `COrder` |  | 12 |  | 20 | COrder.hpp | 2,493 | read |  |
 | `CAirPatrol` | `CAirOrder` |  |  |  | 7 |  |  | RTTI |  |
 | `CAirReserveOrder` | `CAirOrder` |  |  |  | 4 |  |  | keys |  |
 | `CAlign` | `CRelation` |  | 1 | 5/5 | 4 |  | 9 | part |  |
@@ -241,7 +241,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CNavalCombatant` | `CCombatant` |  | 2 | 1/1 | 8 |  | 4 | placed |  |
 | `CNavalInterceptOrder` | `CNavalOrder` |  |  | 1/1 | 5 |  | 2 | RTTI |  |
 | `CNavalInvasionOrder` | `CNavalOrder` | 0x4C | 1 | 1/2 | 6 |  | 1 | placed |  |
-| `CNavalOrder` | `COrder` |  | 5 | 1/5 | 8 | COrder.hpp |  | read |  |
+| `CNavalOrder` | `COrder` |  | 5 | 1/5 | 9 | COrder.hpp |  | read |  |
 | `CNavalSortieOrder` | `CNavalOrder` |  |  | 2/3 | 6 |  |  | placed |  |
 | `CNavalStrikeOrder` | `CAirOrder` |  |  |  | 5 |  | 1 | RTTI |  |
 | `CNavalTargetCombatant` | `CBombTargetCombatant` |  |  | 4/6 | 1 |  | 2 | RTTI |  |

@@ -315,8 +315,11 @@ is, or where it is going if it is under way. With section 1's byte: **once it ha
 return to base - because it was ordered while at sea, because its target went into port or out
 of range, because it was beaten - slot 14 answers true and does nothing, for good.** The fleet
 goes home and lies there under an order whose panel text is `INTERCEPT_RETURN`; it does not go
-out again until it is given an order anew (or, `inferred`, the game is saved and loaded). The
-panel's other two states are `INTERCEPT_WAITING` and `INTERCEPT_ATTACK` (`0x59DD10`).
+out again until it is given an order anew, or the game is saved and loaded: the save writes the
+byte as the first `return_to_base`, and CNavalOrder::LoadKey reads both of a naval order's into
+its own +0x34, so the byte comes back clear (`FINDINGS-savegame.md`, C.5 and C.11).
+`Ireland1937_10_03_21` has such an interceptor - `return_to_base=yes` then `no`. The panel's
+other two states are `INTERCEPT_WAITING` and `INTERCEPT_ATTACK` (`0x59DD10`).
 
 A lost target does not by itself send it home: the reference stays while the object lives, and
 the branch that orders the return for "after nobody" needs the fleet away from its base.
