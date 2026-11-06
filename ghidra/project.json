@@ -25594,9 +25594,9 @@
    "name": "CHoiAvatar::SetSeenFromFar",
    "signature": "void __thiscall CHoiAvatar::SetSeenFromFar(CHoiAvatar* this, bool far)",
    "no_signature": null,
-   "comment": "Slot 92: stores the byte at +0x152, which CHoiAvatar::HitTest reads as \"the far counter is the one on screen\". The name is ours, and who calls it was not found. See reversing/findings/FINDINGS-counters.md.",
+   "comment": "Slot 92: stores the byte at +0x152, which CHoiAvatar::HitTest reads as \"the far counter is the one on screen\". **What sets the byte each frame does not call this slot**: CUnit::UpdateAvatar and CNavy::UpdateAvatar (slot 36) write +0x152 inline, with the far flag MapGraphics_Update works out as camera height > counter_distance. No caller of slot 92 on an avatar was found (three of the eight +0x170 call sites slotcalls.py lists were read and none is one). The name is ours. See reversing/findings/FINDINGS-counters.md and reversing/findings/FINDINGS-farmap.md, section A.",
    "confidence": "inferred",
-   "source": "reversing/findings/FINDINGS-counters.md"
+   "source": "reversing/findings/FINDINGS-farmap.md"
   },
   {
    "rva": "0x44A2F0",
@@ -52714,9 +52714,9 @@
    "name": "MapObjects_UpdateLayerVisibility",
    "signature": "void __stdcall MapObjects_UpdateLayerVisibility(void* objects@ESI, void* camera@stack:4)",
    "no_signature": null,
-   "comment": "Each frame (from 0x85C6F0 at 0x85D88D), sets the visible byte (+0x179) of the map object groups at +0x44..+0x70 of the province objects container from the layer mask (settings +0xF0 & +0xEC), the camera's height (camera +0x348) against `counter_distance` and two constants, and the settings. **The group at +0x64 is visible only where the mask has 0x20 and CMap +0x2A90 is 11** - only in the weather map mode (its mask 0xFFBB has 0x20). What that group holds was not read. The name is ours. See reversing/findings/FINDINGS-weathersim.md, section C.5.",
+   "comment": "Each frame (from MapGraphics_Update, rva 0x45C6F0, at 0x45D88D), sets the visible byte (+0x179) of the map object groups at +0x44..+0x70 of the graphics object, and of the 18 layers embedded in the object at its +0x4158 (0x17C apart from +0x188, the byte at +0x301 + 0x17C*k), from the layer mask (settings +0xF0 & +0xEC), the camera's height h (camera +0x348), counter_distance cd (settings +0xFC), always_counters (+0xF9) and two constants. **+0x5C (mask 0x20, the building pictures) and +0x70 (settings +0xE7) only while h < 500.0** (the double at VA 0x160A538) - the compare that takes the buildings off the far map; +0x44 only while h < 150.0 (the float at VA 0x15E3170); +0x48 mask 0x10; +0x4C mask 0x10 and h < cd; +0x60 any mask; **+0x64 only where the mask has 0x20 and CMap +0x2A90 is 11** - only in the weather map mode (its mask 0xFFBB has 0x20). In the +0x4158 object: under cd with mask 0x800 (counters) layer 2 = always_counters, layers 10 and 0 = not always_counters, layer 7 on, and layer 11 = mask 0x400; **from cd to under 500 layer 1 = mask 0x800 and layer 6 on**; layers 16 and 5 only under 500; layer 17 under cd with mask 0x400. So at 500 and above every unit layer is off - **no counters in the far view**. Which layer holds what is inferred from the bits (0x800 counters, 0x20 buildings, as ProvinceGraphics_HitTest reads them). What +0x64 holds was not read. The name is ours. See reversing/findings/FINDINGS-farmap.md, section A, and reversing/findings/FINDINGS-weathersim.md, section C.5.",
    "confidence": "inferred",
-   "source": "reversing/findings/FINDINGS-weathersim.md"
+   "source": "reversing/findings/FINDINGS-farmap.md"
   },
   {
    "rva": "0x130CAF0",
@@ -64007,6 +64007,376 @@
    "comment": "**Slot 38 of the scrollbar widget** (0x15FF7A0): calls slot 38 with the argument on its four parts, +0x14C, +0x1A0, +0x148 and +0xA0 (its buttons and its slider, by FINDINGS-guistatic.md's layout - not checked one by one); `ret 4`. **Slot 38 of the interface's elements is whether the element takes the mouse, not greying** (read 2026-11-06, FINDINGS-frontend.md C.4): a button holding nought there returns from its mouse handler without acting on the event or marking it handled, so a click passes through it, and nothing in the slot touches how it is drawn - the disabled state a button greys by is slot 47's (+0x64 = 3). ",
    "confidence": "confirmed",
    "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x43ED10",
+   "kind": "function",
+   "name": "CountryMapNames_Draw",
+   "signature": "void __cdecl CountryMapNames_Draw(float cameraX, float cameraZ)",
+   "no_signature": null,
+   "comment": "**Draws every country's name on the map, rebuilding the dirty ones first.** All addresses rvas. One caller, MapGraphics_DrawScene at 0x45C39D, which passes the camera's +0x33C and +0x340 and calls it only where the zoom level (the count of CMap terrain_sheet_heights entries below the camera height, 0x45C07F..0x45C0D7) is not 0, the map style (GameSettings +0xF4) is not 0 - so not in the Terrain or Weather modes (FINDINGS-farmap.md A.3) - and CCurrentGameState +0xD0C scenario is null (MapGraphics_DrawScene_CountryNamesGate). Nothing in this function asks the camera. (1) Where g_CountryMapNames is empty, CountryMapNames_Resize to the game state's country count (+0xBC0 - +0xBBC). (2) Render states through the device at (global 0x16857CC)+0x64: ZENABLE 0, ZWRITEENABLE 0, ALPHABLENDENABLE 1, SRCBLEND SRCALPHA, DESTBLEND INVSRCALPHA, LIGHTING 0; stage 0 colour and alpha = TEXTURE x TFACTOR, stage 1 off; linear min and mag filter. **TEXTUREFACTOR itself is not set here.** (3) For each record i, in country-id order: where its dirty byte (+0x10) or g_CountryMapNamesRebuildAll is set, CountryMapName_Build(country i's tag at CCountry +0xCA4); then, where the record has a mesh (+0): SetTexture(0, the font's atlas - the graphics' texture table +0x15C, 0x2C a slot, indexed by the font's +0x49C, none where that is -1 or above 9999), world = D3DXMatrixTranslation(x - cameraX, 0.1, z - cameraZ) from the record's +8/+0xC, VertexBuffer_Draw. (4) Clears g_CountryMapNamesRebuildAll and puts the stage states back. No fade, no alpha of its own, no colour of its own. See reversing/findings/FINDINGS-farmap.md, section B.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-farmap.md"
+  },
+  {
+   "rva": "0x43D9E0",
+   "kind": "function",
+   "name": "CountryMapName_Build",
+   "signature": "void __cdecl CountryMapName_Build(CCountryTag* tag)",
+   "no_signature": null,
+   "comment": "**Lays out one country's name on the map.** All addresses rvas; 0x43D9E0 to the bare ret at 0x43ED0A. Clears the record's dirty byte; tag id 0, a country owning no province (CCountry +0xCF8 <= 0) or the tag REB: release the mesh and stop. **The land**: a flood fill from CCountry::GetCapitalLocation over neighbours (CProvinceTemplate +0x90 edges, +4 the id) that are land (+0x22) and controlled by the country (CMapProvince +0x338 controller_id) - the capital itself is taken unasked. For each province reached, every second pixel of its bounding box (+0x80..+0x8C) counts when the province raster (CMap +0x20E0) gives this province **or any sea**: sums of x, y, xy, x*x, y*y, the count N (64-bit), and the x and y extent. N = 0: stop, the old mesh kept. **The line**: least squares both ways - y on x from min x to max x, and x on y from min y to max y - each rasterised (MapLine_Rasterise, ends truncated to int) and trimmed (MapLine_TrimToCountry, sea allowed); ends ordered left to right; the longer kept. **The size**: the name (CountryNameOfTag), upper-cased by CharUpperBuffA where the font's slot 19 (its effect byte +8) is set; the font is the map object's +0x5F40 + 4 x the faction's icon (CFaction +0x3C), 0 for no faction - WaterObject +0x417C..+0x4188. With w, h from CEU3BitmapFont::GetTextSize and L the line's length: s = min(L / w x 10, (N / L x 40) / h, 25); no name where 6 x the name's length > L or s < 2.5. Then one more space between every pair of letters while w(spaced) x s / L < 11. **The anchor**: the line's midpoint less the left normal p = (-dz, 0, dx)/|d| times h x 0.5 x s x 0.04, into +8/+0xC. **The mesh**: a write-only buffer of 6 vertices for every non-space letter (XYZ|TEX1, 20 bytes), filled by BitmapFont_LayOutTextQuads(font, -, spaced name, origin 0, up p, along d, s, 100000), then CountryMapName_BendAlongLand, then unlocked. See reversing/findings/FINDINGS-farmap.md, section B.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-farmap.md"
+  },
+  {
+   "rva": "0x43C9F0",
+   "kind": "function",
+   "name": "MapLine_Rasterise",
+   "signature": "void __cdecl MapLine_Rasterise(int x0@ECX, int y1@EAX, int y0@stack:4, int x1@stack:8, void* points@stack:0xC)",
+   "no_signature": null,
+   "comment": "**Bresenham's line from (x0, y0) to (x1, y1) into a vector of 8-byte (x, y) int points.** Steep (|dy| > |dx|) swaps the axes; the ends are put in increasing order of the major axis, so the points run that way whatever order they were given; the error grows by |minor delta| and steps when twice it reaches the major delta. At most 256,000 points (0x3E800). Pushes through rva 0x3C60F0. Callers: CountryMapName_Build twice, CountryMapName_BendAlongLand once a letter.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-farmap.md"
+  },
+  {
+   "rva": "0x43CAE0",
+   "kind": "function",
+   "name": "MapLine_TrimToCountry",
+   "signature": "void __cdecl MapLine_TrimToCountry(CMap* map, void* points, CCountryTag* tag, void* visited, bool allowSea)",
+   "no_signature": null,
+   "comment": "**Cuts a rasterised line down to the stretch that lies on a country's land.** A point is the country's where it is inside the map (CMap +0x2A74 x +0x2A78), its pixel's province is land, controlled by the tag (template +0x10 -> +0x338) and marked in `visited`. (1) Drop everything after the last such point and before the first. (2) If any point is then outside the map, empty the vector. (3) Walk it once: a point continues the current run where it is the country's, or is land with controller 0, or is sea and `allowSea`; anything else ends the run; the longest run (the first of equals) is kept and the rest erased. Nothing kept means nothing changes. CountryMapName_Build passes allowSea 1, CountryMapName_BendAlongLand 0.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-farmap.md"
+  },
+  {
+   "rva": "0x43CE80",
+   "kind": "function",
+   "name": "CountryMapName_BendAlongLand",
+   "signature": null,
+   "no_signature": "cdecl with twelve stack dwords (map, tag, visited, vertices, vertex count, start x, end x, end y, anchor x, anchor z, min x, max x; add esp,0x30 at the caller) and the start y in XMM1 (rva 0x43EB0B), a float register no signature here can place.",
+   "comment": "**Bends a laid-out name along the country's land with a Catmull-Rom spline.** Nothing where |end y - start y| <= 0.1 (the double at rva 0x120A3C0): a level line stays straight. Otherwise, for each letter (6 vertices): its centre (vertices 0 and 3, plus the anchor); the line through it at slope -(dx/dy), from min x to max x, rasterised and trimmed with allowSea 0; the midpoint of the run left. The first letter's is F, the last's L, their mean A. Two phantom points: P0 = F + |F-A| x dir(2 angle(F-A) - angle(A-L)) and P3, its mirror at L; where P0's x exceeds P3's, the two ends are swapped. Then for the i-th character of the unspaced name (spaces skipped, t = i / (length - 1)): t <= 0.5 runs D3DXVec2CatmullRom(P0, F, A, L, 2t), t > 0.5 runs (F, A, L, P3, 2(t - 0.5)); the tangent from a second point 0.01 away (behind where that parameter > 0.5, ahead otherwise), D3DXVec2Normalize'd; the letter's quad is rebuilt centred there with its own half-width (|v1 - v0| / 2) along the tangent and half-height (|v3 - v1| / 2) across it. See reversing/findings/FINDINGS-farmap.md, section B.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-farmap.md"
+  },
+  {
+   "rva": "0x43F130",
+   "kind": "function",
+   "name": "CountryMapNames_Resize",
+   "signature": "void __cdecl CountryMapNames_Resize(int count@EAX)",
+   "no_signature": null,
+   "comment": "Resizes g_CountryMapNames to `count` records: erases the tail (CountryMapNames_Erase) or reserves and appends new ones (CountryMapNames_ConstructNew), **each new record with mesh 0 and its dirty byte 1**, so every name is built on the first frame that draws them. Callers: CountryMapNames_Draw and CountryMapName_Build, each only where the vector is empty.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-farmap.md"
+  },
+  {
+   "rva": "0x43F300",
+   "kind": "function",
+   "name": "CountryMapNames_Erase",
+   "signature": "CountryMapName** __stdcall CountryMapNames_Erase(CountryMapName* first@stack:4, CountryMapName* last@stack:8, CountryMapName** out@EDI) @EAX",
+   "no_signature": null,
+   "comment": "std::vector::erase(first, last) on g_CountryMapNames: copies the 0x14-byte records down, destroys the tail through rva 0x43F6E0, sets the end; answers `out` holding `first`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-farmap.md"
+  },
+  {
+   "rva": "0x43F370",
+   "kind": "function",
+   "name": "CountryMapNames_Reserve",
+   "signature": "void __cdecl CountryMapNames_Reserve(int extra@EDI)",
+   "no_signature": null,
+   "comment": "Room for `extra` more records in g_CountryMapNames: 'vector<T> too long' past 0xCCCCCCC, and where size + extra exceeds the capacity (the vector's third word, global rva 0x168C390) a new capacity (rva 0x43F650) and a reallocation (rva 0x43F530), neither read.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-farmap.md"
+  },
+  {
+   "rva": "0x43F690",
+   "kind": "function",
+   "name": "CountryMapNames_ConstructNew",
+   "signature": "void __cdecl CountryMapNames_ConstructNew(CountryMapName* first@EAX, int count@ECX, int unused@stack:4)",
+   "no_signature": null,
+   "comment": "Constructs `count` records from `first`, each {mesh 0, three dwords left as the stack had them, dirty byte 1}. The caller pushes a dword it never reads.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-farmap.md"
+  },
+  {
+   "rva": "0x43F1F0",
+   "kind": "function",
+   "name": "UShortDeque_Construct",
+   "signature": "void* __cdecl UShortDeque_Construct(void* deque@ESI) @EAX",
+   "no_signature": null,
+   "comment": "An empty std::deque<unsigned short> (0x14 bytes: proxy, map, map size, offset, size) at ESI - the flood fill's queue of province ids in CountryMapName_Build.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-farmap.md"
+  },
+  {
+   "rva": "0x43F250",
+   "kind": "function",
+   "name": "UShortDeque_PushBack",
+   "signature": "void __stdcall UShortDeque_PushBack(unsigned short* value@stack:4, void* deque@ESI)",
+   "no_signature": null,
+   "comment": "deque<unsigned short>::push_back: grows the map through rva 0x43F3E0 when the block is full, allocates a 0x10-byte block (8 ids) where needed, stores the word, ++size.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-farmap.md"
+  },
+  {
+   "rva": "0x43F750",
+   "kind": "function",
+   "name": "ByteVector_ConstructFilled",
+   "signature": "void __stdcall ByteVector_ConstructFilled(char* value@stack:4, void* vector@ESI, unsigned int count@EDI)",
+   "no_signature": null,
+   "comment": "A std::vector<char> of `count` copies of *value - CountryMapName_Build's `visited`, one byte for every province id (CMap +0x21FC), all 0.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-farmap.md"
+  },
+  {
+   "rva": "0x6FF5E0",
+   "kind": "function",
+   "name": "BitmapFont_LayOutTextQuads",
+   "signature": "int __stdcall BitmapFont_LayOutTextQuads(CEU3BitmapFont* font, void* vertices, Hoi3CString* text, float* origin, float* up, float* along, float scale, int maxWidth)",
+   "no_signature": null,
+   "comment": "**Writes a text's glyphs as flat quads in 3D**, six 20-byte vertices (x y z u v) to a glyph: nothing for an empty text. Lines break at a newline, a carriage return or past maxWidth (at most 55 lines); each line is centred - its pen starts at minus half its width - and the first line's top is (lines) x the font's lineHeight (+0x494). A glyph (the font's +0x94 table, by the raw byte) of height under 1 only advances the pen (xadvance +0x18, plus the kerning pair), so **a space makes no quad**. Its quad spans x = pen + xoffset (+0x10) to that + width (+8) and y = top - yoffset (+0x14) - height (+0xC) to top - yoffset; texture u, v = its pixel rectangle over the atlas size (+0x4A0, +0x4A4). World position = origin + along x (x x 0.05 x scale) + up x (y x 0.05 x scale). Never reads the font's colour (+0x38). Callers (rvas): CountryMapName_Build, ProvinceTexts_Update (0x4563FC) and the battle-plan arrow texts (0x663D13).",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-farmap.md"
+  },
+  {
+   "rva": "0x700160",
+   "kind": "function",
+   "name": "CEU3BitmapFont::GetTextSize",
+   "signature": "void __thiscall CEU3BitmapFont::GetTextSize(CEU3BitmapFont* this, Hoi3CString* text, int maxWidth, int maxHeight, void* border, short* size)",
+   "no_signature": null,
+   "comment": "Slot 13. **A text's size in the font's pixels**: width = the widest line of xadvance plus kerning, wrapping past maxWidth (0 means 0x140), with the escapes skipped as GetStringWidth skips them (0xA7 and its letter, `{`, the `@` flags and the 0xA3 counter names at their icon widths); height = lines x lineHeight (+0x494); each plus twice the border (a word at border+0, a dword at border+4). size[0] = width, size[1] = height. maxHeight is not read.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-farmap.md"
+  },
+  {
+   "rva": "0x6D4510",
+   "kind": "function",
+   "name": "VertexBuffer_Create",
+   "signature": "int __stdcall VertexBuffer_Create(void* mesh, void* device, int count, int stride, int fvf, bool dynamic)",
+   "no_signature": null,
+   "comment": "CreateVertexBuffer(count x stride, usage WRITEONLY (8) or WRITEONLY|DYNAMIC (0x208), fvf, pool by the mesh's byte +0x14) into a 0x24-byte mesh holder, which the callers then lock and fill. The country names make 6 x letters vertices, the province texts 300 apiece, both with stride 0x14 and fvf 0x102 (XYZ|TEX1).",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-farmap.md"
+  },
+  {
+   "rva": "0x6D4C30",
+   "kind": "function",
+   "name": "VertexBuffer_Draw",
+   "signature": "void __cdecl VertexBuffer_Draw(void* mesh@EAX, void* device@ESI)",
+   "no_signature": null,
+   "comment": "Draws a 0x24-byte mesh holder: nothing where +0xC is 0; its vertex declaration (+0x1C) or FVF (+8), SetStreamSource(0, +0, 0, stride +0x18), then the draw. Used by the country names and the province texts.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-farmap.md"
+  },
+  {
+   "rva": "0x456710",
+   "kind": "function",
+   "name": "ProvinceTexts_Create",
+   "signature": "void __stdcall ProvinceTexts_Create(WaterObject* manager)",
+   "no_signature": null,
+   "comment": "**The near map's province names**, built once as the map is made (the 'CreateProvinceTexts()' step, called at rva 0x454084): for every map tile (WaterObject +0x19C, 0x3C0 a tile, +0x18C x +0x190 of them) and every province object in it, a 0x60-byte entry on the tile's deque (+0x120): the template's name (CProvinceTemplate_GetName), the province id, a byte set where the province is sea, text_position (+0x3C/+0x40) less the tile's centre, text_rotation (+0x54) and text_scale (+0x58), slot -1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-farmap.md"
+  },
+  {
+   "rva": "0x456610",
+   "kind": "function",
+   "name": "ProvinceTexts_CreateBuffers",
+   "signature": "void __stdcall ProvinceTexts_CreateBuffers(WaterObject* manager)",
+   "no_signature": null,
+   "comment": "Clears the 1000 slots at WaterObject +0x2D8 (0x10 a slot: used byte, alpha, start time, entry) and gives every province text a dynamic 300-vertex buffer (VertexBuffer_Create(.., 300, 0x14, 0x102, 1)) - 50 letters, which is why the update cuts a name longer than 50 to 49. Callers (rvas): the map build (0x45408A) and 0x46829D.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-farmap.md"
+  },
+  {
+   "rva": "0x455EA0",
+   "kind": "function",
+   "name": "ProvinceTexts_Update",
+   "signature": "void __stdcall ProvinceTexts_Update(WaterObject* manager)",
+   "no_signature": null,
+   "comment": "Each frame the camera is below 100 (the double at rva 0x120A358, tested by the caller at rva 0x45D6D9): every used slot's alpha = (now - its start) x 170, capped at 255; then for every visible tile (+0x78, count +0x88) each entry that is shown (+0x44) and has no slot takes the first free one of the 1000 - alpha 0, or 255 where the byte WaterObject +0x4288 is set (cleared after) - and is drawn into its buffer with the tahoma_60 font (+0x4178) through BitmapFont_LayOutTextQuads (maxWidth 320), rotated by text_rotation and scaled by text_scale x 0.5, a name longer than 50 cut to 49.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-farmap.md"
+  },
+  {
+   "rva": "0x4608D0",
+   "kind": "function",
+   "name": "ProvinceTexts_Draw",
+   "signature": "void __cdecl ProvinceTexts_Draw(WaterObject* manager@EDI)",
+   "no_signature": null,
+   "comment": "Draws the province names: the same render states as CountryMapNames_Draw, the tahoma_60 font's atlas, and for each shown entry with a slot of non-zero alpha in each visible tile the tile's matrix (+0x17C) and TEXTUREFACTOR = alpha << 24 | 0xFFFFFF, saved before and put back after. MapGraphics_DrawScene calls it (rva 0x45C411) only below camera height 100 and where layer-mask bit 8 ((GameSettings +0xF0) & (+0xEC)) is set.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-farmap.md"
+  },
+  {
+   "rva": "0x44F570",
+   "kind": "function",
+   "name": "CProvinceManager::CProvinceManager",
+   "signature": null,
+   "no_signature": "The object is the first stack argument (`mov ebx,[ebp+8]`), not ECX; EDX is stored at +0x44 as a further argument; `ret 0x3C` - fifteen stack dwords. No ordinary __thiscall describes it.",
+   "comment": "**The constructor of the map renderer the record calls WaterObject**, whose RTTI name is CProvinceManager (vftable rva 0x11E3384, base CLostDeviceInterface). One caller, the map object's constructor at rva 0x2407D8, which builds it at its own +0x1DC4. Among much else it stores the graphics at +0x3C and the CMap at +0x40; makes a 0x9C8-byte MT19937 at +0x4170 seeded with 42; looks up the light type MapSetLight into +0x416C; and loads five fonts by name - each tried in the graphics' `fonts` table (+0x88) and then `bitmapfonts` (+0x94): tahoma_60 into +0x4178, neutral_country +0x417C, comintern_country +0x4180, axis_country +0x4184, allies_country +0x4188. The last four are read only through the map object's +0x5F40, in CountryMapName_Build.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-farmap.md"
+  },
+  {
+   "rva": "0x45C2D9",
+   "kind": "instruction",
+   "name": "MapGraphics_DrawScene_CountryNamesGate",
+   "signature": null,
+   "no_signature": null,
+   "comment": "`cmp dword ptr [ebp+0x10], 0` - the gate on CountryMapNames_Draw, in MapGraphics_DrawScene: [ebp+0x10] is the zoom level, the count of CMap +0x40 terrain_sheet_heights entries the camera height (camera +0x348) is above, set at rva 0x45C09A..0x45C0CE (one entry, 500, in Their Finest Hour's and BlackICE's map/default.map). Then GameSettings +0xF4 map_style must be non-zero (rva 0x45C2E9) and CCurrentGameState +0xD0C scenario null (rva 0x45C373); with a scenario, MapGraphics_DrawTerraIncognita (rva 0x4602E0) is called instead, at rva 0x45C2CF, and no names are drawn.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-farmap.md"
+  },
+  {
+   "rva": "0x1205D78",
+   "kind": "global",
+   "name": "MapTextType_vftable",
+   "signature": null,
+   "no_signature": null,
+   "comment": "**The table of what a `mapTextType` block in a .gfx file makes** - 31 slots, no RTTI, so the name is ours. Slot 0 the destructor (0x7170B0), slot 6 (0x717120) sets the instance's +0x44 to its argument + 0x158, slot 18 is C3dObjectType::CreateInstance (0x43AD10, a plain C3dVisibleObject); the rest are the object-type family's shared bodies. core.gfx declares one, `MapText`, and **nothing looks that name up**: the string \"MapText\" exists only as the tail of \"MessageMapText\" (VA 0x15CFFEB), which nothing references. The country names do not use it. See reversing/findings/FINDINGS-farmap.md, section B.1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-farmap.md"
+  },
+  {
+   "rva": "0x717060",
+   "kind": "function",
+   "name": "MapTextType_Construct",
+   "signature": "void* __stdcall MapTextType_Construct(void* graphics@stack:4, void* object@EAX) @EAX",
+   "no_signature": null,
+   "comment": "Constructs a 0x90-byte `mapTextType` object type in EAX: CPersistent's token 0x18D at +4, two empty strings at +8 (the name) and +0x24, zeroes, MapTextType_vftable, the graphics at +0x8C. Its one caller is ObjectType_CreateByToken's case for token 0x5D.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-farmap.md"
+  },
+  {
+   "rva": "0x670550",
+   "kind": "function",
+   "name": "ObjectType_CreateByToken",
+   "signature": "void* __stdcall ObjectType_CreateByToken(void* reader@stack:4, int token@stack:8, void* graphics@ECX) @EAX",
+   "no_signature": null,
+   "comment": "**Makes the object type a keyword in an `objectTypes` block names**, by its token: 0x135 animatedmaptext (0x114 bytes, 0x7166D0), and through a byte table at VA 0xA70A9C and a jump table at VA 0xA70A5C fourteen more - among them 0x5D mapTextType (MapTextType_Construct, 0x90 bytes) - and for any other token the unknown-key report (0x67A7B0) and null. Stores the token at the result's +4. One caller, rva 0x440B2B.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-farmap.md"
+  },
+  {
+   "rva": "0x168C388",
+   "kind": "global",
+   "name": "g_CountryMapNames",
+   "signature": null,
+   "no_signature": null,
+   "comment": "**std::vector<CountryMapName>**, begin here, end at rva 0x168C38C, capacity at rva 0x168C390: one 0x14-byte record per country, by country id. Its byte +0x10 is the per-country dirty flag that Province_SetController (old and new controller), CFaction::AddCountry, CCountry::LeaveFaction, CustomGame_LeaveFaction, MakeVassal, AnnexCountry, CProvince_ResetState and RemoveLandlessCountriesFromWars set, each only where the vector is not empty. Freed at exit by rva 0x925D80, which does not release the meshes.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-farmap.md"
+  },
+  {
+   "rva": "0x17EA4C1",
+   "kind": "global",
+   "name": "g_CountryMapNamesRebuildAll",
+   "signature": null,
+   "no_signature": null,
+   "comment": "A byte: where set, CountryMapNames_Draw rebuilds every country's name, and clears it. **Nothing in the image sets it** - it sits in .data's uninitialised tail, so it is 0.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-farmap.md"
+  },
+  {
+   "rva": "0x45BE50",
+   "kind": "function",
+   "name": "MapGraphics_DrawScene",
+   "signature": "void __stdcall MapGraphics_DrawScene(void* graphics, MapCamera* camera, void* view)",
+   "no_signature": null,
+   "comment": "**The map's 3D scene, each frame** - the in-game frame routine calls it at rva 0x25704B with (the graphics owner's +0x1DC4, CInGameIdler +0x1938 map_camera, idler +0x1788), the front end at 0x2EED3F, and once more at 0x29EBF2. 0x45BE50 to the `ret 0xc` at 0x45C6E8. Stores camera at graphics +0x20 and view at +0x24; takes the layer mask settings +0xF0 & +0xEC once. In order: **near = height (camera +0x348) < 100.0** (the double at VA 0x160A358, exe); MapGraphics_DrawTerrain (always); the level = 1 + the index of the last entry of CMap terrain_sheet_heights (default.map, 500 in TFH) the height is strictly above, 0 for none; MapGraphics_DrawBeaches (always); rivers (0x47C8A0) with mask 0x80 at any height; **the land borders (MapGraphics_DrawLandBorders) only while CMap border_cutoff (default.map 500.0) > height** and mask 0x2; MapGraphics_DrawWater with mask 0x100; the shore (MapShore_Draw) where graphics +0x42E9 is set; the water borders (0x45DD50) with mask 0x200; **the trees (0x463930) only under 100** and with mask 0x1; MapGraphics_DrawTerraIncognita only in a scenario (CCurrentGameState +0xD0C not null); **0x43ED10 - a per-country layer, by all appearance the country names - only where the level is above 0, the map style (settings +0xF4) is not 0 and no scenario is loaded**, given the camera's x_settled/y_settled; then the object groups whose visible byte MapObjects_UpdateLayerVisibility set; the layer under mask 0x8 (0x4608D0) under 100; and a call of 0x6BB7E0 (not read) only without always_counters and under counter_distance. No hysteresis: every test is the current height against a fixed figure. The name is ours. See reversing/findings/FINDINGS-farmap.md, section A.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-farmap.md"
+  },
+  {
+   "rva": "0x45DFB0",
+   "kind": "function",
+   "name": "MapGraphics_DrawTerrain",
+   "signature": "void __fastcall MapGraphics_DrawTerrain(void* graphics@EDI)",
+   "no_signature": null,
+   "comment": "**The land, with terrain_2_0.fx, and the far/near switch for it.** 0x45DFB0 to the bare `ret` at 0x45E9AE; the graphics owner in EDI, no stack arguments. level = 1 + the index of the last entry of CMap terrain_sheet_heights (+0x40/+0x44) the camera height is strictly above (0 for none). **Map style (settings +0xF4) 0 - only the Terrain and Weather modes write it - uses TerrainShader_Graphical (+0x208) at every height**; otherwise level 0 TerrainShader_General (+0x210), level above 0 TerrainShader_General_Low (+0x214). Binds tex2/tex3 the province colour pair (graphics +0x4168 +0xC/+0x10), tex4 colormap.dds (+0xB8) under Graphical and colormap_political.dds (+0xBC) otherwise, tex7 stripes.dds (+0xC0) when not Graphical, tex5 map_overlay_tile.dds (+0x2C0) under General_Low else one of three noise textures by the global at VA 0x1A8565C, and **tex6 the texture sheet of the level** (+0x288[level]: texturesheet.tga, then texturesheet2.tga ...). The name is ours. See reversing/findings/FINDINGS-farmap.md, section A.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-farmap.md"
+  },
+  {
+   "rva": "0x45E9B0",
+   "kind": "function",
+   "name": "MapGraphics_DrawLandBorders",
+   "signature": "void __fastcall MapGraphics_DrawLandBorders(void* graphics@EDI)",
+   "no_signature": null,
+   "comment": "**The land borders, with TerrainShader_Border** (+0x228). 0x45E9B0 to the bare `ret` at 0x45EF46; the graphics owner in EDI. Picks the border texture tex2 from +0x298[level], level = 1 + the index of the last entry of CMap border_heights (+0x30/+0x34; default.map {150, 500} in TFH) the camera height is strictly above - so three textures, borders.tga, borders2.tga, borders3.tga. **Called only while CMap border_cutoff (default.map, 500.0) is above the height** and the layer mask has 0x2 (MapGraphics_DrawScene at 0x45C181), so in the far band no land border is drawn at all. The name is ours. See reversing/findings/FINDINGS-farmap.md, section A.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-farmap.md"
+  },
+  {
+   "rva": "0x45EF50",
+   "kind": "function",
+   "name": "MapGraphics_DrawBeaches",
+   "signature": "void __fastcall MapGraphics_DrawBeaches(void* graphics@EDI)",
+   "no_signature": null,
+   "comment": "**The beach strips, with terrain_2_0.fx's beach techniques** - the same switch as the land: map style 0 BeachShader_Graphical (+0x218) at every height, otherwise level 0 (camera height not above any terrain_sheet_heights entry) BeachShader_General (+0x220) and above BeachShader_General_Low (+0x224). 0x45EF50 to the bare `ret` at 0x45F6DE, the graphics owner in EDI; called unconditionally by MapGraphics_DrawScene at 0x45C0DB. The name is ours. See reversing/findings/FINDINGS-farmap.md, section A.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-farmap.md"
+  },
+  {
+   "rva": "0x45F6E0",
+   "kind": "function",
+   "name": "MapGraphics_DrawWater",
+   "signature": "void __stdcall MapGraphics_DrawWater(void* graphics)",
+   "no_signature": null,
+   "comment": "**The sea, with water.fx.** 0x45F6E0 to the `ret 4` at 0x4602D6; called by MapGraphics_DrawScene with the layer mask's 0x100. far = the camera height is strictly above **any** entry of CMap terrain_sheet_heights (default.map, 500). It looks the six technique handles up again every frame (+0x240..+0x254). coloured = map style 16, 18 or 19 (MapStyle_TestForWaterColourTechnique, 0x45FAE6). Then: **settings simpleWater (+0xE5) set - WaterSimple / WaterSimpleColor at every height**; else far - WaterFar / WaterFarColor; else WaterNear / WaterNearColor, with `Time` set for the waves. So WaterSimple is the setting, not a third height band. Binds ColorTex colormap_water.dds (+0xC4), OverlayTex map_overlay_tile.dds (+0x2C0), FOWTex and the normal map. The name is ours. See reversing/findings/FINDINGS-farmap.md, section A, and reversing/findings/FINDINGS-mapmode.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-farmap.md"
+  },
+  {
+   "rva": "0x4602E0",
+   "kind": "function",
+   "name": "MapGraphics_DrawTerraIncognita",
+   "signature": "void __stdcall MapGraphics_DrawTerraIncognita(void* graphics)",
+   "no_signature": null,
+   "comment": "**The terra incognita overlay, with terraincognita.fx**: TerraIncognitaFar (+0x2B0) where the camera height is strictly above any entry of CMap terrain_sheet_heights, TerraIncognitaNear (+0x2B4) otherwise. 0x4602E0 to the `ret 4` at 0x4608C2. Drawn by MapGraphics_DrawScene **only while a scenario is loaded** (CCurrentGameState +0xD0C not null), so never in the full game. In the install's terraincognita.fx the two techniques compile the same pixel shader (PixelShader_TIFar) with the same states, so the switch changes nothing on screen. The name is ours. See reversing/findings/FINDINGS-farmap.md, section A.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-farmap.md"
+  },
+  {
+   "rva": "0x432C70",
+   "kind": "function",
+   "name": "MapShore_Draw",
+   "signature": "void __stdcall MapShore_Draw(MapCamera* camera@EAX, void* shore@stack:4, void* graphics@stack:8, void* view@stack:0xC, void* list@stack:0x10)",
+   "no_signature": null,
+   "comment": "**The surf along the coasts, with beach.fx.** The camera in EAX (its +0x348 read before the prologue ends), four stack arguments, `ret 0x10` at 0x433031. count = how many entries of CMap terrain_sheet_heights (through the map global, VA 0x1A8557C) the height is strictly above: 0 - technique BeachShader (the shore texture, added), otherwise BeachShaderColor (a black line at 70% alpha). Called by MapGraphics_DrawScene at 0x45C213 where graphics +0x42E9 is set, with (graphics +0x4164, graphics, view, graphics +0x78). Only the technique choice was read. The name is ours. See reversing/findings/FINDINGS-farmap.md, section A.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-farmap.md"
+  },
+  {
+   "rva": "0x45C6F0",
+   "kind": "function",
+   "name": "MapGraphics_Update",
+   "signature": "void __stdcall MapGraphics_Update(void* graphics, MapCamera* camera, void* unknown, bool force)",
+   "no_signature": null,
+   "comment": "**The map's pictures and layers brought up to date, each frame** - called by the graphics owner's update (rva 0x241D00, with graphics owner +0x1DC4 and its +0x60DC) and at 0x29EB69. `ret 0x10` at 0x45D950, with a cold block past it reached from 0x45C7F1 (trap 3); the `ret 4` at 0x45DB1C was not attributed. Read in part: under height 100 (VA 0x160A358) it rebuilds the tile strips (0x462260, 0x455EA0); keeps the height at +0x4174; **far = camera height strictly above counter_distance (settings +0xFC)** at 0x45D7B2, handed to ProvinceGraphics_Update for every province graphics entry from 1 - which is where each unit's avatar is told it is seen from far; then MapObjects_UpdateLayerVisibility. The third argument's slot is reused as a local. The name is ours. See reversing/findings/FINDINGS-farmap.md, section A.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-farmap.md"
+  },
+  {
+   "rva": "0x1CD040",
+   "kind": "function",
+   "name": "CUnit::UpdateAvatar",
+   "signature": "void __thiscall CUnit::UpdateAvatar(CUnit* this, float unused, bool far, int stackIndex, bool refreshIntel)",
+   "no_signature": null,
+   "comment": "**Slot 36 of CUnit, CArmy and CAir: a unit's avatar (+0x164) told how it is seen this frame.** Called by ProvinceGraphics_Update for every unit of a province with MapGraphics_Update's far flag (camera height above counter_distance). Writes the avatar's seen_from_far (+0x152) = `far` **inline** - CHoiAvatar's slot 92 is not called - and its near counter's (+0x140) order (+0x1A8) = `stackIndex`; then for the played country's own units each counter's mark_yellow (+0x1BB), mark_red (+0x1BC) and mark_orange (+0x1BD) from the unit's fields; then CUnit_RefreshIntelLevel(this, refreshIntel). `ret 0x10`; the float (0.1 from the caller) is not read here. CNavy overrides it. The name is ours. See reversing/findings/FINDINGS-farmap.md, section A.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-farmap.md"
+  },
+  {
+   "rva": "0x1CF290",
+   "kind": "function",
+   "name": "CNavy::UpdateAvatar",
+   "signature": "void __thiscall CNavy::UpdateAvatar(CNavy* this, float unused, bool far, int stackIndex, bool refreshIntel)",
+   "no_signature": null,
+   "comment": "CNavy's slot 36, its own version of CUnit::UpdateAvatar: the same writes - the avatar's seen_from_far (+0x152) = `far` at 0x1CF492, the near counter's order (+0x1A8) = `stackIndex` - with a fleet's own marks. `ret 0x10` at 0x1CF639. The name is ours. See reversing/findings/FINDINGS-farmap.md, section A.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-farmap.md"
   }
  ],
  "structs": [
@@ -67819,6 +68189,34 @@
    "name": "CMap",
    "fields": [
     {
+     "offset": "0x44",
+     "name": "terrain_sheet_heights_end",
+     "type": "int*",
+     "comment": "end of terrain_sheet_heights",
+     "source": "reversing/findings/FINDINGS-farmap.md"
+    },
+    {
+     "offset": "0x40",
+     "name": "terrain_sheet_heights_begin",
+     "type": "int*",
+     "comment": "default.map's `terrain_sheet_heights` (TFH: one entry, 500), begin of a std::vector<int> (end +0x44). **The far/near threshold of the map's shaders**: above an entry the land and beaches go General_Low (outside map style 0), the sea WaterFar, terra incognita Far, the surf its dark line, the texture sheet the next one, and the per-country far layer is drawn. Also the count of extra texture sheets.",
+     "source": "reversing/findings/FINDINGS-farmap.md"
+    },
+    {
+     "offset": "0x34",
+     "name": "border_heights_end",
+     "type": "int*",
+     "comment": "end of border_heights",
+     "source": "reversing/findings/FINDINGS-farmap.md"
+    },
+    {
+     "offset": "0x30",
+     "name": "border_heights_begin",
+     "type": "int*",
+     "comment": "default.map's `border_heights` (TFH: 150, 500), begin of a std::vector<int> (end +0x34). The camera heights at which the land border texture steps to the next of borders.tga, borders2.tga, borders3.tga.",
+     "source": "reversing/findings/FINDINGS-farmap.md"
+    },
+    {
      "offset": "0x2A68",
      "name": "selection_listener",
      "type": "void*",
@@ -68100,10 +68498,10 @@
     },
     {
      "offset": "0x2A80",
-     "name": "unknown_2a80",
+     "name": "tree",
      "type": "int",
-     "comment": "An int the constructor defaults to **400**. FINDINGS-fieldmap.md puts default.map's `tree` key here, which would make it a list rather than an int, so the two do not agree and the field is left unnamed rather than named off the weaker of them.",
-     "source": "reversing/CLASSES.md"
+     "comment": "default.map's `tree` (TFH 350; the constructor's default 400), an int read by ParseInt. The tree draw (0x463930) draws nothing above it and fades the trees from 0.3 x tree up; but the scene calls the tree draw only under the hardcoded height 100, so with TFH's 350 the trees are at full strength whenever drawn.",
+     "source": "reversing/findings/FINDINGS-farmap.md"
     },
     {
      "offset": "0x2A88",
@@ -68733,6 +69131,20 @@
   {
    "name": "CProvinceTemplate",
    "fields": [
+    {
+     "offset": "0x58",
+     "name": "text_scale",
+     "type": "float",
+     "comment": "positions.txt's `text_scale`: the province name's size on the near map.",
+     "source": "reversing/findings/FINDINGS-farmap.md"
+    },
+    {
+     "offset": "0x54",
+     "name": "text_rotation",
+     "type": "float",
+     "comment": "positions.txt's `text_rotation`, radians: the province name's angle on the near map.",
+     "source": "reversing/findings/FINDINGS-farmap.md"
+    },
     {
      "offset": "0xB0",
      "name": "name",
@@ -71711,8 +72123,8 @@
      "offset": "0xF4",
      "name": "map_style",
      "type": "int",
-     "comment": "style the water shader picks its technique from; 16, 18, 19 colour the sea",
-     "source": "BiceLib/GameClasses/GameSettings.hpp:29"
+     "comment": "style the water shader picks its technique from; 16, 18, 19 colour the sea. **0 makes the land and beaches TerrainShader_Graphical / BeachShader_Graphical at every height and suppresses the far per-country layer** (MapGraphics_DrawScene); only the Terrain (mode 0) and Weather (mode 11) setters write 0. Per mode: 1 Political 2, 2 Diplomatic 6, 3 8, 4 Supply 9, 5 Infrastructure 9, 6 Intel 12, 7 VP 13, 8 Theatre 14, 9 Strength 15, 10 Resources 20, 12 Revolt 2, 13 Simplified Terrain 8, 14 deployment 11, 15 (set at 0x2773C1, beside the orders view) 16, 17 2, 18 Air 18, 19 Naval 19.",
+     "source": "reversing/findings/FINDINGS-farmap.md"
     },
     {
      "offset": "0x158",
@@ -72256,6 +72668,230 @@
   {
    "name": "WaterObject",
    "fields": [
+    {
+     "offset": "0x42E4",
+     "name": "settings",
+     "type": "GameSettings*",
+     "comment": "The settings singleton, kept here: layer masks +0xEC/+0xF0, map_style +0xF4, simpleWater +0xE5, always_counters +0xF9 are read through it every frame.",
+     "source": "reversing/findings/FINDINGS-farmap.md"
+    },
+    {
+     "offset": "0x2C0",
+     "name": "tex_map_overlay_tile",
+     "type": "int",
+     "comment": "Texture id of /terrain/map_overlay_tile.dds: the paper-like overlay the far land (tex5 under TerrainShader_General_Low) and the far sea (OverlayTex) are overlay-blended with.",
+     "source": "reversing/findings/FINDINGS-farmap.md"
+    },
+    {
+     "offset": "0x2B4",
+     "name": "tech_TerraIncognitaNear",
+     "type": "undefined4",
+     "comment": "technique handle",
+     "source": "reversing/findings/FINDINGS-farmap.md"
+    },
+    {
+     "offset": "0x2B0",
+     "name": "tech_TerraIncognitaFar",
+     "type": "undefined4",
+     "comment": "technique handle",
+     "source": "reversing/findings/FINDINGS-farmap.md"
+    },
+    {
+     "offset": "0x2AC",
+     "name": "terraincognita_effect",
+     "type": "void*",
+     "comment": "The terraincognita.fx effect (its index in the graphics' list at +0x2A8).",
+     "source": "reversing/findings/FINDINGS-farmap.md"
+    },
+    {
+     "offset": "0x298",
+     "name": "border_textures",
+     "type": "int*",
+     "comment": "Begin of a vector of texture ids: /terrain/borders.tga, then one 'borders' + number + '.tga' per entry of CMap border_heights (borders2, borders3 in TFH, inferred from the texture sheets' identical loop). MapGraphics_DrawLandBorders binds the level's one as tex2.",
+     "source": "reversing/findings/FINDINGS-farmap.md"
+    },
+    {
+     "offset": "0x288",
+     "name": "texture_sheets",
+     "type": "int*",
+     "comment": "Begin of a vector of texture ids: /terrain/texturesheet.tga, then texturesheet2.tga, texturesheet3.tga ... one more per entry of CMap terrain_sheet_heights (the number is the entry's index + 2). MapGraphics_DrawTerrain binds the level's one as tex6 (TextureSheet).",
+     "source": "reversing/findings/FINDINGS-farmap.md"
+    },
+    {
+     "offset": "0x230",
+     "name": "tech_PTIShader",
+     "type": "undefined4",
+     "comment": "technique handle; PTIShader. Its user was not read.",
+     "source": "reversing/findings/FINDINGS-farmap.md"
+    },
+    {
+     "offset": "0x22C",
+     "name": "tech_TreeShader",
+     "type": "undefined4",
+     "comment": "technique handle; the trees (0x463930)",
+     "source": "reversing/findings/FINDINGS-farmap.md"
+    },
+    {
+     "offset": "0x228",
+     "name": "tech_TerrainShader_Border",
+     "type": "undefined4",
+     "comment": "technique handle; the land borders (MapGraphics_DrawLandBorders)",
+     "source": "reversing/findings/FINDINGS-farmap.md"
+    },
+    {
+     "offset": "0x224",
+     "name": "tech_BeachShader_General_Low",
+     "type": "undefined4",
+     "comment": "technique handle; beaches in the other modes, far",
+     "source": "reversing/findings/FINDINGS-farmap.md"
+    },
+    {
+     "offset": "0x220",
+     "name": "tech_BeachShader_General",
+     "type": "undefined4",
+     "comment": "technique handle; beaches in the other modes, near",
+     "source": "reversing/findings/FINDINGS-farmap.md"
+    },
+    {
+     "offset": "0x218",
+     "name": "tech_BeachShader_Graphical",
+     "type": "undefined4",
+     "comment": "technique handle; beaches in map style 0",
+     "source": "reversing/findings/FINDINGS-farmap.md"
+    },
+    {
+     "offset": "0x214",
+     "name": "tech_TerrainShader_General_Low",
+     "type": "undefined4",
+     "comment": "technique handle; the land in the other modes, far (camera above a terrain_sheet_heights entry)",
+     "source": "reversing/findings/FINDINGS-farmap.md"
+    },
+    {
+     "offset": "0x210",
+     "name": "tech_TerrainShader_General",
+     "type": "undefined4",
+     "comment": "technique handle; the land in the other modes, near (level 0)",
+     "source": "reversing/findings/FINDINGS-farmap.md"
+    },
+    {
+     "offset": "0x208",
+     "name": "tech_TerrainShader_Graphical",
+     "type": "undefined4",
+     "comment": "technique handle; the land in map style 0 (Terrain, Weather) at every height",
+     "source": "reversing/findings/FINDINGS-farmap.md"
+    },
+    {
+     "offset": "0x1A0",
+     "name": "terrain_effect",
+     "type": "void*",
+     "comment": "The terrain_2_0.fx effect: SetTechnique (slot +0xE8) with the handles at +0x208..+0x230.",
+     "source": "reversing/findings/FINDINGS-farmap.md"
+    },
+    {
+     "offset": "0xC4",
+     "name": "tex_colormap_water",
+     "type": "int",
+     "comment": "Texture id of /terrain/colormap_water.dds: the water's ColorTex - what WaterFar shows at 0.8 and WaterNear lights with waves.",
+     "source": "reversing/findings/FINDINGS-farmap.md"
+    },
+    {
+     "offset": "0xC0",
+     "name": "tex_stripes",
+     "type": "int",
+     "comment": "Texture id of /terrain/stripes.dds: tex7, the stripes the two province colours are blended by (non-Graphical paths).",
+     "source": "reversing/findings/FINDINGS-farmap.md"
+    },
+    {
+     "offset": "0xBC",
+     "name": "tex_colormap_political",
+     "type": "int",
+     "comment": "Texture id of /terrain/colormap_political.dds: tex4 in every mode but Terrain and Weather - the base colour of the far land (TerrainShader_General_Low) and what the near General tiles are averaged with.",
+     "source": "reversing/findings/FINDINGS-farmap.md"
+    },
+    {
+     "offset": "0xB8",
+     "name": "tex_colormap",
+     "type": "int",
+     "comment": "Texture id of /terrain/colormap.dds: the colour map TerrainShader_Graphical's tiles are averaged with (tex4 in the Terrain and Weather modes).",
+     "source": "reversing/findings/FINDINGS-farmap.md"
+    },
+    {
+     "offset": "0x40",
+     "name": "map",
+     "type": "CMap*",
+     "comment": "The map: its terrain_sheet_heights (+0x40/+0x44), border_heights (+0x30/+0x34), tree (+0x2A80) and map_mode (+0x2A90) are read through it by the draws.",
+     "source": "reversing/findings/FINDINGS-farmap.md"
+    },
+    {
+     "offset": "0x3C",
+     "name": "graphics",
+     "type": "CGraphics*",
+     "comment": "The CGraphics: its d3d_device (+0x64), effect list (+0x6BD00), texture table (+0x158, 0x2C an entry) and graphics_settings (+0x6BC48) are reached through it.",
+     "source": "reversing/findings/FINDINGS-farmap.md"
+    },
+    {
+     "offset": "0x24",
+     "name": "view",
+     "type": "void*",
+     "comment": "MapGraphics_DrawScene's third argument (CInGameIdler +0x1788 from the game screen); its +0x1C object answers slots +0x16C and +0x174 for the view and projection matrices.",
+     "source": "reversing/findings/FINDINGS-farmap.md"
+    },
+    {
+     "offset": "0x20",
+     "name": "camera",
+     "type": "MapCamera*",
+     "comment": "The camera this frame's scene is drawn with: MapGraphics_DrawScene stores its second argument here (0x45BEFC). Every far/near test reads its height (+0x348) through this. **WaterObject is the whole map-graphics object** (the graphics owner's +0x1DC4), not just the water.",
+     "source": "reversing/findings/FINDINGS-farmap.md"
+    },
+    {
+     "offset": "0x4188",
+     "name": "font_allies_country",
+     "type": "CEU3BitmapFont*",
+     "comment": "allies_country: faction icon 3. An icon above 3 would read past it, into +0x418C.",
+     "source": "reversing/findings/FINDINGS-farmap.md"
+    },
+    {
+     "offset": "0x4184",
+     "name": "font_axis_country",
+     "type": "CEU3BitmapFont*",
+     "comment": "axis_country: faction icon 2.",
+     "source": "reversing/findings/FINDINGS-farmap.md"
+    },
+    {
+     "offset": "0x4180",
+     "name": "font_comintern_country",
+     "type": "CEU3BitmapFont*",
+     "comment": "comintern_country: faction icon 1.",
+     "source": "reversing/findings/FINDINGS-farmap.md"
+    },
+    {
+     "offset": "0x417C",
+     "name": "font_neutral_country",
+     "type": "CEU3BitmapFont*",
+     "comment": "neutral_country: a country in no faction's map name. Read as the map object's +0x5F40.",
+     "source": "reversing/findings/FINDINGS-farmap.md"
+    },
+    {
+     "offset": "0x4178",
+     "name": "font_province_names",
+     "type": "CEU3BitmapFont*",
+     "comment": "The font called tahoma_60 (in Their Finest Hour a bitmapfont over kart_font, color 0xff333333): the near map's province names.",
+     "source": "reversing/findings/FINDINGS-farmap.md"
+    },
+    {
+     "offset": "0x4170",
+     "name": "rng",
+     "type": "void*",
+     "comment": "A 0x9C8-byte MT19937 of the renderer's own, seeded with 42 (MT19937Seed) by the constructor. Readers not looked for.",
+     "source": "reversing/findings/FINDINGS-farmap.md"
+    },
+    {
+     "offset": "0x416C",
+     "name": "map_light",
+     "type": "void*",
+     "comment": "The light type MapSetLight, looked up in the graphics' lightTypes table by the constructor.",
+     "source": "reversing/findings/FINDINGS-farmap.md"
+    },
     {
      "offset": "0x234",
      "name": "effect",
@@ -98911,6 +99547,49 @@
      "source": "reversing/findings/FINDINGS-frontend.md"
     }
    ]
+  },
+  {
+   "name": "CountryMapName",
+   "size": "0x14",
+   "comment": "One country's name on the map, an element of g_CountryMapNames. Our name; no RTTI.",
+   "source": "reversing/findings/FINDINGS-farmap.md",
+   "fields": [
+    {
+     "offset": "0x10",
+     "name": "dirty",
+     "type": "uint8_t",
+     "comment": "Rebuild before the next draw. Set to 1 by new records and the eight setters on g_CountryMapNames, cleared by CountryMapName_Build.",
+     "source": "reversing/findings/FINDINGS-farmap.md"
+    },
+    {
+     "offset": "0xC",
+     "name": "z",
+     "type": "float",
+     "comment": "The anchor's map y (world z), the same way.",
+     "source": "reversing/findings/FINDINGS-farmap.md"
+    },
+    {
+     "offset": "0x8",
+     "name": "x",
+     "type": "float",
+     "comment": "The anchor's map x: the chosen line's midpoint less the normal's x times h x 0.5 x scale x 0.04.",
+     "source": "reversing/findings/FINDINGS-farmap.md"
+    },
+    {
+     "offset": "0x4",
+     "name": "font",
+     "type": "CEU3BitmapFont*",
+     "comment": "The faction's map-name font, from the map object's +0x5F40 + 4 x the faction's icon.",
+     "source": "reversing/findings/FINDINGS-farmap.md"
+    },
+    {
+     "offset": "0x0",
+     "name": "mesh",
+     "type": "void*",
+     "comment": "The 0x24-byte vertex-buffer holder of the laid-out letters; 0 where the country has no name on the map.",
+     "source": "reversing/findings/FINDINGS-farmap.md"
+    }
+   ]
   }
  ],
  "equates": [
@@ -101134,6 +101813,7 @@
    "4": "SelectUnit"
   },
   "CHoiAvatar": {
+   "92": "SetSeenFromFar",
    "37": "SetRotation"
   },
   "CPossibleBrigadeEntry": {
@@ -101211,6 +101891,7 @@
    "14": "IsValid"
   },
   "CEU3BitmapFont": {
+   "13": {"name": "GetTextSize", "signature": "void __thiscall GetTextSize(CEU3BitmapFont* this, Hoi3CString* text, int maxWidth, int maxHeight, void* border, short* size)"},
    "24": {"name": "DrawCounterIcon", "signature": "void __thiscall DrawCounterIcon(CEU3BitmapFont* this, const char* name, int x, int y)"},
    "25": {"name": "CounterIconWidth", "signature": "int __thiscall CounterIconWidth(CEU3BitmapFont* this) @EAX"},
    "21": {"name": "DrawFlagIcon", "signature": "void __thiscall DrawFlagIcon(CEU3BitmapFont* this, char* tag, int x, int y)"},
@@ -102432,6 +103113,7 @@
   },
   "_about": "Slot names BiceLib has established but that cannot be read off the slot's body - the linker folds identical bodies together, so the three unit predicates are one `mov al,1; ret` and one `xor al,al; ret` between them. Keyed by class, then slot. A record on a base class names that slot in every table below it, which is how CPersistent's six virtuals reach all 754 classes that derive from it; a name read off the slot's own body wins over one inherited this way.",
   "CUnit": {
+   "36": "UpdateAvatar",
    "2": "IsPlayers",
    "8": "GetShortName",
    "25": {"name": "GetMeanStrengthShare", "signature": "int* __thiscall GetMeanStrengthShare(CUnit* this, int* out)"},
@@ -102460,6 +103142,7 @@
    "32": "UpdateDaily"
   },
   "CArmy": {
+   "36": "UpdateAvatar",
    "23": {"name": "GetTotalMaxStrength", "signature": "void __thiscall GetTotalMaxStrength(CUnit* this, int* out)"},
    "26": {"name": "GetAverageOrganisationShare", "signature": "int* __thiscall GetAverageOrganisationShare(CUnit* this, int* out)"},
    "37": "StrengthText",
@@ -102470,6 +103153,7 @@
    "17": "IsAir"
   },
   "CNavy": {
+   "36": "UpdateAvatar",
    "23": {"name": "GetTotalMaxStrength", "signature": "void __thiscall GetTotalMaxStrength(CUnit* this, int* out)"},
    "26": {"name": "GetAverageOrganisationShare", "signature": "int* __thiscall GetAverageOrganisationShare(CUnit* this, int* out)"},
    "15": "IsLand",
@@ -102477,6 +103161,7 @@
    "17": "IsAir"
   },
   "CAir": {
+   "36": "UpdateAvatar",
    "19": {"name": "CanRetreatToProvince", "signature": "bool __thiscall CanRetreatToProvince(CAir* this, CMapProvince* target)"},
    "23": {"name": "GetTotalMaxStrength", "signature": "void __thiscall GetTotalMaxStrength(CUnit* this, int* out)"},
    "26": {"name": "GetAverageOrganisationShare", "signature": "int* __thiscall GetAverageOrganisationShare(CUnit* this, int* out)"},

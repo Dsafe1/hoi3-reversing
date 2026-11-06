@@ -325,7 +325,9 @@ no: xor al, al
 | `0x45FAE6` | whether the water draws with `WaterNearColor` or `WaterNear`, at `0x45FBF6` / `0x45FBFE` |
 
 So only styles **16, 18 and 19** put province colours on the sea. What each map mode
-writes, read out of its setter:
+writes, read out of its setter - **wrong in most rows, corrected 2026-11-06 in `FINDINGS-farmap.md`, A.3**: Theatre
+writes 14 (`mov [eax+0xF4], 0xE` at VA 0x667AAE) and Weather 0 (VA 0x667494), Diplomatic 6, Infrastructure 9, Intel 12,
+VP 13, Strength 15. The table below is kept as it was written; the conclusion about the sea stands:
 
 | style | modes |
 | --- | --- |

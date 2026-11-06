@@ -1406,7 +1406,7 @@ of it.
 
 ## What has already been read
 
-188 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
+189 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
 header lives. This replaces the `Done` archive: the archive restated each file's headline and named
 only 40 of the 67 there were then, so it was both longer and less useful than a complete list.
 
@@ -1552,6 +1552,7 @@ the six it was missing were wave 15's.
 | `findings/FINDINGS-mapmode.md` | the VP map mode, and where to take it over |
 | `findings/FINDINGS-camera.md` | the map camera, and what moves it; and how high it is - its lens of 0.785 radians, its heights from 40 to 1000, and the two heights the map changes at: `counter_distance` for the near view and 500 for the far one |
 | `findings/FINDINGS-counters.md` | a unit's counter on the map: the four textures and the colour its quad is made of, its size by rank, the flag and the two texts on the top one, the five stacks a province keeps and which units have no counter at all - a fleet in port, a wing at its base - and that `CUnit +0x1F8` is the player's intel level |
+| `findings/FINDINGS-farmap.md` | **the map's far view (2026-11-06, two readers)**: no one switch but four thresholds on the camera's height - default.map's `terrain_sheet_heights` (500) for the shaders and the names, a hardcoded 500 for buildings, counters and clicks, `border_cutoff` for land borders, `counter_distance` for far counters - and what each technique of terrain_2_0.fx, water.fx and the rest draws; the map style each mode writes (corrects `FINDINGS-mapmode.md`'s table); **the country names** - one per country on the land it controls joined to its capital, along a least-squares line, sized by its length and the land's area, spaced with blanks, bent along a Catmull-Rom spline, in its faction's bitmap font by the faction's `icon`, no shader (`maptext.fx` is unused), rebuilt when marked dirty; the province names below 100. `WaterObject` is `CProvinceManager` |
 
 **The interface, and text**
 

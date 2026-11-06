@@ -246,7 +246,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CNavalStrikeOrder` | `CAirOrder` |  |  |  | 5 |  | 1 | RTTI |  |
 | `CNavalTargetCombatant` | `CBombTargetCombatant` |  |  | 4/6 | 1 |  | 2 | RTTI |  |
 | `CNavalTransportOrder` | `CNavalOrder` |  |  |  | 3 |  | 3 | RTTI |  |
-| `CNavy` | `CUnit` |  | 3 |  | 15 |  | 1,738 | keys |  |
+| `CNavy` | `CUnit` |  | 3 |  | 16 |  | 1,738 | keys |  |
 | `CNukeMission` | `CAirOrder` |  |  |  | 4 |  |  | keys |  |
 | `CObjectType` | `CPersistent` |  | 1 |  |  |  |  | part |  |
 | `CObjective` | `CPersistent` |  | 8 | 1/4 | 1 |  | 9,637 | read |  |
@@ -308,7 +308,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CTraitGainTracker` | `CPersistent` |  | 4 |  | 6 | CTrait.hpp | 24,137 | keys |  |
 | `CTransportSuppliesOrder` | `CAirOrder` |  | 2 | 2/2 | 10 |  |  | placed |  |
 | `CUndeclaredWar` | `CPersistent` |  | 9 |  | 4 | CWar.hpp | 1 | read | **read**: the save's record of a war nobody declared |
-| `CUnit` | `PAVCSubUnit::__CList` `CSelectable` `CReferenceObject` |  | 110 + 1 lua |  | 115 | CUnit.hpp |  | read |  |
+| `CUnit` | `PAVCSubUnit::__CList` `CSelectable` `CReferenceObject` |  | 110 + 1 lua |  | 116 | CUnit.hpp |  | read |  |
 | `CUnitDeployment` | `CDeployment` |  |  | 3/4 | 6 |  | 49 | placed |  |
 | `CUnitPlan` | `CPersistent` | 0x90 | 15 | 10/16 | 14 |  | 8,827 | read | **read**: a battle plan as the save keeps it |
 | `CVariables` | `_0A::anon::PAUCVariable::__CTernary` `CPersistent` |  | 1 |  | 5 | CFlags.hpp | 216 | keys |  |
@@ -350,7 +350,7 @@ Definitions out of `common/` and the rest of the mod. Their `LoadKey` is the gra
 | `CDirectorySettings` | `CPersistent` | 0x3C8 | 5 |  | 2 |  | 1 | read | **read**: the path table; `replace` and `extend` are how a mod says whether its folder replaces the base game's |
 | `CDivisionTemplate` | `CPersistent` |  |  |  | 2 |  | 1,955 | RTTI |  |
 | `CEU3Application` | `CApplication` |  | 4 |  | 8 |  | 2 | keys | plumbing: the settings file |
-| `CEU3BitmapFont` | `CBitmapFont` |  | 2 | 1/6 | 9 |  | 126 | placed |  |
+| `CEU3BitmapFont` | `CBitmapFont` |  | 2 | 1/6 | 10 |  | 126 | placed |  |
 | `CEU3DialogGuiType` | `CWindowType` |  |  | 1/1 | 1 |  | 30 | placed |  |
 | `CEU3Graphics` | `CGraphics` |  |  |  | 2 |  | 2 | keys |  |
 | `CEU3Gui` | `CGui` |  |  |  | 2 |  | 3 | RTTI |  |
@@ -372,7 +372,7 @@ Definitions out of `common/` and the rest of the mod. Their `LoadKey` is the gra
 | `CLawGroup` | `PAVCLaw::__CList` `CPersistent` |  | 4 + 2 lua |  | 1 |  | 8 | keys |  |
 | `CLocalIntelBoost` | `CIntEffect` |  |  | 3/91 | 2 |  | 9 | RTTI |  |
 | `CMTTHModifier` | `CAndTrigger` |  | 1 | 1/1 | 1 |  | 650 | placed |  |
-| `CMap` | `CPersistent` `CReloadableInterface` |  | 42 | 15/22 | 18 | CMap.hpp | 2 | read | the map load rather than a `common/` file |
+| `CMap` | `CPersistent` `CReloadableInterface` |  | 46 | 15/22 | 18 | CMap.hpp | 2 | read | the map load rather than a `common/` file |
 | `CMasked3dFlagType` | `C3dObjectType` |  |  | 1/4 | 1 |  | 1 | placed |  |
 | `CMaskedSpriteType` | `CSpriteType` |  |  |  | 1 |  | 12 | keys |  |
 | `CMeanTimeToHappen` | `CPersistent` | 0x1C | 2 | 5/5 | 3 |  | 9,821 | placed | **read**: the MTTH grammar every event and decision is timed by |
@@ -385,7 +385,7 @@ Definitions out of `common/` and the rest of the mod. Their `LoadKey` is the gra
 | `CProjectionType` | `C3dObjectType` |  |  | 7/10 | 1 |  | 3 | placed |  |
 | `CProvinceHistoryEntry` | `CHistoryEntry` |  | 1 |  | 1 |  |  | part |  |
 | `CProvinceModifier` | `CModifier` | 0x30 | 3 | 1/2 |  |  | 14,190 | part |  |
-| `CProvinceTemplate` | `CPersistent` |  | 48 |  | 12 |  | 14,190 | read |  |
+| `CProvinceTemplate` | `CPersistent` |  | 50 |  | 12 |  | 14,190 | read |  |
 | `CProvinceType` | `C3dObjectType` |  |  |  | 1 |  | 1 | keys |  |
 | `CProvinceWaterType` | `C3dObjectType` |  |  |  |  |  | 1 | RTTI |  |
 | `CRebelType` | `CPersistent` |  | 18 | 16/17 | 1 | CRebelFaction.hpp | 7 | read | **read**: `rebel_types.txt`, 17 keys. `unit_transfer` is not one, though the file uses it - see the mod's bugs.md |
@@ -612,7 +612,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CProductionView` | `CCountryView` |  | 9 |  | 27 |  | 1 | read |  |
 | `CProjectionObject` | `C3dVisibleObject` |  |  |  |  |  |  | RTTI |  |
 | `CProvinceCollisionObject` | `C3dVisibleObject` |  |  |  |  |  |  | RTTI |  |
-| `CProvinceManager` | `CLostDeviceInterface` |  |  |  |  |  | 1 | RTTI |  |
+| `CProvinceManager` | `CLostDeviceInterface` |  |  |  | 1 |  | 1 | RTTI |  |
 | `CProvinceObject` | `CProvinceCollisionObject` |  |  |  |  |  | 10,642 | RTTI |  |
 | `CProvinceView` | `CReloadableInterface` | 0x1A4 | 14 |  | 8 |  | 1 | read |  |
 | `CProvinceWaterObject` | `CProvinceCollisionObject` |  |  |  |  |  | 3,547 | RTTI |  |
