@@ -64,7 +64,7 @@ size. Each record is read by `QuadCache_LoadTile` (0x474970), and every record o
 | 4 | dword B, B bytes | the border vertex buffer, tile `+0x294`, stride 12 | SHORT4 + D3DCOLOR, B.3 |
 | 5 | dword W, W bytes | **beach vertex buffer**, tile `+0x2B8`, W/12 vertices, stride 12 | FLOAT2 position (tile-local), D3DCOLOR R = id & 0xFF, G = id >> 8, B = A = 0 |
 | 6 | (only where W ≠ 0) dword X, X bytes | **beach index buffer**, tile `+0x2DC` (IB `+0x2E0`), 16-bit, triangle list | |
-| 7 | dword K, K × 0x1C bytes | handed to the shore object (`+0x4164`, 0x432B40) | C.3 |
+| 7 | dword K, K × 0x1C bytes | **K wave pixels** (C.7), each pushed onto the tile's list by CBeachManager_AddWavePixel (0x432B40), where the surf object (`+0x4164`) exists | x, y int; type int 0..51; four float offsets fixed by the type (C.7) |
 
 All buffers WRITEONLY in the managed pool, filled by Lock, memcpy, Unlock; the index buffers by IndexBuffer_Create (0x6D48B0),
 D3DFMT_INDEX16, primitive count indices/3.
@@ -478,7 +478,8 @@ the record's BorderManager_Tick "refill", as above. Tooling, trap 2: OnResetDevi
 `functionStart`'s set of prologues, so `fieldchain.py` gave its +0x59 store to 0x4374D0.
 
 **Not established.** FillBitmap's ladder of corner codes (from the decompilation, not checked branch by branch), so what a
-`border_bitmap.bin` made again would hold for a mod's own map; map.bin's builder and its list of N pixels; template +0x21
+`border_bitmap.bin` made again would hold for a mod's own map; map.bin's raster half (its list of N pixels is the rivers'
+sources, C.6); template +0x21
 (byte 1's shade); CBorderManager +0x14, +0x18, +0x34, +0x48, +0x4C, +0x50, +0x58, +0x68, +0x78; RefreshByFlags' bits 1 and
 2; what CFrontEnd's call passes; the one quad off its pixel. What is kept as read wants a live check - BiceLib dumping the
 lookup texture after a change of controller, set beside this rule.
@@ -748,19 +749,20 @@ the technique leaving it.
 
 ### C.3 Rivers, trees, surf, and the unread pieces
 
-**Rivers (MapRivers_Draw, 0x47C8A0; the renderer at graphics +0x4160).** Drawn with mask 0x80 at every height. A vector of
-mesh holders (+0x40), one per river piece, each with a bounding rectangle (+0x60: x, y, w, h), and a parallel vector
-(+0x50) of the mouth ("exit") mesh or null. The vertex: position and two texture coordinates, the second scrolled by
-vTime·0.3 [mod: river.fx VS_INPUT]; the engine's declaration was not read. The rebuild 0x478EF0 runs only where the byte at
-VA 0x1BEA4C2 is set, which starts nought and whose only other absolute reference clears it - dead unless written through a
-pointer (*inferred*). The draw: ZWRITEENABLE 0; world the translation (−camera x_settled, 0, −camera y_settled), view and
-projection the view's; `RiverShader` by name, Begin(…, 0), pass 0; **ColorMapHeight/Width** colormap_water.dds's height and
-width, **ColorMapTextureHeight/Width** the next power of two of each; **MapWidth/MapHeight** CMap map_width/map_height
-(5616, 2160 in TFH) [mod: the map]; **tex0** map/terrain/river_body.tga, **tex1** river_movement.tga, **tex2** the +0x18
-texture of the province colour object (graphics +0x4168; not identified here), **tex3** colormap_water.dds;
-**AbsoluteWorldMatrix** identity; **vTime** the clock (clock slot 5). Each mesh whose rectangle passes 0x6BF670 (y bounds −10
-and 50) [exe] is drawn and its index kept; then tex0 becomes **river_exit.dds** and the kept mouths are drawn; at the end
-ZENABLE 1, ZWRITEENABLE 1.
+**Rivers (MapRivers_Draw, 0x47C8A0; the renderer at graphics +0x4160).** Drawn with mask 0x80 at every height. The meshes
+are built once, at the map build, by MapRivers_Construct (C.6): a vector of strips (+0x40), one per river piece, each with
+an int bounding rectangle (+0x60: x, y, w, h), and a parallel vector (+0x50) of exit (mouth) quads or null - all null in
+TFH. The vertex is FVF 0x202, a position and two texture coordinates, stride 0x1C; river.fx scrolls the second by
+vTime·0.3. The rebuild 0x478EF0 runs only where the byte at VA 0x1BEA4C2 is set, which nothing but its own clear writes
+(*inferred* dead), and it would leave no rivers, the traced paths and the raster being freed after the build. The draw:
+ZWRITEENABLE 0; world the translation (−camera x_settled, 0, −camera y_settled), view and projection the view's;
+`RiverShader` by name, Begin(…, 0), pass 0; **ColorMapHeight/Width** colormap_water.dds's height and width,
+**ColorMapTextureHeight/Width** the next power of two of each; **MapWidth/MapHeight** CMap map_width/map_height (5616, 2160
+in TFH) [mod: the map]; **tex0** map/terrain/river_body.tga, **tex1** river_movement.tga, **tex2** the generated fog
+texture (CViewsTextureManager +0x18), which river.fx never samples, **tex3** colormap_water.dds; **AbsoluteWorldMatrix**
+identity; **vTime** the clock (clock slot 5). Each mesh whose box (rectangle less the camera, y −10 to 50)
+MapCamera_ClassifyBox (0x6BF670) does not put wholly outside the frustum is drawn and its index kept (+0xB4, +0xB0); then
+tex0 becomes **river_exit.dds** and the kept indices' exit meshes are drawn; at the end ZENABLE 1, ZWRITEENABLE 1.
 
 **Trees (MapTrees_Draw, 0x463930).** Drawn only under height 100 [exe] and with mask 0x1 - settings `renderTrees`, in the
 Terrain and Weather modes' masks alone. Nothing above CMap `tree` (350) [mod: map/default.map]; from 0.3·tree alpha =
@@ -772,14 +774,17 @@ index buffer (+0x154, 6 indices per 4 vertices). The mesh (MapObjects_RebuildTil
 (x, y, z, u, v) vertices, v offset by the point's kind k (0..3) to 0.25·k; in the Weather mode, provinces below −5.000 get
 u + 0.5, the snowed half.
 
-**Surf (MapShore_Draw, 0x432C70; the object at graphics +0x4164).** Gated by +0x42E9, set once at the map build
+**Surf (MapShore_Draw, 0x432C70; the CBeachManager at graphics +0x4164).** Gated by +0x42E9, set once at the map build
 (`CREATE_WAVES`) from settings.txt **`waves`** (GameSettings +0xE6, default yes) [mod: settings.txt] where the surf object
-exists. Per tile, quads with an index buffer; **the declaration one element, SHORT4 POSITION** (x, z, u, v as shorts), which
-beach.fx reads as `int4 vPositionUV`. **BeachShader** near, **BeachShaderColor** far, by the count of terrain_sheet_heights
+exists - that step is also the only time its meshes are built (CBeachManager_BuildMeshes, C.7). Per tile one quad per
+wave pixel, four SHORT4 vertices, against one shared 5000-quad index buffer: DrawIndexedPrimitive(TRIANGLELIST, 0, 0, 4K,
+0, 2K). **The declaration one element, SHORT4 POSITION** (x, z in half-pixels from the tile's middle; u, v in hundredths),
+which beach.fx reads as `int4 vPositionUV`. **BeachShader** near, **BeachShaderColor** far, by the count of terrain_sheet_heights
 entries exceeded. **tex0** map/terrain/shore.tga; **tex1** shore_alpha.tga near or shore_alpha_outline.tga far; **tex2**
 shore_alpha.tga (shore_alpha_gradient.tga only under an old-style `extend` of the map folder); **vTime** the clock;
 **vWaterHeight 0.31** [exe, the float at VA 0x171DAEC]; per tile WorldMatrix and AbsoluteWorldMatrix. It sets **no render
-state**, so the far black line at 70% alpha blends SRCALPHA / INVSRCALPHA, as the water left it.
+state**, so the far black line at 70% alpha blends SRCALPHA / INVSRCALPHA, as the water left it. The records, their quads
+and the shader's textures are C.7.
 
 **The unread pieces.** 0x45F450: correction (3). 0x6BB7E0 (`Animation_AdvanceClock`) advances the animation manager at VA
 0x174D960 by the time since its last call - the library *inferred* EMotion FX from the strings 'Actor.cpp',
@@ -827,9 +832,285 @@ ProvinceTexts_Draw are the object groups of rows 11 to 15.
 ### C.5 Not established
 
 ZENABLE, ZWRITEENABLE and ALPHATESTENABLE at the scene's start; the values of the land's and the water's
-MIPMAPLODBIAS/MIPFILTER registers; the rivers' tex2 (the province colour object's +0x18); groups +0x48/+0x4C (0x672930,
-0x6659C0) and what MapObjectGroup_Draw draws by kind; the pre-pass 0x2418B0/0x675D10 and GameSettings +0x58; 0x4482F0; the
-unit-layer draw 0x673B10; the water borders 0x45DD50 (section B).
+MIPMAPLODBIAS/MIPFILTER registers; groups +0x48/+0x4C (0x672930, 0x6659C0) and what MapObjectGroup_Draw draws by kind;
+the pre-pass 0x2418B0/0x675D10 and GameSettings +0x58; 0x4482F0; the unit-layer draw 0x673B10. The rivers' tex2 is the
+fog, unsampled (C.6); the water borders are B.8.
 
-Frontier: 0x450520, 0x45DD50, 0x672930, 0x6659C0, 0x2418B0, 0x675D10, 0x241950, 0x673B10, 0x4482F0, 0x478EF0, 0x6BF670,
-0x6759D0, 0x5F3E40, 0x7BC8F0, 0x432080.
+Frontier: 0x450520, 0x672930, 0x6659C0, 0x2418B0, 0x675D10, 0x241950, 0x673B10, 0x4482F0, 0x6759D0, 0x5F3E40, 0x7BC8F0.
+
+### C.6 The river meshes
+
+*Read 2026-11-06 by a delegated agent (fragment `mapdraw-rivers.json`); measured on TFH's `tfh/map/rivers.bmp`,
+`terrain.bmp`, `terrain.txt` and `cache/map.bin`, and the install's `map/terrain/river_*` and `gfx/FX/river.fx`.*
+
+**In one line.** At the map build every index-0 pixel of rivers.bmp starts a river, walked over the blue pixels to the sea,
+a junction or nothing; each walk becomes one triangle strip - a cardinal spline (tension 0.7) through the pixel centres, as
+wide as the pixel index says plus a seeded jitter - made once and never again [exe].
+
+**Where the meshes come from [exe].** MapRivers_Construct (0x478260), called once from CProvinceManager_CreateWorld's
+CREATING_RIVERS step (VA 0x8549F6) on an operator new(0xB8), the result stored at WaterObject +0x4160. In order: it seeds a
+0x9C8-byte MT19937 at +0x78 with **42**; loads river_body.tga (+0x80), river_movement.tga (+0x84), colormap_water.dds
+(+0x7C) and river_exit.dds (+0x88); sets **+0x3C = 128 / width(river_exit.dds)** (0.25 for the install's 512 × 128); calls
+MapRivers_TraceAll (0x47B9F0) and MapRivers_BuildAllMeshes (0x47B9A0); **then frees the traced paths**
+(RiverPathDeque_Clear, 0x47D3E0) and erases the exit-frame vector; then registers river.fx. No river cache file exists: the
+sources come from **map.bin**, the pixels from CMap +0x20E8 - rivers.bmp, loaded at every start by CMap_LoadRiversBitmap
+(0x8BC00, from CMap::LoadMapFiles) through the same image loader and converter as the province raster, and kept as 8-bit
+palette indices, then deleted by CMap_ReleaseMapBuildRasters (0x924E0) under "Cleaning up after Graphical Map". **So the
+rebuild 0x478EF0 has nothing to rebuild from**: it releases the meshes and loops to +0x14, then 0, and leaves +0x50 holding
+released pointers. Its trigger byte has no writer but its own clear (absolute references only), so it is *inferred* dead -
+and if it ever ran the rivers would vanish.
+
+**map.bin [exe; measured].** CreateMapBinCacheOwner (0x86F10) makes the object, published at g_MapBinCache (VA 0x1A85578),
+and runs its **own** staleness test, by file date: CMap_CollectMapBinStampFiles (0x92430) gives positions, provinces.bmp,
+terrain.bmp, definition.csv, adjacencies, terrain.txt, continent, region, coastlines; if any is missing or newer than
+map.bin, MapBinCache_Build runs and the file is saved (0x487C90); otherwise MapBinCache_Load, which on failure sets +0x44 = 1
+and builds. MapBinCache_Build (0x873C0) first pushes **every pixel of rivers.bmp whose index is 0, for y = 0.. and x = 0..
+in turn**, onto +0x10, then makes the (W+1) × (H+1) raster (B.7). *Measured*: TFH's map.bin's 722 pairs are exactly the 722
+index-0 pixels of `tfh/map/rivers.bmp`, in that order, with y = H − 1 − the BMP's stored row (as A.1). **rivers.bmp is not
+in the stamp list**: editing it alone leaves map.bin's old sources traced over the new pixels (*inferred* consequence). This
+corrects the record's CMap::CollectCacheStampFiles comment, which had every map cache gated on the one flag: the quads and
+the adjacency cache are, map.bin is not.
+
+**rivers.bmp [mod: map/rivers.bmp].** 5616 × 2160, 8-bit, 256-colour palette.
+
+| index | colour | TFH pixels | meaning |
+| --- | --- | --- | --- |
+| 0 | (0,255,0) | 722 | source: a river starts here |
+| 1 | (255,0,0) | 282 | junction: a tributary's end goes through it |
+| 2–11 | cyan to dark blue | 82,848 in all | river; width = index − 2 |
+| 12–22 | none in TFH (the base game's map has 3 pixels of 13 and 15) | 0 | river, width index − 2, **and** the river's exit frame = index − 12 |
+| 254 | (255,0,128) | 8,088,967 | not read by the river code (it coincides with terrain.bmp's sea, 254, but for 48 + 2 pixels) |
+| 255 | white | 3,957,741 | not read (land) |
+
+**The trace (RiverTrace_Follow, 0x47BD20) [exe].** One visited list serves the whole run. For each source in order: mark
+it visited and start a path with the node {x, y, width 1, source 1}, exit frame f = −1, last direction d none. Repeat: test
+R(x+1, y), R(x−1, y), R(x, y+1), R(x, y−1) in that order, skipping the reverse of d, and **step onto the first whose index
+is 2..22**. A step sets f = index − 12 where index ≥ 12; **if vertical after a horizontal one, first pops the path's last
+node** (the corner), unless the new pixel stops the river; pushes {x', y', index − 2, 0}; marks the pixel visited; and **stops
+the river if the new pixel's terrain is water** (terrain.bmp index → terrain.txt type → `is_water`; only `ocean` in TFH),
+keeping that pixel. With no step possible: test for a not-yet-visited junction pixel (index 1) at (x+1, y), (x−1, y),
+(x, y+1), (x, y−1) in turn; each found adds two nodes, the junction and the pixel beyond it, with the last node's width and
+flag, marks it visited and sets d none (a −x hit moves x, and a +y hit moves y, for the tests after it). At the end: if f ≠
+−1 and the path has more than 2 nodes, pop two; if d is not none, push a copy of the last node one pixel further in d. A path
+of 2 or more nodes becomes a piece, its f kept (MapRivers_TraceAll); a lone source makes nothing. **No visited test guards
+a blue step** (a blue cycle would never end), and the raster reads have no bounds test. *Positive control, a simulation of
+this rule*: TFH gives 721 pieces from 722 sources, **282 ending at a junction - exactly the 282 index-1 pixels** - and the
+base game's map 347 and 347; 212 end in water, 228 on nothing, 27 blue pixels are never stepped on, every f is −1; 61,532
+nodes, 364,866 vertices.
+
+**The strip (MapRivers_BuildPieceMesh, 0x479010) [exe].** Nodes P_j = (x_j, 0, y_j) (world x, world z = engine y, pixel
+centres on whole numbers as A.1), widths w_j. Ends: P_−1 = 2P_0 − P_1, w_−1 = 1.0; past the end P_s+2 = P_s+1 + (P_s −
+P_s−1), w_s+2 = 2w_s+1 − w_s. Per segment s and k = 0, 1, 2, t = k/2:
+- C(t) and W(t) are the **cardinal spline, tension 0.7** - weights −0.7t³ + 1.4t² − 0.7t, 1.3t³ − 2.3t² + 1, −1.3t³ +
+  1.6t² + 0.7t, 0.7t³ − 0.7t²; d = normalize(C((k+1)/2) − C(t)), n = normalize(−d.z, 0, d.x);
+- **hw = 0.1·W + 0.15 + 0.1·r**, r a draw of the +0x78 generator (the record's MT19937, its non-standard constants), &
+  0x7FFFFFFF, / 2³¹ - one draw per k per segment, in piece order, made even when nothing is emitted;
+- **vertices**: the plus side C + n·hw/2 first, then the minus side C − n·hw/2 - a full spacing of hw, 0.15 to 1.15 map
+  pixels for indices 2..11;
+- **height = 0.40 + max(h(side), h(centre))**, h = 0 where the province at pixel (trunc(x − 1), trunc(z − 1)) has a
+  template that is not land, else 0.02 (the land at 0.35);
+- **TEXCOORD0** (river_body, clamp): u = 1 plus side, 0 minus side; v = k/8 in the first segment (0 to 0.25, the texture's
+  tapered tip) and k/8 + 0.25 after it (0.25 to 0.5, the body);
+- **TEXCOORD1** (river_movement, wrap): (1, n/3) and (0, (n+1)/3), n counting this piece's emitted vertices;
+- for s ≥ 1, k = 0 makes no new vertices: it pushes the previous pair again with TEXCOORD0 v = 0.25 - a UV seam and two
+  degenerate triangles.
+
+So a piece of N nodes has **6(N − 1) vertices**, drawn as a strip of 6(N − 1) − 2 triangles: a managed MeshBuffer,
+primitive kind 1, FVF **0x202**, stride **0x1C** (float3 position, float2 TEXCOORD0, float2 TEXCOORD1). The rectangle
+(+0x60) is int (x, y, w, h) over the nodes, w = max(1, max x − min x), h likewise. **The exit quad** (+0x50; only where f ≠
+−1, so never in TFH): A, B the last two vertices, M their middle, D = A − B; corners M + D, M − D, then each +
+3·normalize(D.z, 0, −D.x), 3 pixels downstream; TEXCOORD0 u = (f + 1)·q and f·q with q = +0x3C, v 0 at the near pair and 1
+at the far; TEXCOORD1 (1, n), (0, n+1), (1, n+2), (0, n+3). Kept as read: the floors 0.15 and the reuse of the previous
+same-side vertex below 0.151 are dead, every height being at least 0.4; a node carrying the source flag at s ≥ 1 (a source
+straight against a junction) adds 0.25 to v and logs a line - none in TFH.
+
+**The draw's test [exe].** The box (x − cam x, **−10**, y − cam y) to (x + w − cam x, **50**, y + h − cam y), cam the
+camera's settled position, goes to MapCamera_ClassifyBox (0x6BF670) against six (a, b, c, d) planes at MapCamera +0x288: 1
+wholly outside one plane, 2 crossing, 0 inside; the river is drawn unless 1. The y bounds only make the box tall enough for
+the rivers' 0.40–0.42. Drawn indices go to +0xB4[+0xB0], whose exit meshes follow with tex0 river_exit.dds.
+
+**What each texture does [mod: gfx/FX/river.fx].** **tex0** (river_body): the base colour, and **its alpha is the river's
+alpha**, blended SRCALPHA/INVSRCALPHA and alpha-tested at 8/255. **tex1** (river_movement): sampled at TEXCOORD1 − (0,
+0.3·vTime), so its pattern runs down the river; it lerps the colour towards (water − 0.3) by its alpha (0 at the edges,
+about 0.8 in the middle), then adds its own rgb. **tex3** (colormap_water): at ((ColorMapWidth·x/MapWidth +
+0.5)/ColorMapTextureWidth, (ColorMapHeight·z/MapHeight + 0.5)/ColorMapTextureHeight), the vertex's own world position
+(AbsoluteWorldMatrix identity). **tex2**: the generated fog texture (CViewsTextureManager +0x18, reached as the in-game
+screen's slot 15 +0x5F2C = the embedded CProvinceManager's +0x4168); river.fx declares it (`TerraIncog.dds`,
+`FOWTexture`) and **never samples it**; vTerrainTexCoord is computed and unused too.
+
+**Corrections.** C.3's "the engine's declaration was not read": FVF 0x202. C.3's rebuild: it would empty the rivers. C.3 and
+C.5's tex2: the fog, unsampled. B.7's map.bin list of N pixels: the river sources. CMap +0x20E8: rivers.bmp. The record's
+CMap::CollectCacheStampFiles comment, for map.bin, which has its own nine-file test.
+
+**Not established.** The live mesh count (721 by simulation; BiceLib could read +0x40/+0x44). What the engine reads past
+the raster's edge - TFH's sources make 21 such reads, which the simulation takes as "not river" and still gives 282 = 282.
+Whether D3DX honours the TGA's bottom origin (*inferred* yes: v = 0 is the texture's tip). MapBinCache_Build's raster half
+and the save 0x487C90; CMap_ReleaseMapBuildRasters' province loop; the game-side reader CProvinceTemplate::MeasureEdges's
+river read and 0x4889E0; the destructor 0x478CE0 and 0x47CF90. Frontier: 0x478CE0, 0x47CF90, 0x487C90, 0x4889E0.
+
+### C.7 The surf's meshes
+
+*Read 2026-11-06 by a delegated agent (fragment `mapdraw-surf.json`); the generator reimplemented over `terrain.bmp`
+reproduces all 941 tiles of TFH's cache record for record and in order, 141,831 records.*
+
+**In one line.** The surf is a list of **wave pixels** per tile, each a 0x1C-byte record: a coastal *water* pixel (x, y),
+a type 0..51 and four float offsets fixed by the type. QuadCache_LoadTile's seventh piece fills the lists from
+`cache/all_quads.bin`; without a cache MapShore_GenerateWavePixels (0x46F140) fills them from `terrain.bmp`. At CREATE_WAVES
+CBeachManager_BuildMeshes (0x433100) turns each record into one quad of four SHORT4 vertices - x and z in half-pixels from the
+tile's middle, u and v in hundredths - and MapShore_Draw draws every tile's quads against one shared index buffer.
+
+**The object.** CBeachManager (RTTI, base CLostDeviceInterface; both vftable slots the shared stub 0xABF890, so it does
+nothing on a device loss - its buffers are managed), 0x40 bytes, allocated at VA 0x85325C in CProvinceManager_CreateWorld and
+stored at WaterObject +0x4164 - unconditionally as far as the code before it shows (*inferred*). CBeachManager_Construct
+(0x432080):
+- tile width and height (ECX, EDX = WaterObject +0x194/+0x198, 50 each [exe]) at +8/+0xC; columns and rows (+0x18C/+0x190)
+  at +0x10/+0x14;
+- +0x18: an array of columns × rows `std::vector<WavePixel>`, 16 bytes each, begin/end/capacity first;
+- +0x24: an array of columns × rows MeshBuffers, managed;
+- +0x20: a MeshBuffer holding **one 16-bit index buffer of 30000 indices, 5000 quads [exe], quad q = 4q, 4q+1, 4q+2, 4q+2,
+  4q+3, 4q** (triangles 0-1-2 and 2-3-0);
+- textures: +0x30 `terrain/shore.tga`, +0x34 `shore_alpha.tga`, +0x38 `shore_alpha.tga` (or `shore_alpha_gradient.tga`
+  under directory mode 2, an old-style `extend`), +0x3C `shore_alpha_outline.tga` [mod: map/terrain]; TFH's `map/terrain` has
+  none of them, so the base game's are drawn (*inferred*: the loader's search not traced);
+- +0x2C: beach.fx under the key BeachShader;
+- +0x28: CreateVertexDeclaration from VA 0x170AD34, **one element: stream 0, offset 0, SHORT4, POSITION 0** - on failure
+  MessageBoxA "CreateVertexDeclaration failed!! (WavesVertexDecl)" and FatalExit(1).
+
+**The record** (WavePixel, 0x1C bytes; `all_quads.bin` stores it as in memory):
+
+| offset | type | meaning |
+| --- | --- | --- |
+| +0x0 | int | x, the map pixel column of a terrain-water pixel |
+| +0x4 | int | y, its row, northward (the land's y) |
+| +0x8 | int | type 0..51: 0-6 water south of a land pixel, 7-13 north, 14-20 east, 21-27 west, 28-33 south-east, 34-39 south-west, 40-45 north-east, 46-51 north-west |
+| +0xC, +0x10 | float ×2 | added to corner P0's (x, z) |
+| +0x14, +0x18 | float ×2 | added to P3 (or P1, by subkind; ignored by subkind 2) |
+
+The four floats are each 0, +0.5 or −0.5 and are **constants of the type**: every branch of the generator stores fixed
+values, and the cache has exactly one float tuple per type over all 141,831 records.
+
+**Where the records come from.** Two producers, both through CBeachManager_AddWavePixel (0x432B40), which push_backs onto
+the list at +0x18 + 16·tile, keeps the largest list size in VA 0x1A85630 and, while that exceeds 5000, logs "Too many wave
+pixels" - a log only (TFH's largest tile holds 2,355): QuadCache_LoadTile's piece 7, one call per cached record where +0x4164
+is set; and MapShore_GenerateWavePixels, which CProvinceManager_BuildQuads reaches through the per-tile builder 0x4727B0
+(call at VA 0x85AE11), which calls the per-pixel beach builder 0x46EB60 for every pixel of every land province of the tile,
+which calls the surf generator first. So a province's records go to **its own tile** (A.1's rule), not to the tile under the
+record: 47,381 of TFH's lie outside their tile's square, up to about 110 pixels from its middle. Order (*measured*, all 941
+tiles exact): provinces by id, each province's pixels from the south row by row, west to east, each pixel's records in the
+generator's order.
+
+**The generator** (0x46F140, read whole) [exe, on mod data]. W(x, y) is TerrainRaster_IsWater (0x87360): terrain.bmp's
+palette byte at (x, y), index 0 off the right or top edge, through CMap terrain_by_palette_index → CTerrain is_water [mod:
+map/terrain.bmp, map/terrain.txt]; in TFH only index 254 (`ocean1`) is water. Nothing is made unless 0 < x < map width − 1
+and 0 < y < map height − 1; the pixel itself is not tested. Eight blocks run in this order, each adding 0, 1 or 2 records
+at the water neighbour:
+- **N**, the record at (x, y+1); L = W(x−1, y+1), R = W(x+1, y+1), l = W(x−1, y), r = W(x+1, y). L and R both water: **9**
+  if l and r, **11** if r only, **10** if l only, else **7**. Neither: **8**. R only: **12** unless r. L only: **13** unless l.
+- **S**, at (x, y−1): the same on row y−1, giving 2, 4, 3, 0 / 1 / 5 / 6.
+- **E**, at (x+1, y); U = W(x+1, y+1), D = W(x+1, y−1), u = W(x, y+1), d = W(x, y−1). U and D: **16** if u and d, **17** if
+  u only, **18** if d only, else **14**. Neither: **15**. U only: **20** unless u. D only: **19** unless d.
+- **W**, at (x−1, y): the same on column x−1, giving 23, 24, 25, 21 / 22 / 27 / 26.
+- **SW** (at (x−1, y−1), base 34), **SE** ((x+1, y−1), base 28), **NW** ((x−1, y+1), base 46), **NE** ((x+1, y+1), base
+  40), where the diagonal is water. If both orthogonals between the pixel and the diagonal are water, with the pairs
+  SW: a = W(x, y+1)∧W(x−1, y+1), b = W(x+1, y−1)∧W(x+1, y); SE: a = W(x, y+1)∧W(x+1, y+1), b = W(x−1, y)∧W(x−1, y−1);
+  NW: a = W(x+1, y+1)∧W(x+1, y), b = W(x−1, y−1)∧W(x, y−1); NE: a = W(x−1, y+1)∧W(x−1, y), b = W(x, y−1)∧W(x+1, y−1) -
+  neither a nor b → **base**; a and b → **base+1, then base+3**; a only → **base+1, then base+4**; b only → **base+2, then
+  base+3**. Both orthogonals land: **base+5**. One water, one land: nothing.
+
+**The quads** (CBeachManager_BuildMeshes, 0x433100, read whole) [exe]. Called once at CREATE_WAVES (VA 0x8589B9), only
+where +0x4164 exists and settings `waves` is on [mod: settings.txt]. For each tile with K records: VertexBuffer_Create(4K
+vertices, stride 8, FVF 0, not dynamic), managed, Lock; for record n of the tile, of type t, at (x, y):
+- corners P0..P3: the (x, z) of four float triples at VA 0x170F410 + 0x30·t;
+- sub = the int at VA 0x170AD48 + 4t (the table holds only 0, 1, 2, 5 and 10..13, so the branch for subkind 6 is dead);
+- offsets: sub 0, 5, 10..13: P0 += (f0C, f10), P3 += (f14, f18); sub 1: P0 += (f0C, f10), P1 += (f14, f18); sub 2: P0
+  and P1 both += (f0C, f10);
+- UV: four (u, v) from VA 0x170F210 by subkind - 0: +0x00, 1 and 2: +0x20, 5: +0x40, 10..13: +0x80 + 0x20·(sub−10) - **plus
+  0x100 when n mod 4 == 0**, the same set scaled by 1.1 (*inferred*: to break the repetition);
+- vertex k = **((int)(2·(x − mx + Pk.x)), (int)(2·(y − my + Pk.z)), (int)(100·uk), (int)(100·vk))**, C truncation, mx =
+  50·col + 25, my = 50·row + 25;
+- Unlock. A debug log gated on the byte at VA 0x1BEA4C0 is dead: the byte is in .bss and its one reference is that read
+  (*inferred*, as the rivers' 0x1BEA4C2).
+
+The table [exe]: corners (x, z) in pixels from the record's pixel centre, after the offsets. UV sets A = (0,0)(0,100)
+(100,100)(100,0); B = (100,0)(0,0)(0,100)(100,100); C = (0,0)(50,50)(50,50)(100,0); the alternative sets ×1.1, A′ = (0,0)
+(0,110)(110,110)(110,0) and so on.
+
+| type | corners P0 P1 P2 P3 | uv |
+| --- | --- | --- |
+| 0 | (−.5,−.5) (−.5,1) (.5,1) (.5,−.5) | A |
+| 1 | (0,−.5) (−.5,1) (.5,1) (0,−.5) | A |
+| 2 | (−1,−.5) (0,.5) (0,.5) (1,−.5) | C |
+| 3 | (−1,−.5) (.5,−.5) (.5,1) (.5,1) | B |
+| 4 | (−.5,−.5) (1,−.5) (−.5,1) (−.5,1) | B |
+| 5 | (.5,−.5) (.5,−.5) (−.5,1) (.5,1) | B |
+| 6 | (−.5,−.5) (−.5,−.5) (−.5,1) (.5,1) | B |
+| 7..13 | as 0..6 with z negated | as 0..6 |
+| 14 | (.5,.5) (−1,.5) (−1,−.5) (.5,−.5) | A |
+| 15 | (.5,0) (−.5,−.5) (−.5,.5) (.5,0) | A |
+| 16 | (.5,1) (−.5,0) (−.5,0) (.5,−1) | C |
+| 17 | (.5,1) (.5,−.5) (−1,−.5) (−1,−.5) | B |
+| 18 | (.5,.5) (.5,−1) (−1,.5) (−1,.5) | B |
+| 19 | (.5,−.5) (.5,−.5) (−1,−.5) (−1,.5) | B |
+| 20 | (.5,.5) (.5,.5) (−1,−.5) (−1,.5) | B |
+| 21..27 | as 14..20 with x negated | as 14..20 |
+| 28 | (0,−.5) (−1.5,1) (−1,1.5) (.5,0) | A |
+| 29 | (.5,0) (−.5,1) (−1,1) (.25,−.25) | D10 = (0,0)(0,50)(50,75)(50,0); alt (0,0)(0,55)(60,82)(60,0) |
+| 30 | (.5,0) (−1,1.5) (−1,1) (.25,−.25) | D11 = (0,0)(0,100)(50,75)(50,0); alt (0,0)(0,110)(55,82)(55,0) |
+| 31 | (0,−.5) (−1,.5) (−1,1) (.25,−.25) | D12 = (100,0)(100,50)(50,75)(50,0); alt (110,0)(110,55)(55,82)(55,0) |
+| 32 | (0,−.5) (−1.5,1) (−1,1) (.25,−.25) | D13 = (100,0)(100,100)(50,75)(50,0); alt (110,0)(110,110)(55,82)(55,0) |
+| 33 | (.5,−1) (−1,.5) (−.5,1) (1,−.5) | A |
+| 34..39 | as 28..33 with x negated | as 28..33 |
+| 40..45 | as 28..33 with z negated | as 28..33 |
+| 46..51 | as 28..33 with x and z negated | as 28..33 |
+
+Two quirks of the original's tables [exe]: D10's alternative set has u = 60 where ×1.1 gives 55; and 0.825f × 100 truncates
+to **82**. Truncation towards nought moves the ±0.25 corners of 16 types (29-32, 35-38, 41-44, 47-50) a quarter pixel
+towards the tile's middle - 9,468 vertices in TFH; every other vertex is exact. Both windings occur (49,450
+counter-clockwise, 181,225 clockwise and 52,987 degenerate triangles in the x-east/z-north plane); culling is NONE at the
+surf draw (C.1), so all are drawn.
+
+**What the quads cover.** beach.fx's VertexShader_Beach places a vertex at (x·0.5, vWaterHeight, z·0.5) through WorldMatrix
+(the tile's middle less the camera), so world = record pixel + corner, with no +0.5 as the land's shader has; the ±0.5
+corners lie on the land's pixel edges. For the straight types the quad runs from the **far edge of the water pixel (v = 0)**
+to the **centre of the land pixel (v = 1)**, the coastline at v = 2/3. vWaterHeight 0.31 [exe] puts it between the sea
+(y = −0.32 in water.fx) and the land (LAND_ALT 0.35) [mod: fx]; with ZENABLE on, the land should hide the inland third
+(*inferred*; whether the land writes depth is C.2's open item). *Measured* over all 141,831 records: every record pixel is
+terrain 254; 130,889 lie on sea zones, 10,934 on pixels with no definition.csv colour and 8 on land-province pixels; every
+record has a land-province pixel among its eight neighbours.
+
+**The draw** (MapShore_Draw, 0x432C70). For each visible tile whose MeshBuffer has a vertex count: WorldMatrix,
+AbsoluteWorldMatrix (which beach.fx does not use), CommitChanges, SetStreamSource(0, VB, 0, 8), SetIndices(the shared
+buffer), **DrawIndexedPrimitive(TRIANGLELIST, 0, 0, 4K, 0, 2K)** - a tile over 5000 records would ask for more indices than
+the buffer holds (*inferred* failure; TFH's most is 2,355). The technique as C.3 says.
+- **BeachShader (near)** [mod: gfx/FX/beach.fx]: colour = shore.tga at uv/100 − (0, 0.2·vTime) - the foam scrolling
+  towards +v, the shore (*inferred* from the shader's sign) - × shore_alpha.a(uv/100) × tex2.a(uv/100); tex2 is shore_alpha
+  again, so the mask enters squared. The pass blends SRCALPHA/ONE, additive, with the alpha test (≥ 8/255, C.2). In the base
+  game's files shore.tga is 32×32 white with noise in alpha; shore_alpha.tga's alpha rises from 0 at v = 0 to a peak at v ≈
+  0.7, the coastline, and falls to 0 at v = 1; **shore_alpha_gradient.tga's alpha is 0 throughout, so under directory mode 2
+  the near surf is invisible** (*inferred* from the file).
+- **BeachShaderColor (far)**: black, alpha = 0.7 × shore_alpha_outline.a(uv/100), no scroll. The outline's alpha is 255 from
+  v ≈ 0.2 to 0.9 and about 0 at the ends: a static black line about 0.7 px wide on the water side, ending at the coastline.
+  The engine's SRCALPHA/INVSRCALPHA, left by the water (C.2), with the alpha test.
+- vTime is the clock at [VA 0x1A857E4], slot 5, as for the rivers; its unit is not established. Every quad's u spans 0..1
+  (or 0..1.1): one repeat of shore.tga per pixel along the coast. All three samplers wrap. v = 0 is taken to be the displayed
+  top of each TGA (descriptor 8, bottom-left origin, which D3DX honours - *inferred* from documentation, not the executable).
+
+**Lifecycle.** CBeachManager::ReloadResources (0x433040, from CProvinceManager_ReloadResources) reloads +0x30/+0x34/+0x38 -
+not the outline - and recompiles BeachShader. CBeachManager_Destruct (0x432A50, from the WaterObject teardown at VA
+0x84FF0F) releases +0x30/+0x34 only, plus the vectors, meshes and index buffer. The records are loaded whatever `waves` says;
+the meshes exist only if it was on when the map was built.
+
+**`map/coastlines.txt` does not touch the surf.** CMap::LoadKey stores its path (default.map key `coastlines`, token 0x7B5,
+CMap +0x217C); its one key, `strategic_resource_coastlines` (token 0x7B6, compared at VA 0x48F653 in a reader at rva 0x8F4D0,
+not read further), lists three region names - the indian, atlantic and pacific coast regions (*inferred*: for strategic
+resources by sea). The negative: the surf functions, read whole, use no CMap field but the map's width and height
+(+0x2A74/+0x2A78), terrain_raster (+0x20E4), terrain_by_palette_index (+0x2220) and, in the draw, terrain_sheet_heights; the
+positive control is that the same reading found each of those.
+
+**Not established.** The unit of vTime; that D3DX's v = 0 is the TGA's displayed top (from D3DX's documentation, which the
+alpha profile's placement agrees with); whether the land writes depth, hiding the inland third; 0x46EB60 and 0x4727B0 read
+only as far as the surf call - the pixel walk order measured from the cache, not read, and in 0x4727B0 the pixels appear to
+be stored relative to the template's +0x2C/+0x30 pair and added back at VA 0x872B09..0x872B0F, not settled; CBeachManager
++0x1C (always 0x20, no reader in the functions read); whether TFH's missing `terrain/shore*.tga` resolves to the base game's
+(loader search not traced); the reader at rva 0x8F4D0. For A.6: CProvinceManager_BuildQuads's surf part is read here.
+Frontier: 0x46EB60, 0x4727B0, 0x434050, 0x4340D0, 0x6D44C0, 0x44FCF0, 0x8F4D0, 0x660F30, 0x6610E0, 0x718110.

@@ -1,0 +1,161 @@
+{
+ "agent": "mapdraw follow-up: the surf's meshes",
+ "question": "What a 0x1C-byte record of all_quads.bin's seventh piece holds, how it becomes the SHORT4 quads MapShore_Draw draws with beach.fx, the shore object's constructor and fields, and how the records are made from the map where there is no cache.",
+ "source": "reversing/findings/FINDINGS-mapdraw.md",
+ "addresses": [
+  {
+   "rva": "0x432080",
+   "kind": "function",
+   "name": "CBeachManager_Construct",
+   "signature": "CBeachManager* __stdcall CBeachManager_Construct(int tileWidth@ECX, int tileHeight@EDX, CBeachManager* beaches@stack:4, CGraphics* graphics@stack:8, int tileColumns@stack:0xC, int tileRows@stack:0x10) @EAX",
+   "no_signature": null,
+   "comment": "**The CBeachManager (surf) constructor** (0x40 bytes, operator new at VA 0x85325C in CProvinceManager_CreateWorld, stored at WaterObject +0x4164). 0x432080 to the `ret 0x10` at 0x432A2A. Writes the vftable (rva 0x11E0EEC), +4 graphics, +8 tile width (ECX, WaterObject +0x194), +0xC tile height (EDX, +0x198), +0x10 columns (+0x18C), +0x14 rows (+0x190), +0x1C = 0x20, +0x30..+0x3C = -1; registers itself in the graphics' lost-device list (+0x6BC90, std::vector_pushBackByAddress); +0x18 = an array of columns x rows 16-byte vectors of WavePixel (array new, element constructor at VA 0x409DB0); +0x24 = an array of columns x rows MeshBuffers (element constructor MeshBuffer_Construct 0x432A30, destructor 0x6D44C0), each with managed (+0x14) set to 1; +0x20 = a new MeshBuffer holding **one shared 16-bit index buffer of 30000 indices (IndexBuffer_Create), filled for 5000 quads: quad q's six indices are 4q, 4q+1, 4q+2, 4q+2, 4q+3, 4q** - triangles (0,1,2) and (2,3,0). Then the textures through the texture handler (graphics +0x158, VA 0xA60F30, flag 1): +0x30 `<map dir>/terrain/shore.tga`, +0x34 `/terrain/shore_alpha.tga`, +0x38 `/terrain/shore_alpha.tga` - or `/terrain/shore_alpha_gradient.tga` where the map folder's directory mode is 2 (an old-style `extend`, Path_PreferOverride) - and +0x3C `/terrain/shore_alpha_outline.tga`; registers `/FX/beach.fx` under the key BeachShader (FxHandler_Register) into +0x2C; and CreateVertexDeclaration (device slot 86) from the static array at VA 0x170AD34 - **one element: stream 0, offset 0, D3DDECLTYPE_SHORT4 (7), POSITION 0** - into +0x28, a failure being MessageBoxA 'CreateVertexDeclaration failed!! (WavesVertexDecl)' and FatalExit(1). The name is ours, after the RTTI class. See reversing/findings/FINDINGS-mapdraw.md, section C.7.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-mapdraw.md",
+   "evidence": "Decoded whole 0x832080..0x832A2A. The caller at VA 0x853271..0x85329D pushes WaterObject +0x190, +0x18C, +0x3C and the new object and loads ECX = +0x194, EDX = +0x198, then stores EAX at +0x4164. The vftable 0x15E0EEC is CBeachManager's by its RTTI locator (type descriptor .?AVCBeachManager@@). The index fill loop is 0x832250..0x83227A (5000 iterations, 0x1388). Wrong if the stack order of the caller's pushes were misread (the builder 0x433100 uses +8 with the column and +0xC with the row, which is what fixes +8 as the width)."
+  },
+  {
+   "rva": "0x432A30",
+   "kind": "function",
+   "name": "MeshBuffer_Construct",
+   "signature": "void __fastcall MeshBuffer_Construct(MeshBuffer* mesh@ECX)",
+   "no_signature": null,
+   "comment": "Zeroes a 0x24-byte MeshBuffer: +0..+0x10, +0x18..+0x20 to 0 and the managed byte +0x14 to 0. A bare `ret`. Used as the element constructor of CBeachManager's per-tile mesh array (the pointer pushed at VA 0x832197), whose builder then sets managed to 1. The name is ours. See reversing/findings/FINDINGS-mapdraw.md, section C.7.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-mapdraw.md",
+   "evidence": "Ten instructions decoded, 0x832A30..0x832A4C. One reference in code, the push at 0x832198. Wrong if another MeshBuffer constructor body is already recorded under a different name (none found by name search for MeshBuffer)."
+  },
+  {
+   "rva": "0x432A50",
+   "kind": "function",
+   "name": "CBeachManager_Destruct",
+   "signature": "void __stdcall CBeachManager_Destruct(CBeachManager* beaches@EAX)",
+   "no_signature": null,
+   "comment": "The CBeachManager destructor body (the caller frees the object): writes the vftable, takes itself out of the graphics' lost-device list (+0x6BC90, VA 0xB18110), releases the textures at +0x30 and +0x34 (VA 0xA610E0) - **not +0x38 or +0x3C** - destroys the per-tile WavePixel vectors (+0x18) and the per-tile MeshBuffers (+0x24, 0x6D44C0 each), and releases the shared index MeshBuffer's three COM pointers (+0x20) and frees it. The vertex declaration +0x28 is not released here. A bare `ret`. Called once, from VA 0x84FF0F (the WaterObject teardown at rva 0x44FCF0, which then frees it). The name is ours. See reversing/findings/FINDINGS-mapdraw.md, section C.7.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-mapdraw.md",
+   "evidence": "Decoded whole 0x832A50..0x832B31. The call site 0x84FF03..0x84FF1A loads EAX from WaterObject +0x4164, calls this and passes the same pointer to the free at 0xB95F9B. Wrong if 0xA610E0 is not a texture release (only two of the four indices pass through it either way)."
+  },
+  {
+   "rva": "0x432B40",
+   "kind": "function",
+   "name": "CBeachManager_AddWavePixel",
+   "signature": "void __stdcall CBeachManager_AddWavePixel(CBeachManager* beaches, int tile, const WavePixel* pixel)",
+   "no_signature": null,
+   "comment": "**Appends one 0x1C-byte WavePixel to a tile's list**: push_back (WavePixelVector_PushBack) onto the vector at +0x18 + 16 x tile, then keeps the largest list size seen in the global at VA 0x1A85630, and while that maximum exceeds 5000 logs 'Too many wave pixels <n>' (beachmanager.cpp, line 0x21D) - **a log only**: nothing is refused, though the shared index buffer covers 5000 quads. `ret 0xC`. Callers: QuadCache_LoadTile's seventh piece (VA 0x874EE5, one call per cached record) and MapShore_GenerateWavePixels (18 calls), so the cache and the builder fill the same lists. The name is ours. See reversing/findings/FINDINGS-mapdraw.md, section C.7.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-mapdraw.md",
+   "evidence": "Decoded whole 0x832B40..0x832C67; findRefs --callers gives 19 direct calls, 18 in 0x86F140..0x870327 and 0x874EE5. The divide by 28 is the 0x92492493 multiply. The block after the compare is a log stream built and destroyed (0xB94BAE is the ios_base destructor after the vftable 0x15A7B8C store, as in the CREATE_WAVES log at VA 0x858968), not a throw - wrong if 0xB94BAE throws."
+  },
+  {
+   "rva": "0x432C70",
+   "kind": "function",
+   "name": "MapShore_Draw",
+   "signature": "void __stdcall MapShore_Draw(MapCamera* camera@EAX, CBeachManager* shore@stack:4, void* graphics@stack:8, void* view@stack:0xC, void* list@stack:0x10)",
+   "no_signature": null,
+   "comment": "**The surf along the coasts, with beach.fx.** The camera in EAX (its +0x348 read before the prologue ends), four stack arguments, `ret 0x10` at 0x433031. Drawn by MapGraphics_DrawScene (0x45C213) where graphics +0x42E9 is set - **settings.txt `waves`** (mapRenderingOptions, default yes), copied there once as the map is built ('CREATE_WAVES', 0x45886F) where the surf object exists - with (graphics +0x4164 the CBeachManager, graphics, view, graphics +0x78 the visible tiles). count = how many entries of CMap terrain_sheet_heights the height is strictly above. **SetVertexDeclaration(CBeachManager +0x28: one element, stream 0, offset 0, SHORT4, POSITION - x, z, u, v as shorts)**; the effect from its FxHandler index (+0x2C); technique by name **BeachShader at count 0, BeachShaderColor otherwise**; Begin(&n, 0); BeginPass(0); ViewMatrix, ProjectionMatrix; **tex0 +0x30 map/terrain/shore.tga, tex1 +0x34 shore_alpha.tga (near) or +0x3C shore_alpha_outline.tga (far), tex2 +0x38 shore_alpha.tga** (shore_alpha_gradient.tga only under an old-style `extend` of the map folder); **vTime the clock, vWaterHeight 0.31** [exe, the float at VA 0x171DAEC]; then for each visible tile whose MeshBuffer (+0x24 + 0x24 x tile) has a vertex count or a primitive count: WorldMatrix the tile's (+0x17C), AbsoluteWorldMatrix (+0x13C), CommitChanges, SetFVF where set, SetStreamSource(0, VB, 0, stride +0x18), SetIndices(the shared quad indices, +0x20's +4), **DrawIndexedPrimitive(TRIANGLELIST, 0, 0, vertex count, 0, vertex count / 4 x 2)**. EndPass, End. **No render state of its own**: BeachShader sets SRCALPHA/ONE itself; **BeachShaderColor sets only the two enables, so the far coastline blends SRCALPHA/INVSRCALPHA** as left by the water. The meshes are CBeachManager_BuildMeshes'. The name is ours. See reversing/findings/FINDINGS-mapdraw.md, sections C.3 and C.7.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-mapdraw.md",
+   "revises": "Types the second argument CBeachManager* (the RTTI class of the object at WaterObject +0x4164, whose vftable 0x15E0EEC the constructor writes) where it was void*, names the fields the draw reads by their new records, and spells out the DrawIndexedPrimitive arguments; nothing the comment claimed is withdrawn.",
+   "evidence": "Re-decoded 0x832C70..0x833031: the per-tile test is [mesh+0xC] != 0 or [mesh+0x10] != 0 (0x832F11..0x832F1D); the draw pushes 4, 0, 0, [mesh+0xC], 0, ((count / 4) * 6) / 3 (0x832FCB..0x833000). The object's class: the vftable written at 0x8320C5 resolves through its RTTI locator to .?AVCBeachManager@@."
+  },
+  {
+   "rva": "0x433040",
+   "kind": "function",
+   "name": "CBeachManager::ReloadResources",
+   "signature": "void __thiscall CBeachManager::ReloadResources(CBeachManager* this)",
+   "no_signature": null,
+   "comment": "Reloads the surf's textures at +0x30, +0x34 and +0x38 (TextureHandler_ReloadEntry on graphics +0x158) - **not the outline at +0x3C** - and recompiles the effect under the key BeachShader (FxHandler_Reload). A bare `ret`. Not virtual (both CBeachManager vftable slots hold the shared stub 0xABF890). Called once, from CProvinceManager_ReloadResources (VA 0x868893), where WaterObject +0x4164 is set. The name is ours. See reversing/findings/FINDINGS-mapdraw.md, section C.7.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-mapdraw.md",
+   "evidence": "Decoded whole 0x833040..0x8330F6: three calls to 0xA61370 with +0x30, +0x34, +0x38 and graphics +0x158, then 0xA624F0 with the string BeachShader and the device. Wrong if 0xA61370 or 0xA624F0 are not the recorded TextureHandler_ReloadEntry and FxHandler_Reload (rva 0x661370, 0x6624F0)."
+  },
+  {
+   "rva": "0x433100",
+   "kind": "function",
+   "name": "CBeachManager_BuildMeshes",
+   "signature": "void __stdcall CBeachManager_BuildMeshes(CBeachManager* beaches)",
+   "no_signature": null,
+   "comment": "**Turns every tile's WavePixel list into its surf mesh**, called once at the map build's CREATE_WAVES step (VA 0x8589B9) where WaterObject +0x4164 exists and settings `waves` (GameSettings +0xE6) is on. For each tile i with K > 0 pixels: VertexBuffer_Create(mesh +0x24 + 0x24 i, device, 4K vertices, stride 8, fvf 0, not dynamic) in the managed pool, Lock, and for pixel n (0-based in list order) with type t: corners P0..P3 = the 4 x (x, y, z) floats at VA 0x170F410 + 0x30 t (x and z used); sub = the int at VA 0x170AD48 + 4 t; **sub 0, 5, 6 or 10..13: P0 += (f0C, f10), P3 += (f14, f18); sub 1: P0 += (f0C, f10), P1 += (f14, f18); sub 2: P0 and P1 += (f0C, f10); other subs (3, 4, 7, 8, 9, which the table never holds) nothing**; uv = 4 (u, v) floats from VA 0x170F210 by sub (0: +0x00, 5: +0x40, 6: +0x60, 1 and 2: +0x20, 10..13: +0x80 + 0x20 (sub - 10), else +0x00), **plus 0x100 - the same set scaled by 1.1 - when n mod 4 == 0** (also stored in the byte at VA 0x1A8562D, which nothing reads). Vertex k = four shorts: **(int)(2.0 x (x - mid_x + Pk.x)), (int)(2.0 x (y - mid_y + Pk.z)), (int)(100.0 x u_k), (int)(100.0 x v_k)**, C truncation, mid = (tile width x column + tile width / 2, tile height x row + tile height / 2) with column = i mod columns, row = i div columns. Unlock. A vertex index past 4K logs 'Created more waves then allowed verticed' (cannot happen). A block gated on the byte at VA 0x1BEA4C0 logs each pixel and its corners; that byte is in .bss and its only reference is this read, so the log is dead (inferred, as the rivers' 0x1BEA4C2). `ret 4` at 0x433F3D; the next byte starts a deque helper (0x433F40). The name is ours. See reversing/findings/FINDINGS-mapdraw.md, section C.7.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-mapdraw.md",
+   "evidence": "Decoded whole 0x833100..0x833F3D. The scale constants are the doubles 100.0 (VA 0x160A358) and 2.0 (0x160A360); the stores are 0x833D74..0x833ED2, word offsets 0..0x1E for four 8-byte vertices; the table ranges were dumped (52 subkinds then .rdata string pointers; 52 corner sets then non-float data at 0x170FDD0). Checked against the cache: applying this to TFH's 141,831 records gives 567,324 vertices with x in -173..219 and z in -193..207, all within a short. Wrong if the per-sub adjustment branches were mis-attributed - each was read from the compare on ESI at 0x833450..0x833774."
+  },
+  {
+   "rva": "0x433F90",
+   "kind": "function",
+   "name": "WavePixelVector_PushBack",
+   "signature": "void __stdcall WavePixelVector_PushBack(const WavePixel* value@EAX, void* vector@EDI)",
+   "no_signature": null,
+   "comment": "std::vector<WavePixel>::push_back for a 28-byte element: the value's address in EAX (handled when it lies inside the vector's own storage), the vector (begin +0, end +4, capacity end +8) in EDI; grows through 0x434050 / 0x4340D0 ('vector<T> too long'); copies seven dwords and adds 0x1C to the end. A bare `ret`. One caller, CBeachManager_AddWavePixel. The name is ours. See reversing/findings/FINDINGS-mapdraw.md, section C.7.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-mapdraw.md",
+   "evidence": "Decoded whole 0x833F90..0x834044 (two exits, both bare ret). findRefs --callers: one direct call, 0x832B72. Wrong if a second 28-byte vector type shares the body (one caller makes that moot for naming)."
+  },
+  {
+   "rva": "0x46F140",
+   "kind": "function",
+   "name": "MapShore_GenerateWavePixels",
+   "signature": "void __stdcall MapShore_GenerateWavePixels(const int* pixel@stack:4, WaterObject* mgr@ESI, int tile@EDI)",
+   "no_signature": null,
+   "comment": "**Makes the surf records for one land pixel where there is no cache** - the only producer besides QuadCache_LoadTile. pixel = (x, y) in map pixels (y northward), tile in EDI the list it goes to. Nothing unless 0 < x < map width - 1 and 0 < y < map height - 1 (CMap +0x2A74/+0x2A78, through mgr +0x40). With W(x, y) = TerrainRaster_IsWater, eight blocks in this order, each adding 0, 1 or 2 records at the **water** neighbour through CBeachManager_AddWavePixel (mgr +0x4164): **N** (record at (x, y+1)), **S** (x, y-1), **E** (x+1, y), **W** (x-1, y) - for N with L = W(x-1, y+1), R = W(x+1, y+1), l = W(x-1, y), r = W(x+1, y): L and R: type 9 if l and r, 11 if r only, 10 if l only, else 7; neither: 8; R only: 12 unless r; L only: 13 unless l. S the same on row y-1 with types 2, 4, 3, 0, 1, 5, 6; E with U = W(x+1, y+1), D = W(x+1, y-1), u = W(x, y+1), d = W(x, y-1): 16, 17 (u), 18 (d), 14, 15, 20 (U only, unless u), 19 (D only, unless d); W the same on column x-1 with 23, 24, 25, 21, 22, 27, 26. Then the diagonals **SW** (record at (x-1, y-1), types from 34), **SE** ((x+1, y-1), 28), **NW** ((x-1, y+1), 46), **NE** ((x+1, y+1), 40): where both orthogonals between the pixel and the diagonal are water, with two pairs a and b - SW a = W(x, y+1) and W(x-1, y+1), b = W(x+1, y-1) and W(x+1, y); SE a = W(x, y+1) and W(x+1, y+1), b = W(x-1, y) and W(x-1, y-1); NW a = W(x+1, y+1) and W(x+1, y), b = W(x-1, y-1) and W(x, y-1); NE a = W(x-1, y+1) and W(x-1, y), b = W(x, y-1) and W(x+1, y-1) - neither: base; a and b: base+1 then base+3; a only: base+1 then base+4; b only: base+2 then base+3. Where both orthogonals are land: base+5. One water and one land: nothing. **The four floats of a record are constants of its type** (each branch stores the same 0, +0.5 or -0.5 values; table in C.7). Called once per pixel by the per-pixel beach builder 0x46EB60 before its own work, which CProvinceManager_BuildQuads reaches through the per-tile builder 0x4727B0 for every pixel of every land province of the tile. `ret 4` at three exits (0x4701FC, 0x4702B3, 0x470327). The name is ours. See reversing/findings/FINDINGS-mapdraw.md, section C.7.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-mapdraw.md",
+   "evidence": "Decoded whole 0x86F140..0x870327 (the next function starts after six int3 at 0x870330). Reimplemented as read and run over TFH's terrain.bmp (palette index 254, the only type = ocean entry of terrain.txt, as water) for every pixel of every province not in sea_starts and with a definition.csv colour, south row by row and west to east, each province's records sent to the tile A.1's measured rule gives: the 941 tiles of tfh/map/cache/all_quads.bin are reproduced record for record **and in order** (141,831 records, provinces concatenated by id). Wrong if any branch were misread - a single swapped type would break that match."
+  },
+  {
+   "rva": "0x87360",
+   "kind": "function",
+   "name": "TerrainRaster_IsWater",
+   "signature": "bool __fastcall TerrainRaster_IsWater(int x@ECX, int y@EDX) @AL",
+   "no_signature": null,
+   "comment": "**Is map pixel (x, y) water by the terrain bitmap**: the byte of g_CMap's terrain_raster (+0x20E4; width +4, height +8, bytes per pixel +0xC, pitch +0x18, data +0x20) at x x bpp + y x pitch - **palette index 0 where x >= width or y >= height**, no test for negatives - indexes terrain_by_palette_index (+0x2220), and the answer is that entry's CTerrain (+0xC) is_water (+0x48), false for an empty entry. In TFH only palette index 254 (`ocean1`, type ocean) is water. 136 direct callers, all in the beach builder 0x46EB60 (52) and MapShore_GenerateWavePixels (84). A bare `ret`. The name is ours. See reversing/findings/FINDINGS-mapdraw.md, section C.7.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-mapdraw.md",
+   "evidence": "Decoded whole 0x487360..0x4873B2; the CMap singleton is [0x1A8557C]. findRefs --callers: 136, range 0x86EBB3..0x8702CD. Reproducing the cache with is_water = (terrain.bmp index == 254) is the positive check of the predicate. Wrong if the raster's rows ran the other way - the reproduction only matches with y as the decoded (top-down) row of terrain.bmp, which is the engine's northward y for these files."
+  }
+ ],
+ "structs": [
+  {
+   "name": "CBeachManager",
+   "size": "0x40",
+   "vftable_rva": "0x11E0EEC",
+   "comment": "The surf (beachmanager.cpp), at WaterObject +0x4164; RTTI base CLostDeviceInterface at 0, two slots, both the shared stub 0xABF890 - nothing done on a device loss, the buffers being managed. Made by CBeachManager_Construct, filled by CBeachManager_AddWavePixel (from the cache or MapShore_GenerateWavePixels), meshed by CBeachManager_BuildMeshes, drawn by MapShore_Draw. See reversing/findings/FINDINGS-mapdraw.md, section C.7.",
+   "source": "reversing/findings/FINDINGS-mapdraw.md",
+   "evidence": "Size from the operator new 0x40 at VA 0x85325C; vftable 0x15E0EEC (rva 0x11E0EEC) written at 0x8320C5 and named by its RTTI locator; the RTTI export lists CBeachManager under CLostDeviceInterface with 2 slots."
+  },
+  {
+   "name": "WavePixel",
+   "size": "0x1C",
+   "comment": "One surf record ('wave pixel'): a water pixel, a type 0..51 and four float offsets. The cache's all_quads.bin piece 7 holds them as they are in memory. See reversing/findings/FINDINGS-mapdraw.md, section C.7.",
+   "source": "reversing/findings/FINDINGS-mapdraw.md",
+   "evidence": "Stride 0x1C in WavePixelVector_PushBack (seven dwords) and the divide by 28 in CBeachManager_AddWavePixel and CBeachManager_BuildMeshes; QuadCache_LoadTile reads K x 0x1C bytes."
+  }
+ ],
+ "struct_fields": [
+  {"struct": "CBeachManager", "offset": "0x4", "name": "graphics", "type": "CGraphics*", "comment": "The CGraphics: device (+0x64), texture handler (+0x158), effect handler (+0x6BCFC) and lost-device list (+0x6BC90).", "evidence": "Stored from stack argument 2 at 0x8320B9; MapShore_Draw reads +4 -> +0x64 and +0x6BD00."},
+  {"struct": "CBeachManager", "offset": "0x8", "name": "tile_width", "type": "int", "comment": "WaterObject +0x194 (50). The builder's tile middle x is tile_width x column + tile_width / 2.", "evidence": "ECX stored at 0x8320A5; the caller loads ECX from WaterObject +0x194 (0x853289); used with the column at 0x8331EA."},
+  {"struct": "CBeachManager", "offset": "0xC", "name": "tile_height", "type": "int", "comment": "WaterObject +0x198 (50); the tile middle y is tile_height x row + tile_height / 2.", "evidence": "EDX stored at 0x8320AD from WaterObject +0x198 (0x853282); used with the row at 0x8331F9."},
+  {"struct": "CBeachManager", "offset": "0x10", "name": "tile_columns", "type": "int", "comment": "WaterObject +0x18C (113 in TFH); a tile's column is its index mod this.", "evidence": "Stack argument 3 stored at 0x8320B3 (caller pushes +0x18C); the builder divides the tile index by it (0x8331E0)."},
+  {"struct": "CBeachManager", "offset": "0x14", "name": "tile_rows", "type": "int", "comment": "WaterObject +0x190 (44 in TFH). columns x rows sizes both per-tile arrays.", "evidence": "Stack argument 4 stored at 0x8320CB; multiplied by +0x10 for both array sizes."},
+  {"struct": "CBeachManager", "offset": "0x18", "name": "wave_pixels", "type": "void*", "comment": "Array of columns x rows 16-byte std::vector<WavePixel> (begin +0, end +4, capacity end +8), one per tile, in the order the pixels were added.", "evidence": "Array new of (columns x rows) x 0x10 at 0x832116; indexed tile x 16 in CBeachManager_AddWavePixel (0x832B6D) and the builder (0x83313D)."},
+  {"struct": "CBeachManager", "offset": "0x1C", "name": "unknown_1c", "type": "int", "comment": "0x20, written by the constructor; no reader in the CBeachManager functions read.", "evidence": "mov [ebx+0x1C], 0x20 at 0x8320D5; not read in 0x432080..0x433F3D or MapShore_Draw (a search of those bodies only)."},
+  {"struct": "CBeachManager", "offset": "0x20", "name": "quad_indices", "type": "MeshBuffer*", "comment": "The shared index buffer: 30000 16-bit indices, 5000 quads (4q, 4q+1, 4q+2, 4q+2, 4q+3, 4q). Every tile's draw uses it from index 0.", "evidence": "new 0x24 and IndexBuffer_Create(.., 0x7530) at 0x8321E7..0x832224; MapShore_Draw's SetIndices reads +0x20 -> +4 (0x832F87, 0x832FBC)."},
+  {"struct": "CBeachManager", "offset": "0x24", "name": "tile_meshes", "type": "MeshBuffer*", "comment": "Array of columns x rows MeshBuffers, the surf vertex buffer of each tile (stride 8, 4 vertices a WavePixel, managed pool); empty where the tile has no pixels.", "evidence": "Array new of (columns x rows) x 0x24 at 0x83217A; filled by CBeachManager_BuildMeshes (0x83318D); drawn at +0x24 + 0x24 x tile by MapShore_Draw (0x832F07)."},
+  {"struct": "CBeachManager", "offset": "0x28", "name": "vertex_declaration", "type": "void*", "comment": "IDirect3DVertexDeclaration9*: one SHORT4 POSITION element (WavesVertexDecl), from VA 0x170AD34.", "evidence": "CreateVertexDeclaration (device slot 0x158 / 4) into +0x28 at 0x832932; MapShore_Draw's SetVertexDeclaration pushes +0x28 (0x832CD6)."},
+  {"struct": "CBeachManager", "offset": "0x2C", "name": "effect_index", "type": "int", "comment": "FxHandler index of beach.fx (key BeachShader), 1-based; 0 means none.", "evidence": "FxHandler_Register's result stored at 0x832910; MapShore_Draw takes list[+0x2C - 1] (0x832CF9)."},
+  {"struct": "CBeachManager", "offset": "0x30", "name": "tex_shore", "type": "int", "comment": "Texture handler index of map/terrain/shore.tga - beach.fx tex0.", "evidence": "Stored at 0x8324B0 after the load of '/terrain/shore.tga'; MapShore_Draw's tex0 (0x832D93)."},
+  {"struct": "CBeachManager", "offset": "0x34", "name": "tex_alpha", "type": "int", "comment": "shore_alpha.tga - tex1 of the near technique.", "evidence": "Stored at 0x8325B3; tex1 when count is 0 (0x832DCB)."},
+  {"struct": "CBeachManager", "offset": "0x38", "name": "tex_alpha_gradient", "type": "int", "comment": "tex2 in both techniques: shore_alpha.tga again, or shore_alpha_gradient.tga where the map folder's directory mode is 2 (whose alpha is 0 throughout in the base game's file).", "evidence": "Stored at 0x8326D2 after the mode-2 branch at 0x8325AF; tex2 (0x832E1A)."},
+  {"struct": "CBeachManager", "offset": "0x3C", "name": "tex_alpha_outline", "type": "int", "comment": "shore_alpha_outline.tga - tex1 of the far technique (BeachShaderColor).", "evidence": "Stored at 0x8327DB; tex1 when count is not 0 (0x832DE9)."},
+  {"struct": "WavePixel", "offset": "0x0", "name": "x", "type": "int", "comment": "Map pixel x of the water pixel the quad is on.", "evidence": "Builder: [rec+0] - tile middle x (0x833390..0x833392); generator stores x or x +- 1 at ebp-0x54."},
+  {"struct": "WavePixel", "offset": "0x4", "name": "y", "type": "int", "comment": "Map pixel y (northward) of that pixel.", "evidence": "Builder: [rec+4] - tile middle y (0x83338A); generator stores y or y +- 1 at ebp-0x50."},
+  {"struct": "WavePixel", "offset": "0x8", "name": "type", "type": "int", "comment": "0..51: selects the corner set (VA 0x170F410 + 0x30 type), the subkind (VA 0x170AD48 + 4 type) and so the uv set. 0-6 water south of the land pixel, 7-13 north, 14-20 east, 21-27 west, 28-33 south-east, 34-39 south-west, 40-45 north-east, 46-51 north-west.", "evidence": "Builder 0x833383 and 0x833441; generator's immediates at ebp-0x4C."},
+  {"struct": "WavePixel", "offset": "0xC", "name": "offset0_x", "type": "float", "comment": "Added to corner P0's x (all subkinds the table holds). 0, +0.5 or -0.5, a constant of the type.", "evidence": "movss [rec+0xC] into xmm0 and added to ebp-0x44 in every adjusting branch (e.g. 0x83345F)."},
+  {"struct": "WavePixel", "offset": "0x10", "name": "offset0_z", "type": "float", "comment": "Added to P0's z (and, subkind 2, to P1's z).", "evidence": "movss [rec+0x10] into xmm1, added to ebp-0x3C (0x833477)."},
+  {"struct": "WavePixel", "offset": "0x14", "name": "offset1_x", "type": "float", "comment": "Added to P3's x (subkinds 0, 5, 6, 10-13) or P1's x (subkind 1); unused by subkind 2.", "evidence": "movss [rec+0x14] into xmm4, added to ebp-0x20 (0x83348F) or ebp-0x38 (0x83360E)."},
+  {"struct": "WavePixel", "offset": "0x18", "name": "offset1_z", "type": "float", "comment": "Added to P3's z or P1's z, as offset1_x.", "evidence": "movss [rec+0x18] into xmm5, added to ebp-0x18 (0x8334A7) or ebp-0x30 (0x833626)."},
+  {"struct": "WaterObject", "offset": "0x4164", "name": "shore", "type": "CBeachManager*", "comment": "The surf: a CBeachManager (beach.fx, map/terrain/shore*.tga, per-tile WavePixel lists at +0x18 and meshes at +0x24, declaration +0x28, effect index +0x2C), handed to MapShore_Draw.", "revises": "Type void* -> CBeachManager*: the object's vftable (written by CBeachManager_Construct, stored here at VA 0x85329D) is CBeachManager's by RTTI.", "evidence": "mov [ebx+0x4164], eax at 0x85329D after the call to 0x432080; the vftable 0x15E0EEC's locator names .?AVCBeachManager@@."}
+ ],
+ "frontier": ["0x46EB60", "0x4727B0", "0x434050", "0x4340D0", "0x6D44C0", "0x44FCF0", "0x8F4D0", "0x660F30", "0x6610E0", "0x718110"]
+}

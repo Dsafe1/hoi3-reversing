@@ -25,12 +25,12 @@ how many objects a census found (taken 2026-09-20).
 
 | | classes |
 | --- | --- |
-| `read` | 148 |
+| `read` | 149 |
 | `placed` | 141 |
 | `keys` | 78 |
 | `part` | 154 |
 | `named` | 5 |
-| `RTTI` | 615 |
+| `RTTI` | 614 |
 | **all** | **1141** |
 
 ## What to read next
@@ -372,7 +372,7 @@ Definitions out of `common/` and the rest of the mod. Their `LoadKey` is the gra
 | `CLawGroup` | `PAVCLaw::__CList` `CPersistent` |  | 4 + 2 lua |  | 1 |  | 8 | keys |  |
 | `CLocalIntelBoost` | `CIntEffect` |  |  | 3/91 | 2 |  | 9 | RTTI |  |
 | `CMTTHModifier` | `CAndTrigger` |  | 1 | 1/1 | 1 |  | 650 | placed |  |
-| `CMap` | `CPersistent` `CReloadableInterface` |  | 47 | 15/22 | 18 | CMap.hpp | 2 | read | the map load rather than a `common/` file |
+| `CMap` | `CPersistent` `CReloadableInterface` |  | 48 | 15/22 | 18 | CMap.hpp | 2 | read | the map load rather than a `common/` file |
 | `CMasked3dFlagType` | `C3dObjectType` |  |  | 1/4 | 1 |  | 1 | placed |  |
 | `CMaskedSpriteType` | `CSpriteType` |  |  |  | 1 |  | 12 | keys |  |
 | `CMeanTimeToHappen` | `CPersistent` | 0x1C | 2 | 5/5 | 3 |  | 9,821 | placed | **read**: the MTTH grammar every event and decision is timed by |
@@ -449,7 +449,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CBackEndIdler` | `CEU3Idler` |  |  |  | 1 |  |  | RTTI |  |
 | `CBattlePlanEntry` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
 | `CBattlePlanManager` | `CReloadableInterface` |  |  |  |  |  | 1 | RTTI |  |
-| `CBeachManager` | `CLostDeviceInterface` |  |  |  |  |  | 1 | RTTI |  |
+| `CBeachManager` | `CLostDeviceInterface` | 0x40 | 15 |  | 1 |  | 1 | read |  |
 | `CBombCombatMember` | `COutLinerMember` |  | 4 |  | 6 |  |  | part |  |
 | `CBookmarkEntry` | `CStandardlistboxItem` | 0x88 | 4 |  | 3 |  |  | part |  |
 | `CBorderManager` | `CLostDeviceInterface` | 0xA0 | 24 |  | 2 |  | 1 | read |  |

@@ -1,0 +1,496 @@
+{
+ "agent": "mapdraw rivers reader (delegated, 2026-11-06)",
+ "question": "Where MapRivers_Draw's meshes come from, and the rule that turns map/rivers.bmp into river pieces, vertices, widths, UVs, bounding rectangles and mouths; the view test 0x6BF670; what river.fx's tex0..tex3 do.",
+ "source": "reversing/findings/FINDINGS-mapdraw.md",
+ "addresses": [
+  {
+   "rva": "0x478260",
+   "kind": "function",
+   "name": "MapRivers_Construct",
+   "signature": "MapRivers* __stdcall MapRivers_Construct(MapRivers* rivers, WaterObject* owner, CGraphics* graphics)",
+   "no_signature": null,
+   "comment": "**Builds the river renderer and every river mesh, once.** 0x478260 to the `ret 0xC` at 0x478CB7. One caller, CProvinceManager_CreateWorld at VA 0x8549F6 (its CREATING_RIVERS step), on an operator new(**0xB8**) at VA 0x8549DD, the result stored at WaterObject +0x4160; args (this, the WaterObject, its +0x3C CGraphics). In order: +0 = graphics, the path-registry std::deque at +4 (an 8-byte proxy, then map/size/offset/count at +8..+0x14), the vectors +0x1C, +0x40, +0x50, +0x60 emptied, +0x3C = 0.0, +0x74 = owner, +0x7C = -1, +0xAC = g_CMap, +0xB0/+0xB4 = 0; **+0x78 = a 0x9C8-byte MT19937 state seeded with 42** (MT19937Seed with eax = 0x2A, index +0x9C0 = 0) - the width jitter's generator; textures through the texture handler from the map folder's terrain/ (old-style `extend` override first in mode 2): river_body.tga -> +0x80, river_movement.tga -> +0x84, colormap_water.dds -> +0x7C, river_exit.dds -> +0x88; **+0x3C = 128.0 / width(river_exit.dds)** (0.25 for the install's 512 x 128 file); +0x8C/+0x90 = colormap_water's width/height; then **MapRivers_TraceAll (0x47B9F0), MapRivers_BuildAllMeshes (0x47B9A0), RiverPathDeque_Clear on +4 (0x47D3E0) and an erase of the +0x1C vector** - so the traced paths are freed as soon as the meshes exist; then FxHandler_Register('gfx/FX/river.fx', key 'RiverShader') -> +0x70 and MapRivers_FetchParameterHandles. **This is where the meshes come from**: there is no river cache file; the sources come out of map.bin (g_MapBinCache +0x10) and the pixels out of CMap +0x20E8 (rivers.bmp). The name is ours. See reversing/findings/FINDINGS-mapdraw.md, section C.6.",
+   "confidence": "confirmed",
+   "evidence": "disasm VA 0x878260-0x878CB7 (ret 0xC, three pushes at the one call site 0x8549F0-0x8549F6, operator new(0xB8) at 0x8549D8, store [ebx+0x4160] at 0x854A03); texture name pushes at 0x8783CE/0x87845A/0x8784E6/0x87856F with stores [ebx+0x80]/[+0x84]/[+0x7C]/[+0x88] at 0x87841D/0x8784A9/0x878535/0x8785BE; 128.0 is the double at VA 0x160A980, divided by the texture entry +0x17C of [ebx+0x88] at 0x878B0E-0x878B4A; calls 0x87B9F0/0x87B9A0/0x87D3E0/0x4440B0 at 0x878B7A-0x878B9D; MT seed `mov eax,0x2a; call 0xaa2bf0` at 0x87833F-0x878349. Would be wrong if a second writer of WaterObject +0x4160's +0x40 vector existed: findRefs --callers 0x879010 (the per-piece mesh builder) answers exactly two callers, 0x87B9AA (BuildAllMeshes, called only from here) and 0x878FC5 (MapRivers_Rebuild)."
+  },
+  {
+   "rva": "0x478EF0",
+   "kind": "function",
+   "name": "MapRivers_Rebuild",
+   "signature": "void __fastcall MapRivers_Rebuild(MapRivers* rivers@ESI)",
+   "no_signature": null,
+   "comment": "**Throws the meshes away and builds them again from the traced paths - which no longer exist.** 0x478EF0 to the bare `ret` at 0x47900A; the renderer in ESI; one caller, MapRivers_Draw, only where the byte at VA 0x1BEA4C2 is set. Releases every mesh of +0x40 (0x47D4D0) and empties the vector, frees +0xB4, releases every exit mesh of +0x50 **without emptying that vector** (and leaves +0x60), then calls MapRivers_BuildPieceMesh for i < +0x14 and reallocates +0xB4. But MapRivers_Construct empties the path deque (+0x14 = 0) and the +0x1C vector right after building, and CMap_ReleaseMapBuildRasters frees the rivers raster after the map build - so a rebuild would build nothing and leave +0x50 holding released pointers. *Inferred* dead: the trigger byte has no writer but the clear beside the call (absolute references only), and what it would do is remove the rivers. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "disasm VA 0x878EF0-0x87900A: call 0x87D4D0 at 0x878F07 over [esi+0x40..0x44]; memmove/erase to +0x44 at 0x878F2A-0x878F34; free [esi+0xB4] 0x878F42; loop over [esi+0x50..0x54] releasing three COM pointers per holder 0x878F60-0x878FBA with no store to +0x54; loop `cmp edi,[esi+0x14]` calling 0x879010 at 0x878FBE-0x878FCE. findRefs --address 0x1BEA4C2: two references, both in MapRivers_Draw (the test at 0x87C8BE and the clear at 0x87C8D0). Wrong if the byte is written through a pointer, which a reference scan cannot see - the dead-ness is inferred, the body is confirmed."
+  },
+  {
+   "rva": "0x479010",
+   "kind": "function",
+   "name": "MapRivers_BuildPieceMesh",
+   "signature": "void __stdcall MapRivers_BuildPieceMesh(MapRivers* rivers, int piece)",
+   "no_signature": null,
+   "comment": "**One river piece's triangle strip, from its path of nodes.** 0x479010 to the `ret 8` at 0x47B993 (rivermanager.cpp). Nothing for a path of fewer than 2 nodes. With P_j = (x_j, 0, y_j) and w_j the nodes' widths, a phantom P_-1 = 2P_0 - P_1 and w_-1 = 1.0; for segment s = 0..N-2: P_s+2 and w_s+2 are the next node's, or past the end P_s+1 + (P_s - P_s-1) and 2w_s+1 - w_s. For k = 0, 1, 2 (`k < 3.0f`, the float at 0x171DC88), t = k/2: centre C(t) and width W(t) = **cardinal spline with tension 0.7** - coefficients P_s-1: -0.7t^3 + 1.4t^2 - 0.7t; P_s: 1.3t^3 - 2.3t^2 + 1; P_s+1: -1.3t^3 + 1.6t^2 + 0.7t; P_s+2: 0.7t^3 - 0.7t^2; d = C((k+1)/2) - C(t) normalised; n = normalize(-d.z, 0, d.x); **hw = 0.1 W + 0.2 + 0.1 r - 0.05**, r = (MT19937 draw from +0x78 & 0x7FFFFFFF) / 2^31, **one draw per k per segment, even where nothing is emitted**. For s >= 1 and k = 0 nothing new is made: the previous pair is pushed again (same positions and second UVs) with first UV v = 0.25 (+0.25 x the node's source flag, with a log line). Otherwise two vertices, plus side C + n hw/2 first, then minus side C - n hw/2; **height = 0.4 + max(h(side), h(centre))**, h(p) = 0 where the province pixel (trunc(p.x - 1), trunc(p.z - 1)) has a template that is not land, else 0.02 (floors of 0.15 there are dead, as is a reuse of the previous vertex below 0.151); **TEXCOORD0 = (1, v) plus side, (0, v) minus side, v = k/8 in segment 0 and k/8 + 0.25 after it** (+0.25 x flag); **TEXCOORD1 = (1, n/3) and (0, (n+1)/3)**, n a running count of the vertices made this way. Vertex 0x1C bytes, **FVF 0x202 (XYZ | TEX2)**, VertexBuffer_Create(count, 0x1C, 0x202, static) into a managed (+0x14 = 1) MeshBuffer with primitive kind 1, **a triangle strip**, pushed on +0x40. Bounding rectangle (int x, y, w, h) over the nodes, w and h starting at 1 and stretched only past them - so w = max(1, max x - min x) - pushed on +0x60. Where +0x1C[piece] (the exit frame f) is not -1, a 4-vertex strip on +0x50: with A, B the last two vertices, M their midpoint, D = A - B: corners M + D, M - D, then each + 3 normalize(D.z, 0, -D.x); TEXCOORD0 u = f x +0x3C + +0x3C and f x +0x3C, v 0 then 1; TEXCOORD1 (1, n), (0, n+1), (1, n+2), (0, n+3). Otherwise a null on +0x50. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "disasm VA 0x879010-0x87B993 and the headless decompile. Constants read as doubles/floats: 0.5 (0x160A308), 0.7 (0x160A5D0), 1.6 (0x160A8B0), 1.3 (0x160A8A8), 2.3 (0x160A8A0), 1.4 (0x160A898), 1.0 (0x160A248), 0.1 (0x160A3C0), 0.2 (0x160A260), 2^-31 (0x160A2B8), 0.05 (0x160A510), 0.25 (0x160A258), 0.4 (0x160A618), 3.0 (0x160A4E8), 0.125 (0x160A888), floats 1.0 (0x171DBAC), 0.25 (0x171DE18), 0.02 (0x17179B0), 0.15 (0x160A894), 0.151 (0x160A890), 3.0 (0x171DC88). MT draw inlined at 0x87A2ED-0x87A38A before the k == 0 test at 0x87A396 (so drawn every k). Pushes: positions vector [ebp-0x80] (0x84D3A0), TEXCOORD0 vector [ebp-0xDC] and TEXCOORD1 vector [ebp-0x100] (0x422690), copied in that order into the 0x1C vertex at 0x87B730-0x87B770. VertexBuffer_Create (0xAD4510) pushes 0x202 and 0x1C at 0x87B6E9-0x87B6EE; MeshBuffer +0x14 = 1 and +0x20 = 1 at 0x87B6B8/0x87B6C2. Rectangle pushed with 0x87D240 onto [esi+0x60] at 0x87B902-0x87B90B. Wrong if the 0x422690 pushes at 0x87AB67 / 0x87ABB9 went to the other vector - the edi loads [ebp-0x100] and [ebp-0xDC] are beside each call."
+  },
+  {
+   "rva": "0x47B9A0",
+   "kind": "function",
+   "name": "MapRivers_BuildAllMeshes",
+   "signature": "void __fastcall MapRivers_BuildAllMeshes(MapRivers* rivers@ESI)",
+   "no_signature": null,
+   "comment": "MapRivers_BuildPieceMesh(rivers, i) for every traced path i < +0x14, then +0xB4 = new int[mesh count] where meshes exist and +0xB4 is null (the draw's list of visible indices). 0x47B9A0 to the bare `ret` at 0x47B9EB; renderer in ESI; one caller, MapRivers_Construct. The same tail as MapRivers_Rebuild without its releases. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "disasm VA 0x87B9A0-0x87B9EB (loop `cmp [esi+0x14], edi` calling 0x879010; new at the end stored to [esi+0xB4]); findRefs --callers 0x87B9A0: one caller, 0x878B81. Wrong if a second caller existed; there is none by direct call."
+  },
+  {
+   "rva": "0x47B9F0",
+   "kind": "function",
+   "name": "MapRivers_TraceAll",
+   "signature": "void __stdcall MapRivers_TraceAll(MapRivers* rivers)",
+   "no_signature": null,
+   "comment": "**Traces one path from every river source.** 0x47B9F0 to the `ret 4` at 0x47BACC (a cold `bad_alloc`/`list<T> too long` tail to 0x47BD1D). One std::list of visited pixels for the whole run. For each source (x, y) of g_MapBinCache +0x10..+0x14 - every rivers.bmp pixel of palette index 0, in row-major order - in order: add it to the visited list, start a fresh deque of 16-byte nodes with {x, y, width 1, source 1}, exit frame f = -1, RiverTrace_Follow(&deque, &visited, &f); **where the path then has 2 nodes or more** append a copy of it to the path deque +4 (count +0x14) and f to the vector +0x1C. So a source with nowhere to go makes no piece and pushes no f. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "decompile and disasm VA 0x87B9F0-0x87BCF9: sources read as [0x1A85578]+0x10/+0x14 at 0x87BA6B-0x87BA79 stepping 8 at 0x87BC65; node {x, y, 1, 1} at 0x87BB5D-0x87BB65; call 0x87BD20 at 0x87BB7E; `cmp [ebp-0x68], edi(1); jbe` at 0x87BB83 gates the copy (0x87D540) onto [ebx+4] and the push of [ebp-0x14] onto [ebx+0x1C]. Checked against TFH: 722 sources, the 722 index-0 pixels of tfh/map/rivers.bmp and map.bin's own list, element for element."
+  },
+  {
+   "rva": "0x47BD20",
+   "kind": "function",
+   "name": "RiverTrace_Follow",
+   "signature": "void __stdcall RiverTrace_Follow(void* path, void* visited, int* exit_frame)",
+   "no_signature": null,
+   "comment": "**Follows one river from its source node, pixel by pixel, over the rivers raster (CMap +0x20E8).** 0x47BD20 to four `ret 0xC` (0x47C83C..0x47C881). From the path's last node (x, y), with the last direction d (start 4 = none): look at R(x+1, y), then R(x-1, y), R(x, y+1), R(x, y-1), skipping the reverse of d, and **step onto the first whose index is 2..22**. A step pushes {x', y', index - 2, 0} and adds (x', y') to the visited list; where index is 12..249 *exit_frame = index - 12; **a vertical step right after a horizontal one first pops the last node** (the corner), unless the new pixel stops the river; **the river stops on the first pixel whose terrain (CMap +0x2220 [terrain.bmp index] -> +0xC -> CTerrain +0x48 is_water) is water**, that pixel kept. With no step, the junction tests run in turn: R(x+1, y) == 1 and not visited -> push (x+1, y) and (x+2, y) with the last node's width and flag, mark it visited, d = 4; then the same for (x-1, y) (and x becomes x-1), (x, y+1) (y becomes y+1), (x, y-1). After: where the path has more than 2 nodes and *exit_frame != -1, pop two; where d != 4, push a copy of the last node one pixel further in d. **No visited test guards a blue step**, only the junctions; the raster reads have no bounds test. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "decompile of VA 0x87BD20 checked against the disasm at the step tests (0x87BD94-0x87BDC6: R(x+1, y), `cmp edi, 1` (d), `lea edx,[ecx-2]; cmp dl,0x14; ja`), the terrain test through [CMap+0x20E4] and +0x2220 (field terrain_by_palette_index) -> +0xC -> byte +0x48 (CTerrain is_water), and the junction byte compares `== 1` at 0x87C27C/0x87C3B3/0x87C4DC/0x87C606 each followed by a walk of the visited list. Positive control on TFH's files by a simulation of this rule: 722 sources give 721 paths and **282 end at a junction - exactly the 282 index-1 pixels in tfh/map/rivers.bmp** (the base game's map: 347 and 347); 212 end in water, 228 on nothing, one source has nowhere to go. Wrong if a junction pixel could be reached twice: none was."
+  },
+  {
+   "rva": "0x47C8A0",
+   "kind": "function",
+   "name": "MapRivers_Draw",
+   "signature": "void __stdcall MapRivers_Draw(MapRivers* rivers@EDI, MapCamera* camera@stack:4, void* view@stack:8, float time@stack:0xC)",
+   "no_signature": null,
+   "comment": "**The rivers, with gfx/FX/river.fx's RiverShader** (path hardcoded `gfx/FX/river.fx`, key RiverShader). Called by MapGraphics_DrawScene (0x45C16D) with layer-mask bit 0x80 and graphics +0x4160 not null, at any height. Where the byte at VA 0x1BEA4C2 is set it first calls MapRivers_Rebuild (0x478EF0) and clears it - the byte starts zero and nothing writes it but that clear (inferred: absolute references only), and a rebuild would leave no rivers, the paths it rebuilds from being freed after the map build. **The meshes are made once, by MapRivers_Construct at the map build's CREATING_RIVERS step** (section C.6). **ZWRITEENABLE 0**; World = D3DXMatrixTranslation(-camera x_settled, 0, -camera y_settled); SetTechnique by the name 'RiverShader'; Begin(&n, 0); BeginPass(0); ColorMapHeight / ColorMapWidth = the height / width of colormap_water.dds (the texture entry's +0x28/+0x24) and ColorMapTextureHeight / Width the next power of two of each; MapWidth / MapHeight = CMap map_width / map_height (5616, 2160); **WorldMatrix the translation, ViewMatrix and ProjectionMatrix the view's (view +0x1C slots 91 and 93), tex0 map/terrain/river_body.tga, tex1 river_movement.tga, tex3 colormap_water.dds, tex2 the generated fog texture (CViewsTextureManager +0x18, reached as the in-game screen's slot 15 result +0x5F2C, the embedded CProvinceManager's +0x4168) - which river.fx declares (FOWTexture) and never samples - AbsoluteWorldMatrix identity, vTime the clock**; CommitChanges; then for each mesh whose rectangle (+0x60, int x y w h) is not wholly outside the camera's frustum by MapCamera_ClassifyBox (0x6BF670) on the box (x - cam x, -10, y - cam y)..(x + w - cam x, 50, y + h - cam y), VertexBuffer_Draw (a strip, FVF 0x202) and its index kept at +0xB4[+0xB0++]; then **tex0 river_exit.dds** and for each kept index its exit mesh (+0x50) where there is one - none in TFH, whose rivers.bmp has no pixel of index 12 or above. EndPass, End, **ZENABLE 1, ZWRITEENABLE 1**. Blend: the technique sets ALPHABLENDENABLE and ALPHATESTENABLE only, so SRCBLEND/DESTBLEND are what the beaches left (SRCALPHA/INVSRCALPHA) and the test is alpha >= 8. `ret 0xC`. The name is ours. See reversing/findings/FINDINGS-mapdraw.md, sections C.3 and C.6.",
+   "confidence": "confirmed",
+   "revises": "Names the rebuild and says it would empty the rivers (the dead claim stays inferred); says where the meshes really come from; identifies tex2 as the fog texture river.fx never samples, and the route to it (the old text said 'the province-colour object (graphics +0x4168)', which is the same object reached another way); gives the view test's box and result, the +0xB0/+0xB4 visible list, and that the exit pass draws nothing in TFH.",
+   "evidence": "tex2: disasm VA 0x87C94C-0x87C961 (in_game_screen [g+0xBE8] slot +0x3C, result +0x5F2C into [ebp-0x14]) and 0x87CCA3-0x87CCAF ([ebp-0x14]+0x18 set as 'tex2', the string at 0x15E0E80); 0x5F2C = 0x1DC4 + 0x4168, as Map_RefreshColourTextures' record already says; river.fx's pixel shader samples BaseTexture, AnimatedTexture and Water only. Box: 0x87CD83-0x87CE53 (-10.0f at 0x160A588, 50.0f at 0x15C0548, ints converted from [edi+0x60]); `call 0xABF670` at 0x87CE6F, drawn where the answer != 1. Exit pass empty in TFH: no pixel of index >= 12 in tfh/map/rivers.bmp (histogram: 0-11, 254, 255 only)."
+  },
+  {
+   "rva": "0x47D0E0",
+   "kind": "function",
+   "name": "MapRivers_FetchParameterHandles",
+   "signature": "void __fastcall MapRivers_FetchParameterHandles(MapRivers* rivers@ESI)",
+   "no_signature": null,
+   "comment": "Where the effect (+0x70) is not null, GetParameterByName(NULL, name) into +0x94 ColorMapHeight, +0x98 ColorMapWidth, +0x9C ColorMapTextureHeight, +0xA0 ColorMapTextureWidth, +0xA4 MapWidth, +0xA8 MapHeight. 0x47D0E0 to the bare `ret` at 0x47D178; renderer in ESI. Callers MapRivers_Construct and 0x47CF90 (not read; *likely* the reset path). MapRivers_Draw sets those parameters by name, not through these handles. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "decompile of VA 0x87D0E0 (six calls through the effect's slot +0x24 with the names, stores [esi+0x94]..[esi+0xA8]); findRefs --callers: 0x878C6B and 0x87D0C2."
+  },
+  {
+   "rva": "0x47D3E0",
+   "kind": "function",
+   "name": "RiverPathDeque_Clear",
+   "signature": "void __fastcall RiverPathDeque_Clear(void* paths@EDI)",
+   "no_signature": null,
+   "comment": "Pops and frees every traced path of a std::deque<std::deque<node>> (EDI = the container: +4 map, +8 map size, +0xC offset, +0x10 count), frees the blocks and the map and zeroes map and size. 0x47D3E0 to the bare `ret` at 0x47D466. Called by MapRivers_Construct right after the meshes are built (so MapRivers +0x14 is 0 from then on) and from three other places (0x478D4F, 0x478EBC, 0x47D183, *likely* the destructor's). The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "disasm VA 0x87D3E0-0x87D466 (loop while [edi+0x10] != 0 popping the back element through 0x8E7DD0 and free; then frees [edi+4][i] and [edi+4]; stores 0 to [edi+4] and [edi+8]); the constructor's call at 0x878B89 with `lea edi,[ebx+4]`."
+  },
+  {
+   "rva": "0x6BF670",
+   "kind": "function",
+   "name": "MapCamera_ClassifyBox",
+   "signature": "int __fastcall MapCamera_ClassifyBox(MapCamera* camera@EDX, float* box@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "**An axis-aligned box against the camera's six frustum planes** (MapCamera +0x288, (a, b, c, d) each). box = min (x, y, z) then max (x, y, z). Per plane: the near corner takes min where the normal component is >= 0 and max where it is negative, the far corner the other; **a near corner with n.p + d > 0 answers 1 (wholly outside)** at once; a far corner with n.p + d >= 0 marks the box as crossing. After six planes: 2 crossing, 0 inside. 0x6BF670 to the `ret 4` at 0x6BF7DF. Callers: MapRivers_Draw (draws unless 1), MapGraphics_Update at VA 0x85CD3D (the tile visibility) and VA 0xAA9491. So the planes face outward (*inferred* from how the answer is used). The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "disasm VA 0xABF670-0xABF7DF: `add edx, 0x294` then [edx-0xC], [edx-8], [edx-4], [edx] per plane, stepping 0x10 six times; the per-axis select at 0xABF6D3-0xABF6FB on `comiss xmm5, 0`; `comisd ...; ja 0xabf7d4` (mov eax, 1) after the first dot; two `ret 4`. findRefs --callers 0xABF670: three callers. Wrong if EDX were not the camera at every caller: in MapRivers_Draw it is [ebp+8], the camera argument."
+  },
+  {
+   "rva": "0x8BC00",
+   "kind": "function",
+   "name": "CMap_LoadRiversBitmap",
+   "signature": "void __stdcall CMap_LoadRiversBitmap(CMap* map)",
+   "no_signature": null,
+   "comment": "**Loads default.map's `rivers` (rivers.bmp, CMap +0x20C4) into CMap +0x20E8** - deleting the old one first - through the image loader 0xA6C1B0 and the converter 0xAB3050 into a 0x28-byte image object (vftable 0x1200EFC; width +4, height +8, bytes per pixel +0xC, pitch +0x18, data +0x20), the same pair the province and terrain rasters go through. The 8-bit palette index survives: the river code compares raw bytes with 0, 1, 2..22 and 12..249. Rows are the engine's y, y = H - 1 - the file's stored row (as provinces.bmp). 0x48BC00 to the `ret 4` at 0x48BCF1; one caller, CMap::LoadMapFiles (VA 0x489E52), so it runs at every start. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "disasm VA 0x48BC00-0x48BCF1: delete of [edi+0x20E8] through slot 0 with 1, `add edi, 0x20c4` as the path, call 0xA6C1B0, operator new(0x28) with vftable 0x1600EFC (VA), call 0xAB3050, store [eax+0x20E8] at 0x48BCCD. Palette index survives: map.bin's 722 sources equal the 722 index-0 pixels of tfh/map/rivers.bmp, where a converted colour's blue byte would also be 0 for the 282 index-1 (red) pixels and give 1,004. Row order: map.bin lists (617, 2159) last, the green pixel at stored row 0."
+  },
+  {
+   "rva": "0x924E0",
+   "kind": "function",
+   "name": "CMap_ReleaseMapBuildRasters",
+   "signature": "void __stdcall CMap_ReleaseMapBuildRasters(CMap* map)",
+   "no_signature": null,
+   "comment": "**What CEU3Application::InitialiseGraphicalMap's 'Cleaning up after Graphical Map' does to the map**: a pass over the provinces (count +0x21FC, not read), then deletes and zeroes **+0x20E8 (the rivers raster)**, +0x2108 and +0x20E4 (the terrain raster). 0x4924E0 to the `ret 4` at 0x49259A; one caller, VA 0x6347E0, after the graphical map is built. So nothing can trace rivers again once the map is up. Only the deletions were read; the name is ours.",
+   "confidence": "inferred",
+   "evidence": "disasm VA 0x49254D-0x49259A (delete [edi+0x20E8], store 0 at 0x492565; +0x2108 and +0x20E4 the same); findRefs --callers 0x4924E0: one, 0x6347E0, inside CEU3Application::InitialiseGraphicalMap whose record names this cleanup. Inferred because the province loop at 0x4924F0-0x492548 was not read, which may make the name too narrow."
+  },
+  {
+   "rva": "0x86F10",
+   "kind": "function",
+   "name": "CreateMapBinCacheOwner",
+   "signature": "MapBinCache* __stdcall CreateMapBinCacheOwner(MapBinCache* cache)",
+   "no_signature": null,
+   "comment": "**Constructs the map.bin cache (MapBinCache, 0x48 bytes) and publishes it at g_MapBinCache (VA 0x1A85578; mov [0x1a85578], edi at VA 0x486F8F)**. 0x486F10 to the `ret 4` at 0x4872DC; one caller, VA 0x850AB0 in CProvinceManager_CreateWorld, on its operator new(0x48) at 0x850A9A; returns the object. +8 = g_CMap, +0x20/+0x24 = map width + 1 / height + 1, +0x28 = <map dir>/cache/map.bin. **Its own staleness test**: CMap_CollectMapBinStampFiles' nine files (positions, provinces.bmp, terrain.bmp, definition.csv, adjacencies, terrain.txt, continent, region, coastlines - **not rivers.bmp, climate.bmp or default.map**); any missing or newer than map.bin (64-bit file times) -> MapBinCache_Build and save (0x487C90); otherwise MapBinCache_Load, and where that fails +0x44 = 1, build and save. **map.bin holds the river sources** (+0x10, every rivers.bmp pixel of index 0, row-major) and the (W+1) x (H+1) byte raster (+0xC) the border code reads. So editing rivers.bmp alone leaves a stale source list traced over the new pixels. *Re-pointed here on 2026-10-03 from rva 0x450AB0, which was that call instruction.* map.bin belongs to the graphics side, NOT to the province graph, which is what corrects the recorded comments on 0x8DFA0 and 0x8E2E0.",
+   "confidence": "confirmed",
+   "revises": "Says what map.bin holds (the river sources and the raster), the staleness test and its file list, the +0x44 load-failed byte, and returns the object; the signature's argument is typed. The old comment had 'what map.bin holds was not established' and the confidence inferred.",
+   "evidence": "disasm VA 0x486F10-0x4872DC: stores to [edi+8], [edi+0x20], [edi+0x24], [edi+0x28] (path), [edi+0x44]; `call 0x492430` at 0x487126 then a loop over 0x1C-byte strings with 0xB84A20 (exists) and 0xB84A40 (time, compared as a 64-bit pair against map.bin's) at 0x487141-0x48720D; branches to 0x487DB0 / 0x4873C0 / 0x487C90 at 0x48721D-0x487234. Contents: TFH's map.bin parses as a 20-byte header, int32 722, 722 (x, y) int32 pairs equal to the index-0 pixels of tfh/map/rivers.bmp in row-major order of y = H - 1 - stored row, then the raster."
+  },
+  {
+   "rva": "0x92430",
+   "kind": "function",
+   "name": "CMap_CollectMapBinStampFiles",
+   "signature": "void* __fastcall CMap_CollectMapBinStampFiles(CMap* map@ESI, void* out@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "The files map.bin is checked against, pushed in this order onto a vector of 0x1C-byte strings: CMap +0x2070 positions, +0x208C provinces.bmp, +0x20A8 terrain.bmp, +0x210C definition.csv, +0x2054 adjacencies, +0x2128 terrain.txt, +0x2144 continent, +0x2160 region, +0x217C coastlines. **Not +0x20C4 rivers.bmp**, nor climate.bmp, trees or default.map. A different list from CMap::CollectCacheStampFiles (0x92390, seven files with default.map, no continent/region/coastlines). 0x492430 to the `ret 4` at 0x4924D7; one caller, CreateMapBinCacheOwner (VA 0x487126). The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "disasm VA 0x492430-0x4924D7: nine `lea ecx,[esi+N]; call 0x417620` at 0x49245D-0x4924C2 with N as listed; the out vector at [ebp+8]; ret 4. findRefs --callers 0x492430: one."
+  },
+  {
+   "rva": "0x873C0",
+   "kind": "function",
+   "name": "MapBinCache_Build",
+   "signature": "void __stdcall MapBinCache_Build(MapBinCache* cache)",
+   "no_signature": null,
+   "comment": "Makes map.bin's contents when it is stale or unreadable. **First: every pixel of the rivers raster (CMap +0x20E8) whose byte is 0, for y = 0..H-1 and x = 0..W-1, pushed as (x, y) onto +0x10** - the river sources. Then +0xC = new byte[(W+1) x (H+1)] zeroed and filled from the province raster (+0x20E0) over 1 <= x, y < W-1, H-1 - not read here (FINDINGS-mapdraw.md B.7 has what the border code reads of it). 0x4873C0 to the `ret 4` at 0x487C88. The name is ours; only the source list was read.",
+   "confidence": "inferred",
+   "evidence": "disasm VA 0x4873C0-0x48751D: loops y (edx) to [CMap+0x2A78], x to [CMap+0x2A74], `cmp byte ptr [esi+edx], 0` on [CMap+0x20E8] (pitch +0x18, bpp +0xC, data +0x20), push of the 8-byte (x, y) onto [ebx+0x10]; new/memset of +0x24 x +0x20 bytes into [ebx+0xC] at 0x48751D-0x487538. Inferred only because the raster half (0x48753D-0x487C88) is unread."
+  },
+  {
+   "rva": "0x87DB0",
+   "kind": "function",
+   "name": "MapBinCache_Load",
+   "signature": "bool __fastcall MapBinCache_Load(MapBinCache* cache@ESI) @AL",
+   "no_signature": null,
+   "comment": "Reads map.bin: +0 / +4 = CMap map width / height; where the file at +0x28 exists, opens it, checks the 'MAP_CACHE' tag, reads int32 N, resizes +0x10 to N and reads N (x, y) int32 pairs into it, then new byte[(W+1) x (H+1)] into +0xC and reads it. Answers false where the file is missing or does not open. 0x487DB0 to the bare `ret` at 0x487F76 (an early `ret` at 0x487E54 for the false path). The name is ours.",
+   "confidence": "inferred",
+   "evidence": "disasm VA 0x487DB0-0x487F76: [esi]/[esi+4] from [CMap+0x2A74/0x2A78] at 0x487DDF/0x487DE1; FileExists 0xB84A20 on [esi+0x28]; the 'MAP_CACHE' tag at 0x15BDF80 compared at 0x487E73; reads through 0xA6C880; resize 0x488000 on [esi+0x10] at 0x487EEF; [esi+0xC] = new at 0x487F2A. Inferred because the header's two words after the tag were not traced through the compare; the format is measured on TFH's file (FINDINGS-mapdraw.md B.7)."
+  },
+  {
+   "rva": "0x1685578",
+   "kind": "global",
+   "name": "g_MapBinCache",
+   "signature": null,
+   "no_signature": "data",
+   "comment": "MapBinCache*: the map.bin cache, set by CreateMapBinCacheOwner (VA 0x486F8F). Its +0x10..+0x14 is the list of river sources MapRivers_TraceAll walks (VA 0x87BA6B).",
+   "confidence": "confirmed",
+   "evidence": "`mov dword ptr [0x1a85578], edi` at VA 0x486F8F in the constructor; `mov eax, [0x1a85578]` then +0x10/+0x14 at VA 0x87BA6B-0x87BA73."
+  },
+  {
+   "rva": "0x92390",
+   "kind": "function",
+   "name": "CMap::CollectCacheStampFiles",
+   "signature": "void* __fastcall CMap::CollectCacheStampFiles(CMap* map@ESI, std::vector<std::string>* out)",
+   "no_signature": null,
+   "comment": "Pushes the seven paths the cache stamp covers, in order: the global map/default.map (VA 0x170C750), then CMap +0x2070 positions.txt, +0x2128 terrain.txt, +0x208C provinces.bmp, +0x20A8 terrain.bmp, +0x210C definition.csv and +0x2054 adjacencies.csv. Takes the map in ESI and never writes esi - trap 11, it is __fastcall with a register receiver, not a __thiscall. Note what is NOT covered: climate.bmp (+0x20EC), rivers.bmp (+0x20C4), continent.txt (+0x2144), region.txt (+0x2160), coastlines.txt (+0x217C) and trees.txt (+0x219C). The stamp's flag (CMap +0x28) gates the adjacency cache, climate.bin and the quad cache, so editing climate.bmp leaves cache/climate.bin stale with no log line. **map.bin is not gated by it**: it has its own test by file date over nine files (CMap_CollectMapBinStampFiles, 0x92430; CreateMapBinCacheOwner, 0x86F10) - corrected 2026-11-06, this comment had said every map cache was gated on the one flag. See reversing/findings/FINDINGS-mapdraw.md, section C.6.",
+   "confidence": "confirmed",
+   "revises": "Comment only: map.bin has its own staleness test, so not every map cache is gated on this stamp's flag.",
+   "evidence": "CreateMapBinCacheOwner calls 0x492430 at VA 0x487126, then FileExists (0xB84A20) and a file-time read (0xB84A40) per path; it never reads CMap +0x28.",
+   "source": "reversing/findings/FINDINGS-mapbuild.md"
+  }
+ ],
+ "structs": [
+  {
+   "name": "MapBinCache",
+   "size": "0x48",
+   "comment": "The map.bin cache (no RTTI; the name is ours), at g_MapBinCache. +0x10 the river sources, +0xC the (W+1) x (H+1) byte raster the border code reads. See reversing/findings/FINDINGS-mapdraw.md, sections B.7 and C.6.",
+   "evidence": "operator new(0x48) at VA 0x850A9A before the one call to CreateMapBinCacheOwner; fields from the constructor, MapBinCache_Load and MapBinCache_Build."
+  },
+  {
+   "name": "RiverNode",
+   "size": "0x10",
+   "comment": "One node of a traced river path (no RTTI; the name is ours): x, y in raster pixels (y = H - 1 - the file's stored row), width = rivers.bmp index - 2 (1 for a source), and a source flag. Held in a std::deque, one element per block. See reversing/findings/FINDINGS-mapdraw.md, section C.6.",
+   "evidence": "MapRivers_TraceAll writes {x, y, 1, 1} into a new(0x10) block at VA 0x87BB33-0x87BB65; RiverTrace_Follow's steps push {x', y', index - 2, 0} (decompile, 16-byte copies through 0x87D1A0); MapRivers_BuildPieceMesh reads +0, +4, +8 and +0xC of each."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "MapRivers",
+   "offset": "0x4",
+   "name": "paths",
+   "type": "void*",
+   "comment": "A std::deque<std::deque<RiverNode>> of traced paths (this +4 its 8-byte proxy, +8 map, +0xC map size, +0x10 offset, +0x14 count). Filled by MapRivers_TraceAll and **emptied by RiverPathDeque_Clear as soon as the meshes are built**.",
+   "evidence": "constructor 0x878286-0x8782B5; TraceAll's pushes through [ebx+4..+0x14]; the clear at 0x878B86-0x878B89."
+  },
+  {
+   "struct": "MapRivers",
+   "offset": "0x14",
+   "name": "path_count",
+   "type": "int",
+   "comment": "The paths deque's count: 721 in TFH between the trace and the build (a simulation of the read rule), 0 afterwards. MapRivers_Rebuild and BuildAllMeshes loop to it.",
+   "evidence": "`cmp [esi+0x14], edi` at 0x87B9A3 and 0x878FBE; RiverPathDeque_Clear decrements it to 0."
+  },
+  {
+   "struct": "MapRivers",
+   "offset": "0x1C",
+   "name": "exit_frames",
+   "type": "int*",
+   "comment": "Begin of a vector<int> parallel to the paths: the river_exit.dds frame (rivers.bmp index - 12) of the last pixel of index 12..249 the trace stepped on, or -1. Erased after the build. All -1 in TFH.",
+   "evidence": "TraceAll's push of [ebp-0x14] onto [ebx+0x1C] (0x87BBF7-0x87BC53); read as param_1[7][piece] in BuildPieceMesh; erased by 0x4440B0 at 0x878B9D."
+  },
+  {
+   "struct": "MapRivers",
+   "offset": "0x3C",
+   "name": "exit_frame_width",
+   "type": "float",
+   "comment": "128.0 / the width of river_exit.dds: one exit frame's share of u (0.25 for the install's 512-pixel file).",
+   "evidence": "0x878B2D-0x878B4A: the double 128.0 at 0x160A980 over the int width of texture [ebx+0x88]; read at 0x87B0A7."
+  },
+  {
+   "struct": "MapRivers",
+   "offset": "0x74",
+   "name": "owner",
+   "type": "WaterObject*",
+   "comment": "The WaterObject (CProvinceManager) that holds this at +0x4160: the constructor's second argument.",
+   "evidence": "`mov edx,[ebp+0xc]; mov [ebx+0x74], edx` at 0x8782F0-0x878301; the call site pushes ebx, the WaterObject."
+  },
+  {
+   "struct": "MapRivers",
+   "offset": "0x78",
+   "name": "random",
+   "type": "void*",
+   "comment": "A 0x9C8-byte MT19937 state (index at +0x9C0) seeded with 42 by the constructor: one draw per spline step k per segment, in path order, jitters every half width by up to 0.1.",
+   "evidence": "new(0x9C8) at 0x87831D, seed 0x2A through 0xAA2BF0 at 0x878349; read in BuildPieceMesh at 0x87A2EA."
+  },
+  {
+   "struct": "MapRivers",
+   "offset": "0x8C",
+   "name": "colormap_water_width",
+   "type": "int",
+   "comment": "colormap_water.dds's width, from the texture table, set by the constructor.",
+   "evidence": "0x878B4F-0x878B6E (texture [ebx+0x7C], entry +0x17C)."
+  },
+  {
+   "struct": "MapRivers",
+   "offset": "0x90",
+   "name": "colormap_water_height",
+   "type": "int",
+   "comment": "colormap_water.dds's height (entry +0x180), set by the constructor.",
+   "evidence": "0x878B62 / 0x878B74."
+  },
+  {
+   "struct": "MapRivers",
+   "offset": "0x94",
+   "name": "h_color_map_height",
+   "type": "void*",
+   "comment": "D3DX handle of ColorMapHeight (MapRivers_FetchParameterHandles); the draw uses the name instead.",
+   "evidence": "decompile of 0x87D0E0."
+  },
+  {
+   "struct": "MapRivers",
+   "offset": "0x98",
+   "name": "h_color_map_width",
+   "type": "void*",
+   "comment": "D3DX handle of ColorMapWidth.",
+   "evidence": "decompile of 0x87D0E0."
+  },
+  {
+   "struct": "MapRivers",
+   "offset": "0x9C",
+   "name": "h_color_map_texture_height",
+   "type": "void*",
+   "comment": "D3DX handle of ColorMapTextureHeight.",
+   "evidence": "decompile of 0x87D0E0."
+  },
+  {
+   "struct": "MapRivers",
+   "offset": "0xA0",
+   "name": "h_color_map_texture_width",
+   "type": "void*",
+   "comment": "D3DX handle of ColorMapTextureWidth.",
+   "evidence": "decompile of 0x87D0E0."
+  },
+  {
+   "struct": "MapRivers",
+   "offset": "0xA4",
+   "name": "h_map_width",
+   "type": "void*",
+   "comment": "D3DX handle of MapWidth.",
+   "evidence": "decompile of 0x87D0E0."
+  },
+  {
+   "struct": "MapRivers",
+   "offset": "0xA8",
+   "name": "h_map_height",
+   "type": "void*",
+   "comment": "D3DX handle of MapHeight.",
+   "evidence": "decompile of 0x87D0E0."
+  },
+  {
+   "struct": "MapRivers",
+   "offset": "0xB0",
+   "name": "visible_count",
+   "type": "int",
+   "comment": "How many meshes passed this frame's view test; zeroed at the start of each draw.",
+   "evidence": "MapRivers_Draw `mov [edi+0xb0], ebx(0)` at 0x87CD6C and the increment after each drawn mesh."
+  },
+  {
+   "struct": "MapRivers",
+   "offset": "0xB4",
+   "name": "visible",
+   "type": "int*",
+   "comment": "new int[mesh count] (BuildAllMeshes): the indices drawn this frame, whose exit meshes are drawn after.",
+   "evidence": "BuildAllMeshes' store at the end of 0x87B9A0; the draw's `+0xB4[+0xB0] = index`."
+  },
+  {
+   "struct": "MapRivers",
+   "offset": "0x60",
+   "name": "bounds",
+   "type": "int*",
+   "comment": "Begin of a vector of 16-byte int rectangles (x, y, w, h), one per mesh: over the path's nodes, w = max(1, max x - min x) and h likewise. MapRivers_Draw makes the box (x, -10, y)..(x + w, 50, y + h), less the camera, and skips the mesh where MapCamera_ClassifyBox answers 1.",
+   "revises": "Says they are ints over the nodes, how w and h come out, and the box the draw makes from them.",
+   "evidence": "BuildPieceMesh's bbox (local_a0..local_94 = [ebp-0x9C..-0x90]) pushed with 0x87D240 at 0x87B90B; the draw's cvtdq2ps of [eax], [eax+4], [eax]+[eax+8], [eax+4]+[eax+0xC] at 0x87CDA2-0x87CDE8."
+  },
+  {
+   "struct": "MapRivers",
+   "offset": "0x50",
+   "name": "exit_meshes",
+   "type": "MeshBuffer**",
+   "comment": "Begin of a vector parallel to meshes: a 4-vertex strip at the river's end, twice its last width across and 3 pixels downstream, for a path whose exit frame (+0x1C) is not -1; otherwise null. Drawn after all the bodies with tex0 river_exit.dds. **All null in TFH.**",
+   "revises": "Says when an exit mesh exists, its shape, and that TFH has none.",
+   "evidence": "BuildPieceMesh 0x87B091-0x87B69A (the exit quad) and the null push where [ebp-0xCC] == -1; TFH's rivers.bmp has no index >= 12."
+  },
+  {
+   "struct": "MapBinCache",
+   "offset": "0x0",
+   "name": "map_width",
+   "type": "int",
+   "comment": "CMap map_width, copied by MapBinCache_Load.",
+   "evidence": "0x487DCB/0x487DDF."
+  },
+  {
+   "struct": "MapBinCache",
+   "offset": "0x4",
+   "name": "map_height",
+   "type": "int",
+   "comment": "CMap map_height, copied by MapBinCache_Load.",
+   "evidence": "0x487DD1/0x487DE1."
+  },
+  {
+   "struct": "MapBinCache",
+   "offset": "0x8",
+   "name": "map",
+   "type": "CMap*",
+   "comment": "g_CMap, set by the constructor.",
+   "evidence": "0x486F40."
+  },
+  {
+   "struct": "MapBinCache",
+   "offset": "0xC",
+   "name": "raster",
+   "type": "uint8_t*",
+   "comment": "The (W+1) x (H+1) byte raster of map.bin, row y at y x (W+1); made by MapBinCache_Build from the province raster or read by MapBinCache_Load. FINDINGS-mapdraw.md B.7 has what the border passes read of it.",
+   "evidence": "new at 0x487525 / 0x487F2A, stored at 0x487535 / 0x487F2A."
+  },
+  {
+   "struct": "MapBinCache",
+   "offset": "0x10",
+   "name": "river_sources",
+   "type": "int*",
+   "comment": "Begin of a vector of (int x, int y) pairs (end +0x14, capacity +0x18): every rivers.bmp pixel of palette index 0, row-major from y = 0. 722 in TFH. MapRivers_TraceAll starts a river at each.",
+   "evidence": "MapBinCache_Build's pushes onto [ebx+0x10]; TraceAll's walk of [0x1A85578]+0x10..+0x14 stepping 8; TFH's map.bin: 722 pairs equal to the index-0 pixels."
+  },
+  {
+   "struct": "MapBinCache",
+   "offset": "0x14",
+   "name": "river_sources_end",
+   "type": "int*",
+   "comment": "End of the river_sources vector.",
+   "evidence": "0x87BA73."
+  },
+  {
+   "struct": "MapBinCache",
+   "offset": "0x20",
+   "name": "raster_width",
+   "type": "int",
+   "comment": "map_width + 1.",
+   "evidence": "0x486F52-0x486F59."
+  },
+  {
+   "struct": "MapBinCache",
+   "offset": "0x24",
+   "name": "raster_height",
+   "type": "int",
+   "comment": "map_height + 1.",
+   "evidence": "0x486F5C-0x486F63."
+  },
+  {
+   "struct": "MapBinCache",
+   "offset": "0x28",
+   "name": "path",
+   "type": "Hoi3CString",
+   "comment": "<map dir>/cache/map.bin (the override folder's in mode 2).",
+   "evidence": "0x487013-0x487023 / 0x4870B3-0x4870C3."
+  },
+  {
+   "struct": "MapBinCache",
+   "offset": "0x44",
+   "name": "load_failed",
+   "type": "bool",
+   "comment": "1 where map.bin was not stale by its file times but did not load, and so was built again; 0 otherwise (a stale build leaves it 0).",
+   "evidence": "0x487215 (= 0) and 0x487228 (= 1 after MapBinCache_Load answers false)."
+  },
+  {
+   "struct": "RiverNode",
+   "offset": "0x0",
+   "name": "x",
+   "type": "int",
+   "comment": "Raster column.",
+   "evidence": "TraceAll 0x87BB5D; BuildPieceMesh reads it as the point's x."
+  },
+  {
+   "struct": "RiverNode",
+   "offset": "0x4",
+   "name": "y",
+   "type": "int",
+   "comment": "Engine y (H - 1 - the file's stored row); world z.",
+   "evidence": "TraceAll 0x87BB5F."
+  },
+  {
+   "struct": "RiverNode",
+   "offset": "0x8",
+   "name": "width",
+   "type": "int",
+   "comment": "rivers.bmp index - 2 (0..20); 1 for the source node; a junction's two nodes copy the last node's.",
+   "evidence": "TraceAll 0x87BB62; RiverTrace_Follow's `bVar1 - 2`."
+  },
+  {
+   "struct": "RiverNode",
+   "offset": "0xC",
+   "name": "is_source",
+   "type": "int",
+   "comment": "1 for the source node (and junction nodes copied from it), else 0. BuildPieceMesh adds 0.25 x this to TEXCOORD0's v for segments after the first, with a log line.",
+   "evidence": "TraceAll 0x87BB65; BuildPieceMesh `cmp dword ptr [eax+0xc], 0` after 0x8E7B50 at 0x87A44C."
+  },
+  {
+   "struct": "CMap",
+   "offset": "0x20E8",
+   "name": "rivers_raster",
+   "type": "void*",
+   "comment": "**rivers.bmp, as 8-bit palette indices**: the 0x28-byte image object (width +4, height +8, bytes per pixel +0xC, pitch +0x18, data +0x20) CMap_LoadRiversBitmap makes at every start; read by MapBinCache_Build (the sources), RiverTrace_Follow (the paths), CProvinceTemplate::MeasureEdges (VA 0x4AA1FB, not read here) and 0x4889E0; **deleted by CMap_ReleaseMapBuildRasters after the graphical map is built**.",
+   "evidence": "fieldchain --field 0x20E8: 14 sites - one writer at 0x48BCCD (CMap_LoadRiversBitmap), the delete-and-zero at 0x49254D/0x492565, readers at 0x487407, 0x488A5B, 0x4AA1FB and five in RiverTrace_Follow; the 0x49B872 hit is an `lea` on esp, not this field."
+  },
+  {
+   "struct": "CMap",
+   "offset": "0x20EC",
+   "name": "climate_file",
+   "type": "Hoi3CString",
+   "comment": "default.map's `climate`. Of the three dwords between this and the string before it, +0x20E0 is province_raster, +0x20E4 terrain_raster and +0x20E8 rivers_raster.",
+   "revises": "+0x20E8 is no longer unidentified: it is the rivers raster (rivers_raster).",
+   "evidence": "CMap_LoadRiversBitmap's store at VA 0x48BCCD."
+  },
+  {
+   "struct": "MapCamera",
+   "offset": "0x288",
+   "name": "frustum_planes",
+   "type": "float[24]",
+   "comment": "Six planes (a, b, c, d), +0x288..+0x2E7, against which MapCamera_ClassifyBox tests a box; a box wholly on a plane's positive side is outside, so the normals face outward (*inferred* from the callers). Their writer was not read.",
+   "evidence": "MapCamera_ClassifyBox: `add edx, 0x294` and [edx-0xC]..[edx] stepping 0x10 six times, EDX the camera (MapRivers_Draw's [ebp+8]); the next recorded field is eye at +0x2E8."
+  }
+ ],
+ "frontier": [
+  "0x478CE0",
+  "0x47CF90",
+  "0x487C90",
+  "0x4889E0"
+ ]
+}
