@@ -1,0 +1,632 @@
+{
+ "agent": "mapdraw wave, reader B (sea, borders, province colour and province state textures)",
+ "question": "What the executable feeds water.fx, the land and water border shaders and the province colour / state textures they sample - meshes, parameters by name, textures by file or generated content, and when each texture is rewritten.",
+ "source": "reversing/findings/FINDINGS-mapdraw.md",
+ "addresses": [
+  {
+   "rva": "0x45F6E0",
+   "kind": "function",
+   "name": "MapGraphics_DrawWater",
+   "signature": "void __stdcall MapGraphics_DrawWater(void* graphics)",
+   "no_signature": null,
+   "comment": "**The sea, with water.fx.** 0x45F6E0 to the `ret 4` at 0x4602D6; called by MapGraphics_DrawScene with the layer mask's 0x100. far = the camera height (+0x20 -> +0x348) is strictly above **any** entry of CMap terrain_sheet_heights (default.map, 500). Device first: ALPHABLENDENABLE 1, SRCBLEND SRCALPHA, DESTBLEND INVSRCALPHA, samplers 0 and 1 MIN/MAG LINEAR and MIP NONE, CULLMODE NONE (the technique's own states follow at BeginPass). **Every frame it fetches the effect again** (the graphics' effect list +0x6BD00 at index +0x2B8 - 1, into +0x234) and every handle the constructor fetched: the six techniques (+0x240..+0x254) and tex0, tex1, Time, WorldViewProjectionMatrix, WorldMatrix, CameraPosition, LightPosition, LightDirection, MapWidth, MapHeight, BorderWidth, BorderHeight, ColorMapHeight, ColorMapWidth, ColorMapTextureHeight, ColorMapTextureWidth (+0x238..+0x26C, +0x1E8..+0x204) - **of which it sets only Time**. coloured = map style (settings +0xF4) 16, 18 or 19 (MapStyle_TestForWaterColourTechnique, 0x45FAE6). **simpleWater (settings +0xE5) set**: WaterSimpleColor binding only color0, color1 and stripes, or WaterSimple **binding no texture at all** - so its FOWTex is whatever an earlier frame left on the effect. **Otherwise** far: WaterFar / WaterFarColor; near: Time = -(seconds of the renderer's clock +0x28), raised by 100 while below -100, so a sawtooth in [-100, 0] with a period of 100 s, then WaterNear / WaterNearColor. Then ColorTex = colormap_water.dds (+0xC4), OverlayTex = map_overlay_tile.dds (+0x2C0), FOWTex = the 1024x1024 L8 fog texture (textures +0x4168 -> +0x18), NormalTex = sea_normal.dds (+0x2CC), and where coloured color0 / color1 = the 1024x1024 water colour textures (+0x1C, +0x20) and stripes = stripes.dds (+0xC0). Every path then sets by name CameraPosition = (camera +0x33C, 0, camera +0x340, 0), ViewProjectionMatrix = view x projection (D3DXMatrixMultiply over the view object's slots +0x16C and +0x174), the vertex declaration WaterFarDecl (+0x42AC: one FLOAT4 POSITION) and MinMaxUV = (0.5/Pw, 0.5/Ph, (w - 0.5)/Pw, (h - 0.5)/Ph) for colormap_water.dds's width and height w, h (texture table entry +0x24, +0x28) and Pw, Ph the powers of two at or above them; Begin, pass 0, and **three DrawPrimitiveUP triangle fans of two triangles, 16-byte vertices (x, z, u, v)**: the map (0,0)-(W,H) with uv (0,0)-(1,1), and the same quad shifted by -W and by +W (W, H = CMap +0x2A74, +0x2A78), for the horizontal wrap. The name is ours. See reversing/findings/FINDINGS-mapdraw.md, section B.1, and reversing/findings/FINDINGS-farmap.md, section A.",
+   "confidence": "confirmed",
+   "revises": "The old comment had the binding list but not the per-frame handle fetch, Time's source and range, MinMaxUV, CameraPosition, the declaration, the mesh, or that the WaterSimple path binds no texture. Name and signature unchanged.",
+   "evidence": "disasm 0x85F6E0-0x8602D6. Handles: GetParameterByName (slot +0x24) / GetTechniqueByName (+0x34) at 0x85F861-0x85FA86. Simple path: 0x85FB16 je, 0x85FB34 jmp 0x85FCDC (colour textures only), 0x85FB4B jmp 0x85FD5C (none). Time: [ebx+0x28] slot +0x14 at 0x85FB80, fchs, loop on the doubles -100.0 (VA 0x160A3F0) and 100.0 (VA 0x160A358), SetFloat (+0x78) at 0x85FBE6. MinMaxUV: SetFloatArray (+0x80) at 0x85FF6C, constants 0.5 (VA 0x160A308). Mesh: three DrawPrimitiveUP (+0x14C) with (6 = TRIANGLEFAN, 2, verts, 0x10) at 0x860092, 0x86018F, 0x8602A2. Wrong if the device vtable offsets are not D3D9's (+0xE4 SetRenderState, +0x114 SetSamplerState, +0x14C DrawPrimitiveUP, +0x15C SetVertexDeclaration) or the ID3DXEffect ones (+0xD0 SetTexture, +0xE8 SetTechnique)."
+  },
+  {
+   "rva": "0x45DD50",
+   "kind": "function",
+   "name": "MapGraphics_DrawWaterBorders",
+   "signature": "void __fastcall MapGraphics_DrawWaterBorders(void* graphics@EDI)",
+   "no_signature": null,
+   "comment": "**The borders between sea zones, with borders_2_0.fx's WaterBorderShader.** 0x45DD50 to the bare `ret` at 0x45DFA4; the graphics owner in EDI; called by MapGraphics_DrawScene with the layer mask's 0x200 and no height test. ZWRITEENABLE 1, **ZENABLE 0**, ALPHABLENDENABLE 1; technique +0x278 of the effect +0x274; tex1 = water_borders.tga (+0x2C4; the install has water_borders.dds, 1024x64), tex3 = water_diag_borders.tga (+0x2C8); declaration WaterBorderDecl (+0x42B0: SHORT2 POSITION, UBYTE4 TEXCOORD0). For each tile in the visible set (+0x78, count +0x88): the tile's water border mesh, a 0x24-byte record at +0x42D4 + 0x24 x tile index, drawn where it has vertices or primitives, with WorldViewProjectionMatrix (handle +0x27C) = the tile's matrix (tile +0x1FC, the tile 0x3C0 bytes at +0x19C). Afterwards ZWRITEENABLE 1, ZENABLE 1, ALPHABLENDENABLE 0. ProvinceBorderShader, CountryBorderShader and RiverShader of the same file are never looked up. The name is ours. See reversing/findings/FINDINGS-mapdraw.md, section B.4.",
+   "confidence": "confirmed",
+   "evidence": "disasm 0x85DD50-0x85DFA4: SetRenderState (+0xE4) (0xE,1), (7,0), (0x1B,1) at 0x85DD74-0x85DD9F and (0xE,1), (7,1), (0x1B,0) at 0x85DF73-0x85DF9D; SetTexture by name 'tex1' 0x85DE16, 'tex3' 0x85DE4A; SetVertexDeclaration [edi+0x42B0] 0x85DE6E; per-tile SetMatrix (+0x98) handle [edi+0x27C] with tile+0x1FC at 0x85DF08, draw 0xAD4C30 on [edi+0x42D4]+0x24*i at 0x85DF2C. The setup (0x851041-0x85106C) fetches only 'WorldViewProjectionMatrix' and 'WaterBorderShader' from borders_2_0.fx, and a string scan of .rdata finds 'WaterBorderShader' (positive control) but no 'ProvinceBorderShader', 'CountryBorderShader' or 'RiverShader'. Wrong if a border technique is fetched through a computed string."
+  },
+  {
+   "rva": "0x45E9B0",
+   "kind": "function",
+   "name": "MapGraphics_DrawLandBorders",
+   "signature": "void __fastcall MapGraphics_DrawLandBorders(void* graphics@EDI)",
+   "no_signature": null,
+   "comment": "**The land borders, with TerrainShader_Border** (+0x228). 0x45E9B0 to the bare `ret` at 0x45EF46; the graphics owner in EDI. **Called only while CMap border_cutoff (default.map, 500.0) is above the height** and the layer mask has 0x2 (MapGraphics_DrawScene at 0x45C181), so in the far band no land border is drawn at all. ALPHABLENDENABLE 1, SRCALPHA / INVSRCALPHA. On terrain_2_0.fx (+0x1A0) through the constructor's handles: ViewMatrix (+0x1B8) and ProjectionMatrix (+0x1BC) from the view object's slots +0x16C / +0x174; LightDirection (+0x1C4) = the map light's +0x138..+0x140 (SetValue, 12 bytes); ColorMapHeight / ColorMapWidth (+0x1C8, +0x1CC) = colormap.dds's height and width (texture table entry +0x28, +0x24) and ColorMapTextureHeight / Width (+0x1D0, +0x1D4) the powers of two at or above them; MapWidth / MapHeight (+0x1E0, +0x1E4) = CMap +0x2A74 / +0x2A78; BorderWidth / BorderHeight (+0x1D8, +0x1DC) = graphics +0x194 / +0x198 as floats. Per pass: **tex4 = the 512x512 border lookup texture** (textures +0x4168 -> +0x14, ViewsTextureManager_UpdateBorderLookup), **tex2 = the border texture of the level**, level = 1 + the index of the last entry of CMap border_heights (+0x30/+0x34; {150, 500} in TFH) the height is strictly above, so borders.tga, borders2.tga, borders3.tga (+0x298[level]); declaration BorderVertexDecl (+0x42A4: SHORT4 POSITION, D3DCOLOR COLOR0). For each tile in the visible set (+0x78, count +0x88; the tile 0x3C0 bytes at +0x19C + 0x3C0 x index) whose border mesh (tile +0x294) has vertices or primitives: WorldViewProjectionMatrix (+0x1C0) = tile +0x1FC, WorldMatrix (+0x1B4) = tile +0x17C, AbsoluteWorldMatrix (by name) = tile +0x13C, CommitChanges, draw (0xAD4C30). The name is ours. See reversing/findings/FINDINGS-mapdraw.md, section B.3, and reversing/findings/FINDINGS-farmap.md, section A.",
+   "confidence": "confirmed",
+   "revises": "Adds every parameter it sets and what each is set from, the lookup texture tex4, the vertex declaration and the per-tile mesh and matrices; the level rule and the border_cutoff gate are kept as they were. Name and signature unchanged.",
+   "evidence": "disasm 0x85E9B0-0x85EF46. Handle names from the setup at 0x851259-0x8514F4 (GetParameterByName with 'ViewMatrix' -> [ebx+0x1B8], 'ProjectionMatrix' -> +0x1BC, 'WorldViewProjectionMatrix' -> +0x1C0, 'WorldMatrix' -> +0x1B4, 'LightDirection' -> +0x1C4, 'ColorMapHeight' -> +0x1C8, 'ColorMapWidth' -> +0x1CC, 'ColorMapTextureHeight' -> +0x1D0, 'ColorMapTextureWidth' -> +0x1D4, 'MapWidth' -> +0x1E0, 'MapHeight' -> +0x1E4, 'BorderWidth' -> +0x1D8, 'BorderHeight' -> +0x1DC). In the draw: SetMatrix (+0x98) at 0x85EA6D/0x85EA8A, SetValue (+0x50, 0xC) at 0x85EAD6, SetFloat (+0x78) 0x85EB21-0x85ECD4, 'tex4' from [[edi+0x4168]+0x14] at 0x85ED08, 'tex2' 0x85ED94, decl [edi+0x42A4] 0x85EDC1, per-tile 0x85EE5F/0x85EE87/0x85EEA4. Wrong if those handle stores are overwritten between the setup and the draw (a sweep of 0x430000-0x490000 for the displacements finds only the setup's stores)."
+  },
+  {
+   "rva": "0x4602E0",
+   "kind": "function",
+   "name": "MapGraphics_DrawTerraIncognita",
+   "signature": "void __stdcall MapGraphics_DrawTerraIncognita(void* graphics)",
+   "no_signature": null,
+   "comment": "**The terra incognita overlay, with terraincognita.fx**: TerraIncognitaFar (+0x2B0) where the camera height is strictly above any entry of CMap terrain_sheet_heights, TerraIncognitaNear (+0x2B4) otherwise. 0x4602E0 to the `ret 4` at 0x4608C2. Drawn by MapGraphics_DrawScene **only while a scenario is loaded** (CCurrentGameState +0xD0C not null), so never in the full game. In the install's terraincognita.fx the two techniques compile the same pixel shader (PixelShader_TIFar) with the same states, so the switch changes nothing on screen. Its inputs, on the effect +0x2AC: ALPHABLENDENABLE with SRCALPHA / INVSRCALPHA and CULLMODE set first; FOWTex = the 1024x1024 L8 fog texture (textures +0x4168 -> +0x18), the one the sea reads; OverlayTex = map_overlay_tile.dds (+0x2C0); Time = the same sawtooth as the sea's (clock +0x28, -(seconds) raised by 100 while below -100); CameraPosition and ViewProjectionMatrix as the sea sets them; the declaration TerraIncognitaDecl (+0x42A8: one FLOAT4 POSITION); and three map-sized quads, the map and its copies at -W and +W, as the sea draws. The name is ours. See reversing/findings/FINDINGS-mapdraw.md, section B.5.",
+   "confidence": "confirmed",
+   "revises": "Adds the inputs: FOWTex, OverlayTex, Time, CameraPosition, ViewProjectionMatrix, the declaration and the three quads. Name, signature and the scenario gate unchanged.",
+   "evidence": "disasm 0x8602E0-0x8608C2: SetRenderState 0x1B/0x13/0x14/0x16 at 0x86034B-0x860392; 'FOWTex' from [[ebx+0x4168]+0x18] at 0x8603CF; 'OverlayTex' from texture id [ebx+0x2C0] at 0x86040F; [ebx+0x28] slot +0x14 and the same -100/+100 loop at 0x860417-0x860467 then 'Time' at 0x86047A; 'CameraPosition' 0x86051F, 'ViewProjectionMatrix' 0x86053C; decl [ebx+0x42A8] at 0x860550; three DrawPrimitiveUP (+0x14C) at 0x860682, 0x86077F, 0x860892 over CMap +0x2A74/+0x2A78. Only the inputs were read, not the vertex values one by one."
+  },
+  {
+   "rva": "0x4821D0",
+   "kind": "function",
+   "name": "WaterTexture_Update",
+   "signature": "void __stdcall WaterTexture_Update(CViewsTextureManager* textures)",
+   "no_signature": null,
+   "comment": "**Refills the sea's two province colour textures** (textures +0x1C and +0x20, 1024x1024 A8R8G8B8, water.fx's color0 and color1; 'Locking a texture for WaterTexture update failed.'). Does nothing unless both exist and the entries vector (+0x24/+0x28) has exactly CMap +0x21FC entries. Both locked with D3DLOCK_DISCARD; for texel row y and column x, 0..1023 each: the province-id raster (CMap +0x20E0) is read at (trunc(x x W/1024), trunc(y x H/1024)), W, H = CMap +0x2A74 / +0x2A78, the scale factors as floats - nearest, no filtering; where the id's template (CMap +0x2A60[id]) exists and its province id (+0x7C) is above 0, color0's texel = entry[id] +0 and color1's = entry[id] +4, the packed 0xAARRGGBB words as the map mode left them, **unchanged** (no 0.1 lift, unlike the land's textures); otherwise both 0x80808080. Callers: Map_RefreshColourTextures where the map style is 16, 18 or 19, and FowTexture_Update **unconditionally, in every style**. The name is ours. See reversing/findings/FINDINGS-mapdraw.md, section B.2.",
+   "confidence": "confirmed",
+   "revises": "The entry had no signature and a one-line comment; adds the signature (one stack argument, `ret 4` at 0x88251E), the gate, the sampling and the per-texel rule, and the second caller.",
+   "evidence": "disasm 0x8821D0-0x88251E: gate 0x882203-0x882224 (cmp vector length with [ebx+0x21FC], ebx = CMap global [0x1A8557C]); LockRect (+0x4C) with 0x2000 on [esi+0x1C] 0x88224F and [esi+0x20] 0x88230D; loop bounds 0x400 at 0x8824C1 and 0x8824E2; raster read 0x882423-0x882467; stores [esi+edx] = entry+0 and [edx] = entry+4 at 0x88248C/0x88249B, 0x80808080 at 0x8824A3/0x8824B0/0x8824B7. Callers by direct call scan: 0x880DC0 and 0x8813E8. Wrong if entry +0/+4 were not the colour words the colouring loops write (FINDINGS-mapmode.md has the VP loop storing them)."
+  },
+  {
+   "rva": "0x480DE0",
+   "kind": "function",
+   "name": "Map_UpdateProvinceColourTexture",
+   "signature": "void __stdcall Map_UpdateProvinceColourTexture(CViewsTextureManager* textures)",
+   "no_signature": null,
+   "comment": "**Fills both per-province colour textures** - textures +0xC ('Texture1', terrain_2_0.fx's tex2, GeneralTexture) from each entry's first colour (+0) and +0x10 ('Texture2', tex3, GeneralTexture2) from its second (+4); both 256x256 A8R8G8B8, D3DLOCK_DISCARD. One texel a province from index 1 (texel 0 is never written), **x = id mod 256, y = id / 256**, at y x pitch + 4x, bytes B, G, R, A, each channel x 255 truncated. **What it does to a colour depends on the map style (settings +0xF4) being 0** (the terrain and weather modes): where the province's byte +0xC (entry +0xC -> +0xC) is set, style 0 keeps r and b, puts **g = 0.1** and a = 1; any other style adds 0.1 to each of r, g, b, capped at 1.0, a = 1; where the byte is clear, style 0 keeps r and b and puts g = 0, a = 1, and any other style keeps the colour as it is. **So in style 0 Texture1 is the province-state texture** the Graphical shaders read - r the fog brightness, g 0.1 or 0, b the frozen share. What byte +0xC of a CMapProvince is was not read. `ret 4`; its one caller is Map_RefreshColourTextures. The name is ours. See reversing/findings/FINDINGS-mapdraw.md, section B.2, and reversing/findings/FINDINGS-weathersim.md, section C.1.",
+   "confidence": "confirmed",
+   "revises": "Said it fills 'the' per-province colour texture and took a 'map': it fills two, Texture1 from the entries' first colour and Texture2 from their second, and its argument is the CViewsTextureManager (graphics +0x4168), whose +0x24 vector it reads. The rule per colour is unchanged.",
+   "evidence": "disasm 0x880DE0-0x8813BA: LockRect [edi+0xC] 0x880E38 ('Locking a texture for Texture1 update failed.'), first loop reads entry+0 (0x880F8A `mov eax,[edi]` before CColor unpack 0xA62D30); UnlockRect then LockRect [edi+0x10] 0x88118B ('Locking a texture for Texture2 update failed.'), second loop reads entry+4 (0x88128A `mov eax,[eax+4]`); `div 0x100` at 0x880F60 / 0x881259 gives x = remainder, y = quotient; texel at quotient x pitch ([esp+0x30]) + remainder x 4. The caller passes graphics +0x4168 (0x85D61D-0x85D633, 0x84FBB8)."
+  },
+  {
+   "rva": "0x480D90",
+   "kind": "function",
+   "name": "Map_RefreshColourTextures",
+   "signature": "void __stdcall Map_RefreshColourTextures(CViewsTextureManager* textures@ESI, void* colours@EAX, bool fow@stack:4)",
+   "no_signature": null,
+   "comment": "Copies the province entry vector given in EAX into the texture manager's +0x24 (0x8DD860), fills the two land colour textures (Map_UpdateProvinceColourTexture), refills the sea's colour textures (WaterTexture_Update) where the map style (settings +0xF4) is 16, 18 or 19, and where the argument is set rebuilds the fog texture (FowTexture_Update - which refills the sea's colours again, in any style). 45 direct callers: the map mode setters pass 0, so a change of mode does not touch the fog; the front end's enter, the game setup, the history date and others pass 1, and so does MapGraphics_Update five frames after the texture manager is made or remade. The name is ours. See reversing/findings/FINDINGS-mapdraw.md, section B.2, and reversing/findings/FINDINGS-airmap.md, section 1.",
+   "confidence": "inferred",
+   "revises": "0x4813C0, 'not read', is the fog texture rebuild (FowTexture_Update); ESI is the CViewsTextureManager and not 'the map', and the argument is renamed fow. Likely, not confirmed, as before: the register convention is read off the callers, and 0x8DD860 was not read beyond its use as a vector copy.",
+   "evidence": "disasm 0x880D90-0x880DD4; callers by a direct-call scan (45; 26 push 0, 11 push 1, 8 pass a register), e.g. 0x85D62E-0x85D633 `push 1; lea eax,[esi+0x24]; call` with esi = graphics +0x4168, and 0x84FBB3-0x84FBBE in the CProvinceManager constructor with eax = graphics +0x2C."
+  },
+  {
+   "rva": "0x4813C0",
+   "kind": "function",
+   "name": "FowTexture_Update",
+   "signature": "void __stdcall FowTexture_Update(CViewsTextureManager* textures)",
+   "no_signature": null,
+   "comment": "**Rebuilds the fog-of-war texture the sea and terra incognita sample** (textures +0x18, 1024x1024 **D3DFMT_L8**, water.fx's and terraincognita.fx's FOWTex; 'Locking a texture for FOW update failed.'). First calls WaterTexture_Update, in every map style. Then, locked with D3DLOCK_DISCARD, for row y and column x, 0..1023 each: xf = x x W/1024, yf = y x H/1024 (W, H = CMap +0x2A74/+0x2A78, single precision); four raster samples at (trunc(xf+0.5), trunc(yf+0.5)), (trunc(xf+1.5), ...), (..., trunc(yf+1.5)), (trunc(xf+1.5), trunc(yf+1.5)), each clamped into the raster; each sample's value: **1.0 where the pixel's province is simulated (template +0x13D) and the player's intel of it (CMapProvince +0x370[player id], CCurrentGameState +0xC34) is 2 or more, 0.6 where it is simulated and below 2** (the float at VA 0x170AC00); for a pixel of a province that is not simulated, 0 - **unless its id (+0x7C) is 0**, when it is 1.0 if a pixel of a simulated real province lies 1 to 3 pixels left, right, above or below (FowTexture_RowNearSimulated, FowTexture_ColumnNearSimulated), else 0; a pixel with no template gives 1.0 where the byte at VA 0x170AD30 is 0 and 0 where it is set (it starts 1). The four are blended bilinearly by frac(xf) and frac(yf) and the byte is trunc(255 x value). Where the in-game screen's slot 83 answers true the intel test is skipped and every simulated pixel is 1.0 - CInGameIdler's slot 83 is `xor al,al; ret`, so never in a game. Callers: Map_RefreshColourTextures with its argument set, CInGameIdler_RefreshMap when its refresh flags are set, and MarkSimulatedProvinces. The name is ours. See reversing/findings/FINDINGS-mapdraw.md, section B.2.",
+   "confidence": "confirmed",
+   "evidence": "disasm 0x8813C0-0x8821CA (`ret 4` at 0x8814DF and 0x8821CA). WaterTexture_Update first at 0x8813E8; LockRect [esi+0x18] with 0x2000 at 0x881415; scale 1/1024 (double at VA 0x160A2A8) at 0x8814FD/0x881523; offsets 0.5 (VA 0x160A308) and 1.5 (VA 0x160A6B8); intel test 0x8817C1-0x8817E8; 0.6 loaded at 0x88179D; neighbour scans 0x881819-0x881874; blend 0x8820D4-0x882167, x 255.0 (VA 0x160A2D0) and cvttsd2si, byte store 0x88217B; loops end at 0x400 (0x882187, 0x88219B). Slot 83 of CInGameIdler (table VA 0x15CEB54) is 0x592360 `xor al,al; ret`. The texture's format from CViewsTextureManager::CreateTextures (0x32 = D3DFMT_L8). Wrong if +0x370 were not the per-country intel bytes (FINDINGS-mapmode.md measured them live)."
+  },
+  {
+   "rva": "0x480BA0",
+   "kind": "function",
+   "name": "FowTexture_RowNearSimulated",
+   "signature": "bool __cdecl FowTexture_RowNearSimulated(int width@EAX, int fromX@EDX, CMap* map@stack:4, int toX@stack:8, int y@stack:0xC) @AL",
+   "no_signature": null,
+   "comment": "Whether any raster pixel of row y from fromX towards toX (toX itself excluded; both clamped into 0..width-1) belongs to a province with a template, a non-zero id (+0x7C) and simulated (+0x13D) set. FowTexture_Update calls it from x-1 to x-4 and from x+1 to x+4, so three pixels each way. The name is ours. See reversing/findings/FINDINGS-mapdraw.md, section B.2.",
+   "confidence": "confirmed",
+   "evidence": "disasm 0x880BA0-0x880C47: clamps with width-1 (`dec eax`), step +-1 by setge at 0x880BD1, raster row offset [map+0x20E0]+0x18 x y, tests at 0x880C1B-0x880C2C; bare `ret`; the callers `add esp, 0xc` (0x88181E). Wrong if the callers' EAX were not the map width ([esp+0x10], CMap +0x2A74)."
+  },
+  {
+   "rva": "0x480C50",
+   "kind": "function",
+   "name": "FowTexture_ColumnNearSimulated",
+   "signature": "bool __cdecl FowTexture_ColumnNearSimulated(int height@EAX, int fromY@EDX, CMap* map@stack:4, int toY@stack:8, int x@stack:0xC) @AL",
+   "no_signature": null,
+   "comment": "FowTexture_RowNearSimulated down a column: whether any raster pixel of column x from fromY towards toY (toY excluded, both clamped into 0..height-1) belongs to a simulated province with a template and a non-zero id. The name is ours. See reversing/findings/FINDINGS-mapdraw.md, section B.2.",
+   "confidence": "confirmed",
+   "evidence": "disasm 0x880C50-0x880CF7: column offset bytes-per-pixel ([raster+0xC]) x x at 0x880C9B, steps by the pitch (+0x18); bare `ret`s at 0x880CEE/0x880CF7; callers pass the map height in EAX (0x881850)."
+  },
+  {
+   "rva": "0x480D00",
+   "kind": "function",
+   "name": "CViewsTextureManager::CViewsTextureManager",
+   "signature": null,
+   "no_signature": "this arrives on the stack ([ebp+8]) with the CGraphics second ([ebp+0xC]) and the CProvinceManager in ECX, `ret 8`, this returned in EAX - no ordinary convention places all three.",
+   "comment": "**Makes the map's generated textures.** Vftable VA 0x15E3E9C; stores the graphics at +4 and the CProvinceManager (WaterObject) at +8, zeroes the six texture pointers (+0xC..+0x20) and two vectors (+0x24, +0x34), registers itself in the graphics' lost-device list (+0x6BC90) and calls its own slot 1, CreateTextures. One caller: the CProvinceManager constructor (0x44FBA4, `new` of 0x4C bytes), which keeps it at +0x4168 and at once calls Map_RefreshColourTextures(it, the manager's +0x2C entries, 1). See reversing/findings/FINDINGS-mapdraw.md, section B.2.",
+   "confidence": "confirmed",
+   "evidence": "disasm 0x880D00-0x880D7F; the vftable write 0x880D24 is one of the two writers of 0x15E3E9C (findRefs); allocation `push 0x4c; call new` at 0x84FB88 and the call 0x84FBA4 with ecx = ebx (the manager)."
+  },
+  {
+   "rva": "0x482530",
+   "kind": "function",
+   "name": "CViewsTextureManager::ReleaseTextures",
+   "signature": "void __thiscall CViewsTextureManager::ReleaseTextures(CViewsTextureManager* this)",
+   "no_signature": null,
+   "comment": "Slot 0 (the lost-device half): Release on each of the six textures +0xC, +0x10, +0x14, +0x18, +0x1C, +0x20, and null them. They are D3DPOOL_DEFAULT, so a lost device takes them. The name is ours. See reversing/findings/FINDINGS-mapdraw.md, section B.2.",
+   "confidence": "confirmed",
+   "evidence": "disasm 0x882530-0x8825A4: six `[eax]` slot +8 (IUnknown::Release) calls; held at slot 0 of CViewsTextureManager's table alone (vtable.py --holding)."
+  },
+  {
+   "rva": "0x4825B0",
+   "kind": "function",
+   "name": "CViewsTextureManager::CreateTextures",
+   "signature": "void __thiscall CViewsTextureManager::CreateTextures(CViewsTextureManager* this)",
+   "no_signature": null,
+   "comment": "Slot 1 (the reset half), also called by the constructor. Six CreateTexture calls on the graphics' device, every one 1 level, D3DUSAGE_DYNAMIC, D3DPOOL_DEFAULT: **+0xC and +0x10 256x256 A8R8G8B8** (the province colour pair, terrain_2_0.fx's tex2 and tex3), **+0x14 512x512 A8R8G8B8** (the land border lookup, tex4), **+0x18 1024x1024 L8** (the fog, FOWTex), **+0x1C and +0x20 1024x1024 A8R8G8B8** (the sea's color0 and color1). Then +0x44 = 1 and +0x48 = 5: MapGraphics_Update counts +0x48 down once a frame and at 0 calls Map_RefreshColourTextures(this, its entries, 1) and clears +0x44 - so the textures are filled five frames after they are made or remade. The name is ours. See reversing/findings/FINDINGS-mapdraw.md, section B.2.",
+   "confidence": "confirmed",
+   "evidence": "disasm 0x8825B0-0x8826B5: IDirect3DDevice9::CreateTexture is slot 23 (+0x5C), arguments (W, H, 1, 0x200, format, 0, &tex, 0): (0x100,0x100,0x15), (0x100,0x100,0x15), (0x200,0x200,0x15), (0x400,0x400,0x32), (0x400,0x400,0x15) twice; 0x15 = D3DFMT_A8R8G8B8, 0x32 = D3DFMT_L8. The countdown at 0x85D61D-0x85D638 in MapGraphics_Update. Held at slot 1 of CViewsTextureManager's table alone."
+  },
+  {
+   "rva": "0x4826C0",
+   "kind": "function",
+   "name": "ViewsTextureManager_UpdateBorderLookup",
+   "signature": "void __stdcall ViewsTextureManager_UpdateBorderLookup(CViewsTextureManager* textures)",
+   "no_signature": null,
+   "comment": "**Fills the 512x512 land border lookup texture** (textures +0x14, TerrainShader_Border's tex4, BorderDirectionTexture), D3DLOCK_DISCARD, written as one linear run of texels from the locked base (the pitch is not used; 512 x 4 bytes, so rows run on). **Fourteen texels a province**, province i (from 1) from texel 14i: first one per adjacency entry of its template (+0x90/+0x94, 0x14 bytes each, the neighbour id at +4), **0x000000FF where the neighbour's controller (CMapProvince +0x338) is the province's own and 0x400000FF where it is not** - B = 1.0 either way, A = 0.25 marking a change of controller; then one per (key, index) pair in the CProvinceManager's +0x42B4[i] list, the key looked up in the border manager's sorted short list (+0x90, ranges +0x8C) and the 4-byte entry beside it (+0x9C) written as A = byte0 x 8, R = byte2 x 8, G = byte3 x 8, B = 0; the rest of the fourteen zeroed. Callers: BorderManager_Tick and 0x460D30 (the province manager's refresh, flag bit 0). The name is ours. See reversing/findings/FINDINGS-mapdraw.md, section B.3.",
+   "confidence": "confirmed",
+   "evidence": "disasm 0x8826C0-0x882951 (`ret 4`): LockRect [esi+0x14] with 0x2000 at 0x882777; texel index starts 0xE and steps 0xE (0x88279E, 0x88291F); zero fill `rep stosd` 0x88281B; neighbour loop 0x882831-0x882871 (`neg; sbb; and 0x40000000; add 0xff`); extras loop 0x882880-0x882912 with the lookup at 0x882954-0x882971. Cross-check against the shipped cache: border vertices in tfh/map/cache/all_quads.bin carry a lookup texel u + 512v = 14 x id + small, id being the one their colour carries (e.g. u 471, v 286 -> 146903 = 14 x 10493 + 1, colour R 253 G 40 -> 40 x 256 + 253 = 10493). Wrong if a province has more than fourteen entries - the run would spill into the next province's texels; not checked."
+  },
+  {
+   "rva": "0x4364B0",
+   "kind": "function",
+   "name": "BorderManager_Tick",
+   "signature": "void __stdcall BorderManager_Tick(CBorderManager* borders@EDI, CViewsTextureManager* textures@stack:4)",
+   "no_signature": null,
+   "comment": "Called every frame by MapGraphics_Update (at 0x45D616) with the border manager (graphics +0x415C) in EDI: where its dirty byte (+0x59) is set, counts +0x5C down, and at 0 refills its bitmap over (1, 1) - (width-2, height-2) (+0x40, +0x44) with 0x437980, rebuilds the lookup texture (ViewsTextureManager_UpdateBorderLookup) and clears the dirty byte. What sets +0x59 was not read. The name is ours. See reversing/findings/FINDINGS-mapdraw.md, section B.3.",
+   "confidence": "inferred",
+   "evidence": "disasm 0x8364B0-0x83657E (`ret 4`): 0x8364D2 cmp [edi+0x59]; 0x8364DB dec [edi+0x5C]; rect from [edi+0x40]-2, [edi+0x44]-2; calls 0x837980 and 0x8826C0; 0x836559 clears +0x59. Likely: 'refills its bitmap' rests on 0x437980's name-free shape, not read."
+  },
+  {
+   "rva": "0x2516A0",
+   "kind": "function",
+   "name": "CInGameIdler_RefreshMap",
+   "signature": "void __stdcall CInGameIdler_RefreshMap(CInGameIdler* idler)",
+   "no_signature": null,
+   "comment": "**The in-game screen's map refresh**, from CInGameIdler::Update. Re-runs the current mode's colouring where the mode needs it (supply, VP, strength, intel, terrain, weather), and **only where the refresh flags (idler +0x84) & 0xF are set**: the CProvinceManager's refresh by flags (0x460D30, with +0x84 and +0x88) and **FowTexture_Update** - so the fog and the sea's colours are rebuilt there and not daily. Province_SetController sets bit 1 of +0x84 (FINDINGS-weathersim.md, C.1). Only the gate and these calls were read. The name is ours. See reversing/findings/FINDINGS-mapdraw.md, section B.2.",
+   "confidence": "inferred",
+   "evidence": "disasm 0x6516A0, the gate `test byte ptr [ebx+0x84], 0xf; je 0x651928` at 0x6518AA, then 0x65190E call 0x860D30 and 0x651923 call 0x8813C0 with [map object +0x5F2C] = the CProvinceManager's +0x4168; `ret 4` at 0x65197B. The mode re-runs before the gate (0x651860-0x6518EC) were read only as calls. Likely, because the rest of the function was not read."
+  },
+  {
+   "rva": "0x474970",
+   "kind": "function",
+   "name": "QuadCache_LoadTile",
+   "signature": "bool __stdcall QuadCache_LoadTile(WaterObject* mgr, int tile, const uint8_t* record)",
+   "no_signature": null,
+   "comment": "**One tile's record of all_quads.bin into its buffers.** The record: (1) dword, dword V; V bytes of land vertices -> a vertex buffer of V/8 vertices, stride 8, in the tile's MeshBuffer +0x270; (2) dword, dword N; N times (dword B, B bytes of 16-bit indices) - one group per province of the tile - concatenated into one 16-bit index buffer in MeshBuffer +0x24C (triangle list, primitive count = indices / 3), the start index of each group kept in the int vector at tile +0x20 (N+1 entries); (3) dword M, M bytes of 16-bit indices -> index buffer of MeshBuffer +0x294 (the borders); (4) dword B, B bytes -> vertex buffer of B/12 vertices, stride 12, in MeshBuffer +0x294; (5) dword W, W bytes -> **the beach vertices**, W/12 vertices of stride 12 in MeshBuffer +0x2B8, and only where W is not 0 (6) dword X, X bytes -> **the beach indices**, X/2 16-bit indices in MeshBuffer +0x2DC; (7) dword K and K records of 0x1C bytes, each handed with the tile to 0x432B40 on mgr +0x4164 (the shore) where that is set. All buffers WRITEONLY, managed pool, filled by Lock/memcpy/Unlock. Returns 1. `ret 0xC`. The name is ours. See reversing/findings/FINDINGS-mapdraw.md, section A.1. Read by the land reader of the same wave; the sea reader's shorter reading (border vertices 12 bytes) agrees.",
+   "confidence": "confirmed",
+   "evidence": "Read whole, 0x874970..0x874EF5: VertexBuffer_Create (0x6D4510) with count V>>3 stride 8 at 0x874A06, stride 0xC with count/12 (mul 0xAAAAAAAB, shr 3) at 0x874CE0 and 0x874DA0; IndexBuffer_Create (0x6D48B0) at 0x874B9D, 0x874C74, 0x874E5C; the group-start push_back loop 0x874AA0..0x874B2B. Parsing all 1774 records of TFH's all_quads.bin this way consumes every one exactly. Wrong if a section is skipped conditionally in a way TFH's file never exercises: step 6 is gated on step 5 (je 0x874E91).",
+   "source": "reversing/findings/FINDINGS-mapdraw.md"
+  },
+  {
+   "rva": "0x472560",
+   "kind": "function",
+   "name": "TempBorderVertices_Weld",
+   "signature": "void __cdecl TempBorderVertices_Weld(int* vertexCount, int* indexCount)",
+   "no_signature": null,
+   "comment": "Welds the temporary border vertices (g_pTempBorderVertices, VA 0x1A85640, 0x18-byte records) before a tile's border mesh is made from them: marks records to drop, merges records equal in every field into the first, remaps the 16-bit indices (VA 0x1A8563C) and drops triangles that collapsed. Part of the quads' rebuild ('REcreating quads'), which the shipped cache makes unnecessary. The name is ours. See reversing/findings/FINDINGS-mapdraw.md, section B.3.",
+   "confidence": "inferred",
+   "evidence": "disasm 0x872560-0x8727AD: equality on floats +0/+4/+0x10/+0x14, words +8/+0xA and the dword +0xC of each 0x18-byte record (0x872643-0x8726C0); index remap and degenerate test 0x872732-0x87277D; bare `ret`, the caller `add esp, 8` (0x873488). Likely: what the records mean in the rebuild path is not settled (B.3)."
+  },
+  {
+   "rva": "0x4754D0",
+   "kind": "function",
+   "name": "QuadBuild_EdgeVertices",
+   "signature": null,
+   "no_signature": "nine stack arguments (`ret 0x24` at 0x8775C0), most of them not identified.",
+   "comment": "Part of the quads' rebuild: walks a province's edge points and writes two vertex streams - 12-byte records (float x, float z, then the province id as two words, id & 0xFF and id >> 8) and 0x18-byte temporary border records (float x, float z, the lookup texel as two words u = n & 0x1FF and v = n >> 9, a D3DCOLOR (border bitmap byte3 x 8, id & 0xFF, id >> 8, byte0 x 8), two floats). It also keeps a table of up to 60 distinct values at the manager's +0x4198. Only the stores were read. The name is ours. See reversing/findings/FINDINGS-mapdraw.md, section B.3.",
+   "confidence": "inferred",
+   "evidence": "disasm 0x8754D0-0x8775C0: stores [edi+3n*8 + 8/+0xA/+0xC] at 0x87636E-0x876389 and repeats, floats at 0x87662E-0x87664D; the colour built 0x876349-0x876367 from [border manager +0x3C] bytes 3 and 0 shifted left 3; u, v from `and 0x1ff` / `sar 9` at 0x875F29-0x875F50. Called once, from 0x873069. The 24-byte stride does not match BorderVertexDecl, which is why the rebuild path is left open (B.3)."
+  }
+ ],
+ "structs": [
+  {
+   "name": "CViewsTextureManager",
+   "size": "0x4C",
+   "vftable_rva": "0x11E3E9C",
+   "comment": "The map's generated textures, owned by the CProvinceManager (WaterObject +0x4168); RTTI base CLostDeviceInterface at 0 (slot 0 ReleaseTextures, slot 1 CreateTextures). Source file viewstexturemanager.cpp. See reversing/findings/FINDINGS-mapdraw.md, section B.2.",
+   "evidence": "RTTI export: CViewsTextureManager, one table at VA 0x15E3E9C, object offset 0, 2 slots; `new` of 0x4C bytes at 0x84FB88 followed by its constructor 0x880D00."
+  },
+  {
+   "name": "CBorderManager",
+   "vftable_rva": "0x11E0F4C",
+   "comment": "The land borders' bitmap and lookup lists, at WaterObject +0x415C; RTTI base CLostDeviceInterface at 0. Source file bordermanager.cpp ('CBorderManager::FillBitmap()', /cache/border_bitmap.bin). Only the fields below were read. See reversing/findings/FINDINGS-mapdraw.md, section B.3.",
+   "evidence": "RTTI export: CBorderManager, one table at VA 0x15E0F4C, 2 slots; the strings at VA 0x15E0F24 and 0x15E0EF4 are referenced from 0x834280, a function of this region."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CViewsTextureManager",
+   "offset": "0x4",
+   "name": "graphics",
+   "type": "CGraphics*",
+   "comment": "Stored by the constructor; its +0x64 device makes the textures.",
+   "evidence": "0x880D1F `mov [esi+4], eax` (eax = [ebp+0xC]); 0x8825B5 [esi+4]->+0x64."
+  },
+  {
+   "struct": "CViewsTextureManager",
+   "offset": "0x8",
+   "name": "province_manager",
+   "type": "WaterObject*",
+   "comment": "The CProvinceManager that owns it (ECX at construction); ViewsTextureManager_UpdateBorderLookup reads its +0x2C entries, +0x42B4 and +0x415C through this.",
+   "evidence": "0x880D2A `mov [esi+8], ecx`; 0x88277F/0x882894 [esi+8]->+0x2C, +0x42B4, +0x415C."
+  },
+  {
+   "struct": "CViewsTextureManager",
+   "offset": "0xC",
+   "name": "province_colour0",
+   "type": "void*",
+   "comment": "IDirect3DTexture9*, 256x256 A8R8G8B8, dynamic, D3DPOOL_DEFAULT: 'Texture1', terrain_2_0.fx's tex2 (GeneralTexture). Texel (id mod 256, id / 256) = the province's first colour (lifted by 0.1 where its byte +0xC is set); in map style 0 the province-state texture (r fog, g 0.1/0, b frozen).",
+   "evidence": "CreateTextures 0x8825C0-0x8825DA; filled by Map_UpdateProvinceColourTexture; bound as tex2 by MapGraphics_DrawTerrain (graphics +0x4168 +0xC)."
+  },
+  {
+   "struct": "CViewsTextureManager",
+   "offset": "0x10",
+   "name": "province_colour1",
+   "type": "void*",
+   "comment": "IDirect3DTexture9*, 256x256 A8R8G8B8: 'Texture2', terrain_2_0.fx's tex3 (GeneralTexture2), from each province's second colour by the same rule.",
+   "evidence": "CreateTextures 0x8825E9-0x882603; Map_UpdateProvinceColourTexture's second loop (0x88116E-0x8813A4)."
+  },
+  {
+   "struct": "CViewsTextureManager",
+   "offset": "0x14",
+   "name": "border_lookup",
+   "type": "void*",
+   "comment": "IDirect3DTexture9*, 512x512 A8R8G8B8: TerrainShader_Border's tex4 (BorderDirectionTexture), fourteen texels a province - see ViewsTextureManager_UpdateBorderLookup.",
+   "evidence": "CreateTextures 0x88260F-0x88262C; locked at 0x882777; bound as tex4 at 0x85ED08."
+  },
+  {
+   "struct": "CViewsTextureManager",
+   "offset": "0x18",
+   "name": "fow",
+   "type": "void*",
+   "comment": "IDirect3DTexture9*, 1024x1024 D3DFMT_L8: the fog texture, FOWTex of water.fx (read .b) and terraincognita.fx (read .r) - one byte a texel, 255 x the bilinear blend of 1.0 / 0.6 / 0 samples of the province raster (FowTexture_Update).",
+   "evidence": "CreateTextures 0x88263B-0x882655 (format 0x32); FowTexture_Update locks it at 0x881415; bound at 0x85FC94 and 0x8603CF."
+  },
+  {
+   "struct": "CViewsTextureManager",
+   "offset": "0x1C",
+   "name": "water_colour0",
+   "type": "void*",
+   "comment": "IDirect3DTexture9*, 1024x1024 A8R8G8B8: water.fx's color0 - the province raster sampled nearest at 1024x1024, each texel the province's first colour word as stored, 0x80808080 where there is no province (WaterTexture_Update).",
+   "evidence": "CreateTextures 0x882661-0x88267E; WaterTexture_Update 0x88224F/0x88248C; bound as 'color0' at 0x85FCF4."
+  },
+  {
+   "struct": "CViewsTextureManager",
+   "offset": "0x20",
+   "name": "water_colour1",
+   "type": "void*",
+   "comment": "IDirect3DTexture9*, 1024x1024 A8R8G8B8: water.fx's color1, from each province's second colour word.",
+   "evidence": "CreateTextures 0x88268D-0x8826A7; WaterTexture_Update 0x88230D/0x88249B; bound as 'color1' at 0x85FD14."
+  },
+  {
+   "struct": "CViewsTextureManager",
+   "offset": "0x24",
+   "name": "entries_begin",
+   "type": "void**",
+   "comment": "Begin of a copy of the CProvinceManager's province entry vector (end +0x28, capacity +0x2C), made by Map_RefreshColourTextures; entry +0 and +4 the two packed colours, +0xC the CMapProvince.",
+   "evidence": "0x880D97 `lea eax,[esi+0x24]; call 0x8DD860`; read as [edi+0x24][i] in 0x880F82 and 0x882480."
+  },
+  {
+   "struct": "CViewsTextureManager",
+   "offset": "0x44",
+   "name": "refresh_pending",
+   "type": "bool",
+   "comment": "Set by CreateTextures; while set, MapGraphics_Update counts refresh_countdown down and at 0 refills every texture (Map_RefreshColourTextures with 1) and clears this.",
+   "evidence": "0x8826A9 `mov byte [esi+0x44], 1`; 0x85D623 test, 0x85D638 clear."
+  },
+  {
+   "struct": "CViewsTextureManager",
+   "offset": "0x48",
+   "name": "refresh_countdown",
+   "type": "int",
+   "comment": "5 from CreateTextures: frames until the first refill.",
+   "evidence": "0x8826AD `mov dword [esi+0x48], 5`; 0x85D629 `dec dword [esi+0x48]`."
+  },
+  {
+   "struct": "CBorderManager",
+   "offset": "0x3C",
+   "name": "bitmap",
+   "type": "uint8_t*",
+   "comment": "Likely the border bitmap, four bytes a pixel, width +0x40: QuadBuild_EdgeVertices takes bytes 0 and 3 of a pixel, x 8, for a border vertex's colour (blue and alpha, the province and diagonal pattern columns).",
+   "evidence": "0x876317-0x87633D: [[manager+0x415C]+0x3C] + (y x [..+0x40] + x) x 4, bytes +3 and +0."
+  },
+  {
+   "struct": "CBorderManager",
+   "offset": "0x40",
+   "name": "width",
+   "type": "int",
+   "comment": "The bitmap's width in pixels.",
+   "evidence": "The row stride at 0x87630B/0x87632D; BorderManager_Tick's rect uses width-2 (0x8364E7)."
+  },
+  {
+   "struct": "CBorderManager",
+   "offset": "0x44",
+   "name": "height",
+   "type": "int",
+   "comment": "The bitmap's height in pixels.",
+   "evidence": "BorderManager_Tick's rect uses height-2 (0x8364E4)."
+  },
+  {
+   "struct": "CBorderManager",
+   "offset": "0x59",
+   "name": "dirty",
+   "type": "bool",
+   "comment": "Set: BorderManager_Tick counts rebuild_countdown down and at 0 refills the bitmap and the lookup texture, then clears it. Its setters were not read.",
+   "evidence": "0x8364D2 test, 0x836559 clear."
+  },
+  {
+   "struct": "CBorderManager",
+   "offset": "0x5C",
+   "name": "rebuild_countdown",
+   "type": "int",
+   "comment": "Frames until a dirty border manager rebuilds.",
+   "evidence": "0x8364DB `dec dword ptr [edi+0x5c]; jne`."
+  },
+  {
+   "struct": "WaterObject",
+   "offset": "0x28",
+   "name": "clock",
+   "type": "void*",
+   "comment": "The renderer's own clock, made by the platform factory's slot 1 (a CHighPerfWinClock in seconds) and started by the constructor; the sea's and terra incognita's Time is -(its seconds), raised by 100 while below -100.",
+   "evidence": "0x84F924 `mov [ebx+0x28], eax` after [0x174DA90] slot 1, then its slot 1 (Start) at 0x84F92E; read through slot +0x14 at 0x85FB80 and 0x86041F."
+  },
+  {
+   "struct": "WaterObject",
+   "offset": "0x2C",
+   "name": "province_entries",
+   "type": "void**",
+   "comment": "Begin of the vector of province graphics entries, one per province id: +0 and +4 the two packed colours a map mode writes, +8 the CProvinceTemplate, +0xC the CMapProvince. Handed to Map_RefreshColourTextures, copied into the texture manager's +0x24.",
+   "evidence": "0x84FBB5 `lea eax,[ebx+0x2c]` into Map_RefreshColourTextures; 0x8827B0 [[tm+8]+0x2C][i] -> +8 template (+0x10, +0x90)."
+  },
+  {
+   "struct": "WaterObject",
+   "offset": "0x238",
+   "name": "h_water_tex0",
+   "type": "void*",
+   "comment": "water.fx's 'tex0' (no such parameter in the install's water.fx, so null), fetched by the constructor and again each frame.",
+   "evidence": "0x8518CE / 0x85F8F7 GetParameterByName 'tex0' -> +0x238."
+  },
+  {
+   "struct": "WaterObject",
+   "offset": "0x23C",
+   "name": "h_water_tex1",
+   "type": "void*",
+   "comment": "water.fx's 'tex1', likewise absent from the install's file.",
+   "evidence": "0x8518E8 / 0x85F911 -> +0x23C."
+  },
+  {
+   "struct": "WaterObject",
+   "offset": "0x258",
+   "name": "h_water_Time",
+   "type": "void*",
+   "comment": "water.fx's 'Time': set (SetFloat) only on the near, non-simple path.",
+   "evidence": "0x851902 / 0x85F92B -> +0x258; SetFloat at 0x85FBE6."
+  },
+  {
+   "struct": "WaterObject",
+   "offset": "0x25C",
+   "name": "h_water_WorldViewProjectionMatrix",
+   "type": "void*",
+   "comment": "Fetched; never set by the sea's draw.",
+   "evidence": "0x85191C / 0x85F945 -> +0x25C; no SetMatrix with it in 0x85F6E0-0x8602D6."
+  },
+  {
+   "struct": "WaterObject",
+   "offset": "0x260",
+   "name": "h_water_WorldMatrix",
+   "type": "void*",
+   "comment": "Fetched; never set by the sea's draw.",
+   "evidence": "0x851936 / 0x85F95F -> +0x260."
+  },
+  {
+   "struct": "WaterObject",
+   "offset": "0x264",
+   "name": "h_water_CameraPosition",
+   "type": "void*",
+   "comment": "Fetched; the draw sets CameraPosition by its name instead.",
+   "evidence": "0x851950 / 0x85F979 -> +0x264; SetVector by string at 0x85FE07."
+  },
+  {
+   "struct": "WaterObject",
+   "offset": "0x268",
+   "name": "h_water_LightPosition",
+   "type": "void*",
+   "comment": "Fetched; never set by the sea's draw.",
+   "evidence": "0x85196A / 0x85F993 -> +0x268."
+  },
+  {
+   "struct": "WaterObject",
+   "offset": "0x26C",
+   "name": "h_water_LightDirection",
+   "type": "void*",
+   "comment": "Fetched; never set by the sea's draw.",
+   "evidence": "0x851984 / 0x85F9AD -> +0x26C."
+  },
+  {
+   "struct": "WaterObject",
+   "offset": "0x1E8",
+   "name": "h_water_MapWidth",
+   "type": "void*",
+   "comment": "water.fx's 'MapWidth', fetched by the constructor and each frame; never set by the sea's draw. With +0x1EC..+0x204: MapHeight, BorderWidth, BorderHeight, ColorMapHeight, ColorMapWidth, ColorMapTextureHeight, ColorMapTextureWidth, likewise.",
+   "evidence": "0x85199E / 0x85F9C7 -> +0x1E8; the eight stores 0x8519A7-0x851A63 and 0x85F9D0-0x85FA86."
+  },
+  {
+   "struct": "WaterObject",
+   "offset": "0x1EC",
+   "name": "h_water_MapHeight",
+   "type": "void*",
+   "comment": "Fetched; never set by the sea's draw.",
+   "evidence": "0x8519B8 / 0x85F9E1 -> +0x1EC."
+  },
+  {
+   "struct": "WaterObject",
+   "offset": "0x1F0",
+   "name": "h_water_BorderWidth",
+   "type": "void*",
+   "comment": "Fetched; never set by the sea's draw.",
+   "evidence": "0x8519D2 / 0x85F9FB -> +0x1F0."
+  },
+  {
+   "struct": "WaterObject",
+   "offset": "0x1F4",
+   "name": "h_water_BorderHeight",
+   "type": "void*",
+   "comment": "Fetched; never set by the sea's draw.",
+   "evidence": "0x8519EC / 0x85FA15 -> +0x1F4."
+  },
+  {
+   "struct": "WaterObject",
+   "offset": "0x1F8",
+   "name": "h_water_ColorMapHeight",
+   "type": "void*",
+   "comment": "Fetched; never set by the sea's draw.",
+   "evidence": "0x851A06 / 0x85FA2F -> +0x1F8."
+  },
+  {
+   "struct": "WaterObject",
+   "offset": "0x1FC",
+   "name": "h_water_ColorMapWidth",
+   "type": "void*",
+   "comment": "Fetched; never set by the sea's draw.",
+   "evidence": "0x851A20 / 0x85FA49 -> +0x1FC."
+  },
+  {
+   "struct": "WaterObject",
+   "offset": "0x200",
+   "name": "h_water_ColorMapTextureHeight",
+   "type": "void*",
+   "comment": "Fetched; never set by the sea's draw.",
+   "evidence": "0x851A3A / 0x85FA63 -> +0x200."
+  },
+  {
+   "struct": "WaterObject",
+   "offset": "0x204",
+   "name": "h_water_ColorMapTextureWidth",
+   "type": "void*",
+   "comment": "Fetched; never set by the sea's draw.",
+   "evidence": "0x851A54 / 0x85FA7D -> +0x204."
+  },
+  {
+   "struct": "WaterObject",
+   "offset": "0x274",
+   "name": "border_effect",
+   "type": "void*",
+   "comment": "ID3DXEffect* of /FX/borders_2_0.fx (shader name 'Borders'), from the graphics' effect list.",
+   "evidence": "0x851046 `mov [ebx+0x274], eax` with eax = [graphics+0x6BD00][index-1]."
+  },
+  {
+   "struct": "WaterObject",
+   "offset": "0x278",
+   "name": "tech_WaterBorderShader",
+   "type": "void*",
+   "comment": "technique handle; the only technique of borders_2_0.fx the image uses (MapGraphics_DrawWaterBorders).",
+   "evidence": "0x851066 'WaterBorderShader' -> +0x278; SetTechnique at 0x85DDB7."
+  },
+  {
+   "struct": "WaterObject",
+   "offset": "0x27C",
+   "name": "h_border_WorldViewProjectionMatrix",
+   "type": "void*",
+   "comment": "borders_2_0.fx's 'WorldViewProjectionMatrix': set per tile to the tile's +0x1FC matrix.",
+   "evidence": "0x851041 -> +0x27C; SetMatrix at 0x85DF08."
+  },
+  {
+   "struct": "WaterObject",
+   "offset": "0x2B8",
+   "name": "water_effect_index",
+   "type": "int",
+   "comment": "Index (1-based) of water.fx ('WaterShader') in the graphics' effect list; MapGraphics_DrawWater re-reads the effect through it each frame.",
+   "evidence": "0x851812 `mov [ebx+0x2b8], eax`; 0x85F83B-0x85F856."
+  },
+  {
+   "struct": "WaterObject",
+   "offset": "0x2C4",
+   "name": "tex_water_borders",
+   "type": "int",
+   "comment": "Texture id of /terrain/water_borders.tga (the install has map/terrain/water_borders.dds, 1024x64): WaterBorderShader's tex1.",
+   "evidence": "0x85259D string, 0x8525F2 store; bound at 0x85DE16."
+  },
+  {
+   "struct": "WaterObject",
+   "offset": "0x2C8",
+   "name": "tex_water_diag_borders",
+   "type": "int",
+   "comment": "Texture id of /terrain/water_diag_borders.tga (install: water_diag_borders.dds, 1024x64): WaterBorderShader's tex3.",
+   "evidence": "0x85264A string, 0x8526AE store; bound at 0x85DE4A."
+  },
+  {
+   "struct": "WaterObject",
+   "offset": "0x2CC",
+   "name": "tex_sea_normal",
+   "type": "int",
+   "comment": "Texture id of /terrain/sea_normal.dds (512x512): the sea's NormalTex.",
+   "evidence": "0x852706 string, 0x85276A store; bound as 'NormalTex' at 0x85FCD4."
+  },
+  {
+   "struct": "WaterObject",
+   "offset": "0x415C",
+   "name": "border_manager",
+   "type": "CBorderManager*",
+   "comment": "The land borders' bitmap and lookup lists; ticked each frame by MapGraphics_Update (BorderManager_Tick).",
+   "evidence": "0x853BCF store; 0x85D603-0x85D616."
+  },
+  {
+   "struct": "WaterObject",
+   "offset": "0x4168",
+   "name": "textures",
+   "type": "CViewsTextureManager*",
+   "comment": "The generated textures: the province colour pair (+0xC/+0x10), the border lookup (+0x14), the fog (+0x18) and the sea's colour pair (+0x1C/+0x20).",
+   "evidence": "0x84FBB8 store after `new 0x4C` and CViewsTextureManager::CViewsTextureManager; read by every map draw (0x85ECF6, 0x85FC82, 0x8603BD)."
+  },
+  {
+   "struct": "WaterObject",
+   "offset": "0x42A4",
+   "name": "decl_border",
+   "type": "void*",
+   "comment": "IDirect3DVertexDeclaration9* 'BorderVertexDecl': SHORT4 POSITION at 0, D3DCOLOR COLOR0 at 8 (12 bytes) - the land borders.",
+   "evidence": "CreateVertexDeclaration (+0x158) with the elements at VA 0x170AC28 at 0x857B73; set at 0x85EDC1."
+  },
+  {
+   "struct": "WaterObject",
+   "offset": "0x42A8",
+   "name": "decl_terra_incognita",
+   "type": "void*",
+   "comment": "'TerraIncognitaDecl': one FLOAT4 POSITION.",
+   "evidence": "elements at VA 0x170AC80, created at 0x857C15; set at 0x860558."
+  },
+  {
+   "struct": "WaterObject",
+   "offset": "0x42AC",
+   "name": "decl_water_far",
+   "type": "void*",
+   "comment": "'WaterFarDecl': one FLOAT4 POSITION (x, z, u, v) - the sea in every technique.",
+   "evidence": "elements at VA 0x170AC70, created at 0x857BDF; set at 0x85FE3C."
+  },
+  {
+   "struct": "WaterObject",
+   "offset": "0x42B0",
+   "name": "decl_water_border",
+   "type": "void*",
+   "comment": "'WaterBorderDecl': SHORT2 POSITION at 0, UBYTE4 TEXCOORD0 at 4 (8 bytes).",
+   "evidence": "elements at VA 0x170ACB8, created at 0x857BA9; set at 0x85DE6E."
+  },
+  {
+   "struct": "WaterObject",
+   "offset": "0x42B4",
+   "name": "border_lookup_extras",
+   "type": "void*",
+   "comment": "Begin of a per-province vector (sized to CMap +0x21FC) of lists of 8-byte (key, index) pairs, which ViewsTextureManager_UpdateBorderLookup turns into lookup texels after a province's neighbours.",
+   "evidence": "0x857AA8 sized with [CMap+0x21FC]; 0x8827F1 [..+0x42B4]+0x10 x i, pairs at 0x882883-0x88288E."
+  },
+  {
+   "struct": "WaterObject",
+   "offset": "0x42D4",
+   "name": "water_border_meshes",
+   "type": "void*",
+   "comment": "Begin of an array of 0x24-byte meshes, one per map tile: the sea-zone borders drawn by MapGraphics_DrawWaterBorders.",
+   "evidence": "0x85DED0-0x85DF2C: [edi+0x42D4] + 0x24 x tile tested at +0xC/+0x10 and drawn."
+  }
+ ],
+ "vftable_slots": {
+  "CViewsTextureManager": {
+   "0": "ReleaseTextures",
+   "1": "CreateTextures"
+  }
+ },
+ "frontier": [
+  "0x460D30",
+  "0x4727B0",
+  "0x4374D0",
+  "0x437980",
+  "0x4365B0",
+  "0x4369E0",
+  "0x436BC0",
+  "0x434280",
+  "0x4DD860",
+  "0x474F00",
+  "0x4571F0"
+ ]
+}

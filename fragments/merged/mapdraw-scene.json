@@ -1,0 +1,500 @@
+{
+ "agent": "mapdraw scene reader (2026-11-06)",
+ "question": "The map scene as a whole: the order of MapGraphics_DrawScene's draws with effect, technique, mask and gate; the device states around each draw; the rivers, trees, surf and the unread pieces; and how the engine loads an effect file and drives it.",
+ "source": "reversing/findings/FINDINGS-mapdraw.md",
+ "addresses": [
+  {
+   "rva": "0x661DD0",
+   "kind": "function",
+   "name": "FxHandler_Register",
+   "signature": "int __stdcall FxHandler_Register(FxHandler* handler, Hoi3CString* path, Hoi3CString* key, void* device)",
+   "no_signature": null,
+   "comment": "**Every map effect file is loaded through here** (effecthandler.cpp). Looks `key` up in the handler's map (+0x34): **already there - returns its index and loads nothing**, so two loads under one key share one ID3DXEffect. Otherwise: where the handler's +0x48 byte is set, first tries the path with `\\legacy` put before its file name (directory up to the last `\\` or `/`, then `\\legacy`, then `/name.fx`) - and if that loads, **loads it a second time and leaks the first** (the result of the first Fx_CreateEffectFromPath is never stored or released); if it fails, the original path. Without the byte, the path as given. The effect pointer is pushed onto +4 **even when it is null**, the count +0x44 incremented and stored as the key's value, the key and path appended to +0x14 and +0x24; returns the new count - a **1-based index**: the effect is `handler->effects[index - 1]`, which every caller reads as CGraphics +0x6BD00 [index - 1]. So a map effect that fails to compile leaves a null in the list and the map loader's next GetParameterByName dereferences it (inferred: the loaders test the index, never the pointer). Only the constructor writes +0x48 (0); see FxHandler. `ret 0x10`. Callers: the map graphics loader (0x450520: Borders, TerrainShader, WaterShader, TerraIncognitaShader), the surf (0x432907: BeachShader), the rivers (0x478BFF: RiverShader) and others. The name is ours. See reversing/findings/FINDINGS-mapdraw.md, section C.4.",
+   "confidence": "confirmed",
+   "evidence": "Decoded 0xA61DD0 to both `ret 0x10` (0xA61FE1, 0xA62003). The early exit at 0xA61E09 is the map lookup (0x5F3E40 on +0x34) answering non-null; 0xA61E3D tests +0x48; 0xA61E87 pushes '\\legacy'; calls to 0xA621D0 at 0xA61F53 and 0xA61F75 with the second fed the same string; 0xA61F85 vector push of the result without a null test; 0xA61F8D inc [esi+0x44]. Wrong if 0x5F3E40 is not a find-or-insert on the map (its result's first dword is tested and then written with the count), or if the 0x661F58 jne skips the second create (it lands at 0xA61F69, before it)."
+  },
+  {
+   "rva": "0x6621D0",
+   "kind": "function",
+   "name": "Fx_CreateEffectFromPath",
+   "signature": "void* __stdcall Fx_CreateEffectFromPath(Hoi3CString* path, void* device)",
+   "no_signature": null,
+   "comment": "**How an effect file becomes an ID3DXEffect.** Copies the path and turns every `\\` into `/` (ReplaceAllInString); opens it with VirtualFile_Open - **PhysFS, so over the whole search path, the mod's directory first** (inferred from the search path the record gives Lua_PhysfsLoader: mod, tfh, base) - reads it whole into a stack buffer (alloca of the file length), and calls **D3DXCreateEffect(device, data, length, pDefines = NULL, pInclude = an include object (vftable VA 0x15FCBC0: FxInclude_Open / FxInclude_Close) holding the path and the length of its directory part, Flags = 0, pPool = NULL, &effect, &errors)** - d3dx9_42.dll [exe]. So **no macros, no compile flags, no shared pool**: the file compiles as written, `#include` resolved beside it through the same file system. On failure it logs `D3DXCreateEffectFromFile failed for file: <path> with error: <the compiler's text>` (effecthandler.cpp line 106), or `... . Couldn't open file.` when there is no error text, and returns null. `ret 8`. The only caller is FxHandler_Register (and the reload). The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Decoded 0xA621D0 to the `ret 8` at 0xA624E7. The D3DXCreateEffect call at 0xA622D5 (IAT 0xD2B398 = d3dx9_42!D3DXCreateEffect, from the import table) takes nine pushes in order ppErrors [ebp-0x10], ppEffect [ebp-0x14], 0, 0, &[ebp-0x5C] (vftable 0x15FCBC0 stored at 0xA622CE), 0, esi (length), [ebp-0x18] (buffer from _alloca 0xB99420), [ebp+0xC]. Strings at 0xA62336/0xA6235E/0xA62449. Wrong if the argument order of D3DXCreateEffect differs (device, src, len, defines, include, flags, pool, effect, errors - the documented order)."
+  },
+  {
+   "rva": "0x662010",
+   "kind": "function",
+   "name": "FxInclude_Open",
+   "signature": "long __stdcall FxInclude_Open(void* include, int includeType, char* fileName, void* parentData, void** data, unsigned int* bytes)",
+   "no_signature": null,
+   "comment": "ID3DXInclude::Open of the include object Fx_CreateEffectFromPath hands D3DX (slot 0 of the table at VA 0x15FCBC0; no RTTI). The name asked for is prefixed with the first (+8) characters of the effect's own path (+4) - its directory, up to and including the last `/` - every `\\` turned into `/`, opened with VirtualFile_Open (PhysFS), its length written to *bytes, a malloc'd copy to *data. **Returns 0 (S_OK) always**; a file that will not open is handled inside VirtualFile_Open, which the record says throws (inferred: not followed here). This is how water.fx's `#include \"water_include.h\"` is found. `ret 0x18`. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Decoded 0xA62010 to `ret 0x18` at 0xA621A8: six dwords = this + the five ID3DXInclude::Open arguments. 0xA6204A tests [this+8], 0xA62051 reads [this+4]; ReplaceAllInString with '/' and '\\\\' (VA 0x15B5180/0x15B5190); VirtualFile_Open at 0xA620FC; malloc 0xB96CC3 into [ebp+0x18]; xor eax,eax before the ret. Wrong if slot 0 of 0x15FCBC0 is not Open (slot 1 is 0xA621B0, which frees its second argument - Close's shape)."
+  },
+  {
+   "rva": "0x6621B0",
+   "kind": "function",
+   "name": "FxInclude_Close",
+   "signature": "long __stdcall FxInclude_Close(void* include, void* data)",
+   "no_signature": null,
+   "comment": "ID3DXInclude::Close of the effect include object (slot 1 of VA 0x15FCBC0): frees the buffer FxInclude_Open allocated and returns 0. `ret 8`. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Decoded 0xA621B0..0xA621C2: push [ebp+0xC]; call 0xB962FF; xor eax,eax; ret 8. Slot 1 of the table at 0x15FCBC0 (read directly: 0xA62010, 0xA621B0, ...)."
+  },
+  {
+   "rva": "0x6624F0",
+   "kind": "function",
+   "name": "FxHandler_Reload",
+   "signature": "bool __stdcall FxHandler_Reload(FxHandler* handler@EDI, Hoi3CString* key@stack:4, void* device@stack:8) @AL",
+   "no_signature": null,
+   "comment": "Compiles the effect registered under `key` again from its stored path (+0x24 [index - 1]) with Fx_CreateEffectFromPath and, where that succeeds, puts it in the list in place of the old one and Releases the old; false where the key is unknown or the compile fails (the old effect kept). Called twice by the console handler at 0x3BED0/0x3BFCF, the second with `gfx/FX/` + a name and the reply ' reloaded' - a developer reload of a shader. The handles a draw cached from the old effect are not refreshed here (inferred: nothing in this function touches them). `ret 8`. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Decoded 0xA624F0 to the two `ret 8` (0xA6256F, 0xA62579). EDI is read at 0xA624FC before any write (lea eax,[edi+0x34]); 0xA6253F indexes [edi+0x24] by (index-1)*0x1C; the store at 0xA62559 into [edi+4]; Release (slot 2) of the old at 0xA62566. Callers 0x43BED0, 0x43BFCF (VAs) by findRefs."
+  },
+  {
+   "rva": "0x6626C0",
+   "kind": "function",
+   "name": "FxHandler_OnLostDevice",
+   "signature": "void __cdecl FxHandler_OnLostDevice(FxHandler* handler@EDI)",
+   "no_signature": null,
+   "comment": "ID3DXEffect::OnLostDevice (slot 69) on every effect in the list, skipping nulls. Called from the device-reset path (0x675B3F) before IDirect3DDevice9::Reset. Bare `ret`. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Decoded 0xA626C0..0xA626E5: loop over [edi+4]..[edi+8], call [vtbl+0x114] (slot 69 of ID3DXEffect in d3dx9_42's order: OnLostDevice). Caller 0xA75B3F."
+  },
+  {
+   "rva": "0x6626F0",
+   "kind": "function",
+   "name": "FxHandler_OnResetDevice",
+   "signature": "void __cdecl FxHandler_OnResetDevice(FxHandler* handler@EDI)",
+   "no_signature": null,
+   "comment": "ID3DXEffect::OnResetDevice (slot 70) on every effect in the list. Called once, from the device-reset path at 0x675BD4, just before CGraphics_SetDefaultRenderStates (0x675BEB). Bare `ret`. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Decoded 0xA626F0..0xA62714: the same loop as 0xA626C0 with [vtbl+0x118]. One caller, 0xA75BD4 (findRefs --callers)."
+  },
+  {
+   "rva": "0x66D730",
+   "kind": "function",
+   "name": "FxHandler_Construct",
+   "signature": "FxHandler* __stdcall FxHandler_Construct(FxHandler* handler)",
+   "no_signature": null,
+   "comment": "Builds the effect handler CGraphics keeps by value at +0x6BCFC: vftable VA 0x15FCBBC (no RTTI), the three vectors (+4 effects, +0x14 keys, +0x24 paths) empty, the key map's head node (0x30 bytes) at +0x38, count +0x44 = 0, **+0x48 = 0** - the byte FxHandler_Register would read as 'try gfx/FX/legacy first'. One caller, CGraphics' constructor at 0x66DEEA, which then writes its own +0x6BD48 - so the handler is 0x4C bytes. `ret 4`, returns the handler. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Decoded 0xA6D730 to `ret 4` at 0xA6D7C1: stores at +0,+4..+0xC,+0x14..+0x1C,+0x24..+0x2C,+0x3C,+0x38,+0x44, byte +0x48 = bl (0). Caller 0xA6DEEA pushes lea [ebx+0x6BCFC]; 0xA6DEEF writes [ebx+0x6BD48]."
+  },
+  {
+   "rva": "0x4C2F0",
+   "kind": "function",
+   "name": "Path_PreferOverride",
+   "signature": "Hoi3CString* __cdecl Path_PreferOverride(Hoi3CString* out@stack:4, Hoi3CString* overrideDir@stack:8, Hoi3CString* baseDir@stack:0xC, Hoi3CString* suffix@EDI) @EAX",
+   "no_signature": null,
+   "comment": "`out` = overrideDir + suffix where that file exists (FileExists, PhysFS), otherwise baseDir + suffix. The map graphics loader (0x450520), the surf (0x432080) and the rivers use it for a folder in CDirectorySettings mode 2 (`extend` of an old-style mod descriptor); in mode 1 they take the override directory outright and otherwise the base folder name (`gfx`, `map`). TFH-style mods (`path` + `replace_path`) never reach it: their files arrive through the PhysFS search path instead (inferred). Bare `ret`, the caller drops 0xC. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Decoded 0x44C2F0 to the bare ret at 0x44C35E: operatorPlus(left = [ebp+0xC], right = EDI pushed at 0x44C2FA) then FileExists at 0x44C321; on false ECX = [ebp+0x10] (0x44C350) before the second operatorPlus into [ebp+8]. The callers test CDirectorySettings +0x4C (folder_mode[2], gfx) or +0x5C (folder_mode[6], map) against 2 just before (0x450E31, 0x4325AF)."
+  },
+  {
+   "rva": "0x676FF0",
+   "kind": "function",
+   "name": "CGraphics_SetDefaultRenderStates",
+   "signature": "void __cdecl CGraphics_SetDefaultRenderStates(CGraphics* graphics@EAX)",
+   "no_signature": null,
+   "comment": "**The device's baseline states, set after the device is made (CGraphics' constructor, 0x66EDE7) and after every Reset (0x675928, 0x6759A6, 0x675BEB, 0x675C41)** [exe]: ALPHABLENDENABLE 1, ALPHATESTENABLE 1, CULLMODE NONE, LIGHTING 0, DITHERENABLE 0, **ALPHAREF 8, ALPHAFUNC GREATEREQUAL**, stage 0 TEXCOORDINDEX 0, SRCBLEND ONE, DESTBLEND ZERO, a white material (diffuse and ambient 1,1,1,1), FILLMODE WIREFRAME where CGraphics +0x6BC44 is set and SOLID otherwise; texture stages 0 to 3 COLORARG1/ALPHAARG1 TEXTURE, COLORARG2/ALPHAARG2 CURRENT, stage 0 COLOROP and ALPHAOP MODULATE, stages 1 to 3 both DISABLE. **ALPHAREF and ALPHAFUNC are written nowhere else in the image** (a census of immediate SetRenderState calls), so every alpha-tested pass on the map tests alpha >= 8/255. Bare `ret`. The name is ours. See reversing/findings/FINDINGS-mapdraw.md, section C.2.",
+   "confidence": "confirmed",
+   "evidence": "Decoded 0xA76FF0 to the bare ret at 0xA77251: SetRenderState (device slot 57, +0xE4) with (0x1B,1) (0xF,1) (0x16,1) (0x89,0) (0x1A,0) (0x18,8) (0x19,7) (0x13,2) (0x14,1) (8, 2 or 3 by [esi+0x6BC44]); SetTextureStageState (+0x10C) as listed; SetMaterial (+0xC4) at 0xA77137. Callers by findRefs --callers 0x00A76FF0: five. The ALPHAREF claim rests on a resumed sweep of .text listing every call through a register loaded from [x+0xE4] with immediate pushes (positive control: it lists every state call of MapGraphics_DrawScene exactly as decoded by hand); a call passing the state in a register would be missed."
+  },
+  {
+   "rva": "0x47C8A0",
+   "kind": "function",
+   "name": "MapRivers_Draw",
+   "signature": "void __stdcall MapRivers_Draw(MapRivers* rivers@EDI, MapCamera* camera@stack:4, void* view@stack:8, float time@stack:0xC)",
+   "no_signature": null,
+   "comment": "**The rivers, with gfx/FX/river.fx's RiverShader** (path hardcoded `gfx/FX/river.fx`, key RiverShader). Called by MapGraphics_DrawScene (0x45C16D) with layer-mask bit 0x80 and graphics +0x4160 not null, at any height. Where the byte at VA 0x1BEA4C2 is set it first rebuilds the meshes (0x478EF0) and clears it - the byte starts zero and nothing writes it but that clear (inferred: absolute references only). **ZWRITEENABLE 0**; World = D3DXMatrixTranslation(-camera x_settled, 0, -camera y_settled); SetTechnique by the name 'RiverShader'; Begin(&n, 0); BeginPass(0); ColorMapHeight / ColorMapWidth = the height / width of colormap_water.dds (the texture entry's +0x28/+0x24) and ColorMapTextureHeight / Width the next power of two of each; MapWidth / MapHeight = CMap map_width / map_height (5616, 2160); **WorldMatrix the translation, ViewMatrix and ProjectionMatrix the view's (view +0x1C slots 91 and 93), tex0 map/terrain/river_body.tga, tex1 river_movement.tga, tex3 colormap_water.dds, tex2 the province-colour object's (graphics +0x4168) +0x18 texture, AbsoluteWorldMatrix identity, vTime the clock**; CommitChanges; then for each river mesh whose rectangle (+0x60, x y w h) passes the view test 0x6BF670 against y -10..50, VertexBuffer_Draw and the index kept; then **tex0 river_exit.dds** and for each kept index its second mesh (+0x50) where there is one. EndPass, End, **ZENABLE 1, ZWRITEENABLE 1**. Blend: the technique sets ALPHABLENDENABLE and ALPHATESTENABLE only, so SRCBLEND/DESTBLEND are what the beaches left (SRCALPHA/INVSRCALPHA) and the test is alpha >= 8. `ret 0xC`. The name is ours. See reversing/findings/FINDINGS-mapdraw.md, section C.3.",
+   "confidence": "confirmed",
+   "evidence": "Decoded 0x87C8A0 to the single `ret 0xc` at 0x87CF84 (retsBefore clean). EDI read at 0x87C8C9 before any write; stack args read at [ebp+8] (+0x33C/+0x340, the camera), [ebp+0xC] (+0x1C slots 0x16C/0x174, the view) and [ebp+0x10] (vTime). Parameter names are the strings pushed at 0x87CBCE.. and the handles +0x94..+0xA8 named in 0x87D0E0. Textures from the loader 0x8783B8 (river_body.tga to +0x80, river_movement.tga +0x84, colormap_water.dds +0x7C, river_exit.dds +0x88). Wrong if [edi+0x70] is not the effect (it is CGraphics+0x6BD00[index-1] stored at 0x878C66 from FxHandler_Register's index)."
+  },
+  {
+   "rva": "0x463930",
+   "kind": "function",
+   "name": "MapTrees_Draw",
+   "signature": "void __stdcall MapTrees_Draw(WaterObject* graphics)",
+   "no_signature": null,
+   "comment": "**The trees, with terrain_2_0.fx's TreeShader** (handle +0x22C on the shared terrain effect +0x1A0). Called by MapGraphics_DrawScene (0x45C23E) only under height 100 [exe] and with layer-mask bit 0x1 (settings renderTrees, and only the Terrain and Weather modes' masks). Nothing above CMap `tree` (350 [mod: map/default.map]); alpha 255, or above 0.3 x tree trunc(255 x (1 - (h - 0.3 tree) / (0.8 tree))) [exe], none at 0 or less - dead in TFH, the scene's 100 being under 105. SetTechnique(TreeShader); Begin(&n, 0); BeginPass(0); **vAlpha = alpha / 255, ViewMatrix, ProjectionMatrix**; then for each tree type i of map/trees.txt (count +0xD4, texture ids +0xD8 [mod: map/trees.txt `texture`]) tex0 = its texture, and for each tile slot (+0x134, 0x24 bytes each, count +0x130) whose tile is visible (tile +0x138) and which holds quads of that type: **WorldMatrix = the tile's matrix (tile +0x17C), AbsoluteWorldMatrix = tile +0x13C**, CommitChanges, and VertexBuffer_DrawIndexedRange(the slot's mesh +0x144[k], start = its first vertex x 6/4, count = its vertices x 6/4, the shared quad index buffer +0x154). EndPass, End. **No device state is set**: TreeShader sets ALPHABLENDENABLE and ALPHATESTENABLE, so the blend is the SRCALPHA/INVSRCALPHA left by the draws before and the test alpha >= 8. Every other terrain_2_0.fx parameter (BorderWidth, BorderHeight, LightDirection...) keeps what the land and beach draws last set on the same effect. The meshes are MapObjects_RebuildTileStrips'. `ret 4`. The name is ours. See reversing/findings/FINDINGS-mapdraw.md, section C.3.",
+   "confidence": "confirmed",
+   "evidence": "Decoded 0x863930 to `ret 4` at 0x863C59. Constants 0.3 (VA 0x160A3E8), 0.8 (0x160A3E0), 255 (0x160A2D0) read as doubles. Handles: +0x1B4 WorldMatrix, +0x1B8 ViewMatrix, +0x1BC ProjectionMatrix, +0x1A4 tex0 per the stores at 0x8512D5..0x851323 in the loader. The draw helper 0xAD4D50 issues DrawIndexedPrimitive(TRIANGLELIST, 0, 0, NumVertices, start, count/3). Wrong if +0xD4/+0xD8 are not the trees.txt entries (they are bound one per outer pass as tex0, and map/trees.txt's textures are 512x256 DXT3 sheets of two halves by four rows - the layout RebuildTileStrips writes u and v for)."
+  },
+  {
+   "rva": "0x6BB7E0",
+   "kind": "function",
+   "name": "Animation_AdvanceClock",
+   "signature": "void __cdecl Animation_AdvanceClock(void)",
+   "no_signature": null,
+   "comment": "Not a draw: advances the 3D animation library by the time since its last call. On the first call it stores the clock ([0x1A857E4] slot 5) in the static at VA 0x1BEA5A8 (guarded by bit 1 of VA 0x1BEB5AC); then dt = now - that, passed to 0x7BC8F0 on the manager held at VA 0x174D960 +0x30, and the static updated. The library is by all appearance EMotion FX - its callees log 'Mesh LOD Level %d', 'SingleProcessorScheduler' and '..\\..\\Source\\Actor.cpp' (inferred). MapGraphics_DrawScene calls it (0x45C5A5) only without always_counters and under counter_distance - **where the unit figures can be on screen, so the figures' animations stand still while the camera is above counter_distance** (inferred from the gate). Bare `ret`, no arguments. The name is ours.",
+   "confidence": "inferred",
+   "evidence": "Decoded 0xABB7E0 to its bare ret at 0xABB8D1 (the following code is dxmusic.cpp's, a different function after int3). 0xABB8A3 fsub [0x1BEA5A8]; 0xABB8B6 call 0xBBC8F0 with ECX = [[0x174D960]+0x30]. The library identification rests only on strings in neighbouring code (0x7DBD40, 0x7BD470) and is the inferred part; the gate is MapGraphics_DrawScene 0x85C57D..0x85C5A5."
+  },
+  {
+   "rva": "0x6D4D50",
+   "kind": "function",
+   "name": "VertexBuffer_DrawIndexedRange",
+   "signature": "void __stdcall VertexBuffer_DrawIndexedRange(MeshBuffer* mesh@EDI, void* device@ESI, int startIndex@stack:4, int indexCount@stack:8, MeshBuffer* indices@stack:0xC)",
+   "no_signature": null,
+   "comment": "Draws part of a mesh holder with another holder's index buffer: SetFVF(mesh +0x1C) where set, SetStreamSource(0, mesh +0, 0, stride mesh +0x18), SetIndices(indices +4), DrawIndexedPrimitive(TRIANGLELIST, 0, 0, mesh +0xC vertices, startIndex, indexCount / 3). The trees use it, a slot's quads at a time against one shared quad index buffer. `ret 0xC`. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Decoded 0xAD4D50 to `ret 0xc` at 0xAD4DB8: device slots +0x164 (SetFVF), +0x190 (SetStreamSource), +0x1A0 (SetIndices), +0x148 (DrawIndexedPrimitive) with the pushes listed; 0x55555556 multiply = /3."
+  },
+  {
+   "rva": "0x6716D0",
+   "kind": "function",
+   "name": "MapObjectGroup_Draw",
+   "signature": "void __stdcall MapObjectGroup_Draw(CGraphics* graphics, void* view, void* group)",
+   "no_signature": null,
+   "comment": "Draws one map object group (the graphics' groups +0x5C, +0x70, +0x64, +0x60 in MapGraphics_DrawScene, each only where MapObjects_UpdateLayerVisibility set its +0x179) - the fixed-function and effect objects of the map: CGraphics +0x6BC88 = view; sampler 0 MINFILTER ANISOTROPIC, MAGFILTER LINEAR; SetViewport(the view's first 24 bytes); VIEW and PROJECTION transforms from the view; stage 0 COLOROP/ALPHAOP MODULATE (TEXTURE, CURRENT), stage 1 off; ALPHABLENDENABLE 1, SRCALPHA/INVSRCALPHA; then per object kind AMBIENT, WORLD, LIGHTING 1 / SPECULAR 0, ZENABLE and ALPHABLENDENABLE toggled - read only through its state calls; what each kind draws was not read. The scene follows each call with an inlined counter of calls per second into CGraphics +0x84 (timeGetTime, every 1000 ms). Stack-realigned frame, `ret 0xC`. The name is ours.",
+   "confidence": "inferred",
+   "evidence": "The single `ret 0xc` at 0xA728BF (retsBefore from 0xA716D0); arguments at [ebx+8], [ebx+0xC], [ebx+0x10] after the `mov ebx,esp; and esp,-16` realignment, matching the scene's pushes (CGraphics, view = scene ESI, group). State calls from the immediate-argument census. Inferred because only the head and the state calls were read; what it draws would show the name wrong."
+  },
+  {
+   "rva": "0x6D4C30",
+   "kind": "function",
+   "name": "VertexBuffer_Draw",
+   "signature": "void __cdecl VertexBuffer_Draw(void* mesh@EAX, void* device@ESI)",
+   "no_signature": null,
+   "comment": "Draws a 0x24-byte mesh holder (MeshBuffer): nothing where its vertex count (+0xC) is 0; **SetFVF(+0x1C) where set, SetVertexDeclaration(+8) where set** (corrected: the two were the other way round here); SetStreamSource(0, +0, 0, stride +0x18); SetIndices(+4) always, null included; then by the primitive kind +0x20 - 0 TRIANGLELIST, 1 TRIANGLESTRIP, 2 TRIANGLEFAN - DrawIndexedPrimitive(kind, 0, 0, +0xC, 0, +0x10 primitives) where there is an index buffer, else DrawPrimitive(kind, 0, +0xC / 3 for a list, +0xC - 2 for a strip or fan). Used by the country names, the province texts, the rivers and the water borders.",
+   "confidence": "confirmed",
+   "evidence": "Decoded 0xAD4C30 to its exits (0xAD4CAF..0xAD4D4A): [edi+0x1C] goes to device +0x164 (slot 89, SetFVF) and [edi+8] to +0x15C (slot 87, SetVertexDeclaration) - d3d9.h's order puts SetVertexDeclaration at 87 and SetFVF at 89. +0x148 DrawIndexedPrimitive with type 4/5/6, +0x144 DrawPrimitive.",
+   "revises": "comment: the FVF is +0x1C and the vertex declaration +8 (the old text had them swapped); adds SetIndices, the primitive kind at +0x20 and both draw calls; confidence inferred -> confirmed."
+  },
+  {
+   "rva": "0x462260",
+   "kind": "function",
+   "name": "MapObjects_RebuildTileStrips",
+   "signature": "void __stdcall MapObjects_RebuildTileStrips(void* objects)",
+   "no_signature": null,
+   "comment": "**Builds the tree meshes** (settled 2026-11-06, FINDINGS-mapdraw.md C.3; until then 'which mesh this is was not settled', with map/terrain/borders.tga guessed). Rebuilds the vertex buffers (+0x144, one per slot) of the tile slots (the 0x24-byte entries at +0x134, counted at +0x130 - the graphics owner's +0x1EF8/+0x1EF4, which MapMode_ShowButton resets to -1 where the layer mask has bit 0) that are free: for each tree point a quad of four (x, y, z, u, v) vertices, grouped by tree type (+0xD4 types, the entries of map/trees.txt), u and v offset by the point's kind k (0..3) to (0, 0.25 k) of the type's texture. **Read for the weather**: while CMap +0x2A90 is 11, the points of a province whose temperature is **below -5.000** (CMapProvince +0x7C, strict) get **0.5 added to u** - the right half of the texture, the snowed trees. So in the weather mode, and only there, trees in provinces colder than -5 are drawn from the right half of their sheet; map/trees.txt's sheets (terrain/trees/*.dds) are 512 x 256, two halves by four rows. MapTrees_Draw draws exactly these: the same +0x130/+0x134 slots, +0x144 buffers and +0xD4 types, and both run only under camera height 100. Only the terrain mode's layer mask (0xFFFF) and the weather mode's (0xFFBB) have bit 0, so only those two rebuild it on being chosen. `ret 4`; callers MapMode_ShowButton (0x6659EA), 0x85D6EB and 0x8612F9. The name is ours. See reversing/findings/FINDINGS-weathersim.md, section C.5, and reversing/findings/FINDINGS-mapdraw.md, section C.3.",
+   "confidence": "confirmed",
+   "evidence": "MapTrees_Draw (0x863930) reads [ebx+0x130], [ebx+0x134] (0x24-byte stride), [ebx+0x144][k], [ebx+0xD4], [ebx+0xD8] on the same object (WaterObject = graphics owner +0x1DC4, so +0x130 is owner +0x1EF4); this function reads +0x130/+0x134 (0x8622B2..), +0xD4 (0x862470) and +0x144 (0x862517, 0x863149). The four rows and two halves match forest.dds's DDS header (512 wide, 256 high, DXT3). Wrong if a second reader of +0x144 draws it with another technique - the only drawer found is MapTrees_Draw.",
+   "revises": "comment only: names the mesh (the trees, not the borders the old text guessed), says what draws it and why the halves are winter; confidence inferred -> confirmed."
+  },
+  {
+   "rva": "0x432C70",
+   "kind": "function",
+   "name": "MapShore_Draw",
+   "signature": "void __stdcall MapShore_Draw(MapCamera* camera@EAX, void* shore@stack:4, void* graphics@stack:8, void* view@stack:0xC, void* list@stack:0x10)",
+   "no_signature": null,
+   "comment": "**The surf along the coasts, with beach.fx.** The camera in EAX (its +0x348 read before the prologue ends), four stack arguments, `ret 0x10` at 0x433031. Drawn by MapGraphics_DrawScene (0x45C213) where graphics +0x42E9 is set - **settings.txt `waves`** (mapRenderingOptions, default yes), copied there once as the map is built ('CREATE_WAVES', 0x45886F) where the surf object exists - with (graphics +0x4164 the surf object, graphics, view, graphics +0x78 the visible tiles). count = how many entries of CMap terrain_sheet_heights the height is strictly above. **SetVertexDeclaration(the surf's: one element, stream 0, offset 0, SHORT4, POSITION - x, z, u, v as shorts)**; the effect from its FxHandler index (+0x2C); technique by name **BeachShader at count 0, BeachShaderColor otherwise**; Begin(&n, 0); BeginPass(0); ViewMatrix, ProjectionMatrix; **tex0 map/terrain/shore.tga, tex1 shore_alpha.tga (near) or shore_alpha_outline.tga (far), tex2 shore_alpha.tga** (shore_alpha_gradient.tga only under an old-style `extend` of the map folder); **vTime the clock, vWaterHeight 0.31** [exe, the float at VA 0x171DAEC]; then for each visible tile whose surf mesh (+0x24 + 0x24 x tile) has vertices: WorldMatrix the tile's (+0x17C), AbsoluteWorldMatrix (+0x13C), CommitChanges, SetFVF where set, SetStreamSource(stride +0x18), SetIndices(the shared quad indices, +0x20's +4), DrawIndexedPrimitive(TRIANGLELIST, quads x 2 triangles). EndPass, End. **No render state of its own**: BeachShader sets SRCALPHA/ONE itself; **BeachShaderColor sets only the two enables, so the far coastline blends SRCALPHA/INVSRCALPHA** as left by the water. The name is ours. See reversing/findings/FINDINGS-mapdraw.md, section C.3.",
+   "confidence": "confirmed",
+   "evidence": "Decoded 0x832C70 to `ret 0x10` at 0x833031 (retsBefore clean). Strings pushed: 'BeachShader' 0x832D2F, 'BeachShaderColor' 0x832D41, 'ViewMatrix', 'ProjectionMatrix', 'tex0'..'tex2', 'vTime', 'vWaterHeight', 'WorldMatrix', 'AbsoluteWorldMatrix'. Textures from the loader 0x832080 (shore.tga to +0x30, shore_alpha.tga +0x34, +0x38, shore_alpha_outline.tga +0x3C). Declaration bytes at VA 0x170AD34: 00 00 00 00 07 00 00 00 then D3DDECL_END. The waves gate: the only writer of +0x42E9 is 0x45886F, under GameSettings +0xE6 (`waves`).",
+   "revises": "comment: read whole - textures, parameters, mesh format, the gate identified as the `waves` setting (it said 'not identified'), and that the far technique inherits the blend; confidence inferred -> confirmed."
+  }
+ ],
+ "structs": [
+  {
+   "name": "FxHandler",
+   "size": "0x4C",
+   "comment": "The effect handler (effecthandler.cpp), held by value in CGraphics at +0x6BCFC: the list of every ID3DXEffect the map and its objects load, keyed by a name. Vftable VA 0x15FCBBC, no RTTI. Built by FxHandler_Construct; filled by FxHandler_Register.",
+   "evidence": "FxHandler_Construct (0xA6D730) writes through +0x48; CGraphics' constructor writes its next member at +0x6BD48 = +0x6BCFC + 0x4C right after the call (0xA6DEEF)."
+  },
+  {
+   "name": "MeshBuffer",
+   "size": "0x24",
+   "comment": "The engine's 0x24-byte mesh holder, drawn by VertexBuffer_Draw and VertexBuffer_DrawIndexedRange: a vertex buffer, an optional index buffer, a declaration or an FVF, counts, stride and primitive kind.",
+   "evidence": "The surf indexes its holders at 0x24 a tile (lea ebx,[esi+esi*8]; add ebx,ebx; add ebx,ebx at 0x832F0A) and reads +0, +0xC, +0x10, +0x18, +0x1C from them; VertexBuffer_Draw reads +0, +4, +8, +0xC, +0x10, +0x18, +0x1C, +0x20."
+  },
+  {
+   "name": "MapRivers",
+   "comment": "The river renderer at WaterObject +0x4160: its CGraphics at +0, the river meshes, the river.fx effect and its handles. No vftable at +0 (it holds the CGraphics there). Its constructor was not read, so no size.",
+   "evidence": "MapRivers_Draw reads [edi]+0x64 as the device (CGraphics d3d_device) and the fields listed; MapGraphics_DrawScene passes [graphics+0x4160] in EDI."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "FxHandler",
+   "offset": "0x4",
+   "name": "effects",
+   "type": "void**",
+   "comment": "Begin of the vector of ID3DXEffect*, in registration order; an effect's index is its position + 1. Read by everyone as CGraphics +0x6BD00 [index - 1]. Holds null where a compile failed.",
+   "evidence": "FxHandler_Register pushes onto +4 (0xA61F7E); the map loader reads CGraphics+0x6BD00[index*4-4] (0x851037), +0x6BD00 = +0x6BCFC + 4."
+  },
+  {
+   "struct": "FxHandler",
+   "offset": "0x14",
+   "name": "keys",
+   "type": "Hoi3CString*",
+   "comment": "Begin of the vector of the keys (TerrainShader, WaterShader, Borders, BeachShader, RiverShader...), 0x1C each.",
+   "evidence": "StringVector_PushBack on +0x14 with the key at 0xA61FA3; the destructor frees 0x1C-byte strings there (0xA62643)."
+  },
+  {
+   "struct": "FxHandler",
+   "offset": "0x24",
+   "name": "paths",
+   "type": "Hoi3CString*",
+   "comment": "Begin of the vector of the paths the effects were compiled from (after the legacy substitution), 0x1C each; FxHandler_Reload compiles from it again.",
+   "evidence": "StringVector_PushBack on +0x24 at 0xA61FAF; FxHandler_Reload reads [edi+0x24] + (index-1)*0x1C (0xA6253F)."
+  },
+  {
+   "struct": "FxHandler",
+   "offset": "0x34",
+   "name": "index_by_key",
+   "type": "void*",
+   "comment": "std::map<string, int> from key to 1-based index (head node at +0x38, size +0x3C).",
+   "evidence": "0x5F3E40 on +0x34 in FxHandler_Register; the constructor makes a 0x30-byte head at +0x38 and zeroes +0x3C."
+  },
+  {
+   "struct": "FxHandler",
+   "offset": "0x44",
+   "name": "count",
+   "type": "int",
+   "comment": "How many effects are registered; the index the next one gets.",
+   "evidence": "inc [esi+0x44] and its value stored as the key's at 0xA61F8D..0xA61F9C; returned."
+  },
+  {
+   "struct": "FxHandler",
+   "offset": "0x48",
+   "name": "use_legacy_folder",
+   "type": "bool",
+   "comment": "Where set, FxHandler_Register first tries the file in a `legacy` subfolder of its folder. Only the constructor writes it (0) - a resumed sweep found no access at CGraphics +0x6BD44 where the same sweep found 60-odd of +0x6BD00 - so the legacy route is dead in this build (inferred: a write through some other base was not ruled out). The install has no gfx/FX/legacy.",
+   "evidence": "cmp byte [esi+0x48] at 0xA61E3D; mov byte [esi+0x48], bl at 0xA6D7B0; dispscan of 0x6BD44 empty with 0x6BD00 positive."
+  },
+  {
+   "struct": "CGraphics",
+   "offset": "0x6BCFC",
+   "name": "effect_handler",
+   "type": "FxHandler",
+   "comment": "The effect handler, by value (0x4C bytes): every .fx the map draws with is registered here; its list at +0x6BD00 is what the draws index.",
+   "evidence": "lea [ebx+0x6BCFC] passed to FxHandler_Construct at 0xA6DEDF; every loader passes CGraphics +0x6BCFC to FxHandler_Register (0x850FEB, 0x851232, 0x851806)."
+  },
+  {
+   "struct": "MeshBuffer",
+   "offset": "0x0",
+   "name": "vertex_buffer",
+   "type": "void*",
+   "comment": "IDirect3DVertexBuffer9*, stream 0.",
+   "evidence": "SetStreamSource(0, [edi], 0, [edi+0x18]) at 0xAD4C77."
+  },
+  {
+   "struct": "MeshBuffer",
+   "offset": "0x4",
+   "name": "index_buffer",
+   "type": "void*",
+   "comment": "IDirect3DIndexBuffer9* or null; set with SetIndices in every draw.",
+   "evidence": "SetIndices([edi+4]) at 0xAD4C86; null tested at 0xAD4C91."
+  },
+  {
+   "struct": "MeshBuffer",
+   "offset": "0x8",
+   "name": "vertex_declaration",
+   "type": "void*",
+   "comment": "IDirect3DVertexDeclaration9*, set where not null.",
+   "evidence": "[edi+8] to device slot 87 (+0x15C) at 0xAD4C61."
+  },
+  {
+   "struct": "MeshBuffer",
+   "offset": "0xC",
+   "name": "vertex_count",
+   "type": "int",
+   "comment": "Vertices; nothing is drawn at 0.",
+   "evidence": "cmp [edi+0xC],0 at 0xAD4C33; NumVertices of DrawIndexedPrimitive."
+  },
+  {
+   "struct": "MeshBuffer",
+   "offset": "0x10",
+   "name": "primitive_count",
+   "type": "int",
+   "comment": "Primitives of an indexed draw.",
+   "evidence": "PrimitiveCount pushed from [edi+0x10] at 0xAD4C96."
+  },
+  {
+   "struct": "MeshBuffer",
+   "offset": "0x18",
+   "name": "stride",
+   "type": "int",
+   "comment": "Bytes per vertex.",
+   "evidence": "Stride of SetStreamSource at 0xAD4C63."
+  },
+  {
+   "struct": "MeshBuffer",
+   "offset": "0x1C",
+   "name": "fvf",
+   "type": "uint32_t",
+   "comment": "D3DFVF bits, set with SetFVF where not 0.",
+   "evidence": "[edi+0x1C] to device slot 89 (+0x164) at 0xAD4C4E."
+  },
+  {
+   "struct": "MeshBuffer",
+   "offset": "0x20",
+   "name": "primitive_kind",
+   "type": "int",
+   "comment": "0 triangle list, 1 strip, 2 fan.",
+   "evidence": "0xAD4C88/0xAD4CD1/0xAD4D0E pick D3DPT 4, 5, 6."
+  },
+  {
+   "struct": "MapRivers",
+   "offset": "0x0",
+   "name": "graphics",
+   "type": "CGraphics*",
+   "comment": "Its device (+0x64) and texture table are used.",
+   "evidence": "mov ecx,[edi]; mov eax,[ecx+0x64] at 0x87C95F."
+  },
+  {
+   "struct": "MapRivers",
+   "offset": "0x40",
+   "name": "meshes",
+   "type": "MeshBuffer**",
+   "comment": "Begin of the vector of river meshes (end at +0x44), one per river piece.",
+   "evidence": "[edi+0x40][ebx] to VertexBuffer_Draw at 0x87CE81; count (+0x44 - +0x40) >> 2."
+  },
+  {
+   "struct": "MapRivers",
+   "offset": "0x50",
+   "name": "exit_meshes",
+   "type": "MeshBuffer**",
+   "comment": "Begin of a vector parallel to meshes: the river's exit (mouth) mesh or null, drawn after all the bodies with tex0 river_exit.dds.",
+   "evidence": "[edi+0x50][index] tested and drawn at 0x87CF10."
+  },
+  {
+   "struct": "MapRivers",
+   "offset": "0x60",
+   "name": "bounds",
+   "type": "int*",
+   "comment": "Begin of a vector of 16-byte rectangles (x, y, w, h in map units), one per mesh, tested against the view (0x6BF670) before drawing.",
+   "evidence": "0x87CDA2..0x87CE6F reads +0..+0xC of [edi+0x60]+16*i."
+  },
+  {
+   "struct": "MapRivers",
+   "offset": "0x70",
+   "name": "effect",
+   "type": "void*",
+   "comment": "The river.fx ID3DXEffect (key RiverShader).",
+   "evidence": "Stored at 0x878C66 from CGraphics+0x6BD00[index-1]; SetTechnique/Begin through it."
+  },
+  {
+   "struct": "MapRivers",
+   "offset": "0x7C",
+   "name": "tex_colormap_water",
+   "type": "int",
+   "comment": "Texture id of map/terrain/colormap_water.dds: tex3, and the source of ColorMapWidth/Height.",
+   "evidence": "Stored at 0x878535; read for tex3 at 0x87CC70 and the sizes at 0x87CA28."
+  },
+  {
+   "struct": "MapRivers",
+   "offset": "0x80",
+   "name": "tex_river_body",
+   "type": "int",
+   "comment": "Texture id of map/terrain/river_body.tga: tex0 of the river bodies.",
+   "evidence": "Stored at 0x87841D/0x878707; tex0 at 0x87CC04."
+  },
+  {
+   "struct": "MapRivers",
+   "offset": "0x84",
+   "name": "tex_river_movement",
+   "type": "int",
+   "comment": "Texture id of map/terrain/river_movement.tga: tex1, the scrolling flow.",
+   "evidence": "Stored at 0x8784A9; tex1 at 0x87CC3A."
+  },
+  {
+   "struct": "MapRivers",
+   "offset": "0x88",
+   "name": "tex_river_exit",
+   "type": "int",
+   "comment": "Texture id of map/terrain/river_exit.dds: tex0 of the exit meshes.",
+   "evidence": "Stored at 0x8785BE; tex0 at 0x87CEB9."
+  },
+  {
+   "struct": "MapRivers",
+   "offset": "0xAC",
+   "name": "map",
+   "type": "CMap*",
+   "comment": "Its map_width / map_height (+0x2A74/+0x2A78) feed MapWidth / MapHeight.",
+   "evidence": "[edi+0xAC]+0x2A74 and +0x2A78 at 0x87CB75/0x87CB9E."
+  },
+  {
+   "struct": "WaterObject",
+   "offset": "0xD4",
+   "name": "tree_type_count",
+   "type": "int",
+   "comment": "How many tree types (map/trees.txt entries) there are; MapTrees_Draw draws one pass per type.",
+   "evidence": "Loop bound at 0x863AB8 and in MapObjects_RebuildTileStrips (0x862470)."
+  },
+  {
+   "struct": "WaterObject",
+   "offset": "0xD8",
+   "name": "tree_textures",
+   "type": "int*",
+   "comment": "Texture id of each tree type's `texture` (terrain/trees/*.dds), bound as tex0 of TreeShader.",
+   "evidence": "[ebx+0xD8][i] to the texture table and SetTexture(+0x1A4 tex0) at 0x863AC4..0x863B01."
+  },
+  {
+   "struct": "WaterObject",
+   "offset": "0x130",
+   "name": "tree_slot_count",
+   "type": "int",
+   "comment": "How many tree tile slots there are (0x24 bytes each at +0x134).",
+   "evidence": "Loop bound at 0x863B06; MapObjects_RebuildTileStrips 0x8622B2."
+  },
+  {
+   "struct": "WaterObject",
+   "offset": "0x134",
+   "name": "tree_slots",
+   "type": "void*",
+   "comment": "The tree tile slots, 0x24 bytes each: +0 the tile (or -1 when free), +4 a per-type array of first vertex, +0x14 a per-type array of vertex counts.",
+   "evidence": "MapTrees_Draw 0x863B15..0x863BC8 reads [slot], [slot+4][i], [slot+0x14][i]; the 0x24 stride at 0x863BF7."
+  },
+  {
+   "struct": "WaterObject",
+   "offset": "0x144",
+   "name": "tree_meshes",
+   "type": "MeshBuffer**",
+   "comment": "One vertex buffer of tree quads per slot, (x, y, z, u, v) - written by MapObjects_RebuildTileStrips, drawn by MapTrees_Draw.",
+   "evidence": "[ebx+0x144][k] to VertexBuffer_DrawIndexedRange in EDI at 0x863BEC; written in the rebuild at 0x862517."
+  },
+  {
+   "struct": "WaterObject",
+   "offset": "0x154",
+   "name": "tree_quad_indices",
+   "type": "MeshBuffer",
+   "comment": "A mesh holder by value whose index buffer (+4, so +0x158) is the shared quad index list every tree slot is drawn with.",
+   "evidence": "lea eax,[ebx+0x154] passed as the index holder at 0x863BAF; VertexBuffer_DrawIndexedRange calls SetIndices([arg+4])."
+  },
+  {
+   "struct": "WaterObject",
+   "offset": "0x4160",
+   "name": "rivers",
+   "type": "MapRivers*",
+   "comment": "The river renderer; MapGraphics_DrawScene draws it with MapRivers_Draw where not null and mask 0x80 is set.",
+   "evidence": "mov edi,[ebx+0x4160]; test; call 0x87C8A0 at 0x85C153..0x85C16D."
+  },
+  {
+   "struct": "WaterObject",
+   "offset": "0x4164",
+   "name": "shore",
+   "type": "void*",
+   "comment": "The surf object (beach.fx, map/terrain/shore*.tga, its per-tile meshes at +0x24, declaration +0x28, effect index +0x2C), handed to MapShore_Draw.",
+   "evidence": "Pushed as MapShore_Draw's first stack argument at 0x85C203; built at 0x84F7E5/0x85329D; the surf's loader is 0x832080."
+  },
+  {
+   "struct": "WaterObject",
+   "offset": "0x42E9",
+   "name": "waves",
+   "type": "bool",
+   "comment": "Whether the surf is drawn: set to 1 once as the map is built ('CREATE_WAVES') where the surf object exists and settings.txt's `waves` (GameSettings +0xE6) is on; never cleared, so changing `waves` takes effect at the next map build (inferred).",
+   "evidence": "The only access besides the scene's test (0x85C1FA) and 0x86888A is the store at 0x85886F, under cmp [settings+0xE6],0 at 0x858859 (resumed sweep of .text for +0x42E9)."
+  }
+ ],
+ "frontier": [
+  "0x450520",
+  "0x45DD50",
+  "0x672930",
+  "0x6659C0",
+  "0x2418B0",
+  "0x675D10",
+  "0x241950",
+  "0x673B10",
+  "0x4482F0",
+  "0x478EF0",
+  "0x6BF670",
+  "0x6759D0",
+  "0x5F3E40",
+  "0x7BC8F0",
+  "0x432080"
+ ]
+}

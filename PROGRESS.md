@@ -25,12 +25,12 @@ how many objects a census found (taken 2026-09-20).
 
 | | classes |
 | --- | --- |
-| `read` | 146 |
+| `read` | 148 |
 | `placed` | 141 |
 | `keys` | 78 |
 | `part` | 154 |
 | `named` | 5 |
-| `RTTI` | 617 |
+| `RTTI` | 615 |
 | **all** | **1141** |
 
 ## What to read next
@@ -199,7 +199,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CGameState` | `CPersistent` |  | 74 | 14/33 | 15 |  |  | read |  |
 | `CGoodsPool` | `CPersistent` |  | 8 | 7/7 | 6 | CGoodsPool.hpp | 132,054 | read |  |
 | `CGraphStatistics` | `CPersistent` |  |  |  | 2 |  | 3 | keys |  |
-| `CGraphics` | `CFactory` `CPersistent` |  | 10 |  | 2 |  |  | read |  |
+| `CGraphics` | `CFactory` `CPersistent` |  | 11 |  | 2 |  |  | read |  |
 | `CGroundAttackOrder` | `CAirOrder` |  |  |  | 6 |  | 6 | RTTI |  |
 | `CGroundBombing` | `CBombing` |  |  | 4/6 | 3 |  |  | RTTI |  |
 | `CGroundTargetCombatant` | `CBombTargetCombatant` |  |  | 4/6 | 1 |  | 1 | RTTI |  |
@@ -452,7 +452,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CBeachManager` | `CLostDeviceInterface` |  |  |  |  |  | 1 | RTTI |  |
 | `CBombCombatMember` | `COutLinerMember` |  | 4 |  | 6 |  |  | part |  |
 | `CBookmarkEntry` | `CStandardlistboxItem` | 0x88 | 4 |  | 3 |  |  | part |  |
-| `CBorderManager` | `CLostDeviceInterface` |  |  |  |  |  | 1 | RTTI |  |
+| `CBorderManager` | `CLostDeviceInterface` |  | 21 |  | 2 |  | 1 | read |  |
 | `CBrigadeBuilder` | `CReloadableInterface` |  |  |  | 3 |  | 1 | RTTI |  |
 | `CBrigadePicker` | `CReloadableInterface` |  |  |  | 3 |  | 1 | RTTI |  |
 | `CBrigadeSortInterface` |  |  |  |  |  |  |  | RTTI |  |
@@ -705,7 +705,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CVerySafePathFind` | `CPathFind` |  |  |  | 1 |  |  | RTTI |  |
 | `CVictoryConditionItem` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
 | `CVictoryConditionsView` | `CReloadableInterface` |  |  |  |  |  | 1 | RTTI |  |
-| `CViewsTextureManager` | `CLostDeviceInterface` |  |  |  |  |  | 1 | RTTI |  |
+| `CViewsTextureManager` | `CLostDeviceInterface` | 0x4C | 11 |  | 3 |  | 1 | read |  |
 | `CWindowForChildUnitsEntry` | `CUnitViewBaseEntry` |  |  |  | 4 |  |  | RTTI |  |
 | `CWindowForLoadedUnitsEntry` | `CUnitViewBaseEntry` |  |  |  | 6 |  |  | RTTI |  |
 | `CWindowForSubUnitsEntry` | `CUnitViewBaseEntry` |  |  |  | 4 |  |  | RTTI |  |
