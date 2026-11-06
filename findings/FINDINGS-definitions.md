@@ -576,6 +576,6 @@ inherited - reading one of these reads all of them.
 | `CSpawnPartisanCommand` | `0x15C080` | an event script | 2 | `province` |
 | `CStartAICommand` | `0x14B560` | an event script | 9 | `country` |
 | `CTradeAction` | `0x638F60` | a save block |  | `trade` |
-| `CTree` | `0xB1F60` | a file |  | `texture` |
+| `CTree` | `0xB1F60` | a file |  | `tree_density`, `texture` - an if-chain, not a switch, which this table's reader missed; corrected 2026-11-06 (`FINDINGS-mapdraw.md`, C.8) |
 | `CUnitSplitCommand` | `0x1EB3A0` | an event script |  | `new_units_id` |
 | `CWarGoalBaseAction` | `0x618C20` | a save block | 3 | `war_goal` |

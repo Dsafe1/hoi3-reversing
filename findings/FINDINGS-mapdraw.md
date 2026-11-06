@@ -770,9 +770,10 @@ trunc(255 · (1 − (h − 0.3·tree) / (0.8·tree))) [exe] - with TFH's 350 the
 at 255 and vanish at 100. TreeShader; vAlpha = alpha/255; view and projection; **one pass per map/trees.txt entry**, tex0
 its `texture` [mod: map/trees.txt]; within it, for each visible tile slot holding quads of that type, WorldMatrix = tile
 +0x17C, AbsoluteWorldMatrix = tile +0x13C, CommitChanges, and an indexed draw of the slot's range against one shared quad
-index buffer (+0x154, 6 indices per 4 vertices). The mesh (MapObjects_RebuildTileStrips): for each tree point a quad of four
-(x, y, z, u, v) vertices, v offset by the point's kind k (0..3) to 0.25·k; in the Weather mode, provinces below −5.000 get
-u + 0.5, the snowed half.
+index buffer (+0x154, 6 indices per 4 vertices). The mesh (MapObjects_RebuildTileStrips, from CreateProvinceTrees' points
+and template, C.8): for each tree point **four stacked horizontal quads, 16 (x, y, z, u, v) vertices** - a template tree
+turned by a random angle and moved to the point, v offset by the point's kind k (0..3) by 0.25·k; in the Weather mode,
+provinces below −5.000 get u + 0.5, the snowed half. Where the points come from, the quads and the shader are C.8.
 
 **Surf (MapShore_Draw, 0x432C70; the CBeachManager at graphics +0x4164).** Gated by +0x42E9, set once at the map build
 (`CREATE_WAVES`) from settings.txt **`waves`** (GameSettings +0xE6, default yes) [mod: settings.txt] where the surf object
@@ -1114,3 +1115,115 @@ be stored relative to the template's +0x2C/+0x30 pair and added back at VA 0x872
 +0x1C (always 0x20, no reader in the functions read); whether TFH's missing `terrain/shore*.tga` resolves to the base game's
 (loader search not traced); the reader at rva 0x8F4D0. For A.6: CProvinceManager_BuildQuads's surf part is read here.
 Frontier: 0x46EB60, 0x4727B0, 0x434050, 0x4340D0, 0x6D44C0, 0x44FCF0, 0x8F4D0, 0x660F30, 0x6610E0, 0x718110.
+
+### C.8 The trees
+
+*Read 2026-11-06 by a delegated agent (fragment `mapdraw-trees.json`); measured on TFH's `tfh/map/terrain.bmp`,
+`provinces.bmp`, `definition.csv` and `terrain.txt`, the base game's `map/trees.txt` and `map/terrain/trees/*.dds`, and the
+install's `gfx/FX/terrain_2_0.fx`.*
+
+**In one line.** At the map build every terrain.bmp pixel whose palette entry names a `tree` makes one draw of the
+renderer's MT19937 (seed 42) against trees.txt's `tree_density`; a pixel that passes is one tree point at the pixel's whole
+coordinates, no jitter. A point is drawn as four stacked horizontal squares cut from one 64 × 64 cell of its type's sheet -
+terrain.txt's `tree_density` picks the cell's row - turned by a 100-entry table of random angles. Never rebuilt [exe].
+
+**Corrections.** (1) `CTree::LoadKey` (0xB1F60) reads **two** keys, `tree_density` (token 0x29F, an integer over a constant,
+to +0x40 as a float) and `texture` (0x2A0, +0x24): the dispatch is an if-chain (`sub eax,0x29F; je; dec eax; jne`), which
+`definitions.py`'s switch reader misses - `FINDINGS-definitions.md`'s CTree row corrected with it. trees.txt's
+`tree_density` is read: it is the probability of a tree. (2) A tree point is **four quads, 16 vertices**, not one quad (C.3
+and the MapObjects_RebuildTileStrips record). (3) CMap +0x2620 (`unknown_2620`) is the tree type of each palette index.
+
+**Where the points come from [exe].** `CreateProvinceTrees` (0x4615B0; its log line names it `CreateProvinceTrees()`),
+called once from CProvinceManager_CreateWorld's CREATING_TREES step (VA 0x85454C), between CREATING_TEXTS and
+CREATING_RIVERS, and only where the layer mask (settings +0xF0 & +0xEC) has bit 0 - `renderTrees`. It sets graphics +0x42E8,
+which nothing else sets or clears: trees off when the map is built means none for the session. No cache file: the rasters
+already loaded (terrain.bmp at CMap +0x20E4, the province raster at +0x20E0) and two text files, read by CMap first:
+- **`CMap_LoadTreeDefinitions` (0x8C210)** reads default.map's `tree_definition`, trees.txt (TFH has none; the base game's
+  is used): one CTree (0x48 bytes) per top-level key in file order - that order is the **tree type index** - `texture` to
+  +0x24 and `tree_density` to +0x40, default 1.0 [mod: map/trees.txt]. TFH's: woods 0.7, woods2 0.7, forest 1.0, forest2
+  7.0, jungle 1.2, jungle2 1.1, treemoun 0.5 (on woods2.dds).
+- **`CMap_LoadTerrainDefinitions` (0x8C960)** reads `terrain_definition`, terrain.txt: every top-level key but `terrain`
+  and `categories` is a palette entry, a CTerrainGraphical (0x7C bytes) with `type`, `color` (palette indices), `altitude`,
+  `has_texture`, `priority`, `tree` (a string, +0x44) and `tree_density` (an int read with `%i`, +0x68, **default −1**). For
+  each index of an entry's `color`, +0x2220[index] = the entry and **+0x2620[index] = the index of the CTree `tree` names**
+  (CMap_FindTreeIndex, 0x91CE0: a byte-for-byte compare, −1 for an empty or unknown name). An index claimed twice logs
+  "Terrain <name> attempts to use index (n), which is already used." and the later entry wins [mod: map/terrain.txt].
+
+**The points, tile by tile [exe].** `MapTrees_BuildTilePoints` (0x4631A0) for each tile t = 0 … 113 × 44 − 1 in order (A.1's
+tiles, row 0 in the south): the tile's own 50 × 50 pixels clipped at the map's edge, rows from its south edge northward,
+each west to east. **A tree belongs to the tile its pixel is in**, not its province's. For each pixel:
+1. skip unless the province id there has a CProvinceTemplate (CMap +0x2A60);
+2. i = terrain.bmp's palette index (0 outside the bitmap); t = +0x2620[i]; skip if t < 0;
+3. d = the palette entry's `tree_density`; at −1 or below, d = 4 − (i's 0-based position in the entry's `color` list), or
+   4 − n where i is absent, never below 0; skip if d ≤ 0;
+4. **one draw** r of the renderer's MT19937 (graphics +0x4170 - the record's MT19937 with its two deviations, seeded 42 by
+   the CProvinceManager constructor; a resumed sweep finds nothing but the trees drawing on it): f = (float)((float)(r &
+   0x7FFFFFFF) × 2⁻³¹); **a tree where trees.txt's density of t ≥ f**, compared as doubles - so 1.0 or more puts a tree on
+   every eligible pixel, 0.7 on 70%. Every eligible pixel spends a draw, tree or not.
+
+A tree is the point (x − (50·column + 25), h, y − (50·row + 25)): **the pixel's whole coordinates less the tile centre**; h =
+**0.02** (the float at VA 0x17179B0) on land and 0 where the province is a sea zone (template +0x22 clear) [exe]. Its
+**kind k = 4 − d** (0..3), the sheet row. Points are kept per tile as [tree type][province], in raster order, provinces in the
+order of their first tree: the province list at tile +0x358, the points +0x368, the kinds +0x378, the count +0x388;
+graphics +0x124 the most points any tile has. So terrain.txt's `tree_density` is **not a density**: 1 → row 3, 2 → row 2,
+3 → row 1, unset on a one-colour entry → row 0, and 0 no trees.
+
+**The 16 slots and the template [exe].** Where any tile has a point: **16 tile slots** (+0x134, count +0x130), each a vertex
+buffer (+0x144) of 16 × +0x124 vertices, stride 20, **FVF 0x102 (XYZ | TEX1)**, dynamic (MapTrees_CreateSlotBuffers,
+0x4614B0); **one 16-bit index buffer** (+0x154) of 24 × +0x124 indices, for point p 16p + {0,1,2, 2,3,0, 4,5,6, 6,7,4,
+8,9,10, 10,11,8, 12,13,14, 14,15,12}; and **a template of 100 trees** (+0x128, count +0x12C), made after every tile's draws,
+one more draw each: a = (float)(f · 2.0 · 3.1415927410125732), c = (float)cos a, s = (float)sin a (the CRT's fcos and
+fsin), and four quads -
+
+| quad | height h | u0 | u1 | sheet column (left half) |
+| --- | --- | --- | --- | --- |
+| 0 | 0.5 | 0.375 | 0.5 | 4th: highlights |
+| 1 | 0.375 | 0.25 | 0.375 | 3rd: middle |
+| 2 | 0.225 | 0.125 | 0.25 | 2nd: dark base |
+| 3 | 0.05 | 0 | 0.125 | 1st: blurred shadow |
+
+each with the corners, in vertex order, (1.2s, h, −1.2c) uv (u1, 0); (−1.2c, h, −1.2s) uv (u0, 0); (−1.2s, h, 1.2c) uv
+(u0, 0.25); (1.2c, h, 1.2s) uv (u1, 0.25): a flat square of half-diagonal 1.2 (side ≈ 1.70 map pixels), horizontal, turned
+by a. **Nothing faces the camera**: a tree is four horizontal cards, a canopy seen from above, the shadow lowest. The sheets
+[mod: map/terrain/trees/*.dds] are 512 × 256: the left half four 64-pixel columns (shadow, base, middle, top) by four rows of
+clusters, the right half the same with snow.
+
+**Into the slots, each frame [exe].** MapObjects_RebuildTileStrips (0x462260), from MapGraphics_Update every frame under
+height 100: the free slots are those with no tile, then those whose tile is no longer visible; each visible tile in the
+frame's queue (+0x78, tile order) with no slot takes the next free one **until all 16 are used - at most 16 tiles show
+trees at once**. The slot's buffer is filled with the template repeated: **the point with running index n in its tile
+(types in order, then provinces, then points) is template tree n mod 100**, its 16 vertices the template's plus (px, h, pz)
+on (x, y, z) and (0, 0.25k) on (u, v); in the Weather mode (CMap +0x2A90 = 11) a point in a province colder than −5.000
+(CMapProvince +0x7C, strict) gets u + 0.5 (`FINDINGS-weathersim.md` C.5). A filled slot is not refilled while its tile stays
+visible, so a tile's snow is fixed at whichever event last freed its slot: the tile coming into view, the mode chosen
+(MapMode_ShowButton frees every slot where the mask has bit 0), MapGraphics_RefreshByFlags' bit 2, a device reset (VA
+0x868290).
+
+**The draw [exe; mod: gfx/FX/terrain_2_0.fx].** As C.3: under height 100 with layer-mask bit 0x1, TreeShader on the shared
+terrain effect, a pass per tree type with tex0 its texture, and for each slot whose tile is visible and holds that type
+WorldMatrix = tile +0x17C, AbsoluteWorldMatrix = tile +0x13C and an indexed draw of the type's range. VertexShader_TREE adds
+**LAND_ALT (0.35)** to y - on land the cards at 0.42, 0.595, 0.745 and 0.87 - and transforms by World·View, then
+Projection; its vTexCoordTI (world x / BorderWidth, world z / BorderHeight) PixelShader_TREE never reads, nor
+TerraIncognitaTextureTree (tex1): no terra incognita and no fog on trees. PixelShader_TREE returns tex0 (linear, no mip,
+wrap) with alpha × vAlpha (1.0, C.3). The pass turns on blend and test; the rest is the engine's (C.1, C.2): SRCALPHA /
+INVSRCALPHA, ALPHAREF 8 / GREATEREQUAL, CULLMODE NONE, Z test and write on as the water borders leave them. The land's
+vertex shaders add 0.5 to x and z; the trees' adds nothing - a tree's centre is the pixel's whole coordinate.
+
+**Measured on TFH**, by a simulation of the rule above: 60 palette indices carry a tree, 1,136,896 eligible pixels (as many
+draws); **1,002,313 tree points** - woods 201,971 of 288,688 eligible, woods2 96,345 of 137,730, forest 143,001, forest2
+317,042, jungle 138,531, jungle2 98,839, treemoun 6,584 of 13,065; by row k = 0..3 231,954 / 251,689 / 291,139 / 227,531;
+1,686 of 4,972 tiles with trees, 595 each on average and **at most 2,500** - so +0x124 = 2,500, each slot 40,000 vertices
+and the index buffer 60,000. The four types of density ≥ 1 give counts that do not hang on the generator; woods, woods2 and
+treemoun agree with 0.7 and 0.5 of their eligible pixels. **BlackICE** comments out every `tree_density` of its trees.txt,
+so all seven fall back to 1.0 [mod].
+
+**What looks wrong and is what the bytes do.** terrain.txt's `tree_density` picks a picture row, and 0 takes the index's
+trees away; a tree stands on the pixel's corner coordinate, not its middle; at most 16 tiles have trees, a 17th visible tile
+none until a slot frees; the snowed half is chosen when a slot is filled, not each hour; trees turned on after the map is
+built never appear; every eligible pixel costs a draw, so the template's angles hang on the whole map.
+
+**Not established.** Whether CProvinceManager can be built more than once in a run (the constructor would seed again); who
+sets RefreshByFlags' bit 2; whether the name compare (VA 0x415F70) is case-sensitive (byte for byte *inferred*); CTree +0x44
+(−1 at construction, not read); the rest of CMap_LoadTerrainDefinitions and the readers of `objects`, `altitude`,
+`has_texture` and `priority`; how many tiles the view holds under 100, and so whether the cap of 16 bites. Frontier:
+0x46B660, 0x46BA40, 0x46BAD0, 0x46B8E0, 0xAEBE0, 0x15F70.

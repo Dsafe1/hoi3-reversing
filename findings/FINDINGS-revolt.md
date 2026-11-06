@@ -119,11 +119,15 @@ here**: this MT19937 is modified in two visible ways.
   it again - the returned value is always in `[0, 0x7FFFFFFF]`. That is also why `0xAA2B20`
   bothers to mask: the masking is redundant, and whoever wrote `0xAA2B20` did not know it.
   **Do not "fix" a `% N` site on the theory that the draw can be negative.**
-- **The twist constant is `0x9908B0DF`, not the standard `0x9908B00D`** - `xor edx, 0x9908b0df`
-  at `0xAA2CE5`, `0xAA2D34`, `0xAA2D81` and `0xAA2DCF`, the four copies of the unrolled loop -
-  and the twist's `y >> 1` is `sar` as well (`0xAA2CCA`, `0xAA2D19`, `0xAA2D67`, `0xAA2DB4`).
-  Anyone reimplementing the game's RNG to predict a roll or reproduce a save must use
-  `0x9908B0DF` and arithmetic shifts or the sequence will not match.
+- **The twist constant is `0x9908B0DF`** - `xor edx, 0x9908b0df` at `0xAA2CE5`, `0xAA2D34`,
+  `0xAA2D81` and `0xAA2DCF`, the four copies of the unrolled loop - **which is MT19937's own**;
+  this said "not the standard `0x9908B00D`", which was wrong (corrected 2026-11-07). The twist's
+  `y >> 1` is `sar` (`0xAA2CCA`, `0xAA2D19`, `0xAA2D67`, `0xAA2DB4`), and **its odd test is a
+  signed remainder**, `y % 2 == 1` (`and eax, 0x80000001; jns; dec; or eax, 0xFFFFFFFE; inc;
+  cmp eax, 1; jne` at `0xAA2CD1..0xAA2CE3`), so a y both odd and negative is not xored - added
+  2026-11-07. MT19937Seed's shift is `sar` too (`FINDINGS-espionage.md`). Anyone reimplementing
+  the game's RNG to predict a roll or reproduce a save must use arithmetic shifts and the signed
+  odd test or the sequence will not match.
 
 ### 1.3 Exhaustion: every candidate, enumerated
 
@@ -559,7 +563,8 @@ Three traps cost time and are worth recording:
   Neither is in a vftable and neither has a caller, which is the cheap test.
 - **The engine's MT19937 uses arithmetic shifts in the tempering**, so `Random()` is always
   non-negative and the `% N` idiom that looks broken everywhere is not. Half an hour went into
-  a bug that is not there - and the same read turned up the non-standard twist constant.
+  a bug that is not there - and the same read took the twist constant for non-standard, which it is not (corrected
+  2026-11-07: 0x9908B0DF is MT19937's own; the twist's deviations are its `sar` and its signed odd test).
 
 
 ## Practical note for the mod

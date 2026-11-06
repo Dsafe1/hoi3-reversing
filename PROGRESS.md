@@ -25,8 +25,8 @@ how many objects a census found (taken 2026-09-20).
 
 | | classes |
 | --- | --- |
-| `read` | 149 |
-| `placed` | 141 |
+| `read` | 150 |
+| `placed` | 140 |
 | `keys` | 78 |
 | `part` | 154 |
 | `named` | 5 |
@@ -56,7 +56,6 @@ only that, because where a loader abuts the next function the count runs into it
 | `0x4E6CB0` | 1522 | `CTutorialChapter` | a file |  |  | the tutorial script; plumbing |
 | `0x5D920` | 1336 | `CRule` | a file |  |  | plumbing |
 | `0x5BC490` | 1286 | `CWarEffect` | event script |  | 8 |  |
-| `0xAE7E0` | 1239 | `CTerrainGraphical` | a file |  |  | **read**: how a terrain type is drawn. `CTerrain` is what it does |
 | `0x60D5C0` | 1164 | `CDiplomacy` | a save block |  |  | **read**: the save's diplomacy block, one key per kind of agreement |
 | `0x5C4BF0` | 885 | `CMeanTimeToHappen` | a file |  | 3 | **read**: the MTTH grammar every event and decision is timed by |
 | `0x601D0` | 849 | `CSettings` | a save block |  |  |  |
@@ -70,6 +69,7 @@ only that, because where a loader abuts the next function the count runs into it
 | `0x5BCC70` | 642 | `CUndeclaredWarRegionEffect` | event script |  | 7 |  |
 | `0x59620` | 601 | `CModifier` | a file | 6 | 19 | one loader shared by `CProvinceModifier`, `CStaticModifier`, `CFactionModifier` and two more - `static_modifiers.txt` and `event_modifiers.txt`, which reach everything |
 | `0x1DEFC0` | 547 | `CAttachUnitCommand` | event script |  | 7 |  |
+| `0x1E2670` | 518 | `CSetOrderCommand` | event script |  |  |  |
 
 **What is left is layout, not grammar.** Knowing every key a file may contain
 says nothing about where any of it lands in the object, and that is what the
@@ -372,7 +372,7 @@ Definitions out of `common/` and the rest of the mod. Their `LoadKey` is the gra
 | `CLawGroup` | `PAVCLaw::__CList` `CPersistent` |  | 4 + 2 lua |  | 1 |  | 8 | keys |  |
 | `CLocalIntelBoost` | `CIntEffect` |  |  | 3/91 | 2 |  | 9 | RTTI |  |
 | `CMTTHModifier` | `CAndTrigger` |  | 1 | 1/1 | 1 |  | 650 | placed |  |
-| `CMap` | `CPersistent` `CReloadableInterface` |  | 48 | 15/22 | 18 | CMap.hpp | 2 | read | the map load rather than a `common/` file |
+| `CMap` | `CPersistent` `CReloadableInterface` |  | 52 | 15/22 | 18 | CMap.hpp | 2 | read | the map load rather than a `common/` file |
 | `CMasked3dFlagType` | `C3dObjectType` |  |  | 1/4 | 1 |  | 1 | placed |  |
 | `CMaskedSpriteType` | `CSpriteType` |  |  |  | 1 |  | 12 | keys |  |
 | `CMeanTimeToHappen` | `CPersistent` | 0x1C | 2 | 5/5 | 3 |  | 9,821 | placed | **read**: the MTTH grammar every event and decision is timed by |
@@ -401,9 +401,9 @@ Definitions out of `common/` and the rest of the mod. Their `LoadKey` is the gra
 | `CTechStatistics` | `CPersistent` |  | 55 | 46/50 | 3 | CCountryHistory.hpp |  | read | **read**: the 47 country-wide effects a technology can have, one case each. See GameClasses/CCountryHistory.hpp |
 | `CTechnology` | `CTechStatistics` |  | 23 + 7 lua | 13/21 | 2 | CTechnology.hpp | 1,175 | read | the technology files: a dozen keys of its own, and every other key read as a unit type's name, which is how an effect is written |
 | `CTerrain` | `CPersistent` |  | 16 | 9/12 | 3 | CTerrain.hpp | 45 | read | mostly done; `movement_cost`, `temperature` and `precipitation` went in last |
-| `CTerrainGraphical` | `CPersistent` |  |  | 2/10 | 1 |  | 256 | placed | **read**: how a terrain type is drawn. `CTerrain` is what it does |
+| `CTerrainGraphical` | `CPersistent` | 0x7C | 7 | 2/10 | 2 |  | 256 | read | **read**: how a terrain type is drawn. `CTerrain` is what it does |
 | `CTrait` | `CModifier` |  | 9 | 2/33 | 6 | CTrait.hpp | 343 | read | `traits.txt`: 31 effects and a count that stops at sixteen. `gainable_traits.txt` is a different class, `CGainableTrait`, still unread |
-| `CTree` | `CPersistent` |  |  |  | 1 |  | 7 | keys |  |
+| `CTree` | `CPersistent` | 0x48 | 3 |  | 1 |  | 7 | keys |  |
 | `CTutorialChapter` | `CPersistent` |  |  | 9/11 | 1 |  |  | placed | the tutorial script; plumbing |
 | `CUnitAdjuster` | `CPersistent` | 0x18 | 5 | 4/4 | 3 | CUnitAdjuster.hpp | 3,012,281 | read |  |
 | `CVictoryCondition` | `CPersistent` | 0x6C | 6 |  | 1 |  | 87 | read |  |

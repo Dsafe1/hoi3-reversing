@@ -874,8 +874,7 @@ seen: `debug fow` gives every province 9.
   +0xC` is** (it decides G = 0.1 or 0).
 - **Whether the scene culls the pictures by zoom or layer**: no test in the update path, and group `+0x64` is
   unidentified. *A screenshot of the weather mode zoomed fully out would show whether clouds draw.*
-- **The strip mesh's identity.** *A screenshot of the weather mode on a province colder than -5 C beside a warmer one, at
-  border zoom.*
+- ~~**The strip mesh's identity.**~~ Settled 2026-11-06: it is the trees (`FINDINGS-mapdraw.md`, C.3 and C.8).
 - **The tooltip without the province's name.** *A screenshot of any province's tooltip in the weather mode.*
 - `unit +0xD4` in the estimate.
 - **Other rows of `FINDINGS-mapmode.md`'s style table look wrong too**: in a decode of the setter range, `0x667920`
