@@ -1,0 +1,82 @@
+{
+ "agent": "mapdraw follow-up: the selection highlight",
+ "question": "Who writes the province byte that Map_UpdateProvinceColourTexture lifts by 0.1, when the lookup is refilled after it changes, whether anything else marks a selected or hovered province on the map surface, and in which styles and for which provinces the lift shows.",
+ "source": "reversing/findings/FINDINGS-mapdraw.md",
+ "addresses": [
+  {
+   "rva": "0x480DE0",
+   "kind": "function",
+   "name": "Map_UpdateProvinceColourTexture",
+   "signature": "void __stdcall Map_UpdateProvinceColourTexture(CViewsTextureManager* textures)",
+   "no_signature": null,
+   "comment": "**Fills both per-province colour textures** - textures +0xC ('Texture1', terrain_2_0.fx's tex2, GeneralTexture) from each entry's first colour (+0) and +0x10 ('Texture2', tex3, GeneralTexture2) from its second (+4), by one rule for both; 256x256 A8R8G8B8, D3DLOCK_DISCARD, every province rewritten on every call. One texel a province from index 1 (texel 0 is never written), **x = id mod 256, y = id / 256**, at y x pitch + 4x, bytes B, G, R, A; the packed colour is unpacked by rva 0x662D30 (R byte 2, G byte 1, B byte 0, A byte 3, each / 255.0) and each channel written as trunc(x 255.0). **The byte that decides it is the province's selected flag**: the entry's +0xC is the CMapProvince, and the province's byte +0xC is byte +4 of its CSelectable subobject (+8) - set by CSelectable_Select and cleared by Selection_Remove, Selection_Clear and CInGameIdler::Deselect, written nowhere else but the constructor (0). **Map style 0** (settings +0xF4, read once a call; the terrain and weather modes): r and b kept, **g = 0.1f where the province is selected, 0 where not**, a = 1 - texel g 25 or 0. **Any other style**: selected - r, g and b each plus 0.1 (the single-precision 0.1 added in double, back to float), each capped at 1.0, and **a = 1**; not selected - the colour as written, its alpha included. In bytes the lift is **+25 on each channel, 255 from 230 up**. So in style 0 Texture1 is the province-state texture the Graphical shaders read - r the fog brightness, g the selection, b the frozen share. `ret 4`; its one caller is Map_RefreshColourTextures. The name is ours. See reversing/findings/FINDINGS-mapdraw.md, sections B.2 and B.9, and reversing/findings/FINDINGS-weathersim.md, section C.1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-mapdraw.md",
+   "revises": "Names the byte (was 'not read'): CMapProvince +0xC is the CSelectable (+8) selected byte. Adds the unpacking, the +25-per-byte lift and its 230 cap, that a selected province's alpha is forced to 1 in styles other than 0 while an unselected one keeps its own, and that style is read once a call.",
+   "evidence": "Disassembly VA 0x880F57-0x881087 and 0x881250-0x881390: entry = [manager+0x24][id*4]; `mov edi,[edi+0xC]; cmp byte [edi+0xC],0` (0x880F91/0x880F94) and `mov edx,[ecx+0xC]; cmp byte [edx+0xC],0` (0x881296/0x881299). Entry +0xC is the province object itself, not its CSelectable: MapMode_VictoryPoints_ColourLoop reads [entry+0xC]+0x370/+0x374 (intel), +0xD4 (template) and +0x34 (victory points) straight off it (VA 0x8665FF-0x8666B6). CProvince's constructor stores the CSelectable vftable 0x15C0694 at +8 and zeroes byte +0xC (VA 0x49472E/0x494735), so +0xC is CSelectable +4; CSelectable_Select does `mov byte [edi+4],1` (0x4AD621) with EDI the selectable, and MapGraphics_PickUnderPointer hands a province over as province + 8 (0x641877). Constants read: [0x171DBAC] = 1.0f, [0x15C05F8] = 0.1f, [0x160A3C0] = 0.1 (double of 0.1f), [0x160A2D0] = 255.0; the +25 / cap-at-230 figures computed over all 256 byte values with float32 rounding. Census for other writers: a resumed sweep of .text (3,084,674 instructions, 1,005 resumes, last at VA 0xD2AFFE against an end of 0xD2B000); every byte store to [reg+4] within 40 instructions of a call through a register loaded from [x+0x10]/[x+0x14] (the OnSelected/OnDeselected slots) gives exactly the four primitives (0x4AD621, 0x4AD6A7, 0x4AD79B, 0x656C7B); every byte store to [reg+0xC] (1,358) filtered to those with a province displacement within 30 instructions gives 73, of which 68 follow `call operator new` (a fresh list node's byte), 4 mark a list node during iteration (0x5B565F, 0x5CA5B3, 0x5CFEEB, 0x8A5172) and 1 is the constructor - the positive control. Readers: every byte read of [R+0xC] with R loaded from [S+0xC] just before finds exactly this function's two reads (the positive control) and one CRT read. Would be wrong if some code wrote a province's +0xC through a register with no province displacement near it - the filter's limit."
+  },
+  {
+   "rva": "0x2516A0",
+   "kind": "function",
+   "name": "CInGameIdler_RefreshMap",
+   "signature": "void __stdcall CInGameIdler_RefreshMap(CInGameIdler* idler)",
+   "no_signature": null,
+   "comment": "**The in-game screen's map refresh, every frame**: called once, from CInGameIdler::Update (at VA 0x655EF4), on a join that no branch of Update jumps over (Update has one `ret`, at VA 0x656B80), before CInGameIdler_HandleInput (called at VA 0x656471) and after CInGameIdler_UpdatePanels (called at VA 0x655E2E). `ret 4`. A map mode 17 (theatre) block first, not read through. Then, where the current mode's (+0xD34) entry of the table +0x30 is 1, that mode's colouring - 1 MapMode_Political_Colour, 2 MapMode_Diplomatic_Colour, 6 MapMode_Intel_Colour, 5 MapMode_Infrastructure_Colour, 8 MapMode_Theatre_Colour, 17 slot 15 and rva 0x241DC0 then Map_RefreshColourTextures(0), 4 MapMode_Supply_Colour, 7 MapMode_VictoryPoints_Recolour, 9 MapMode_Strength_Colour - and the table's 20 entries zeroed. Then, **where the refresh flags (+0x84) are not 0**: **0x100**, the same colouring for modes 1, 2, 6, 5, 8, 4, 7 and 9; **2**, in mode 6 the intel colouring; **& 0xF**, the intel colouring in mode 6 (once a frame), rva 0x266020 (the terrain mode's setter, which calls MapMode_Terrain_Colour and refills) in mode 0 unless the flags are exactly 2, MapMode_Weather_Set in mode 11, MapGraphics_RefreshByFlags(the CProvinceManager, the flags, &+0x88) and FowTexture_Update; **0x200**, Map_RefreshColourTextures(textures, entries, 0) - both province colour lookups refilled from each province's selected byte as it stands, which is how a selection reaches the map. Then +0x84 = 0, the changed-province list +0x88 emptied (rva 0x4E7DD0), and the graphics owner's +0x60DC = 1. **0x200 is set only by CProvince::OnSelected and CProvince::OnDeselected** (VA 0x49E47D, 0x49E592); Province_SetController ORs **1** (VA 0x4A3585, bit 0 - not bit 1, as this said) and 0x100 (0x4A35CE), CMapProvince::SetOwner 0x100, ApplyCustomGameSettings, CCountry_Capitulate and the front end's enter 0xF, the in-game enter 0xB, CLocalIntelBoost::Execute and an unrecorded province routine at rva 0x272BE0 (on a change of the province's byte +0x36D, through its +0xCC listener) 2. Every colouring routine named here also calls Map_RefreshColourTextures, so each of them re-applies the selection lift too. The name is ours. See reversing/findings/FINDINGS-mapdraw.md, sections B.2 and B.9.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-mapdraw.md",
+   "revises": "Read whole (it was 'only the gate and these calls were read', inferred): adds the 0x100, 2 and 0x200 arms, the table dispatch by mode with the real mode list (it said terrain and weather, which are only in the 0xF arm), that it runs every frame, and corrects Province_SetController's bit from 1 to bit 0 (value 1) plus 0x100.",
+   "evidence": "Disassembly VA 0x6516A0-0x65197B. 0x651928 `test dword [ebx+0x84],0x200` -> 0x65193F `esi = [owner+0x5F2C]`, `push 0`, `eax = owner+0x1DF0`, `call 0x880D90`; owner+0x1DC4 is the CProvinceManager (the lea at 0x651908), so +0x1DF0 is its +0x2C entries and +0x5F2C its +0x4168 textures. 0x651958 `mov [ebx+0x84],0`. One direct caller, VA 0x655EF4 (findRefs --callers); a CFG of Update (0x6559D0, 0x1200 bytes) has no branch from below 0x655EF3 to above 0x655EF4 and one `ret`. Writers of +0x84: every `or`/`mov` of an immediate to dword [reg+0x84] or byte [reg+0x85] in the resumed sweep - the two 0x200 writers are in CProvince::OnSelected/OnDeselected; positive control, the same scan finds Province_SetController's known bit-0 write at 0x4A3585. The 0x4A35CE store goes through [ebx+0xCC], the province's selection listener. Would be wrong if +0x84 were also set through a register-held immediate - the scan's limit."
+  },
+  {
+   "rva": "0x241D50",
+   "kind": "function",
+   "name": "GraphicsOwner_RefreshColourTextures",
+   "signature": "void __stdcall GraphicsOwner_RefreshColourTextures(void* owner@ECX, bool fow@EAX)",
+   "no_signature": null,
+   "comment": "Map_RefreshColourTextures(the owner's textures +0x5F2C - the CProvinceManager's +0x4168 -, its entries +0x1DF0 - the CProvinceManager's +0x2C -, fow): five instructions and a bare `ret`. One direct caller, CGameSetup::Update (at VA 0x70B836), refreshing the lobby's map after a received save. The name is ours. See reversing/findings/FINDINGS-mapdraw.md, section B.9.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-mapdraw.md",
+   "evidence": "VA 0x641D50: push esi; mov esi,[ecx+0x5F2C]; push eax; lea eax,[ecx+0x1DF0]; call 0x880D90; pop esi; ret - the same three operands CInGameIdler_RefreshMap builds at 0x65193F. findRefs --callers: one, 0x70B836. Would be wrong if it were reached by a jump or a table not seen by a direct-call scan."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CMapProvince",
+   "offset": "0xC",
+   "name": "is_selected",
+   "type": "bool",
+   "comment": "Byte +4 of the province's CSelectable subobject (+8): set while the province is in the in-game selection. Set by CSelectable_Select, cleared by Selection_Remove, Selection_Clear and CInGameIdler::Deselect; zeroed by the constructor. Read by Map_UpdateProvinceColourTexture, which lifts the province's texels of both colour lookups by it - the map's only marking of a selected province - and by Selection_CanAdd through the selectable. A sea zone never keeps it: CProvince::OnSelected clears the whole selection for one. See reversing/findings/FINDINGS-mapdraw.md, section B.9.",
+   "source": "reversing/findings/FINDINGS-mapdraw.md",
+   "evidence": "CProvince constructor VA 0x49472E (vftable 0x15C0694 at +8) and 0x494735 (`mov byte [esi+0xC], bl`); CSelectable_Select 0x4AD621 `mov byte [edi+4],1`; CUnit +4 is already recorded is_selected for the same CSelectable byte at offset 0. Read through entry +0xC at VA 0x880F94 / 0x881299. Would be wrong if CProvince's CSelectable were not at +8 - the RTTI export gives it there."
+  },
+  {
+   "struct": "CProvince",
+   "offset": "0xC",
+   "name": "is_selected",
+   "type": "bool",
+   "comment": "See CMapProvince +0xC: byte +4 of the CSelectable at +8, set while the province is selected. CMapProvince derives from CProvince and adds nothing here.",
+   "source": "reversing/findings/FINDINGS-mapdraw.md",
+   "evidence": "The CProvince constructor (VA 0x494700) writes it: 0x494735 `mov byte [esi+0xC], bl` right after the CSelectable vftable at +8."
+  },
+  {
+   "struct": "CInGameIdler",
+   "offset": "0x84",
+   "name": "map_refresh_flags",
+   "type": "uint32_t",
+   "comment": "What CInGameIdler_RefreshMap is to redo on its next pass (every frame), then cleared: 0x200 refill both province colour lookups (the selection lift; set by CProvince::OnSelected/OnDeselected), 0x100 re-run the current mode's colouring, 2 the intel mode's, and any of 0xF MapGraphics_RefreshByFlags with these flags and FowTexture_Update (bit 0 the land border lookup; Province_SetController sets it when the controller changes). See reversing/findings/FINDINGS-mapdraw.md, sections B.7 and B.9.",
+   "source": "reversing/findings/FINDINGS-mapdraw.md",
+   "evidence": "Tested at VA 0x6517F2, 0x651800, 0x651888, 0x6518AA, 0x651928 and zeroed at 0x651958 in CInGameIdler_RefreshMap; ORed by OnSelected (0x49E47D, 0x200), OnDeselected (0x49E592, 0x200), Province_SetController (0x4A3585, 1; 0x4A35CE, 0x100), each through [0x1A89790]+0xBE8 or the province's +0xCC listener."
+  },
+  {
+   "struct": "CInGameIdler",
+   "offset": "0x88",
+   "name": "map_refresh_provinces",
+   "type": "void*",
+   "comment": "The ids of provinces changed since the last refresh, with -1 for all: pushed by CProvince::OnSelected/OnDeselected and Province_SetController (rva 0x2434C0, or rva 0x279590 for -1, while the count at +0x98 is under 110), handed to MapGraphics_RefreshByFlags as its changed-province list, and emptied (rva 0x4E7DD0) by CInGameIdler_RefreshMap each pass. A container by value; its layout - a std::deque<int>, by the count at +0x98 - is *inferred*. The colour lookups do not use it: they are refilled whole. See reversing/findings/FINDINGS-mapdraw.md, section B.9.",
+   "source": "reversing/findings/FINDINGS-mapdraw.md",
+   "evidence": "CProvince::OnDeselected VA 0x49E5A3-0x49E5CF (`cmp [eax+0x98],0x6E`; `lea esi,[eax+0x88]`; call 0x6434C0 / 0x679590); CInGameIdler_RefreshMap 0x651900 (`lea ecx,[ebx+0x88]` pushed to 0x860D30) and 0x651952 (`lea esi,[ebx+0x88]`; call 0x8E7DD0). Would be wrong in its type note only if +0x98 were not the container's own count."
+  }
+ ],
+ "vftable_slots": {},
+ "frontier": ["0x263340", "0x24ACB0", "0x266020", "0x272BE0", "0x4E7DD0", "0x2434C0", "0x1C05F0"]
+}

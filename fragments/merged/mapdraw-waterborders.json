@@ -1,0 +1,110 @@
+{
+ "agent": "mapdraw water-borders reader (delegated, 2026-11-06)",
+ "question": "How the water-border meshes MapGraphics_DrawWaterBorders draws are built, what each vertex holds, what the draw sets and whether anything gates it by height.",
+ "source": "reversing/findings/FINDINGS-mapdraw.md",
+ "addresses": [
+  {
+   "rva": "0x4374D0",
+   "kind": "function",
+   "name": "BorderManager_BuildWaterBorderMesh",
+   "signature": "void __stdcall BorderManager_BuildWaterBorderMesh(CBorderManager* borders@ESI, const int* tileRect@stack:4, MeshBuffer* mesh@stack:8)",
+   "no_signature": null,
+   "comment": "**Builds one map tile's water-border mesh** - the sea-zone lines MapGraphics_DrawWaterBorders draws. 0x4374D0 to the `ret 8` at 0x437949; one caller, MapGraphics_BuildTileWaterBorders (0x469E60), with the border manager in ESI, rect = (x0, y0, w, h) and the tile's MeshBuffer. Releases the mesh's three objects (+0, +4, +8, slot 2) and zeroes +0..+0x10 and +0x1C; mid = (x0 + w*0.5, y0 + h*0.5) as floats. **For x from x0 below x0 + w (outer) and y from y0 below y0 + h (inner)**, skipping x >= map width or y >= map height (CMap +0x2A74/+0x2A78): the terrain raster's byte (CMap +0x20E4: data +0x20, pitch +0x18, bytes per pixel +0xC; outside its width +4 / height +8 the index is 0) indexes CMap terrain_by_palette_index (+0x2220), and **the pixel is kept only where that entry's CTerrain (+0xC) has is_water (+0x48)**, x <= bitmap width - 2 and y <= bitmap height - 2 (+0x40/+0x44, W+1 and H+1), x >= 2, y >= 2, the vertex scratch has room for four more (count + 4 <= (+0x6C - +0x68) / 8, 60000), and **the border bitmap's byte 0 or byte 3 at (x, y) is not 0** (+0x3C, 4 bytes a pixel, row y at y * +0x40). A kept pixel adds six 16-bit indices n, n+1, n+2, n+2, n+3, n (to +0x78) and four 8-byte vertices (to +0x68): SHORT2 (X, Y) and UBYTE4 (u, v, b0, b3), with dx = x - mid.x and dy = y - mid.y (whole numbers for a 50-pixel tile): v0 (dx-1, dy-1, 0, 1), v1 (dx-1, dy, 0, 0), v2 (dx, dy, 1, 0), v3 (dx, dy-1, 1, 1), b0 and b3 the bitmap's bytes 0 and 3 on every one (each coordinate as trunc(d -/+ 0.5 - 0.5) in doubles). Where any vertex was made: +0x14 = 1 (managed pool), VertexBuffer_Create(mesh, device, n, 8, 0, 0), Lock (flags 0 - +0x15 is the dynamic 0), copy n*8 bytes, Unlock; IndexBuffer_Create(mesh, device, indices) (a triangle list: the vector's elements are made with +0x20 = 0), Lock, copy, Unlock. The declaration (+8) stays null: the draw sets WaterBorderDecl itself. **No height, controller or map-mode input**: the meshes are made once at load. The name is ours. See reversing/findings/FINDINGS-mapdraw.md, section B.8.",
+   "confidence": "confirmed",
+   "evidence": "disasm 0x8374D0-0x837949 read whole; ESI never written before its +0x3C/+0x40/+0x44/+0x54/+0x68/+0x78 reads, so it arrives; callers: findRefs one call at 0x869EFD. The store pattern at 0x8376D8-0x837865 gives the indices and the 4 x 8-byte vertices; byte 4/5 immediates 0/1, 0/0, 1/0, 1/1; bytes 6/7 from [eax] and [eax+3], eax = bitmap + (y*+0x40 + x)*4. The constant [0x160A308] is the double 0.5 (read). Measured on TFH: the rule over terrain.bmp (index 254 = ocean, is_water) and cache/border_bitmap.bin gives 668,662 quads, all in provinces whose pixels are water, 3,638 tiles, at most 367 quads in one tile; on those pixels, for byte 0 codes 1, 2, 4, 8, 5, 6, 9, 10, a set direction bit (1 x+1, 2 x-1, 4 y+1, 8 y-1) has a different province on that side 394,659 times and the same province 88 times (all on the y bits), and never land. What would show it wrong: a second writer of WaterObject +0x42D4 (fieldchain finds only the constructor, 0x44FCF0's release, CreateMeshes' resize, the draw and 0x469E60)."
+  },
+  {
+   "rva": "0x469E60",
+   "kind": "function",
+   "name": "MapGraphics_BuildTileWaterBorders",
+   "signature": "void __fastcall MapGraphics_BuildTileWaterBorders(WaterObject* graphics@ECX, int tile@EDI)",
+   "no_signature": null,
+   "comment": "**One tile's water-border mesh**: col = tile mod tile_columns (+0x18C), row = tile / tile_columns; rect = (tile_width * col, tile_height * row, tile_width, tile_height) (+0x194/+0x198, 50 [exe]; the width and height computed as trunc((col+1)*tw - col*tw) through floats); BorderManager_BuildWaterBorderMesh(border manager +0x415C in ESI, &rect, &water_border_meshes[tile] (+0x42D4 + 0x24 * tile)). 0x469E60 to the bare `ret` at 0x869F07 (VA); one caller, CProvinceManager_CreateMeshes at 0x457F8F, in a loop over every tile index from 0 below rows * columns, right after the +0x42D4 vector is resized to that count (0x46B510) and **before** the corner cache is built (which frees the border bitmap). The name is ours. See reversing/findings/FINDINGS-mapdraw.md, section B.8.",
+   "confidence": "confirmed",
+   "evidence": "disasm 0x869E60-0x869F07: idiv by [ecx+0x18C], imul by [ecx+0x194]/[ecx+0x198], lea eax,[edi+edi*8]; [edx+eax*4] off [ecx+0x42D4], ESI = [ecx+0x415C], call 0x8374D0. Caller: findRefs one call at 0x857F8F, inside the loop 0x857F89-0x857F9C whose bound is ([esi+4]-[esi])/0x24 of +0x42D4 after `imul eax, [edi+0x18C]` of +0x190. ECX and EDI arrive unwritten. Wrong if a second call site exists (findRefs says one direct call; an indirect one would be missed)."
+  },
+  {
+   "rva": "0x437AD0",
+   "kind": "function",
+   "name": "BorderManager_ResizeWaterVertexScratch",
+   "signature": "void __fastcall BorderManager_ResizeWaterVertexScratch(void* vector@ESI)",
+   "no_signature": null,
+   "comment": "std::vector of 8-byte elements resized to exactly **60000** (0xEA60): truncated where longer, grown through 0x3C62C0 / 0x438090 where shorter. One caller, CBorderManager_Construct, on +0x68 - the water-border vertex scratch BorderManager_BuildWaterBorderMesh fills and tests for room (a tile of 50 x 50 needs at most 10000). 0x437AD0 to the bare `ret`s at 0x437B13 and 0x437B5C. The fill value is not read. The name is ours. See reversing/findings/FINDINGS-mapdraw.md, section B.8.",
+   "confidence": "confirmed",
+   "evidence": "disasm 0x837AD0-0x837B5C: ([esi+4]-[esi])>>3 compared with 0xEA60, end = begin + 0x75300 on the shrink path; findRefs: one call, 0x83479C, preceded by `lea esi, [ebx+0x68]`. Wrong if the element were not 8 bytes (the sar 3 and the 0x75300 = 60000*8 agree)."
+  },
+  {
+   "rva": "0x437B60",
+   "kind": "function",
+   "name": "VectorU16_Resize",
+   "signature": "void __stdcall VectorU16_Resize(void* vector@ESI, unsigned int count@stack:4)",
+   "no_signature": null,
+   "comment": "std::vector<uint16_t>::resize(count), growing with zeros. 0x437B60 to the `ret 4`s at 0x437B9A and 0x437BE2. Callers at VA 0x8347A9 (CBorderManager_Construct: +0x78, the water-border index scratch, 90000), 0x8761AE, 0xB54284 and 0xB57E85 - so not the border manager's own. The name is ours. See reversing/findings/FINDINGS-mapdraw.md, section B.8.",
+   "confidence": "confirmed",
+   "evidence": "disasm 0x837B60-0x837BE2: size = ([esi+4]-[esi])>>1 against [ebp+8], the shrink path end = begin + count*2, the grow path fills with a word built from `xor eax,eax` doubled into a dword; findRefs --callers lists the four sites. Wrong if the element were not 2 bytes."
+  },
+  {
+   "rva": "0x434280",
+   "kind": "function",
+   "name": "CBorderManager_Construct",
+   "signature": "CBorderManager* __stdcall CBorderManager_Construct(int tileHeight@ECX, int tileColumns@EDX, CBorderManager* borders@stack:4, CGraphics* graphics@stack:8, int tileWidth@stack:0xC, int tileRows@stack:0x10) @EAX",
+   "no_signature": null,
+   "comment": "**The CBorderManager constructor** (0xA0 bytes, operator new at VA 0x853B8B in CProvinceManager_CreateWorld, stored at WaterObject +0x415C). 0x434280 to the `ret 0x10` at 0x434839. Writes the vftable (rva 0x11E0F4C), +4 tile width (mgr +0x194), +8 tile height (+0x198, ECX), +0xC tile columns (+0x18C, EDX), +0x10 tile rows (+0x190), +0x14/+0x18 the powers of two at or above the map's width and height, +0x2C/+0x30 and +0x48/+0x4C the map's width W and height H (CMap +0x2A74/+0x2A78), +0x34 = float(tile width - 1), +0x38 g_CMap, +0x50 a W x H byte buffer, +0x54 the graphics object, +0x58 = graphics_settings +0x2C >= 0x200, **+0x40 = W + 1, +0x44 = H + 1** and **+0x3C = a (W+1) x (H+1) x 4-byte bitmap**. Then, where CMap cache_stale (+0x28) is 0 and `<dir>/cache/border_bitmap.bin` exists, the bitmap is read whole from it (0xA6C1B0 mode 0, 0xA6C880, 0xA6C7D0); otherwise two (W+1) x (H+1) byte masks are allocated at +0x60 and +0x64, CBorderManager_FillBitmap fills the bitmap, the file is written whole (mode 1, 0xA6D080) and the masks freed. Logs the time under 'CBorderManager::FillBitmap() <' (bordermanager.cpp). Last, +0x68 is resized to 60000 eight-byte elements (BorderManager_ResizeWaterVertexScratch, 0x437AD0) and +0x78 to 90000 shorts (VectorU16_Resize, 0x437B60): **the water-border vertex and index scratch** that BorderManager_BuildWaterBorderMesh (0x4374D0) fills tile by tile before copying into each tile's buffers. The name is ours. See reversing/findings/FINDINGS-mapdraw.md, sections B.7 and B.8.",
+   "confidence": "confirmed",
+   "revises": true,
+   "evidence": "Only the last sentence changes: it said 'what either is for was not read'. 0x4374D0 writes vertices through [esi+0x68] and indices through [esi+0x78], tests room as ([esi+0x6C]-[esi+0x68])>>3, and copies n*8 and m*2 bytes from them into the mesh's buffers (0x8378E0, 0x837925). Wrong if another user of +0x68/+0x78 exists (fieldchain was not run over +0x68/+0x78; the claim is about what fills them, not that nothing else does)."
+  }
+ ],
+ "structs": [
+  {
+   "name": "WaterBorderVertex",
+   "size": "0x8",
+   "comment": "One vertex of the water-border mesh (WaterBorderDecl: SHORT2 POSITION at 0, UBYTE4 TEXCOORD0 at 4) as BorderManager_BuildWaterBorderMesh writes it into the scratch at CBorderManager +0x68 and copies into each tile's vertex buffer.",
+   "evidence": "Stride 8 in VertexBuffer_Create's push at 0x8378A8 and the edi*8 addressing of every store at 0x83773F-0x837865; the declaration at VA 0x170ACB8 per CProvinceManager_CreateMeshes' record."
+  }
+ ],
+ "struct_fields": [
+  {"struct": "WaterBorderVertex", "offset": "0x0", "name": "x", "type": "int16_t",
+   "comment": "Tile-local x: the pixel's x less the tile's middle (col*50 + 25), less 1 on the quad's west corners. borders_2_0.fx adds 0.5, so the quad spans the pixel [x - 0.5, x + 0.5] in world x.",
+   "evidence": "0x83773B cvttsd2si of (x - mid.x) - 0.5 - 0.5 stored at +0 for v0; v1 copies it; v2 (x - mid.x) + 0.5 - 0.5 at +0x10, v3 copies."},
+  {"struct": "WaterBorderVertex", "offset": "0x2", "name": "y", "type": "int16_t",
+   "comment": "Tile-local y (the map's y, from the south): the pixel's y less the tile's middle, less 1 on the quad's south corners. The shader adds 0.5 and then takes 0.7 off world z, so the quad sits 0.7 of a pixel south of its pixel.",
+   "evidence": "0x83775D for v0 (dy - 0.5 - 0.5), 0x8377AA for v1/v2 (dy + 0.5 - 0.5), v3 copies v0's."},
+  {"struct": "WaterBorderVertex", "offset": "0x4", "name": "u_corner", "type": "uint8_t",
+   "comment": "0 on the west corners, 1 on the east: vUV_Offset.x, the shader's u = (1 + 50*this) / 1024 within the 64-texel column.",
+   "evidence": "Immediates 0, 0, 1, 1 at +4, +0xC, +0x14, +0x1C (0x83776D, 0x8377BA, 0x83780A, 0x837849)."},
+  {"struct": "WaterBorderVertex", "offset": "0x5", "name": "v_corner", "type": "uint8_t",
+   "comment": "1 on the south corners, 0 on the north: vUV_Offset.y, used as v directly.",
+   "evidence": "Immediates 1, 0, 0, 1 at +5, +0xD, +0x15, +0x1D (0x837775, 0x8377C2, 0x837812, 0x837850)."},
+  {"struct": "WaterBorderVertex", "offset": "0x6", "name": "province_code", "type": "uint8_t",
+   "comment": "The border bitmap's byte 0 at the pixel (the province-border mask, 0x10 a region bit): vUV_Offset.z, which moves the water_borders sample right by this/16 of the texture - one 64-texel column per code, a code of 16 or more clamped off the texture's right edge.",
+   "evidence": "movzx edx, byte [eax] stored at +6/+0xE/+0x16/+0x1E, eax = [esi+0x3C] + (y*[esi+0x40] + x)*4."},
+  {"struct": "WaterBorderVertex", "offset": "0x7", "name": "diagonal_code", "type": "uint8_t",
+   "comment": "The border bitmap's byte 3 at the pixel (the diagonal-cut code 1..6, + 0x10): vUV_Offset.w, the water_diag_borders column the same way.",
+   "evidence": "movzx edx, byte [eax+3] stored at +7/+0xF/+0x17/+0x1F."},
+  {"struct": "CBorderManager", "offset": "0x68", "name": "water_vertex_scratch", "type": "WaterBorderVertex*",
+   "comment": "Begin of a std::vector of 60000 WaterBorderVertex (end +0x6C, capacity +0x70), sized by the constructor: BorderManager_BuildWaterBorderMesh writes each tile's vertices here and copies them into the tile's vertex buffer; a pixel is skipped once four more would not fit.",
+   "evidence": "0x834799 lea esi,[ebx+0x68]; call 0x837AD0 (resize to 0xEA60); 0x83766D-0x83767E the room test; 0x8378E0 the copy of edi*8 bytes from [esi+0x68]."},
+  {"struct": "CBorderManager", "offset": "0x6C", "name": "water_vertex_scratch_end", "type": "WaterBorderVertex*",
+   "comment": "End of the water vertex scratch: (this - +0x68) / 8 is the room the builder tests against.",
+   "evidence": "0x83766D mov edx,[esi+0x6C]; sub edx,[esi+0x68]; sar edx,3."},
+  {"struct": "CBorderManager", "offset": "0x78", "name": "water_index_scratch", "type": "uint16_t*",
+   "comment": "Begin of a std::vector<uint16_t> of 90000 (end +0x7C, capacity +0x80): each tile's water-border indices, six a pixel, copied into the tile's index buffer. No room test is made on it.",
+   "evidence": "0x8347A1 push 0x15F90; lea esi,[ebx+0x78]; call 0x437B60; stores [esi+0x78]+ebx*2 at 0x8376DB..0x837723; copy of ebx*2 bytes at 0x837925."},
+  {"struct": "CMap", "offset": "0x20E4", "name": "terrain_raster", "type": "void*",
+   "comment": "The terrain raster: default.map's `terrain` (terrain.bmp) as loaded by the image loader 0xA6C1B0 and converted by 0xAB3050 into a 0x28-byte image object (width +4, height +8, bytes per pixel +0xC, pitch +0x18, data +0x20) - the same pair of calls as the province raster at +0x20E0, so rows run the same way. Its byte is an index into terrain_by_palette_index (+0x2220); BorderManager_BuildWaterBorderMesh asks the entry's CTerrain is_water.",
+   "evidence": "VA 0x48BD00 (rva 0x8BD00, one caller at VA 0x489F75): the old object released, 0xA6C1B0 on CMap +0x20A8 (terrain_file), new 0x28-byte object, 0xAB3050, stored at [eax+0x20E4] (VA 0x48BDCD); VA 0x48B7D0 does the same with +0x208C into +0x20E0. Readers: 0x8375F7..0x83762D (byte at y*[+0x18] + x*[+0xC] of [+0x20]). Measured: TFH's terrain.bmp is 8-bit, palette index 254 is ocean1 (type ocean, is_water = yes)."},
+  {"struct": "CMap", "offset": "0x20EC", "name": "climate_file", "type": "Hoi3CString",
+   "comment": "default.map's `climate`. Of the three dwords between this and the string before it, +0x20E0 is province_raster and +0x20E4 terrain_raster; +0x20E8, zeroed by the constructor with them, is unidentified.",
+   "revises": true,
+   "evidence": "Comment only: it called all three dwords at +0x20E0..+0x20E8 unidentified, though +0x20E0 was already recorded and +0x20E4 is placed above. Name and type unchanged."},
+  {"struct": "MeshBuffer", "offset": "0x14", "name": "managed", "type": "bool",
+   "comment": "Set: VertexBuffer_Create and IndexBuffer_Create make their buffers in D3DPOOL_MANAGED (1), so they survive a device reset; clear: D3DPOOL_DEFAULT. BorderManager_BuildWaterBorderMesh sets it.",
+   "evidence": "0xAD4538 cmp byte [esi+0x14],0; eax = 1 or 0 by cmove, pushed as the pool argument of CreateVertexBuffer (slot 26, +0x68); VA 0x83789E mov byte [eax+0x14],1 in the builder."},
+  {"struct": "MeshBuffer", "offset": "0x15", "name": "dynamic", "type": "bool",
+   "comment": "VertexBuffer_Create's last argument, stored after the buffer is made (usage WRITEONLY | DYNAMIC where set). A lock asks D3DLOCK_DISCARD only where this is set and +0x16 is not.",
+   "evidence": "0xAD4587 mov [esi+0x15], dl (dl = [ebp+0x1C]); 0x8378BD..0x8378C7 in the builder: cmp [ecx+0x15],0 / cmp [ecx+0x16],0 / mov edx,0x2000."}
+ ],
+ "vftable_slots": {},
+ "frontier": ["0x798D80", "0x3C62C0", "0x438090", "0x437DC0", "0x46B510", "0x44FCF0"]
+}

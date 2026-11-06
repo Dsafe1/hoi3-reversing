@@ -15779,6 +15779,24 @@
      "comment": "Scratch (W+1) x (H+1) bytes for CBorderManager_FillBitmap: border bits carrying 0x10 where the two sides' first CMapProvince +0x358 entries differ, ORed into byte 0. Freed by the constructor. (reversing/findings/FINDINGS-mapdraw.md)"
     },
     {
+     "offset": 104,
+     "name": "water_vertex_scratch",
+     "type": "WaterBorderVertex*",
+     "comment": "Begin of a std::vector of 60000 WaterBorderVertex (end +0x6C, capacity +0x70), sized by the constructor: BorderManager_BuildWaterBorderMesh writes each tile's vertices here and copies them into the tile's vertex buffer; a pixel is skipped once four more would not fit. (reversing/findings/FINDINGS-mapdraw.md)"
+    },
+    {
+     "offset": 108,
+     "name": "water_vertex_scratch_end",
+     "type": "WaterBorderVertex*",
+     "comment": "End of the water vertex scratch: (this - +0x68) / 8 is the room the builder tests against. (reversing/findings/FINDINGS-mapdraw.md)"
+    },
+    {
+     "offset": 120,
+     "name": "water_index_scratch",
+     "type": "uint16_t*",
+     "comment": "Begin of a std::vector<uint16_t> of 90000 (end +0x7C, capacity +0x80): each tile's water-border indices, six a pixel, copied into the tile's index buffer. No room test is made on it. (reversing/findings/FINDINGS-mapdraw.md)"
+    },
+    {
      "offset": 136,
      "name": "corner_cache_built",
      "type": "bool",
@@ -32974,6 +32992,18 @@
      "comment": "A CEU3Idler member: the input object - slot 19 the mouse's position, slot 17 whether it is over the map. The class is not named. See reversing/findings/FINDINGS-tooltips.md. (reversing/findings/FINDINGS-tooltips.md)"
     },
     {
+     "offset": 132,
+     "name": "map_refresh_flags",
+     "type": "unsigned int",
+     "comment": "What CInGameIdler_RefreshMap is to redo on its next pass (every frame), then cleared: 0x200 refill both province colour lookups (the selection lift; set by CProvince::OnSelected/OnDeselected), 0x100 re-run the current mode's colouring, 2 the intel mode's, and any of 0xF MapGraphics_RefreshByFlags with these flags and FowTexture_Update (bit 0 the land border lookup; Province_SetController sets it when the controller changes). See reversing/findings/FINDINGS-mapdraw.md, sections B.7 and B.9. (reversing/findings/FINDINGS-mapdraw.md)"
+    },
+    {
+     "offset": 136,
+     "name": "map_refresh_provinces",
+     "type": "void*",
+     "comment": "The ids of provinces changed since the last refresh, with -1 for all: pushed by CProvince::OnSelected/OnDeselected and Province_SetController (rva 0x2434C0, or rva 0x279590 for -1, while the count at +0x98 is under 110), handed to MapGraphics_RefreshByFlags as its changed-province list, and emptied (rva 0x4E7DD0) by CInGameIdler_RefreshMap each pass. A container by value; its layout - a std::deque<int>, by the count at +0x98 - is *inferred*. The colour lookups do not use it: they are refilled whole. See reversing/findings/FINDINGS-mapdraw.md, section B.9. (reversing/findings/FINDINGS-mapdraw.md)"
+    },
+    {
      "offset": 160,
      "name": "dialogs_head",
      "type": "void*",
@@ -38494,10 +38524,16 @@
      "comment": "The province-id raster: a 16-bit image whose pixel is a province id. Read live, the object holds width 5616 at +0x04, height 2160 at +0x08, bytes per pixel 2 at +0x0C, bits per pixel 16 at +0x10, stride 11232 at +0x18 and +0x1C, and the pixel data at +0x20. The engine addresses it as base + x*bpp + y*stride and takes p[0] | p[1]<<8 (0x48FE7A and 0x4900BC). Row index is the engine's y directly, so the raster is already flipped relative to the BMP on disk. Looking 2000 provinces up at their own (+0x64,+0x68) returns the province itself 1984 times, with the same 16 misses and the same wrong ids that reading provinces.bmp gives - so this and the bitmap are the same function. Closes one of the three dwords project.json records as unidentified here. (reversing/findings/FINDINGS-mapbuild.md)"
     },
     {
+     "offset": 8420,
+     "name": "terrain_raster",
+     "type": "void*",
+     "comment": "The terrain raster: default.map's `terrain` (terrain.bmp) as loaded by the image loader 0xA6C1B0 and converted by 0xAB3050 into a 0x28-byte image object (width +4, height +8, bytes per pixel +0xC, pitch +0x18, data +0x20) - the same pair of calls as the province raster at +0x20E0, so rows run the same way. Its byte is an index into terrain_by_palette_index (+0x2220); BorderManager_BuildWaterBorderMesh asks the entry's CTerrain is_water. (reversing/findings/FINDINGS-mapdraw.md)"
+    },
+    {
      "offset": 8428,
      "name": "climate_file",
      "type": "Hoi3CString",
-     "comment": "default.map's `climate`. Three dwords at +0x20E0, +0x20E4 and +0x20E8 sit between this and the string before it, zeroed by the constructor and unidentified. (reversing/CLASSES.md)"
+     "comment": "default.map's `climate`. Of the three dwords between this and the string before it, +0x20E0 is province_raster and +0x20E4 terrain_raster; +0x20E8, zeroed by the constructor with them, is unidentified. (reversing/findings/FINDINGS-mapdraw.md)"
     },
     {
      "offset": 8460,
@@ -38954,6 +38990,12 @@
      "name": "underground_owner",
      "type": "CCountryTag",
      "comment": "who owns the underground here, saved as `underground_owner`: four characters and the id at +0x390, the shape of a CCountryTag (BiceLib/GameClasses/CMapProvince.hpp:54)"
+    },
+    {
+     "offset": 12,
+     "name": "is_selected",
+     "type": "bool",
+     "comment": "Byte +4 of the province's CSelectable subobject (+8): set while the province is in the in-game selection. Set by CSelectable_Select, cleared by Selection_Remove, Selection_Clear and CInGameIdler::Deselect; zeroed by the constructor. Read by Map_UpdateProvinceColourTexture, which lifts the province's texels of both colour lookups by it - the map's only marking of a selected province - and by Selection_CanAdd through the selectable. A sea zone never keeps it: CProvince::OnSelected clears the whole selection for one. See reversing/findings/FINDINGS-mapdraw.md, section B.9. (reversing/findings/FINDINGS-mapdraw.md)"
     },
     {
      "offset": 16,
@@ -45578,6 +45620,12 @@
      "name": "underground_owner",
      "type": "CCountryTag",
      "comment": "who owns the underground here, saved as `underground_owner`: four characters and the id at +0x390, the shape of a CCountryTag (BiceLib/GameClasses/CMapProvince.hpp:54)"
+    },
+    {
+     "offset": 12,
+     "name": "is_selected",
+     "type": "bool",
+     "comment": "See CMapProvince +0xC: byte +4 of the CSelectable at +8, set while the province is selected. CMapProvince derives from CProvince and adds nothing here. (reversing/findings/FINDINGS-mapdraw.md)"
     },
     {
      "offset": 16,
@@ -61149,6 +61197,18 @@
      "comment": "Primitives of an indexed draw. (reversing/findings/FINDINGS-mapdraw.md)"
     },
     {
+     "offset": 20,
+     "name": "managed",
+     "type": "bool",
+     "comment": "Set: VertexBuffer_Create and IndexBuffer_Create make their buffers in D3DPOOL_MANAGED (1), so they survive a device reset; clear: D3DPOOL_DEFAULT. BorderManager_BuildWaterBorderMesh sets it. (reversing/findings/FINDINGS-mapdraw.md)"
+    },
+    {
+     "offset": 21,
+     "name": "dynamic",
+     "type": "bool",
+     "comment": "VertexBuffer_Create's last argument, stored after the buffer is made (usage WRITEONLY | DYNAMIC where set). A lock asks D3DLOCK_DISCARD only where this is set and +0x16 is not. (reversing/findings/FINDINGS-mapdraw.md)"
+    },
+    {
      "offset": 24,
      "name": "stride",
      "type": "int",
@@ -61429,6 +61489,48 @@
      "name": "lobby_reopened",
      "type": "unsigned char",
      "comment": "Set to 1 the first time a lobby is reopened in this session - CReopenLobby::Execute (0x6D86DD), and the hot-join handler 0x6470D0 that posts a CReopenLobby (0x6472A1) - and zeroed only by the Session constructors (0xA88400, 0xA88989). Gates CInGameIdler::StartGame's call of RebuildEventCandidatesAndDailyCaches (0x64C20C), so in an ordinary game the event candidates are first built by the first days' RunMonthlyPass and the weather zone state is never reset. Also read by the CIngameLobby constructor (three times), CSetCountryControllerCommand's Execute (0x6D3F8F), 0x695FD9, 0x70BE9F and 0x70EB97. The name is ours. (reversing/findings/FINDINGS-weathersim.md)"
+    }
+   ]
+  },
+  {
+   "name": "WaterBorderVertex",
+   "size": 8,
+   "fields": [
+    {
+     "offset": 0,
+     "name": "x",
+     "type": "short",
+     "comment": "Tile-local x: the pixel's x less the tile's middle (col*50 + 25), less 1 on the quad's west corners. borders_2_0.fx adds 0.5, so the quad spans the pixel [x - 0.5, x + 0.5] in world x. (reversing/findings/FINDINGS-mapdraw.md)"
+    },
+    {
+     "offset": 2,
+     "name": "y",
+     "type": "short",
+     "comment": "Tile-local y (the map's y, from the south): the pixel's y less the tile's middle, less 1 on the quad's south corners. The shader adds 0.5 and then takes 0.7 off world z, so the quad sits 0.7 of a pixel south of its pixel. (reversing/findings/FINDINGS-mapdraw.md)"
+    },
+    {
+     "offset": 4,
+     "name": "u_corner",
+     "type": "unsigned char",
+     "comment": "0 on the west corners, 1 on the east: vUV_Offset.x, the shader's u = (1 + 50*this) / 1024 within the 64-texel column. (reversing/findings/FINDINGS-mapdraw.md)"
+    },
+    {
+     "offset": 5,
+     "name": "v_corner",
+     "type": "unsigned char",
+     "comment": "1 on the south corners, 0 on the north: vUV_Offset.y, used as v directly. (reversing/findings/FINDINGS-mapdraw.md)"
+    },
+    {
+     "offset": 6,
+     "name": "province_code",
+     "type": "unsigned char",
+     "comment": "The border bitmap's byte 0 at the pixel (the province-border mask, 0x10 a region bit): vUV_Offset.z, which moves the water_borders sample right by this/16 of the texture - one 64-texel column per code, a code of 16 or more clamped off the texture's right edge. (reversing/findings/FINDINGS-mapdraw.md)"
+    },
+    {
+     "offset": 7,
+     "name": "diagonal_code",
+     "type": "unsigned char",
+     "comment": "The border bitmap's byte 3 at the pixel (the diagonal-cut code 1..6, + 0x10): vUV_Offset.w, the water_diag_borders column the same way. (reversing/findings/FINDINGS-mapdraw.md)"
     }
    ]
   },
@@ -126976,6 +127078,31 @@
    "labels": []
   },
   {
+   "rva": 2366800,
+   "namespace": "",
+   "name": "GraphicsOwner_RefreshColourTextures",
+   "confidence": "CERTAIN",
+   "evidence": "Map_RefreshColourTextures(the owner's textures +0x5F2C - the CProvinceManager's +0x4168 -, its entries +0x1DF0 - the CProvinceManager's +0x2C -, fow): five instructions and a bare `ret`. One direct caller, CGameSetup::Update (at VA 0x70B836), refreshing the lobby's map after a received save. The name is ours. See reversing/findings/FINDINGS-mapdraw.md, section B.9.\n(reversing/findings/FINDINGS-mapdraw.md)",
+   "signature": {
+    "convention": "__stdcall",
+    "return": "void",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "owner",
+      "type": "void*",
+      "storage": "ECX"
+     },
+     {
+      "name": "fow",
+      "type": "bool",
+      "storage": "EAX"
+     }
+    ]
+   },
+   "labels": []
+  },
+  {
    "rva": 2367504,
    "namespace": "",
    "name": "ProvinceGraphics_UpdateResourcePictures",
@@ -128016,8 +128143,8 @@
    "rva": 2430624,
    "namespace": "",
    "name": "CInGameIdler_RefreshMap",
-   "confidence": "TENTATIVE",
-   "evidence": "**The in-game screen's map refresh**, from CInGameIdler::Update. Re-runs the current mode's colouring where the mode needs it (supply, VP, strength, intel, terrain, weather), and **only where the refresh flags (idler +0x84) & 0xF are set**: the CProvinceManager's refresh by flags (0x460D30, with +0x84 and +0x88) and **FowTexture_Update** - so the fog and the sea's colours are rebuilt there and not daily. Province_SetController sets bit 1 of +0x84 (FINDINGS-weathersim.md, C.1). Only the gate and these calls were read. The name is ours. See reversing/findings/FINDINGS-mapdraw.md, section B.2.\n(reversing/findings/FINDINGS-mapdraw.md)",
+   "confidence": "CERTAIN",
+   "evidence": "**The in-game screen's map refresh, every frame**: called once, from CInGameIdler::Update (at VA 0x655EF4), on a join that no branch of Update jumps over (Update has one `ret`, at VA 0x656B80), before CInGameIdler_HandleInput (called at VA 0x656471) and after CInGameIdler_UpdatePanels (called at VA 0x655E2E). `ret 4`. A map mode 17 (theatre) block first, not read through. Then, where the current mode's (+0xD34) entry of the table +0x30 is 1, that mode's colouring - 1 MapMode_Political_Colour, 2 MapMode_Diplomatic_Colour, 6 MapMode_Intel_Colour, 5 MapMode_Infrastructure_Colour, 8 MapMode_Theatre_Colour, 17 slot 15 and rva 0x241DC0 then Map_RefreshColourTextures(0), 4 MapMode_Supply_Colour, 7 MapMode_VictoryPoints_Recolour, 9 MapMode_Strength_Colour - and the table's 20 entries zeroed. Then, **where the refresh flags (+0x84) are not 0**: **0x100**, the same colouring for modes 1, 2, 6, 5, 8, 4, 7 and 9; **2**, in mode 6 the intel colouring; **& 0xF**, the intel colouring in mode 6 (once a frame), rva 0x266020 (the terrain mode's setter, which calls MapMode_Terrain_Colour and refills) in mode 0 unless the flags are exactly 2, MapMode_Weather_Set in mode 11, MapGraphics_RefreshByFlags(the CProvinceManager, the flags, &+0x88) and FowTexture_Update; **0x200**, Map_RefreshColourTextures(textures, entries, 0) - both province colour lookups refilled from each province's selected byte as it stands, which is how a selection reaches the map. Then +0x84 = 0, the changed-province list +0x88 emptied (rva 0x4E7DD0), and the graphics owner's +0x60DC = 1. **0x200 is set only by CProvince::OnSelected and CProvince::OnDeselected** (VA 0x49E47D, 0x49E592); Province_SetController ORs **1** (VA 0x4A3585, bit 0 - not bit 1, as this said) and 0x100 (0x4A35CE), CMapProvince::SetOwner 0x100, ApplyCustomGameSettings, CCountry_Capitulate and the front end's enter 0xF, the in-game enter 0xB, CLocalIntelBoost::Execute and an unrecorded province routine at rva 0x272BE0 (on a change of the province's byte +0x36D, through its +0xCC listener) 2. Every colouring routine named here also calls Map_RefreshColourTextures, so each of them re-applies the selection lift too. The name is ours. See reversing/findings/FINDINGS-mapdraw.md, sections B.2 and B.9.\n(reversing/findings/FINDINGS-mapdraw.md)",
    "signature": {
     "convention": "__stdcall",
     "return": "void",
@@ -154316,7 +154443,7 @@
    "namespace": "",
    "name": "CBorderManager_Construct",
    "confidence": "CERTAIN",
-   "evidence": "**The CBorderManager constructor** (0xA0 bytes, operator new at VA 0x853B8B in CProvinceManager_CreateWorld, stored at WaterObject +0x415C). 0x434280 to the `ret 0x10` at 0x434839. Writes the vftable (rva 0x11E0F4C), +4 tile width (mgr +0x194), +8 tile height (+0x198, ECX), +0xC tile columns (+0x18C, EDX), +0x10 tile rows (+0x190), +0x14/+0x18 the powers of two at or above the map's width and height, +0x2C/+0x30 and +0x48/+0x4C the map's width W and height H (CMap +0x2A74/+0x2A78), +0x34 = float(tile width - 1), +0x38 g_CMap, +0x50 a W x H byte buffer, +0x54 the graphics object, +0x58 = graphics_settings +0x2C >= 0x200, **+0x40 = W + 1, +0x44 = H + 1** and **+0x3C = a (W+1) x (H+1) x 4-byte bitmap**. Then, where CMap cache_stale (+0x28) is 0 and `<dir>/cache/border_bitmap.bin` exists, the bitmap is read whole from it (0xA6C1B0 mode 0, 0xA6C880, 0xA6C7D0); otherwise two (W+1) x (H+1) byte masks are allocated at +0x60 and +0x64, CBorderManager_FillBitmap fills the bitmap, the file is written whole (mode 1, 0xA6D080) and the masks freed. Logs the time under 'CBorderManager::FillBitmap() <' (bordermanager.cpp). Last, +0x68 is resized to 60000 eight-byte elements (0x437AD0) and +0x78 to 90000 shorts (0x437B60); what either is for was not read. The name is ours. See reversing/findings/FINDINGS-mapdraw.md, section B.7.\n(reversing/findings/FINDINGS-mapdraw.md)",
+   "evidence": "**The CBorderManager constructor** (0xA0 bytes, operator new at VA 0x853B8B in CProvinceManager_CreateWorld, stored at WaterObject +0x415C). 0x434280 to the `ret 0x10` at 0x434839. Writes the vftable (rva 0x11E0F4C), +4 tile width (mgr +0x194), +8 tile height (+0x198, ECX), +0xC tile columns (+0x18C, EDX), +0x10 tile rows (+0x190), +0x14/+0x18 the powers of two at or above the map's width and height, +0x2C/+0x30 and +0x48/+0x4C the map's width W and height H (CMap +0x2A74/+0x2A78), +0x34 = float(tile width - 1), +0x38 g_CMap, +0x50 a W x H byte buffer, +0x54 the graphics object, +0x58 = graphics_settings +0x2C >= 0x200, **+0x40 = W + 1, +0x44 = H + 1** and **+0x3C = a (W+1) x (H+1) x 4-byte bitmap**. Then, where CMap cache_stale (+0x28) is 0 and `<dir>/cache/border_bitmap.bin` exists, the bitmap is read whole from it (0xA6C1B0 mode 0, 0xA6C880, 0xA6C7D0); otherwise two (W+1) x (H+1) byte masks are allocated at +0x60 and +0x64, CBorderManager_FillBitmap fills the bitmap, the file is written whole (mode 1, 0xA6D080) and the masks freed. Logs the time under 'CBorderManager::FillBitmap() <' (bordermanager.cpp). Last, +0x68 is resized to 60000 eight-byte elements (BorderManager_ResizeWaterVertexScratch, 0x437AD0) and +0x78 to 90000 shorts (VectorU16_Resize, 0x437B60): **the water-border vertex and index scratch** that BorderManager_BuildWaterBorderMesh (0x4374D0) fills tile by tile before copying into each tile's buffers. The name is ours. See reversing/findings/FINDINGS-mapdraw.md, sections B.7 and B.8.\n(reversing/findings/FINDINGS-mapdraw.md)",
    "signature": {
     "convention": "__stdcall",
     "return": "CBorderManager*",
@@ -154488,6 +154615,36 @@
    "labels": []
   },
   {
+   "rva": 4420816,
+   "namespace": "",
+   "name": "BorderManager_BuildWaterBorderMesh",
+   "confidence": "CERTAIN",
+   "evidence": "**Builds one map tile's water-border mesh** - the sea-zone lines MapGraphics_DrawWaterBorders draws. 0x4374D0 to the `ret 8` at 0x437949; one caller, MapGraphics_BuildTileWaterBorders (0x469E60), with the border manager in ESI, rect = (x0, y0, w, h) and the tile's MeshBuffer. Releases the mesh's three objects (+0, +4, +8, slot 2) and zeroes +0..+0x10 and +0x1C; mid = (x0 + w*0.5, y0 + h*0.5) as floats. **For x from x0 below x0 + w (outer) and y from y0 below y0 + h (inner)**, skipping x >= map width or y >= map height (CMap +0x2A74/+0x2A78): the terrain raster's byte (CMap +0x20E4: data +0x20, pitch +0x18, bytes per pixel +0xC; outside its width +4 / height +8 the index is 0) indexes CMap terrain_by_palette_index (+0x2220), and **the pixel is kept only where that entry's CTerrain (+0xC) has is_water (+0x48)**, x <= bitmap width - 2 and y <= bitmap height - 2 (+0x40/+0x44, W+1 and H+1), x >= 2, y >= 2, the vertex scratch has room for four more (count + 4 <= (+0x6C - +0x68) / 8, 60000), and **the border bitmap's byte 0 or byte 3 at (x, y) is not 0** (+0x3C, 4 bytes a pixel, row y at y * +0x40). A kept pixel adds six 16-bit indices n, n+1, n+2, n+2, n+3, n (to +0x78) and four 8-byte vertices (to +0x68): SHORT2 (X, Y) and UBYTE4 (u, v, b0, b3), with dx = x - mid.x and dy = y - mid.y (whole numbers for a 50-pixel tile): v0 (dx-1, dy-1, 0, 1), v1 (dx-1, dy, 0, 0), v2 (dx, dy, 1, 0), v3 (dx, dy-1, 1, 1), b0 and b3 the bitmap's bytes 0 and 3 on every one (each coordinate as trunc(d -/+ 0.5 - 0.5) in doubles). Where any vertex was made: +0x14 = 1 (managed pool), VertexBuffer_Create(mesh, device, n, 8, 0, 0), Lock (flags 0 - +0x15 is the dynamic 0), copy n*8 bytes, Unlock; IndexBuffer_Create(mesh, device, indices) (a triangle list: the vector's elements are made with +0x20 = 0), Lock, copy, Unlock. The declaration (+8) stays null: the draw sets WaterBorderDecl itself. **No height, controller or map-mode input**: the meshes are made once at load. The name is ours. See reversing/findings/FINDINGS-mapdraw.md, section B.8.\n(reversing/findings/FINDINGS-mapdraw.md)",
+   "signature": {
+    "convention": "__stdcall",
+    "return": "void",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "borders",
+      "type": "CBorderManager*",
+      "storage": "ESI"
+     },
+     {
+      "name": "tileRect",
+      "type": "const int*",
+      "storage": "stack:4"
+     },
+     {
+      "name": "mesh",
+      "type": "MeshBuffer*",
+      "storage": "stack:8"
+     }
+    ]
+   },
+   "labels": []
+  },
+  {
    "rva": 4421968,
    "namespace": "CBorderManager",
    "name": "OnResetDevice",
@@ -154551,6 +154708,51 @@
       "name": "vector",
       "type": "void*",
       "storage": "EDI"
+     }
+    ]
+   },
+   "labels": []
+  },
+  {
+   "rva": 4422352,
+   "namespace": "",
+   "name": "BorderManager_ResizeWaterVertexScratch",
+   "confidence": "CERTAIN",
+   "evidence": "std::vector of 8-byte elements resized to exactly **60000** (0xEA60): truncated where longer, grown through 0x3C62C0 / 0x438090 where shorter. One caller, CBorderManager_Construct, on +0x68 - the water-border vertex scratch BorderManager_BuildWaterBorderMesh fills and tests for room (a tile of 50 x 50 needs at most 10000). 0x437AD0 to the bare `ret`s at 0x437B13 and 0x437B5C. The fill value is not read. The name is ours. See reversing/findings/FINDINGS-mapdraw.md, section B.8.\n(reversing/findings/FINDINGS-mapdraw.md)",
+   "signature": {
+    "convention": "__fastcall",
+    "return": "void",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "vector",
+      "type": "void*",
+      "storage": "ESI"
+     }
+    ]
+   },
+   "labels": []
+  },
+  {
+   "rva": 4422496,
+   "namespace": "",
+   "name": "VectorU16_Resize",
+   "confidence": "CERTAIN",
+   "evidence": "std::vector<uint16_t>::resize(count), growing with zeros. 0x437B60 to the `ret 4`s at 0x437B9A and 0x437BE2. Callers at VA 0x8347A9 (CBorderManager_Construct: +0x78, the water-border index scratch, 90000), 0x8761AE, 0xB54284 and 0xB57E85 - so not the border manager's own. The name is ours. See reversing/findings/FINDINGS-mapdraw.md, section B.8.\n(reversing/findings/FINDINGS-mapdraw.md)",
+   "signature": {
+    "convention": "__stdcall",
+    "return": "void",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "vector",
+      "type": "void*",
+      "storage": "ESI"
+     },
+     {
+      "name": "count",
+      "type": "unsigned int",
+      "storage": "stack:4"
      }
     ]
    },
@@ -156529,6 +156731,31 @@
    "labels": []
   },
   {
+   "rva": 4628064,
+   "namespace": "",
+   "name": "MapGraphics_BuildTileWaterBorders",
+   "confidence": "CERTAIN",
+   "evidence": "**One tile's water-border mesh**: col = tile mod tile_columns (+0x18C), row = tile / tile_columns; rect = (tile_width * col, tile_height * row, tile_width, tile_height) (+0x194/+0x198, 50 [exe]; the width and height computed as trunc((col+1)*tw - col*tw) through floats); BorderManager_BuildWaterBorderMesh(border manager +0x415C in ESI, &rect, &water_border_meshes[tile] (+0x42D4 + 0x24 * tile)). 0x469E60 to the bare `ret` at 0x869F07 (VA); one caller, CProvinceManager_CreateMeshes at 0x457F8F, in a loop over every tile index from 0 below rows * columns, right after the +0x42D4 vector is resized to that count (0x46B510) and **before** the corner cache is built (which frees the border bitmap). The name is ours. See reversing/findings/FINDINGS-mapdraw.md, section B.8.\n(reversing/findings/FINDINGS-mapdraw.md)",
+   "signature": {
+    "convention": "__fastcall",
+    "return": "void",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "graphics",
+      "type": "WaterObject*",
+      "storage": "ECX"
+     },
+     {
+      "name": "tile",
+      "type": "int",
+      "storage": "EDI"
+     }
+    ]
+   },
+   "labels": []
+  },
+  {
    "rva": 4628432,
    "namespace": "",
    "name": "UpdateProvinceResourcePictures",
@@ -156947,7 +157174,7 @@
    "namespace": "",
    "name": "Map_UpdateProvinceColourTexture",
    "confidence": "CERTAIN",
-   "evidence": "**Fills both per-province colour textures** - textures +0xC ('Texture1', terrain_2_0.fx's tex2, GeneralTexture) from each entry's first colour (+0) and +0x10 ('Texture2', tex3, GeneralTexture2) from its second (+4); both 256x256 A8R8G8B8, D3DLOCK_DISCARD. One texel a province from index 1 (texel 0 is never written), **x = id mod 256, y = id / 256**, at y x pitch + 4x, bytes B, G, R, A, each channel x 255 truncated. **What it does to a colour depends on the map style (settings +0xF4) being 0** (the terrain and weather modes): where the province's byte +0xC (entry +0xC -> +0xC) is set, style 0 keeps r and b, puts **g = 0.1** and a = 1; any other style adds 0.1 to each of r, g, b, capped at 1.0, a = 1; where the byte is clear, style 0 keeps r and b and puts g = 0, a = 1, and any other style keeps the colour as it is. **So in style 0 Texture1 is the province-state texture** the Graphical shaders read - r the fog brightness, g 0.1 or 0, b the frozen share. What byte +0xC of a CMapProvince is was not read. `ret 4`; its one caller is Map_RefreshColourTextures. The name is ours. See reversing/findings/FINDINGS-mapdraw.md, section B.2, and reversing/findings/FINDINGS-weathersim.md, section C.1.\n(reversing/findings/FINDINGS-mapdraw.md)",
+   "evidence": "**Fills both per-province colour textures** - textures +0xC ('Texture1', terrain_2_0.fx's tex2, GeneralTexture) from each entry's first colour (+0) and +0x10 ('Texture2', tex3, GeneralTexture2) from its second (+4), by one rule for both; 256x256 A8R8G8B8, D3DLOCK_DISCARD, every province rewritten on every call. One texel a province from index 1 (texel 0 is never written), **x = id mod 256, y = id / 256**, at y x pitch + 4x, bytes B, G, R, A; the packed colour is unpacked by rva 0x662D30 (R byte 2, G byte 1, B byte 0, A byte 3, each / 255.0) and each channel written as trunc(x 255.0). **The byte that decides it is the province's selected flag**: the entry's +0xC is the CMapProvince, and the province's byte +0xC is byte +4 of its CSelectable subobject (+8) - set by CSelectable_Select and cleared by Selection_Remove, Selection_Clear and CInGameIdler::Deselect, written nowhere else but the constructor (0). **Map style 0** (settings +0xF4, read once a call; the terrain and weather modes): r and b kept, **g = 0.1f where the province is selected, 0 where not**, a = 1 - texel g 25 or 0. **Any other style**: selected - r, g and b each plus 0.1 (the single-precision 0.1 added in double, back to float), each capped at 1.0, and **a = 1**; not selected - the colour as written, its alpha included. In bytes the lift is **+25 on each channel, 255 from 230 up**. So in style 0 Texture1 is the province-state texture the Graphical shaders read - r the fog brightness, g the selection, b the frozen share. `ret 4`; its one caller is Map_RefreshColourTextures. The name is ours. See reversing/findings/FINDINGS-mapdraw.md, sections B.2 and B.9, and reversing/findings/FINDINGS-weathersim.md, section C.1.\n(reversing/findings/FINDINGS-mapdraw.md)",
    "signature": {
     "convention": "__stdcall",
     "return": "void",

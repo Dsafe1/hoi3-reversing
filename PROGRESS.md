@@ -227,7 +227,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CLobbyStartGame` | `CCommand` |  |  |  | 1 |  | 1 | RTTI |  |
 | `CLoginHandler` | `TLoginInterface` `CLoginObservable` |  |  |  |  |  |  | RTTI |  |
 | `CMapPoint` | `CPersistent` | 0x10 | 2 |  | 2 |  | 879,780 | keys |  |
-| `CMapProvince` | `CProvince` |  | 87 | 14/26 | 14 | CMapProvince.hpp | 28,380 | read |  |
+| `CMapProvince` | `CProvince` |  | 88 | 14/26 | 14 | CMapProvince.hpp | 28,380 | read |  |
 | `CMapRenderingOptions` | `CPersistent` |  |  | 2/9 | 2 |  | 1 | placed |  |
 | `CMessageHandlerInterface` | `CReferenceObject` |  |  |  |  |  |  | RTTI |  |
 | `CMessageType` | `CPersistent` | 0x38 | 9 | 1/7 | 2 |  | 185 | read |  |
@@ -259,7 +259,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CPeaceAction` | `CDiplomaticAction` |  |  | 5/6 | 11 |  |  | RTTI |  |
 | `CPlayerConnected` | `CCommand` |  |  | 1/4 | 1 |  | 1 | placed |  |
 | `CPortStrikeOrder` | `CAirOrder` |  |  |  | 7 |  |  | RTTI |  |
-| `CProvince` | `CPersistent` `CSelectable` |  | 71 + 9 lua | 14/26 | 22 |  |  | read |  |
+| `CProvince` | `CPersistent` `CSelectable` |  | 72 + 9 lua | 14/26 | 22 |  |  | read |  |
 | `CProvinceBuilding` | `CSelectable` `CModifierEntry` `CPersistent` |  | 7 + 2 lua |  | 1 | CProvinceBuilding.hpp | 1,702,800 | read |  |
 | `CProvinceFloat` | `CPersistent` |  |  |  | 1 |  | 36,084 | keys |  |
 | `CProvinceHistory` | `CHistoryContainer` |  |  |  | 1 | CCountryHistory.hpp | 14,190 | keys | **read**: `history/provinces`, the same date-block shape as CCountryHistory. Its handler names four keys; the rest are buildings |
@@ -372,7 +372,7 @@ Definitions out of `common/` and the rest of the mod. Their `LoadKey` is the gra
 | `CLawGroup` | `PAVCLaw::__CList` `CPersistent` |  | 4 + 2 lua |  | 1 |  | 8 | keys |  |
 | `CLocalIntelBoost` | `CIntEffect` |  |  | 3/91 | 2 |  | 9 | RTTI |  |
 | `CMTTHModifier` | `CAndTrigger` |  | 1 | 1/1 | 1 |  | 650 | placed |  |
-| `CMap` | `CPersistent` `CReloadableInterface` |  | 46 | 15/22 | 18 | CMap.hpp | 2 | read | the map load rather than a `common/` file |
+| `CMap` | `CPersistent` `CReloadableInterface` |  | 47 | 15/22 | 18 | CMap.hpp | 2 | read | the map load rather than a `common/` file |
 | `CMasked3dFlagType` | `C3dObjectType` |  |  | 1/4 | 1 |  | 1 | placed |  |
 | `CMaskedSpriteType` | `CSpriteType` |  |  |  | 1 |  | 12 | keys |  |
 | `CMeanTimeToHappen` | `CPersistent` | 0x1C | 2 | 5/5 | 3 |  | 9,821 | placed | **read**: the MTTH grammar every event and decision is timed by |
@@ -452,7 +452,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CBeachManager` | `CLostDeviceInterface` |  |  |  |  |  | 1 | RTTI |  |
 | `CBombCombatMember` | `COutLinerMember` |  | 4 |  | 6 |  |  | part |  |
 | `CBookmarkEntry` | `CStandardlistboxItem` | 0x88 | 4 |  | 3 |  |  | part |  |
-| `CBorderManager` | `CLostDeviceInterface` |  | 21 |  | 2 |  | 1 | read |  |
+| `CBorderManager` | `CLostDeviceInterface` | 0xA0 | 24 |  | 2 |  | 1 | read |  |
 | `CBrigadeBuilder` | `CReloadableInterface` |  |  |  | 3 |  | 1 | RTTI |  |
 | `CBrigadePicker` | `CReloadableInterface` |  |  |  | 3 |  | 1 | RTTI |  |
 | `CBrigadeSortInterface` |  |  |  |  |  |  |  | RTTI |  |
@@ -543,7 +543,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CICCostComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CIcon` | `CButton` |  |  |  | 1 |  |  | RTTI |  |
 | `CIdler` |  |  |  |  |  |  |  | RTTI |  |
-| `CInGameIdler` | `CEU3Idler` `CLostDeviceInterface` `CReloadDispatcher` |  | 104 |  | 100 | CInGameIdler.hpp | 3 | read |  |
+| `CInGameIdler` | `CEU3Idler` `CLostDeviceInterface` `CReloadDispatcher` |  | 106 |  | 100 | CInGameIdler.hpp | 3 | read |  |
 | `CIngameSettingsScreen` | `CSettingsScreen` | 0x3E0 | 1 |  | 2 |  | 1 | part |  |
 | `CLandOrdersView` | `COrdersView` | 0x198 | 10 |  | 10 |  |  | read |  |
 | `CLawEntry` | `CStandardlistboxItem` | 0x88 | 4 |  | 3 |  | 16 | part |  |

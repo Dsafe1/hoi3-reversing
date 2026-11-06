@@ -293,8 +293,8 @@ packed 0xAARRGGBB colours a map mode's colouring loop writes, +8 the CProvinceTe
 **The province colour lookups (+0xC, +0x10)**: one texel per province from id 1, texel 0 never written [exe]; **x = id mod
 256, y = id / 256**, bytes B G R A, each channel ×255 truncated. **Map style 0** (Terrain, Weather): g = 0.1 where the
 province's byte +0xC is set, else 0, r and b kept, a = 1. **Other styles**: +0.1 on r, g and b, capped at 1, a = 1, where
-byte +0xC is set, else the colour as written. Byte +0xC was not read; that it is a highlight is *inferred* from the 0.1
-added. On the land side the mesh's SHORT2 TEXCOORD0 is (id & 0xFF, id >> 8) - the shipped cache's first land chunk carries
+byte +0xC is set, else the colour as written. Byte +0xC is the province's selection flag - *read since*: B.9, which gives
+the lift exactly. On the land side the mesh's SHORT2 TEXCOORD0 is (id & 0xFF, id >> 8) - the shipped cache's first land chunk carries
 (80, 40) for province 10320 - so the shader's (vProvinceId + 0.5)/256 lands on exactly that texel. **In style 0 texture +0xC
 is the province-state texture**: r 1.0 where the player's intel is 2 or more, 0.5 below it, 0 where the province is not
 simulated; b the frozen share, in the Weather mode only; what `PixelShader_Map2_0` makes of them is
@@ -318,7 +318,7 @@ answers true the intel test is skipped - CInGameIdler's is `xor al,al; ret`, so 
 Map_RefreshColourTextures (45 in all); the sea rasters there too, but only for styles 16, 18 and 19, and on every fog
 rebuild; the fog only by the five-frame refill, Map_RefreshColourTextures with its flag set (front-end enter, game setup,
 history date, MapGraphics_Update and others; the mode setters pass 0), `CInGameIdler_RefreshMap` (0x2516A0) while its flags
-(idler +0x84 & 0xF) are set - Province_SetController sets bit 1 - and MarkSimulatedProvinces. No daily or hourly path to the
+(idler +0x84 & 0xF) are set - Province_SetController sets bit 0 and 0x100, *corrected* in B.9 from "bit 1" - and MarkSimulatedProvinces. No daily or hourly path to the
 fog was found, so a change of intel alone does not reach the sea's fog until one of these runs (*inferred*; the limit the
 direct-call scan and `FINDINGS-weathersim.md` C.1's scan for writers of +0x84).
 
@@ -484,6 +484,174 @@ the record's BorderManager_Tick "refill", as above. Tooling, trap 2: OnResetDevi
 lookup texture after a change of controller, set beside this rule.
 
 Frontier: 0x437AD0, 0x437B60, 0x437F70, 0x4374D0, 0x87DB0, 0x873C0, 0x87C90.
+
+### B.8 The water borders
+
+*Read 2026-11-06 by a delegated agent (fragment `mapdraw-waterborders.json`), measured on TFH's `tfh/map/terrain.bmp`,
+`provinces.bmp`, `definition.csv`, `cache/border_bitmap.bin` and the install's `map/terrain/water_borders.dds` and
+`water_diag_borders.dds`.*
+
+**In one line.** Every water pixel with a province-border or diagonal code in `border_bitmap.bin` gets a one-pixel quad
+whose four bytes are its uv corners and the bitmap's bytes 0 and 3, each picking one 64-texel column of its texture; built
+once at load, one mesh for each 50×50 tile, from the map files alone, and drawn at every height over everything drawn
+before them, as faint black lines.
+
+**Who builds them** [exe]. `CProvinceManager_CreateMeshes` resizes `+0x42D4` to rows × columns MeshBuffers (0x46B510; new
+elements zeroed, so a triangle list) and calls `MapGraphics_BuildTileWaterBorders` (0x469E60) for every tile at 0x457F8F -
+after the border manager has read `border_bitmap.bin` (B.7) and **before** BuildCornerCache frees it (0x458768). 0x469E60
+takes col = i mod +0x18C and row = i div +0x18C and passes (50·col, 50·row, 50, 50) and `&meshes[i]` to
+`BorderManager_BuildWaterBorderMesh` (0x4374D0), the border manager (+0x415C) in ESI; each has no other caller.
+`fieldchain` finds +0x42D4 touched only by the constructor, the release (0x44FCF0), this resize, the draw and 0x469E60, so
+**nothing rebuilds them in play** - no controller, mode or setting - and their buffers are D3DPOOL_MANAGED (MeshBuffer +0x14
+= 1), so a reset does not lose them.
+
+**Which pixels** [exe]. x from x0 to x0+49 outer, y from y0 to y0+49 inner; kept where x < W and y < H; terrain.bmp's byte
+there (CMap +0x20E4, loaded as the province raster is, so its rows run the same way; 0 outside) indexes through
+`terrain_by_palette_index` (+0x2220) an entry whose CTerrain (+0xC) has `is_water` (+0x48); 2 ≤ x ≤ (W+1) − 2 and 2 ≤ y ≤
+(H+1) − 2 against the bitmap's +0x40/+0x44; the scratch has room (60,000 vertices; a tile needs at most 10,000); and
+**bitmap byte 0 or byte 3 at (x, y) is not 0**. So x in 2..W−1, y in 2..H−1, y from the south. *Measured*, TFH: index 254
+(`ocean1`, `is_water = yes`) is the only water index; **668,662 quads** in 3,638 of the 4,972 tiles, at most 367 in one;
+every quad's province a water province.
+
+**What the codes mean on water** (*measured*, as B.7's bit table predicts). On the quads a set bit of byte 0's 1, 2, 4, 8
+has a different province on that side 394,659 times and the same 88 (all on the y bits), and **never** land: the shipped
+bitmap carries no coast bit from a water pixel. Of the 282,519 diagonal-only quads (byte 0 = 0), the 2,155 that touch land
+and no other sea province all have byte 3 = 20 or 21, which draws nothing. So **this system draws the borders between sea
+provinces; the coast is the surf's** (C.1 #6). Byte 0: 0 on 282,519, 1/2/4/8 on 86,030/86,066/103,426/101,613, 16 or more on
+8; byte 3: 0 on 252,085, 1..6 on 375,479, 19..22 on 41,098.
+
+**The vertex** [exe], 8 bytes (SHORT2 POSITION + UBYTE4 TEXCOORD0). mid = (x0 + 25, y0 + 25), dx = x − mid.x, dy = y −
+mid.y (computed in doubles as trunc(d ± 0.5 − 0.5), exact for a 50-pixel tile):
+
+| vertex | X | Y | u_corner | v_corner | byte 6 | byte 7 |
+|---|---|---|---|---|---|---|
+| v0 | dx − 1 | dy − 1 | 0 | 1 | bitmap byte 0 | bitmap byte 3 |
+| v1 | dx − 1 | dy | 0 | 0 | 〃 | 〃 |
+| v2 | dx | dy | 1 | 0 | 〃 | 〃 |
+| v3 | dx | dy − 1 | 1 | 1 | 〃 | 〃 |
+
+Indices n, n+1, n+2, n+2, n+3, n (16-bit), in visiting order; stride 8; the draw sets WaterBorderDecl itself.
+
+**What the shader makes of it** [mod: gfx/FX/borders_2_0.fx]. Position (X + 0.5, 0.0, Y + 0.5 − 0.7) by the tile's
+world-view-projection (tile +0x1FC, A.4), then clip y += 2.0 (*inferred*: about 0.83 map units north at any height, which
+roughly cancels the 0.7). Texture coordinates: base ((1 + 50·u_corner)/1024, v_corner), so u runs over texels 1..51 of a
+64-texel column and v the whole height (v 0 north); ProvCoord.x = base + byte0/16, DiagCoord.x = base + byte3/16; both
+clamp, so **a code of 16 or more lands on texel column 1023, transparent in both: those quads draw nothing**. The pixel
+shader premultiplies each sample and takes the maximum of rgb and of alpha.
+
+**The art** (*measured*, [mod: map/terrain]). water_borders.dds 1024×64 DXT3, water_diag_borders.dds 1024×64 A8R8G8B8,
+one mip each; column c is code c. Column 1 (x+1) has its line at window texels 42..51, column 2 at 1..7, column 4 (y+1) at
+rows 0..9, column 8 at rows 55..63 - agreeing with the corner bytes. All province columns are black at **alpha 0.2 at
+most** (2.3% to 7.6% darkening over a quad); diagonal columns 1 and 2 full diagonals at 0.216, 3..6 small corner marks;
+diagonal columns 9..14 red (215, 0, 0) at alpha 1, unreachable here - the mesh carries the file's byte 3, never the corner
+cache's bit 3.
+
+**The draw** (0x45DD50, read whole) [exe]. ZWRITEENABLE 1, ZENABLE 0, ALPHABLENDENABLE 1; WaterBorderShader, Begin(0),
+pass 0; **the only parameters set** are tex1 = water_borders (+0x2C4), tex3 = water_diag_borders (+0x2C8), by name, and
+WorldViewProjectionMatrix (+0x27C) = tile +0x1FC for each visible tile whose mesh has any. The blend factors are SRCALPHA
+/ INVSRCALPHA as DrawWater left them. Whether ALPHATESTENABLE is on here is C.2's open item.
+
+**No gate** [exe]. The scene calls it where mask & 0x200 and the border manager exists (0x45C218..0x45C22C) - the land
+borders' call in the same function, testing `border_cutoff` and mask 0x2, the positive control. Neither the draw nor the
+builder reads the height. Every immediate written to `[reg+0xF0]` in .text (0xFF9A, 0xFFAA, 0xFFBA, 0xFFBB, 0xFFBE, 0xFFFF;
+`fieldchain --field 0xF0 --writes`) has 0x200 set, so no map mode hides them; immediates only. **So the far view does not
+hide them in code**; *inferred*, the art does: above 500 a map pixel is at most about two screen pixels, and a line is 20%
+black over a fifth of it, with no mips.
+
+**Corrections.** None to what was published; B.6's open item is answered. The record's `CBorderManager_Construct` comment
+("what either is for was not read", +0x68/+0x78) - they are this builder's scratch.
+
+**Not established.** What a `border_bitmap.bin` made again would hold (B.7's ladder); whether 0x10 in byte 0 is a region
+border; ALPHATESTENABLE at the draw; the +2.0 clip shift's exact size off the screen's middle; a 24-bit terrain.bmp's byte
+(the first channel, *inferred*); 0x44FCF0.
+
+Frontier: 0x798D80 (likely memcpy), 0x3C62C0, 0x438090, 0x437DC0, 0x46B510, 0x44FCF0.
+
+### B.9 The highlight
+
+*Read 2026-11-06 by a delegated agent (fragment `mapdraw-highlight.json`); the collecting session checked the three flag
+stores off the bytes - `or [eax+0x84], 1` at 0x4A3585, `or [eax+0x84], 0x100` at 0x4A35CE, `or [eax+0x84], 0x200` at
+0x49E47D and 0x49E592. Addresses are VAs unless marked rva.*
+
+**In one line.** A selected province is lit by one thing alone - Map_UpdateProvinceColourTexture adding 25/255 to its
+texels in both colour lookups - the byte it tests is the province's own selection flag, the lookups are refilled whole by
+the in-game screen's per-frame refresh after any province is selected or deselected, and hovering marks nothing on the
+map surface.
+
+**The byte** [exe]. The province graphics entry's +0xC is the CMapProvince itself - MapMode_VictoryPoints_ColourLoop reads
+`[entry+0xC]` +0x370/+0x374, +0xD4 and +0x34 (0x8665FF..0x8666B6) - and the highlight byte is **CMapProvince +0xC**.
+CProvince carries CSelectable at +8 (RTTI); its constructor writes CSelectable's vftable 0x15C0694 at +8 and `mov byte
+[esi+0xC], 0` (0x49472E, 0x494735), so +0xC is CSelectable +4 - the selected byte the record names on CUnit +4.
+MapGraphics_PickUnderPointer hands a province over as province + 8 (0x641877).
+
+**Who writes it.** CSelectable_Select (`mov byte [edi+4], 1`, 0x4AD621) sets it; Selection_Remove (0x4AD6A7),
+Selection_Clear (0x4AD79B) and CInGameIdler::Deselect (0x656C7B) clear it; the constructor zeroes it. Census (a resumed
+sweep, 3,084,674 instructions, 1,005 resumes, last at 0xD2AFFE against the section's end 0xD2B000): every byte store to
+[reg+4] within 40 instructions of a call through the OnSelected/OnDeselected slots gives those four and no other; every
+byte store to [reg+0xC] (1,358) filtered to those with a CMapProvince displacement within 30 gives 73 - 68 after `operator
+new`, 4 list-node marks (0x5B565F, 0x5CA5B3, 0x5CFEEB, 0x8A5172), 1 the constructor (the positive control). Readers through
+an entry: Map_UpdateProvinceColourTexture's two (0x880F94, 0x881299) and a CRT read. Limit: a writer reaching the province
+through a register with no province displacement nearby would not be seen.
+
+**So which provinces are lit is which are selected** (`FINDINGS-selection.md` A.4, `FINDINGS-provinceview.md` A.1): a plain
+click on land selects it alone; Shift-click adds or removes provinces, so several may be lit; the drag box never takes a
+province; selecting a unit, Escape, the view's close button or a click elsewhere clears it. The occupier flag in the
+province view selects that country's capital; a base row in the outliner whose unit is not the player's selects the base's
+province. **A sea zone never stays lit**: CSelectable_Select sets the byte and appends it, then CProvince::OnSelected
+(0x49E240) sees `template +0x22 == 0` and runs CInGameIdler::ClearSelection; and the sea is drawn from the sea rasters,
+which carry no lift (B.2). The byte does not test `simulated` (*inferred*; only in a scenario).
+
+**What is not lit.** The hovered thing (CInGameIdler +0x1DD4) is read only by HandleInput, CInGameIdler_UpdateCursor and
+CInGameIdler::GetTooltip. The graphics owner's +0x60D0, the province graphics under the pointer, is written by
+PickUnderPointer, CFrontEnd::Update and CNudgeIdler and read by nothing (a disp32 search finds 4 writes and no read; the
+known PickUnderPointer write is the positive control). The selected units' provinces, the placing mode (14), the air orders
+window's area and mode 17's box colour through the entries' own colours and never touch the byte. The land border lookup
+reads only controllers (B.3, B.7); highlight.fx is named nowhere (C.4).
+
+**When it is refilled** [exe]. CProvince::OnSelected and OnDeselected (0x49E4F0) OR **0x200** into the in-game screen's
+refresh flags, CInGameIdler +0x84, and push the province id onto +0x88 (or -1 once 110 are queued); no other writer of
+0x200 (every immediate OR/MOV into [reg+0x84] / byte [reg+0x85]; Province_SetController's bit-0 store the positive
+control). CInGameIdler_RefreshMap runs every frame from CInGameIdler::Update (0x655EF4; one `ret`, no branch over the call);
+where 0x200 is set it calls Map_RefreshColourTextures(textures, entries, 0) - **both 256² lookups rewritten whole**, the fog
+untouched, +0x88 not used - then sets +0x84 = 0 and empties +0x88. The click is handled after it in the same Update
+(HandleInput, 0x656471), so a click shows in the next frame's refill (*likely*; the frame's order of update and draw not
+read). Every other refill re-applies the lift, the byte being tested at fill time: the mode setters and colouring
+routines (45 call sites), RefreshMap's 0x100 arm, the five-frame refill after a reset (B.2) - so a change of mode keeps the
+selection lit.
+
+**The lift, per style** [exe the texel; mod: gfx/FX/terrain_2_0.fx the shading - the base game's file, tfh/gfx/FX having
+none]. The colour is unpacked to floats (rva 0x662D30, byte / 255) and written back as trunc(× 255.0); the style (settings
++0xF4) read once per call.
+
+- **Style 0** (Terrain, Weather): both textures r and b kept, **g = 25** where selected and **0** where not, a = 255. Land,
+  TerrainShader_Graphical: `((tiles, winter-greyed by b, + 0.3b) × r) + g` - a selected province gains **+25/255 ≈ 0.098
+  on r, g and b after the fog multiply**, so it shows under full fog. Beaches, BeachShader_Graphical: `+ 1.1g` (≈ 0.108)
+  after the fog, before the winter lerp, which keeps it whole (GREYIFY sums to 1).
+- **Every other style**: selected, each of r, g and b + 0.1 capped at 1.0 - **+25, or 255 from 230 up** - and **alpha
+  forced to 255**; not selected, the colour as the mode wrote it; both lookups, so both stripe colours. Near land (General):
+  `lerp(grey terrain, stripe-lerp(C1 − 0.7, C2 − 0.7), 0.3) × 1.5` adds **0.3 × 1.5 × 25/255 ≈ 0.044** below the cap. Far
+  land (General_Low): through the overlay blend, 0.45 × 2·O·0.098 where O < 0.5, else 0.45 × 2(1 − O)·0.098 (the file's
+  test uses O.r for r and g, O.b for b). Beaches General and General_Low ≈ +0.044.
+- **The sea**: none, in every style.
+
+**Other selection marks, none of them a province's.** For a selected unit, the counter rings (`FINDINGS-hierarchy.md`
+section 6) and a `selection_projection` CUnit::OnSelected makes on the anchor (+0x10) of its province's graphics entry
+(interface/mapitems.gfx: gfx/test/selection.tga, size 5, spin 0.4, expanding 0.7 [mod]; read as far as the creation); a
+right-click order's `legal_` / `illegal_selection_projection`; a building's picture's own highlight
+(CProvinceBuilding::OnSelected); the drag box, a white 2-pixel ID3DXLine.
+
+**Corrections.** B.2 and the record's CInGameIdler_RefreshMap said "Province_SetController sets bit 1" of +0x84: it ORs
+**1** (bit 0, 0x4A3585, as B.7 has it) and **0x100** (0x4A35CE, through the province's +0xCC listener). The record listed
+RefreshMap's recolouring as "supply, VP, strength, intel, terrain, weather": its table dispatches modes 1, 2, 4, 5, 6, 7,
+8, 9 and 17, terrain (rva 0x266020) and weather only in the & 0xF arm. B.6's "CMapProvince byte +0xC" is answered.
+
+**Not established.** The frame's order of update and draw (so the one-frame lag is *likely*); whether the lobby ever
+selects a province (no direct CSelectable_Select call in CFrontEnd or CGameSetup; the slot-38 census too noisy to finish);
+CInGameIdler::OnAlertClicked's second arm (0x64AEE2); whether forcing alpha to 1 shows (only with the alpha test on, C.2);
+the scans' limits. A live check would settle the rest - BiceLib dumping texel (id mod 256, id / 256) of both lookups
+before and after a click.
+
+Frontier (rvas): 0x263340, 0x24ACB0, 0x266020, 0x272BE0, 0x4E7DD0, 0x2434C0, 0x1C05F0.
 
 ## C. The scene as a whole, and the smaller layers
 
