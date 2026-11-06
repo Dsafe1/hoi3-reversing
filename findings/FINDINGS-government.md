@@ -467,7 +467,11 @@ Success fires `on_coup_success` - event 5057 in both the base game and TFH: leav
 - Seats the rounding leaves over go to nobody.
 - Organisation's `last_change` is never written, so its "Internal Factors" line never shows.
 - Loading a save appends the saved `cabinet` to a vector already sized, so a reloaded game saves 22
-  figures (inferred from `0x45F450` and the saves).
+  figures (inferred from `0x45F450` and the saves). `Germany1936_04_20_03.hoi3`, a game loaded at least
+  once, has 22 for every country: the first eleven equal the seats its saved popularity allots - which
+  `AfterLoad`'s allotment (B.4) writes over the sized vector - and the last eleven another set, the loaded
+  save's, which nothing reads (2026-11-06, set beside the allotment by OpenHOI3's loader; the other ten
+  saves checked have 11).
 - `CCountry +0x113C` `election` is loaded inverted and read by nothing.
 - `CPerformCoupCommand`'s `IsValid` and `Execute` re-check neither the coup's conditions nor the
   covert-operations points.

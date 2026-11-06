@@ -927,9 +927,36 @@ control). **No message marks a war's end**: `PostMessage_CWar`'s four callers ar
 ### C.13 A war's end
 
 **Nothing removes a war in play.** `previous_war` (`+0xC20`) is appended only by the save loader
-(`0x6800C3`) and the history replay (`0x5F5690`); `CWar`'s destructor runs only at
+(`0x6800C3`) and the history replay (the store at VA `0x5F5690`, in `HistoryDatabase_PlaceWars`, rva `0x1F5450` -
+read below); `CWar`'s destructor runs only at
 `CGameState::ResetSession`. A war whose side has emptied stays in `active_war` - the 20 April save has
 "Second Italo-Abyssinian War" with ITA alone and no goals.
+
+#### C.13.1 Which of the history's wars a new game starts with (read 2026-11-05)
+
+*For OpenHOI3's writer: every save of the maintainer's has two `previous_war` blocks with no name, no side and the
+null `action`, and a new game there had none. Read on the listing; addresses are VAs, the functions' rvas in
+`fragments/merged/history-wars-placed.json`.* [exe] throughout, `confirmed` but where marked.
+
+1. **Every file in `history/wars` is a war** (`HistoryDatabase_LoadFiles`, rva `0x1F5A80`, read for this part
+   only, so *inferred* as a whole): the files are gathered by layer, and for each a `CWar` is made, its history loaded
+   from the file, and the war appended to the history registry's list at `+0x48` - **whatever the file holds**. A file
+   with nothing in it is a war with no name, no side and no history [mod: history/wars].
+2. **`ExecuteHistory`** applies the history to the start date, then walks `+0x48` and **moves every war with at least
+   one attacker and one defender to the list at `+0x38`** (`0x5F502A`-`0x5F513F`).
+3. **`HistoryDatabase_PlaceWars`** (`0x5F5450`, called once, from `CGameState::StartAI`'s new-game branch at
+   `0x648D43` with the registry and the tick): every war on `+0x48` **whose `CWar::GetStartDate` is on or before the
+   date** goes on `previous_war` - the start being the first dated entry of year 2 or later, **the null date where it
+   has none, which is always before** - and every war on `+0x38` has its later history dropped
+   (`CWar_DropFutureHistory`) and goes on `active_war`. Then the new-game branch at `0x648EFD` sets every active war's
+   `+0xC` to the tick (`FINDINGS-savegame.md`).
+
+So **a history war is fought where both its sides hold somebody on the start date, finished where it began on or
+before the start and does not, and absent where it begins later.** In the base game's 14 files on 1 January 1936:
+the Second Italo-Abyssinian War is fought; `ContinuationWar.txt` (a comment and nothing else) and
+`SovietJapaneseWar.txt` (every line commented out) are wars of nothing, finished - **the two nameless `previous_war`
+blocks every save holds**; the eleven others begin after the date and are on neither list. A war that began and ended
+before the start date would be a finished war under its name; the base game has none.
 
 **`RemoveLandlessCountriesFromWars`** (`0x689EA0`) runs only as a session is entered: every country
 owning no province and not in exile leaves every war (flag 0) and its faction.
@@ -995,7 +1022,7 @@ positive control). `truce_months` (`+0x1D0`): C.11 and B.3.
 
 ### C.18 Frontier (rvas)
 
-`0x1F5450` (the history replay of wars), `0x283EE0` (a war name already used), `0x1FA7E0`,
+~~`0x1F5450` (the history replay of wars)~~ (read, C.13.1), `0x283EE0` (a war name already used), `0x1FA7E0`,
 `0x64D920` (`~CWar`), `0x94700` (`CProvince`'s constructor), `0x21D498`/`0x226154`/`0x227A17` (the
 other `RandomPerturbAtLeast` callers), `0xA2180` (the owner setter).
 

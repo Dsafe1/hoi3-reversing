@@ -1,0 +1,47 @@
+{
+  "agent": "history-wars-placed",
+  "question": "Which of the history's wars a new game puts on active_war and which on previous_war - why every save has two nameless, empty previous_war blocks.",
+  "source": "reversing/findings/FINDINGS-war.md",
+  "addresses": [
+    {
+      "rva": "0x1F5450",
+      "kind": "function",
+      "name": "HistoryDatabase_PlaceWars",
+      "signature": "void __stdcall HistoryDatabase_PlaceWars(void* registry, int* date)",
+      "no_signature": null,
+      "comment": "**The history replay of wars: which of the history's wars a new game starts with, and on which list.** VA 0x5F5450 to `ret 8` at 0x5F57B0; one caller, at 0x648D43 in CGameState::StartAI's new-game branch, with the history registry ([0x1A88BC0]) and &tick (state +0xBDC). In order: two empty walks of the registry's vectors at +0x0 and +0x10 (only reads; nothing is done with them); the CDiplomaticHistory at +0x30's entries dated on or before the date applied into the state's diplomacy (+0xB24); then **the list at +0x48 - every war ExecuteHistory left there - each war whose CWar::GetStartDate (0x651D20) is on or before the date appended to the state's `previous_war` list (+0xC20, tail +0xC24, count +0xC28; the store at VA 0x5F5690)**, a war of no dated history having the null date as its start and so always appended; then **the list at +0x38 - the wars ExecuteHistory found with somebody on both sides - each given CWar_DropFutureHistory (0x64F0B0) and appended to `active_war` (+0xC00)**. A war whose first dated entry is after the date is on neither. The state is made where [0x1689790] is null (0xDA8 bytes, CGameState::CGameState), as ExecuteHistoryToDate does.",
+      "confidence": "confirmed",
+      "evidence": "Read on the listing 0x5F5450-0x5F57B0: the +0x48 walk at 0x5F55B5-0x5F56B5 (`call 0xa51d20`, `cmp eax, [ecx]` against the date, `jg` past the append; the node made at 0x5F5667 and linked at 0x5F5687-0x5F56A5 into +0xC24/+0xC28/+0xC20), the +0x38 walk at 0x5F56B8-0x5F57A0 (`call 0xa4f0b0`, then the append into +0xC00's list at 0x5F5751). Caller found with findRefs --callers: one, 0x648D43, pushing state +0xBDC and the registry.",
+      "source": "reversing/findings/FINDINGS-war.md"
+    },
+    {
+      "rva": "0x1F5A80",
+      "kind": "function",
+      "name": "HistoryDatabase_LoadFiles",
+      "signature": null,
+      "no_signature": "one stack argument, `ret 4`; a frame of 0x2C14 bytes; the registry is the argument at [ebp+8]. Its other arguments and the folders it loads besides history/wars were not read",
+      "comment": "**Reads the history folders into the registry**; VA 0x5F5A80 to `ret 4` at 0x5FA7DC, callers 0x6397BB and 0x63A68C (ResetGameStateToStartDate). Read only for history/wars: the files are gathered by layer under `/wars/` (0x15C9E50, at 0x5F998A), and **for each file a CWar is made (0xAC bytes, CWar's constructor 0xA4D6D0), its history (the CWarHistory at war +0x4C) loaded from the file through that object's slot 3, and the war appended to the registry's list at +0x48** (head +0x48, tail +0x4C, count +0x50; 0x5F9CE4-0x5F9D2B) - every file, whatever it holds, so a file with nothing in it is a war with no name, no sides and no history. Then `History loaded for #<name> entries = <n>` logged (history.cpp line 0x489).",
+      "confidence": "inferred",
+      "evidence": "The war part read on the listing 0x5F9C30-0x5F9E3E; the extent from image.functionStart over 0x8000 bytes and the first `ret` after it; callers by findRefs --callers. The rest of the 0x4D5C-byte body was not read, hence inferred for the whole.",
+      "source": "reversing/findings/FINDINGS-war.md"
+    },
+    {
+      "rva": "0x1F4C20",
+      "kind": "function",
+      "name": "ExecuteHistory",
+      "revises": "the comment gains what the fourth argument is - the history registry - and the walk that moves each history war with somebody on both sides from its list at +0x48 to +0x38, read 2026-11-05; the name, signature and the rest of the comment are unchanged",
+      "signature": "void __fastcall ExecuteHistory(int* from@ECX, void* containers@EDX, int* to@stack:4, void* alsoContainers@stack:8)",
+      "no_signature": null,
+      "comment": "**The engine's `history execute` stage, and the only bulk reader of the history.** Logs `Executing History from <from> to <to>` on `history.cpp:11`, then for every CHistoryContainer* in the vector at [EDX]..[EDX+4] calls CHistoryContainer::ApplyRange (0x1F47C0) with the same two dates, and does the same for a second collection held at +0x10/+0x14 of the fourth argument when that is non-null. The direction is decided once, by `setl` on `*from < *to` at rva 0x1F4C62. Extent 0x1F4C20..0x1F5298, one `ret 8`, from-date in ECX and the container vector in EDX. Four call sites, all in ExecuteHistoryToDate (0x1F52A0). **Not on the tick**: that caller runs from CEU3Application::LoadEverything, from ResetGameStateToStartDate (0x23A460), from CSetHistoryDate slot 6 (0x2D60C0) and from six lobby/scenario-setup handlers (0x2F4250, 0x2F48A0, 0x2F4EA0, 0x2F5500, 0x307BF0, 0x31D4B0). **Added 2026-11-05 (FINDINGS-war.md C.13): the fourth argument is the history registry** - after its containers it applies the registry's CDiplomaticHistory (+0x30) and CWarHistory (+0x34), then walks the registry's list of wars at +0x48 and **moves each war with at least one attacker and one defender** (the vectors at war +0x2C..+0x30 and +0x3C..+0x40, eight bytes a member) **to the list at +0x38**, and to a local list (VA 0x5F502A-0x5F513F). HistoryDatabase_PlaceWars (0x1F5450) then puts +0x38 on active_war and +0x48 on previous_war.",
+      "confidence": "confirmed",
+      "evidence": "The war walk read on the listing 0x5F4FFB-0x5F5145: ApplyRange on [esi+0x30] and [esi+0x34] (0x5F4FFF, 0x5F5008), the +0x48 walk from 0x5F502A, the two side tests `mov edx,[ebx+0x30]; sub edx,[ebx+0x2c]; and edx,-8; cmp edx,8; jl` and the same on +0x40/+0x3C, the unlink from +0x48/+0x4C/+0x50 at 0x5F508E-0x5F50BB, the append to +0x38/+0x3C/+0x40 at 0x5F50BE-0x5F50F8. Found by a linear sweep of .text for an append to +0x38/+0x3C/+0x40, which also found the record's other list appends as controls.",
+      "source": "reversing/findings/FINDINGS-history.md"
+    }
+  ],
+  "structs": [],
+  "struct_fields": [],
+  "frontier": [
+    "0x1F5A80 beyond its history/wars part",
+    "0x1F5450's two empty walks of the registry's vectors"
+  ]
+}
