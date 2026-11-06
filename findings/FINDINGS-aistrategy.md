@@ -55,6 +55,13 @@ literal, and no define reaches any of it.
 | 5 | `0x4AD6E0` | the war targets rechecked (section J) |
 | 6 | | `initialized = 1` |
 
+**After a load** (2026-11-06, read for OpenHOI3's loader): `rebuild_tick` is not saved - none of `CAIStrategy::LoadKey`'s
+21 keys is a tick - and the constructor (`0x4A33A0`) sets it not to nought but to **the defines' `start_date`**
+(`GetDefines()+8` stored at `0x4A33E8`). A saved strategy is `initialized`, so the after-load pass leaves it alone, and
+it is kept until **the first daily pass ten whole days or more after the start date** - in any save of 11 January 1936
+or later, the first midnight after the load - which rebuilds it. *Not read*: whether anything between the constructor
+and the load writes `+0x10` - a new game's rebuilds would, in a session that played one before loading.
+
 **The 1936 saves bear the schedule out.** Between `Germany1936_01_01_00` and `Germany1936_04_20_03`, 68 countries' lists
 differ and 33 are the same - the threat lists move with every regiment built - and Britain's `antagonize` is the same in
 both (section D.3), as a list made from the same victory conditions would be.
