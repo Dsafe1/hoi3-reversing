@@ -3500,10 +3500,11 @@
    "rva": "0xDF9B0",
    "kind": "function",
    "name": "GetDifficultyCombatModifier",
-   "comment": "**The whole of BM_DIFFICULTY (0x02), and the same function for land, naval, air, bomber and target.** The country arrives in EDI, never loaded from the frame; the out pointer is the single stack argument and comes back in EAX.\n\n    settings = [rva 0x1689790]          ; a lazy singleton of 0xDA8 bytes, vftable rva 0x11CF674\n    if settings->+0xBCC[country->+0xCA8] == 0:  *out = 0        ; not a human-played country\n    else:\n        bonus = one of { 0, +2000, +1000, -1000, -2000 } chosen by settings->+0xC98\n        *out = bonus * COMBAT_DIFFICULTY_IMPACT / 1000\n\nSo the difficulty modifier applies **only to the player's own countries**, with the sign set by the difficulty setting. The jump table is at rva 0xDFADC and the arms are 0x7D0, 0x3E8, -0x3E8, -0x7D0 plus a fall-through zero; **which setting index maps to which arm was not read**, so the magnitudes are settled and the mapping is not.",
+   "signature": "int* __stdcall GetDifficultyCombatModifier(int* out@stack:4, CCountry* country@EDI)",
+   "no_signature": null,
+   "comment": "**The whole of BM_DIFFICULTY (0x02), and the same function for land, naval, air, bomber and target.** The country arrives in EDI, never loaded from the frame; the out pointer is the single stack argument and comes back in EAX.\n\n    settings = [rva 0x1689790]          ; a lazy singleton of 0xDA8 bytes, vftable rva 0x11CF674\n    if settings->+0xBCC[country->+0xCA8] == 0:  *out = 0        ; not a human-played country\n    else:\n        bonus = one of { 0, +2000, +1000, -1000, -2000 } chosen by settings->+0xC98\n        *out = bonus * COMBAT_DIFFICULTY_IMPACT / 1000\n\nSo the difficulty modifier applies **only to the player's own countries**, with the sign set by the difficulty setting. The jump table is at rva 0xDFADC and the arms are 0x7D0, 0x3E8, -0x3E8, -0x7D0 plus a fall-through zero;. **The mapping, settled 2026-11-06 off the jump table at rva 0xDFADC**: difficulty 0 (Very Easy) -> +2000, 1 (Easy) -> +1000, 2 (Normal) -> 0 (the table's third entry is the fall-through), 3 (Hard) -> -1000, 4 (Very Hard) -> -2000. With `COMBAT_DIFFICULTY_IMPACT = 0.2` in both defines.lua files that is a combat modifier of +0.4, +0.2, 0, -0.2, -0.4 for every unit of a country in played_countries_array (any human's country, not only the local player's) and nothing for a country nobody plays. One of the only two readers of the difficulty in a running game; the other is the difficulty block of RebuildStaticModifiers (FINDINGS-countrymodifier.md section 2, step 20).",
    "confidence": "confirmed",
-   "source": "agent findings, combat modifiers wave",
-   "signature": "int* __stdcall GetDifficultyCombatModifier(int* out@stack:4, CCountry* country@EDI)"
+   "source": "reversing/findings/FINDINGS-frontend.md"
   },
   {
    "rva": "0xDFDA0",
@@ -3590,9 +3591,9 @@
    "name": "CCountry::RebuildNeighbours",
    "signature": "void __stdcall CCountry::RebuildNeighbours(CCountry* country)",
    "no_signature": null,
-   "comment": "**A country's whole daily rebuild of who stands where - nine CCountryLists, two byte sets and a block of counters, not just the neighbours the name promises.** 0x4E21E0 to the single `ret 4` at 0x4E39B9, 8 int3 before and 4 after; `retsBefore(0x4E21E0, 0x4E39BA)` returns that one `ret` and nothing else, so the whole 0x17DC bytes are one body.\n\n**Signature**: __stdcall, not __thiscall - the country is [ebp+8], ecx is never read, and the single `ret 4` is the callee cleaning it.\n\nIt opens by clearing everything it is about to fill (0x4E2206-0x4E24B5), then runs two passes:\n\n**1. The province walks** (0x4E2421-0x4E2E52) - the part the old comment described. It walks `OwnedProvinces (+0xCF0)` marking the owner of every adjacent province whose owner and controller agree (so not one somebody is occupying) into `neighbours (+0xF58)` and `+0xFD8`, then walks `ControlledProvinces (+0xD00)` marking the controller of every adjacent province owned by somebody else into `controller_neighbours (+0xF68)` and `+0xFE8`. It is what says which set means what.\n\n**2. A loop over the whole country database** (0x4E318E-0x4E3566), one `CDiplomacyStatus* = country->+0xE28[other]` per other country that has owned provinces, appending to a different list per predicate:\n\n| list | gate |\n| --- | --- |\n| `Allies +0xF88` (and `++NumOfAllies +0x1064`) | `CDiplomacyStatus +0x14` (`alliance`) non-null - the same field CDiplomacyStatus::HasAlliance tests and `alliance_with` evaluates |\n| `non_hostile_countries +0xF98` | `+0x58` (`co_belligerent`), then the REB and `war` exclusions already recorded there |\n| `+0xFC8` | `+0x1C` (`guarantee`) non-null, with a direction test on the relation's `+0xC` |\n| `Vassals +0xF78` (and `++ +0x1068`) | `+0x18` non-null **and** its slot 7 answering token 0x298 (`vassal`), with a direction test |\n| `+0xFA8` | `+0x14` or `+0x18` non-null, **or** the other country sharing our faction (`+0xD8`) - a \"friendly\" set; the else-arm of this test is where `highest_threat (+0x11D8/+0x11DC)` is chosen, by maximum `+0x5C` |\n| `SpyingOnUs +0x1028` | the other country's `espionage (+0x1160)[our id]` having a positive allocation |\n\n**3. A pass over the allies list it has just built** (0x4E3616-0x4E370D) appending to `+0xFB8` every ally that is not a government in exile (`+0x95`), whose acting capital is on the same continent as ours (`CCountry::GetActingCapitalLocation` then `CProvince +0x368`), whose `+0x60C` is at least half of ours, and which is itself at war (`at_war +0xACC`).\n\n**And the allies list has a second source** (0x4E356C-0x4E360B): after the database loop it walks `country->faction (+0xD8) ->members (+0x28)` and appends every member but itself, skipping any tag already in the list. So `Allies (+0xF88)` is **everyone we have a bilateral alliance with, plus every member of our faction** - which is the list `CEventScope::MakeScope`'s `ally` context (token 0x359) picks a random entry from, and the reason that scope is about allies and not about borders.\n\nIt also recomputes a block of per-country counters in the +0x1048..+0x107C range, of which only `NumOfPorts (+0x105C)` and `NumOfAllies (+0x1064)` are named; the rest were not individually identified.",
+   "comment": "**A country's whole daily rebuild of who stands where - nine CCountryLists, two byte sets and a block of counters, not just the neighbours the name promises.** 0x4E21E0 to the single `ret 4` at 0x4E39B9, 8 int3 before and 4 after; `retsBefore(0x4E21E0, 0x4E39BA)` returns that one `ret` and nothing else, so the whole 0x17DC bytes are one body.\n\n**Signature**: __stdcall, not __thiscall - the country is [ebp+8], ecx is never read, and the single `ret 4` is the callee cleaning it.\n\nIt opens by clearing everything it is about to fill (0x4E2206-0x4E24B5), then runs two passes:\n\n**1. The province walks** (0x4E2421-0x4E2E52) - the part the old comment described. It walks `OwnedProvinces (+0xCF0)` marking the owner of every adjacent province whose owner and controller agree (so not one somebody is occupying) into `neighbours (+0xF58)` and `+0xFD8`, then walks `ControlledProvinces (+0xD00)` marking the controller of every adjacent province owned by somebody else into `controller_neighbours (+0xF68)` and `+0xFE8`. It is what says which set means what.\n\n**2. A loop over the whole country database** (0x4E318E-0x4E3566), one `CDiplomacyStatus* = country->+0xE28[other]` per other country that has owned provinces, appending to a different list per predicate:\n\n| list | gate |\n| --- | --- |\n| `Allies +0xF88` (and `++NumOfAllies +0x1064`) | `CDiplomacyStatus +0x14` (`alliance`) non-null - the same field CDiplomacyStatus::HasAlliance tests and `alliance_with` evaluates |\n| `non_hostile_countries +0xF98` | `+0x58` (`co_belligerent`), then the REB and `war` exclusions already recorded there |\n| `+0xFC8` | `+0x1C` (`guarantee`) non-null, with a direction test on the relation's `+0xC` |\n| `Vassals +0xF78` (and `++ +0x1068`) | `+0x18` non-null **and** its slot 7 answering token 0x298 (`vassal`), with a direction test |\n| `+0xFA8` | `+0x14` or `+0x18` non-null, **or** the other country sharing our faction (`+0xD8`) - a \"friendly\" set; the else-arm of this test is where `highest_threat (+0x11D8/+0x11DC)` is chosen, by maximum `+0x5C` |\n| `SpyingOnUs +0x1028` | the other country's `espionage (+0x1160)[our id]` having a positive allocation |\n\n**3. A pass over the allies list it has just built** (0x4E3616-0x4E370D) appending to `+0xFB8` every ally that is not a government in exile (`+0x95`), whose acting capital is on the same continent as ours (`CCountry::GetActingCapitalLocation` then `CProvince +0x368`), whose `+0x60C` is at least half of ours, and which is itself at war (`at_war +0xACC`).\n\n**And the allies list has a second source** (0x4E356C-0x4E360B): after the database loop it walks `country->faction (+0xD8) ->members (+0x28)` and appends every member but itself, skipping any tag already in the list. So `Allies (+0xF88)` is **everyone we have a bilateral alliance with, plus every member of our faction** - which is the list `CEventScope::MakeScope`'s `ally` context (token 0x359) picks a random entry from, and the reason that scope is about allies and not about borders.\n\nIt also recomputes a block of per-country counters in the +0x1048..+0x107C range, of which only `NumOfPorts (+0x105C)` and `NumOfAllies (+0x1064)` are named; the rest were not individually identified.\n\n**In arcade mode** (CCurrentGameState +0xC9C above 0, tested at 0x4E26F7): the country's `usage` pool's seven goods (+0x994..+0x9AC) are set to a never-written static (zero) and, in the walk of the country's units (+0xBAC), each unit's CUnit::SupplyConsumption is added to usage.supplies (+0x994) and its CUnit::FuelConsumption to usage.fuel (+0x998), positive values only. So in arcade a country's daily use of supplies and fuel is its units' own need, there being no supply network to draw it.",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-scopetriggers.md"
+   "source": "reversing/findings/FINDINGS-frontend.md"
   },
   {
    "rva": "0xE6A70",
@@ -9649,9 +9650,9 @@
    "name": "CInGameIdler::Update",
    "signature": "void __thiscall CInGameIdler::Update(CInGameIdler* this, int unused)",
    "no_signature": null,
-   "comment": "Per-frame update of the in game idler, virtual slot 1; calls the autosave writer (0x24FF80, `push ebx` with ebx = this, at 0x255E28). `ret 4`, but **no implementation of slot 1 reads its stack argument** - not this one, not CEU3Idler's at 0x244750, not CFrontEnd's at 0x2EDD60 (which only forwards it to the base), not CBackEndIdler's 0x208AF0 or CNudgeIdler's 0x29BE90 - so the argument is real but its meaning is not recoverable from the bodies. Frame timing is taken from the clock at +0x192C instead, into +0xA88/+0xA8C. **While the in-game menu (+0x1CDC) is shown, every frame `menu_save_button` is disabled (slot 47) in a custom game and enabled (slot 46) otherwise** (0x655D1C-0x655E19, GetCustomGameSettings' first byte) - the only one of the menu's buttons ever greyed; and closing a builder window unpauses as CInGameIdler::CloseMenu does, through the same +0x1D3E (0x656791) - see reversing/findings/FINDINGS-ingamemenu.md, section A.4.",
+   "comment": "Per-frame update of the in game idler, virtual slot 1; calls the autosave writer (0x24FF80, `push ebx` with ebx = this, at 0x255E28). `ret 4`, but **no implementation of slot 1 reads its stack argument** - not this one, not CEU3Idler's at 0x244750, not CFrontEnd's at 0x2EDD60 (which only forwards it to the base), not CBackEndIdler's 0x208AF0 or CNudgeIdler's 0x29BE90 - so the argument is real but its meaning is not recoverable from the bodies. Frame timing is taken from the clock at +0x192C instead, into +0xA88/+0xA8C. **While the in-game menu (+0x1CDC) is shown, every frame `menu_save_button` is disabled (slot 47) in a custom game and enabled (slot 46) otherwise** (0x655D1C-0x655E19, GetCustomGameSettings' first byte) - the only one of the menu's buttons ever greyed; and closing a builder window unpauses as CInGameIdler::CloseMenu does, through the same +0x1D3E (0x656791) - see reversing/findings/FINDINGS-ingamemenu.md, section A.4.\n\n**In arcade mode the Supply map mode button is greyed**: every frame the `mapmode_8` element (the Supply mode, FINDINGS-mapmode.md) is disabled (slot 47) where it is not already, and outside arcade enabled (slot 46) where it is switched off (slot 48) (0x6569C7, 0x656A7C).",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-autosave.md:18"
+   "source": "reversing/findings/FINDINGS-frontend.md"
   },
   {
    "rva": "0x25A2B0",
@@ -10075,9 +10076,9 @@
    "name": "RunSupplyAndConvoyIterations",
    "signature": "void __stdcall RunSupplyAndConvoyIterations(CList<CCountry*>* countries, int unknown)",
    "no_signature": null,
-   "comment": "**What fills the provinces before a game's first hour.** passes = max_supply_depot_distance (+0x58) + 2, or 1 in the tutorial and in arcade mode. The four per-province arrays are made once. Each pass: every country's stockpile is kept, all seven goods; CSupply::DailySupplyPass; then per country its convoys' deliveries (one carrying supplies or fuel every pass, any other on the first only), CUnit::ConsumeSuppliesAndFuel for every unit, and - **where its acting capital's supply_depot_id is the capital itself - the stockpile put back as it was kept**; on the second pass only, three calls that set its convoys up. After the passes every unit whose supplies received is 0 gets CUnit::CarrySupplies out of its country's stockpile. Then RunDailyPass, RunMonthlyPass and RunHourlyPass. So the provinces are filled for nothing, but a stockpile that draws on another's depot is drained as on any day, and whatever reaches a stockpile during the passes - a day's supplies made at the factories the day before, on their way in - is lost when it is put back. Two callers: CInGameIdler::Enter at 0x65CC64, for a new game and after its own RunDailyPass at 0x65CB2E, and ApplyCustomGameSettings at 0x41E0A2. See reversing/findings/FINDINGS-supplypass.md, section 7.",
+   "comment": "**What fills the provinces before a game's first hour.** passes = max_supply_depot_distance (+0x58) + 2, or 1 in the tutorial and in arcade mode. The four per-province arrays are made once. Each pass: every country's stockpile is kept, all seven goods; CSupply::DailySupplyPass; then per country its convoys' deliveries (one carrying supplies or fuel every pass, any other on the first only), CUnit::ConsumeSuppliesAndFuel for every unit, and - **where its acting capital's supply_depot_id is the capital itself - the stockpile put back as it was kept**; on the second pass only, three calls that set its convoys up. After the passes every unit whose supplies received is 0 gets CUnit::CarrySupplies out of its country's stockpile. Then RunDailyPass, RunMonthlyPass and RunHourlyPass. So the provinces are filled for nothing, but a stockpile that draws on another's depot is drained as on any day, and whatever reaches a stockpile during the passes - a day's supplies made at the factories the day before, on their way in - is lost when it is put back. Two callers: CInGameIdler::Enter at 0x65CC64, for a new game and after its own RunDailyPass at 0x65CB2E, and ApplyCustomGameSettings at 0x41E0A2. See reversing/findings/FINDINGS-supplypass.md, section 7.\n\nArcade mode, all three sites: one pass (0x278B4F); the four per-province arrays are not made (0x278CCF jumps past the allocations); and CSupply::DailySupplyPass is not called (0x278F1D).",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-supplypass.md"
+   "source": "reversing/findings/FINDINGS-frontend.md"
   },
   {
    "rva": "0x27A3C0",
@@ -10319,9 +10320,10 @@
    "kind": "function",
    "name": "RunDailyPass",
    "signature": "void __stdcall RunDailyPass(CCurrentGameState* state)",
-   "comment": "**Everything the game does once a day.** 0x282C20 to 0x283077, `ret 4`. One caller: the tick body at 0x2813F0 calls it at 0x28213A, and only when the day number it recomputed differs from the stored one - the `cmp [esp+0x28], eax; je 0x282157` just above skips both this and CInGameIdler's slot 53 when the day has not turned. **It is not 0x282630**, the hourly pass that ends at 0x282C1D with its own `ret 4`; the two abut with no padding between them, which is how they came to be read as one function. What this one calls, in order: 0x28C190, 0x63030, CSupply::RebuildSupplyNetwork (0x282CEF, guarded on the dirty flag), CSupply::ResetSupplyOrder, a qsort with the comparator at 0x27B100 pushed at 0x282D0C, CProvince::UpdateSupplyDepot in a loop, 0x4F28B0, RunDailySupplyPass at 0x282D7E, then 0x28A0A0, 0x28E350, 0x4E39C0, 0x4DA530, 0x49EAB0, 0x4B9D60, 0x5BF720, 0x5C0A40, 0x288D40 and 0x143AB0. So the supply order is sorted and the daily supply pass run **once a day**, not once an hour. Named for what it does; no class, like RunDailySupplyPass beside it.",
+   "no_signature": null,
+   "comment": "**Everything the game does once a day.** 0x282C20 to 0x283077, `ret 4`. One caller: the tick body at 0x2813F0 calls it at 0x28213A, and only when the day number it recomputed differs from the stored one - the `cmp [esp+0x28], eax; je 0x282157` just above skips both this and CInGameIdler's slot 53 when the day has not turned. **It is not 0x282630**, the hourly pass that ends at 0x282C1D with its own `ret 4`; the two abut with no padding between them, which is how they came to be read as one function. What this one calls, in order: 0x28C190, 0x63030, CSupply::RebuildSupplyNetwork (0x282CEF, guarded on the dirty flag), CSupply::ResetSupplyOrder, a qsort with the comparator at 0x27B100 pushed at 0x282D0C, CProvince::UpdateSupplyDepot in a loop, 0x4F28B0, RunDailySupplyPass at 0x282D7E, then 0x28A0A0, 0x28E350, 0x4E39C0, 0x4DA530, 0x49EAB0, 0x4B9D60, 0x5BF720, 0x5C0A40, 0x288D40 and 0x143AB0. So the supply order is sorted and the daily supply pass run **once a day**, not once an hour. Named for what it does; no class, like RunDailySupplyPass beside it.\n\n**In arcade mode** (0x282CDF) the supply-network block is skipped: no CSupply::RebuildSupplyNetwork, no ResetSupplyOrder, no farthest-first qsort and no update of max_supply_depot_distance (+0x58, capped 500); the loop over the countries after it, and RunDailySupplyPass (which itself returns at once in arcade), still run.",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-supply.md"
+   "source": "reversing/findings/FINDINGS-frontend.md"
   },
   {
    "rva": "0x282D18",
@@ -10584,7 +10586,8 @@
    "kind": "function",
    "name": "CGamePlaySettings::LoadKey",
    "signature": "void __thiscall CGamePlaySettings::LoadKey(CGamePlaySettings* this, CParseContext* parse, SaveToken key)",
-   "comment": "One key, `setgameplayoptions` - the block of options a save carries.",
+   "no_signature": null,
+   "comment": "One key, `setgameplayoptions` (token 0x60D) - the block of options a save carries, and a mod's `gameplaysettings.txt` the same way. The values read into a vector<int>; **this+8 (difficulty) = the first, and this+0xC (game_mode) = the second where there are two** - written straight into the CGamePlaySettings embedded at the state's +0xC90, i.e. the state's +0xC98 and +0xC9C, with no command. **Any other key falls through to the same two stores on an empty vector and reads address 0** (inferred: a crash, not a silent drop). `ret 8` at 0x68A5D1. See reversing/findings/FINDINGS-frontend.md, section C.",
    "confidence": "confirmed",
    "source": "reversing/findings/FINDINGS-definitions.md"
   },
@@ -10966,7 +10969,7 @@
    "name": "CSetGamePlayOptions::Execute",
    "signature": "void __thiscall CSetGamePlayOptions::Execute(void)",
    "no_signature": null,
-   "comment": "Slot 6 of `CSetGamePlayOptions` - the command's own **Execute** (see `CCommand::Execute`), and **the only thing in the image that writes either gameplay option**:\n\n    gamestate->difficulty   = this->options[0]          // +0xC98\n    if (this->options.size() >= 2)\n        gamestate->arcade_mode = this->options[1]        // +0xC9C\n\nThe vector it carries is at `+0x3C`/`+0x40` and is what `CSetGamePlayOptions::LoadKey` (`0x2D5EC0`) fills from the save's `setgameplayoptions` key; the save writes it back under token `0x60D` at `0x2D5E90`. Since the command is only ever run when the game is set up or a save is loaded, both options are fixed for the length of a campaign.\n\nIt ends by touching the globals at `0x171042C`/`0x1710430` and `0x1A857F0`/`0x1A857F4`, which was not followed up.",
+   "comment": "Slot 6 of `CSetGamePlayOptions` - the command's own **Execute** (see `CCommand::Execute`):\n\n    gamestate->difficulty   = this->options[0]          // +0xC98\n    if (this->options.size() >= 2)\n        gamestate->arcade_mode = this->options[1]        // +0xC9C\n\nThe vector it carries is at `+0x3C`/`+0x40` and is what `CSetGamePlayOptions::LoadKey` (`0x2D5EC0`) fills from the save's `setgameplayoptions` key; the save writes it back under token `0x60D` at `0x2D5E90`. **The lobby posts it** (CGameSetup_PostOptionChoices) at every press of the Options panel's arrows and at Play and Back, in single player or as host, with the panel's difficulty and game mode; so the two options are settled at Play and fixed thereafter. **It is not the only writer**: a save's or a mod's `gameplaysettings = { setgameplayoptions = { ... } }` is written straight into the state by CGamePlaySettings::LoadKey (0x28A550).\n\n**Its tail** (the globals 0x171042C/0x1710430, formerly not followed up): the persistent id there - the lobby's CLobbyInterface, given that id by CGameSetup's constructor - is looked up in the id table its type selects (0x1268 or below the low table, above it the high), and **its slot 13, CGameSetup::RefreshOptionsWindow, called**: so executing the command redraws the lobby's Options panel on that machine. Returns quietly where the table or the object is missing. See reversing/findings/FINDINGS-frontend.md, section C.",
    "confidence": "confirmed",
    "source": "reversing/findings/FINDINGS-manpower.md"
   },
@@ -11138,10 +11141,11 @@
    "rva": "0x2EEF00",
    "kind": "function",
    "name": "CFrontEnd::Enter",
-   "comment": "CFrontEnd slot 3 (vftable 0x15D458C + 0xC), extent 0x6EEF00..0x6F013C, bare `ret`. Reached indirectly - findRefs finds no direct call and the address appears once, in that vftable. Narrates itself through frontend.cpp: `entering frontend...` (423), `Initialising frontend artwork <` (439), `entering frontend...init map` (460) which calls CEU3Application::InitialiseGraphicalMap, `Mapflags <` (475), `eu3 idler restore` (478), `Device objects <` (483), `reloaded` (529), `frontend screens <` (540), `Total loadtime was ` (546), `done frontend` (583). It runs after LoadEverything returns: main.cpp logs `Init Application...` at :592 and calls CEU3Application slot 6, then logs `Run Application...` at :601, and frontend.cpp:423 follows. The name is BiceLib's; `Enter` is the guess, the slot and the position are read.",
-   "confidence": "likely",
-   "source": "reversing/findings/FINDINGS-startup.md",
-   "signature": "void __thiscall CFrontEnd::Enter(CFrontEnd* this)"
+   "signature": "void __thiscall CFrontEnd::Enter(CFrontEnd* this)",
+   "no_signature": null,
+   "comment": "CFrontEnd slot 3 (vftable 0x15D458C + 0xC), extent 0x6EEF00..0x6F013C, bare `ret`. **The screen's enter slot, settled**: the run loop's pending-screen swap (VA 0xA913A0) calls the outgoing screen's slot 4 (Leave), deletes it, then calls the new screen's slot 2, **slot 3** and slot 5 - so this is entered every time a CFrontEnd becomes the current screen: once at startup after LoadEverything, and again after every way back from a game (ProcessSessionEndRequests' exit-to-menu branch, CBackEndIdler::OnExitButton), each of which builds a fresh CFrontEnd. Narrates itself through frontend.cpp: `entering frontend...` (423), `Initialising frontend artwork <` (439), `entering frontend...init map` (460), `Mapflags <` (475), `eu3 idler restore` (478), `Device objects <` (483), `reloaded` (529), `frontend screens <` (540), `Total loadtime was ` (546), `done frontend` (583). In order: CGameState::ClearPlayers on the game state; the LOAD_GFX line handed to the graphics; where +0x390 is empty, a screen-sized render object made there and pushed on +0x214; CEU3Application::InitialiseGraphicalMap; the map object (slot 15, application +0x124) given +0x390 at its +0x1DBC; a clock at +0x39C; CEU3Idler::Enter (the tooltip box); **CFrontEnd::Reload through the CReloadDispatcher table at +0xB0** (0x6EF8EA) - which builds every panel and shows the first; the map handed the camera (+0x3A8) at its +4 and +0x1DE4; the map's province objects cleared (supply pictures, air map icons, air base circles) and Map_RefreshColourTextures; **settings layer mask (+0xF0) = 0xFF9A and map style (+0xF4) = 2, the political style** (no map mode setter is called); in_game (+0xDA4) = 0 (FrontEnd_Enter_ClearInGame); the idler's map refresh flags +0x84 |= 0xF; tutorial_id (+0xDA0) = 0; **if tutorial_active (+0xD9D) is set, the tutorial panel (view 6) replaces whatever Reload showed** - the way back from a tutorial lands on the tutorial list; the rightClickMenu window made at +0xB4 and hidden. A date string formatted from the game state's tick with \"dw  d , mw y\" is built and thrown away. See reversing/findings/FINDINGS-frontend.md, section A.1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
   },
   {
    "rva": "0x2EFE58",
@@ -23400,9 +23404,9 @@
    "name": "CCountryView::UpdateAutomationLine",
    "signature": "void __thiscall CCountryView::UpdateAutomationLine(CCountryView* this)",
    "no_signature": null,
-   "comment": "**Slot 11 of CCountryView.** Sets the text box `automation_setting` to what GetAutomationSettingText (0x2EB910) gives for the local player's setting for this view - `[player + 0x38][this + 0x78]` - calls its own slot 14, and enables `mode_arrow_left`, `mode_arrow_right` and `close_button` (their slot 38 with 1). Does nothing when the window has no `automation_setting`. The name is ours.",
+   "comment": "**Slot 11 of CCountryView.** Sets the text box `automation_setting` to what GetAutomationSettingText (0x2EB910) gives for the local player's setting for this view - `[player + 0x38][this + 0x78]` - calls its own slot 14, and has `mode_arrow_left`, `mode_arrow_right` and `close_button` take the mouse again (their slot 38 with 1, GuiButton_SetTakesMouse) - so they answer clicks under the AI. Does nothing when the window has no `automation_setting`. The name is ours.",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-countryviews.md"
+   "source": "reversing/findings/FINDINGS-frontend.md"
   },
   {
    "rva": "0x2EC3E0",
@@ -23410,9 +23414,9 @@
    "name": "CCountryView::ApplyAutomation",
    "signature": "void __thiscall CCountryView::ApplyAutomation(CCountryView* this)",
    "no_signature": null,
-   "comment": "Slot 14 of CCountryView. Calls slot 38 of the main window's CGuiObject subobject with no argument when the local player's setting for this view is 1 and with 1 otherwise. **Likely** greys the view while the AI runs it; slot 38's meaning is taken from its use on buttons in slot 11. The name is ours.",
-   "confidence": "inferred",
-   "source": "reversing/findings/FINDINGS-countryviews.md"
+   "comment": "Slot 14 of CCountryView. Calls slot 38 of the main window's CGuiObject subobject with 0 when the local player's setting for this view is 1 (Ai Control) and with 1 otherwise. **Slot 38 is whether an element takes the mouse** (CFixedWindow::SetTakesMouse), handed down to everything in the window: so under the AI **the screen stops taking clicks and looks exactly as before** - nothing is greyed. It was recorded as 'likely greys' until 2026-11-06; the maintainer's observation that the original greys nothing agrees with the bytes. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
   },
   {
    "rva": "0x2EB910",
@@ -23940,9 +23944,9 @@
    "name": "CTechnologyView::UpdateAutomationLine",
    "signature": "void __thiscall CTechnologyView::UpdateAutomationLine(CTechnologyView* this)",
    "no_signature": null,
-   "comment": "Slot 11 of CTechnologyView: the base's automation line with four texts instead of two, chosen through a jump table - OPT_NORMAL, OPT_AICONTROL, TECH_AUTOMATED and LEADERSHIP_AUTOMATED. Read from its strings only.",
-   "confidence": "inferred",
-   "source": "reversing/findings/FINDINGS-countryviews.md"
+   "comment": "Slot 11 of CTechnologyView: the base's automation line with four texts instead of two. Does nothing where the window has no `automation_setting`; otherwise sets it by a switch on **the local CHuman's automate_tech_sliders (+0x30)** - 0 OPT_NORMAL \"Normal\", 1 OPT_AICONTROL \"Ai Control\", 2 TECH_AUTOMATED \"Research AI\", 3 LEADERSHIP_AUTOMATED \"Slider AI\", anything else leaving the text as it was - then slot 14 (ApplyAutomation) and `mode_arrow_left`, `mode_arrow_right` and `close_button` made to take the mouse again (slot 38 with 1). So the technology screen's selector is the same setting as the lobby's Technology row, where value 0 reads OPT_PLAYER_CONTROL \"Player Control\" instead. See reversing/findings/FINDINGS-frontend.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
   },
   {
    "rva": "0x417920",
@@ -26170,9 +26174,9 @@
    "name": "CUnitStatusEntry::Update",
    "signature": "void __fastcall CUnitStatusEntry::Update(void* observer@ECX)",
    "no_signature": null,
-   "comment": "**Fills a unit's status row every frame**, `this` being the entry's +0x1C sub-object (the unit at +0x5C of it). `unitlocation` the province's name; `unitattrition` GetProvinceAttrition as whole percent; `unitbase` SUPPLIED_FROM and the capital the province is supplied from, or the base of a fleet or an air unit with its range; **`speed` = maximum_speed * CUnit::MovementSpeedModifier / 1000 through FormatSpeedExact, then the text KPH - without LAND_SPEED_MODIFIER**; `unit_cw_strip` frame 1..5 by the definition's width under 2, 4, 6, 8 or more; **`supply_status` and `fuel_status` from the province**: pool * 1000 / (max(whole SUPPLYPOOL_DAYS, 1) * need / 1000), as a percentage, full where the need is under 1; `unit_weight`; and the six `unitstatus_` icons shown by path, combined arms, the order, dig-in, attack delay and radio range. See reversing/findings/FINDINGS-unitpanel.md, section 5.",
+   "comment": "**Fills a unit's status row every frame**, `this` being the entry's +0x1C sub-object (the unit at +0x5C of it). `unitlocation` the province's name; `unitattrition` GetProvinceAttrition as whole percent; `unitbase` SUPPLIED_FROM and the capital the province is supplied from, or the base of a fleet or an air unit with its range; **`speed` = maximum_speed * CUnit::MovementSpeedModifier / 1000 through FormatSpeedExact, then the text KPH - without LAND_SPEED_MODIFIER**; `unit_cw_strip` frame 1..5 by the definition's width under 2, 4, 6, 8 or more; **`supply_status` and `fuel_status` from the province**: pool * 1000 / (max(whole SUPPLYPOOL_DAYS, 1) * need / 1000), as a percentage, full where the need is under 1; `unit_weight`; and the six `unitstatus_` icons shown by path, combined arms, the order, dig-in, attack delay and radio range. See reversing/findings/FINDINGS-unitpanel.md, section 5.\n\n**In arcade mode** the province whose supplies the row reports (and names in `unitbase`) is the unit's owner's acting capital (CCountry::GetActingCapitalLocation of the country at unit +0x128) instead of the province the unit stands in; a home base still overrides it (0x759758).",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-unitpanel.md"
+   "source": "reversing/findings/FINDINGS-frontend.md"
   },
   {
    "rva": "0x359310",
@@ -28370,9 +28374,9 @@
    "name": "CCountry::MaintainSupplyConvoys",
    "signature": "void __stdcall CCountry::MaintainSupplyConvoys(CCountry* country)",
    "no_signature": null,
-   "comment": "**Makes and unmakes a country's supply convoys.** Nothing for a country with one area and no convoy, or whose acting capital is in no area. Making, not in arcade mode: for every area that is not the capital's, with D the depot of its first province (CMapProvince::DepotOrAreaPort), need = max(D.drawn.supplies, D.drawn.fuel) less NavalBaseCapacity of the end of each supply convoy of the country's ending in the area; `found` where one ends at D. Then while need > 0, or no convoy was found at D and the country is at peace: the port of the area with no supply convoy of the country's ending at it and the highest score - supply_depot_hops x 1000, or 100000.000 for D itself - gets a convoy from COwnerArea::NearestPortTo(port, the capital's area), and its capacity comes off need. **`found` is never set inside the loop**, so at peace every port of the area gets one, the depot first and then the furthest. Unmaking, only with a game on screen: a supply convoy four or more days old goes - its ships back to the country's free ones - unless its end is the country's, the depot it serves had something drawn today, it runs from the capital's area, and it ends at the depot, or the area is still short, or the area's spare room is under twice (floor(2000.5f)) its own harbour's capacity. Called for every country on RunSupplyAndConvoyIterations' second pass, and from RunCountryDailyPass behind CCountry +0x749. See reversing/findings/FINDINGS-supplyconvoys.md, section 2.",
+   "comment": "**Makes and unmakes a country's supply convoys.** Nothing for a country with one area and no convoy, or whose acting capital is in no area. Making, not in arcade mode: for every area that is not the capital's, with D the depot of its first province (CMapProvince::DepotOrAreaPort), need = max(D.drawn.supplies, D.drawn.fuel) less NavalBaseCapacity of the end of each supply convoy of the country's ending in the area; `found` where one ends at D. Then while need > 0, or no convoy was found at D and the country is at peace: the port of the area with no supply convoy of the country's ending at it and the highest score - supply_depot_hops x 1000, or 100000.000 for D itself - gets a convoy from COwnerArea::NearestPortTo(port, the capital's area), and its capacity comes off need. **`found` is never set inside the loop**, so at peace every port of the area gets one, the depot first and then the furthest. Unmaking, only with a game on screen: a supply convoy four or more days old goes - its ships back to the country's free ones - unless its end is the country's, the depot it serves had something drawn today, it runs from the capital's area, and it ends at the depot, or the area is still short, or the area's spare room is under twice (floor(2000.5f)) its own harbour's capacity. Called for every country on RunSupplyAndConvoyIterations' second pass, and from RunCountryDailyPass behind CCountry +0x749. See reversing/findings/FINDINGS-supplyconvoys.md, section 2.\n\n**In arcade mode there are no supply convoys**: the making half is skipped (0x4FE07E), and in the unmaking half (0x4FE62E) every supply convoy four or more days old goes - its ships back to the country's free ones - with none of the keep conditions asked.",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-supplyconvoys.md"
+   "source": "reversing/findings/FINDINGS-frontend.md"
   },
   {
    "rva": "0xFE7E0",
@@ -36310,9 +36314,9 @@
    "name": "CAlertManager_Update",
    "signature": "void __stdcall CAlertManager_Update(void* manager)",
    "no_signature": null,
-   "comment": "**The alert pass**, rva 0x201DE0 to the one `ret 4` at 0x206ED0 (retsBefore returns only it). One caller, rva 0x251D67, skipped when the byte the function at rva 0x1C4E0 answers is set. Only its head and its decisions part were read. Head: `noDecisions = (gamestate->scenario (+0xD0C) != 0)`; a float clock from manager +0xA0C slot 5; nothing at all while that clock is below manager +0x8A0 or byte manager +0 is set; otherwise +0x8A0 = clock + 3.0 - so the pass runs at most once every 3.0 of that clock (seconds, likely, not read).\n\n**Decisions** (rva 0x206CDE-0x206E95): a CEventScope with seed 0 whose country is **the played country** (gamestate->player), and the diplomatic vector walked asking `potential` and then `allow`; each decision passing both appends its CDecision::GetTitleText to the alert's text at manager +0x9F0. **Alert 12 (`alert_national_decisions`)** is then shown (CAlertManager_Show) when any passed, hidden (rva 0x208730) when none did, refreshed (rva 0x208580) when its text changed - and **never shown in a scenario** (scenario set forces the flag off). Likely, because the rest of the body was not read.",
+   "comment": "**The alert pass**, rva 0x201DE0 to the one `ret 4` at 0x206ED0 (retsBefore returns only it). One caller, rva 0x251D67, skipped when the byte the function at rva 0x1C4E0 answers is set. Only its head and its decisions part were read. Head: `noDecisions = (gamestate->scenario (+0xD0C) != 0)`; a float clock from manager +0xA0C slot 5; nothing at all while that clock is below manager +0x8A0 or byte manager +0 is set; otherwise +0x8A0 = clock + 3.0 - so the pass runs at most once every 3.0 of that clock (seconds, likely, not read).\n\n**Decisions** (rva 0x206CDE-0x206E95): a CEventScope with seed 0 whose country is **the played country** (gamestate->player), and the diplomatic vector walked asking `potential` and then `allow`; each decision passing both appends its CDecision::GetTitleText to the alert's text at manager +0x9F0. **Alert 12 (`alert_national_decisions`)** is then shown (CAlertManager_Show) when any passed, hidden (rva 0x208730) when none did, refreshed (rva 0x208580) when its text changed - and **never shown in a scenario** (scenario set forces the flag off). Likely, because the rest of the body was not read.\n\n**The player's automation silences five alerts** (read 2026-11-06, the GetLocalPlayer sites in the body). Each gate leaves the alert's own test before it can raise the alert: alert 5 `alert_resource_panic` - for goods 0 and 2 (supplies and money, the two the IC sliders make) a falling stock raises nothing while `automate_sliders` (CHuman +0x2C) is above 0 or production is delegated (automation[1] == 1); the other goods are tested as before (0x604984-0x604AE9). Alert 6 `alert_possible_law` - skipped while politics is delegated (automation[3], 0x60500D). Alert 7 `alert_free_tech_slots` - skipped while automation[2] == 1 (0x6055BF). Alert 8 `alert_wasted_ic` - skipped while production is delegated or `automate_sliders` is above 0 (0x605733, 0x6057BD). Alert 9 `alert_tech_far_ahead` - skipped while automation[2] == 1 (0x605C2C). **Alerts 7 and 9 ask automation[2], not the four-way `automate_tech_sliders` (+0x30) the tech minister is made from**; the technology screen's arrows keep the two in step, the lobby writes only +0x30. In a scenario every alert's flag is forced off ([esp+0xF]).",
    "confidence": "inferred",
-   "source": "reversing/findings/FINDINGS-eventfire.md"
+   "source": "reversing/findings/FINDINGS-frontend.md"
   },
   {
    "rva": "0x5BF3D0",
@@ -40307,12 +40311,12 @@
   {
    "rva": "0x38C020",
    "kind": "function",
-   "name": "CDiplomacyView::EnableActionListUnlessAutomated",
-   "signature": "void __fastcall CDiplomacyView::EnableActionListUnlessAutomated(CDiplomacyView* this@EDI)",
+   "name": "CDiplomacyView::RestoreActionListUnlessAutomated",
+   "signature": "void __fastcall CDiplomacyView::RestoreActionListUnlessAutomated(CDiplomacyView* this@EDI)",
    "no_signature": null,
-   "comment": "**The view in EDI.** When the local player's automation setting for this view (index +0x78) is not 1, `diploaction_list`'s slot 38 with 1 (enabled). The first thing RebuildActionList does.",
+   "comment": "**The view in EDI.** When the local player's automation setting for this view (index +0x78) is not 1, `diploaction_list`'s slot 38 with 1 - the list takes the mouse again (GuiListbox_SetTakesMouse, handed to its rows). The first thing RebuildActionList does.",
    "confidence": "inferred",
-   "source": "reversing/findings/FINDINGS-diplomacyview.md"
+   "source": "reversing/findings/FINDINGS-frontend.md"
   },
   {
    "rva": "0x38C130",
@@ -40430,9 +40434,9 @@
    "name": "CDiplomacyView::ApplyAutomation",
    "signature": "void __thiscall CDiplomacyView::ApplyAutomation(CDiplomacyView* this)",
    "no_signature": null,
-   "comment": "Slot 14, replacing CCountryView's: the main window is always enabled (slot 38 with 1), and **when the local player's automation setting for view 0 is 1 (Ai Control) `decisions_listbox` and `diploaction_list` are disabled, otherwise enabled**. The country list and its buttons are never greyed.",
+   "comment": "Slot 14, replacing CCountryView's: the main window always takes the mouse (slot 38 with 1), and **when the local player's automation setting for view 0 is 1 (Ai Control) `decisions_listbox` and `diploaction_list` stop taking it** (slot 38 with 0, which a list hands to its rows), otherwise take it. Nothing is greyed: slot 38 is whether an element takes the mouse (CFixedWindow::SetTakesMouse). The country list always answers clicks.",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-diplomacyview.md"
+   "source": "reversing/findings/FINDINGS-frontend.md"
   },
   {
    "rva": "0x38E290",
@@ -48900,9 +48904,9 @@
    "name": "CEspionageView::ApplyAutomation",
    "signature": "void __thiscall CEspionageView::ApplyAutomation(CEspionageView* this)",
    "no_signature": null,
-   "comment": "Slot 14, in place of the base's whole-window greying: ungreys the main window (slot 38 with 1); under 'Ai Control' (the local player's setting for view_index == 1) greys own_priority, country_info and own_country_info and ungreys unit_queue and country_info_sections, otherwise ungreys own_priority, country_info and own_country_info; then every country_listbox row's `priority` button greyed exactly under Ai Control. See reversing/findings/FINDINGS-espionage.md, D.1.",
+   "comment": "Slot 14, in place of the base's whole window: the main window takes the mouse (slot 38 with 1); under 'Ai Control' (the local player's setting for view_index == 1) own_priority, country_info and own_country_info stop taking it and unit_queue and country_info_sections take it, otherwise own_priority, country_info and own_country_info take it; then every country_listbox row's `priority` button stops taking the mouse exactly under Ai Control. Nothing is greyed: slot 38 is whether an element takes the mouse (CFixedWindow::SetTakesMouse). See reversing/findings/FINDINGS-espionage.md, D.1.",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-espionage.md"
+   "source": "reversing/findings/FINDINGS-frontend.md"
   },
   {
    "rva": "0x2225D0",
@@ -61180,9 +61184,9 @@
    "name": "CGameSetup::Update",
    "signature": "void __thiscall CGameSetup::Update(CGameSetup* this)",
    "no_signature": null,
-   "comment": "Slot 4 of CGameSetup, the pre-game lobby (gamesetup.cpp), and **where a savegame is loaded - in the lobby, before Play**; CFrontEnd::LaunchGame loads nothing. All three arms run only while +0x6C4 is set (a load pending, inferred) and clear the byte 0x1A857BF around the parse. (1) **The server - a single-player game, or a multiplayer host** (session +0x34 set, inferred to mean 'server'; 0x30B08B): once every other player's transfer reports done and while +0x6C5 (loaded) is clear, Session::PumpCommands, then LoadSaveFile on `save games/<+0x698>` (`mod/<mod>/save games/<name>` under a mod), CGameSetup_SyncOptionsFromGameState, and the lobby lines `SAVE_TRANSFER_DONE` and `SAVE_LOADED`. (2) **A multiplayer client whose own copy matches** - the transfer (+0x6D8) names the same file and its +0xB0 equals +0x6B4 (0x30B73C): LoadSaveFile on its local file, the sync, +0x6C5 and +0x6C7 set, RefreshAllCountries, the front end's map refreshed (0x641D90, 0x641D50), the settings' +0xF0 = 0xFF9A and +0xF4 = 2, +0x6C4 cleared and the transfer deleted. (3) **Any other client** (0x30BA34): logs `Received `, builds a stream over the bytes the transfer holds and calls CGameState::LoadFromSave on it directly, the same refreshes with Map_RefreshColourTextures, and **writes the received bytes to its own `save games/<name>`**. It also fills the lobby's labels (`selected_nation_label`, `head_of_state`, `wars_label`, `play_button`, `victoryconditions_button`). The played country is not set here: it comes from the CSetCountryControllerCommand the lobby posts, whose Execute (CSetCountryControllerCommand slot 6) writes state->player and played_countries. The name is inference: the body is the lobby's per-frame work by its PumpCommands and pending-flag shape.",
+   "comment": "Slot 4 of CGameSetup, the pre-game lobby (gamesetup.cpp), and **where a savegame is loaded - in the lobby, before Play**; CFrontEnd::LaunchGame loads nothing. All three arms run only while +0x6C4 is set (a load pending, inferred) and clear the byte 0x1A857BF around the parse. (1) **The server - a single-player game, or a multiplayer host** (session +0x34 set, inferred to mean 'server'; 0x30B08B): once every other player's transfer reports done and while +0x6C5 (loaded) is clear, Session::PumpCommands, then LoadSaveFile on `save games/<+0x698>` (`mod/<mod>/save games/<name>` under a mod), CGameSetup_SyncOptionsFromGameState, and the lobby lines `SAVE_TRANSFER_DONE` and `SAVE_LOADED`. (2) **A multiplayer client whose own copy matches** - the transfer (+0x6D8) names the same file and its +0xB0 equals +0x6B4 (0x30B73C): LoadSaveFile on its local file, the sync, +0x6C5 and +0x6C7 set, RefreshAllCountries, the front end's map refreshed (0x641D90, 0x641D50), the settings' +0xF0 = 0xFF9A and +0xF4 = 2, +0x6C4 cleared and the transfer deleted. (3) **Any other client** (0x30BA34): logs `Received `, builds a stream over the bytes the transfer holds and calls CGameState::LoadFromSave on it directly, the same refreshes with Map_RefreshColourTextures, and **writes the received bytes to its own `save games/<name>`**. It also fills the lobby's labels (`selected_nation_label`, `head_of_state`, `wars_label`, `play_button`, `victoryconditions_button`). The played country is not set here: it comes from the CSetCountryControllerCommand the lobby posts, whose Execute (CSetCountryControllerCommand slot 6) writes state->player and played_countries. The name is inference: the body is the lobby's per-frame work by its PumpCommands and pending-flag shape. **Read further 2026-11-06** (FINDINGS-frontend.md B.4-B.6): the server arm sets +0x6C7 (a save loaded) before it walks the players, and after the load, **in single player (mode 0) calls the loaded row's CSavegameItem::OnClicked**, which selects the save's `player`. Every frame, besides: CGameSetup_RefreshYearLabel when the state's tick differs from +0x460; **the `singleplayer` panel rebuilt when +0x4CC or the state's controllers_changed (+0xC0) is set**, from the local human (the state's human list, +0x1C equal to +0x42C): with no country the panel hidden and its texts emptied; otherwise `player_shield` the country's shield, `selected_nation_label` CountryNameOfTag, `selected_fog` **the government's display name** (CGovernment slot GetDisplayName - 'form of government'), `icon_factions` shown with the faction's frame where the country's faction answers its slot 7, else hidden, `head_of_state` the name (+0x30) of the minister in the government position `head_of_state`, `photo_head_of_state` `gfx/pictures/portraits/<picture>.tga` with `GFX_empty_position` behind, and `wars_label` **`ATWAR` (\"At War.\") where any diplomacy status has a war, else `ATPEACE`** - the enemies are listed into +0x48C but not written into the text. **play_button** enabled (slot 46) when CGameSetup_CanStart holds - and, unless the session's lobby_reopened (+0x236) is set, the session's +0x34 too - else disabled (slot 47); **victoryconditions_button** enabled only when no save is loaded (+0x6C7 clear) and 0x71C560 answers yes; and when the front end's +0x764 (start requested) is set and CanStart holds, **CGameSetup_StartGame**.",
    "confidence": "inferred",
-   "source": "reversing/findings/FINDINGS-savegame.md"
+   "source": "reversing/findings/FINDINGS-frontend.md"
   },
   {
    "rva": "0x317880",
@@ -61190,19 +61194,19 @@
    "name": "CGameSetup_SyncOptionsFromGameState",
    "signature": "void __fastcall CGameSetup_SyncOptionsFromGameState(CGameSetup* setup@ECX)",
    "no_signature": null,
-   "comment": "Called after every lobby load: copies the game state's difficulty and arcade_mode into the lobby (+0x714, +0x7E8), and the local human's automation values (the CHuman matched by session id, else +0x70) into the lobby's option rows (+0x8B4, 0x3C bytes each; row 2 from automate_tech_sliders), a value 0..3 or 7 mapped to the fog row (+0x144), then refreshes three of its windows. Bare `ret`. Five callers, three of them the load arms of CGameSetup::Update. The name is ours.",
-   "confidence": "inferred",
-   "source": "reversing/findings/FINDINGS-savegame.md"
+   "comment": "**Fills the Options panel from the game state and shows it.** The lobby's difficulty index (+0x714) = the state's difficulty (+0xC98), its game-mode index (+0x7E8) = arcade_mode (+0xC9C); then for each of the seven option rows (+0x8B4): row 2 (Technology) from the local CHuman's automate_tech_sliders (+0x30), every other row from automation[i] (the CHuman matched by session id, else the one embedded at the state's +0x70); then **the Armies row (5) from CHuman +0x48: 7 -> 0 (Player Control), 3 -> 1 (Corps), 2 -> 2 (Armies), 1 -> 3 (Army Groups), 0 -> 4 (Theatres)**, any other value leaving it as automation[5]. Then `option_window` shown (slot 13 of its +0x18), its slot 11, and the lobby's slot 13 at +0xC - CGameSetup::RefreshOptionsWindow, **which reads every row from the CHuman again and so overwrites the Armies row with automation[5]**. Bare `ret` at 0x717D36. Five callers: CGameSetup::Prepare (so the panel shows whenever the lobby opens), three load arms of CGameSetup::Update (so a loaded save's difficulty, game mode and automation come back into the panel), and CGameSetup::Reload. The name is ours. See reversing/findings/FINDINGS-frontend.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
   },
   {
    "rva": "0x303BF0",
    "kind": "function",
    "name": "CSavegameItem::CSavegameItem",
-   "signature": null,
-   "no_signature": "Four stack arguments (`ret 0x10` at 0x70455A), the object first and returned in EAX; the other three were not typed, so no signature is offered. A catch funclet sits inside at 0x7044F4 (trap 3).",
-   "comment": "**The lobby's save-list row, and the only reader of a save's header.** Writes CStandardlistboxItem's and then CSavegameItem's vftable, makes the `savegameentry` window, shows the file name before `.hoi3` as `title`, opens `save games/<file>` (`mod/<mod>/save games/` under a mod) and reads **positionally**: the first key=value's value is taken as the date whatever its key and shown as `date`; the second, when it is `scenario`, is looked up (ScenarioList_FindByName; a miss logs `loading scenario that doesnt exist: `) and the next pair read; then, when that pair is `player`, its tag gives the row's `shield` and is kept at +0x44/+0x48. So **a save whose first key is not `date`, or whose `player` is not second (third after `scenario`), shows a wrong date or no shield in the original's list.** One caller, 0x715A78, the lobby's `save_games_list` fill. See reversing/findings/FINDINGS-ingamemenu.md section C.2.",
+   "signature": "CSavegameItem* __stdcall CSavegameItem::CSavegameItem(CSavegameItem* this, Hoi3CString* fileName, CGameSetup* setup, CFrontEnd* frontEnd)",
+   "no_signature": null,
+   "comment": "**The lobby's save-list row, and the only reader of a save's header.** Writes CStandardlistboxItem's and then CSavegameItem's vftable, makes the `savegameentry` window, shows the file name before `.hoi3` as `title`, opens `save games/<file>` (`mod/<mod>/save games/` under a mod) and reads **positionally**: the first key=value's value is taken as the date whatever its key and shown as `date`; the second, when it is `scenario`, is looked up (ScenarioList_FindByName; a miss logs `loading scenario that doesnt exist: `) and the next pair read; then, when that pair is `player`, its tag gives the row's `shield` and is kept at +0x44/+0x48. So **a save whose first key is not `date`, or whose `player` is not second (third after `scenario`), shows a wrong date or no shield in the original's list.** One caller, 0x715A78, the lobby's `save_games_list` fill. See reversing/findings/FINDINGS-ingamemenu.md section C.2. **Arguments and fields, read 2026-11-06**: 0xC8 bytes (the caller's operator_new(200)); the file name copied to +0x28; +0x44 the save's player tag (`---` until read) and +0x48 its id; +0x4C the date (the null date until read; FormatHourDate's ` %d:00, %d %s, %d` is what `date` shows); +0x50 the CGameSetup and +0x54 the CFrontEnd it was given; +0xA8 the 'loaded' byte (CSavegameItem::SetLoaded); +0xAC the scenario name. Where there is no `player`, the shield is set to nothing (button slot 53 with no country). See reversing/findings/FINDINGS-frontend.md section B.3.",
    "confidence": "inferred",
-   "source": "reversing/findings/FINDINGS-savegame.md"
+   "source": "reversing/findings/FINDINGS-frontend.md"
   },
   {
    "rva": "0x27E6F0",
@@ -62933,6 +62937,1076 @@
    "comment": "**Reads the history folders into the registry**; VA 0x5F5A80 to `ret 4` at 0x5FA7DC, callers 0x6397BB and 0x63A68C (ResetGameStateToStartDate). Read only for history/wars: the files are gathered by layer under `/wars/` (0x15C9E50, at 0x5F998A), and **for each file a CWar is made (0xAC bytes, CWar's constructor 0xA4D6D0), its history (the CWarHistory at war +0x4C) loaded from the file through that object's slot 3, and the war appended to the registry's list at +0x48** (head +0x48, tail +0x4C, count +0x50; 0x5F9CE4-0x5F9D2B) - every file, whatever it holds, so a file with nothing in it is a war with no name, no sides and no history. Then `History loaded for #<name> entries = <n>` logged (history.cpp line 0x489).",
    "confidence": "inferred",
    "source": "reversing/findings/FINDINGS-war.md"
+  },
+  {
+   "rva": "0x303180",
+   "kind": "function",
+   "name": "CBookmarkEntry::CBookmarkEntry",
+   "signature": null,
+   "no_signature": "ret 0x14 (five stack arguments) with the gui in ECX; Ghidra shows seven parameters (gui, a value from the screen's slot 16, the object, the window name, the CBookmark, the CGameSetup, the custom-game byte) and which of the remaining ones travels in a register was not settled at the call sites, so none is offered.",
+   "comment": "**A row of the lobby's `bookmarks_list` (and of `cgm_bookmarks`' copy).** A 0x88-byte CStandardlistboxItem: the window `bookmark_entry` [mod: temp_frontend.gui] made through the gui (+0x20); the CBookmark at +0x28; the CGameSetup at +0x80 and the custom-game byte at +0x84; its button `bookmark` kept at +0x2C and given the CButtonObserverGlue at +0x30 whose click is CBookmarkEntry::OnBookmarkClicked. **The button's sprite is the bookmark's `icon`** (button slot 57, +0xE4, with CBookmark +0x78) where the icon is not empty; `title` gets the bookmark's localised name (CBookmark +8) and `date` FormatHourDate(CBookmark +0xA4) - ` %d:00, %d %s, %d`. Two callers, both in CGameSetup::BuildBookmarkLists (0x308D57 for historical starts, custom-game byte 0; 0x3090E7 for custom-game bookmarks, byte 1). See reversing/findings/FINDINGS-frontend.md section B.2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x303410",
+   "kind": "function",
+   "name": "CBookmarkEntry::Update",
+   "signature": "void __fastcall CBookmarkEntry::Update(void* observer@ECX)",
+   "no_signature": null,
+   "comment": "Slot 9 of CBookmarkEntry's second table (object offset 0x1C, TListboxItem), so `this` is the row + 0x1C. Run every frame for every row: **the button's frame is 2 (shown chosen) when the bookmark's name equals CGameSetup::GetStartName and the row's custom-game byte equals CGameSetup +0x6F8, else 1** - which is how the chosen bookmark is highlighted; nothing else. Bare ret.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x3034F0",
+   "kind": "function",
+   "name": "CBookmarkEntry::OnBookmarkClicked",
+   "signature": "void __thiscall CBookmarkEntry::OnBookmarkClicked(CBookmarkEntry* this)",
+   "no_signature": null,
+   "comment": "**A click on a bookmark row**: a 0x104-byte CSelectBookmark made from the row's CBookmark (+0x28) through 0x6D4F70 and posted on the session's channel (session +0x38, slot 6). Nothing else - the selection itself happens when the command executes (CSelectBookmark::Execute -> CFrontEnd::SelectBookmark -> CGameSetup::SelectBookmark). Bare ret.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x3035E0",
+   "kind": "function",
+   "name": "CBookmarkEntry_DisableButton",
+   "signature": "void __stdcall CBookmarkEntry_DisableButton(CBookmarkEntry* entry)",
+   "no_signature": null,
+   "comment": "The row's `bookmark` button given state 3 (button slot 45, +0xB4) - inferred to be the greyed look. CGameSetup::BuildBookmarkLists calls it for every historical-start row when the session mode global (0x1A85618) is neither 0 nor 1, i.e. on a multiplayer client, who cannot choose the start. `ret 4`.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x304560",
+   "kind": "function",
+   "name": "CSavegameItem::OnClicked",
+   "signature": "void __thiscall CSavegameItem::OnClicked(CSavegameItem* this)",
+   "no_signature": null,
+   "comment": "Slot 4 of CSavegameItem's primary table - a click on the row (as CCountrySelectionItem's slot 4 is). **Before the save is loaded** (+0xA8 clear) or when the header had no `player` (+0x48 = 0): only ticks the row's `save_game` checkbox if it is not ticked (0xA820F0) and tells the checkbox's observers, which is CGameSetup::OnSaveRowChecked - so a click anywhere on the row does what a click on its checkbox does. **After it is loaded, with a player**: the CGameSetup's OnProvinceClicked (+0x50, slot 5) with the capital of the save's player, the screen centred on that capital (CentreOnProvince), and - where the local human (FindHumanById with the session's +0x6C) is not already playing the save's player - a CSetCountryControllerCommand(save's player, the state's current player, the human) posted. CGameSetup::Update calls it for the loaded row in single player (mode 0) once the load is done, **which is how the save's `player` becomes the chosen country.** Two bare rets (0x70483B, 0x7049DD).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x3049E0",
+   "kind": "function",
+   "name": "CSavegameItem::SetLoaded",
+   "signature": "void __thiscall CSavegameItem::SetLoaded(CSavegameItem* this, bool loaded)",
+   "no_signature": null,
+   "comment": "Slot 7 of CSavegameItem's primary table: `mov [ecx+0xA8], arg; ret 4`. CGameSetup::OnSaveRowChecked sets it on the clicked row and clears it on every other, so +0xA8 means 'this row's save is the chosen one' and CSavegameItem::OnClicked tests it.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x304AF0",
+   "kind": "function",
+   "name": "CGameSetup::CGameSetup",
+   "signature": null,
+   "no_signature": "ret 8 with the object as Ghidra's param_1; Ghidra also invents a `this`, and whether a register carries something was not settled, so no signature is offered.",
+   "comment": "**The lobby's constructor.** Writes the five tables (0x15D59C0, +8 0x15D59FC, +0xC 0x15D5A0C, +0x3C 0x15D5A50, +0x6C 0x15D5A80), builds the gui window `lobby` [mod: tfh/interface/lobby.gui] into +0x3B8, and the button glues: +0x188 Back (CGameSetup::OnBack), +0x1D8 Play (CGameSetup::OnPlay), +0x228 victoryconditions_button (CGameSetup::OnVictoryConditionsButton), +0x130 `singleplayer`'s `player_shield` (CGameSetup::OnPlayerShieldClicked), +0x4D0 newgame_tab (OnNewGameTab), +0x520 savedgame_tab (OnSavedGamesTab), +0x570 scenario_tab (OnScenariosTab), +0x5C0 cgm_tab (OnCustomGamesTab), +0x660 the save rows' checkbox glue (OnSaveRowChecked), +0x368 the start-date shields' glue (OnShortcutShieldClicked); play_button and victoryconditions_button get their byte +0x61 = 1. +0x464/+0x468 = the defines' start_date and end_date. Its own player record at +0x410 is a CHuman (CHuman::CHuman). **The Options panel**: the choices COptionChoice +0x704 (label FE_DIFFICULTY) and +0x7D8 (FE_ARCADE) with their arrow glues +0x738/+0x788 and +0x810/+0x860; the option-row vector +0x8B4 sized to **seven** (CGameSetup_ResizeOptionRows) and labelled FE_SETTING_DIPLOMACY, _PRODUCTION, _TECHNOLOGY, _POLITICS, _INTEL, _UNITINTERFACE (row 6 has no label); the shared row glues +0x8C8 (OnOptionNext) and +0x918 (OnOptionPrev); two more glues +0x2C8 (HideOptionsWindow) and +0x318 (CloseOptionsWindow) that nothing attaches; `interface/options.gui` registered for reload; the lobby's CLobbyInterface given the persistent id at 0x171042C; then `option_window` made as a top-level window into +0x700, CGameSetup_AttachOptionButtons, and the texts filled: **difficulty DIFF_VERY_EASY, DIFF_EASY, DIFF_NORMAL, DIFF_HARD, DIFF_VERY_HARD** (index = the state's difficulty), **game mode STANDARD_MODE, ARCADE_MODE** (index = arcade_mode), and for each row OPT_PLAYER_CONTROL then OPT_AICONTROL - except **row 2: OPT_PLAYER_CONTROL, OPT_AICONTROL, TECH_AUTOMATED, LEADERSHIP_AUTOMATED** (index = the CHuman's automate_tech_sliders) and **row 5: OPT_PLAYER_CONTROL, OPT_AI_CORP, OPT_AI_ARMY, OPT_AI_ARMY_GROUP, OPT_AI_THEATER** - each other row's index = the local CHuman's automation[i]; and the victory conditions window `victory_conditions_window` (+0x8B0). The panel is not shown here - CGameSetup_SyncOptionsFromGameState shows it. `ret 8`. See reversing/findings/FINDINGS-frontend.md, sections B and C.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x307610",
+   "kind": "function",
+   "name": "CGameSetup::Prepare",
+   "signature": "void __thiscall CGameSetup::Prepare(CGameSetup* this)",
+   "no_signature": null,
+   "comment": "Slot 1 of CFrontEndView (pure there), called by the front end's view switch (0x6F1280) as the lobby becomes the current view (CFrontEnd +0x750[3] is the CGameSetup). Clears the chosen start (+0x6DC name, +0x6F8, +0x6FC); +0x6C8 = the application's +0x130 (inferred an online/metaserver link; zero in a plain single-player game); **in single player (mode global 0x1A85618 = 0)** MarkSimulatedProvinces(state, 0) and the custom-game settings emptied; the `multiplayer` window's `checksum` text set; CGameSetup_RefreshYearLabel; in single player the session's slot 2 (0, 0) and `lobby_chat_edit` hidden, otherwise shown; a CAddPlayer for the local player record (+0x410); then CGameSetup_SyncOptionsFromGameState, 0x708190 (the session joined - the chat line `CONNECTED`), and **+0x6C7 (a save loaded) cleared**. Bare ret. Named after CFrontEndView's slot (Prepare, Show, Hide) where the two front-end readers of 2026-11-06 met on it.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x307BF0",
+   "kind": "function",
+   "name": "CGameSetup::SelectDefaultBookmark",
+   "signature": "void __thiscall CGameSetup::SelectDefaultBookmark(CGameSetup* this)",
+   "no_signature": null,
+   "comment": "**What the lobby shows on opening in single player or as host** (called at the end of CGameSetup::BuildBookmarkLists when the mode global is 0 or 1). Clears the chosen start; MarkSimulatedProvinces(state, 0); the custom-game settings emptied; **history executed from the state's tick to the defines' start_date** (ExecuteHistoryToDate on the registry at 0x1A88BC0, then tick = +0x464); RefreshAllCountries; the map's overlays hidden and its colours redrawn; then **a CSelectBookmark for the first historical bookmark in the list** (bookmarks.txt order) posted. So the first bookmark of the file is selected when the lobby opens. Bare ret.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x3085A0",
+   "kind": "function",
+   "name": "CGameSetup::Show",
+   "signature": "void __thiscall CGameSetup::Show(CGameSetup* this)",
+   "no_signature": null,
+   "comment": "Slot 2 of CFrontEndView, called by the view switch after Enter. The front end's own window (CFrontEnd +0x730) hidden and the lobby window (+0x3B8) shown; in single player (mode 0) `lobby_chat_edit` hidden; `chatlog` scrolled; **CGameSetup::OnNewGameTab** - so the lobby opens on the Historical Start tab; then the four tab buttons enabled (button slot 46) - or, on a multiplayer client, disabled (slot 47). Bare ret.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x308980",
+   "kind": "function",
+   "name": "CGameSetup::BuildBookmarkLists",
+   "signature": "void __thiscall CGameSetup::BuildBookmarkLists(CGameSetup* this)",
+   "no_signature": null,
+   "comment": "Slot 13 of CGameSetup. Clears the chosen start and MarkSimulatedProvinces(state, 0), empties the custom-game settings and the lists `multiplayer_list`, `chatlog`, `bookmarks_list` (in `bookmarks`) and `bookmarks_list` (in `cgm_bookmarks`); **one CBookmarkEntry per bookmark, in list order** - the historical list (*[0x1A8A874]) into `bookmarks`, the custom-game list ([0x1A8A874]+0x10) into `cgm_bookmarks` - each greyed on a multiplayer client (CBookmarkEntry_DisableButton). Then slot 10 (ClearBookmark), the gui refreshed, the lobby's transfer state reset (+0x698 = '', +0x6B4..), the session's pending-transfer globals cleared, and in single player or as host (mode 0 or 1) **CGameSetup::SelectDefaultBookmark**. Bare ret. Single player's button calls it before the lobby is shown (FINDINGS-frontend.md, A.2).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x3095A0",
+   "kind": "function",
+   "name": "CGameSetup::Hide",
+   "signature": "void __thiscall CGameSetup::Hide(CGameSetup* this)",
+   "no_signature": null,
+   "comment": "Slot 3 of CFrontEndView, called by the view switch on the view being left: the lobby window hidden, 0x6F1320, and each start-date shield (+0x46C list) hidden. Bare ret. Named after CFrontEndView's slot (Prepare, Show, Hide) where the two front-end readers of 2026-11-06 met on it.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x30C0B0",
+   "kind": "function",
+   "name": "CGameSetup::OnProvinceClicked",
+   "signature": "void __thiscall CGameSetup::OnProvinceClicked(CGameSetup* this, CMapProvince* province)",
+   "no_signature": null,
+   "comment": "Slot 5 of CFrontEndView - **how a country is chosen on the map**. The front end's per-frame update calls the current view's slot 5 (0x6EE864) with the province under the pointer for a mouse-button event the interface did not take, and only where that province's owner_id (+0x330) is not 0. Here: where the owner id is not 0 and **either no scenario is set or the scenario's country list contains it** (CountryIdListContains), a CSetCountryControllerCommand(owner tag/id, the state's current player, the session's local human id) is posted, and the sound `click` played. **No other test**: not whether a save is loaded, not REB, not whether the country is someone else's - so after a save is loaded a click still changes the country. `ret 4`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x30D010",
+   "kind": "function",
+   "name": "CGameSetup::OnBack",
+   "signature": "void __thiscall CGameSetup::OnBack(CGameSetup* this)",
+   "no_signature": null,
+   "comment": "**`back_button`'s handler** (glue +0x188). Where +0x6C8 (the online link) is set, the online leave messages first. Then a CAddPlayer for the local player record posted; Session::PumpCommands; the session's slot 2 and its channel's slot 3; the options window (+0x700) hidden; CGameSetup_PostOptionChoices (the panel's choices written to the local CHuman and, in single player or as host, a CSetGamePlayOptions posted); on a client (mode not 0) 0x70E3D0; **ResetGameStateToStartDate(true)**; +0x180 = 0; and the front end switched **to view 0** (the settings' +0x174 cleared) in a plain game, **or to view 5** where the online link is set - the old view's slot 3, the new one's slots 1 and 2, as CFrontEnd's switch does; the victory conditions window hidden. So Back throws away a loaded save or the chosen start. Bare ret.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x30DF80",
+   "kind": "function",
+   "name": "CGameSetup_CanStart",
+   "signature": "bool __stdcall CGameSetup_CanStart(CGameSetup* setup@EDI, Hoi3CString* reason@stack:4) @AL",
+   "no_signature": null,
+   "comment": "**Whether Play may be pressed**, with the reason written to `reason` when it is not null. False while a load is pending (+0x6C4) or the victory conditions window is shown; false when the state has no human (+0x68), or any human has no country (+0x24 = 0) or a country owning no province; true at once where the session may not post (+0x34 clear - a client); otherwise by the tab shown: `bookmarks` - true unless a save is loaded (+0x6C7), a custom-game bookmark is chosen (+0x6F8) or a scenario (+0x6FC), which say CANT_START_REASON_SELECT_BOOKMARK; `cgm_bookmarks` - needs +0x6F8, else CANT_START_REASON_SELECT_CGM; `scenarios` - needs +0x6FC, else CANT_START_REASON_SELECT_SCENARIO; `save_games` - **needs +0x6C7 (a save loaded)**, else CANT_START_REASON_SELECT_SAVE_GAME. `ret 4`, `this` in EDI.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x30E360",
+   "kind": "function",
+   "name": "CGameSetup::OnPlayerShieldClicked",
+   "signature": "void __thiscall CGameSetup::OnPlayerShieldClicked(CGameSetup* this)",
+   "no_signature": null,
+   "comment": "`singleplayer`'s `player_shield` (glue +0x130): where the country id at +0x434 (in the lobby's own player record at +0x410) is not 0 and has a capital, the front end's slot 48 (+0xC0) with that capital - inferred to centre the map. Whether +0x430/+0x434 follow the chosen country was not settled: no store to either was found in the lobby's code. Bare ret.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x30E5B0",
+   "kind": "function",
+   "name": "CGameSetup::OnPlay",
+   "signature": "void __thiscall CGameSetup::OnPlay(CGameSetup* this)",
+   "no_signature": null,
+   "comment": "**`play_button`'s handler** (glue +0x1D8; the button is enabled only while CGameSetup_CanStart holds). The victory conditions window hidden. Without the online link (+0x6C8 = 0): **for a new game only (not loaded_from_save)** the seed 0x174DA94 set from a clock ([0x1A857E4] slot 5, rounded) and g_random_draws = 0; then, **for a new game and a loaded one alike**, the options window hidden and CGameSetup_PostOptionChoices - the panel's automation written to the local CHuman, OPTION_CHANGED chat lines where a choice differs from the state, and **a CSetGamePlayOptions carrying the panel's difficulty and game mode posted whether or not they differ** (in single player or as host); where the session may post (+0x34) VictoryConditions_PostChosen; then **a CSetRandomSeed(seed, draws) and a CLobbyStartGame posted**, and the session's slot 2. With the online link, an online start message instead. Nothing launches here: CLobbyStartGame::Execute sets the front end's +0x764 and the next CGameSetup::Update calls CGameSetup_StartGame. Two bare rets.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x30E9B0",
+   "kind": "function",
+   "name": "CGameSetup_StartGame",
+   "signature": "void __stdcall CGameSetup_StartGame(CGameSetup* setup)",
+   "no_signature": null,
+   "comment": "Called by CGameSetup::Update once the front end's start request (+0x764) is set and CGameSetup_CanStart holds. Province field +0xC zeroed for every province of the country at +0x968 (custom-game business, not read); 0x68BA80 on the state; VictoryConditions_DailyCheck; on a client the session's slots; in single player a new 0x260-byte Session (`Launch`, `NoAdress`) made; the front end's slot 19; 0x644FE0(0 in single player, 1 otherwise) and **the front end's +0x765 = 1**, which its update turns into CFrontEnd::LaunchGame (the main menu reader's side). `ret 4`.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x30ED60",
+   "kind": "function",
+   "name": "CGameSetup::SelectBookmark",
+   "signature": "void __thiscall CGameSetup::SelectBookmark(CGameSetup* this, CBookmark* bookmark)",
+   "no_signature": null,
+   "comment": "Slot 7 of CGameSetup, reached from CSelectBookmark::Execute through CFrontEnd::SelectBookmark. **+0x6C7 (save loaded) and the scenario (+0x6FC) cleared**; MarkSimulatedProvinces(state, 0); the state's +0xD2C = the bookmark's is_cgm; for a custom-game bookmark its `templates.txt` loaded into the custom-game settings. **+0x6DC = the bookmark's name, +0x6F8 = is_cgm**; **the date = the bookmark's (+0xA4) held between the defines' start_date and end_date (+0x464, +0x468)**, and where the session may post a CSetHistoryDate(date) posted - which is what moves the world. With the lobby shown, two chat lines: the bookmark's name between two colour codes and its description. **The start-date shields** rebuilt: the old ones (+0x46C) removed, the bookmark's country list copied (+0x47C, IdList_Assign), and one `shield` button per country laid out from `shield_position` (lower middle, y -260) at `shield_offset` (66 px) steps, centred, each with the country's flag and the glue +0x368; finally CGameSetup_RefreshYearLabel. `ret 4`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x3103E0",
+   "kind": "function",
+   "name": "CGameSetup::GetStartName",
+   "signature": "Hoi3CString* __thiscall CGameSetup::GetStartName(CGameSetup* this, Hoi3CString* out)",
+   "no_signature": null,
+   "comment": "Slot 9 of CGameSetup: the chosen bookmark's name (+0x6DC) or, when it is empty, the text of `SAVED_GAMES` (\"Saved Game\"). It is the NAME of year_label's WORLD_YEAR and what CBookmarkEntry::Update compares to highlight its row. `ret 4`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x310500",
+   "kind": "function",
+   "name": "CGameSetup::ClearBookmark",
+   "signature": "void __thiscall CGameSetup::ClearBookmark(CGameSetup* this)",
+   "no_signature": null,
+   "comment": "Slot 10 of CGameSetup, reached from CClearBookmark::Execute through CFrontEnd::ClearBookmark (and called directly by BuildBookmarkLists): the chosen start cleared (+0x6DC, +0x6F8, +0x6FC), MarkSimulatedProvinces(state, 0), the state's +0xD2C = 0, the custom-game settings emptied, and the start-date shields (+0x46C) and their country list (+0x47C) removed. CGameSetup::OnSaveRowChecked posts the command before it chooses a save, **so choosing a save un-chooses the bookmark** and year_label's name becomes `SAVED_GAMES`. Bare ret.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x3106F0",
+   "kind": "function",
+   "name": "CGameSetup::OnShortcutShieldClicked",
+   "signature": "void __thiscall CGameSetup::OnShortcutShieldClicked(CGameSetup* this, void* button)",
+   "no_signature": null,
+   "comment": "**A start-date shield** (the glue +0x368 that CGameSetup::SelectBookmark gives each): the shield found in +0x46C and its country in +0x47C at the same position; a country of id 0 logs `Atempted to select an invalid tag using a shortcut.`; otherwise a CSetCountryControllerCommand(country, the state's current player, the local human) posted and, with no scenario set, the map centred on its capital (front end slot 48). Its tooltip is SHORTCUT_SHIELD (CGameSetup::GetElementTooltip). `ret 4`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x310A40",
+   "kind": "function",
+   "name": "CGameSetup::GetElementTooltip",
+   "signature": "GuiTooltipText* __thiscall CGameSetup::GetElementTooltip(CGameSetup* this, GuiTooltipText* out, void* element)",
+   "no_signature": null,
+   "comment": "Slot 6 of CFrontEndView: the lobby's tooltips, by element name. **`play_button`**: on a multiplayer game with fewer than two humans MP_FEW_PLAYERS; otherwise the first human with no country NOT_SELECT (\"All players must select a country.\"), or whose country owns no province NOT_EXIST (\"$TAG$ does not exist at this time.\", TAG the country's name); otherwise CGameSetup_CanStart's reason (CANT_START_REASON_*), empty when Play may be pressed. **A start-date `shield`**: SHORTCUT_SHIELD (\"$TAG$ is an interesting choice during this period. Click to select it.\"). `button_kick`/`button_ban`: TIP_KICK/TIP_BAN. **`victoryconditions_button`**, only while it is disabled: VC_BUTTON_DISABLED_INVALID with no save loaded, VC_BUTTON_DISABLED_SAVE with one. Anything else is handed to the victory conditions window (0x71CA00) - nothing for the panel, the tabs, the rows or Back. `ret 8`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x314BD0",
+   "kind": "function",
+   "name": "CGameSetup_RefreshYearLabel",
+   "signature": "void __stdcall CGameSetup_RefreshYearLabel(CGameSetup* setup)",
+   "no_signature": null,
+   "comment": "**`year_label`**: WORLD_YEAR (\"\u00a7Y$NAME$\u00a7W, $DAY$ of $MONTH$, $YEAR$\") with YEAR, DAY and MONTH (Date_MonthName, full) of +0x460 - the state's tick, which CGameSetup::Update copies there when it changes - and NAME from CGameSetup::GetStartName (the chosen bookmark's name, or `SAVED_GAMES`). +0x4CC (the panel's refresh flag) set. The .gui's FE_SELECTED_SCENARIO has no localisation and is always overwritten. `ret 4`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x315100",
+   "kind": "function",
+   "name": "CGameSetup::OnNewGameTab",
+   "signature": "void __thiscall CGameSetup::OnNewGameTab(CGameSetup* this)",
+   "no_signature": null,
+   "comment": "**`newgame_tab`** (glue +0x4D0; \"Historical Start\"), and what CGameSetup::Show opens on. Does nothing while a load is pending (+0x6C4). The tab buttons' frames: newgame_tab 2, the other three 1 (button slot 18); `bookmarks` shown, `cgm_bookmarks`, `save_games` and `scenarios` hidden; and **where the state was loaded from a save, a CResetGame posted** - leaving the save for the new-game side resets the world. Bare ret.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x3154B0",
+   "kind": "function",
+   "name": "CGameSetup::OnSavedGamesTab",
+   "signature": "void __thiscall CGameSetup::OnSavedGamesTab(CGameSetup* this)",
+   "no_signature": null,
+   "comment": "**`savedgame_tab`** (glue +0x520; \"Saved Games\"). savedgame_tab's frame 2, the others 1; `bookmarks`, `scenarios` and `cgm_bookmarks` hidden; `save_games_list` emptied; **the folder `save games`, or `mod/<mod>/save games` under a mod** (the settings' mod name, 0x40C600); ListFilesWithExtensionSorted(folder, \"hoi3\", **newest first**) - the same listing the in-game save dialog makes, over the whole PhysFS search path; **one CSavegameItem (0xC8 bytes) per file, in that order**, its checkbox `save_game` given the glue +0x660 (OnSaveRowChecked) and the row appended to `save_games_list`; then `save_games` shown. **Nothing is ticked and nothing is loaded on opening.** Unlike OnNewGameTab it does not test +0x6C4. Bare ret.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x315C90",
+   "kind": "function",
+   "name": "CGameSetup::OnCustomGamesTab",
+   "signature": "void __thiscall CGameSetup::OnCustomGamesTab(CGameSetup* this)",
+   "no_signature": null,
+   "comment": "**`cgm_tab`** (glue +0x5C0; \"Custom Games\"). Named by its binding; the body was not read beyond its string references (`save_games`, the tab names) - by its siblings, it shows `cgm_bookmarks` and hides the rest. Bare ret.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x316040",
+   "kind": "function",
+   "name": "CGameSetup::OnScenariosTab",
+   "signature": "void __thiscall CGameSetup::OnScenariosTab(CGameSetup* this)",
+   "no_signature": null,
+   "comment": "**`scenario_tab`** (glue +0x570; \"Scenarios\"). Named by its binding; it fills the `scenarios` window's `bookmarks_list` with `scenario_entry` rows (CScenarioEntry) - the body was not read further. Bare ret.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x3167A0",
+   "kind": "function",
+   "name": "CGameSetup::OnSaveRowChecked",
+   "signature": "void __thiscall CGameSetup::OnSaveRowChecked(CGameSetup* this, void* checkbox)",
+   "no_signature": null,
+   "comment": "**A save row's `save_game` checkbox** (the CCheckBoxObserverGlue at +0x660; a click elsewhere on the row reaches here through CSavegameItem::OnClicked). A CClearBookmark posted (the bookmark un-chosen); +0x698 = '' and +0x6B4 = -1; then over `save_games_list`: the row whose checkbox was clicked gives its file name to +0x698 and SetLoaded(1); every other row SetLoaded(0) and its checkbox unticked (+0x60 and +0x100 zeroed, where its bytes +0xD8/+0x136 allow - as the in-game save dialog's rows); then **CGameSetup::BeginSaveTransfer** - **so choosing a save loads it at once**, with no button. `ret 4`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x3169E0",
+   "kind": "function",
+   "name": "CGameSetup::BeginSaveTransfer",
+   "signature": "void __thiscall CGameSetup::BeginSaveTransfer(CGameSetup* this)",
+   "no_signature": null,
+   "comment": "Starts the load of the chosen save (+0x698), which in the original is a transfer to every player even in single player. Only where a save is chosen (+0x6A8, the name's length) and no load is pending (+0x6C4). The whole file read into +0x6B8, timed (`File save loaded in `), compressed and base64'd into +0x6BC (`File compressed in ... to size ... and base64 size ...`), **its checksum (ChecksumFile) into +0x6B4** and logged `Sending <name> with chksum <n>`; the chat line TRANSERING_SAVE (\"Savegame transfer started...\"); one 0xF4-byte transfer made for each row of `multiplayer_list` with the name and checksum; and **+0x6C4 = 1**. The parse itself happens in CGameSetup::Update's server arm on a later frame. Bare ret.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x31AA30",
+   "kind": "function",
+   "name": "CGameSetup::OnVictoryConditionsButton",
+   "signature": "void __thiscall CGameSetup::OnVictoryConditionsButton(CGameSetup* this)",
+   "no_signature": null,
+   "comment": "**`victoryconditions_button`** (glue +0x228): where the victory conditions window (+0x8B0) is hidden and 0x71C560 answers yes, the window shown, raised and filled (0x71BF10). The button is enabled only with no save loaded (CGameSetup::Update). Bare ret.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x2F1C10",
+   "kind": "function",
+   "name": "CFrontEnd::RequestLobbyStart",
+   "signature": "void __thiscall CFrontEnd::RequestLobbyStart(CFrontEnd* this)",
+   "no_signature": null,
+   "comment": "Slots 67 and 68 of CFrontEnd (one body): `mov byte [ecx+0x764], 1; ret`. CLobbyStartGame::Execute calls slot 68 on the current screen; CGameSetup::Update sees +0x764 and, when CGameSetup_CanStart holds, calls CGameSetup_StartGame. CInGameIdler's slot 68 is an empty stub, so the command does nothing in game.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x2F1CC0",
+   "kind": "function",
+   "name": "CFrontEnd::SelectBookmark",
+   "signature": "void __thiscall CFrontEnd::SelectBookmark(CFrontEnd* this, CBookmark* bookmark)",
+   "no_signature": null,
+   "comment": "Slot 84 of CFrontEnd, called by CSelectBookmark::Execute with the command's bookmark (+0x3C): **the lobby's (views[3], +0x750 + 0xC) slot 7, CGameSetup::SelectBookmark**, then 0x63D350 and the map camera's bounds reset to the whole map (+0x6B4 = map width, +0x6BC = map height - 0x50, the rest 0). `ret 4`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x2F1EB0",
+   "kind": "function",
+   "name": "CFrontEnd::ClearBookmark",
+   "signature": "void __thiscall CFrontEnd::ClearBookmark(CFrontEnd* this)",
+   "no_signature": null,
+   "comment": "Slot 86 of CFrontEnd, called by CClearBookmark::Execute: a tail jump to the lobby's (views[3]) slot 10, CGameSetup::ClearBookmark. Slots 87 and 88 likewise jump to views[3] slots 11 and 12, which CGameSetup leaves at the shared stubs.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x2D51A0",
+   "kind": "function",
+   "name": "CSelectBookmark::Execute",
+   "signature": "void __thiscall CSelectBookmark::Execute(CSelectBookmark* this)",
+   "no_signature": null,
+   "comment": "CCommand slot 6 of CSelectBookmark: the current screen's (state->in_game_screen) slot 84 with this + 0x3C - the bookmark the command carries (CFrontEnd::SelectBookmark). Bare ret.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x2D57E0",
+   "kind": "function",
+   "name": "CClearBookmark::Execute",
+   "signature": "void __thiscall CClearBookmark::Execute(CClearBookmark* this)",
+   "no_signature": null,
+   "comment": "CCommand slot 6 of CClearBookmark: the current screen's slot 86 (CFrontEnd::ClearBookmark). Posted by CGameSetup::OnSaveRowChecked. Bare ret.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x2D4C00",
+   "kind": "function",
+   "name": "CLobbyStartGame::Execute",
+   "signature": "void __thiscall CLobbyStartGame::Execute(CLobbyStartGame* this)",
+   "no_signature": null,
+   "comment": "CCommand slot 6 of CLobbyStartGame: the current screen's slot 68 - in the front end CFrontEnd::RequestLobbyStart, which sets +0x764. Posted by CGameSetup::OnPlay. Bare ret.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x2D32E0",
+   "kind": "function",
+   "name": "CSetCountryControllerCommand_Construct",
+   "signature": "CSetCountryControllerCommand* __stdcall CSetCountryControllerCommand_Construct(CSetCountryControllerCommand* this, int countryTag, int countryId, int previousTag, int previousId, int human)",
+   "no_signature": null,
+   "comment": "The constructor every lobby poster uses (class id 0x18D, type ids 0x389): the country chosen to +0x3C/+0x40, the country the human had to +0x44/+0x48, the human's id to +0x4C. Callers: CGameSetup::OnProvinceClicked, CSavegameItem::OnClicked, CGameSetup::OnShortcutShieldClicked, CScenarioEntry's click (0x703BB2), the tutorial (0x71DBBD), 0x43CC58 and 0x696FE7 (not read); an inlined copy at 0x646221. `ret 0x18`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x2D3390",
+   "kind": "function",
+   "name": "CSetCountryControllerCommand::Execute",
+   "signature": "void __thiscall CSetCountryControllerCommand::Execute(CSetCountryControllerCommand* this)",
+   "no_signature": null,
+   "comment": "CCommand slot 6. The human (FindHumanById, +0x4C) loses its 'primary local' byte (+0x28, `Human X unset as primary local`). **The country it had** (+0x44/+0x48), where no other human holds it: played_countries[it] = 0, its CEU3AI's +0x2C = 1 (the AI takes it), `AI will control <name>`. An intelligence refresh requested. Where the human is unknown or the new id (+0x40) is 0, `Attempted to assign ... to nonextistant human` and stop; otherwise the human is made primary local where no other human of that country is (`Human X set as primary local`), **its country = +0x3C/+0x40**, and **where it is this machine's human**: played_countries[new] = 1, **state->player and the map's player = the country**, its AI's +0x2C = 0, `Local player will control <name>`. Every arm that changes a controller sets the state's controllers_changed (+0xC0), which is what refreshes the lobby's panel. The tail was not read. Bare ret.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x2ECFB0",
+   "kind": "function",
+   "name": "CBookmarkList_Load",
+   "signature": "void __stdcall CBookmarkList_Load(void* list, void* files)",
+   "no_signature": null,
+   "comment": "Reads the bookmark files (a vector of paths, 0x1C each) into the two lists of the 0x20-byte holder at [0x1A8A874]: both emptied; a file that does not exist logs `Failed to open file <path>` (bookmarks.cpp); each top-level block parsed into a CBookmark (CPersistent::Load) and, **where the parse left no message**, copied into a new 0xD4-byte CBookmark **appended at the tail** of the historical list (holder +0) or, when is_cgm, of the custom-game list (holder +0x10) - so the lists are in file order. `ret 8`.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x2EDD60",
+   "kind": "function",
+   "name": "CFrontEnd::Update",
+   "signature": "void __thiscall CFrontEnd::Update(CFrontEnd* this, int unused)",
+   "no_signature": null,
+   "comment": "CFrontEnd slot 1, the front end's frame. 0x6EDD60 to the `ret 4` at 0x6EEB8E. In order: CEU3Idler::Update; **nudge_button of mainmenu_panel hidden every frame** while the front-end window (+0x730) exists; the title music (`music/titletheme_heartsofiron.mp3`, hardcoded) started when the window is active, master volume is above 0 and nothing plays; the screenshot routine (CFrontEnd_TakeScreenshot); session commands pumped on the application's two sessions (+0x12C, +0x130); the frame's input events gathered; **CFrontEnd::LaunchGame called every frame** - it returns at once unless launch_requested (+0x765) is set; Shift + right button gives the reload menu (CFrontEnd_FillRightClickMenu); then each event: F11 (key 0x7A, not with 0x102) sets screenshot_requested (+0x1D8); **a left-button release over the map picks the province under the pointer** (0x8558F0 into the map's +0x60D0) and, where it has an owner (CMapProvince +0x330), hands it to the current view's slot 5 - which is the shared `ret 4` stub 0x60CD50 in every view but CGameSetup, so **on the main menu a province click does nothing**; another button event raises the camera's +0x354. Then the pinned text box +0x204 placed at (10,10), UpdateMapCamera, CEU3Idler::UpdateTooltip, the store window's update when shown, CFrontEnd_Render, and **PostQuitMessage(0) when quit_requested (+0x76D) is set**. See reversing/findings/FINDINGS-frontend.md, section A.3.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x2F0140",
+   "kind": "function",
+   "name": "CFrontEnd::Leave",
+   "signature": "void __thiscall CFrontEnd::Leave(CFrontEnd* this)",
+   "no_signature": null,
+   "comment": "CFrontEnd slot 4, run by the pending-screen swap on the outgoing front end. 0x6F0140 to the bare `ret` at 0x6F0325. The render object (+0x390) hidden and released and the map's +0x1DBC cleared; exit_button's front-end observer (+0x188) detached; the lobby window (+0x734), the pinned text box (+0x204) and the front-end window (+0x730, country_selection_panel) hidden and destroyed; **every view deleted** (views +0x750..+0x754, each slot 0 with 1); the store interface (+0x1DC) deleted; then the base CEU3Idler slot 4. LaunchGame's new CInGameIdler is installed as the pending screen, so this is how the menus go when a game starts. See reversing/findings/FINDINGS-frontend.md, section A.6.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x2F3050",
+   "kind": "function",
+   "name": "CFrontEnd::Reload",
+   "signature": "bool __thiscall CFrontEnd::Reload(CReloadDispatcher* this)",
+   "no_signature": null,
+   "comment": "**Builds the front end's panels and shows the first one.** Slot 0 of CFrontEnd's CReloadDispatcher table at +0xB0, so ECX is the front end + 0xB0 and every offset in the body is 0xB0 low (+0x6A0 here is the views at +0x750). 0x6F3050 to two bare `ret`s (0x6F4222, 0x6F4244), answers 1. Ghidra's RTTI pass labels it a CFrontendSettingsScreen constructor; it is not. Called by CFrontEnd::Enter, and by the interface reload. **When views already exist** (a reload): simple = 0, back to view 0, the store window hidden, exit_button's observer detached, the lobby window, the pinned text box and the front-end window destroyed, every view deleted. Then: the store interface (+0x1DC) deleted; core.gui's ToolTip box made again at +0x204; **country_selection_panel** made (gui slot 11) at +0x730; **version_label** given the application's version (application slot 64, its +0x20 through 0xAB42F0: the version name and four checksum letters in brackets) - and where the settings' string at +0xA4 is not empty, that plus `    Mod: ` plus the localised mod name (CDirectorySettings +0x28); the window shown and its sub-windows hidden (slot 28); the `lobby` window made at +0x734 and hidden; the view vector sized to **nine**, then filled: **3** CGameSetup (0x970, the lobby window), **4** CMultiplayerMenuView (multiplayer_menu and multiplayer_connect_menu), **0** CFrontEndState (mainmenu_panel) - **shown at once (slot 2)**, **2** CFrontendSettingsScreen (`menu_settings`; the view is its CFrontEndView base at +0x3DC), **5** CMetaserverInterface (its base at +8), **8** CEasymodeView (easymode_panel), **7** CCreditsScreen (0x238), **6** CTutorialScreen (tutorial_panel) - each but 0 hidden (slot 3); **slot 1 is never filled and stays null**. Then exit_button of mainmenu_panel given the front end's own observer (+0x188), a new CMicrotransactionInterface (0x1B4) at +0x1DC, the four quickstart buttons of easymode_panel given the observers at +0x7C0 (usa), +0x770 (ger), +0x860 (sov), +0x810 (jap); and last **the settings' `simple` (+0x174) decides the first panel: 0 gives CFrontEnd_SwitchView(0) - the main menu; 1 gives view 8, the Quick Start panel**. See reversing/findings/FINDINGS-frontend.md, section A.1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x2F1280",
+   "kind": "function",
+   "name": "CFrontEnd_SwitchView",
+   "signature": "void __stdcall CFrontEnd_SwitchView(CFrontEnd* frontEnd@EAX, int view@EDI)",
+   "no_signature": null,
+   "comment": "**The front end's change of panel**, the idiom every button handler inlines. 0x6F1280 to the `ret` at 0x6F131E (the tail is a `jmp` into the store window's hide), one `int3` before CFrontEnd_RestoreBackdrop at 0x6F1320. View 1 or 3: the camera's +0x356 cleared (so the camera goes back to its default when the lobby is left); view 0: simple = 0; view 8: simple = 1; then the current view (+0x760) hidden (slot 3), the index set, the new view's slot 1 then slot 2 (show), and the store window (+0x1DC's +0x20) hidden. One caller, the end of CFrontEnd::Reload with view 0. See reversing/findings/FINDINGS-frontend.md, section A.1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x2F1320",
+   "kind": "function",
+   "name": "CFrontEnd_RestoreBackdrop",
+   "signature": "void __stdcall CFrontEnd_RestoreBackdrop(CFrontEnd* frontEnd@ESI)",
+   "no_signature": null,
+   "comment": "**Puts the front end's own window back when the lobby is left.** 0x6F1320 to the bare `ret` at 0x6F13A9, the front end in ESI. Shows the front-end window (+0x730, country_selection_panel - backdrop, logo, version) and hides all its sub-windows (CFixedWindow slot 28), hides the lobby window (+0x734), and where the camera's +0x356 is clear puts the camera's two point pairs (+0x334/+0x338 and +0x33C/+0x340) at (2900, 1600), then sets +0x356. One caller, CGameSetup::Hide at 0x7095B8. The CFrontEnd constructor writes the same (2900, 1600) under the same test. See reversing/findings/FINDINGS-frontend.md, section A.2.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x2F13B0",
+   "kind": "function",
+   "name": "CFrontEnd::OnExitButton",
+   "signature": "void __thiscall CFrontEnd::OnExitButton(CFrontEnd* this)",
+   "no_signature": null,
+   "comment": "**exit_button: greys the menu and quits to the desktop.** The handler of the front end's glue at +0x188 (wired to mainmenu_panel's exit_button by CFrontEnd::Reload) and called by CFrontEndView::OnExitButton (the main menu's and the Quick Start panel's own exit glues). For each of exit_button, settings_button, single_player_button, multi_player_button, credits_button and tutorial_button of mainmenu_panel that exists, slot 47 (disable - greyed); then byte 0x1A857EF = 1, the music stopped (slot 4), quit_requested (+0x76D) = 1, the application's +0xE4 slot 4 with 1, and PostQuitMessage(0). No confirmation dialog and no save. 0x6F13B0 to the bare `ret` at 0x6F1B64. See reversing/findings/FINDINGS-frontend.md, section A.2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x2FBA00",
+   "kind": "function",
+   "name": "SetFrontEndSessionMode",
+   "signature": "void __stdcall SetFrontEndSessionMode(int mode@EDI)",
+   "no_signature": null,
+   "comment": "Sets g_FrontEndSessionMode (VA 0x1A85618) to the mode in EDI and the game state's skip_automation_keys to (mode != 0). 0x6FBA00 to the bare `ret` at 0x6FBB21. Called with 0 by single_player_button (and the unwired view-1 glue) and with 1 by multi_player_button. See reversing/findings/FINDINGS-frontend.md, section A.2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x1285618",
+   "kind": "global",
+   "name": "g_FrontEndSessionMode",
+   "signature": null,
+   "no_signature": null,
+   "comment": "What kind of session the front end is setting up: 0 single player (single_player_button), 1 multiplayer (multi_player_button), both through SetFrontEndSessionMode; 2 written by the lobby's CONNECTED handler (FINDINGS-settingswindow.md C.4), so a client that has joined - inferred. CGameSetup::Prepare reads it (single player: provinces unmarked, the custom game settings cleared, the chat edit box hidden) and CGameSetup::Show disables the four lobby tabs when it is 2. See reversing/findings/FINDINGS-frontend.md, section A.2.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x2F4250",
+   "kind": "function",
+   "name": "CFrontEnd::OnQuickStartGer",
+   "signature": "void __thiscall CFrontEnd::OnQuickStartGer(CFrontEnd* this)",
+   "no_signature": null,
+   "comment": "quickstart_ger (easymode_panel), through the glue at +0x770. **Starts a game at once, with no lobby**: the date `1939.9.1.1`, the history executed to it into the game state's tick, RefreshAllCountries, a `Human` player, a fresh random seed posted as a CSetRandomSeed command on the session, `GER` made the played country (played_countries, player, the map's player) with its AI's +0x2C cleared, state +0xC0 = 1, five automation entries set, 0x685D80, and **launch_requested (+0x765) = 1** - LaunchGame starts the game on the next frame. 0x6F4250 to the bare `ret` at 0x6F489A. See reversing/findings/FINDINGS-frontend.md, section A.4.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x2F48A0",
+   "kind": "function",
+   "name": "CFrontEnd::OnQuickStartUsa",
+   "signature": "void __thiscall CFrontEnd::OnQuickStartUsa(CFrontEnd* this)",
+   "no_signature": null,
+   "comment": "quickstart_usa, through the glue at +0x7C0: CFrontEnd::OnQuickStartGer's body with the date `1936.1.1.1` and the tag `USA` (FE_QS_USA_TITLE \"USA, January 1936\"). launch_requested set at 0x6F4E4D. Bare `ret` at 0x6F4E98. See reversing/findings/FINDINGS-frontend.md, section A.4.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x2F4EA0",
+   "kind": "function",
+   "name": "CFrontEnd::OnQuickStartJap",
+   "signature": "void __thiscall CFrontEnd::OnQuickStartJap(CFrontEnd* this)",
+   "no_signature": null,
+   "comment": "quickstart_jap, through the glue at +0x810: the same body with `1941.12.7.1` and `JAP`. Bare `ret` at 0x6F54F1. See reversing/findings/FINDINGS-frontend.md, section A.4.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x2F5500",
+   "kind": "function",
+   "name": "CFrontEnd::OnQuickStartSov",
+   "signature": "void __thiscall CFrontEnd::OnQuickStartSov(CFrontEnd* this)",
+   "no_signature": null,
+   "comment": "quickstart_sov, through the glue at +0x860: the same body with `1941.6.22.1` and `SOV`. launch_requested set at 0x6F5AE4. Bare `ret` at 0x6F5B33. See reversing/findings/FINDINGS-frontend.md, section A.4.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x2EEBA0",
+   "kind": "function",
+   "name": "CFrontEnd_Render",
+   "signature": "void __stdcall CFrontEnd_Render(CFrontEnd* frontEnd)",
+   "no_signature": null,
+   "comment": "**The front end draws the map every frame.** Called once, at the end of CFrontEnd::Update (0x6EEA13). Returns at once while launch_requested (+0x765) is set; otherwise, with the window active, the map is drawn with the camera (+0x3A8) through the map object's province graphics (0x85BE50 on its +0x1DC4) and the scene calls around it, then the interface, and for fifteen frames after a screenshot the SCREENSHOT_TAKEN line; it also starts and stops the music and sound as the window gains and loses focus. Whether any of the map shows on the main menu is a question of the interface over it, not of this: see the front-end window's backdrop. 0x6EEBA0 to the `ret 4` at 0x6EEEDE. See reversing/findings/FINDINGS-frontend.md, section A.3.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x2F1F70",
+   "kind": "function",
+   "name": "CFrontEnd_TakeScreenshot",
+   "signature": "void __stdcall CFrontEnd_TakeScreenshot(CFrontEnd* frontEnd)",
+   "no_signature": null,
+   "comment": "F11 in the front end: where screenshot_requested (+0x1D8) is set and no cool-down runs, finds the first free `Screenshots/HoI3_<n>.bmp` (n from 1 to 9999) under PhysFS's write directory and saves the front buffer there (CreateOffscreenPlainSurface, GetFrontBufferData, D3DXSaveSurfaceToFileA), logging `Screenshot taken: ` or the failure; sets screenshot_taken (+0x1D9) and a ten-frame cool-down; clears +0x1D8. Called once, from CFrontEnd::Update (0x6EE043). Two `ret 4` (0x6F2191, 0x6F284E). See reversing/findings/FINDINGS-frontend.md, section A.3.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x2ED640",
+   "kind": "function",
+   "name": "CFrontEnd::GetMapCamera",
+   "signature": "MapCamera* __thiscall CFrontEnd::GetMapCamera(CFrontEnd* this)",
+   "no_signature": null,
+   "comment": "Slots 28 and 29 of CFrontEnd: `lea eax,[ecx+0x3A8]; ret` - the camera held by value at +0x3A8 (MapCamera_Construct builds it there in the constructor), the front end's counterpart of CInGameIdler::GetMapCamera, which holds the same two slots. See reversing/findings/FINDINGS-frontend.md, section A.3.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x2F0330",
+   "kind": "function",
+   "name": "CFrontEnd::GetTooltip",
+   "signature": "GuiTooltipText* __thiscall CFrontEnd::GetTooltip(CFrontEnd* this, GuiTooltipText* out) @EAX",
+   "no_signature": null,
+   "comment": "CFrontEnd slot 20, the counterpart of CInGameIdler::GetTooltip: an interface element under the mouse (the gui's +0x98) is asked through slot 109 (CFrontEnd::GetElementTooltip, which answers only `gamesetup` and `micro`); otherwise, **only while the lobby is the current view (+0x760 == 3)**, the map under the pointer (MapGraphics_PickUnderPointer) gives its tooltip, with the human players' names added for a country. So **no button of the main menu and no province has a tooltip while the main menu is up**. Two `ret 4`. Read as far as those two branches. See reversing/findings/FINDINGS-frontend.md, section A.2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x2FBB30",
+   "kind": "function",
+   "name": "CFrontEndState::CFrontEndState",
+   "signature": "CFrontEndState* __stdcall CFrontEndState::CFrontEndState(CFrontEndState* this, CFrontEnd* frontEnd, CFixedWindow* window)",
+   "no_signature": null,
+   "comment": "**The main menu's view** (mainmenu_panel), view 0, 0x274 bytes, made by CFrontEnd::Reload. Stores the front end at +4 and the window at +8, builds thirteen 0x2C-byte CButtonObserverGlue<CFrontEndState> and wires twelve by name: settings_button +0x38 (OnSettingsButton), single_player_button +0x64, multi_player_button +0x90, nudge_button +0xBC, credits_button +0x114, tutorial_button +0x140 (CFrontEndView::OnTutorialButton), homepage_button +0x1C4, forum_button +0x1F0, facebook_button +0x21C, twitter_button +0x248, exit_button +0xE8 (CFrontEndView::OnExitButton), gg_micro_button +0x16C **only where the window has one**, toggle_quick_normal +0x198 (OnQuickStartToggle). **The first glue (+0xC, CFrontEndState::OpenEmptyView1) is wired to nothing.** 0x6FBB30 to the `ret 0xC` at 0x6FC3C8. See reversing/findings/FINDINGS-frontend.md, section A.2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x2FC8B0",
+   "kind": "function",
+   "name": "CFrontEndState::Show",
+   "signature": "void __thiscall CFrontEndState::Show(CFrontEndState* this)",
+   "no_signature": null,
+   "comment": "CFrontEndState slot 2: shows the main menu's window (+8, its +0x18 slot 13) and **hides nudge_button** (FindButton, slot 14) - the map editor's button never shows in retail; CFrontEnd::Update hides it again every frame. 0x6FC8B0 to the bare `ret` at 0x6FC93B. See reversing/findings/FINDINGS-frontend.md, section A.2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x2FC940",
+   "kind": "function",
+   "name": "CFrontEndState::OpenEmptyView1",
+   "signature": "void __thiscall CFrontEndState::OpenEmptyView1(CFrontEndState* this)",
+   "no_signature": null,
+   "comment": "The handler of CFrontEndState's first glue (+0xC), which no button is wired to: SetFrontEndSessionMode(0), the camera's +0x356 cleared, and a switch to **view 1 - a slot CFrontEnd::Reload never fills**, so the call through its table would fault. Dead in retail; perhaps a removed button (inferred). 0x6FC940 to the bare `ret` at 0x6FC9C0. See reversing/findings/FINDINGS-frontend.md, section A.2.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x2FC9D0",
+   "kind": "function",
+   "name": "CFrontEndState::OnSettingsButton",
+   "signature": "void __thiscall CFrontEndState::OnSettingsButton(CFrontEndState* this)",
+   "no_signature": null,
+   "comment": "settings_button (FE_OPTIONS \"Options\"): switches to **view 2, the front end's settings window** (CFrontendSettingsScreen, `menu_settings` of settings.gui) and hides the store window. Nothing else. Bare `ret` at 0x6FCA36. See reversing/findings/FINDINGS-frontend.md, section A.2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x2FCA40",
+   "kind": "function",
+   "name": "CFrontEndState::OnSinglePlayerButton",
+   "signature": "void __thiscall CFrontEndState::OnSinglePlayerButton(CFrontEndState* this)",
+   "no_signature": null,
+   "comment": "single_player_button (FE_SINGLE_PLAYER): **opens the lobby**. In order: SetFrontEndSessionMode(0) (single player, skip_automation_keys clear); CGameSetup slot 13 (CGameSetup::BuildBookmarkLists - the lobby's lists emptied and the bookmarks filled); the store window hidden; the camera's +0x356 cleared; then the switch to **view 3** - the main menu hidden, CGameSetup::Prepare, CGameSetup::Show. 0x6FCA40 to the bare `ret` at 0x6FCAEE, abutting OnMultiPlayerButton with no padding (trap 2). See reversing/findings/FINDINGS-frontend.md, section A.2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x2FCAF0",
+   "kind": "function",
+   "name": "CFrontEndState::OnMultiPlayerButton",
+   "signature": "void __thiscall CFrontEndState::OnMultiPlayerButton(CFrontEndState* this)",
+   "no_signature": null,
+   "comment": "multi_player_button (FE_MULTI_PLAYER): SetFrontEndSessionMode(1) and a switch to **view 4, CMultiplayerMenuView** (multiplayer_menu), the store window hidden. Bare `ret` at 0x6FCB64. See reversing/findings/FINDINGS-frontend.md, section A.2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x2FCB70",
+   "kind": "function",
+   "name": "CFrontEndState::OnNudgeButton",
+   "signature": "void __thiscall CFrontEndState::OnNudgeButton(CFrontEndState* this)",
+   "no_signature": null,
+   "comment": "nudge_button: sets the front end's nudge_requested (+0x766) and nothing else. The button is hidden by CFrontEndState::Show and every frame by CFrontEnd::Update, so it cannot be pressed in retail. What reads +0x766 was not traced (the map editor, CNudgeIdler, presumably). See reversing/findings/FINDINGS-frontend.md, section A.2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x2FCB80",
+   "kind": "function",
+   "name": "CFrontEndView::OnExitButton",
+   "signature": "void __thiscall CFrontEndView::OnExitButton(CFrontEndView* this)",
+   "no_signature": null,
+   "comment": "exit_button of the main menu and of the Quick Start panel: `mov ecx,[ecx+4]; jmp CFrontEnd::OnExitButton`. Both CFrontEndState's glue at +0xE8 and CEasymodeView's at +0x38 hold it, and both views keep the front end at +4, hence the base's name. See reversing/findings/FINDINGS-frontend.md, section A.2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x2FCB90",
+   "kind": "function",
+   "name": "CFrontEndState::OnCreditsButton",
+   "signature": "void __thiscall CFrontEndState::OnCreditsButton(CFrontEndState* this)",
+   "no_signature": null,
+   "comment": "credits_button (FE_CREDITS): a switch to **view 7, CCreditsScreen** (credits.gui), the store window hidden. Bare `ret` at 0x6FCBF6. See reversing/findings/FINDINGS-frontend.md, section A.2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x302B10",
+   "kind": "function",
+   "name": "CFrontEndView::OnTutorialButton",
+   "signature": "void __thiscall CFrontEndView::OnTutorialButton(CFrontEndView* this)",
+   "no_signature": null,
+   "comment": "tutorial_button of the main menu and of the Quick Start panel (FE_TUTORIAL): a switch to **view 6, CTutorialScreen** (tutorial_panel), the store window hidden. Held by CFrontEndState's glue at +0x140 and CEasymodeView's at +0x64. Bare `ret` at 0x702B76. See reversing/findings/FINDINGS-frontend.md, section A.2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x2FCD00",
+   "kind": "function",
+   "name": "CFrontEndState::OnMicroButton",
+   "signature": "void __thiscall CFrontEndState::OnMicroButton(CFrontEndState* this)",
+   "no_signature": null,
+   "comment": "gg_micro_button (FE_MICRO \"Buy Bonus Items\"): where the front end's CMicrotransactionInterface (+0x1DC) has its window (+0x20) and that window's +0x5B is clear, shows it and calls 0x82BF40 with 0 - the GamersGate store, micro_interface of microgui.gui. Not hidden or greyed by any code read. Bare `ret` at 0x6FCD33. See reversing/findings/FINDINGS-frontend.md, section A.2.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x2FCC80",
+   "kind": "function",
+   "name": "CFrontEndState::OnQuickStartToggle",
+   "signature": "void __thiscall CFrontEndState::OnQuickStartToggle(CFrontEndState* this)",
+   "no_signature": null,
+   "comment": "The main menu's toggle_quick_normal (FE_TOGGLE \"Quick Start\"): settings `simple` (+0x174) = 1 and a switch to **view 8, the Quick Start panel** (easymode_panel). Bare `ret` at 0x6FCCF2. See reversing/findings/FINDINGS-frontend.md, section A.2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x2FCC00",
+   "kind": "function",
+   "name": "CFrontEndState::OnHomepageButton",
+   "signature": "void __thiscall CFrontEndState::OnHomepageButton(CFrontEndState* this)",
+   "no_signature": null,
+   "comment": "homepage_button: ShellExecuteA(open, \"http://www.heartsofirongame.com\"). Bare `ret`. See reversing/findings/FINDINGS-frontend.md, section A.2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x2FCC20",
+   "kind": "function",
+   "name": "CFrontEndState::OnForumButton",
+   "signature": "void __thiscall CFrontEndState::OnForumButton(CFrontEndState* this)",
+   "no_signature": null,
+   "comment": "forum_button: ShellExecuteA(open, \"http://forum.paradoxplaza.com/forum/forumdisplay.php?415-Hearts-of-Iron-3\"). Bare `ret`. See reversing/findings/FINDINGS-frontend.md, section A.2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x2FCC40",
+   "kind": "function",
+   "name": "CFrontEndState::OnFacebookButton",
+   "signature": "void __thiscall CFrontEndState::OnFacebookButton(CFrontEndState* this)",
+   "no_signature": null,
+   "comment": "facebook_button: ShellExecuteA(open, \"http://www.facebook.com/?ref=logo#!/Heartsofiron\"). Bare `ret`. See reversing/findings/FINDINGS-frontend.md, section A.2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x2FCC60",
+   "kind": "function",
+   "name": "CFrontEndState::OnTwitterButton",
+   "signature": "void __thiscall CFrontEndState::OnTwitterButton(CFrontEndState* this)",
+   "no_signature": null,
+   "comment": "twitter_button: ShellExecuteA(open, \"http://twitter.com/#!/HeartsOfIron3\"). Bare `ret`. See reversing/findings/FINDINGS-frontend.md, section A.2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x302870",
+   "kind": "function",
+   "name": "CEasymodeView::CEasymodeView",
+   "signature": "CEasymodeView* __stdcall CEasymodeView::CEasymodeView(CEasymodeView* this@stack:4, CFrontEnd* frontEnd@stack:8, CFixedWindow* window@EDX) @EAX",
+   "no_signature": null,
+   "comment": "**The Quick Start panel's view** (easymode_panel), view 8, 0x90 bytes, made by CFrontEnd::Reload. this and the front end on the stack, **the window in EDX**; stores the front end at +4 and the window at +8 and wires three glues: toggle_quick_normal +0xC (CEasymodeView::OnCustomStartToggle), exit_button +0x38 (CFrontEndView::OnExitButton), tutorial_button +0x64 (CFrontEndView::OnTutorialButton). The four quickstart buttons are wired by Reload to the front end's own glues, not here. `ret 8` at 0x702A3C. See reversing/findings/FINDINGS-frontend.md, section A.4.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x302A90",
+   "kind": "function",
+   "name": "CEasymodeView::OnCustomStartToggle",
+   "signature": "void __thiscall CEasymodeView::OnCustomStartToggle(CEasymodeView* this)",
+   "no_signature": null,
+   "comment": "The Quick Start panel's toggle_quick_normal (FE_TOGGLE_NORMAL \"Custom Start\"): settings `simple` = 0 and a switch to **view 0, the main menu**. Bare `ret` at 0x702B01. See reversing/findings/FINDINGS-frontend.md, section A.4.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x20BAF0",
+   "kind": "function",
+   "name": "CBackEndIdler::OnExitButton",
+   "signature": "void __thiscall CBackEndIdler::OnExitButton(CBackEndIdler* this)",
+   "no_signature": null,
+   "comment": "**The way from a finished game back to the main menu.** The handler of the CBackEndIdler's glue at +0x5D4, which its slot 3 attaches to the `Exit` button (EXIT) of backend.gui's `back_end` window (0x6090E8). Instruction for instruction the exit-to-menu branch of ProcessSessionEndRequests (FINDINGS-session2.md section 3): [[app]+0xE4] slot 4 (1), ResetGameStateToStartDate(1), slot 4 (0), the gui's +0x238 set and slot 12 on each of its +0x5C..+0x60 entries, a new 0x8B0-byte CFrontEnd (graphics +0xB4, gui +0xB0, app +0xB8), and app +0x88 = 1, +0xE0 = it - the next frame's swap enters it, and CFrontEnd::Enter comes up at the main menu (or the Quick Start panel, or the tutorial list). Resign in the in-game menu reaches this screen: CQuitDialog::OnAgree, RequestGameOver, then ProcessSessionEndRequests builds the CBackEndIdler. Bare `ret` at 0x60BBF7. See reversing/findings/FINDINGS-frontend.md, section A.6.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x317D60",
+   "kind": "function",
+   "name": "CGameSetup_PostOptionChoices",
+   "signature": "void __stdcall CGameSetup_PostOptionChoices(CGameSetup* setup)",
+   "no_signature": null,
+   "comment": "**Where the Options panel's choices go.** Called by every arrow of the panel (CGameSetup::OnDifficultyPrev/Next, OnGameModePrev/Next, OnOptionNext/Prev), by OnPlay and OnBack, and by the unattached CloseOptionsWindow. In order: a vector<int> of **{ the lobby's difficulty index (+0x714), its game mode index (+0x7E8) }**; where either differs from the game state's (+0xC98 / +0xC9C), CGameSetup_SayOptionChanged for that choice. Then for each of the seven option rows (+0x8B4): **row 2 (Technology)** - where the local CHuman's automate_tech_sliders (+0x30) differs, SayOptionChanged, then +0x30 = the row's index (0..3, no range test); **row 5 (Armies)** - the row's index 0..4 mapped to **7, 3, 2, 1, 0** and written to CHuman +0x48 (SayOptionChanged where it differs); **every other row** (0 Diplomacy, 1 Production, 3 Politics, 4 Intelligence, 6 the unlabelled one) - SayOptionChanged where automation[i] differs, then **automation[i] = the index only where i is inside the vector and the index is under 2**. The CHuman is GetLocalPlayer's (inlined for row 2: the state's humans matched on +0x1C against the session's +0x6C, else the CHuman embedded at the state's +0x70) - **written directly, not by a command**. Last, **in single player or as host (mode global 0 or 1)**, a new CSetGamePlayOptions (0x4C bytes, constructor 0x2D5C60) carrying the two-entry vector is posted on the session's command channel (the session's slot 18, its +0x38, slot 6) - **unconditionally, not only when something changed**; a client (mode 2) posts nothing. `ret 4` at 0x718874. The name is ours. See reversing/findings/FINDINGS-frontend.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x3188B0",
+   "kind": "function",
+   "name": "CGameSetup_AttachOptionButtons",
+   "signature": "void __fastcall CGameSetup_AttachOptionButtons(CGameSetup* setup@ESI)",
+   "no_signature": null,
+   "comment": "**Wires the Options panel's arrows** in `option_window` (+0x700): `difficulty_prev` the glue +0x738 (OnDifficultyPrev), `difficulty_next` +0x788 (OnDifficultyNext), `arcade_prev` +0x810 (OnGameModePrev), `arcade_next` +0x860 (OnGameModeNext); then for the rows 0..4 of the option-row vector (+0x8B4) - `diplomacy_`, `production_`, `technology_`, `politics_`, `intel_` - the `_next` button stored at the row's +0 and given the shared glue +0x8C8 (OnOptionNext), the `_prev` button at the row's +4 and the shared glue +0x918 (OnOptionPrev). **Rows 5 and 6 get no buttons.** Last, **on a client (mode global 2) the four difficulty and game-mode arrows are disabled** (button slot 47), otherwise enabled (slot 46); the five area arrows are never greyed. Called by the constructor (0x706196) and CGameSetup::Reload (0x71A57E). Bare `ret` at 0x7191BA. The name is ours. See reversing/findings/FINDINGS-frontend.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x319300",
+   "kind": "function",
+   "name": "CGameSetup::RefreshOptionsWindow",
+   "signature": "void __thiscall CGameSetup::RefreshOptionsWindow(CLobbyInterface* this)",
+   "no_signature": null,
+   "comment": "**Slot 13 of CGameSetup's CLobbyInterface table at +0xC** (pure in CLobbyInterface), so ECX is the lobby + 0xC and every offset in the body is 0xC low. **Re-reads every row from the local CHuman and redraws the panel's texts**: row 2 from automate_tech_sliders (+0x30), **every other row - the Armies row 5 included - from automation[i]**; the lobby's difficulty index (+0x714) from the state's difficulty (+0xC98) and its game mode index (+0x7E8) from arcade_mode (+0xC9C); then `difficulty_box`, `arcade_box`, `diplomacy_box`, `production_box`, `technology_box`, `politics_box` and `intel_box` each given the text of its choice's current value (COptionChoice_GetText; no bounds test on the index); and the four difficulty and game-mode arrows disabled on a client (mode 2), enabled otherwise. **Who calls it**: CGameSetup_SyncOptionsFromGameState at its end, OnOptionNext/OnOptionPrev after each post, and **CSetGamePlayOptions::Execute**, which finds the lobby's CLobbyInterface by the persistent id at 0x171042C (set by the lobby's constructor) and calls its slot 13 - so a command executed on any machine redraws that machine's panel. Bare `ret` at 0x719D5E; CGameSetup_SayOptionChanged begins two bytes later (trap 2). See reversing/findings/FINDINGS-frontend.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x319D60",
+   "kind": "function",
+   "name": "CGameSetup_SayOptionChanged",
+   "signature": "void __stdcall CGameSetup_SayOptionChanged(CGameSetup* setup, COptionChoice* choice)",
+   "no_signature": null,
+   "comment": "**The lobby's chat line for a changed option**: OPTION_CHANGED, \"$FROM$ has changed to: $TO$\", FROM the choice's label (COptionChoice_GetLabel - the localised FE_DIFFICULTY, FE_ARCADE or FE_SETTING_* text) and TO the text of its current value (COptionChoice_GetText); the rendered line handed to 0x30D3E0, which writes into the lobby's `chatlog`. Called nine times from CGameSetup_PostOptionChoices, one per choice that differs from what the state holds. `ret 8` at 0x71A047. So **Difficulty: has changed to: Hard** is what the original says when the difficulty arrow is pressed (the label keeps its colon). The name is ours. See reversing/findings/FINDINGS-frontend.md, section C.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x31A050",
+   "kind": "function",
+   "name": "CGameSetup::Reload",
+   "signature": "bool __thiscall CGameSetup::Reload(CReloadableInterface* this)",
+   "no_signature": null,
+   "comment": "**Slot 0 of CGameSetup's CReloadableInterface table at +0x6C** - the interface reload - so ECX is the lobby + 0x6C. Read in part: the lobby's slot 3 (Hide); the old `lobby` window destroyed and made again (+0x3B8), `lobby_chat_edit` hidden in single player; back_button, victoryconditions_button, play_button, lobby_chat_edit and the four tabs given their glues again; the window named `gamesetup`; `singleplayer`'s player_shield wired; **the old `option_window` destroyed and made again (+0x700), CGameSetup_AttachOptionButtons and CGameSetup_SyncOptionsFromGameState** - so a reload shows the panel again; the bookmark name (+0x6DC) emptied and +0x6F8 cleared; +0x6C8 from the application's +0x130; the `checksum` text; CGameSetup_RefreshYearLabel; ... and last the front end's lobby window pointer (CFrontEnd +0x734) set to the new window. Answers 1 (`mov al, 1`, bare `ret` at 0x71A7C5). The middle of the tail was not read. See reversing/findings/FINDINGS-frontend.md, section C.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x31A7D0",
+   "kind": "function",
+   "name": "CGameSetup::OnDifficultyPrev",
+   "signature": "void __thiscall CGameSetup::OnDifficultyPrev(CGameSetup* this)",
+   "no_signature": null,
+   "comment": "`difficulty_prev` (glue +0x738): the lobby's difficulty index (+0x714) - 1, **wrapping below 0 to the last value** (the count of its texts, 5, less one); then CGameSetup_PostOptionChoices. Bare `ret`. See reversing/findings/FINDINGS-frontend.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x31A810",
+   "kind": "function",
+   "name": "CGameSetup::OnDifficultyNext",
+   "signature": "void __thiscall CGameSetup::OnDifficultyNext(CGameSetup* this)",
+   "no_signature": null,
+   "comment": "`difficulty_next` (glue +0x788): the difficulty index + 1, **wrapping at the count to 0** (unsigned compare); then CGameSetup_PostOptionChoices. Bare `ret`. See reversing/findings/FINDINGS-frontend.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x31A860",
+   "kind": "function",
+   "name": "CGameSetup::OnGameModePrev",
+   "signature": "void __thiscall CGameSetup::OnGameModePrev(CGameSetup* this)",
+   "no_signature": null,
+   "comment": "`arcade_prev` (glue +0x810): the game-mode index (+0x7E8) - 1, wrapping below 0 to the last (1); then CGameSetup_PostOptionChoices. With two values both arrows simply toggle Normal and Arcade. Bare `ret`. See reversing/findings/FINDINGS-frontend.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x31A8A0",
+   "kind": "function",
+   "name": "CGameSetup::OnGameModeNext",
+   "signature": "void __thiscall CGameSetup::OnGameModeNext(CGameSetup* this)",
+   "no_signature": null,
+   "comment": "`arcade_next` (glue +0x860): the game-mode index + 1, wrapping at the count to 0; then CGameSetup_PostOptionChoices. Bare `ret`. See reversing/findings/FINDINGS-frontend.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x31A8F0",
+   "kind": "function",
+   "name": "CGameSetup::OnOptionNext",
+   "signature": "void __thiscall CGameSetup::OnOptionNext(CGameSetup* this, void* button)",
+   "no_signature": null,
+   "comment": "**Every area's `_next` button** (the shared glue +0x8C8): finds the row whose +0 is the button pressed, returns when none is; its index + 1, **wrapping at its count to 0**; CGameSetup_PostOptionChoices; then the lobby's slot 13 at +0xC, CGameSetup::RefreshOptionsWindow. `ret 4`. See reversing/findings/FINDINGS-frontend.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x31A990",
+   "kind": "function",
+   "name": "CGameSetup::OnOptionPrev",
+   "signature": "void __thiscall CGameSetup::OnOptionPrev(CGameSetup* this, void* button)",
+   "no_signature": null,
+   "comment": "**Every area's `_prev` button** (the shared glue +0x918): the row whose +4 is the button; its index - 1, **wrapping below 0 to its last value**; CGameSetup_PostOptionChoices; CGameSetup::RefreshOptionsWindow. `ret 4`. See reversing/findings/FINDINGS-frontend.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x317D40",
+   "kind": "function",
+   "name": "CGameSetup::HideOptionsWindow",
+   "signature": "void __thiscall CGameSetup::HideOptionsWindow(CGameSetup* this)",
+   "no_signature": null,
+   "comment": "Hides `option_window` (+0x700, its CGuiObject at +0x18, slot 14) by a tail jump. The handler of the button glue the constructor builds at +0x2C8 - **which nothing attaches to a button** (likely dead: a close button the panel no longer has). Its sibling at +0x318 is CGameSetup::CloseOptionsWindow. See reversing/findings/FINDINGS-frontend.md, section C.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x318880",
+   "kind": "function",
+   "name": "CGameSetup::CloseOptionsWindow",
+   "signature": "void __thiscall CGameSetup::CloseOptionsWindow(CGameSetup* this)",
+   "no_signature": null,
+   "comment": "Hides `option_window` (+0x700, slot 14 of its +0x18) where it exists, then CGameSetup_PostOptionChoices. The handler of the glue built at +0x318, **which nothing attaches** (likely dead, as HideOptionsWindow's +0x2C8). OnBack and OnPlay do the same two steps inline. Bare `ret`. See reversing/findings/FINDINGS-frontend.md, section C.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x302EB0",
+   "kind": "function",
+   "name": "COptionChoice_Init",
+   "signature": null,
+   "no_signature": "`ret 0x20`: the choice pointer and a 0x1C-byte std::string label passed by value on the stack; a by-value string parameter is not something checkSignatures can place, so none is offered.",
+   "comment": "Makes a COptionChoice: the text vector empty, the index (+0x10) 0, the label (+0x14) the string given, and **+0x30 a serial number from the global 0x1A8561C, which it then increments**. The lobby's constructor makes the difficulty, game-mode and six labelled area choices with it from the rendered FE_DIFFICULTY, FE_ARCADE and FE_SETTING_DIPLOMACY..FE_SETTING_UNITINTERFACE. The name is ours. See reversing/findings/FINDINGS-frontend.md, section C.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x302F30",
+   "kind": "function",
+   "name": "COptionChoice_GetText",
+   "signature": "Hoi3CString* __fastcall COptionChoice_GetText(COptionChoice* choice@ECX, Hoi3CString* out@ESI) @EAX",
+   "no_signature": null,
+   "comment": "The text of a choice's current value: a copy of `values[index]` (values at +0, index at +0x10, 0x1C bytes a string) into the string at ESI, which it answers. **No bounds test**, so an index past the texts - a save's automate_tech_sliders above 3, say - reads beyond the vector. Bare `ret`. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x302F70",
+   "kind": "function",
+   "name": "COptionChoice_GetLabel",
+   "signature": "Hoi3CString* __stdcall COptionChoice_GetLabel(COptionChoice* choice@stack:4, Hoi3CString* out@ESI) @EAX",
+   "no_signature": null,
+   "comment": "A copy of a choice's label (+0x14) into the string at ESI, which it answers. `ret 4`. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x31AD10",
+   "kind": "function",
+   "name": "CGameSetup_ResizeOptionRows",
+   "signature": null,
+   "no_signature": "The vector arrives in ESI and a further value on the stack whose role was not settled; bare `ret`.",
+   "comment": "Sizes the lobby's option-row vector (+0x8B4, 0x3C-byte rows) to **seven** - a compiled-in 7 (`cmp ecx, 7`, and +0x1A4 = 7 x 0x3C when truncating). Called once, by the constructor (0x705475, ESI = this + 0x8B4). The name is ours.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x27AFA0",
+   "kind": "function",
+   "name": "CHuman::CHuman",
+   "signature": "CHuman* __stdcall CHuman::CHuman(CHuman* this)",
+   "no_signature": null,
+   "comment": "**A player record's defaults**, `this` on the stack, answered in EAX, `ret 4`. Name empty; id (+0x1C) -1; country (+0x20) `---` with id 0; +0x28 the word 0x100 (primary_local 0, +0x29 1); automate_sliders 0, automate_tech_sliders 0, automate_trade and +0x35 0; the automation vector (+0x38) sized to seven through 0x444040 (zeros, inferred); +0x4C from the global 0x170C2B8; and **+0x48 (army_automation) = 7, Player Control**. Called by CGameState's constructor for the **CHuman embedded at the state's +0x70** - GetLocalPlayer's fallback, and so the record whose +0x2C/+0x30 CCurrentGameState's +0x9C/+0xA0 name - and by the lobby's constructor for **its own player record at +0x410**. A sibling at 0x3A5B0 (`ret 0x10`) takes a name, an id and a byte for +0x35 and sets the same defaults. So a new game's Options panel opens on Player Control in every area. See reversing/findings/FINDINGS-frontend.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x422290",
+   "kind": "function",
+   "name": "CTechnologyView::NextAutomationSetting",
+   "signature": "void __thiscall CTechnologyView::NextAutomationSetting(CTechnologyView* this)",
+   "no_signature": null,
+   "comment": "Slot 12 of CTechnologyView (the left arrow, `mode_arrow_left`), replacing CCountryView's: the local CHuman's **automate_tech_sliders (+0x30) + 1, wrapping past 3 to 0**, stored; **automation[2] set to 0 where the new setting is 0 and to 1 otherwise** (each only where the vector holds more than two entries); slot 11; CEU3AI::ApplyPlayerDelegation on the played country's AI; the open view re-opened twice; slot 11 again. So the technology screen's four-way selector is the lobby's Technology row. Bare `ret`. See reversing/findings/FINDINGS-frontend.md, section C. The effects reader of the same day agrees: **Slot 12 of CTechnologyView, the right arrow of the technology screen's automation line.** `automate_tech_sliders` (CHuman +0x30) = (+0x30 + 1), back to 0 at 4 - Normal, AI control, Tech automated, Leadership automated - and **automation[2] = 0 where the new value is 0, else 1**; both written directly, not by a command. Then CEU3AI::ApplyPlayerDelegation on the player's country's AI (makes or removes the tech minister and sets its two bytes), two refreshes (0x6656D0) and the view's slot 11 (UpdateAutomationLine). Bare `ret`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x422600",
+   "kind": "function",
+   "name": "CTechnologyView::PreviousAutomationSetting",
+   "signature": "void __thiscall CTechnologyView::PreviousAutomationSetting(CTechnologyView* this)",
+   "no_signature": null,
+   "comment": "Slot 13 (the right arrow): automate_tech_sliders - 1, **wrapping below 0 to 3**; otherwise as slot 12, automation[2] = (setting != 0) included. Bare `ret`. See reversing/findings/FINDINGS-frontend.md, section C. The effects reader of the same day agrees: **Slot 13 of CTechnologyView, the left arrow**: `automate_tech_sliders` = +0x30 - 1, 3 below 0; automation[2] kept as (new != 0); the rest as slot 12 (NextAutomationSetting). Bare `ret`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x3E3310",
+   "kind": "function",
+   "name": "CConvoySettings::Update",
+   "signature": "void __thiscall CConvoySettings::Update(CConvoySettings* this)",
+   "no_signature": null,
+   "comment": "**Slot 4 of CConvoySettings, the `convoy_settings` window [mod: interface/convoys.gui]** - the dialog a convoy is made from. Enables or disables `create_resource` by whether the window's country has a port province to run one from, and **`create_supply` is enabled (slot 46) only outside arcade mode** - in arcade (CCurrentGameState +0xC9C above 0) it is disabled (slot 47), so no supply convoy can be made by hand either. Bare `ret`. The name is ours, after the sibling CConfirmBuild's slot 4 (Update); the create_resource condition was read off a poor decompilation and only in outline.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x3FBC70",
+   "kind": "function",
+   "name": "CProductionView::ApplyAutomation",
+   "signature": "void __thiscall CProductionView::ApplyAutomation(CProductionView* this)",
+   "no_signature": null,
+   "comment": "**Slot 14 of CProductionView**, overriding CCountryView::ApplyAutomation: the window's main element (+0xA8, its +0x18 subobject) gets slot 38 with 0 where the local player's automation flag for this view (`[GetLocalPlayer() + 0x38][view +0x78]`, production's) is 1 and with 1 otherwise; then `auto_deployment_checkbox` and `theatres_assign_button` get slot 38 with 1 whatever the setting - so delegating production makes the screen stop taking the mouse, looking as before, but for the automatic-deployment box and the theatre assignment. Slot 38 is whether an element takes the mouse (CFixedWindow::SetTakesMouse). Bare `ret`. The name follows the base's.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x3FC710",
+   "kind": "function",
+   "name": "CProductionView::OnAutoDeploymentToggled",
+   "signature": "void __thiscall CProductionView::OnAutoDeploymentToggled(CProductionView* this)",
+   "no_signature": null,
+   "comment": "**The `auto_deployment_checkbox` handler** - the observer the production view's constructor binds at +0xD0. Flips the local player's automation[6] (automatic deployment): new = (automation[6] == 0), written only where the vector has more than six entries. **Directly, not through a command**: the setting is the local CHuman's. While it is 1, ProcessAI runs CEU3AI::DeployFinishedUnits for the played country every hour (FINDINGS-ministers.md B). Bare `ret`; no caller, reached through the glue. Settles FINDINGS-ministers.md B.8's first open item.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x28A6B0",
+   "kind": "function",
+   "name": "CHuman_SetAutomation",
+   "signature": "void __stdcall CHuman_SetAutomation(CHuman* human@stack:4, int type@ECX, int value@EDX)",
+   "no_signature": null,
+   "comment": "**The automation flags' setter**: `if (type < (human->+0x3C - human->+0x38) / 4 && (unsigned)value <= 1) human->automation[type] = value`. One caller, CGameState::LoadKey's `ai` arm (0x2802A7), for each of the seven values - so the save's 7 in element 5 is refused here, and the arm keeps it at CHuman +0x48 instead. The `controller` key's arm copies its vector in without this test. `ret 4`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x4E9190",
+   "kind": "function",
+   "name": "CAI_IsAIControlled",
+   "signature": "bool __cdecl CAI_IsAIControlled(int type)",
+   "no_signature": null,
+   "comment": "Lua's `CAI:IsAIControlledForPlayer(CHuman::AUTOMATIONTYPE)` (luabind's name): `GetLocalPlayer()->automation[type] == 1`. **No script calls it** - neither the base game's, Their Finest Hour's nor BlackICE's; the name appears only in the mods' `LUA API.txt`. So nothing the install's Lua does depends on the player's automation. Bare `ret`, the type at [ebp+8].",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x421DE0",
+   "kind": "function",
+   "name": "CTechnologyView::ApplyAutomation",
+   "signature": "void __thiscall CTechnologyView::ApplyAutomation(CTechnologyView* this)",
+   "no_signature": null,
+   "comment": "**Slot 14 of CTechnologyView**, overriding CCountryView::ApplyAutomation; called from its slot 11 (UpdateAutomationLine). It goes by **the local CHuman's automate_tech_sliders (+0x30)**, not by automation[2] as the base would, and stops the mouse in two parts - the main window (+0xA8, its CGuiObject subobject at +0x18) and the leadership sliders' window `country_leadership_sliders` (+0x184, which the constructor stores) - each through slot 38 (0x98), 1 taking the mouse and 0 not - **slot 38 is whether an element takes the mouse, and nothing is greyed** (CFixedWindow::SetTakesMouse):\n\n| setting | main window | `country_leadership_sliders` |\n| --- | --- | --- |\n| 0 Normal (and any other value) | on | on |\n| 1 Ai Control | off, then the folder buttons, the tree, the categories and the queue on again | off |\n| 2 Research AI | off, then the same on again | on |\n| 3 Slider AI | on | off |\n\nWhat takes the mouse again under 1 and 2, in order: every folder's button `techtree_` + key, the folders taken from index 1 of the list the screen's Update walks (the lazy singleton at rva 0x1687B78, its vector at +0x3C/+0x40, each entry's key at +8); the element `tech_tree` (lookup slot 27, 0x6C); `tech_categories` (the same lookup); and `current_research` (lookup slot 31, 0x7C, then its slot 11 for the rows) with each row's `bg_current_green`, `bg_current_orange` and `bg_current_red`. So **under Research AI or Ai Control the tree, its folders and the queue stay usable** and the rest of the screen - the detail panel among it - stops answering clicks; Slider AI stops only the sliders. Bare `ret`. The name follows the base's.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x6C4030",
+   "kind": "function",
+   "name": "CFixedWindow::SetTakesMouse",
+   "signature": "void __thiscall CFixedWindow::SetTakesMouse(CGuiObject* this, bool takes)",
+   "no_signature": null,
+   "comment": "**Slot 38 of the CFixedWindow's CGuiObject subobject table** (0x1602058; also CEU3DialogGui's). Stores its argument in byte [this+0x48] and calls slot 38 with it on every node of both child lists (+0x5C, then +0x4C) - so a window hands whether to take the mouse down to everything in it. `ret 4`. **Slot 38 of the interface's elements is whether the element takes the mouse, not greying** (read 2026-11-06, FINDINGS-frontend.md C.4): a button holding nought there returns from its mouse handler without acting on the event or marking it handled, so a click passes through it, and nothing in the slot touches how it is drawn - the disabled state a button greys by is slot 47's (+0x64 = 3). What reads the window's own byte was not found. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x6CFFD0",
+   "kind": "function",
+   "name": "GuiButton_SetTakesMouse",
+   "signature": "void __fastcall GuiButton_SetTakesMouse(void* button@ECX, bool takes@stack:4)",
+   "no_signature": null,
+   "comment": "**Slot 38 of the four button widget tables** (0x15FFA10 guiButtonType, 0x16077D0 the listbox track buttons, 0x1609158, 0x16094A8 3dButtonType): byte [this+0x84] = takes; `ret 4`. The byte is read by the button's mouse handler (GuiButton_HandleMouse), which returns at once where it is nought. **Slot 38 of the interface's elements is whether the element takes the mouse, not greying** (read 2026-11-06, FINDINGS-frontend.md C.4): a button holding nought there returns from its mouse handler without acting on the event or marking it handled, so a click passes through it, and nothing in the slot touches how it is drawn - the disabled state a button greys by is slot 47's (+0x64 = 3). The class is unnamed (FINDINGS-guistatic.md), so the name has none.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x6CFBE0",
+   "kind": "function",
+   "name": "GuiButton_HandleMouse",
+   "signature": "void __fastcall GuiButton_HandleMouse(void* button@ECX, void* event@stack:4, int unused@stack:8)",
+   "no_signature": null,
+   "comment": "**The button widget's mouse handler**, slot 1 of the four button tables; `ret 8`. Read as far as its gates: a button whose state (+0x64) is 3 - disabled, slot 47's - takes the separate path at 0xACFD72; otherwise, for an event of kind 0 (event +8) on a shown button (+0x2C), **nothing at all where byte +0x84 is nought** (slot 38, GuiButton_SetTakesMouse); then event +0x10 == 3 with +0x14 == 1 (the left button down) sets state 1, 4 (up) over a held button state 2 and the press is run (0xACFEA0, 0xACFEC0, the global hook at rva 0x1685878, 0xACFF00, slot 68); 5 sets state 0; the right button's down and up at +0x70; kind 1 (a move) the same +0x84 gate. Event +0x18 = 1 marks it handled. The event's layout is inferred from these uses; the second argument is not read in what was read.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x65EB30",
+   "kind": "function",
+   "name": "GuiCheckbox_SetTakesMouse",
+   "signature": "void __fastcall GuiCheckbox_SetTakesMouse(void* checkbox@ECX, bool takes@stack:4)",
+   "no_signature": null,
+   "comment": "**Slot 38 of the checkbox widget** (0x15FDFC8, checkboxType): byte [this+0x135] = takes; `ret 4`. Its mouse handler (0xA81D10) tests the byte as the button's does, `cmp byte [edi+0x135]` and out where nought. **Slot 38 of the interface's elements is whether the element takes the mouse, not greying** (read 2026-11-06, FINDINGS-frontend.md C.4): a button holding nought there returns from its mouse handler without acting on the event or marking it handled, so a click passes through it, and nothing in the slot touches how it is drawn - the disabled state a button greys by is slot 47's (+0x64 = 3). ",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x68BF20",
+   "kind": "function",
+   "name": "GuiListbox_SetTakesMouse",
+   "signature": "void __fastcall GuiListbox_SetTakesMouse(void* listbox@ECX, bool takes@stack:4)",
+   "no_signature": null,
+   "comment": "**Slot 38 of the listbox widget** (0x15FE758): calls slot 38 with the argument on each row's window (each node's +0x20, its subobject at +0x18) and stores it in byte [this+0x154]; `ret 4`. So a list hands whether to take the mouse to its rows. **Slot 38 of the interface's elements is whether the element takes the mouse, not greying** (read 2026-11-06, FINDINGS-frontend.md C.4): a button holding nought there returns from its mouse handler without acting on the event or marking it handled, so a click passes through it, and nothing in the slot touches how it is drawn - the disabled state a button greys by is slot 47's (+0x64 = 3). ",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
+  },
+  {
+   "rva": "0x6A0870",
+   "kind": "function",
+   "name": "GuiScrollbar_SetTakesMouse",
+   "signature": "void __fastcall GuiScrollbar_SetTakesMouse(void* scrollbar@ECX, bool takes@stack:4)",
+   "no_signature": null,
+   "comment": "**Slot 38 of the scrollbar widget** (0x15FF7A0): calls slot 38 with the argument on its four parts, +0x14C, +0x1A0, +0x148 and +0xA0 (its buttons and its slider, by FINDINGS-guistatic.md's layout - not checked one by one); `ret 4`. **Slot 38 of the interface's elements is whether the element takes the mouse, not greying** (read 2026-11-06, FINDINGS-frontend.md C.4): a button holding nought there returns from its mouse handler without acting on the event or marking it handled, so a click passes through it, and nothing in the slot touches how it is drawn - the disabled state a button greys by is slot 47's (+0x64 = 3). ",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md"
   }
  ],
  "structs": [
@@ -65091,6 +66165,13 @@
    "size": "0xDA8",
    "fields": [
     {
+     "offset": "0xC0",
+     "name": "controllers_changed",
+     "type": "bool",
+     "comment": "as on CGameState (the record keeps the two apart)",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
      "offset": "0xCE4",
      "name": "factions_first",
      "type": "void*",
@@ -65661,14 +66742,14 @@
      "offset": "0xC98",
      "name": "difficulty",
      "type": "int",
-     "comment": "The campaign's difficulty, 0..4 (`VERY_EASY`, `EASY`, `NORMAL`, `HARD`, `VERY_HARD` in the localisation). Element 0 of the save's `setgameplayoptions` vector, written only by `CSetGamePlayOptions::Execute` (0x2D5D20) and so fixed for the game. CCurrentGameState's constructor defaults it to 2, Normal, and every save read here carries `setgameplayoptions = { 2 0 }`.",
+     "comment": "The campaign's difficulty, 0..4 - the lobby's DIFF_VERY_EASY, DIFF_EASY, DIFF_NORMAL, DIFF_HARD, DIFF_VERY_HARD (\"Very Easy\" .. \"Very Hard\"); the plain VERY_EASY .. VERY_HARD keys in the localisation are named by no string in the image. Element 0 of the save's `setgameplayoptions` vector; it is CGamePlaySettings +8 of the object embedded at +0xC90. **Two writers**: `CSetGamePlayOptions::Execute` (0x2D5D20), which the lobby posts at every press of its Options arrows and at Play and Back, and `CGamePlaySettings::LoadKey` (0x28A550), straight from a save or a mod's gameplaysettings.txt. So it is settled at Play - a loaded save's included, since the lobby lets it be changed - and fixed thereafter. CCurrentGameState's constructor defaults it to 2, Normal, and every save read here carries `setgameplayoptions = { 2 0 }`.",
      "source": "reversing/findings/FINDINGS-manpower.md"
     },
     {
      "offset": "0xC9C",
      "name": "arcade_mode",
      "type": "int",
-     "comment": "The lobby's **Game Mode**: 0 Normal, 1 Arcade. Element 1 of the save's `setgameplayoptions` vector, written only by `CSetGamePlayOptions::Execute` (0x2D5D20), so it is set once when the game is started or loaded. CCurrentGameState's constructor defaults it to 0.\n\n**This is the switch between the two supply models.** `CUnit::ConsumeSuppliesAndFuel` tests it at 0x1BBA3A: above zero the unit draws straight from the owner's capital pool (`CProvince +0x15C`), at or below zero it walks the supply network. Twenty-odd other sites read it the same way. Measured live it reads 0, and every save in `BlackICE GitHub/save games` writes `{ 2 0 }`, so the network path is the one that runs in an ordinary campaign.",
+     "comment": "The lobby's **Game Mode**: 0 Normal (STANDARD_MODE), 1 Arcade (ARCADE_MODE). Element 1 of the save's `setgameplayoptions` vector; CGamePlaySettings +0xC of the object at +0xC90. Written by `CSetGamePlayOptions::Execute` (0x2D5D20), posted by the lobby at every press of its Options arrows and at Play and Back, and by `CGamePlaySettings::LoadKey` (0x28A550) straight from a save or a mod's gameplaysettings.txt; so it is set when the game is started or loaded. CCurrentGameState's constructor defaults it to 0.\n\n**This is the switch between the two supply models.** `CUnit::ConsumeSuppliesAndFuel` tests it at 0x1BBA3A: above zero the unit draws straight from the owner's capital pool (`CProvince +0x15C`), at or below zero it walks the supply network. Twenty-odd other sites read it the same way. Measured live it reads 0, and every save in `BlackICE GitHub/save games` writes `{ 2 0 }`, so the network path is the one that runs in an ordinary campaign.",
      "source": "reversing/findings/FINDINGS-manpower.md"
     },
     {
@@ -70455,8 +71536,8 @@
      "offset": "0x174",
      "name": "simple",
      "type": "bool",
-     "comment": "The file's `simple` key, yes/no; 1 from the constructor, written by front-end and tutorial code (0x60D261, 0x6F12A6, 0x71D3FD and others) and by CFrontendSettingsScreen's close. What it means was not read. See reversing/findings/FINDINGS-settingswindow.md, section C.4.",
-     "source": "reversing/findings/FINDINGS-settingswindow.md"
+     "comment": "The file's `simple` key, yes/no: **which front-end panel comes up first - yes the Quick Start panel (easymode_panel), no the main menu.** CFrontEnd::Reload reads it as the last thing it does; the main menu's toggle_quick_normal sets it to 1 and the Quick Start panel's sets it to 0, so the choice is remembered in settings.txt; CFrontEnd_SwitchView keeps it in step for views 0 and 8, and CFrontendSettingsScreen::Close and an interface reload clear it. 1 from the constructor, and the install's template settings.txt says yes, so a new player sees Quick Start first. See reversing/findings/FINDINGS-frontend.md, section A.1, and FINDINGS-settingswindow.md, section C.4.",
+     "source": "reversing/findings/FINDINGS-frontend.md"
     },
     {
      "offset": "0x13C",
@@ -76060,6 +77141,13 @@
   {
    "name": "CGameState",
    "fields": [
+    {
+     "offset": "0xC0",
+     "name": "controllers_changed",
+     "type": "bool",
+     "comment": "set by CSetCountryControllerCommand::Execute when a country changes hands; the lobby's Update rebuilds its panel and clears it",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
     {
      "offset": "0xCE4",
      "name": "factions_first",
@@ -94402,11 +95490,39 @@
    "source": "reversing/findings/FINDINGS-ministers.md",
    "fields": [
     {
-     "offset": "0x48",
-     "name": "ai_entry5",
+     "offset": "0x4C",
+     "name": "mp_tick",
      "type": "int",
-     "comment": "The fifth (0-based) number of the save's `ai = { ... }` list, kept here as it stands - 7 in the 20 April 1936 save, a value the flag setter refuses. What reads it was not traced.",
-     "source": "reversing/findings/FINDINGS-ministers.md"
+     "comment": "A tick (hours from the epoch) per human. Read only by CCurrentGameState::AdvanceClock, and only where CCurrentGameState +0xCF4 is set: the local human's and every listed human's +0x4C are turned into day numbers and compared (a gap above 1, and of 3 or more, choose between the clock's thresholds) - so it is each human's own date in a multiplayer session and the clock waits for the slowest. Inferred: what writes it was not traced.",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x54",
+     "name": "next",
+     "type": "CHuman*",
+     "comment": "the next human of the state's list (+0x60)",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x28",
+     "name": "primary_local",
+     "type": "bool",
+     "comment": "logged 'set/unset as primary local' by CSetCountryControllerCommand::Execute",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x1C",
+     "name": "id",
+     "type": "int",
+     "comment": "the human's id; the state's humans are found by it",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x48",
+     "name": "army_automation",
+     "type": "int",
+     "comment": "**The lobby's Armies setting** (FE_SETTING_UNITINTERFACE), as a level by its labels: **7 Player Control** (OPT_PLAYER_CONTROL), 3 Ai Control Corps (OPT_AI_CORP), 2 Ai Control Armies, 1 Ai Control Army Groups, 0 Ai Control Theatres (OPT_AI_THEATER). CGameSetup_PostOptionChoices writes it from the Options panel's row 5 (index 0..4 -> 7,3,2,1,0) and CGameSetup_SyncOptionsFromGameState maps it back; CHuman::CHuman sets 7. Saved in place of element 5 of the save's `ai = { ... }`, which is why every save has a 7 there. options.gui gives the row no box and no arrows, and RefreshOptionsWindow fills the row from automation[5], so in the original's lobby every post sets it to 7 while automation[5] is 0. What reads it in play is not part of this reading In a running game (options-effects): **The lobby's sixth automation setting, the military one** - the save's `ai = { ... }` element 5, kept here because CHuman_SetAutomation refuses anything but 0 and 1. Values 7, 3, 2, 1, 0 for the lobby's choices 0 to 4 (CGameSetup_SyncOptionsFromGameState maps 7->0, 3->1, 2->2, 1->3, 0->4 and the commit at rva 0x317D60 the reverse); the lobby's texts for that row are OPT_PLAYER_CONTROL, OPT_AI_CORP, OPT_AI_ARMY, OPT_AI_ARMY_GROUP and OPT_AI_THEATER in that order (inferred from their order in CGameSetup::CGameSetup), so 7 is Player Control and 3/2/1/0 the AI running corps/armies/army groups/theatres. **Read by nothing in a running game** - only by the lobby, CGameState::SaveContents (written back as element 5) and CGameState::LoadKey. Every save read here has 7. Was `ai_entry5`.",
+     "source": "reversing/findings/FINDINGS-frontend.md"
     },
     {
      "offset": "0x3C",
@@ -94419,8 +95535,8 @@
      "offset": "0x38",
      "name": "automation",
      "type": "int*",
-     "comment": "**The seven automation flags**, a vector of ints indexed by CHuman::AUTOMATIONTYPE, each 0 or 1 - the save's `ai = { ... }`. [0] foreign policy, [1] production, [2] technology, [3] politics, [4] intelligence (the five ministers, FINDINGS-ai.md), [6] **automatic deployment** of finished units (ProcessAI then runs CEU3AI::DeployFinishedUnits for the played country every hour). [5] was not read; the save's 7 there is refused by the setter, which takes only 0 and 1, and kept at +0x48 instead. End of the vector at +0x3C.",
-     "source": "reversing/findings/FINDINGS-ministers.md"
+     "comment": "**The seven automation flags**, a vector of ints indexed by CHuman::AUTOMATIONTYPE, each 0 or 1 - the save's `ai = { ... }`. [0] foreign policy, [1] production, [2] technology, [3] politics, [4] intelligence (the five ministers, FINDINGS-ai.md), [6] **automatic deployment** of finished units (ProcessAI then runs CEU3AI::DeployFinishedUnits for the played country every hour). [5] is the lobby's hidden Armies row as read by RefreshOptionsWindow, but the lobby writes that row to +0x48 and never to [5]; the save's 7 at index 5 is +0x48's, which the setter (0 and 1 only) refuses here. **The lobby's Options panel** writes [0], [1], [3], [4] and [6] from its rows (each only where the index is under 2: 0 Player Control, 1 Ai Control) and **does not write [2]** - its Technology row is automate_tech_sliders (+0x30) - while the technology screen's arrows set [2] to 0 or 1 as +0x30 is nought or not. The country screens' `automation_setting` lines read and toggle [view_index]: diplomacy 0, production 1, politics 3, espionage 4. Sized to seven by CHuman::CHuman. End of the vector at +0x3C. In a running game (options-effects): **The seven automation flags**, a vector of ints indexed by CHuman::AUTOMATIONTYPE, each 0 or 1 - the save's `ai = { ... }`. [0] foreign policy, [1] production, [2] technology, [3] politics, [4] intelligence (the five ministers, FINDINGS-ai.md), [6] **automatic deployment** of finished units (ProcessAI then runs CEU3AI::DeployFinishedUnits for the played country every hour). [5] **is read by nothing** in a running game (the census of all 115 calls of GetLocalPlayer and its inlined copies, 2026-11-06); the save's 7 there is refused by CHuman_SetAutomation, which takes only 0 and 1, and kept at +0x48 instead. End of the vector at +0x3C. **Readers, by flag** (FINDINGS-frontend.md D.3): [0] CEU3AI::CreateMinisters and ApplyPlayerDelegation (the foreign minister), CCountry::RunHourlyAITrade (the Lua's trading for the player's country), CTradeAction::Apply (the player not told of trades), the diplomacy screen greyed; [1] the ministers, RunCountryDailyPass's slider call (the AI branch), CProductionView::SendDistribution (the player's sliders not sent), ApplyCountryAIStrategies (the strategy's trigger walk for the played country runs **only** while [1] is 1), alerts 5 and 8; [2] alerts 7 and 9 only - the tech minister is made from +0x30, and [2] is kept equal to (+0x30 != 0) by the technology screen's arrows but not set by the lobby; [3] the politics minister, alert 6; [4] the intelligence minister; [6] ProcessAI's hourly DeployFinishedUnits, toggled by CProductionView::OnAutoDeploymentToggled. CAI_IsAIControlled reads any of them for Lua, which no script calls.",
+     "source": "reversing/findings/FINDINGS-frontend.md"
     },
     {
      "offset": "0x34",
@@ -94433,8 +95549,8 @@
      "offset": "0x30",
      "name": "automate_tech_sliders",
      "type": "int",
-     "comment": "The technology screen's four-way automation setting (OPT_NORMAL, OPT_AICONTROL, TECH_AUTOMATED, LEADERSHIP_AUTOMATED), saved as `automate_tech_sliders`; it seeds the tech minister's two bytes +0x5C/+0x5D (FINDINGS-ai.md).",
-     "source": "reversing/findings/FINDINGS-ministers.md"
+     "comment": "The technology automation setting, four-way: 0 OPT_NORMAL (\"Normal\"; the lobby says OPT_PLAYER_CONTROL \"Player Control\"), 1 OPT_AICONTROL \"Ai Control\", 2 TECH_AUTOMATED \"Research AI\", 3 LEADERSHIP_AUTOMATED \"Slider AI\". Saved as `automate_tech_sliders`; it seeds the tech minister's two bytes +0x5C/+0x5D (FINDINGS-ai.md). **It is the lobby's Technology row** - CGameSetup_PostOptionChoices writes the row's index here directly, with no range test - and the technology screen's selector (CTechnologyView slots 11-13), whose arrows wrap 0..3 and also set automation[2]. CHuman::CHuman sets 0.",
+     "source": "reversing/findings/FINDINGS-frontend.md"
     },
     {
      "offset": "0x2C",
@@ -95897,6 +97013,132 @@
    "source": "reversing/findings/FINDINGS-leftovermenus.md",
    "fields": [
     {
+     "offset": "0x860",
+     "name": "quickstart_sov_observer",
+     "type": "void*",
+     "comment": "The glue for quickstart_sov, handler CFrontEnd::OnQuickStartSov.",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x810",
+     "name": "quickstart_jap_observer",
+     "type": "void*",
+     "comment": "The glue for quickstart_jap, handler CFrontEnd::OnQuickStartJap.",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x7C0",
+     "name": "quickstart_usa_observer",
+     "type": "void*",
+     "comment": "The glue for quickstart_usa, handler CFrontEnd::OnQuickStartUsa.",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x770",
+     "name": "quickstart_ger_observer",
+     "type": "void*",
+     "comment": "A CButtonObserverGlue<CFrontEnd> held by value, handler CFrontEnd::OnQuickStartGer; attached to easymode_panel's quickstart_ger by CFrontEnd::Reload.",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x76D",
+     "name": "quit_requested",
+     "type": "bool",
+     "comment": "Set by CFrontEnd::OnExitButton; CFrontEnd::Update ends its frame with PostQuitMessage(0) while it is set.",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x766",
+     "name": "nudge_requested",
+     "type": "bool",
+     "comment": "Set by nudge_button (CFrontEndState::OnNudgeButton), which is always hidden. Its reader was not traced.",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x765",
+     "name": "launch_requested",
+     "type": "bool",
+     "comment": "A game is to start: set by the four quickstart handlers (and, presumably, the lobby's Play - not read here); CFrontEnd::LaunchGame, called every frame by CFrontEnd::Update, does nothing while it is clear; CFrontEnd_Render draws nothing while it is set.",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x760",
+     "name": "current_view",
+     "type": "int",
+     "comment": "Index into views of the panel on screen. Set by every panel change (CFrontEnd_SwitchView and its inlined copies) and by CFrontEnd::Enter's tutorial arm (6); CFrontEnd::GetTooltip gives the map a tooltip only when it is 3 (the lobby), CFrontEnd::Update hands a clicked province to views[current_view] slot 5.",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x750",
+     "name": "views",
+     "type": "CFrontEndView**",
+     "comment": "Begin of a vector of nine CFrontEndView pointers (end +0x754): 0 main menu (CFrontEndState), 1 never filled, 2 settings (CFrontendSettingsScreen's base at +0x3DC), 3 lobby (CGameSetup), 4 multiplayer menu, 5 metaserver (CMetaserverInterface's base at +8), 6 tutorial list, 7 credits, 8 Quick Start (CEasymodeView). Filled by CFrontEnd::Reload, deleted by Reload and Leave.",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x734",
+     "name": "lobby_window",
+     "type": "CFixedWindow*",
+     "comment": "lobby.gui's `lobby` window, made and hidden by CFrontEnd::Reload and handed to CGameSetup's constructor; CFrontEnd_RestoreBackdrop hides it, Leave destroys it.",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x730",
+     "name": "frontend_window",
+     "type": "CFixedWindow*",
+     "comment": "temp_frontend.gui's country_selection_panel - the full-screen window holding the tiled Background, the 1600x1200 frontend_backdrop, the Clausewitz logo and version_label, and every front-end panel as a sub-window. Made by CFrontEnd::Reload (gui slot 11), shown with its sub-windows hidden; hidden by CGameSetup::Show and shown again by CFrontEnd_RestoreBackdrop; destroyed by Leave.",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x210",
+     "name": "application",
+     "type": "CEU3Application*",
+     "comment": "The CEU3Application, constructor argument 4; returned by slot 64 (CFrontEnd::GetApplication) and handed to the CInGameIdler's +0x1790 by LaunchGame. The name FINDINGS-session2.md section 4 proposed.",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x20C",
+     "name": "graphics",
+     "type": "CEU3Graphics*",
+     "comment": "The CEU3Graphics, constructor argument 2; CFrontEnd::LaunchGame hands it to the CInGameIdler's +0x178C. The name FINDINGS-session2.md section 4 proposed for this offset.",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x1DC",
+     "name": "micro_interface",
+     "type": "void*",
+     "comment": "The CMicrotransactionInterface (0x1B4 bytes) - the GamersGate bonus-item store behind gg_micro_button. Made by CFrontEnd::Reload, deleted by Reload and Leave; its window (+0x20) is hidden on every change of panel.",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x1D9",
+     "name": "screenshot_taken",
+     "type": "bool",
+     "comment": "Set after a screenshot attempt; CFrontEnd_Render then shows SCREENSHOT_TAKEN for fifteen frames and clears it.",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x1D8",
+     "name": "screenshot_requested",
+     "type": "bool",
+     "comment": "Set by F11 (key 0x7A) in CFrontEnd::Update's event loop; consumed and cleared by CFrontEnd_TakeScreenshot.",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x188",
+     "name": "exit_button_observer",
+     "type": "void*",
+     "comment": "A CButtonObserverGlue<CFrontEnd> (0x2C bytes) held by value, handler CFrontEnd::OnExitButton; attached to mainmenu_panel's exit_button by CFrontEnd::Reload and detached by CFrontEnd::Leave.",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x764",
+     "name": "lobby_start_requested",
+     "type": "bool",
+     "comment": "set by CLobbyStartGame (CFrontEnd::RequestLobbyStart); CGameSetup::Update starts the game when it is set and CGameSetup_CanStart holds",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
      "offset": "0xBC",
      "name": "right_click_element",
      "type": "CGuiObject*",
@@ -97136,6 +98378,539 @@
      "source": "reversing/findings/FINDINGS-editbox.md"
     }
    ]
+  },
+  {
+   "name": "CGameSetup",
+   "vftable_rva": "0x11D59C0",
+   "comment": "The pre-game lobby (gamesetup.cpp), a CFrontEndView with CSessionInfoObserver at +8, CLobbyInterface at +0xC, CLargefileHandlerInterface at +0x3C and CReloadableInterface at +0x6C; the front end's views[3]. Its window is `lobby` of tfh/interface/lobby.gui. Size not read. See reversing/findings/FINDINGS-frontend.md section B.",
+   "source": "reversing/findings/FINDINGS-frontend.md",
+   "fields": [
+    {
+     "offset": "0x8BC",
+     "name": "option_rows_capacity",
+     "type": "COptionRow*",
+     "comment": "the row vector's allocation end",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x8B8",
+     "name": "option_rows_end",
+     "type": "COptionRow*",
+     "comment": "one past the last option row",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x8B4",
+     "name": "option_rows",
+     "type": "COptionRow*",
+     "comment": "the seven automation rows of the Options panel, a vector: 0 Diplomacy, 1 Production, 2 Technology, 3 Politics, 4 Intelligence, 5 Armies (no box or arrows in options.gui), 6 unlabelled (automatic deployment's flag, no box)",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x7D8",
+     "name": "game_mode_choice",
+     "type": "COptionChoice",
+     "comment": "the Options panel's game mode: label FE_ARCADE, texts STANDARD_MODE, ARCADE_MODE; its index (+0x7E8) is posted as arcade_mode",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x704",
+     "name": "difficulty_choice",
+     "type": "COptionChoice",
+     "comment": "the Options panel's difficulty: label FE_DIFFICULTY, texts DIFF_VERY_EASY..DIFF_VERY_HARD; its index (+0x714) is what CGameSetup_PostOptionChoices posts as the difficulty",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x700",
+     "name": "options_window",
+     "type": "void*",
+     "comment": "the `option_window` of interface/options.gui [mod], a top-level window made by the constructor (and again by Reload); shown by CGameSetup_SyncOptionsFromGameState (slot 13 of its +0x18), hidden by OnBack and OnPlay (slot 14). Its arrow glues: +0x738 difficulty_prev, +0x788 difficulty_next, +0x810 arcade_prev, +0x860 arcade_next, +0x8C8 every area's _next, +0x918 every area's _prev; +0x2C8 and +0x318 are built and never attached",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x8B0",
+     "name": "victory_window",
+     "type": "void*",
+     "comment": "the victory conditions window (`victory_conditions_window`, 0xA4 bytes)",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x6FC",
+     "name": "scenario",
+     "type": "void*",
+     "comment": "the chosen scenario; 0 when none",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x6F8",
+     "name": "bookmark_is_cgm",
+     "type": "bool",
+     "comment": "the chosen bookmark is a custom-game one",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x6DC",
+     "name": "bookmark_name",
+     "type": "Hoi3CString",
+     "comment": "the chosen bookmark's localised name; empty when none (year_label then says SAVED_GAMES)",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x6C7",
+     "name": "save_loaded",
+     "type": "bool",
+     "comment": "a save, not a bookmark, is what Play will start; cleared by Enter and SelectBookmark",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x6C5",
+     "name": "save_parsed",
+     "type": "bool",
+     "comment": "the server arm has parsed the save; it is what stops a second LoadSaveFile while transfers finish",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x6C4",
+     "name": "load_pending",
+     "type": "bool",
+     "comment": "a save's transfer started and not yet loaded; tabs, CanStart and a second transfer all wait on it",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x6B4",
+     "name": "chosen_save_checksum",
+     "type": "int",
+     "comment": "ChecksumFile of the chosen save, -1 when none; a client compares its transfer's checksum with it",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x698",
+     "name": "chosen_save",
+     "type": "Hoi3CString",
+     "comment": "the file name of the chosen save row, `save games/` + this being what is loaded",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x4CC",
+     "name": "panel_dirty",
+     "type": "bool",
+     "comment": "set by CGameSetup_RefreshYearLabel; Update rebuilds the `singleplayer` panel when it or the state's controllers_changed is set, and clears it",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x48C",
+     "name": "wars",
+     "type": "void*",
+     "comment": "the countries the panel's country is at war with, rebuilt with the panel; only its emptiness reaches the text (ATPEACE/ATWAR)",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x47C",
+     "name": "shortcut_countries",
+     "type": "void*",
+     "comment": "the chosen bookmark's country list (id nodes, next at +0xC), copied by IdList_Assign",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x46C",
+     "name": "shortcut_shields",
+     "type": "void*",
+     "comment": "list head of the start-date `shield` buttons SelectBookmark lays out (node: button, country node, next at +8)",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x468",
+     "name": "end_date",
+     "type": "int",
+     "comment": "the defines' end_date; the upper clamp of a bookmark's date",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x464",
+     "name": "start_date",
+     "type": "int",
+     "comment": "the defines' start_date, copied by the constructor; the lower clamp of a bookmark's date and the date SelectDefaultBookmark runs history to",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x460",
+     "name": "label_tick",
+     "type": "int",
+     "comment": "the tick year_label was last written for; Update rewrites the label when the state's tick differs",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x42C",
+     "name": "local_human_id",
+     "type": "int",
+     "comment": "the id of this machine's human (the +0x1C of its CHuman); the panel is built from the state's human with this id. Part of a CHuman-shaped record at +0x410 (inferred)",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x3B8",
+     "name": "window",
+     "type": "void*",
+     "comment": "the `lobby` window every element is looked up in (slots 13/14/15/27/31 of a CFixedWindow)",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    }
+   ]
+  },
+  {
+   "name": "CSavegameItem",
+   "vftable_rva": "0x11D5C7C",
+   "size": "0xC8",
+   "comment": "A row of the lobby's `save_games_list` (window `savegameentry`). A CStandardlistboxItem; its second table at +0x1C. See reversing/findings/FINDINGS-frontend.md section B.3.",
+   "source": "reversing/findings/FINDINGS-frontend.md",
+   "fields": [
+    {
+     "offset": "0xAC",
+     "name": "scenario_name",
+     "type": "Hoi3CString",
+     "comment": "the header's `scenario`, emptied when no such scenario exists",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0xA8",
+     "name": "loaded",
+     "type": "bool",
+     "comment": "this row's save is the chosen one (CSavegameItem::SetLoaded)",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x54",
+     "name": "front_end",
+     "type": "void*",
+     "comment": "the CFrontEnd; OnClicked takes the session from its slot 18",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x50",
+     "name": "setup",
+     "type": "CGameSetup*",
+     "comment": "the lobby; OnClicked calls its slot 5 with the player's capital",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x4C",
+     "name": "date",
+     "type": "int",
+     "comment": "the header's first value as a date; what `date` shows through FormatHourDate",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x44",
+     "name": "player",
+     "type": "CCountryTag",
+     "comment": "the save's `player`, read positionally from its header; `---`/0 when absent",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x28",
+     "name": "file_name",
+     "type": "Hoi3CString",
+     "comment": "the file's name in `save games/`, as listed",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    }
+   ]
+  },
+  {
+   "name": "CBookmarkEntry",
+   "vftable_rva": "0x11D5A8C",
+   "size": "0x88",
+   "comment": "A row of the lobby's `bookmarks_list` (window `bookmark_entry`). A CStandardlistboxItem; second table at +0x1C. See reversing/findings/FINDINGS-frontend.md section B.2.",
+   "source": "reversing/findings/FINDINGS-frontend.md",
+   "fields": [
+    {
+     "offset": "0x84",
+     "name": "is_cgm",
+     "type": "bool",
+     "comment": "the row is in the custom-game list",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x80",
+     "name": "setup",
+     "type": "CGameSetup*",
+     "comment": "the lobby, asked for the chosen start in Update",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x2C",
+     "name": "button",
+     "type": "void*",
+     "comment": "the row's `bookmark` button",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x28",
+     "name": "bookmark",
+     "type": "CBookmark*",
+     "comment": "the bookmark the row shows and posts",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    }
+   ]
+  },
+  {
+   "name": "CBookmark",
+   "vftable_rva": "0x11D30D4",
+   "size": "0xD4",
+   "inherits": "CPersistent",
+   "comment": "One `bookmark = { }` of common/bookmarks.txt. The keys are CBookmark::LoadKey's seven. Kept in two lists at [0x1A8A874] (historical +0, custom-game +0x10), linked through +0xC8/+0xCC. See reversing/findings/FINDINGS-frontend.md section B.2.",
+   "source": "reversing/findings/FINDINGS-frontend.md",
+   "fields": [
+    {
+     "offset": "0xCC",
+     "name": "next",
+     "type": "CBookmark*",
+     "comment": "the next bookmark of its list (file order); +0xC8 the previous",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0xAC",
+     "name": "cgm_folder",
+     "type": "Hoi3CString",
+     "comment": "`cgm_folder`",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0xA8",
+     "name": "is_cgm",
+     "type": "bool",
+     "comment": "`is_cgm`",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0xA4",
+     "name": "date",
+     "type": "int",
+     "comment": "`date`, a tick",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x94",
+     "name": "countries",
+     "type": "void*",
+     "comment": "the `country` tags, in order (0x14-byte id nodes, next at +0xC; tail +0x98, count +0x9C); a tag that is no country logs `Bad tag X in bookmark Y` and is left out",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x78",
+     "name": "icon",
+     "type": "Hoi3CString",
+     "comment": "`icon`: the sprite of the row's button",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x5C",
+     "name": "desc_key",
+     "type": "Hoi3CString",
+     "comment": "`desc` as written",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x40",
+     "name": "name_key",
+     "type": "Hoi3CString",
+     "comment": "`name` as written",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x24",
+     "name": "desc",
+     "type": "Hoi3CString",
+     "comment": "`desc`, localised",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x8",
+     "name": "name",
+     "type": "Hoi3CString",
+     "comment": "`name`, localised (GetText of the key)",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    }
+   ]
+  },
+  {
+   "name": "CSetCountryControllerCommand",
+   "vftable_rva": "0x11D3054",
+   "size": "0x50",
+   "inherits": "CCommand",
+   "comment": "The lobby's 'this human now plays that country'. See CSetCountryControllerCommand::Execute and reversing/findings/FINDINGS-frontend.md section B.5.",
+   "source": "reversing/findings/FINDINGS-frontend.md",
+   "fields": [
+    {
+     "offset": "0x4C",
+     "name": "human",
+     "type": "int",
+     "comment": "the human's id (CHuman +0x1C)",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x44",
+     "name": "previous",
+     "type": "CCountryTag",
+     "comment": "the country the human had (the state's player when posted from the lobby); handed to the AI where no other human holds it",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x3C",
+     "name": "country",
+     "type": "CCountryTag",
+     "comment": "the country to control",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    }
+   ]
+  },
+  {
+   "name": "CFrontEndView",
+   "vftable_rva": "0x11D4E90",
+   "comment": "The base of every front-end panel's view; its slots 1 to 4 are pure. The protocol, from every caller: a change of panel calls slot 3 (Hide) on the old view and slot 1 (Prepare) then slot 2 (Show) on the new; slot 5 takes a clicked province (only the lobby answers). +4 is the front end. CFrontEnd keeps nine slots of them at +0x750, the current index at +0x760. See reversing/findings/FINDINGS-frontend.md, section A.1.",
+   "source": "reversing/findings/FINDINGS-frontend.md",
+   "fields": [
+    {
+     "offset": "0x4",
+     "name": "front_end",
+     "type": "CFrontEnd*",
+     "comment": "The front end the view belongs to; every button handler of a view reaches the front end through it.",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    }
+   ]
+  },
+  {
+   "name": "CFrontEndState",
+   "vftable_rva": "0x11D4F34",
+   "size": "0x274",
+   "inherits": "CFrontEndView",
+   "comment": "The main menu's view (mainmenu_panel), view 0 of the front end. Thirteen embedded 0x2C-byte button glues from +0xC. See reversing/findings/FINDINGS-frontend.md, section A.2.",
+   "source": "reversing/findings/FINDINGS-frontend.md",
+   "fields": [
+    {
+     "offset": "0x8",
+     "name": "window",
+     "type": "CFixedWindow*",
+     "comment": "mainmenu_panel, the sub-window of country_selection_panel the buttons are found in (FindButton, slot 13).",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    }
+   ]
+  },
+  {
+   "name": "CEasymodeView",
+   "vftable_rva": "0x11D4ECC",
+   "size": "0x90",
+   "inherits": "CFrontEndView",
+   "comment": "The Quick Start panel's view (easymode_panel), view 8 of the front end. Three embedded button glues from +0xC. See reversing/findings/FINDINGS-frontend.md, section A.4.",
+   "source": "reversing/findings/FINDINGS-frontend.md",
+   "fields": [
+    {
+     "offset": "0x8",
+     "name": "window",
+     "type": "CFixedWindow*",
+     "comment": "easymode_panel; Reload finds the four quickstart buttons in it through this field.",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    }
+   ]
+  },
+  {
+   "name": "COptionChoice",
+   "size": "0x34",
+   "comment": "Ours: one choice of the lobby's Options panel - a list of texts and which is chosen. Not an RTTI class (no table). CGameSetup holds two by value (+0x704 difficulty, +0x7D8 game mode) and one inside each of its seven COptionRows. See reversing/findings/FINDINGS-frontend.md, section C.",
+   "source": "reversing/findings/FINDINGS-frontend.md",
+   "fields": [
+    {
+     "offset": "0x30",
+     "name": "serial",
+     "type": "int",
+     "comment": "a serial number from the global counter 0x1A8561C, taken and incremented by COptionChoice_Init; what reads it was not looked for",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x14",
+     "name": "label",
+     "type": "Hoi3CString",
+     "comment": "the rendered label - FE_DIFFICULTY, FE_ARCADE or FE_SETTING_*; the FROM of OPTION_CHANGED",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x10",
+     "name": "index",
+     "type": "int",
+     "comment": "which value is chosen, 0-based: the lobby's difficulty (CGameSetup +0x714) and game mode (+0x7E8) are this field of their choices",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x8",
+     "name": "values_capacity",
+     "type": "Hoi3CString*",
+     "comment": "the vector's allocation end",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x4",
+     "name": "values_end",
+     "type": "Hoi3CString*",
+     "comment": "one past the last text; the count is (values_end - values) / 0x1C, which the arrows wrap at",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x0",
+     "name": "values",
+     "type": "Hoi3CString*",
+     "comment": "the localised texts of the choice's values, one 0x1C-byte string each - the start of a vector",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    }
+   ]
+  },
+  {
+   "name": "COptionRow",
+   "size": "0x3C",
+   "comment": "Ours: one of the seven rows of the lobby's option-row vector (CGameSetup +0x8B4): the area's two arrows and its COptionChoice. Rows in order: 0 Diplomacy, 1 Production, 2 Technology, 3 Politics, 4 Intelligence, 5 Armies, 6 unlabelled. See reversing/findings/FINDINGS-frontend.md, section C.",
+   "source": "reversing/findings/FINDINGS-frontend.md",
+   "fields": [
+    {
+     "offset": "0x8",
+     "name": "choice",
+     "type": "COptionChoice",
+     "comment": "the row's texts and chosen index (the index at the row's +0x18)",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x4",
+     "name": "prev_button",
+     "type": "void*",
+     "comment": "the area's `_prev` button; null for rows 5 and 6",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x0",
+     "name": "next_button",
+     "type": "void*",
+     "comment": "the area's `_next` button in option_window; null for rows 5 and 6",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    }
+   ]
+  },
+  {
+   "name": "CGamePlaySettings",
+   "vftable_rva": "0x11CF608",
+   "inherits": "CPersistent",
+   "comment": "The game state's gameplay options, embedded at CCurrentGameState +0xC90 and saved as the top-level `gameplaysettings = { setgameplayoptions = { difficulty game_mode } }`. Its slot 4 (LoadKey) writes both fields from the save or a mod's gameplaysettings.txt; its slot 2 (SaveContents) writes them back through 0x28A650. See reversing/findings/FINDINGS-frontend.md, section C.",
+   "source": "reversing/findings/FINDINGS-frontend.md",
+   "fields": [
+    {
+     "offset": "0xC",
+     "name": "game_mode",
+     "type": "int",
+     "comment": "the lobby's Game Mode, 0 Normal (STANDARD_MODE) or 1 Arcade - the state's +0xC9C, called arcade_mode there; element 1 of `setgameplayoptions`",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    },
+    {
+     "offset": "0x8",
+     "name": "difficulty",
+     "type": "int",
+     "comment": "the campaign's difficulty, 0 Very Easy .. 4 Very Hard - the state's +0xC98; element 0 of `setgameplayoptions`",
+     "source": "reversing/findings/FINDINGS-frontend.md"
+    }
+   ]
   }
  ],
  "equates": [
@@ -97176,6 +98951,45 @@
   }
  ],
  "vftable_slots": {
+  "CConvoySettings": {
+   "4": "Update"
+  },
+  "CGameSetup@0x6C": {
+   "0": {"name": "Reload", "signature": "bool __thiscall Reload(CReloadableInterface* this)"}
+  },
+  "CGameSetup@0xC": {
+   "13": {"name": "RefreshOptionsWindow", "signature": "void __thiscall RefreshOptionsWindow(CLobbyInterface* this)"}
+  },
+  "CFrontEndState": {
+   "2": {"name": "Show", "signature": "void __thiscall Show(CFrontEndState* this)"}
+  },
+  "CFrontEndView": {
+   "1": "Prepare",
+   "2": "Show",
+   "3": "Hide"
+  },
+  "CFrontEnd@0xB0": {
+   "0": "Reload"
+  },
+  "CSetCountryControllerCommand": {
+   "6": "Execute"
+  },
+  "CLobbyStartGame": {
+   "6": "Execute"
+  },
+  "CClearBookmark": {
+   "6": "Execute"
+  },
+  "CSelectBookmark": {
+   "6": "Execute"
+  },
+  "CBookmarkEntry@0x1C": {
+   "9": "Update"
+  },
+  "CSavegameItem": {
+   "4": {"name": "OnClicked", "signature": "void __thiscall OnClicked(CSavegameItem* this)"},
+   "7": {"name": "SetLoaded", "signature": "void __thiscall SetLoaded(CSavegameItem* this, bool loaded)"}
+  },
   "CPieChartLedgerGraphical": {
    "0": "CGuiObject::OnPointerOver"
   },
@@ -97240,6 +99054,7 @@
    "2": "SaveContents"
   },
   "CGamePlaySettings": {
+   "4": {"name": "LoadKey", "signature": "void __thiscall LoadKey(CGamePlaySettings* this, CParseContext* parse, SaveToken key)"},
    "2": "SaveContents"
   },
   "CVictoryConditionManager": {
@@ -97269,6 +99084,15 @@
    "2": "SaveContents"
   },
   "CGameSetup": {
+   "1": {"name": "Prepare", "signature": "void __thiscall Prepare(CGameSetup* this)"},
+   "2": {"name": "Show", "signature": "void __thiscall Show(CGameSetup* this)"},
+   "3": {"name": "Hide", "signature": "void __thiscall Hide(CGameSetup* this)"},
+   "5": {"name": "OnProvinceClicked", "signature": "void __thiscall OnProvinceClicked(CGameSetup* this, CMapProvince* province)"},
+   "6": {"name": "GetElementTooltip", "signature": "GuiTooltipText* __thiscall GetElementTooltip(CGameSetup* this, GuiTooltipText* out, void* element)"},
+   "7": {"name": "SelectBookmark", "signature": "void __thiscall SelectBookmark(CGameSetup* this, CBookmark* bookmark)"},
+   "9": {"name": "GetStartName", "signature": "Hoi3CString* __thiscall GetStartName(CGameSetup* this, Hoi3CString* out)"},
+   "10": {"name": "ClearBookmark", "signature": "void __thiscall ClearBookmark(CGameSetup* this)"},
+   "13": {"name": "BuildBookmarkLists", "signature": "void __thiscall BuildBookmarkLists(CGameSetup* this)"},
    "4": {"name": "Update", "signature": "void __thiscall Update(CGameSetup* this)"}
   },
   "CFrontendSettingsScreen": {
@@ -99080,6 +100904,16 @@
    "24": {"name": "GetPosition", "signature": "short* __thiscall GetPosition(CEU3Minimap* this, short* out) @EAX"}
   },
   "CFrontEnd": {
+   "1": {"name": "Update", "signature": "void __thiscall Update(CFrontEnd* this, int unused)"},
+   "3": {"name": "Enter", "signature": "void __thiscall Enter(CFrontEnd* this)"},
+   "4": {"name": "Leave", "signature": "void __thiscall Leave(CFrontEnd* this)"},
+   "20": {"name": "GetTooltip", "signature": "GuiTooltipText* __thiscall GetTooltip(CFrontEnd* this, GuiTooltipText* out) @EAX"},
+   "28": {"name": "GetMapCamera", "signature": "MapCamera* __thiscall GetMapCamera(CFrontEnd* this)"},
+   "29": {"name": "GetMapCamera", "signature": "MapCamera* __thiscall GetMapCamera(CFrontEnd* this)"},
+   "67": {"name": "RequestLobbyStart", "signature": "void __thiscall RequestLobbyStart(CFrontEnd* this)"},
+   "68": {"name": "RequestLobbyStart", "signature": "void __thiscall RequestLobbyStart(CFrontEnd* this)"},
+   "84": {"name": "SelectBookmark", "signature": "void __thiscall SelectBookmark(CFrontEnd* this, CBookmark* bookmark)"},
+   "86": {"name": "ClearBookmark", "signature": "void __thiscall ClearBookmark(CFrontEnd* this)"},
    "64": {"name": "GetApplication", "signature": "CEU3Application* __thiscall GetApplication(CFrontEnd* this)"},
    "109": {"name": "GetElementTooltip", "signature": "GuiTooltipText* __thiscall GetElementTooltip(CFrontEnd* this, GuiTooltipText* out, void* element) @EAX"}
   },
@@ -99486,6 +101320,9 @@
    "11": "UpdateAutomationLine"
   },
   "CTechnologyView": {
+   "14": "ApplyAutomation",
+   "12": {"name": "NextAutomationSetting", "signature": "void __thiscall NextAutomationSetting(CTechnologyView* this)"},
+   "13": {"name": "PreviousAutomationSetting", "signature": "void __thiscall PreviousAutomationSetting(CTechnologyView* this)"},
    "10": {"name": "BuildTooltip", "signature": "GuiTooltipText* __thiscall BuildTooltip(CTechnologyView* this, GuiTooltipText* out, CGuiObject* element) @EAX"},
    "2": "Show",
    "4": "Hide",
@@ -99494,6 +101331,7 @@
    "11": "UpdateAutomationLine"
   },
   "CProductionView": {
+   "14": "ApplyAutomation",
    "12": "NextAutomationSetting",
    "13": "PreviousAutomationSetting",
    "10": {"name": "BuildTooltip", "signature": "void __thiscall BuildTooltip(CProductionView* this, GuiTooltipText* out, CGuiObject* element)"},

@@ -1,0 +1,189 @@
+{
+ "agent": "options-effects reader, 2026-11-06",
+ "question": "What the lobby's difficulty, game mode and the player's automation do in a running game.",
+ "source": "reversing/findings/FINDINGS-frontend.md",
+ "addresses": [
+  {
+   "rva": "0xDF9B0",
+   "kind": "function",
+   "name": "GetDifficultyCombatModifier",
+   "signature": "int* __stdcall GetDifficultyCombatModifier(int* out@stack:4, CCountry* country@EDI)",
+   "no_signature": null,
+   "comment": "**The whole of BM_DIFFICULTY (0x02), and the same function for land, naval, air, bomber and target.** The country arrives in EDI, never loaded from the frame; the out pointer is the single stack argument and comes back in EAX.\n\n    settings = [rva 0x1689790]          ; a lazy singleton of 0xDA8 bytes, vftable rva 0x11CF674\n    if settings->+0xBCC[country->+0xCA8] == 0:  *out = 0        ; not a human-played country\n    else:\n        bonus = one of { 0, +2000, +1000, -1000, -2000 } chosen by settings->+0xC98\n        *out = bonus * COMBAT_DIFFICULTY_IMPACT / 1000\n\nSo the difficulty modifier applies **only to the player's own countries**, with the sign set by the difficulty setting. The jump table is at rva 0xDFADC and the arms are 0x7D0, 0x3E8, -0x3E8, -0x7D0 plus a fall-through zero;. **The mapping, settled 2026-11-06 off the jump table at rva 0xDFADC**: difficulty 0 (Very Easy) -> +2000, 1 (Easy) -> +1000, 2 (Normal) -> 0 (the table's third entry is the fall-through), 3 (Hard) -> -1000, 4 (Very Hard) -> -2000. With `COMBAT_DIFFICULTY_IMPACT = 0.2` in both defines.lua files that is a combat modifier of +0.4, +0.2, 0, -0.2, -0.4 for every unit of a country in played_countries_array (any human's country, not only the local player's) and nothing for a country nobody plays. One of the only two readers of the difficulty in a running game; the other is the difficulty block of RebuildStaticModifiers (FINDINGS-countrymodifier.md section 2, step 20).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md",
+   "revises": true,
+   "evidence": "Jump table at VA 0x4DFADC read as five dwords: 0x4DFA70 (mov esi,0x7D0), 0x4DFA77 (0x3E8), 0x4DFA8A (the join, esi still 0), 0x4DFA7E (0xFFFFFC18), 0x4DFA85 (0xFFFFF830); the decompiler's switch agrees. Wrong if the index were not +0xC98 - the load at 0x4DFA5C is `mov eax,[eax+0xC98]` off the singleton."
+  },
+  {
+   "rva": "0x201DE0",
+   "kind": "function",
+   "name": "CAlertManager_Update",
+   "signature": "void __stdcall CAlertManager_Update(void* manager)",
+   "no_signature": null,
+   "comment": "**The alert pass**, rva 0x201DE0 to the one `ret 4` at 0x206ED0 (retsBefore returns only it). One caller, rva 0x251D67, skipped when the byte the function at rva 0x1C4E0 answers is set. Only its head and its decisions part were read. Head: `noDecisions = (gamestate->scenario (+0xD0C) != 0)`; a float clock from manager +0xA0C slot 5; nothing at all while that clock is below manager +0x8A0 or byte manager +0 is set; otherwise +0x8A0 = clock + 3.0 - so the pass runs at most once every 3.0 of that clock (seconds, likely, not read).\n\n**Decisions** (rva 0x206CDE-0x206E95): a CEventScope with seed 0 whose country is **the played country** (gamestate->player), and the diplomatic vector walked asking `potential` and then `allow`; each decision passing both appends its CDecision::GetTitleText to the alert's text at manager +0x9F0. **Alert 12 (`alert_national_decisions`)** is then shown (CAlertManager_Show) when any passed, hidden (rva 0x208730) when none did, refreshed (rva 0x208580) when its text changed - and **never shown in a scenario** (scenario set forces the flag off). Likely, because the rest of the body was not read.\n\n**The player's automation silences five alerts** (read 2026-11-06, the GetLocalPlayer sites in the body). Each gate leaves the alert's own test before it can raise the alert: alert 5 `alert_resource_panic` - for goods 0 and 2 (supplies and money, the two the IC sliders make) a falling stock raises nothing while `automate_sliders` (CHuman +0x2C) is above 0 or production is delegated (automation[1] == 1); the other goods are tested as before (0x604984-0x604AE9). Alert 6 `alert_possible_law` - skipped while politics is delegated (automation[3], 0x60500D). Alert 7 `alert_free_tech_slots` - skipped while automation[2] == 1 (0x6055BF). Alert 8 `alert_wasted_ic` - skipped while production is delegated or `automate_sliders` is above 0 (0x605733, 0x6057BD). Alert 9 `alert_tech_far_ahead` - skipped while automation[2] == 1 (0x605C2C). **Alerts 7 and 9 ask automation[2], not the four-way `automate_tech_sliders` (+0x30) the tech minister is made from**; the technology screen's arrows keep the two in step, the lobby writes only +0x30. In a scenario every alert's flag is forced off ([esp+0xF]).",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-frontend.md",
+   "revises": true,
+   "evidence": "d_alerts.py walked the body from its entry (4725 instructions to the ret at 0x606ED0) listing every call to GetLocalPlayer, CAlertManager_Show (0x607FE0), the hide (0x608730) and the refresh (0x608580) with the push before each: the five gated sites each precede, in order, the show/hide of alerts 5, 6, 7, 8 and 9 (push 5 .. push 9). The jump targets (0x604ED3, 0x6054D9, 0x605661, 0x605B26, 0x6061B6) are each the flag test before that alert's show/hide. That the skipped test leaves the alert down rests on the flag being clear before the loop, which was not traced for every alert - hence the entry stays inferred."
+  },
+  {
+   "rva": "0xE21E0",
+   "kind": "function",
+   "name": "CCountry::RebuildNeighbours",
+   "signature": "void __stdcall CCountry::RebuildNeighbours(CCountry* country)",
+   "no_signature": null,
+   "comment": "**A country's whole daily rebuild of who stands where - nine CCountryLists, two byte sets and a block of counters, not just the neighbours the name promises.** 0x4E21E0 to the single `ret 4` at 0x4E39B9, 8 int3 before and 4 after; `retsBefore(0x4E21E0, 0x4E39BA)` returns that one `ret` and nothing else, so the whole 0x17DC bytes are one body.\n\n**Signature**: __stdcall, not __thiscall - the country is [ebp+8], ecx is never read, and the single `ret 4` is the callee cleaning it.\n\nIt opens by clearing everything it is about to fill (0x4E2206-0x4E24B5), then runs two passes:\n\n**1. The province walks** (0x4E2421-0x4E2E52) - the part the old comment described. It walks `OwnedProvinces (+0xCF0)` marking the owner of every adjacent province whose owner and controller agree (so not one somebody is occupying) into `neighbours (+0xF58)` and `+0xFD8`, then walks `ControlledProvinces (+0xD00)` marking the controller of every adjacent province owned by somebody else into `controller_neighbours (+0xF68)` and `+0xFE8`. It is what says which set means what.\n\n**2. A loop over the whole country database** (0x4E318E-0x4E3566), one `CDiplomacyStatus* = country->+0xE28[other]` per other country that has owned provinces, appending to a different list per predicate:\n\n| list | gate |\n| --- | --- |\n| `Allies +0xF88` (and `++NumOfAllies +0x1064`) | `CDiplomacyStatus +0x14` (`alliance`) non-null - the same field CDiplomacyStatus::HasAlliance tests and `alliance_with` evaluates |\n| `non_hostile_countries +0xF98` | `+0x58` (`co_belligerent`), then the REB and `war` exclusions already recorded there |\n| `+0xFC8` | `+0x1C` (`guarantee`) non-null, with a direction test on the relation's `+0xC` |\n| `Vassals +0xF78` (and `++ +0x1068`) | `+0x18` non-null **and** its slot 7 answering token 0x298 (`vassal`), with a direction test |\n| `+0xFA8` | `+0x14` or `+0x18` non-null, **or** the other country sharing our faction (`+0xD8`) - a \"friendly\" set; the else-arm of this test is where `highest_threat (+0x11D8/+0x11DC)` is chosen, by maximum `+0x5C` |\n| `SpyingOnUs +0x1028` | the other country's `espionage (+0x1160)[our id]` having a positive allocation |\n\n**3. A pass over the allies list it has just built** (0x4E3616-0x4E370D) appending to `+0xFB8` every ally that is not a government in exile (`+0x95`), whose acting capital is on the same continent as ours (`CCountry::GetActingCapitalLocation` then `CProvince +0x368`), whose `+0x60C` is at least half of ours, and which is itself at war (`at_war +0xACC`).\n\n**And the allies list has a second source** (0x4E356C-0x4E360B): after the database loop it walks `country->faction (+0xD8) ->members (+0x28)` and appends every member but itself, skipping any tag already in the list. So `Allies (+0xF88)` is **everyone we have a bilateral alliance with, plus every member of our faction** - which is the list `CEventScope::MakeScope`'s `ally` context (token 0x359) picks a random entry from, and the reason that scope is about allies and not about borders.\n\nIt also recomputes a block of per-country counters in the +0x1048..+0x107C range, of which only `NumOfPorts (+0x105C)` and `NumOfAllies (+0x1064)` are named; the rest were not individually identified.\n\n**In arcade mode** (CCurrentGameState +0xC9C above 0, tested at 0x4E26F7): the country's `usage` pool's seven goods (+0x994..+0x9AC) are set to a never-written static (zero) and, in the walk of the country's units (+0xBAC), each unit's CUnit::SupplyConsumption is added to usage.supplies (+0x994) and its CUnit::FuelConsumption to usage.fuel (+0x998), positive values only. So in arcade a country's daily use of supplies and fuel is its units' own need, there being no supply network to draw it.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md",
+   "revises": true,
+   "evidence": "Disassembled 0x4E26F7-0x4E27C5: `cmp [edi+0xC9C],esi; setg cl`, stores of [0x1A87818] to +0x994..+0x9AC, and inside the unit loop `test cl,cl; je` around `call 0x5BB560` / `add [ebx+0x994],eax` and `call 0x5BB7A0` / `add [ebx+0x998],eax`. 0x1A87818 lies past .data's raw size and no instruction stores to it, so zero is inferred. Wrong if usage were not CGoodsPool +8 + good*4 with goods 0/1 supplies/fuel (FINDINGS-convoys.md)."
+  },
+  {
+   "rva": "0x2559D0",
+   "kind": "function",
+   "name": "CInGameIdler::Update",
+   "signature": "void __thiscall CInGameIdler::Update(CInGameIdler* this, int unused)",
+   "no_signature": null,
+   "comment": "Per-frame update of the in game idler, virtual slot 1; calls the autosave writer (0x24FF80, `push ebx` with ebx = this, at 0x255E28). `ret 4`, but **no implementation of slot 1 reads its stack argument** - not this one, not CEU3Idler's at 0x244750, not CFrontEnd's at 0x2EDD60 (which only forwards it to the base), not CBackEndIdler's 0x208AF0 or CNudgeIdler's 0x29BE90 - so the argument is real but its meaning is not recoverable from the bodies. Frame timing is taken from the clock at +0x192C instead, into +0xA88/+0xA8C. **While the in-game menu (+0x1CDC) is shown, every frame `menu_save_button` is disabled (slot 47) in a custom game and enabled (slot 46) otherwise** (0x655D1C-0x655E19, GetCustomGameSettings' first byte) - the only one of the menu's buttons ever greyed; and closing a builder window unpauses as CInGameIdler::CloseMenu does, through the same +0x1D3E (0x656791) - see reversing/findings/FINDINGS-ingamemenu.md, section A.4.\n\n**In arcade mode the Supply map mode button is greyed**: every frame the `mapmode_8` element (the Supply mode, FINDINGS-mapmode.md) is disabled (slot 47) where it is not already, and outside arcade enabled (slot 46) where it is switched off (slot 48) (0x6569C7, 0x656A7C).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md",
+   "revises": true,
+   "evidence": "0x6568C7 pushes the string mapmode_8 and finds the element through slot 13 (0x34); 0x6569C7 `cmp [eax+0xC9C],edi; jle`: above 0 -> slot 48 (0xC0), and where it answers false slot 47 (0xBC); else at 0x656A7C -> slot 48 and where true slot 46 (0xB8). Slots 46/47 as enable/disable are FINDINGS-combatview.md's and FINDINGS-agreements.md's; slot 48 as 'switched off' is inferred from its use there."
+  },
+  {
+   "rva": "0x282C20",
+   "kind": "function",
+   "name": "RunDailyPass",
+   "signature": "void __stdcall RunDailyPass(CCurrentGameState* state)",
+   "no_signature": null,
+   "comment": "**Everything the game does once a day.** 0x282C20 to 0x283077, `ret 4`. One caller: the tick body at 0x2813F0 calls it at 0x28213A, and only when the day number it recomputed differs from the stored one - the `cmp [esp+0x28], eax; je 0x282157` just above skips both this and CInGameIdler's slot 53 when the day has not turned. **It is not 0x282630**, the hourly pass that ends at 0x282C1D with its own `ret 4`; the two abut with no padding between them, which is how they came to be read as one function. What this one calls, in order: 0x28C190, 0x63030, CSupply::RebuildSupplyNetwork (0x282CEF, guarded on the dirty flag), CSupply::ResetSupplyOrder, a qsort with the comparator at 0x27B100 pushed at 0x282D0C, CProvince::UpdateSupplyDepot in a loop, 0x4F28B0, RunDailySupplyPass at 0x282D7E, then 0x28A0A0, 0x28E350, 0x4E39C0, 0x4DA530, 0x49EAB0, 0x4B9D60, 0x5BF720, 0x5C0A40, 0x288D40 and 0x143AB0. So the supply order is sorted and the daily supply pass run **once a day**, not once an hour. Named for what it does; no class, like RunDailySupplyPass beside it.\n\n**In arcade mode** (0x282CDF) the supply-network block is skipped: no CSupply::RebuildSupplyNetwork, no ResetSupplyOrder, no farthest-first qsort and no update of max_supply_depot_distance (+0x58, capped 500); the loop over the countries after it, and RunDailySupplyPass (which itself returns at once in arcade), still run.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md",
+   "revises": true,
+   "evidence": "0x282CDF `cmp [eax+0xC9C],esi; jg 0x682D40` - the jump lands on the country loop at 0x682D40, past the calls to 0x689B20, 0x689AD0, the qsort at 0x682D18 and the +0x58 store at 0x682D28."
+  },
+  {
+   "rva": "0x359330",
+   "kind": "function",
+   "name": "CUnitStatusEntry::Update",
+   "signature": "void __fastcall CUnitStatusEntry::Update(void* observer@ECX)",
+   "no_signature": null,
+   "comment": "**Fills a unit's status row every frame**, `this` being the entry's +0x1C sub-object (the unit at +0x5C of it). `unitlocation` the province's name; `unitattrition` GetProvinceAttrition as whole percent; `unitbase` SUPPLIED_FROM and the capital the province is supplied from, or the base of a fleet or an air unit with its range; **`speed` = maximum_speed * CUnit::MovementSpeedModifier / 1000 through FormatSpeedExact, then the text KPH - without LAND_SPEED_MODIFIER**; `unit_cw_strip` frame 1..5 by the definition's width under 2, 4, 6, 8 or more; **`supply_status` and `fuel_status` from the province**: pool * 1000 / (max(whole SUPPLYPOOL_DAYS, 1) * need / 1000), as a percentage, full where the need is under 1; `unit_weight`; and the six `unitstatus_` icons shown by path, combined arms, the order, dig-in, attack delay and radio range. See reversing/findings/FINDINGS-unitpanel.md, section 5.\n\n**In arcade mode** the province whose supplies the row reports (and names in `unitbase`) is the unit's owner's acting capital (CCountry::GetActingCapitalLocation of the country at unit +0x128) instead of the province the unit stands in; a home base still overrides it (0x759758).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md",
+   "revises": true,
+   "evidence": "0x759758 `cmp [eax+0xC9C],0`; esi = provinces[location] at 0x759765; `jle` past 0x75976A-0x759794, which replaces esi with GetActingCapitalLocation (0x42F100) of the country database's entry for [unit+0x128]; the base override (+0x300/+0x304 -> +0x98) follows at 0x759796."
+  },
+  {
+   "rva": "0xFDF40",
+   "kind": "function",
+   "name": "CCountry::MaintainSupplyConvoys",
+   "signature": "void __stdcall CCountry::MaintainSupplyConvoys(CCountry* country)",
+   "no_signature": null,
+   "comment": "**Makes and unmakes a country's supply convoys.** Nothing for a country with one area and no convoy, or whose acting capital is in no area. Making, not in arcade mode: for every area that is not the capital's, with D the depot of its first province (CMapProvince::DepotOrAreaPort), need = max(D.drawn.supplies, D.drawn.fuel) less NavalBaseCapacity of the end of each supply convoy of the country's ending in the area; `found` where one ends at D. Then while need > 0, or no convoy was found at D and the country is at peace: the port of the area with no supply convoy of the country's ending at it and the highest score - supply_depot_hops x 1000, or 100000.000 for D itself - gets a convoy from COwnerArea::NearestPortTo(port, the capital's area), and its capacity comes off need. **`found` is never set inside the loop**, so at peace every port of the area gets one, the depot first and then the furthest. Unmaking, only with a game on screen: a supply convoy four or more days old goes - its ships back to the country's free ones - unless its end is the country's, the depot it serves had something drawn today, it runs from the capital's area, and it ends at the depot, or the area is still short, or the area's spare room is under twice (floor(2000.5f)) its own harbour's capacity. Called for every country on RunSupplyAndConvoyIterations' second pass, and from RunCountryDailyPass behind CCountry +0x749. See reversing/findings/FINDINGS-supplyconvoys.md, section 2.\n\n**In arcade mode there are no supply convoys**: the making half is skipped (0x4FE07E), and in the unmaking half (0x4FE62E) every supply convoy four or more days old goes - its ships back to the country's free ones - with none of the keep conditions asked.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md",
+   "revises": true,
+   "evidence": "0x4FE62E `cmp [eax+0xC9C],0; jg 0x4FE71C` sits after the four-day test (0x4FE570 `cmp ecx,4; jl`) and jumps straight to the removal at 0x4FE71C (convoy unlinked through 0x5D49D0, +0x98/+0x9C added to the country's +0xB0/+0xB4). The making site 0x4FE07E is the one the entry already described."
+  },
+  {
+   "rva": "0x278AB0",
+   "kind": "function",
+   "name": "RunSupplyAndConvoyIterations",
+   "signature": "void __stdcall RunSupplyAndConvoyIterations(CList<CCountry*>* countries, int unknown)",
+   "no_signature": null,
+   "comment": "**What fills the provinces before a game's first hour.** passes = max_supply_depot_distance (+0x58) + 2, or 1 in the tutorial and in arcade mode. The four per-province arrays are made once. Each pass: every country's stockpile is kept, all seven goods; CSupply::DailySupplyPass; then per country its convoys' deliveries (one carrying supplies or fuel every pass, any other on the first only), CUnit::ConsumeSuppliesAndFuel for every unit, and - **where its acting capital's supply_depot_id is the capital itself - the stockpile put back as it was kept**; on the second pass only, three calls that set its convoys up. After the passes every unit whose supplies received is 0 gets CUnit::CarrySupplies out of its country's stockpile. Then RunDailyPass, RunMonthlyPass and RunHourlyPass. So the provinces are filled for nothing, but a stockpile that draws on another's depot is drained as on any day, and whatever reaches a stockpile during the passes - a day's supplies made at the factories the day before, on their way in - is lost when it is put back. Two callers: CInGameIdler::Enter at 0x65CC64, for a new game and after its own RunDailyPass at 0x65CB2E, and ApplyCustomGameSettings at 0x41E0A2. See reversing/findings/FINDINGS-supplypass.md, section 7.\n\nArcade mode, all three sites: one pass (0x278B4F); the four per-province arrays are not made (0x278CCF jumps past the allocations); and CSupply::DailySupplyPass is not called (0x278F1D).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md",
+   "revises": true,
+   "evidence": "0x678B4F `cmp [eax+0xC9C],esi; jle` around `mov [ebp-0x24],ebx` (the pass count); 0x678CCF `jg 0x678E30` past the _alloca and memset of the arrays; 0x678F1D `jg 0x678F3B` past `call 0x6872D0`."
+  },
+  {
+   "rva": "0x3E3310",
+   "kind": "function",
+   "name": "CConvoySettings::Update",
+   "signature": "void __thiscall CConvoySettings::Update(CConvoySettings* this)",
+   "no_signature": null,
+   "comment": "**Slot 4 of CConvoySettings, the `convoy_settings` window [mod: interface/convoys.gui]** - the dialog a convoy is made from. Enables or disables `create_resource` by whether the window's country has a port province to run one from, and **`create_supply` is enabled (slot 46) only outside arcade mode** - in arcade (CCurrentGameState +0xC9C above 0) it is disabled (slot 47), so no supply convoy can be made by hand either. Bare `ret`. The name is ours, after the sibling CConfirmBuild's slot 4 (Update); the create_resource condition was read off a poor decompilation and only in outline.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-frontend.md",
+   "evidence": "vtable.py: 0x7E3310 is CConvoySettings slot 4 alone (table 0x15DDD08); slot 3 at 0x7E32F0 starts the byte after slot 2's `ret` at 0x7E32EF (trap 2 - functionStart answers 0x7E3040). 0x7E35B2 `cmp [esi+0xC9C],edi; jg`: the fall-through finds create_supply and calls slot 0xB8 (46), the jg arm calls 0xBC (47). Name inferred."
+  },
+  {
+   "rva": "0x3FBC70",
+   "kind": "function",
+   "name": "CProductionView::ApplyAutomation",
+   "signature": "void __thiscall CProductionView::ApplyAutomation(CProductionView* this)",
+   "no_signature": null,
+   "comment": "**Slot 14 of CProductionView**, overriding CCountryView::ApplyAutomation: the window's main element (+0xA8, its +0x18 subobject) gets slot 38 with 0 where the local player's automation flag for this view (`[GetLocalPlayer() + 0x38][view +0x78]`, production's) is 1 and with 1 otherwise; then `auto_deployment_checkbox` and `theatres_assign_button` get slot 38 with 1 whatever the setting - so delegating production greys the screen but leaves the automatic-deployment box and the theatre assignment usable. Bare `ret`. The name follows the base's.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-frontend.md",
+   "evidence": "vtable.py --holding 0x7FBC70: CProductionView slot 14 only. Disassembled 0x7FBD05-0x7FBDF2: `cmp [eax+esi*4],1` with esi = [edi+0x78], push 0 (ebx) or 1, call [vft+0x98]; the two named elements each get the same call with 1. Slot 38's meaning (enable) is the base's reading, which is likely and not settled."
+  },
+  {
+   "rva": "0x3FC710",
+   "kind": "function",
+   "name": "CProductionView::OnAutoDeploymentToggled",
+   "signature": "void __thiscall CProductionView::OnAutoDeploymentToggled(CProductionView* this)",
+   "no_signature": null,
+   "comment": "**The `auto_deployment_checkbox` handler** - the observer the production view's constructor binds at +0xD0. Flips the local player's automation[6] (automatic deployment): new = (automation[6] == 0), written only where the vector has more than six entries. **Directly, not through a command**: the setting is the local CHuman's. While it is 1, ProcessAI runs CEU3AI::DeployFinishedUnits for the played country every hour (FINDINGS-ministers.md B). Bare `ret`; no caller, reached through the glue. Settles FINDINGS-ministers.md B.8's first open item.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md",
+   "evidence": "CProductionView::CProductionView stores 0x7FC710 into the glue at +0xD0/+0xDC (0x7FB271-0x7FB292), and the record already has +0xD0 as auto_deployment_checkbox's observer. Body: GetLocalPlayer()+0x38, `cmp [eax+0x18],ebx; sete cl`, then size test `(+0x3C - +0x38) & ~3 > 0x18` and `cmp edi,1; ja` before `mov [edx+0x18],edi` at 0x7FC849. retsBefore(0x7FC350, 0x7FC7A4) shows BuildSliders' own ret 4 at 0x7FC70A, so this is not BuildSliders."
+  },
+  {
+   "rva": "0x28A6B0",
+   "kind": "function",
+   "name": "CHuman_SetAutomation",
+   "signature": "void __stdcall CHuman_SetAutomation(CHuman* human@stack:4, int type@ECX, int value@EDX)",
+   "no_signature": null,
+   "comment": "**The automation flags' setter**: `if (type < (human->+0x3C - human->+0x38) / 4 && (unsigned)value <= 1) human->automation[type] = value`. One caller, CGameState::LoadKey's `ai` arm (0x2802A7), for each of the seven values - so the save's 7 in element 5 is refused here, and the arm keeps it at CHuman +0x48 instead. The `controller` key's arm copies its vector in without this test. `ret 4`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md",
+   "evidence": "Whole body disassembled (0x68A6B0-0x68A6D1): human at [ebp+8], index in ECX against the vector size, value in EDX `cmp edx,1; ja`, store `[eax+ecx*4]`, `ret 4`. findRefs --callers: one, 0x6802A7, with ecx = loop index and edx = the element. Wrong if a second caller existed through a pointer - none was looked for."
+  },
+  {
+   "rva": "0x4E9190",
+   "kind": "function",
+   "name": "CAI_IsAIControlled",
+   "signature": "bool __cdecl CAI_IsAIControlled(int type)",
+   "no_signature": null,
+   "comment": "Lua's `CAI:IsAIControlledForPlayer(CHuman::AUTOMATIONTYPE)` (luabind's name): `GetLocalPlayer()->automation[type] == 1`. **No script calls it** - neither the base game's, Their Finest Hour's nor BlackICE's; the name appears only in the mods' `LUA API.txt`. So nothing the install's Lua does depends on the player's automation. Bare `ret`, the type at [ebp+8].",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md",
+   "evidence": "Disassembled 0x8E9222-0x8E9246: `call GetLocalPlayer; mov eax,[eax+0x38]; mov edx,[ebp+8]; cmp [eax+edx*4],1; sete al`. luabind.json's pointer 9343376 = 0x8E9190. grep -r IsAIControlledForPlayer over the install and the BlackICE repository's .lua files: no hit."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CHuman",
+   "offset": "0x4C",
+   "name": "mp_tick",
+   "type": "int",
+   "comment": "A tick (hours from the epoch) per human. Read only by CCurrentGameState::AdvanceClock, and only where CCurrentGameState +0xCF4 is set: the local human's and every listed human's +0x4C are turned into day numbers and compared (a gap above 1, and of 3 or more, choose between the clock's thresholds) - so it is each human's own date in a multiplayer session and the clock waits for the slowest. Inferred: what writes it was not traced.",
+   "source": "reversing/findings/FINDINGS-frontend.md",
+   "evidence": "Disassembled 0x68123A-0x681312: `cmp byte [esi+0xCF4],0; je`, GetLocalPlayer, `mov ecx,[eax+0x4C]; sub ecx,0x29C55C0`, /24 and the 365-day split, then the same for each node of state +0x60 on +0x54 and `cmp eax,1` / `cmp eax,3` on the difference. Writers not searched."
+  }
+ ],
+ "vftable_slots": {
+  "CConvoySettings": {
+   "4": "Update"
+  },
+  "CProductionView": {
+   "14": "ApplyAutomation"
+  },
+  "CInGameIdler": {
+   "1": "Update"
+  },
+  "CUnitStatusEntry@0x1C": {
+   "9": "Update"
+  }
+ },
+ "frontier": [
+  "0x317D60",
+  "0x7E2C60",
+  "0x7E3040",
+  "0x7E32F0"
+ ]
+}

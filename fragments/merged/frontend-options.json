@@ -1,0 +1,534 @@
+{
+ "agent": "frontend-options reader, 2026-11-06",
+ "question": "The lobby's Options panel (interface/options.gui option_window): who makes and shows it, each control's values and texts, where each choice is kept (CGamePlaySettings, the local CHuman), how the choices reach them, and the in-game counterparts.",
+ "source": "reversing/findings/FINDINGS-frontend.md",
+ "addresses": [
+  {
+   "rva": "0x317D60",
+   "kind": "function",
+   "name": "CGameSetup_PostOptionChoices",
+   "signature": "void __stdcall CGameSetup_PostOptionChoices(CGameSetup* setup)",
+   "no_signature": null,
+   "comment": "**Where the Options panel's choices go.** Called by every arrow of the panel (CGameSetup::OnDifficultyPrev/Next, OnGameModePrev/Next, OnOptionNext/Prev), by OnPlay and OnBack, and by the unattached CloseOptionsWindow. In order: a vector<int> of **{ the lobby's difficulty index (+0x714), its game mode index (+0x7E8) }**; where either differs from the game state's (+0xC98 / +0xC9C), CGameSetup_SayOptionChanged for that choice. Then for each of the seven option rows (+0x8B4): **row 2 (Technology)** - where the local CHuman's automate_tech_sliders (+0x30) differs, SayOptionChanged, then +0x30 = the row's index (0..3, no range test); **row 5 (Armies)** - the row's index 0..4 mapped to **7, 3, 2, 1, 0** and written to CHuman +0x48 (SayOptionChanged where it differs); **every other row** (0 Diplomacy, 1 Production, 3 Politics, 4 Intelligence, 6 the unlabelled one) - SayOptionChanged where automation[i] differs, then **automation[i] = the index only where i is inside the vector and the index is under 2**. The CHuman is GetLocalPlayer's (inlined for row 2: the state's humans matched on +0x1C against the session's +0x6C, else the CHuman embedded at the state's +0x70) - **written directly, not by a command**. Last, **in single player or as host (mode global 0 or 1)**, a new CSetGamePlayOptions (0x4C bytes, constructor 0x2D5C60) carrying the two-entry vector is posted on the session's command channel (the session's slot 18, its +0x38, slot 6) - **unconditionally, not only when something changed**; a client (mode 2) posts nothing. `ret 4` at 0x718874. The name is ours. See reversing/findings/FINDINGS-frontend.md, section C.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled in a copy of the project and the head and tail read on the listing: 0x717D96/0x717DAD push [esi+0x714] and [esi+0x7E8] through 0x4221F0 into the local vector; the mode test at 0x7180F0-0x7180FC (0 or 1, else to the epilogue) with no comparison between it and new(0x4C) at 0x718104; 0x718144 calls 0x6D5C60; 0x71882F stores to [CHuman+0x48]. Callers: findRefs --callers 0x717D60 gives nine, six in the glue handlers 0x71A7D0..0x71A990, one each in OnBack (0x70D2DB), OnPlay (0x70E801) and 0x718880. Would be wrong if the mode global 0x1A85618 were not the session mode - FINDINGS-frontend.md B gives it as 0 single, 1 host, 2 client (inferred there)."
+  },
+  {
+   "rva": "0x3188B0",
+   "kind": "function",
+   "name": "CGameSetup_AttachOptionButtons",
+   "signature": "void __fastcall CGameSetup_AttachOptionButtons(CGameSetup* setup@ESI)",
+   "no_signature": null,
+   "comment": "**Wires the Options panel's arrows** in `option_window` (+0x700): `difficulty_prev` the glue +0x738 (OnDifficultyPrev), `difficulty_next` +0x788 (OnDifficultyNext), `arcade_prev` +0x810 (OnGameModePrev), `arcade_next` +0x860 (OnGameModeNext); then for the rows 0..4 of the option-row vector (+0x8B4) - `diplomacy_`, `production_`, `technology_`, `politics_`, `intel_` - the `_next` button stored at the row's +0 and given the shared glue +0x8C8 (OnOptionNext), the `_prev` button at the row's +4 and the shared glue +0x918 (OnOptionPrev). **Rows 5 and 6 get no buttons.** Last, **on a client (mode global 2) the four difficulty and game-mode arrows are disabled** (button slot 47), otherwise enabled (slot 46); the five area arrows are never greyed. Called by the constructor (0x706196) and CGameSetup::Reload (0x71A57E). Bare `ret` at 0x7191BA. The name is ours. See reversing/findings/FINDINGS-frontend.md, section C.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled in a copy of the project; the string references difficulty_prev (0x7188D2), difficulty_next (0x718931), arcade_prev (0x71898E), intel_next (0x718E0F) all fall in it, and the lea [esi+0x738] / [esi+0x8C8] at 0x718908 / 0x718AAD are the attach arguments. The receiver in ESI: no load of ESI before the first use and both callers set it. Would be wrong if the slot-46/47 pair meant something other than enable/disable - the same pair is read that way on the four tabs in CGameSetup::Show."
+  },
+  {
+   "rva": "0x319300",
+   "kind": "function",
+   "name": "CGameSetup::RefreshOptionsWindow",
+   "signature": "void __thiscall CGameSetup::RefreshOptionsWindow(CLobbyInterface* this)",
+   "no_signature": null,
+   "comment": "**Slot 13 of CGameSetup's CLobbyInterface table at +0xC** (pure in CLobbyInterface), so ECX is the lobby + 0xC and every offset in the body is 0xC low. **Re-reads every row from the local CHuman and redraws the panel's texts**: row 2 from automate_tech_sliders (+0x30), **every other row - the Armies row 5 included - from automation[i]**; the lobby's difficulty index (+0x714) from the state's difficulty (+0xC98) and its game mode index (+0x7E8) from arcade_mode (+0xC9C); then `difficulty_box`, `arcade_box`, `diplomacy_box`, `production_box`, `technology_box`, `politics_box` and `intel_box` each given the text of its choice's current value (COptionChoice_GetText; no bounds test on the index); and the four difficulty and game-mode arrows disabled on a client (mode 2), enabled otherwise. **Who calls it**: CGameSetup_SyncOptionsFromGameState at its end, OnOptionNext/OnOptionPrev after each post, and **CSetGamePlayOptions::Execute**, which finds the lobby's CLobbyInterface by the persistent id at 0x171042C (set by the lobby's constructor) and calls its slot 13 - so a command executed on any machine redraws that machine's panel. Bare `ret` at 0x719D5E; CGameSetup_SayOptionChanged begins two bytes later (trap 2). See reversing/findings/FINDINGS-frontend.md, section C.",
+   "confidence": "confirmed",
+   "evidence": "vtable.py --holding 0x719300: CGameSetup slot 13, table 0x15D5A0C, object offset 12; CLobbyInterface's own slot 13 is _purecall (0xB961D5). The loop at 0x719350-0x71950C: row 2 reads [CHuman+0x30], the others [[CHuman+0x38]+i*4] with no test for row 5. Strings difficulty_box..intel_box are referenced only here (c_str scan). CSetGamePlayOptions::Execute's tail calls [obj]+0x34 on the object FindPersistentById returns for the id at 0x171042C; the lobby's constructor calls CReferenceObject::SetId(this+0xC, 0x171042C). Would be wrong if that id were reassigned to another object between the lobby and the game."
+  },
+  {
+   "rva": "0x319D60",
+   "kind": "function",
+   "name": "CGameSetup_SayOptionChanged",
+   "signature": "void __stdcall CGameSetup_SayOptionChanged(CGameSetup* setup, COptionChoice* choice)",
+   "no_signature": null,
+   "comment": "**The lobby's chat line for a changed option**: OPTION_CHANGED, \"$FROM$ has changed to: $TO$\", FROM the choice's label (COptionChoice_GetLabel - the localised FE_DIFFICULTY, FE_ARCADE or FE_SETTING_* text) and TO the text of its current value (COptionChoice_GetText); the rendered line handed to 0x30D3E0, which writes into the lobby's `chatlog`. Called nine times from CGameSetup_PostOptionChoices, one per choice that differs from what the state holds. `ret 8` at 0x71A047. So **Difficulty: has changed to: Hard** is what the original says when the difficulty arrow is pressed (the label keeps its colon). The name is ours. See reversing/findings/FINDINGS-frontend.md, section C.",
+   "confidence": "inferred",
+   "evidence": "Decompiled in a copy of the project: OPTION_CHANGED, FROM through 0x702F70 and TO through 0x702F30, then 0x70D3E0, whose first string is `chatlog` (0x70D413). Inferred only in that 0x70D3E0 was not read beyond its opening - that it appends a line to the chat log rather than broadcasting it is the reading of its first lines. Would be wrong if 0x70D3E0 sent the line to the other players instead of (or as well as) the local log."
+  },
+  {
+   "rva": "0x31A050",
+   "kind": "function",
+   "name": "CGameSetup::Reload",
+   "signature": "bool __thiscall CGameSetup::Reload(CReloadableInterface* this)",
+   "no_signature": null,
+   "comment": "**Slot 0 of CGameSetup's CReloadableInterface table at +0x6C** - the interface reload - so ECX is the lobby + 0x6C. Read in part: the lobby's slot 3 (Hide); the old `lobby` window destroyed and made again (+0x3B8), `lobby_chat_edit` hidden in single player; back_button, victoryconditions_button, play_button, lobby_chat_edit and the four tabs given their glues again; the window named `gamesetup`; `singleplayer`'s player_shield wired; **the old `option_window` destroyed and made again (+0x700), CGameSetup_AttachOptionButtons and CGameSetup_SyncOptionsFromGameState** - so a reload shows the panel again; the bookmark name (+0x6DC) emptied and +0x6F8 cleared; +0x6C8 from the application's +0x130; the `checksum` text; CGameSetup_RefreshYearLabel; ... and last the front end's lobby window pointer (CFrontEnd +0x734) set to the new window. Answers 1 (`mov al, 1`, bare `ret` at 0x71A7C5). The middle of the tail was not read. See reversing/findings/FINDINGS-frontend.md, section C.",
+   "confidence": "inferred",
+   "evidence": "vtable.py --holding 0x71A050: CGameSetup slot 0, table 0x15D5A80, object offset 108. Decompiled in a copy; option_window at 0x71A51A, calls 0x7188B0 (0x71A57E) and 0x717880 (0x71A586); the tail at 0x71A7A4-0x71A7C5 read on the listing. Inferred because the decompilation between the checksum text and the tail was not followed."
+  },
+  {
+   "rva": "0x31A7D0",
+   "kind": "function",
+   "name": "CGameSetup::OnDifficultyPrev",
+   "signature": "void __thiscall CGameSetup::OnDifficultyPrev(CGameSetup* this)",
+   "no_signature": null,
+   "comment": "`difficulty_prev` (glue +0x738): the lobby's difficulty index (+0x714) - 1, **wrapping below 0 to the last value** (the count of its texts, 5, less one); then CGameSetup_PostOptionChoices. Bare `ret`. See reversing/findings/FINDINGS-frontend.md, section C.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled in a copy; the constructor builds the glue at +0x738 with 0x71A7D0 (0x70521D-0x70522B) and AttachOptionButtons gives it to difficulty_prev (0x718908). Would be wrong if the count were not the choice's text vector (+0x704/+0x708, stride 0x1C)."
+  },
+  {
+   "rva": "0x31A810",
+   "kind": "function",
+   "name": "CGameSetup::OnDifficultyNext",
+   "signature": "void __thiscall CGameSetup::OnDifficultyNext(CGameSetup* this)",
+   "no_signature": null,
+   "comment": "`difficulty_next` (glue +0x788): the difficulty index + 1, **wrapping at the count to 0** (unsigned compare); then CGameSetup_PostOptionChoices. Bare `ret`. See reversing/findings/FINDINGS-frontend.md, section C.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled in a copy; built at +0x788 with 0x71A810 (0x705247-0x705255)."
+  },
+  {
+   "rva": "0x31A860",
+   "kind": "function",
+   "name": "CGameSetup::OnGameModePrev",
+   "signature": "void __thiscall CGameSetup::OnGameModePrev(CGameSetup* this)",
+   "no_signature": null,
+   "comment": "`arcade_prev` (glue +0x810): the game-mode index (+0x7E8) - 1, wrapping below 0 to the last (1); then CGameSetup_PostOptionChoices. With two values both arrows simply toggle Normal and Arcade. Bare `ret`. See reversing/findings/FINDINGS-frontend.md, section C.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled in a copy; built at +0x810 with 0x71A860 (0x705327-0x705335)."
+  },
+  {
+   "rva": "0x31A8A0",
+   "kind": "function",
+   "name": "CGameSetup::OnGameModeNext",
+   "signature": "void __thiscall CGameSetup::OnGameModeNext(CGameSetup* this)",
+   "no_signature": null,
+   "comment": "`arcade_next` (glue +0x860): the game-mode index + 1, wrapping at the count to 0; then CGameSetup_PostOptionChoices. Bare `ret`. See reversing/findings/FINDINGS-frontend.md, section C.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled in a copy; built at +0x860 with 0x71A8A0 (0x705353-0x705361)."
+  },
+  {
+   "rva": "0x31A8F0",
+   "kind": "function",
+   "name": "CGameSetup::OnOptionNext",
+   "signature": "void __thiscall CGameSetup::OnOptionNext(CGameSetup* this, void* button)",
+   "no_signature": null,
+   "comment": "**Every area's `_next` button** (the shared glue +0x8C8): finds the row whose +0 is the button pressed, returns when none is; its index + 1, **wrapping at its count to 0**; CGameSetup_PostOptionChoices; then the lobby's slot 13 at +0xC, CGameSetup::RefreshOptionsWindow. `ret 4`. See reversing/findings/FINDINGS-frontend.md, section C.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled in a copy; built at +0x8C8 with 0x71A8F0 (0x705383-0x70539F); AttachOptionButtons stores each `_next` button at the row's +0 and attaches +0x8C8. Two `ret 4` (0x71A938, 0x71A982)."
+  },
+  {
+   "rva": "0x31A990",
+   "kind": "function",
+   "name": "CGameSetup::OnOptionPrev",
+   "signature": "void __thiscall CGameSetup::OnOptionPrev(CGameSetup* this, void* button)",
+   "no_signature": null,
+   "comment": "**Every area's `_prev` button** (the shared glue +0x918): the row whose +4 is the button; its index - 1, **wrapping below 0 to its last value**; CGameSetup_PostOptionChoices; CGameSetup::RefreshOptionsWindow. `ret 4`. See reversing/findings/FINDINGS-frontend.md, section C.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled in a copy; built at +0x918 with 0x71A990 (0x7053AF-0x7053CB). Two `ret 4` (0x71A9E0, 0x71AA26)."
+  },
+  {
+   "rva": "0x317D40",
+   "kind": "function",
+   "name": "CGameSetup::HideOptionsWindow",
+   "signature": "void __thiscall CGameSetup::HideOptionsWindow(CGameSetup* this)",
+   "no_signature": null,
+   "comment": "Hides `option_window` (+0x700, its CGuiObject at +0x18, slot 14) by a tail jump. The handler of the button glue the constructor builds at +0x2C8 - **which nothing attaches to a button** (likely dead: a close button the panel no longer has). Its sibling at +0x318 is CGameSetup::CloseOptionsWindow. See reversing/findings/FINDINGS-frontend.md, section C.",
+   "confidence": "inferred",
+   "evidence": "Five instructions read on the listing, ending `jmp edx`; its address is taken once, at 0x704DA7, as the handler of the glue built at +0x2C8. Inferred dead: a displacement scan of 0x6EC000-0x720000 for +0x2C8 (and +0x2BC, +0x2C0, +0x28C, +0x25C, the same glue seen from the four secondary tables) found no attach, while the same scan found every attach of +0x738 and +0x8C8 (the positive control). A glue attached outside that range would show it wrong."
+  },
+  {
+   "rva": "0x318880",
+   "kind": "function",
+   "name": "CGameSetup::CloseOptionsWindow",
+   "signature": "void __thiscall CGameSetup::CloseOptionsWindow(CGameSetup* this)",
+   "no_signature": null,
+   "comment": "Hides `option_window` (+0x700, slot 14 of its +0x18) where it exists, then CGameSetup_PostOptionChoices. The handler of the glue built at +0x318, **which nothing attaches** (likely dead, as HideOptionsWindow's +0x2C8). OnBack and OnPlay do the same two steps inline. Bare `ret`. See reversing/findings/FINDINGS-frontend.md, section C.",
+   "confidence": "inferred",
+   "evidence": "Read whole on the listing (0x718880-0x7188A4). Address taken once, at 0x704DD1, for the glue at +0x318; the same displacement scan as HideOptionsWindow (+0x318, +0x30C, +0x310, +0x2DC, +0x2AC) found no attach."
+  },
+  {
+   "rva": "0x302EB0",
+   "kind": "function",
+   "name": "COptionChoice_Init",
+   "signature": null,
+   "no_signature": "`ret 0x20`: the choice pointer and a 0x1C-byte std::string label passed by value on the stack; a by-value string parameter is not something checkSignatures can place, so none is offered.",
+   "comment": "Makes a COptionChoice: the text vector empty, the index (+0x10) 0, the label (+0x14) the string given, and **+0x30 a serial number from the global 0x1A8561C, which it then increments**. The lobby's constructor makes the difficulty, game-mode and six labelled area choices with it from the rendered FE_DIFFICULTY, FE_ARCADE and FE_SETTING_DIPLOMACY..FE_SETTING_UNITINTERFACE. The name is ours. See reversing/findings/FINDINGS-frontend.md, section C.",
+   "confidence": "inferred",
+   "evidence": "Decompiled in a copy: stores to [0],[1],[2],[4], the string at +0x14, [0xC] = the global and the global incremented. Call sites push a 0x1C-byte string block (sub esp, 0x1C) then the choice. Inferred because what reads the serial was not looked for."
+  },
+  {
+   "rva": "0x302F30",
+   "kind": "function",
+   "name": "COptionChoice_GetText",
+   "signature": "Hoi3CString* __fastcall COptionChoice_GetText(COptionChoice* choice@ECX, Hoi3CString* out@ESI) @EAX",
+   "no_signature": null,
+   "comment": "The text of a choice's current value: a copy of `values[index]` (values at +0, index at +0x10, 0x1C bytes a string) into the string at ESI, which it answers. **No bounds test**, so an index past the texts - a save's automate_tech_sliders above 3, say - reads beyond the vector. Bare `ret`. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Read whole on the listing, 0x702F30-0x702F68: [ecx+0x10]*0x1C added to [ecx], copied through 0x401BD0 into ESI, `mov eax, esi`."
+  },
+  {
+   "rva": "0x302F70",
+   "kind": "function",
+   "name": "COptionChoice_GetLabel",
+   "signature": "Hoi3CString* __stdcall COptionChoice_GetLabel(COptionChoice* choice@stack:4, Hoi3CString* out@ESI) @EAX",
+   "no_signature": null,
+   "comment": "A copy of a choice's label (+0x14) into the string at ESI, which it answers. `ret 4`. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Read whole on the listing, 0x702F70-0x702F9B."
+  },
+  {
+   "rva": "0x31AD10",
+   "kind": "function",
+   "name": "CGameSetup_ResizeOptionRows",
+   "signature": null,
+   "no_signature": "The vector arrives in ESI and a further value on the stack whose role was not settled; bare `ret`.",
+   "comment": "Sizes the lobby's option-row vector (+0x8B4, 0x3C-byte rows) to **seven** - a compiled-in 7 (`cmp ecx, 7`, and +0x1A4 = 7 x 0x3C when truncating). Called once, by the constructor (0x705475, ESI = this + 0x8B4). The name is ours.",
+   "confidence": "inferred",
+   "evidence": "Opening read on the listing (0x71AD10-0x71AD4B) and decompiled in a copy. Inferred because the two growing helpers it calls (0x71ADF0, 0x71AFE0) were not read; that the new rows come out empty rests on the constructor then filling them."
+  },
+  {
+   "rva": "0x27AFA0",
+   "kind": "function",
+   "name": "CHuman::CHuman",
+   "signature": "CHuman* __stdcall CHuman::CHuman(CHuman* this)",
+   "no_signature": null,
+   "comment": "**A player record's defaults**, `this` on the stack, answered in EAX, `ret 4`. Name empty; id (+0x1C) -1; country (+0x20) `---` with id 0; +0x28 the word 0x100 (primary_local 0, +0x29 1); automate_sliders 0, automate_tech_sliders 0, automate_trade and +0x35 0; the automation vector (+0x38) sized to seven through 0x444040 (zeros, inferred); +0x4C from the global 0x170C2B8; and **+0x48 (army_automation) = 7, Player Control**. Called by CGameState's constructor for the **CHuman embedded at the state's +0x70** - GetLocalPlayer's fallback, and so the record whose +0x2C/+0x30 CCurrentGameState's +0x9C/+0xA0 name - and by the lobby's constructor for **its own player record at +0x410**. A sibling at 0x3A5B0 (`ret 0x10`) takes a name, an id and a byte for +0x35 and sets the same defaults. So a new game's Options panel opens on Player Control in every area. See reversing/findings/FINDINGS-frontend.md, section C.",
+   "confidence": "confirmed",
+   "evidence": "Read whole on the listing, 0x67AFA0-0x67B046; callers 0x67D117 (lea eax,[ebx+0x70]; push eax) and 0x704EC3 (lea eax,[ebx+0x410]; push eax). The stores match the recorded CHuman fields by offset. That 0x444040 fills zeros is inferred: it resizes to 7 (`cmp eax, 7`) and was not read further."
+  },
+  {
+   "rva": "0x422290",
+   "kind": "function",
+   "name": "CTechnologyView::NextAutomationSetting",
+   "signature": "void __thiscall CTechnologyView::NextAutomationSetting(CTechnologyView* this)",
+   "no_signature": null,
+   "comment": "Slot 12 of CTechnologyView (the left arrow, `mode_arrow_left`), replacing CCountryView's: the local CHuman's **automate_tech_sliders (+0x30) + 1, wrapping past 3 to 0**, stored; **automation[2] set to 0 where the new setting is 0 and to 1 otherwise** (each only where the vector holds more than two entries); slot 11; CEU3AI::ApplyPlayerDelegation on the played country's AI; the open view re-opened twice; slot 11 again. So the technology screen's four-way selector is the lobby's Technology row. Bare `ret`. See reversing/findings/FINDINGS-frontend.md, section C. The effects reader of the same day agrees: **Slot 12 of CTechnologyView, the right arrow of the technology screen's automation line.** `automate_tech_sliders` (CHuman +0x30) = (+0x30 + 1), back to 0 at 4 - Normal, AI control, Tech automated, Leadership automated - and **automation[2] = 0 where the new value is 0, else 1**; both written directly, not by a command. Then CEU3AI::ApplyPlayerDelegation on the player's country's AI (makes or removes the tech minister and sets its two bytes), two refreshes (0x6656D0) and the view's slot 11 (UpdateAutomationLine). Bare `ret`.",
+   "confidence": "confirmed",
+   "evidence": "vtable.py CCountryView CTechnologyView: slot 12 is 0x822290 in CTechnologyView against 0x6EBC90 in the base. Decompiled in a copy; the branch at 0x8223CA-0x8223CC (`cmp edi, ebx; jne`) splits the two stores to automation[2]."
+  },
+  {
+   "rva": "0x422600",
+   "kind": "function",
+   "name": "CTechnologyView::PreviousAutomationSetting",
+   "signature": "void __thiscall CTechnologyView::PreviousAutomationSetting(CTechnologyView* this)",
+   "no_signature": null,
+   "comment": "Slot 13 (the right arrow): automate_tech_sliders - 1, **wrapping below 0 to 3**; otherwise as slot 12, automation[2] = (setting != 0) included. Bare `ret`. See reversing/findings/FINDINGS-frontend.md, section C. The effects reader of the same day agrees: **Slot 13 of CTechnologyView, the left arrow**: `automate_tech_sliders` = +0x30 - 1, 3 below 0; automation[2] kept as (new != 0); the rest as slot 12 (NextAutomationSetting). Bare `ret`.",
+   "confidence": "confirmed",
+   "evidence": "vtable.py: slot 13 is 0x822600 in CTechnologyView against 0x6EBF00 in the base. Decompiled in a copy: `- 1; if < 0 then 3`, the same two stores to automation[2]."
+  },
+  {
+   "rva": "0x317880",
+   "kind": "function",
+   "name": "CGameSetup_SyncOptionsFromGameState",
+   "signature": "void __fastcall CGameSetup_SyncOptionsFromGameState(CGameSetup* setup@ECX)",
+   "no_signature": null,
+   "comment": "**Fills the Options panel from the game state and shows it.** The lobby's difficulty index (+0x714) = the state's difficulty (+0xC98), its game-mode index (+0x7E8) = arcade_mode (+0xC9C); then for each of the seven option rows (+0x8B4): row 2 (Technology) from the local CHuman's automate_tech_sliders (+0x30), every other row from automation[i] (the CHuman matched by session id, else the one embedded at the state's +0x70); then **the Armies row (5) from CHuman +0x48: 7 -> 0 (Player Control), 3 -> 1 (Corps), 2 -> 2 (Armies), 1 -> 3 (Army Groups), 0 -> 4 (Theatres)**, any other value leaving it as automation[5]. Then `option_window` shown (slot 13 of its +0x18), its slot 11, and the lobby's slot 13 at +0xC - CGameSetup::RefreshOptionsWindow, **which reads every row from the CHuman again and so overwrites the Armies row with automation[5]**. Bare `ret` at 0x717D36. Five callers: CGameSetup::Prepare (so the panel shows whenever the lobby opens), three load arms of CGameSetup::Update (so a loaded save's difficulty, game mode and automation come back into the panel), and CGameSetup::Reload. The name is ours. See reversing/findings/FINDINGS-frontend.md, section C.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled in a copy and the tail read on the listing (0x717CFD-0x717D24: [+0x700]+0x18 slot 0x34, [+0x700] slot 0x2C, [this+0xC] slot 0x34). The mapping is a chain of compares at 0x717C85 onward storing 0..4 to [rows+0x144] = row 5's index. Callers: findRefs --callers 0x717880 (0x707BA6 in Prepare, 0x70B099/0x70B743/0x70BA3B in Update, 0x71A586 in Reload).",
+   "revises": "The row it maps from +0x48 was called 'the fog row'; it is row 5, the hidden Armies row (FE_SETTING_UNITINTERFACE), and the mapping is now given value for value. Adds that it shows the options window and ends in RefreshOptionsWindow (which re-reads the rows), and raises it to confirmed."
+  },
+  {
+   "rva": "0x304AF0",
+   "kind": "function",
+   "name": "CGameSetup::CGameSetup",
+   "signature": null,
+   "no_signature": "ret 8 with the object as Ghidra's param_1; Ghidra also invents a `this`, and whether a register carries something was not settled, so no signature is offered.",
+   "comment": "**The lobby's constructor.** Writes the five tables (0x15D59C0, +8 0x15D59FC, +0xC 0x15D5A0C, +0x3C 0x15D5A50, +0x6C 0x15D5A80), builds the gui window `lobby` [mod: tfh/interface/lobby.gui] into +0x3B8, and the button glues: +0x188 Back (CGameSetup::OnBack), +0x1D8 Play (CGameSetup::OnPlay), +0x228 victoryconditions_button (CGameSetup::OnVictoryConditionsButton), +0x130 `singleplayer`'s `player_shield` (CGameSetup::OnPlayerShieldClicked), +0x4D0 newgame_tab (OnNewGameTab), +0x520 savedgame_tab (OnSavedGamesTab), +0x570 scenario_tab (OnScenariosTab), +0x5C0 cgm_tab (OnCustomGamesTab), +0x660 the save rows' checkbox glue (OnSaveRowChecked), +0x368 the start-date shields' glue (OnShortcutShieldClicked); play_button and victoryconditions_button get their byte +0x61 = 1. +0x464/+0x468 = the defines' start_date and end_date. Its own player record at +0x410 is a CHuman (CHuman::CHuman). **The Options panel**: the choices COptionChoice +0x704 (label FE_DIFFICULTY) and +0x7D8 (FE_ARCADE) with their arrow glues +0x738/+0x788 and +0x810/+0x860; the option-row vector +0x8B4 sized to **seven** (CGameSetup_ResizeOptionRows) and labelled FE_SETTING_DIPLOMACY, _PRODUCTION, _TECHNOLOGY, _POLITICS, _INTEL, _UNITINTERFACE (row 6 has no label); the shared row glues +0x8C8 (OnOptionNext) and +0x918 (OnOptionPrev); two more glues +0x2C8 (HideOptionsWindow) and +0x318 (CloseOptionsWindow) that nothing attaches; `interface/options.gui` registered for reload; the lobby's CLobbyInterface given the persistent id at 0x171042C; then `option_window` made as a top-level window into +0x700, CGameSetup_AttachOptionButtons, and the texts filled: **difficulty DIFF_VERY_EASY, DIFF_EASY, DIFF_NORMAL, DIFF_HARD, DIFF_VERY_HARD** (index = the state's difficulty), **game mode STANDARD_MODE, ARCADE_MODE** (index = arcade_mode), and for each row OPT_PLAYER_CONTROL then OPT_AICONTROL - except **row 2: OPT_PLAYER_CONTROL, OPT_AICONTROL, TECH_AUTOMATED, LEADERSHIP_AUTOMATED** (index = the CHuman's automate_tech_sliders) and **row 5: OPT_PLAYER_CONTROL, OPT_AI_CORP, OPT_AI_ARMY, OPT_AI_ARMY_GROUP, OPT_AI_THEATER** - each other row's index = the local CHuman's automation[i]; and the victory conditions window `victory_conditions_window` (+0x8B0). The panel is not shown here - CGameSetup_SyncOptionsFromGameState shows it. `ret 8`. See reversing/findings/FINDINGS-frontend.md, sections B and C.",
+   "confidence": "inferred",
+   "evidence": "Decompiled in a copy of the project: the option strings FE_DIFFICULTY (0x70514C) through OPT_AI_THEATER (0x706DA2) are all referenced inside it; the row loop at the end tests the index for 2 and 5; the glue handler addresses are pushed at 0x70521D/0x705247/0x705327/0x705353/0x705383/0x7053AF/0x704DA7/0x704DD1; ESI = this+0x8B4 before the call to 0x71AD10 at 0x705475. Still inferred as a whole for the non-option parts the lobby reader marked so.",
+   "revises": "The options passage said 'the six automation settings ... and, for the fifth, OPT_AI_CORP..OPT_AI_THEATER': there are seven rows, the Armies values belong to row 5 (the sixth), row 2 has four values, and row 6 is unlabelled. Adds the glues, the defaults' sources, the CHuman at +0x410, and that the constructor does not show the panel."
+  },
+  {
+   "rva": "0x30D010",
+   "kind": "function",
+   "name": "CGameSetup::OnBack",
+   "signature": "void __thiscall CGameSetup::OnBack(CGameSetup* this)",
+   "no_signature": null,
+   "comment": "**`back_button`'s handler** (glue +0x188). Where +0x6C8 (the online link) is set, the online leave messages first. Then a CAddPlayer for the local player record posted; Session::PumpCommands; the session's slot 2 and its channel's slot 3; the options window (+0x700) hidden; CGameSetup_PostOptionChoices (the panel's choices written to the local CHuman and, in single player or as host, a CSetGamePlayOptions posted); on a client (mode not 0) 0x70E3D0; **ResetGameStateToStartDate(true)**; +0x180 = 0; and the front end switched **to view 0** (the settings' +0x174 cleared) in a plain game, **or to view 5** where the online link is set - the old view's slot 3, the new one's slots 1 and 2, as CFrontEnd's switch does; the victory conditions window hidden. So Back throws away a loaded save or the chosen start. Bare ret.",
+   "confidence": "inferred",
+   "evidence": "0x70D2C5-0x70D2DB on the listing: [ebx+0x700]+0x18 slot 0x38 (Hide) where the window exists, then push ebx; call 0x717D60. The rest of the entry is unchanged.",
+   "revises": "Names 0x717D60 (CGameSetup_PostOptionChoices) and says what it does; nothing else changes."
+  },
+  {
+   "rva": "0x30E5B0",
+   "kind": "function",
+   "name": "CGameSetup::OnPlay",
+   "signature": "void __thiscall CGameSetup::OnPlay(CGameSetup* this)",
+   "no_signature": null,
+   "comment": "**`play_button`'s handler** (glue +0x1D8; the button is enabled only while CGameSetup_CanStart holds). The victory conditions window hidden. Without the online link (+0x6C8 = 0): **for a new game only (not loaded_from_save)** the seed 0x174DA94 set from a clock ([0x1A857E4] slot 5, rounded) and g_random_draws = 0; then, **for a new game and a loaded one alike**, the options window hidden and CGameSetup_PostOptionChoices - the panel's automation written to the local CHuman, OPTION_CHANGED chat lines where a choice differs from the state, and **a CSetGamePlayOptions carrying the panel's difficulty and game mode posted whether or not they differ** (in single player or as host); where the session may post (+0x34) VictoryConditions_PostChosen; then **a CSetRandomSeed(seed, draws) and a CLobbyStartGame posted**, and the session's slot 2. With the online link, an online start message instead. Nothing launches here: CLobbyStartGame::Execute sets the front end's +0x764 and the next CGameSetup::Update calls CGameSetup_StartGame. Two bare rets.",
+   "confidence": "inferred",
+   "evidence": "0x70E744-0x70E74C: loaded_from_save (+0xD9C) set jumps straight to 0x70E7E7, which hides [esi+0x700] and calls 0x717D60 - so the options are posted for a loaded game too. That the command is posted unconditionally is read in CGameSetup_PostOptionChoices (no compare between the loop and new(0x4C)).",
+   "revises": "Said 0x717D60 posts the choices 'where they differ from the state's'; it posts the CSetGamePlayOptions unconditionally (only the chat lines depend on a difference), writes the automation to the CHuman directly, and runs for a loaded game as well as a new one."
+  },
+  {
+   "rva": "0x2D5D20",
+   "kind": "function",
+   "name": "CSetGamePlayOptions::Execute",
+   "signature": "void __thiscall CSetGamePlayOptions::Execute(void)",
+   "no_signature": null,
+   "comment": "Slot 6 of `CSetGamePlayOptions` - the command's own **Execute** (see `CCommand::Execute`):\n\n    gamestate->difficulty   = this->options[0]          // +0xC98\n    if (this->options.size() >= 2)\n        gamestate->arcade_mode = this->options[1]        // +0xC9C\n\nThe vector it carries is at `+0x3C`/`+0x40` and is what `CSetGamePlayOptions::LoadKey` (`0x2D5EC0`) fills from the save's `setgameplayoptions` key; the save writes it back under token `0x60D` at `0x2D5E90`. **The lobby posts it** (CGameSetup_PostOptionChoices) at every press of the Options panel's arrows and at Play and Back, in single player or as host, with the panel's difficulty and game mode; so the two options are settled at Play and fixed thereafter. **It is not the only writer**: a save's or a mod's `gameplaysettings = { setgameplayoptions = { ... } }` is written straight into the state by CGamePlaySettings::LoadKey (0x28A550).\n\n**Its tail** (the globals 0x171042C/0x1710430, formerly not followed up): the persistent id there - the lobby's CLobbyInterface, given that id by CGameSetup's constructor - is looked up in the id table its type selects (0x1268 or below the low table, above it the high), and **its slot 13, CGameSetup::RefreshOptionsWindow, called**: so executing the command redraws the lobby's Options panel on that machine. Returns quietly where the table or the object is missing. See reversing/findings/FINDINGS-frontend.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-manpower.md",
+   "evidence": "Decompiled in a copy: after the two stores, FindPersistentById on the id at 0x171042C (twice, the second to call) and `(**(code **)(*piVar3 + 0x34))()`. CGameSetup's constructor calls CReferenceObject::SetId(this+0xC, &0x171042C), and slot 13 of the +0xC table is 0x719300 (vtable.py). The second writer: CGamePlaySettings::LoadKey's `mov [esi+8], edx` / `mov [esi+0xC], eax` at 0x68A5AB/0x68A5B6, with the CGamePlaySettings embedded at the state's +0xC90.",
+   "revises": "Said it is 'the only thing in the image that writes either gameplay option' - CGamePlaySettings::LoadKey writes both directly; and resolves the tail that 'was not followed up': it calls the lobby's RefreshOptionsWindow through the persistent id at 0x171042C."
+  },
+  {
+   "rva": "0x28A550",
+   "kind": "function",
+   "name": "CGamePlaySettings::LoadKey",
+   "signature": "void __thiscall CGamePlaySettings::LoadKey(CGamePlaySettings* this, CParseContext* parse, SaveToken key)",
+   "no_signature": null,
+   "comment": "One key, `setgameplayoptions` (token 0x60D) - the block of options a save carries, and a mod's `gameplaysettings.txt` the same way. The values read into a vector<int>; **this+8 (difficulty) = the first, and this+0xC (game_mode) = the second where there are two** - written straight into the CGamePlaySettings embedded at the state's +0xC90, i.e. the state's +0xC98 and +0xC9C, with no command. **Any other key falls through to the same two stores on an empty vector and reads address 0** (inferred: a crash, not a silent drop). `ret 8` at 0x68A5D1. See reversing/findings/FINDINGS-frontend.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-definitions.md",
+   "evidence": "Read whole on the listing, 0x68A550-0x68A5D1: `cmp [ebp+0xC], 0x60D; jne 0x68A5A4` skips only the read, and 0x68A5A4 does `mov edx, [ecx]` with ECX the still-zero vector start. The crash is inferred from that load; no run provoked it.",
+   "revises": "Comment only: adds what it writes (difficulty and game mode, directly into the state) and that any other key dereferences null."
+  },
+  {
+   "rva": "0x422970",
+   "kind": "function",
+   "name": "CTechnologyView::UpdateAutomationLine",
+   "signature": "void __thiscall CTechnologyView::UpdateAutomationLine(CTechnologyView* this)",
+   "no_signature": null,
+   "comment": "Slot 11 of CTechnologyView: the base's automation line with four texts instead of two. Does nothing where the window has no `automation_setting`; otherwise sets it by a switch on **the local CHuman's automate_tech_sliders (+0x30)** - 0 OPT_NORMAL \"Normal\", 1 OPT_AICONTROL \"Ai Control\", 2 TECH_AUTOMATED \"Research AI\", 3 LEADERSHIP_AUTOMATED \"Slider AI\", anything else leaving the text as it was - then slot 14 (ApplyAutomation) and `mode_arrow_left`, `mode_arrow_right` and `close_button` enabled. So the technology screen's selector is the same setting as the lobby's Technology row, where value 0 reads OPT_PLAYER_CONTROL \"Player Control\" instead. See reversing/findings/FINDINGS-frontend.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countryviews.md",
+   "evidence": "Decompiled in a copy: GetLocalPlayer then `switch(automate_tech_sliders)` with the four strings, the default arm skipping to ApplyAutomation; the three buttons' slot 0x98 with 1.",
+   "revises": "Was 'read from its strings only'; now read: the value switched on is CHuman +0x30, with what each case says, and raised to confirmed."
+  }
+ ],
+ "structs": [
+  {
+   "name": "COptionChoice",
+   "size": "0x34",
+   "comment": "Ours: one choice of the lobby's Options panel - a list of texts and which is chosen. Not an RTTI class (no table). CGameSetup holds two by value (+0x704 difficulty, +0x7D8 game mode) and one inside each of its seven COptionRows. See reversing/findings/FINDINGS-frontend.md, section C.",
+   "evidence": "The size: a COptionRow is 0x3C with the choice at +8 (the row stride, 0x88888889 / sar 5 = divide by 0x3C), and the difficulty choice at +0x704 is followed by its arrow glue at +0x738. Fields from COptionChoice_Init (0x702EB0) and the glue handlers' (+0x708 - +0x704) / 0x1C."
+  },
+  {
+   "name": "COptionRow",
+   "size": "0x3C",
+   "comment": "Ours: one of the seven rows of the lobby's option-row vector (CGameSetup +0x8B4): the area's two arrows and its COptionChoice. Rows in order: 0 Diplomacy, 1 Production, 2 Technology, 3 Politics, 4 Intelligence, 5 Armies, 6 unlabelled. See reversing/findings/FINDINGS-frontend.md, section C.",
+   "evidence": "Stride 0x3C in every loop over +0x8B4 (imul 0x88888889; sar 5); AttachOptionButtons stores `_next` at +0 and `_prev` at +4; OnOptionNext/Prev match the pressed button against +0 / +4 and step the index at +0x18 = +8 + 0x10."
+  },
+  {
+   "name": "CGamePlaySettings",
+   "inherits": "CPersistent",
+   "vftable_rva": "0x11CF608",
+   "comment": "The game state's gameplay options, embedded at CCurrentGameState +0xC90 and saved as the top-level `gameplaysettings = { setgameplayoptions = { difficulty game_mode } }`. Its slot 4 (LoadKey) writes both fields from the save or a mod's gameplaysettings.txt; its slot 2 (SaveContents) writes them back through 0x28A650. See reversing/findings/FINDINGS-frontend.md, section C.",
+   "evidence": "RTTI: CGamePlaySettings, base CPersistent at 0, one table at VA 0x15CF608 (rva 0x11CF608), six slots, slots 2 and 4 its own (0x68A5E0, 0x68A550). The fields: LoadKey's stores to [esi+8] and [esi+0xC]; 0x68A650 pushes [esi+8] then [esi+0xC]; the state's +0xC98/+0xC9C are +0xC90 + 8 / + 0xC."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "COptionChoice",
+   "offset": "0x0",
+   "name": "values",
+   "type": "Hoi3CString*",
+   "comment": "the localised texts of the choice's values, one 0x1C-byte string each - the start of a vector",
+   "evidence": "COptionChoice_GetText reads [choice] + index * 0x1C; StringVector_PushBack is handed the choice's address."
+  },
+  {
+   "struct": "COptionChoice",
+   "offset": "0x4",
+   "name": "values_end",
+   "type": "Hoi3CString*",
+   "comment": "one past the last text; the count is (values_end - values) / 0x1C, which the arrows wrap at",
+   "evidence": "OnDifficultyNext: (+0x708 - +0x704) / 0x1C compared with the index."
+  },
+  {
+   "struct": "COptionChoice",
+   "offset": "0x8",
+   "name": "values_capacity",
+   "type": "Hoi3CString*",
+   "comment": "the vector's allocation end",
+   "evidence": "COptionChoice_Init zeroes [0], [1] and [2] together, a vector's three pointers."
+  },
+  {
+   "struct": "COptionChoice",
+   "offset": "0x10",
+   "name": "index",
+   "type": "int",
+   "comment": "which value is chosen, 0-based: the lobby's difficulty (CGameSetup +0x714) and game mode (+0x7E8) are this field of their choices",
+   "evidence": "COptionChoice_GetText indexes the texts by [choice+0x10]; the glue handlers step it; CGameSetup_SyncOptionsFromGameState writes the state's difficulty to +0x714 = +0x704 + 0x10."
+  },
+  {
+   "struct": "COptionChoice",
+   "offset": "0x14",
+   "name": "label",
+   "type": "Hoi3CString",
+   "comment": "the rendered label - FE_DIFFICULTY, FE_ARCADE or FE_SETTING_*; the FROM of OPTION_CHANGED",
+   "evidence": "COptionChoice_Init assigns the string argument at +0x14; COptionChoice_GetLabel copies +0x14."
+  },
+  {
+   "struct": "COptionChoice",
+   "offset": "0x30",
+   "name": "serial",
+   "type": "int",
+   "comment": "a serial number from the global counter 0x1A8561C, taken and incremented by COptionChoice_Init; what reads it was not looked for",
+   "evidence": "COptionChoice_Init: [0xC] = [0x1A8561C], then the global incremented."
+  },
+  {
+   "struct": "COptionRow",
+   "offset": "0x0",
+   "name": "next_button",
+   "type": "void*",
+   "comment": "the area's `_next` button in option_window; null for rows 5 and 6",
+   "evidence": "CGameSetup_AttachOptionButtons stores the button found by `<area>_next` at the row's +0; OnOptionNext compares the pressed button with it."
+  },
+  {
+   "struct": "COptionRow",
+   "offset": "0x4",
+   "name": "prev_button",
+   "type": "void*",
+   "comment": "the area's `_prev` button; null for rows 5 and 6",
+   "evidence": "AttachOptionButtons stores `<area>_prev` at +4; OnOptionPrev compares with +4."
+  },
+  {
+   "struct": "COptionRow",
+   "offset": "0x8",
+   "name": "choice",
+   "type": "COptionChoice",
+   "comment": "the row's texts and chosen index (the index at the row's +0x18)",
+   "evidence": "The constructor pushes the row's texts to rows + 8 + i * 0x3C and reads the index at + 0x18 + i * 0x3C."
+  },
+  {
+   "struct": "CGamePlaySettings",
+   "offset": "0x8",
+   "name": "difficulty",
+   "type": "int",
+   "comment": "the campaign's difficulty, 0 Very Easy .. 4 Very Hard - the state's +0xC98; element 0 of `setgameplayoptions`",
+   "evidence": "CGamePlaySettings::LoadKey `mov [esi+8], edx` (0x68A5AB) from the vector's first entry; 0x68A650 pushes [esi+8] first."
+  },
+  {
+   "struct": "CGamePlaySettings",
+   "offset": "0xC",
+   "name": "game_mode",
+   "type": "int",
+   "comment": "the lobby's Game Mode, 0 Normal (STANDARD_MODE) or 1 Arcade - the state's +0xC9C, called arcade_mode there; element 1 of `setgameplayoptions`",
+   "evidence": "LoadKey `mov [esi+0xC], eax` (0x68A5B6) where the vector has two entries; 0x68A650 pushes [esi+0xC] second."
+  },
+  {
+   "struct": "CGameSetup",
+   "offset": "0x700",
+   "name": "options_window",
+   "type": "void*",
+   "comment": "the `option_window` of interface/options.gui [mod], a top-level window made by the constructor (and again by Reload); shown by CGameSetup_SyncOptionsFromGameState (slot 13 of its +0x18), hidden by OnBack and OnPlay (slot 14). Its arrow glues: +0x738 difficulty_prev, +0x788 difficulty_next, +0x810 arcade_prev, +0x860 arcade_next, +0x8C8 every area's _next, +0x918 every area's _prev; +0x2C8 and +0x318 are built and never attached",
+   "evidence": "Constructor 0x70617D `mov [ebx+0x700], eax` after the gui's slot 0x2C with 'option_window'; every element of the panel is looked up through [this+0x700] in AttachOptionButtons and (as +0x6F4 from +0xC) in RefreshOptionsWindow."
+  },
+  {
+   "struct": "CGameSetup",
+   "offset": "0x704",
+   "name": "difficulty_choice",
+   "type": "COptionChoice",
+   "comment": "the Options panel's difficulty: label FE_DIFFICULTY, texts DIFF_VERY_EASY..DIFF_VERY_HARD; its index (+0x714) is what CGameSetup_PostOptionChoices posts as the difficulty",
+   "evidence": "Constructor: COptionChoice_Init(this+0x704, FE_DIFFICULTY), five StringVector_PushBack to this+0x704, [this+0x714] = the state's difficulty."
+  },
+  {
+   "struct": "CGameSetup",
+   "offset": "0x7D8",
+   "name": "game_mode_choice",
+   "type": "COptionChoice",
+   "comment": "the Options panel's game mode: label FE_ARCADE, texts STANDARD_MODE, ARCADE_MODE; its index (+0x7E8) is posted as arcade_mode",
+   "evidence": "Constructor: COptionChoice_Init(this+0x7D8, FE_ARCADE) at 0x7052C5, two pushes, [this+0x7E8] = arcade_mode."
+  },
+  {
+   "struct": "CGameSetup",
+   "offset": "0x8B4",
+   "name": "option_rows",
+   "type": "COptionRow*",
+   "comment": "the seven automation rows of the Options panel, a vector: 0 Diplomacy, 1 Production, 2 Technology, 3 Politics, 4 Intelligence, 5 Armies (no box or arrows in options.gui), 6 unlabelled (automatic deployment's flag, no box)",
+   "evidence": "Constructor zeroes +0x8B4/+0x8B8/+0x8BC (0x705368) and sizes it to 7 (CGameSetup_ResizeOptionRows with ESI = this+0x8B4); every row loop divides (+0x8B8 - +0x8B4) by 0x3C."
+  },
+  {
+   "struct": "CGameSetup",
+   "offset": "0x8B8",
+   "name": "option_rows_end",
+   "type": "COptionRow*",
+   "comment": "one past the last option row",
+   "evidence": "The row loops' (+0x8B8 - +0x8B4) / 0x3C."
+  },
+  {
+   "struct": "CGameSetup",
+   "offset": "0x8BC",
+   "name": "option_rows_capacity",
+   "type": "COptionRow*",
+   "comment": "the row vector's allocation end",
+   "evidence": "Zeroed with the other two at 0x705374."
+  },
+  {
+   "struct": "CHuman",
+   "offset": "0x48",
+   "name": "army_automation",
+   "type": "int",
+   "comment": "**The lobby's Armies setting** (FE_SETTING_UNITINTERFACE), as a level by its labels: **7 Player Control** (OPT_PLAYER_CONTROL), 3 Ai Control Corps (OPT_AI_CORP), 2 Ai Control Armies, 1 Ai Control Army Groups, 0 Ai Control Theatres (OPT_AI_THEATER). CGameSetup_PostOptionChoices writes it from the Options panel's row 5 (index 0..4 -> 7,3,2,1,0) and CGameSetup_SyncOptionsFromGameState maps it back; CHuman::CHuman sets 7. Saved in place of element 5 of the save's `ai = { ... }`, which is why every save has a 7 there. options.gui gives the row no box and no arrows, and RefreshOptionsWindow fills the row from automation[5], so in the original's lobby every post sets it to 7 while automation[5] is 0. What reads it in play is not part of this reading In a running game (options-effects): **The lobby's sixth automation setting, the military one** - the save's `ai = { ... }` element 5, kept here because CHuman_SetAutomation refuses anything but 0 and 1. Values 7, 3, 2, 1, 0 for the lobby's choices 0 to 4 (CGameSetup_SyncOptionsFromGameState maps 7->0, 3->1, 2->2, 1->3, 0->4 and the commit at rva 0x317D60 the reverse); the lobby's texts for that row are OPT_PLAYER_CONTROL, OPT_AI_CORP, OPT_AI_ARMY, OPT_AI_ARMY_GROUP and OPT_AI_THEATER in that order (inferred from their order in CGameSetup::CGameSetup), so 7 is Player Control and 3/2/1/0 the AI running corps/armies/army groups/theatres. **Read by nothing in a running game** - only by the lobby, CGameState::SaveContents (written back as element 5) and CGameState::LoadKey. Every save read here has 7. Was `ai_entry5`.",
+   "evidence": "PostOptionChoices' row-5 arm compares and stores [CHuman+0x48] with 7, 3, 2, 1, 0 for indices 0..4 (0x7183C8 `mov dword [eax+0x48], 7`, 0x71882F the 0 store); Sync's compares at 0x717C85; CHuman::CHuman 0x67B030 `mov dword [edi+0x48], 7`; the constructor's row-5 texts are OPT_PLAYER_CONTROL, OPT_AI_CORP, OPT_AI_ARMY, OPT_AI_ARMY_GROUP, OPT_AI_THEATER in that order.",
+   "revises": "Was `ai_entry5`, 'what reads it was not traced'. Renamed army_automation: it is the lobby's Armies row, its values and their meaning given, its default 7 found in the constructor, and its two readers/writers named."
+  },
+  {
+   "struct": "CHuman",
+   "offset": "0x38",
+   "name": "automation",
+   "type": "int*",
+   "comment": "**The seven automation flags**, a vector of ints indexed by CHuman::AUTOMATIONTYPE, each 0 or 1 - the save's `ai = { ... }`. [0] foreign policy, [1] production, [2] technology, [3] politics, [4] intelligence (the five ministers, FINDINGS-ai.md), [6] **automatic deployment** of finished units (ProcessAI then runs CEU3AI::DeployFinishedUnits for the played country every hour). [5] is the lobby's hidden Armies row as read by RefreshOptionsWindow, but the lobby writes that row to +0x48 and never to [5]; the save's 7 at index 5 is +0x48's, which the setter (0 and 1 only) refuses here. **The lobby's Options panel** writes [0], [1], [3], [4] and [6] from its rows (each only where the index is under 2: 0 Player Control, 1 Ai Control) and **does not write [2]** - its Technology row is automate_tech_sliders (+0x30) - while the technology screen's arrows set [2] to 0 or 1 as +0x30 is nought or not. The country screens' `automation_setting` lines read and toggle [view_index]: diplomacy 0, production 1, politics 3, espionage 4. Sized to seven by CHuman::CHuman. End of the vector at +0x3C. In a running game (options-effects): **The seven automation flags**, a vector of ints indexed by CHuman::AUTOMATIONTYPE, each 0 or 1 - the save's `ai = { ... }`. [0] foreign policy, [1] production, [2] technology, [3] politics, [4] intelligence (the five ministers, FINDINGS-ai.md), [6] **automatic deployment** of finished units (ProcessAI then runs CEU3AI::DeployFinishedUnits for the played country every hour). [5] **is read by nothing** in a running game (the census of all 115 calls of GetLocalPlayer and its inlined copies, 2026-11-06); the save's 7 there is refused by CHuman_SetAutomation, which takes only 0 and 1, and kept at +0x48 instead. End of the vector at +0x3C. **Readers, by flag** (FINDINGS-frontend.md D.3): [0] CEU3AI::CreateMinisters and ApplyPlayerDelegation (the foreign minister), CCountry::RunHourlyAITrade (the Lua's trading for the player's country), CTradeAction::Apply (the player not told of trades), the diplomacy screen greyed; [1] the ministers, RunCountryDailyPass's slider call (the AI branch), CProductionView::SendDistribution (the player's sliders not sent), ApplyCountryAIStrategies (the strategy's trigger walk for the played country runs **only** while [1] is 1), alerts 5 and 8; [2] alerts 7 and 9 only - the tech minister is made from +0x30, and [2] is kept equal to (+0x30 != 0) by the technology screen's arrows but not set by the lobby; [3] the politics minister, alert 6; [4] the intelligence minister; [6] ProcessAI's hourly DeployFinishedUnits, toggled by CProductionView::OnAutoDeploymentToggled. CAI_IsAIControlled reads any of them for Lua, which no script calls.",
+   "evidence": "CGameSetup_PostOptionChoices' general arm (`automation[i] = index` behind `i < size && index < 2`); the row-2 arm writes +0x30 only; CTechnologyView::NextAutomationSetting's two stores to automation[2]; the view indices pushed to CCountryView::CCountryView (diplomacy 0 per its constructor's record; `push 1` at 0x7FB1FE, `push 2` at 0x81A170, `push 3` at 0x6BADFE, `push 4` at 0x61EB3B; the theatre screen also pushes 4, at 0x46FA58, and has no automation_setting).",
+   "revises": "Comment: replaces '[5] was not read' with what the lobby does with [5] and +0x48, and adds which of the flags the lobby writes (not [2]) and which screen reads which."
+  },
+  {
+   "struct": "CHuman",
+   "offset": "0x30",
+   "name": "automate_tech_sliders",
+   "type": "int",
+   "comment": "The technology automation setting, four-way: 0 OPT_NORMAL (\"Normal\"; the lobby says OPT_PLAYER_CONTROL \"Player Control\"), 1 OPT_AICONTROL \"Ai Control\", 2 TECH_AUTOMATED \"Research AI\", 3 LEADERSHIP_AUTOMATED \"Slider AI\". Saved as `automate_tech_sliders`; it seeds the tech minister's two bytes +0x5C/+0x5D (FINDINGS-ai.md). **It is the lobby's Technology row** - CGameSetup_PostOptionChoices writes the row's index here directly, with no range test - and the technology screen's selector (CTechnologyView slots 11-13), whose arrows wrap 0..3 and also set automation[2]. CHuman::CHuman sets 0.",
+   "evidence": "PostOptionChoices' row-2 arm stores the row's index to [CHuman+0x30]; CTechnologyView::UpdateAutomationLine switches on +0x30 with the four strings; Next/PreviousAutomationSetting step +0x30 with wrap at 3.",
+   "revises": "Comment: adds that it is the lobby's Technology row and the technology screen's selector, the texts each value shows, and the default."
+  },
+  {
+   "struct": "CCurrentGameState",
+   "offset": "0xC98",
+   "name": "difficulty",
+   "type": "int",
+   "comment": "The campaign's difficulty, 0..4 - the lobby's DIFF_VERY_EASY, DIFF_EASY, DIFF_NORMAL, DIFF_HARD, DIFF_VERY_HARD (\"Very Easy\" .. \"Very Hard\"); the plain VERY_EASY .. VERY_HARD keys in the localisation are named by no string in the image. Element 0 of the save's `setgameplayoptions` vector; it is CGamePlaySettings +8 of the object embedded at +0xC90. **Two writers**: `CSetGamePlayOptions::Execute` (0x2D5D20), which the lobby posts at every press of its Options arrows and at Play and Back, and `CGamePlaySettings::LoadKey` (0x28A550), straight from a save or a mod's gameplaysettings.txt. So it is settled at Play - a loaded save's included, since the lobby lets it be changed - and fixed thereafter. CCurrentGameState's constructor defaults it to 2, Normal, and every save read here carries `setgameplayoptions = { 2 0 }`.",
+   "source": "reversing/findings/FINDINGS-manpower.md",
+   "evidence": "The DIFF_* strings referenced in CGameSetup's constructor (0x70619C..0x706428); VERY_EASY and VERY_HARD exist in the image only as the tails of DIFF_VERY_EASY/DIFF_VERY_HARD (findBytes: preceded by `DIFF_`, no reference). LoadKey's store `mov [esi+8], edx` at 0x68A5AB.",
+   "revises": "Comment: the keys are DIFF_*, not the plain ones; and it is not written only by CSetGamePlayOptions::Execute - CGamePlaySettings::LoadKey writes it too - and says when the lobby posts the command."
+  },
+  {
+   "struct": "CCurrentGameState",
+   "offset": "0xC9C",
+   "name": "arcade_mode",
+   "type": "int",
+   "comment": "The lobby's **Game Mode**: 0 Normal (STANDARD_MODE), 1 Arcade (ARCADE_MODE). Element 1 of the save's `setgameplayoptions` vector; CGamePlaySettings +0xC of the object at +0xC90. Written by `CSetGamePlayOptions::Execute` (0x2D5D20), posted by the lobby at every press of its Options arrows and at Play and Back, and by `CGamePlaySettings::LoadKey` (0x28A550) straight from a save or a mod's gameplaysettings.txt; so it is set when the game is started or loaded. CCurrentGameState's constructor defaults it to 0.\n\n**This is the switch between the two supply models.** `CUnit::ConsumeSuppliesAndFuel` tests it at 0x1BBA3A: above zero the unit draws straight from the owner's capital pool (`CProvince +0x15C`), at or below zero it walks the supply network. Twenty-odd other sites read it the same way. Measured live it reads 0, and every save in `BlackICE GitHub/save games` writes `{ 2 0 }`, so the network path is the one that runs in an ordinary campaign.",
+   "source": "reversing/findings/FINDINGS-manpower.md",
+   "evidence": "STANDARD_MODE/ARCADE_MODE pushed in that order in CGameSetup's constructor (0x70650D, 0x7065B6); LoadKey's `mov [esi+0xC], eax` at 0x68A5B6.",
+   "revises": "Comment: adds the texts of the two values and the second writer, CGamePlaySettings::LoadKey; the supply paragraph is unchanged."
+  }
+ ],
+ "vftable_slots": {
+  "CGameSetup@0xC": {
+   "13": {
+    "name": "RefreshOptionsWindow",
+    "signature": "void __thiscall RefreshOptionsWindow(CLobbyInterface* this)"
+   }
+  },
+  "CGameSetup@0x6C": {
+   "0": {
+    "name": "Reload",
+    "signature": "bool __thiscall Reload(CReloadableInterface* this)"
+   }
+  },
+  "CSetGamePlayOptions": {
+   "6": "Execute"
+  },
+  "CGamePlaySettings": {
+   "4": {
+    "name": "LoadKey",
+    "signature": "void __thiscall LoadKey(CGamePlaySettings* this, CParseContext* parse, SaveToken key)"
+   }
+  },
+  "CTechnologyView": {
+   "12": {
+    "name": "NextAutomationSetting",
+    "signature": "void __thiscall NextAutomationSetting(CTechnologyView* this)"
+   },
+   "13": {
+    "name": "PreviousAutomationSetting",
+    "signature": "void __thiscall PreviousAutomationSetting(CTechnologyView* this)"
+   }
+  }
+ },
+ "frontier": [
+  "0x2D5C60",
+  "0x30D3E0",
+  "0x3A5B0",
+  "0x44040",
+  "0x31ADF0",
+  "0x31AFE0"
+ ]
+}

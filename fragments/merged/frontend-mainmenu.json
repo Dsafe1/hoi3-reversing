@@ -1,0 +1,618 @@
+{
+ "agent": "front end reader - the main menu, and how the front end comes up and is left",
+ "question": "What CFrontEnd::Enter shows first, what each mainmenu_panel button does (and which are hidden or greyed), what toggle_quick_normal switches, what version_label says, whether the map is up and live behind the main menu, and how the front end is left for a game and come back to.",
+ "source": "reversing/findings/FINDINGS-frontend.md",
+ "addresses": [
+  {
+   "rva": "0x2EEF00",
+   "kind": "function",
+   "name": "CFrontEnd::Enter",
+   "signature": "void __thiscall CFrontEnd::Enter(CFrontEnd* this)",
+   "no_signature": null,
+   "comment": "CFrontEnd slot 3 (vftable 0x15D458C + 0xC), extent 0x6EEF00..0x6F013C, bare `ret`. **The screen's enter slot, settled**: the run loop's pending-screen swap (VA 0xA913A0) calls the outgoing screen's slot 4 (Leave), deletes it, then calls the new screen's slot 2, **slot 3** and slot 5 - so this is entered every time a CFrontEnd becomes the current screen: once at startup after LoadEverything, and again after every way back from a game (ProcessSessionEndRequests' exit-to-menu branch, CBackEndIdler::OnExitButton), each of which builds a fresh CFrontEnd. Narrates itself through frontend.cpp: `entering frontend...` (423), `Initialising frontend artwork <` (439), `entering frontend...init map` (460), `Mapflags <` (475), `eu3 idler restore` (478), `Device objects <` (483), `reloaded` (529), `frontend screens <` (540), `Total loadtime was ` (546), `done frontend` (583). In order: CGameState::ClearPlayers on the game state; the LOAD_GFX line handed to the graphics; where +0x390 is empty, a screen-sized render object made there and pushed on +0x214; CEU3Application::InitialiseGraphicalMap; the map object (slot 15, application +0x124) given +0x390 at its +0x1DBC; a clock at +0x39C; CEU3Idler::Enter (the tooltip box); **CFrontEnd::Reload through the CReloadDispatcher table at +0xB0** (0x6EF8EA) - which builds every panel and shows the first; the map handed the camera (+0x3A8) at its +4 and +0x1DE4; the map's province objects cleared (supply pictures, air map icons, air base circles) and Map_RefreshColourTextures; **settings layer mask (+0xF0) = 0xFF9A and map style (+0xF4) = 2, the political style** (no map mode setter is called); in_game (+0xDA4) = 0 (FrontEnd_Enter_ClearInGame); the idler's map refresh flags +0x84 |= 0xF; tutorial_id (+0xDA0) = 0; **if tutorial_active (+0xD9D) is set, the tutorial panel (view 6) replaces whatever Reload showed** - the way back from a tutorial lands on the tutorial list; the rightClickMenu window made at +0xB4 and hidden. A date string formatted from the game state's tick with \"dw  d , mw y\" is built and thrown away. See reversing/findings/FINDINGS-frontend.md, section A.1.",
+   "confidence": "confirmed",
+   "revises": true,
+   "evidence": "Revised: the old entry said `Enter` was a guess. The swap at VA 0xA913A0 was decoded: [edi+0x84] slot 4 (+0x10), delete (slot 0 with 1), +0x84 = pending, then slot 2 (+8), slot 3 (+0xC), slot 5 (+0x14) on the new screen - slot 3 is the enter. CInGameIdler and CEU3Idler both have slot 3 recorded as Enter. The reload call: `mov edx,[esi+0xb0]; lea ecx,[esi+0xb0]` at 0x6EF8DC/0x6EF8EA just before the `reloaded` log; vtable.py --index 1 CFrontEnd gives 0x6F3050 at slot 0 of that table. The tutorial arm: 0x6EFF7F..0x6EFFC0, views[cur] slot 3, +0x760 = 6, views[6] slot 1, views[6] slot 2, guarded by the tutorial_active byte. 0xFF9A at 0x6EFDB8 and 2 at 0x6EFDC7 into GetGameSettings()+0xF0/+0xF4. Would be wrong if the swap called a different slot on the incoming screen than 3."
+  },
+  {
+   "rva": "0x2EDD60",
+   "kind": "function",
+   "name": "CFrontEnd::Update",
+   "signature": "void __thiscall CFrontEnd::Update(CFrontEnd* this, int unused)",
+   "no_signature": null,
+   "comment": "CFrontEnd slot 1, the front end's frame. 0x6EDD60 to the `ret 4` at 0x6EEB8E. In order: CEU3Idler::Update; **nudge_button of mainmenu_panel hidden every frame** while the front-end window (+0x730) exists; the title music (`music/titletheme_heartsofiron.mp3`, hardcoded) started when the window is active, master volume is above 0 and nothing plays; the screenshot routine (CFrontEnd_TakeScreenshot); session commands pumped on the application's two sessions (+0x12C, +0x130); the frame's input events gathered; **CFrontEnd::LaunchGame called every frame** - it returns at once unless launch_requested (+0x765) is set; Shift + right button gives the reload menu (CFrontEnd_FillRightClickMenu); then each event: F11 (key 0x7A, not with 0x102) sets screenshot_requested (+0x1D8); **a left-button release over the map picks the province under the pointer** (0x8558F0 into the map's +0x60D0) and, where it has an owner (CMapProvince +0x330), hands it to the current view's slot 5 - which is the shared `ret 4` stub 0x60CD50 in every view but CGameSetup, so **on the main menu a province click does nothing**; another button event raises the camera's +0x354. Then the pinned text box +0x204 placed at (10,10), UpdateMapCamera, CEU3Idler::UpdateTooltip, the store window's update when shown, CFrontEnd_Render, and **PostQuitMessage(0) when quit_requested (+0x76D) is set**. See reversing/findings/FINDINGS-frontend.md, section A.3.",
+   "confidence": "confirmed",
+   "evidence": "Ghidra decompilation of 0x6EDD60 plus the listing at 0x6EE740..0x6EE8B3 for the event loop: `cmp [esi+8],0; cmp [esi+0x10],3; ... cmp [esi+0x14],1` then call 0x8558F0, store [map+0x60D0], `cmp [eax+0x330],0`, views[+0x760] slot 5 (+0x14). vtable.py: CFrontEndView slot 5 is 0x60CD50 in every view class but CGameSetup (0x70C0B0); disasm 0x60CD50 is `ret 4`. LaunchGame's head (0x6F07D7) `cmp byte [esi+0x765],0; je` to the end. ret 4 at 0x6EEB8E, the stack argument unread as the record says of every slot 1. Would be wrong if views other than the lobby overrode slot 5."
+  },
+  {
+   "rva": "0x2F0140",
+   "kind": "function",
+   "name": "CFrontEnd::Leave",
+   "signature": "void __thiscall CFrontEnd::Leave(CFrontEnd* this)",
+   "no_signature": null,
+   "comment": "CFrontEnd slot 4, run by the pending-screen swap on the outgoing front end. 0x6F0140 to the bare `ret` at 0x6F0325. The render object (+0x390) hidden and released and the map's +0x1DBC cleared; exit_button's front-end observer (+0x188) detached; the lobby window (+0x734), the pinned text box (+0x204) and the front-end window (+0x730, country_selection_panel) hidden and destroyed; **every view deleted** (views +0x750..+0x754, each slot 0 with 1); the store interface (+0x1DC) deleted; then the base CEU3Idler slot 4. LaunchGame's new CInGameIdler is installed as the pending screen, so this is how the menus go when a game starts. See reversing/findings/FINDINGS-frontend.md, section A.6.",
+   "confidence": "confirmed",
+   "evidence": "Ghidra decompilation of 0x6F0140; the slot from vtable.py CFrontEnd (slot 4 = 0x6F0140) and from the swap at VA 0xA913A0 calling the outgoing screen's +0x10. Would be wrong if the swap's first call were not slot 4."
+  },
+  {
+   "rva": "0x2F3050",
+   "kind": "function",
+   "name": "CFrontEnd::Reload",
+   "signature": "bool __thiscall CFrontEnd::Reload(CReloadDispatcher* this)",
+   "no_signature": null,
+   "comment": "**Builds the front end's panels and shows the first one.** Slot 0 of CFrontEnd's CReloadDispatcher table at +0xB0, so ECX is the front end + 0xB0 and every offset in the body is 0xB0 low (+0x6A0 here is the views at +0x750). 0x6F3050 to two bare `ret`s (0x6F4222, 0x6F4244), answers 1. Ghidra's RTTI pass labels it a CFrontendSettingsScreen constructor; it is not. Called by CFrontEnd::Enter, and by the interface reload. **When views already exist** (a reload): simple = 0, back to view 0, the store window hidden, exit_button's observer detached, the lobby window, the pinned text box and the front-end window destroyed, every view deleted. Then: the store interface (+0x1DC) deleted; core.gui's ToolTip box made again at +0x204; **country_selection_panel** made (gui slot 11) at +0x730; **version_label** given the application's version (application slot 64, its +0x20 through 0xAB42F0: the version name and four checksum letters in brackets) - and where the settings' string at +0xA4 is not empty, that plus `    Mod: ` plus the localised mod name (CDirectorySettings +0x28); the window shown and its sub-windows hidden (slot 28); the `lobby` window made at +0x734 and hidden; the view vector sized to **nine**, then filled: **3** CGameSetup (0x970, the lobby window), **4** CMultiplayerMenuView (multiplayer_menu and multiplayer_connect_menu), **0** CFrontEndState (mainmenu_panel) - **shown at once (slot 2)**, **2** CFrontendSettingsScreen (`menu_settings`; the view is its CFrontEndView base at +0x3DC), **5** CMetaserverInterface (its base at +8), **8** CEasymodeView (easymode_panel), **7** CCreditsScreen (0x238), **6** CTutorialScreen (tutorial_panel) - each but 0 hidden (slot 3); **slot 1 is never filled and stays null**. Then exit_button of mainmenu_panel given the front end's own observer (+0x188), a new CMicrotransactionInterface (0x1B4) at +0x1DC, the four quickstart buttons of easymode_panel given the observers at +0x7C0 (usa), +0x770 (ger), +0x860 (sov), +0x810 (jap); and last **the settings' `simple` (+0x174) decides the first panel: 0 gives CFrontEnd_SwitchView(0) - the main menu; 1 gives view 8, the Quick Start panel**. See reversing/findings/FINDINGS-frontend.md, section A.1.",
+   "confidence": "confirmed",
+   "evidence": "Ghidra decompilation of 0x6F3050 read whole, with the tail decoded by hand: 0x6F41C8 `mov [edi+0x760], 8` on the simple arm, 0x6F4227 `xor edi,edi; call 0x6F1280` on the other. vtable.py --index 1 CFrontEnd: slot 0 = 0x6F3050, the table at object offset 176 = 0xB0. strrefs over .rdata: country_selection_panel (0x15D4484) referenced only at 0x6F32F9, version_label only at 0x6F340D/0x6F3511, easymode_panel only at 0x6F3CF1, tutorial_panel only at 0x6F3E0F, multiplayer_menu only at 0x6F39F7 - all inside this body. The vector resize: `if size < 9: append 9 - size zeros`. Would be wrong if another writer stored into views[1]; none was found, but only this function's stores were read."
+  },
+  {
+   "rva": "0x2F1280",
+   "kind": "function",
+   "name": "CFrontEnd_SwitchView",
+   "signature": "void __stdcall CFrontEnd_SwitchView(CFrontEnd* frontEnd@EAX, int view@EDI)",
+   "no_signature": null,
+   "comment": "**The front end's change of panel**, the idiom every button handler inlines. 0x6F1280 to the `ret` at 0x6F131E (the tail is a `jmp` into the store window's hide), one `int3` before CFrontEnd_RestoreBackdrop at 0x6F1320. View 1 or 3: the camera's +0x356 cleared (so the camera goes back to its default when the lobby is left); view 0: simple = 0; view 8: simple = 1; then the current view (+0x760) hidden (slot 3), the index set, the new view's slot 1 then slot 2 (show), and the store window (+0x1DC's +0x20) hidden. One caller, the end of CFrontEnd::Reload with view 0. See reversing/findings/FINDINGS-frontend.md, section A.1.",
+   "confidence": "confirmed",
+   "evidence": "Ghidra decompilation of 0x6F1280 (EAX and EDI unaffected registers) and the call site 0x6F4223 `mov eax,[esp+0x14]; xor edi,edi; call 0x6F1280`. findRefs --callers: one call. Bare ret at 0x6F131E with no stack arguments read."
+  },
+  {
+   "rva": "0x2F1320",
+   "kind": "function",
+   "name": "CFrontEnd_RestoreBackdrop",
+   "signature": "void __stdcall CFrontEnd_RestoreBackdrop(CFrontEnd* frontEnd@ESI)",
+   "no_signature": null,
+   "comment": "**Puts the front end's own window back when the lobby is left.** 0x6F1320 to the bare `ret` at 0x6F13A9, the front end in ESI. Shows the front-end window (+0x730, country_selection_panel - backdrop, logo, version) and hides all its sub-windows (CFixedWindow slot 28), hides the lobby window (+0x734), and where the camera's +0x356 is clear puts the camera's two point pairs (+0x334/+0x338 and +0x33C/+0x340) at (2900, 1600), then sets +0x356. One caller, CGameSetup::Hide at 0x7095B8. The CFrontEnd constructor writes the same (2900, 1600) under the same test. See reversing/findings/FINDINGS-frontend.md, section A.2.",
+   "confidence": "inferred",
+   "evidence": "Listing 0x6F1320..0x6F13A9 read whole; floats at 0x160A424 = 2900.0 and 0x160A420 = 1600.0; findRefs --callers 0x6F1320 gives only 0x7095B8, inside CGameSetup slot 3 (0x7095A0). That the two pairs are the camera's position and that (2900, 1600) is a map point are inferred from MapCamera's layout and the values; the name is ours."
+  },
+  {
+   "rva": "0x2F13B0",
+   "kind": "function",
+   "name": "CFrontEnd::OnExitButton",
+   "signature": "void __thiscall CFrontEnd::OnExitButton(CFrontEnd* this)",
+   "no_signature": null,
+   "comment": "**exit_button: greys the menu and quits to the desktop.** The handler of the front end's glue at +0x188 (wired to mainmenu_panel's exit_button by CFrontEnd::Reload) and called by CFrontEndView::OnExitButton (the main menu's and the Quick Start panel's own exit glues). For each of exit_button, settings_button, single_player_button, multi_player_button, credits_button and tutorial_button of mainmenu_panel that exists, slot 47 (disable - greyed); then byte 0x1A857EF = 1, the music stopped (slot 4), quit_requested (+0x76D) = 1, the application's +0xE4 slot 4 with 1, and PostQuitMessage(0). No confirmation dialog and no save. 0x6F13B0 to the bare `ret` at 0x6F1B64. See reversing/findings/FINDINGS-frontend.md, section A.2.",
+   "confidence": "confirmed",
+   "evidence": "Ghidra decompilation of 0x6F13B0; the glue: CFrontEnd::CFrontEnd at 0x6ED6CF `mov eax,0x6F13B0; push eax; lea eax,[ebx+0x188]`, and Reload attaching +0x188 (0xD8 + 0xB0) to exit_button. Slot 47 (+0xBC) is the greying slot per FINDINGS-ingamemenu.md (menu_save_button). Would be wrong if slot 47 of a button were not disable."
+  },
+  {
+   "rva": "0x2FBA00",
+   "kind": "function",
+   "name": "SetFrontEndSessionMode",
+   "signature": "void __stdcall SetFrontEndSessionMode(int mode@EDI)",
+   "no_signature": null,
+   "comment": "Sets g_FrontEndSessionMode (VA 0x1A85618) to the mode in EDI and the game state's skip_automation_keys to (mode != 0). 0x6FBA00 to the bare `ret` at 0x6FBB21. Called with 0 by single_player_button (and the unwired view-1 glue) and with 1 by multi_player_button. See reversing/findings/FINDINGS-frontend.md, section A.2.",
+   "confidence": "confirmed",
+   "evidence": "Ghidra decompilation; the callers set EDI first: 0x6FCA42 `xor edi,edi`, 0x6FCAF2 `mov edi,1`, 0x6FC942 `xor edi,edi`. The two arms differ only in the byte stored into skip_automation_keys."
+  },
+  {
+   "rva": "0x1285618",
+   "kind": "global",
+   "name": "g_FrontEndSessionMode",
+   "signature": null,
+   "no_signature": null,
+   "type": "int",
+   "comment": "What kind of session the front end is setting up: 0 single player (single_player_button), 1 multiplayer (multi_player_button), both through SetFrontEndSessionMode; 2 written by the lobby's CONNECTED handler (FINDINGS-settingswindow.md C.4), so a client that has joined - inferred. CGameSetup::Prepare reads it (single player: provinces unmarked, the custom game settings cleared, the chat edit box hidden) and CGameSetup::Show disables the four lobby tabs when it is 2. See reversing/findings/FINDINGS-frontend.md, section A.2.",
+   "confidence": "inferred",
+   "evidence": "Writers read: SetFrontEndSessionMode (0 or 1). The value 2 and its meaning come from an existing record comment, not read here. Readers seen: 0x707670/0x707979 (CGameSetup slot 1), 0x7085ED (slot 2). Would be wrong if another writer used a different value scheme."
+  },
+  {
+   "rva": "0x2F4250",
+   "kind": "function",
+   "name": "CFrontEnd::OnQuickStartGer",
+   "signature": "void __thiscall CFrontEnd::OnQuickStartGer(CFrontEnd* this)",
+   "no_signature": null,
+   "comment": "quickstart_ger (easymode_panel), through the glue at +0x770. **Starts a game at once, with no lobby**: the date `1939.9.1.1`, the history executed to it into the game state's tick, RefreshAllCountries, a `Human` player, a fresh random seed posted as a CSetRandomSeed command on the session, `GER` made the played country (played_countries, player, the map's player) with its AI's +0x2C cleared, state +0xC0 = 1, five automation entries set, 0x685D80, and **launch_requested (+0x765) = 1** - LaunchGame starts the game on the next frame. 0x6F4250 to the bare `ret` at 0x6F489A. See reversing/findings/FINDINGS-frontend.md, section A.4.",
+   "confidence": "inferred",
+   "evidence": "Wiring confirmed: the constructor's glue at +0x770 holds 0x6F4250 (0x6ED7F8), and Reload attaches +0x770 (0x6C0 + 0xB0) to quickstart_ger. The date and tag strings are pushed at 0x6F4279 and in the body. The middle (which automation entries, what 0x685D80 does) was read off the decompiler only; hence inferred."
+  },
+  {
+   "rva": "0x2F48A0",
+   "kind": "function",
+   "name": "CFrontEnd::OnQuickStartUsa",
+   "signature": "void __thiscall CFrontEnd::OnQuickStartUsa(CFrontEnd* this)",
+   "no_signature": null,
+   "comment": "quickstart_usa, through the glue at +0x7C0: CFrontEnd::OnQuickStartGer's body with the date `1936.1.1.1` and the tag `USA` (FE_QS_USA_TITLE \"USA, January 1936\"). launch_requested set at 0x6F4E4D. Bare `ret` at 0x6F4E98. See reversing/findings/FINDINGS-frontend.md, section A.4.",
+   "confidence": "inferred",
+   "evidence": "Glue +0x7C0 = 0x6F48A0 at 0x6ED847; Reload attaches +0x7C0 (0x710 + 0xB0) to quickstart_usa. Strings at 0x6F48C9 '1936.1.1.1', 0x6F4B80 'USA'. Same shape as the GER handler by its string pushes; not read line by line."
+  },
+  {
+   "rva": "0x2F4EA0",
+   "kind": "function",
+   "name": "CFrontEnd::OnQuickStartJap",
+   "signature": "void __thiscall CFrontEnd::OnQuickStartJap(CFrontEnd* this)",
+   "no_signature": null,
+   "comment": "quickstart_jap, through the glue at +0x810: the same body with `1941.12.7.1` and `JAP`. Bare `ret` at 0x6F54F1. See reversing/findings/FINDINGS-frontend.md, section A.4.",
+   "confidence": "inferred",
+   "evidence": "Glue +0x810 = 0x6F4EA0 at 0x6ED86F; Reload attaches +0x810 (0x760 + 0xB0) to quickstart_jap. Strings at 0x6F4EC9 and 0x6F52B0."
+  },
+  {
+   "rva": "0x2F5500",
+   "kind": "function",
+   "name": "CFrontEnd::OnQuickStartSov",
+   "signature": "void __thiscall CFrontEnd::OnQuickStartSov(CFrontEnd* this)",
+   "no_signature": null,
+   "comment": "quickstart_sov, through the glue at +0x860: the same body with `1941.6.22.1` and `SOV`. launch_requested set at 0x6F5AE4. Bare `ret` at 0x6F5B33. See reversing/findings/FINDINGS-frontend.md, section A.4.",
+   "confidence": "inferred",
+   "evidence": "Glue +0x860 = 0x6F5500 at 0x6ED897; Reload attaches +0x860 (0x7B0 + 0xB0) to quickstart_sov. Strings at 0x6F5529 and 0x6F5910."
+  },
+  {
+   "rva": "0x2EEBA0",
+   "kind": "function",
+   "name": "CFrontEnd_Render",
+   "signature": "void __stdcall CFrontEnd_Render(CFrontEnd* frontEnd)",
+   "no_signature": null,
+   "comment": "**The front end draws the map every frame.** Called once, at the end of CFrontEnd::Update (0x6EEA13). Returns at once while launch_requested (+0x765) is set; otherwise, with the window active, the map is drawn with the camera (+0x3A8) through the map object's province graphics (0x85BE50 on its +0x1DC4) and the scene calls around it, then the interface, and for fifteen frames after a screenshot the SCREENSHOT_TAKEN line; it also starts and stops the music and sound as the window gains and loses focus. Whether any of the map shows on the main menu is a question of the interface over it, not of this: see the front-end window's backdrop. 0x6EEBA0 to the `ret 4` at 0x6EEEDE. See reversing/findings/FINDINGS-frontend.md, section A.3.",
+   "confidence": "inferred",
+   "evidence": "Ghidra decompilation; findRefs --callers gives the one call at 0x6EEA13. ret 4 with the front end its stack argument. That 0x85BE50 draws the map is inferred from its argument (the map's +0x1DC4, which MapGraphics_PickUnderPointer walks as the province graphics) and its place between the scene's begin and end calls; the drawing calls were not read."
+  },
+  {
+   "rva": "0x2F1F70",
+   "kind": "function",
+   "name": "CFrontEnd_TakeScreenshot",
+   "signature": "void __stdcall CFrontEnd_TakeScreenshot(CFrontEnd* frontEnd)",
+   "no_signature": null,
+   "comment": "F11 in the front end: where screenshot_requested (+0x1D8) is set and no cool-down runs, finds the first free `Screenshots/HoI3_<n>.bmp` (n from 1 to 9999) under PhysFS's write directory and saves the front buffer there (CreateOffscreenPlainSurface, GetFrontBufferData, D3DXSaveSurfaceToFileA), logging `Screenshot taken: ` or the failure; sets screenshot_taken (+0x1D9) and a ten-frame cool-down; clears +0x1D8. Called once, from CFrontEnd::Update (0x6EE043). Two `ret 4` (0x6F2191, 0x6F284E). See reversing/findings/FINDINGS-frontend.md, section A.3.",
+   "confidence": "confirmed",
+   "evidence": "Ghidra decompilation; strings 'Screenshots/HoI3_', '.bmp', 'Screenshot taken: ', 'GetFrontBufferData failed: ' in the body; findRefs --callers: one call."
+  },
+  {
+   "rva": "0x2ED640",
+   "kind": "function",
+   "name": "CFrontEnd::GetMapCamera",
+   "signature": "MapCamera* __thiscall CFrontEnd::GetMapCamera(CFrontEnd* this)",
+   "no_signature": null,
+   "comment": "Slots 28 and 29 of CFrontEnd: `lea eax,[ecx+0x3A8]; ret` - the camera held by value at +0x3A8 (MapCamera_Construct builds it there in the constructor), the front end's counterpart of CInGameIdler::GetMapCamera, which holds the same two slots. See reversing/findings/FINDINGS-frontend.md, section A.3.",
+   "confidence": "confirmed",
+   "evidence": "vtable.py CFrontEnd CInGameIdler: slots 28 and 29 are 0x6ED640 and 0x643970 (CInGameIdler::GetMapCamera) respectively; the constructor calls MapCamera_Construct(graphics, this+0x3A8) (param_1 + 0xEA dwords). vtable.py --holding: CFrontEnd alone holds it."
+  },
+  {
+   "rva": "0x2F0330",
+   "kind": "function",
+   "name": "CFrontEnd::GetTooltip",
+   "signature": "GuiTooltipText* __thiscall CFrontEnd::GetTooltip(CFrontEnd* this, GuiTooltipText* out) @EAX",
+   "no_signature": null,
+   "comment": "CFrontEnd slot 20, the counterpart of CInGameIdler::GetTooltip: an interface element under the mouse (the gui's +0x98) is asked through slot 109 (CFrontEnd::GetElementTooltip, which answers only `gamesetup` and `micro`); otherwise, **only while the lobby is the current view (+0x760 == 3)**, the map under the pointer (MapGraphics_PickUnderPointer) gives its tooltip, with the human players' names added for a country. So **no button of the main menu and no province has a tooltip while the main menu is up**. Two `ret 4`. Read as far as those two branches. See reversing/findings/FINDINGS-frontend.md, section A.2.",
+   "confidence": "confirmed",
+   "evidence": "Ghidra decompilation of the head: `if (gui->+0x98) return this->slot109(out, element)`, then `if (this->+0x760 == 3)` around the map pick. vtable.py: slot 20 = 0x6F0330 for CFrontEnd and 0x6627D0 (CInGameIdler::GetTooltip) for the in-game screen. The tail past the lobby arm (placing the box) was not read."
+  },
+  {
+   "rva": "0x2FBB30",
+   "kind": "function",
+   "name": "CFrontEndState::CFrontEndState",
+   "signature": "CFrontEndState* __stdcall CFrontEndState::CFrontEndState(CFrontEndState* this, CFrontEnd* frontEnd, CFixedWindow* window)",
+   "no_signature": null,
+   "comment": "**The main menu's view** (mainmenu_panel), view 0, 0x274 bytes, made by CFrontEnd::Reload. Stores the front end at +4 and the window at +8, builds thirteen 0x2C-byte CButtonObserverGlue<CFrontEndState> and wires twelve by name: settings_button +0x38 (OnSettingsButton), single_player_button +0x64, multi_player_button +0x90, nudge_button +0xBC, credits_button +0x114, tutorial_button +0x140 (CFrontEndView::OnTutorialButton), homepage_button +0x1C4, forum_button +0x1F0, facebook_button +0x21C, twitter_button +0x248, exit_button +0xE8 (CFrontEndView::OnExitButton), gg_micro_button +0x16C **only where the window has one**, toggle_quick_normal +0x198 (OnQuickStartToggle). **The first glue (+0xC, CFrontEndState::OpenEmptyView1) is wired to nothing.** 0x6FBB30 to the `ret 0xC` at 0x6FC3C8. See reversing/findings/FINDINGS-frontend.md, section A.2.",
+   "confidence": "confirmed",
+   "evidence": "Listing head: this = [ebp+8], [this+4] = [ebp+0xC], window = [ebp+0x10]; `mov [esi],0x15D4F34` at 0x6FBB61 (findRefs --vftable CFrontEndState). The destructor (0x6FC3F0..) detaches the same twelve pairs by name and offset and nothing at +0xC. ret 0xC."
+  },
+  {
+   "rva": "0x2FC8B0",
+   "kind": "function",
+   "name": "CFrontEndState::Show",
+   "signature": "void __thiscall CFrontEndState::Show(CFrontEndState* this)",
+   "no_signature": null,
+   "comment": "CFrontEndState slot 2: shows the main menu's window (+8, its +0x18 slot 13) and **hides nudge_button** (FindButton, slot 14) - the map editor's button never shows in retail; CFrontEnd::Update hides it again every frame. 0x6FC8B0 to the bare `ret` at 0x6FC93B. See reversing/findings/FINDINGS-frontend.md, section A.2.",
+   "confidence": "confirmed",
+   "evidence": "Ghidra decompilation; vtable.py --holding 0x6FC8B0: CFrontEndState slot 2 only. Slot 2 is the show slot of the view protocol: every panel change calls slot 3 on the old view and slots 1 then 2 on the new one."
+  },
+  {
+   "rva": "0x2FC940",
+   "kind": "function",
+   "name": "CFrontEndState::OpenEmptyView1",
+   "signature": "void __thiscall CFrontEndState::OpenEmptyView1(CFrontEndState* this)",
+   "no_signature": null,
+   "comment": "The handler of CFrontEndState's first glue (+0xC), which no button is wired to: SetFrontEndSessionMode(0), the camera's +0x356 cleared, and a switch to **view 1 - a slot CFrontEnd::Reload never fills**, so the call through its table would fault. Dead in retail; perhaps a removed button (inferred). 0x6FC940 to the bare `ret` at 0x6FC9C0. See reversing/findings/FINDINGS-frontend.md, section A.2.",
+   "confidence": "inferred",
+   "evidence": "Ghidra decompilation; the glue at +0xC holds 0x6FC940 (constructor) and is neither attached in the constructor nor detached in the destructor. That nothing else attaches it was not searched beyond those two bodies; hence inferred."
+  },
+  {
+   "rva": "0x2FC9D0",
+   "kind": "function",
+   "name": "CFrontEndState::OnSettingsButton",
+   "signature": "void __thiscall CFrontEndState::OnSettingsButton(CFrontEndState* this)",
+   "no_signature": null,
+   "comment": "settings_button (FE_OPTIONS \"Options\"): switches to **view 2, the front end's settings window** (CFrontendSettingsScreen, `menu_settings` of settings.gui) and hides the store window. Nothing else. Bare `ret` at 0x6FCA36. See reversing/findings/FINDINGS-frontend.md, section A.2.",
+   "confidence": "confirmed",
+   "evidence": "Ghidra decompilation: views[cur] slot 3, +0x760 = 2, views[2] slot 1, views[2] slot 2. The glue at +0x38 (0xE dwords) holds 0x6FC9D0 and is attached to settings_button."
+  },
+  {
+   "rva": "0x2FCA40",
+   "kind": "function",
+   "name": "CFrontEndState::OnSinglePlayerButton",
+   "signature": "void __thiscall CFrontEndState::OnSinglePlayerButton(CFrontEndState* this)",
+   "no_signature": null,
+   "comment": "single_player_button (FE_SINGLE_PLAYER): **opens the lobby**. In order: SetFrontEndSessionMode(0) (single player, skip_automation_keys clear); CGameSetup slot 13 (CGameSetup::BuildBookmarkLists - the lobby's lists emptied and the bookmarks filled); the store window hidden; the camera's +0x356 cleared; then the switch to **view 3** - the main menu hidden, CGameSetup::Prepare, CGameSetup::Show. 0x6FCA40 to the bare `ret` at 0x6FCAEE, abutting OnMultiPlayerButton with no padding (trap 2). See reversing/findings/FINDINGS-frontend.md, section A.2.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x6FCA40..0x6FCA5C (`xor edi,edi; call 0x6FBA00; ... mov ecx,[[edi+0x750]+0xC]; call [vft+0x34]`) and the decompiled rest. rets.py: the ret at 0x6FCAEE is followed directly by 0x6FCAF0's `push esi`."
+  },
+  {
+   "rva": "0x2FCAF0",
+   "kind": "function",
+   "name": "CFrontEndState::OnMultiPlayerButton",
+   "signature": "void __thiscall CFrontEndState::OnMultiPlayerButton(CFrontEndState* this)",
+   "no_signature": null,
+   "comment": "multi_player_button (FE_MULTI_PLAYER): SetFrontEndSessionMode(1) and a switch to **view 4, CMultiplayerMenuView** (multiplayer_menu), the store window hidden. Bare `ret` at 0x6FCB64. See reversing/findings/FINDINGS-frontend.md, section A.2.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x6FCAF2 `mov edi,1; call 0x6FBA00`; the decompiled switch to 4; the glue at +0x90."
+  },
+  {
+   "rva": "0x2FCB70",
+   "kind": "function",
+   "name": "CFrontEndState::OnNudgeButton",
+   "signature": "void __thiscall CFrontEndState::OnNudgeButton(CFrontEndState* this)",
+   "no_signature": null,
+   "comment": "nudge_button: sets the front end's nudge_requested (+0x766) and nothing else. The button is hidden by CFrontEndState::Show and every frame by CFrontEnd::Update, so it cannot be pressed in retail. What reads +0x766 was not traced (the map editor, CNudgeIdler, presumably). See reversing/findings/FINDINGS-frontend.md, section A.2.",
+   "confidence": "confirmed",
+   "evidence": "Whole body: `mov eax,[ecx+4]; mov byte [eax+0x766],1; ret`. The glue at +0xBC."
+  },
+  {
+   "rva": "0x2FCB80",
+   "kind": "function",
+   "name": "CFrontEndView::OnExitButton",
+   "signature": "void __thiscall CFrontEndView::OnExitButton(CFrontEndView* this)",
+   "no_signature": null,
+   "comment": "exit_button of the main menu and of the Quick Start panel: `mov ecx,[ecx+4]; jmp CFrontEnd::OnExitButton`. Both CFrontEndState's glue at +0xE8 and CEasymodeView's at +0x38 hold it, and both views keep the front end at +4, hence the base's name. See reversing/findings/FINDINGS-frontend.md, section A.2.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled as FUN_006f13b0(*(this+4)); both constructors store 0x6FCB80 into an exit glue. No vftable holds it."
+  },
+  {
+   "rva": "0x2FCB90",
+   "kind": "function",
+   "name": "CFrontEndState::OnCreditsButton",
+   "signature": "void __thiscall CFrontEndState::OnCreditsButton(CFrontEndState* this)",
+   "no_signature": null,
+   "comment": "credits_button (FE_CREDITS): a switch to **view 7, CCreditsScreen** (credits.gui), the store window hidden. Bare `ret` at 0x6FCBF6. See reversing/findings/FINDINGS-frontend.md, section A.2.",
+   "confidence": "confirmed",
+   "evidence": "Ghidra decompilation: +0x760 = 7, views[7] slots 1 and 2. The glue at +0x114."
+  },
+  {
+   "rva": "0x302B10",
+   "kind": "function",
+   "name": "CFrontEndView::OnTutorialButton",
+   "signature": "void __thiscall CFrontEndView::OnTutorialButton(CFrontEndView* this)",
+   "no_signature": null,
+   "comment": "tutorial_button of the main menu and of the Quick Start panel (FE_TUTORIAL): a switch to **view 6, CTutorialScreen** (tutorial_panel), the store window hidden. Held by CFrontEndState's glue at +0x140 and CEasymodeView's at +0x64. Bare `ret` at 0x702B76. See reversing/findings/FINDINGS-frontend.md, section A.2.",
+   "confidence": "confirmed",
+   "evidence": "Ghidra decompilation: +0x760 = 6. Both constructors store 0x702B10 into a glue they attach to tutorial_button."
+  },
+  {
+   "rva": "0x2FCD00",
+   "kind": "function",
+   "name": "CFrontEndState::OnMicroButton",
+   "signature": "void __thiscall CFrontEndState::OnMicroButton(CFrontEndState* this)",
+   "no_signature": null,
+   "comment": "gg_micro_button (FE_MICRO \"Buy Bonus Items\"): where the front end's CMicrotransactionInterface (+0x1DC) has its window (+0x20) and that window's +0x5B is clear, shows it and calls 0x82BF40 with 0 - the GamersGate store, micro_interface of microgui.gui. Not hidden or greyed by any code read. Bare `ret` at 0x6FCD33. See reversing/findings/FINDINGS-frontend.md, section A.2.",
+   "confidence": "inferred",
+   "evidence": "Ghidra decompilation; the glue at +0x16C; 0x82BF40 references the string 'micro'. What +0x5B means and what 0x82BF40 does were not read."
+  },
+  {
+   "rva": "0x2FCC80",
+   "kind": "function",
+   "name": "CFrontEndState::OnQuickStartToggle",
+   "signature": "void __thiscall CFrontEndState::OnQuickStartToggle(CFrontEndState* this)",
+   "no_signature": null,
+   "comment": "The main menu's toggle_quick_normal (FE_TOGGLE \"Quick Start\"): settings `simple` (+0x174) = 1 and a switch to **view 8, the Quick Start panel** (easymode_panel). Bare `ret` at 0x6FCCF2. See reversing/findings/FINDINGS-frontend.md, section A.2.",
+   "confidence": "confirmed",
+   "evidence": "Ghidra decompilation: GetGameSettings()+0x174 = 1, +0x760 = 8. The glue at +0x198 (0x66 dwords) attached to toggle_quick_normal."
+  },
+  {
+   "rva": "0x2FCC00",
+   "kind": "function",
+   "name": "CFrontEndState::OnHomepageButton",
+   "signature": "void __thiscall CFrontEndState::OnHomepageButton(CFrontEndState* this)",
+   "no_signature": null,
+   "comment": "homepage_button: ShellExecuteA(open, \"http://www.heartsofirongame.com\"). Bare `ret`. See reversing/findings/FINDINGS-frontend.md, section A.2.",
+   "confidence": "confirmed",
+   "evidence": "Whole body decompiled; the glue at +0x1C4."
+  },
+  {
+   "rva": "0x2FCC20",
+   "kind": "function",
+   "name": "CFrontEndState::OnForumButton",
+   "signature": "void __thiscall CFrontEndState::OnForumButton(CFrontEndState* this)",
+   "no_signature": null,
+   "comment": "forum_button: ShellExecuteA(open, \"http://forum.paradoxplaza.com/forum/forumdisplay.php?415-Hearts-of-Iron-3\"). Bare `ret`. See reversing/findings/FINDINGS-frontend.md, section A.2.",
+   "confidence": "confirmed",
+   "evidence": "Whole body decompiled; the glue at +0x1F0."
+  },
+  {
+   "rva": "0x2FCC40",
+   "kind": "function",
+   "name": "CFrontEndState::OnFacebookButton",
+   "signature": "void __thiscall CFrontEndState::OnFacebookButton(CFrontEndState* this)",
+   "no_signature": null,
+   "comment": "facebook_button: ShellExecuteA(open, \"http://www.facebook.com/?ref=logo#!/Heartsofiron\"). Bare `ret`. See reversing/findings/FINDINGS-frontend.md, section A.2.",
+   "confidence": "confirmed",
+   "evidence": "Whole body decompiled; the glue at +0x21C."
+  },
+  {
+   "rva": "0x2FCC60",
+   "kind": "function",
+   "name": "CFrontEndState::OnTwitterButton",
+   "signature": "void __thiscall CFrontEndState::OnTwitterButton(CFrontEndState* this)",
+   "no_signature": null,
+   "comment": "twitter_button: ShellExecuteA(open, \"http://twitter.com/#!/HeartsOfIron3\"). Bare `ret`. See reversing/findings/FINDINGS-frontend.md, section A.2.",
+   "confidence": "confirmed",
+   "evidence": "Whole body decompiled; the glue at +0x248."
+  },
+  {
+   "rva": "0x302870",
+   "kind": "function",
+   "name": "CEasymodeView::CEasymodeView",
+   "signature": "CEasymodeView* __stdcall CEasymodeView::CEasymodeView(CEasymodeView* this@stack:4, CFrontEnd* frontEnd@stack:8, CFixedWindow* window@EDX) @EAX",
+   "no_signature": null,
+   "comment": "**The Quick Start panel's view** (easymode_panel), view 8, 0x90 bytes, made by CFrontEnd::Reload. this and the front end on the stack, **the window in EDX**; stores the front end at +4 and the window at +8 and wires three glues: toggle_quick_normal +0xC (CEasymodeView::OnCustomStartToggle), exit_button +0x38 (CFrontEndView::OnExitButton), tutorial_button +0x64 (CFrontEndView::OnTutorialButton). The four quickstart buttons are wired by Reload to the front end's own glues, not here. `ret 8` at 0x702A3C. See reversing/findings/FINDINGS-frontend.md, section A.4.",
+   "confidence": "confirmed",
+   "evidence": "Listing head: `mov eax,[ebp+0xC]; mov ecx,[ebp+8]; mov [ecx+4],eax; mov [ecx],0x15D4ECC; mov [ecx+8],edx`; the call site in Reload at 0x6F3D2F loads EDX with the easymode_panel window. ret 8."
+  },
+  {
+   "rva": "0x302A90",
+   "kind": "function",
+   "name": "CEasymodeView::OnCustomStartToggle",
+   "signature": "void __thiscall CEasymodeView::OnCustomStartToggle(CEasymodeView* this)",
+   "no_signature": null,
+   "comment": "The Quick Start panel's toggle_quick_normal (FE_TOGGLE_NORMAL \"Custom Start\"): settings `simple` = 0 and a switch to **view 0, the main menu**. Bare `ret` at 0x702B01. See reversing/findings/FINDINGS-frontend.md, section A.4.",
+   "confidence": "confirmed",
+   "evidence": "Ghidra decompilation: GetGameSettings()+0x174 = 0, +0x760 = 0. The glue at +0xC of CEasymodeView."
+  },
+  {
+   "rva": "0x20BAF0",
+   "kind": "function",
+   "name": "CBackEndIdler::OnExitButton",
+   "signature": "void __thiscall CBackEndIdler::OnExitButton(CBackEndIdler* this)",
+   "no_signature": null,
+   "comment": "**The way from a finished game back to the main menu.** The handler of the CBackEndIdler's glue at +0x5D4, which its slot 3 attaches to the `Exit` button (EXIT) of backend.gui's `back_end` window (0x6090E8). Instruction for instruction the exit-to-menu branch of ProcessSessionEndRequests (FINDINGS-session2.md section 3): [[app]+0xE4] slot 4 (1), ResetGameStateToStartDate(1), slot 4 (0), the gui's +0x238 set and slot 12 on each of its +0x5C..+0x60 entries, a new 0x8B0-byte CFrontEnd (graphics +0xB4, gui +0xB0, app +0xB8), and app +0x88 = 1, +0xE0 = it - the next frame's swap enters it, and CFrontEnd::Enter comes up at the main menu (or the Quick Start panel, or the tutorial list). Resign in the in-game menu reaches this screen: CQuitDialog::OnAgree, RequestGameOver, then ProcessSessionEndRequests builds the CBackEndIdler. Bare `ret` at 0x60BBF7. See reversing/findings/FINDINGS-frontend.md, section A.6.",
+   "confidence": "confirmed",
+   "evidence": "MakeBackEndIdler at 0x608865 writes `mov [edi+0x5DC], 0x60BAF0` into the glue at +0x5D4 (vftable 0x15CAB70 at +0x5D4, the idler at +0x5D8); slot 3 (0x608E80) pushes 'back_end' at 0x609028, 'Exit' at 0x60909A and `lea edx,[edi+0x5D4]` at 0x6090E8. The body was read in FINDINGS-session2.md section 3."
+  }
+ ],
+ "structs": [
+  {
+   "name": "CFrontEndView",
+   "vftable_rva": "0x11D4E90",
+   "comment": "The base of every front-end panel's view; its slots 1 to 4 are pure. The protocol, from every caller: a change of panel calls slot 3 (Hide) on the old view and slot 1 (Prepare) then slot 2 (Show) on the new; slot 5 takes a clicked province (only the lobby answers). +4 is the front end. CFrontEnd keeps nine slots of them at +0x750, the current index at +0x760. See reversing/findings/FINDINGS-frontend.md, section A.1.",
+   "evidence": "RTTI: CFrontEndView, 14 slots, 2 introduced, table 0x15D4E90 (written by CFrontendSettingsScreen's destructor at its +0x3DC). +4 is the front end in every subclass read: CFrontEndState and CEasymodeView constructors store it there, and the handlers of both read it as `[ecx+4]`; the settings screen's base at +0x3DC has its +4 (+0x3E0) set to the front end by Reload."
+  },
+  {
+   "name": "CFrontEndState",
+   "size": "0x274",
+   "inherits": "CFrontEndView",
+   "vftable_rva": "0x11D4F34",
+   "comment": "The main menu's view (mainmenu_panel), view 0 of the front end. Thirteen embedded 0x2C-byte button glues from +0xC. See reversing/findings/FINDINGS-frontend.md, section A.2.",
+   "evidence": "operator new(0x274) before the constructor call in CFrontEnd::Reload (0x6F3B..); RTTI parent CFrontEndView at offset 0; the constructor writes 0x15D4F34."
+  },
+  {
+   "name": "CEasymodeView",
+   "size": "0x90",
+   "inherits": "CFrontEndView",
+   "vftable_rva": "0x11D4ECC",
+   "comment": "The Quick Start panel's view (easymode_panel), view 8 of the front end. Three embedded button glues from +0xC. See reversing/findings/FINDINGS-frontend.md, section A.4.",
+   "evidence": "operator new(0x90) before the constructor call in CFrontEnd::Reload; RTTI parent CFrontEndView at offset 0; the constructor writes 0x15D4ECC at 0x70289F."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CFrontEndView",
+   "offset": "0x4",
+   "name": "front_end",
+   "type": "CFrontEnd*",
+   "comment": "The front end the view belongs to; every button handler of a view reaches the front end through it.",
+   "evidence": "CFrontEndState::CFrontEndState `mov [esi+4],eax` with eax = its second argument; CEasymodeView::CEasymodeView `mov [ecx+4],eax` likewise; every handler opens `mov reg,[ecx+4]` and uses +0x750/+0x760 on it."
+  },
+  {
+   "struct": "CFrontEndState",
+   "offset": "0x8",
+   "name": "window",
+   "type": "CFixedWindow*",
+   "comment": "mainmenu_panel, the sub-window of country_selection_panel the buttons are found in (FindButton, slot 13).",
+   "evidence": "Constructor's third argument stored at +8; Reload passes the front-end window's GetSubWindow(\"mainmenu_panel\"); Show calls its +0x18 slot 13 and its slot 13 for nudge_button."
+  },
+  {
+   "struct": "CEasymodeView",
+   "offset": "0x8",
+   "name": "window",
+   "type": "CFixedWindow*",
+   "comment": "easymode_panel; Reload finds the four quickstart buttons in it through this field.",
+   "evidence": "Constructor `mov [ecx+8],edx`; Reload passes GetSubWindow(\"easymode_panel\") in EDX and later reads the view's +8 to look up quickstart_usa/ger/sov/jap."
+  },
+  {
+   "struct": "CFrontEnd",
+   "offset": "0x188",
+   "name": "exit_button_observer",
+   "type": "void*",
+   "comment": "A CButtonObserverGlue<CFrontEnd> (0x2C bytes) held by value, handler CFrontEnd::OnExitButton; attached to mainmenu_panel's exit_button by CFrontEnd::Reload and detached by CFrontEnd::Leave.",
+   "evidence": "Constructor 0x6ED6CF..0x6ED6DB: handler 0x6F13B0, `lea eax,[ebx+0x188]`; Reload attaches (param+0xD8) = +0x188; Leave detaches param_1 + 0x62 dwords = +0x188."
+  },
+  {
+   "struct": "CFrontEnd",
+   "offset": "0x1D8",
+   "name": "screenshot_requested",
+   "type": "bool",
+   "comment": "Set by F11 (key 0x7A) in CFrontEnd::Update's event loop; consumed and cleared by CFrontEnd_TakeScreenshot.",
+   "evidence": "0x6EE797 `cmp [esi],0x7A` then 0x6EE7A0 `mov byte [ebx+0x1D8],1`; CFrontEnd_TakeScreenshot tests and clears +0x1D8."
+  },
+  {
+   "struct": "CFrontEnd",
+   "offset": "0x1D9",
+   "name": "screenshot_taken",
+   "type": "bool",
+   "comment": "Set after a screenshot attempt; CFrontEnd_Render then shows SCREENSHOT_TAKEN for fifteen frames and clears it.",
+   "evidence": "CFrontEnd_TakeScreenshot writes +0x1D9 = 1; CFrontEnd_Render tests it, starts the 15-frame count and clears it. Inferred that it marks success as well as failure - both paths reach the write."
+  },
+  {
+   "struct": "CFrontEnd",
+   "offset": "0x1DC",
+   "name": "micro_interface",
+   "type": "void*",
+   "comment": "The CMicrotransactionInterface (0x1B4 bytes) - the GamersGate bonus-item store behind gg_micro_button. Made by CFrontEnd::Reload, deleted by Reload and Leave; its window (+0x20) is hidden on every change of panel.",
+   "evidence": "Reload: `new(0x1B4); CMicrotransactionInterface::CMicrotransactionInterface` stored at param_1 + 300 (+0xB0 = +0x1DC); every handler's tail hides [+0x1DC]+0x20."
+  },
+  {
+   "struct": "CFrontEnd",
+   "offset": "0x20C",
+   "name": "graphics",
+   "type": "CEU3Graphics*",
+   "comment": "The CEU3Graphics, constructor argument 2; CFrontEnd::LaunchGame hands it to the CInGameIdler's +0x178C. The name FINDINGS-session2.md section 4 proposed for this offset.",
+   "evidence": "CFrontEnd::CFrontEnd writes param_2 at param_1[0x83]; the record's CInGameIdler +0x178C comment traces the chain; Enter hands it the LOAD_GFX line."
+  },
+  {
+   "struct": "CFrontEnd",
+   "offset": "0x210",
+   "name": "application",
+   "type": "CEU3Application*",
+   "comment": "The CEU3Application, constructor argument 4; returned by slot 64 (CFrontEnd::GetApplication) and handed to the CInGameIdler's +0x1790 by LaunchGame. The name FINDINGS-session2.md section 4 proposed.",
+   "evidence": "CFrontEnd::CFrontEnd writes param_4 at param_1[0x84]; CFrontEnd::GetApplication is `mov eax,[ecx+0x210]; ret`."
+  },
+  {
+   "struct": "CFrontEnd",
+   "offset": "0x730",
+   "name": "frontend_window",
+   "type": "CFixedWindow*",
+   "comment": "temp_frontend.gui's country_selection_panel - the full-screen window holding the tiled Background, the 1600x1200 frontend_backdrop, the Clausewitz logo and version_label, and every front-end panel as a sub-window. Made by CFrontEnd::Reload (gui slot 11), shown with its sub-windows hidden; hidden by CGameSetup::Show and shown again by CFrontEnd_RestoreBackdrop; destroyed by Leave.",
+   "evidence": "Reload stores the gui slot 11 answer for \"country_selection_panel\" at param+0x680 (= +0x730), the string's only reference in the image; every handler reaches mainmenu_panel as [+0x730] slot 27."
+  },
+  {
+   "struct": "CFrontEnd",
+   "offset": "0x734",
+   "name": "lobby_window",
+   "type": "CFixedWindow*",
+   "comment": "lobby.gui's `lobby` window, made and hidden by CFrontEnd::Reload and handed to CGameSetup's constructor; CFrontEnd_RestoreBackdrop hides it, Leave destroys it.",
+   "evidence": "Reload: gui slot 11 with \"lobby\" stored at param+0x684 (= +0x734), then `new(0x970); CGameSetup::CGameSetup(.., [+0x734])`."
+  },
+  {
+   "struct": "CFrontEnd",
+   "offset": "0x750",
+   "name": "views",
+   "type": "CFrontEndView**",
+   "comment": "Begin of a vector of nine CFrontEndView pointers (end +0x754): 0 main menu (CFrontEndState), 1 never filled, 2 settings (CFrontendSettingsScreen's base at +0x3DC), 3 lobby (CGameSetup), 4 multiplayer menu, 5 metaserver (CMetaserverInterface's base at +8), 6 tutorial list, 7 credits, 8 Quick Start (CEasymodeView). Filled by CFrontEnd::Reload, deleted by Reload and Leave.",
+   "evidence": "Reload resizes to 9 and stores at +0, +8, +0xC, +0x10, +0x14, +0x18, +0x1C, +0x20 - never +4. CFrontendSettingsScreen::Close already reads the same pair."
+  },
+  {
+   "struct": "CFrontEnd",
+   "offset": "0x760",
+   "name": "current_view",
+   "type": "int",
+   "comment": "Index into views of the panel on screen. Set by every panel change (CFrontEnd_SwitchView and its inlined copies) and by CFrontEnd::Enter's tutorial arm (6); CFrontEnd::GetTooltip gives the map a tooltip only when it is 3 (the lobby), CFrontEnd::Update hands a clicked province to views[current_view] slot 5.",
+   "evidence": "Every handler writes +0x760 between the old view's slot 3 and the new view's slot 1; GetTooltip `cmp [this+0x760],3`."
+  },
+  {
+   "struct": "CFrontEnd",
+   "offset": "0x765",
+   "name": "launch_requested",
+   "type": "bool",
+   "comment": "A game is to start: set by the four quickstart handlers (and, presumably, the lobby's Play - not read here); CFrontEnd::LaunchGame, called every frame by CFrontEnd::Update, does nothing while it is clear; CFrontEnd_Render draws nothing while it is set.",
+   "evidence": "0x6F07D7 `cmp byte [esi+0x765],0; je 0x6F11C2` at LaunchGame's head; 0x6F4E4D and 0x6F5AE4 `mov byte [..+0x765],1`; CFrontEnd_Render's first test."
+  },
+  {
+   "struct": "CFrontEnd",
+   "offset": "0x766",
+   "name": "nudge_requested",
+   "type": "bool",
+   "comment": "Set by nudge_button (CFrontEndState::OnNudgeButton), which is always hidden. Its reader was not traced.",
+   "evidence": "CFrontEndState::OnNudgeButton's whole body; the constructor zeroes it (`*(byte*)(param_1+0x766) = 0`)."
+  },
+  {
+   "struct": "CFrontEnd",
+   "offset": "0x76D",
+   "name": "quit_requested",
+   "type": "bool",
+   "comment": "Set by CFrontEnd::OnExitButton; CFrontEnd::Update ends its frame with PostQuitMessage(0) while it is set.",
+   "evidence": "CFrontEnd::OnExitButton `*(byte*)(this+0x76D) = 1`; the tail of CFrontEnd::Update `if (+0x76D) PostQuitMessage(0)`."
+  },
+  {
+   "struct": "CFrontEnd",
+   "offset": "0x770",
+   "name": "quickstart_ger_observer",
+   "type": "void*",
+   "comment": "A CButtonObserverGlue<CFrontEnd> held by value, handler CFrontEnd::OnQuickStartGer; attached to easymode_panel's quickstart_ger by CFrontEnd::Reload.",
+   "evidence": "Constructor 0x6ED7F8 `mov eax,0x6F4250; push eax; lea eax,[ebx+0x770]`; Reload attaches param+0x6C0 (= +0x770) to quickstart_ger."
+  },
+  {
+   "struct": "CFrontEnd",
+   "offset": "0x7C0",
+   "name": "quickstart_usa_observer",
+   "type": "void*",
+   "comment": "The glue for quickstart_usa, handler CFrontEnd::OnQuickStartUsa.",
+   "evidence": "Constructor 0x6ED847/0x6ED84D; Reload attaches param+0x710 (= +0x7C0) to quickstart_usa."
+  },
+  {
+   "struct": "CFrontEnd",
+   "offset": "0x810",
+   "name": "quickstart_jap_observer",
+   "type": "void*",
+   "comment": "The glue for quickstart_jap, handler CFrontEnd::OnQuickStartJap.",
+   "evidence": "Constructor 0x6ED86F/0x6ED875; Reload attaches param+0x760 (= +0x810) to quickstart_jap."
+  },
+  {
+   "struct": "CFrontEnd",
+   "offset": "0x860",
+   "name": "quickstart_sov_observer",
+   "type": "void*",
+   "comment": "The glue for quickstart_sov, handler CFrontEnd::OnQuickStartSov.",
+   "evidence": "Constructor 0x6ED897/0x6ED89D; Reload attaches param+0x7B0 (= +0x860) to quickstart_sov."
+  },
+  {
+   "struct": "GameSettings",
+   "offset": "0x174",
+   "name": "simple",
+   "type": "bool",
+   "comment": "The file's `simple` key, yes/no: **which front-end panel comes up first - yes the Quick Start panel (easymode_panel), no the main menu.** CFrontEnd::Reload reads it as the last thing it does; the main menu's toggle_quick_normal sets it to 1 and the Quick Start panel's sets it to 0, so the choice is remembered in settings.txt; CFrontEnd_SwitchView keeps it in step for views 0 and 8, and CFrontendSettingsScreen::Close and an interface reload clear it. 1 from the constructor, and the install's template settings.txt says yes, so a new player sees Quick Start first. See reversing/findings/FINDINGS-frontend.md, section A.1, and FINDINGS-settingswindow.md, section C.4.",
+   "revises": true,
+   "evidence": "Revised: the old comment said its meaning was not read. Reload's tail: `if (settings+0x174 == 0) SwitchView(0) else { settings+0x174 = 1; switch to 8 }`; OnQuickStartToggle writes 1, OnCustomStartToggle writes 0. Name and type unchanged."
+  }
+ ],
+ "vftable_slots": {
+  "CFrontEnd": {
+   "1": {
+    "name": "Update",
+    "signature": "void __thiscall Update(CFrontEnd* this, int unused)"
+   },
+   "3": {
+    "name": "Enter",
+    "signature": "void __thiscall Enter(CFrontEnd* this)"
+   },
+   "4": {
+    "name": "Leave",
+    "signature": "void __thiscall Leave(CFrontEnd* this)"
+   },
+   "20": {
+    "name": "GetTooltip",
+    "signature": "GuiTooltipText* __thiscall GetTooltip(CFrontEnd* this, GuiTooltipText* out) @EAX"
+   },
+   "28": {
+    "name": "GetMapCamera",
+    "signature": "MapCamera* __thiscall GetMapCamera(CFrontEnd* this)"
+   },
+   "29": {
+    "name": "GetMapCamera",
+    "signature": "MapCamera* __thiscall GetMapCamera(CFrontEnd* this)"
+   }
+  },
+  "CFrontEnd@0xB0": {
+   "0": "Reload"
+  },
+  "CFrontEndView": {
+   "1": "Prepare",
+   "2": "Show",
+   "3": "Hide"
+  },
+  "CFrontEndState": {
+   "2": {
+    "name": "Show",
+    "signature": "void __thiscall Show(CFrontEndState* this)"
+   }
+  }
+ },
+ "frontier": [
+  "0x30C0B0",
+  "0x2FDC00",
+  "0x2FDDE0",
+  "0x20D400",
+  "0x20DCC0",
+  "0x31CD20",
+  "0x42BF40",
+  "0x285D80",
+  "0x2EEEF0"
+ ],
+ "slots_noted": "CEasymodeView and CTutorialScreen share slot 2 (0x702A70, show the window at +8) and with CFrontEndState slot 3 (0x702A80, hide it); left unnamed as folded bodies - the CFrontEndView record names those slots Show and Hide. CFrontEnd slot 15 (0x6EEEF0, application +0x124, the map object) read but not named."
+}

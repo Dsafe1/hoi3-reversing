@@ -516,9 +516,14 @@ Both agree. The merge and the Ghidra apply were **not** run by the agent.
 7. **`CFixedWindow +0x60` (byte, set to 1 by the constructor) and `+0x48`/`+0x44` on the
    `CGuiObject` side.** `AttachChild` passes `byte [this+0x60]` to the new child's slot 38, and slot
    38 stores its argument in `byte [this+0x48]` and propagates it down both child lists. So
-   `+0x60` is some window-wide flag that every descendant mirrors at its own `+0x48`. Not
-   identified. *What would settle it:* a live differential — snapshot `+0x60` on all 206 windows
-   and on a window being shown and hidden; two reads, under a minute with a game running.
+   `+0x60` is some window-wide flag that every descendant mirrors at its own `+0x48`.
+   **Settled 2026-11-06, statically** (`FINDINGS-frontend.md`, C.4): **slot 38 is whether an element
+   takes the mouse.** A button stores it at its own `+0x84` (`GuiButton_SetTakesMouse`) and its mouse
+   handler returns without acting on or claiming the event where it is nought; a checkbox the same
+   at `+0x135`; a list and a scrollbar hand it on to their rows and parts; text boxes and icons
+   ignore it. Nothing in it changes how an element is drawn - a button's greying is its disabled
+   state, slots 46 to 48. So `+0x60` is the window's "take the mouse" default, 1 from its
+   constructor, handed to each child as it is attached.
 8. **`has_focus` on `CGuiObject +0x44` is `likely`, not confirmed.** *The live check that would
    settle it, in one minute:* click into `HostEditBox` or any text field, and read `+0x44` across
    all live widgets — if exactly the focused widget has it set, it is confirmed; if a second widget

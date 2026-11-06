@@ -1,0 +1,955 @@
+{
+ "agent": "lobby reader (single-player lobby, 2026-11-06)",
+ "question": "The original's single-player lobby (tfh/interface/lobby.gui `lobby`): the tabs and lists, a bookmark row and a save row, how a country is chosen, the selected-country panel, Play and Back.",
+ "source": "reversing/findings/FINDINGS-frontend.md",
+ "addresses": [
+  {
+   "rva": "0x303180",
+   "kind": "function",
+   "name": "CBookmarkEntry::CBookmarkEntry",
+   "signature": null,
+   "no_signature": "ret 0x14 (five stack arguments) with the gui in ECX; Ghidra shows seven parameters (gui, a value from the screen's slot 16, the object, the window name, the CBookmark, the CGameSetup, the custom-game byte) and which of the remaining ones travels in a register was not settled at the call sites, so none is offered.",
+   "comment": "**A row of the lobby's `bookmarks_list` (and of `cgm_bookmarks`' copy).** A 0x88-byte CStandardlistboxItem: the window `bookmark_entry` [mod: temp_frontend.gui] made through the gui (+0x20); the CBookmark at +0x28; the CGameSetup at +0x80 and the custom-game byte at +0x84; its button `bookmark` kept at +0x2C and given the CButtonObserverGlue at +0x30 whose click is CBookmarkEntry::OnBookmarkClicked. **The button's sprite is the bookmark's `icon`** (button slot 57, +0xE4, with CBookmark +0x78) where the icon is not empty; `title` gets the bookmark's localised name (CBookmark +8) and `date` FormatHourDate(CBookmark +0xA4) - ` %d:00, %d %s, %d`. Two callers, both in CGameSetup::BuildBookmarkLists (0x308D57 for historical starts, custom-game byte 0; 0x3090E7 for custom-game bookmarks, byte 1). See reversing/findings/FINDINGS-frontend.md section B.2.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled in a copy of the project (DecompileAt): the stores to +0x28/+0x2C/+0x80/+0x84, the glue constructed with 0x7034F0 as its first handler, the 'bookmark', 'title' and 'date' lookups with FUN_006EC690 (returns CBookmark +8) and FormatHourDate(+0xA4). ret 0x14 read off 0x70340D. What would show it wrong: a second constructor of the same vftable (findRefs --vftable CBookmarkEntry finds the store only here)."
+  },
+  {
+   "rva": "0x303410",
+   "kind": "function",
+   "name": "CBookmarkEntry::Update",
+   "signature": "void __fastcall CBookmarkEntry::Update(void* observer@ECX)",
+   "no_signature": null,
+   "comment": "Slot 9 of CBookmarkEntry's second table (object offset 0x1C, TListboxItem), so `this` is the row + 0x1C. Run every frame for every row: **the button's frame is 2 (shown chosen) when the bookmark's name equals CGameSetup::GetStartName and the row's custom-game byte equals CGameSetup +0x6F8, else 1** - which is how the chosen bookmark is highlighted; nothing else. Bare ret.",
+   "confidence": "confirmed",
+   "evidence": "vtable.py --holding 0x703410: one table, CBookmarkEntry @0x1C slot 9. Decompiled: String_Equals(setup slot 9's text, bookmark name) and the byte compare against setup +0x6F8, then button slot 18 (+0x48) with 2 or 1. Offsets read as row+0x1C+N match the constructor's +0x80 setup, +0x28 bookmark, +0x2C button, +0x84 byte. Wrong if slot 9 of that table were not called per frame (it is the list item's Update in CWindowForLoadedUnitsEntry@0x1C too)."
+  },
+  {
+   "rva": "0x3034F0",
+   "kind": "function",
+   "name": "CBookmarkEntry::OnBookmarkClicked",
+   "signature": "void __thiscall CBookmarkEntry::OnBookmarkClicked(CBookmarkEntry* this)",
+   "no_signature": null,
+   "comment": "**A click on a bookmark row**: a 0x104-byte CSelectBookmark made from the row's CBookmark (+0x28) through 0x6D4F70 and posted on the session's channel (session +0x38, slot 6). Nothing else - the selection itself happens when the command executes (CSelectBookmark::Execute -> CFrontEnd::SelectBookmark -> CGameSetup::SelectBookmark). Bare ret.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled whole; the glue that calls it is built in CBookmarkEntry::CBookmarkEntry with this address as its click handler. findRefs --callers 0x6D4F70 finds two callers, this (0x70352E) and CGameSetup::SelectDefaultBookmark (0x7080D4)."
+  },
+  {
+   "rva": "0x3035E0",
+   "kind": "function",
+   "name": "CBookmarkEntry_DisableButton",
+   "signature": "void __stdcall CBookmarkEntry_DisableButton(CBookmarkEntry* entry)",
+   "no_signature": null,
+   "comment": "The row's `bookmark` button given state 3 (button slot 45, +0xB4) - inferred to be the greyed look. CGameSetup::BuildBookmarkLists calls it for every historical-start row when the session mode global (0x1A85618) is neither 0 nor 1, i.e. on a multiplayer client, who cannot choose the start. `ret 4`.",
+   "confidence": "inferred",
+   "evidence": "Decompiled whole (FindButton 'bookmark', slot 45 with 3); the caller's mode test read in BuildBookmarkLists. What state 3 draws as was not read - that is the inference; the custom-game rows get the same call inlined."
+  },
+  {
+   "rva": "0x303BF0",
+   "kind": "function",
+   "name": "CSavegameItem::CSavegameItem",
+   "signature": "CSavegameItem* __stdcall CSavegameItem::CSavegameItem(CSavegameItem* this, Hoi3CString* fileName, CGameSetup* setup, CFrontEnd* frontEnd)",
+   "no_signature": null,
+   "comment": "**The lobby's save-list row, and the only reader of a save's header.** Writes CStandardlistboxItem's and then CSavegameItem's vftable, makes the `savegameentry` window, shows the file name before `.hoi3` as `title`, opens `save games/<file>` (`mod/<mod>/save games/` under a mod) and reads **positionally**: the first key=value's value is taken as the date whatever its key and shown as `date`; the second, when it is `scenario`, is looked up (ScenarioList_FindByName; a miss logs `loading scenario that doesnt exist: `) and the next pair read; then, when that pair is `player`, its tag gives the row's `shield` and is kept at +0x44/+0x48. So **a save whose first key is not `date`, or whose `player` is not second (third after `scenario`), shows a wrong date or no shield in the original's list.** One caller, 0x715A78, the lobby's `save_games_list` fill. See reversing/findings/FINDINGS-ingamemenu.md section C.2. **Arguments and fields, read 2026-11-06**: 0xC8 bytes (the caller's operator_new(200)); the file name copied to +0x28; +0x44 the save's player tag (`---` until read) and +0x48 its id; +0x4C the date (the null date until read; FormatHourDate's ` %d:00, %d %s, %d` is what `date` shows); +0x50 the CGameSetup and +0x54 the CFrontEnd it was given; +0xA8 the 'loaded' byte (CSavegameItem::SetLoaded); +0xAC the scenario name. Where there is no `player`, the shield is set to nothing (button slot 53 with no country). See reversing/findings/FINDINGS-frontend.md section B.3.",
+   "confidence": "inferred",
+   "revises": "Adds the signature the old entry declined to give - the caller (CGameSetup::OnSavedGamesTab, 0x715A78) passes the 200-byte block, a pointer to the file name out of the listing vector, the CGameSetup and the CGameSetup's +4 (the CFrontEnd) - and the field list; the old comment is kept word for word.",
+   "evidence": "Decompiled the constructor and its caller in a copy of the project: the stores param_1[0x14] = setup, [0x15] = frontEnd, [0x11] = '---', [0x13] = null date; ret 0x10 (four stack arguments) as the old no_signature already said. CSavegameItem::OnClicked reads +0x50's slot 5 and +0x54's slot 18, which is what types those two. The pushes read on the listing at 0x715A71-0x715A78: [setup+4], setup, the name, the block."
+  },
+  {
+   "rva": "0x304560",
+   "kind": "function",
+   "name": "CSavegameItem::OnClicked",
+   "signature": "void __thiscall CSavegameItem::OnClicked(CSavegameItem* this)",
+   "no_signature": null,
+   "comment": "Slot 4 of CSavegameItem's primary table - a click on the row (as CCountrySelectionItem's slot 4 is). **Before the save is loaded** (+0xA8 clear) or when the header had no `player` (+0x48 = 0): only ticks the row's `save_game` checkbox if it is not ticked (0xA820F0) and tells the checkbox's observers, which is CGameSetup::OnSaveRowChecked - so a click anywhere on the row does what a click on its checkbox does. **After it is loaded, with a player**: the CGameSetup's OnProvinceClicked (+0x50, slot 5) with the capital of the save's player, the screen centred on that capital (CentreOnProvince), and - where the local human (FindHumanById with the session's +0x6C) is not already playing the save's player - a CSetCountryControllerCommand(save's player, the state's current player, the human) posted. CGameSetup::Update calls it for the loaded row in single player (mode 0) once the load is done, **which is how the save's `player` becomes the chosen country.** Two bare rets (0x70483B, 0x7049DD).",
+   "confidence": "confirmed",
+   "evidence": "vtable.py --holding 0x704560: one table, CSavegameItem slot 4. Decompiled whole; the observer walk is the checkbox's +0x4C list with each observer's slot 4. The Update call site (the loop over save_games_list comparing +0x28 with +0x698 and calling slot 4) read in the same decompilation. Wrong if slot 4 were not the click - the walk-the-observers branch would make no sense for anything else."
+  },
+  {
+   "rva": "0x3049E0",
+   "kind": "function",
+   "name": "CSavegameItem::SetLoaded",
+   "signature": "void __thiscall CSavegameItem::SetLoaded(CSavegameItem* this, bool loaded)",
+   "no_signature": null,
+   "comment": "Slot 7 of CSavegameItem's primary table: `mov [ecx+0xA8], arg; ret 4`. CGameSetup::OnSaveRowChecked sets it on the clicked row and clears it on every other, so +0xA8 means 'this row's save is the chosen one' and CSavegameItem::OnClicked tests it.",
+   "confidence": "confirmed",
+   "evidence": "Bytes read; vtable.py --holding 0x7049E0 finds one table (CSavegameItem slot 7), so no fold (trap 4). The two calls with 1 and 0 read in OnSaveRowChecked's decompilation."
+  },
+  {
+   "rva": "0x304AF0",
+   "kind": "function",
+   "name": "CGameSetup::CGameSetup",
+   "signature": null,
+   "no_signature": "ret 8 with the object as Ghidra's param_1; Ghidra also invents a `this`, and whether a register carries something was not settled, so no signature is offered.",
+   "comment": "**The lobby's constructor.** Writes the five tables (0x15D59C0, +8 0x15D59FC, +0xC 0x15D5A0C, +0x3C 0x15D5A50, +0x6C 0x15D5A80), builds the gui window `lobby` [mod: tfh/interface/lobby.gui] into +0x3B8, and the button glues: +0x188 Back (CGameSetup::OnBack), +0x1D8 Play (CGameSetup::OnPlay), +0x228 victoryconditions_button (CGameSetup::OnVictoryConditionsButton), +0x130 `singleplayer`'s `player_shield` (CGameSetup::OnPlayerShieldClicked), +0x4D0 newgame_tab (OnNewGameTab), +0x520 savedgame_tab (OnSavedGamesTab), +0x570 scenario_tab (OnScenariosTab), +0x5C0 cgm_tab (OnCustomGamesTab), +0x660 the save rows' checkbox glue (OnSaveRowChecked), +0x368 the start-date shields' glue (OnShortcutShieldClicked); play_button and victoryconditions_button get their byte +0x61 = 1. +0x464/+0x468 = the defines' start_date and end_date. Also the difficulty (FE_DIFFICULTY, DIFF_VERY_EASY..DIFF_VERY_HARD) and game-mode (FE_ARCADE, STANDARD_MODE/ARCADE_MODE) choosers, the six automation settings (FE_SETTING_*; OPT_PLAYER_CONTROL/OPT_AICONTROL and, for the fifth, OPT_AI_CORP..OPT_AI_THEATER) of `interface/options.gui`'s `option_window` (+0x700) - their state read from the game state - and the victory conditions window `victory_conditions_window` (+0x8B0). `ret 8`.",
+   "confidence": "inferred",
+   "evidence": "Decompiled in a copy of the project; the glue offsets read off the disassembly (lea eax,[ebx+N] before each 0x71AB80 call, the handler as its first or thirteenth argument) and matched to the elements by the FindButton(...)->+0x48 slot 1 calls that take this+N (the decompiler shows param_1 + 0x134 etc. as int indices). The one inference is that the +0x368 glue's thirteenth-argument handler is the click - it is the only handler that glue has."
+  },
+  {
+   "rva": "0x307610",
+   "kind": "function",
+   "name": "CGameSetup::Prepare",
+   "signature": "void __thiscall CGameSetup::Prepare(CGameSetup* this)",
+   "no_signature": null,
+   "comment": "Slot 1 of CFrontEndView (pure there), called by the front end's view switch (0x6F1280) as the lobby becomes the current view (CFrontEnd +0x750[3] is the CGameSetup). Clears the chosen start (+0x6DC name, +0x6F8, +0x6FC); +0x6C8 = the application's +0x130 (inferred an online/metaserver link; zero in a plain single-player game); **in single player (mode global 0x1A85618 = 0)** MarkSimulatedProvinces(state, 0) and the custom-game settings emptied; the `multiplayer` window's `checksum` text set; CGameSetup_RefreshYearLabel; in single player the session's slot 2 (0, 0) and `lobby_chat_edit` hidden, otherwise shown; a CAddPlayer for the local player record (+0x410); then CGameSetup_SyncOptionsFromGameState, 0x708190 (the session joined - the chat line `CONNECTED`), and **+0x6C7 (a save loaded) cleared**. Bare ret. Named after CFrontEndView's slot (Prepare, Show, Hide) where the two front-end readers of 2026-11-06 met on it.",
+   "confidence": "inferred",
+   "evidence": "vtable.py: CGameSetup slot 1 only. Decompiled whole. The view-switch body at 0x6F1280 (old view slot 3, index stored at +0x760, new view slots 1 then 2) read on the listing; that CFrontEnd's views[3] is this class rests on CFrontEnd slots 84/86 forwarding to views[3] slots 7/10, which only CGameSetup has. Ghidra's plate comment calls this CGameSetup::Save - a CPersistent name left on the primary table by the bug trap 4 describes; CGameSetup's CPersistent family is at +0xC."
+  },
+  {
+   "rva": "0x307BF0",
+   "kind": "function",
+   "name": "CGameSetup::SelectDefaultBookmark",
+   "signature": "void __thiscall CGameSetup::SelectDefaultBookmark(CGameSetup* this)",
+   "no_signature": null,
+   "comment": "**What the lobby shows on opening in single player or as host** (called at the end of CGameSetup::BuildBookmarkLists when the mode global is 0 or 1). Clears the chosen start; MarkSimulatedProvinces(state, 0); the custom-game settings emptied; **history executed from the state's tick to the defines' start_date** (ExecuteHistoryToDate on the registry at 0x1A88BC0, then tick = +0x464); RefreshAllCountries; the map's overlays hidden and its colours redrawn; then **a CSelectBookmark for the first historical bookmark in the list** (bookmarks.txt order) posted. So the first bookmark of the file is selected when the lobby opens. Bare ret.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled whole; the list head is *[0x1A8A874] and CBookmarkList_Load appends at the tail (+0xCC next), so the head is the file's first non-custom bookmark. findRefs --callers: one call, 0x709582 in BuildBookmarkLists."
+  },
+  {
+   "rva": "0x3085A0",
+   "kind": "function",
+   "name": "CGameSetup::Show",
+   "signature": "void __thiscall CGameSetup::Show(CGameSetup* this)",
+   "no_signature": null,
+   "comment": "Slot 2 of CFrontEndView, called by the view switch after Enter. The front end's own window (CFrontEnd +0x730) hidden and the lobby window (+0x3B8) shown; in single player (mode 0) `lobby_chat_edit` hidden; `chatlog` scrolled; **CGameSetup::OnNewGameTab** - so the lobby opens on the Historical Start tab; then the four tab buttons enabled (button slot 46) - or, on a multiplayer client, disabled (slot 47). Bare ret.",
+   "confidence": "confirmed",
+   "evidence": "vtable.py: CGameSetup slot 2 only. Decompiled whole; the call to 0x715100 and the two arms on the mode global read. Ghidra's plate comment calls it CGameSetup::SaveContents (trap 4's leftover, as for slot 1)."
+  },
+  {
+   "rva": "0x308980",
+   "kind": "function",
+   "name": "CGameSetup::BuildBookmarkLists",
+   "signature": "void __thiscall CGameSetup::BuildBookmarkLists(CGameSetup* this)",
+   "no_signature": null,
+   "comment": "Slot 13 of CGameSetup. Clears the chosen start and MarkSimulatedProvinces(state, 0), empties the custom-game settings and the lists `multiplayer_list`, `chatlog`, `bookmarks_list` (in `bookmarks`) and `bookmarks_list` (in `cgm_bookmarks`); **one CBookmarkEntry per bookmark, in list order** - the historical list (*[0x1A8A874]) into `bookmarks`, the custom-game list ([0x1A8A874]+0x10) into `cgm_bookmarks` - each greyed on a multiplayer client (CBookmarkEntry_DisableButton). Then slot 10 (ClearBookmark), the gui refreshed, the lobby's transfer state reset (+0x698 = '', +0x6B4..), the session's pending-transfer globals cleared, and in single player or as host (mode 0 or 1) **CGameSetup::SelectDefaultBookmark**. Bare ret. Single player's button calls it before the lobby is shown (FINDINGS-frontend.md, A.2).",
+   "confidence": "confirmed",
+   "evidence": "vtable.py: CGameSetup slot 13 only. Decompiled whole: two loops over the list via +0xCC, CBookmarkEntry constructed with the custom-game byte 0 and 1, each added with the list box's slot 4 (+0x10, (item, 1)). Who calls slot 13 was not found (it is virtual; no slotcalls run) - so when the lists are rebuilt is the open point."
+  },
+  {
+   "rva": "0x3095A0",
+   "kind": "function",
+   "name": "CGameSetup::Hide",
+   "signature": "void __thiscall CGameSetup::Hide(CGameSetup* this)",
+   "no_signature": null,
+   "comment": "Slot 3 of CFrontEndView, called by the view switch on the view being left: the lobby window hidden, 0x6F1320, and each start-date shield (+0x46C list) hidden. Bare ret. Named after CFrontEndView's slot (Prepare, Show, Hide) where the two front-end readers of 2026-11-06 met on it.",
+   "confidence": "confirmed",
+   "evidence": "vtable.py: CGameSetup slot 3 only; decompiled whole (three calls). The view switch at 0x6F1280 calls the old view's slot 3 before storing the new index. Ghidra's plate comment calls it CGameSetup::Load (trap 4's leftover)."
+  },
+  {
+   "rva": "0x309C90",
+   "kind": "function",
+   "name": "CGameSetup::Update",
+   "signature": "void __thiscall CGameSetup::Update(CGameSetup* this)",
+   "no_signature": null,
+   "comment": "Slot 4 of CGameSetup, the pre-game lobby (gamesetup.cpp), and **where a savegame is loaded - in the lobby, before Play**; CFrontEnd::LaunchGame loads nothing. All three arms run only while +0x6C4 is set (a load pending, inferred) and clear the byte 0x1A857BF around the parse. (1) **The server - a single-player game, or a multiplayer host** (session +0x34 set, inferred to mean 'server'; 0x30B08B): once every other player's transfer reports done and while +0x6C5 (loaded) is clear, Session::PumpCommands, then LoadSaveFile on `save games/<+0x698>` (`mod/<mod>/save games/<name>` under a mod), CGameSetup_SyncOptionsFromGameState, and the lobby lines `SAVE_TRANSFER_DONE` and `SAVE_LOADED`. (2) **A multiplayer client whose own copy matches** - the transfer (+0x6D8) names the same file and its +0xB0 equals +0x6B4 (0x30B73C): LoadSaveFile on its local file, the sync, +0x6C5 and +0x6C7 set, RefreshAllCountries, the front end's map refreshed (0x641D90, 0x641D50), the settings' +0xF0 = 0xFF9A and +0xF4 = 2, +0x6C4 cleared and the transfer deleted. (3) **Any other client** (0x30BA34): logs `Received `, builds a stream over the bytes the transfer holds and calls CGameState::LoadFromSave on it directly, the same refreshes with Map_RefreshColourTextures, and **writes the received bytes to its own `save games/<name>`**. It also fills the lobby's labels (`selected_nation_label`, `head_of_state`, `wars_label`, `play_button`, `victoryconditions_button`). The played country is not set here: it comes from the CSetCountryControllerCommand the lobby posts, whose Execute (CSetCountryControllerCommand slot 6) writes state->player and played_countries. The name is inference: the body is the lobby's per-frame work by its PumpCommands and pending-flag shape. **Read further 2026-11-06** (FINDINGS-frontend.md B.4-B.6): the server arm sets +0x6C7 (a save loaded) before it walks the players, and after the load, **in single player (mode 0) calls the loaded row's CSavegameItem::OnClicked**, which selects the save's `player`. Every frame, besides: CGameSetup_RefreshYearLabel when the state's tick differs from +0x460; **the `singleplayer` panel rebuilt when +0x4CC or the state's controllers_changed (+0xC0) is set**, from the local human (the state's human list, +0x1C equal to +0x42C): with no country the panel hidden and its texts emptied; otherwise `player_shield` the country's shield, `selected_nation_label` CountryNameOfTag, `selected_fog` **the government's display name** (CGovernment slot GetDisplayName - 'form of government'), `icon_factions` shown with the faction's frame where the country's faction answers its slot 7, else hidden, `head_of_state` the name (+0x30) of the minister in the government position `head_of_state`, `photo_head_of_state` `gfx/pictures/portraits/<picture>.tga` with `GFX_empty_position` behind, and `wars_label` **`ATWAR` (\"At War.\") where any diplomacy status has a war, else `ATPEACE`** - the enemies are listed into +0x48C but not written into the text. **play_button** enabled (slot 46) when CGameSetup_CanStart holds - and, unless the session's lobby_reopened (+0x236) is set, the session's +0x34 too - else disabled (slot 47); **victoryconditions_button** enabled only when no save is loaded (+0x6C7 clear) and 0x71C560 answers yes; and when the front end's +0x764 (start requested) is set and CanStart holds, **CGameSetup_StartGame**.",
+   "confidence": "inferred",
+   "revises": "Keeps the old text and adds what the frame does besides loading: the panel's content and its trigger, the two buttons' enabling, the start request, and the single-player row click after a load.",
+   "evidence": "Decompiled whole in a copy of the project (DecompileAt, 0x709C90); the tail 0x70BE8D-0x70C0A3 read on the listing for the enable/disable choice (slot 0xB8 = 46 enable, 0xBC = 47 disable, as the record has them for buttons elsewhere). The panel strings and calls are the decompiler's; ATWAR/ATPEACE texts from the install's localisation. What would show the panel reading wrong: a second writer of selected_fog (string refs: two, both here)."
+  },
+  {
+   "rva": "0x30C0B0",
+   "kind": "function",
+   "name": "CGameSetup::OnProvinceClicked",
+   "signature": "void __thiscall CGameSetup::OnProvinceClicked(CGameSetup* this, CMapProvince* province)",
+   "no_signature": null,
+   "comment": "Slot 5 of CFrontEndView - **how a country is chosen on the map**. The front end's per-frame update calls the current view's slot 5 (0x6EE864) with the province under the pointer for a mouse-button event the interface did not take, and only where that province's owner_id (+0x330) is not 0. Here: where the owner id is not 0 and **either no scenario is set or the scenario's country list contains it** (CountryIdListContains), a CSetCountryControllerCommand(owner tag/id, the state's current player, the session's local human id) is posted, and the sound `click` played. **No other test**: not whether a save is loaded, not REB, not whether the country is someone else's - so after a save is loaded a click still changes the country. `ret 4`.",
+   "confidence": "confirmed",
+   "evidence": "vtable.py: CGameSetup slot 5 only (CFrontEndView's own slot 5 is the shared stub 0x60CD50). Decompiled whole; the call site read on the listing at 0x6EE84F-0x6EE864 (views[+0x760] slot 5, after the pick at 0x8558F0 and the owner_id test). Which mouse button: the event's +0x10 == 3 test before it was not decoded into a button - see the findings' open list."
+  },
+  {
+   "rva": "0x30D010",
+   "kind": "function",
+   "name": "CGameSetup::OnBack",
+   "signature": "void __thiscall CGameSetup::OnBack(CGameSetup* this)",
+   "no_signature": null,
+   "comment": "**`back_button`'s handler** (glue +0x188). Where +0x6C8 (the online link) is set, the online leave messages first. Then a CAddPlayer for the local player record posted; Session::PumpCommands; the session's slot 2 and its channel's slot 3; the options window (+0x700) hidden; 0x717D60 (the option choices posted); on a client (mode not 0) 0x70E3D0; **ResetGameStateToStartDate(true)**; +0x180 = 0; and the front end switched **to view 0** (the settings' +0x174 cleared) in a plain game, **or to view 5** where the online link is set - the old view's slot 3, the new one's slots 1 and 2, as CFrontEnd's switch does; the victory conditions window hidden. So Back throws away a loaded save or the chosen start. Bare ret.",
+   "confidence": "inferred",
+   "evidence": "Decompiled whole; the glue +0x188 is bound to 'back_button' in the constructor (0x705D28). Which screens views 0 and 5 are is the front end's business (the main menu reader's); 0 is inferred the main menu from the settings +0x174 store matching the view switch's own index-0 arm at 0x6F129D."
+  },
+  {
+   "rva": "0x30DF80",
+   "kind": "function",
+   "name": "CGameSetup_CanStart",
+   "signature": "bool __stdcall CGameSetup_CanStart(CGameSetup* setup@EDI, Hoi3CString* reason@stack:4) @AL",
+   "no_signature": null,
+   "comment": "**Whether Play may be pressed**, with the reason written to `reason` when it is not null. False while a load is pending (+0x6C4) or the victory conditions window is shown; false when the state has no human (+0x68), or any human has no country (+0x24 = 0) or a country owning no province; true at once where the session may not post (+0x34 clear - a client); otherwise by the tab shown: `bookmarks` - true unless a save is loaded (+0x6C7), a custom-game bookmark is chosen (+0x6F8) or a scenario (+0x6FC), which say CANT_START_REASON_SELECT_BOOKMARK; `cgm_bookmarks` - needs +0x6F8, else CANT_START_REASON_SELECT_CGM; `scenarios` - needs +0x6FC, else CANT_START_REASON_SELECT_SCENARIO; `save_games` - **needs +0x6C7 (a save loaded)**, else CANT_START_REASON_SELECT_SAVE_GAME. `ret 4`, `this` in EDI.",
+   "confidence": "inferred",
+   "evidence": "Decompiled whole (Ghidra shows `this` as unaff_EDI); the three rets are `ret 4`; the call sites in Update (0x70BEA7, 0x70BF15, 0x70C084) load EDI with this and push one argument (0 there). The tab tests are each window's +0x5B (shown) byte. Inferred rather than confirmed because the decompiler's flow for the bookmarks arm was untidy; the CANT_START keys and their order are certain."
+  },
+  {
+   "rva": "0x30E360",
+   "kind": "function",
+   "name": "CGameSetup::OnPlayerShieldClicked",
+   "signature": "void __thiscall CGameSetup::OnPlayerShieldClicked(CGameSetup* this)",
+   "no_signature": null,
+   "comment": "`singleplayer`'s `player_shield` (glue +0x130): where the country id at +0x434 (in the lobby's own player record at +0x410) is not 0 and has a capital, the front end's slot 48 (+0xC0) with that capital - inferred to centre the map. Whether +0x430/+0x434 follow the chosen country was not settled: no store to either was found in the lobby's code. Bare ret.",
+   "confidence": "inferred",
+   "evidence": "Decompiled whole (four instructions of work). The glue binding read in the constructor (FindButton 'player_shield' in 'singleplayer', glue this+0x130). The negative about +0x434 is a displacement search over 0x703000-0x71B600 for '+ 0x430]'/'+ 0x434]' (two reads, both here; positive control: the same search finds +0x42C's four uses)."
+  },
+  {
+   "rva": "0x30E5B0",
+   "kind": "function",
+   "name": "CGameSetup::OnPlay",
+   "signature": "void __thiscall CGameSetup::OnPlay(CGameSetup* this)",
+   "no_signature": null,
+   "comment": "**`play_button`'s handler** (glue +0x1D8; the button is enabled only while CGameSetup_CanStart holds). The victory conditions window hidden. Without the online link (+0x6C8 = 0): **for a new game only (not loaded_from_save)** the seed 0x174DA94 set from a clock ([0x1A857E4] slot 5, rounded) and g_random_draws = 0; the options window hidden; 0x717D60 (the difficulty, game mode and automation choices posted where they differ from the state's); where the session may post (+0x34) VictoryConditions_PostChosen; then **a CSetRandomSeed(seed, draws) and a CLobbyStartGame posted**, and the session's slot 2. With the online link, an online start message instead. Nothing launches here: CLobbyStartGame::Execute sets the front end's +0x764 and the next CGameSetup::Update calls CGameSetup_StartGame. Two bare rets.",
+   "confidence": "inferred",
+   "evidence": "Decompiled whole; the glue +0x1D8 bound to 'play_button' at 0x705D81. The clock reading is the decompiler's float from [0x1A857E4] slot 5; what that object is was not read, hence 'a clock'. A loaded game posts the seed and draws the globals already hold (A.3 of FINDINGS-savegame.md: the save's own seed is dropped)."
+  },
+  {
+   "rva": "0x30E9B0",
+   "kind": "function",
+   "name": "CGameSetup_StartGame",
+   "signature": "void __stdcall CGameSetup_StartGame(CGameSetup* setup)",
+   "no_signature": null,
+   "comment": "Called by CGameSetup::Update once the front end's start request (+0x764) is set and CGameSetup_CanStart holds. Province field +0xC zeroed for every province of the country at +0x968 (custom-game business, not read); 0x68BA80 on the state; VictoryConditions_DailyCheck; on a client the session's slots; in single player a new 0x260-byte Session (`Launch`, `NoAdress`) made; the front end's slot 19; 0x644FE0(0 in single player, 1 otherwise) and **the front end's +0x765 = 1**, which its update turns into CFrontEnd::LaunchGame (the main menu reader's side). `ret 4`.",
+   "confidence": "inferred",
+   "evidence": "Decompiled; the call site 0x70C08E pushes EDI (this) and the two rets are `ret 4`. The arms are the decompiler's and were not checked on the listing; 'turns into LaunchGame' rests on the record's note that the front end's update calls LaunchGame, not on reading +0x765's reader."
+  },
+  {
+   "rva": "0x30ED60",
+   "kind": "function",
+   "name": "CGameSetup::SelectBookmark",
+   "signature": "void __thiscall CGameSetup::SelectBookmark(CGameSetup* this, CBookmark* bookmark)",
+   "no_signature": null,
+   "comment": "Slot 7 of CGameSetup, reached from CSelectBookmark::Execute through CFrontEnd::SelectBookmark. **+0x6C7 (save loaded) and the scenario (+0x6FC) cleared**; MarkSimulatedProvinces(state, 0); the state's +0xD2C = the bookmark's is_cgm; for a custom-game bookmark its `templates.txt` loaded into the custom-game settings. **+0x6DC = the bookmark's name, +0x6F8 = is_cgm**; **the date = the bookmark's (+0xA4) held between the defines' start_date and end_date (+0x464, +0x468)**, and where the session may post a CSetHistoryDate(date) posted - which is what moves the world. With the lobby shown, two chat lines: the bookmark's name between two colour codes and its description. **The start-date shields** rebuilt: the old ones (+0x46C) removed, the bookmark's country list copied (+0x47C, IdList_Assign), and one `shield` button per country laid out from `shield_position` (lower middle, y -260) at `shield_offset` (66 px) steps, centred, each with the country's flag and the glue +0x368; finally CGameSetup_RefreshYearLabel. `ret 4`.",
+   "confidence": "confirmed",
+   "evidence": "vtable.py: CGameSetup slot 7 only; CFrontEnd slot 84 (0x6F1CC0) calls views[3] slot 7 (+0x1C) with the command's +0x3C. Decompiled whole; the clamp, the CSetHistoryDate construction and the shield loop read. The bookmark offsets agree with CBookmark::LoadKey's stores (name +8, is_cgm +0xA8, icon +0x78, countries +0x94)."
+  },
+  {
+   "rva": "0x3103E0",
+   "kind": "function",
+   "name": "CGameSetup::GetStartName",
+   "signature": "Hoi3CString* __thiscall CGameSetup::GetStartName(CGameSetup* this, Hoi3CString* out)",
+   "no_signature": null,
+   "comment": "Slot 9 of CGameSetup: the chosen bookmark's name (+0x6DC) or, when it is empty, the text of `SAVED_GAMES` (\"Saved Game\"). It is the NAME of year_label's WORLD_YEAR and what CBookmarkEntry::Update compares to highlight its row. `ret 4`.",
+   "confidence": "confirmed",
+   "evidence": "vtable.py: CGameSetup slot 9 only; decompiled whole (the +0x6EC length test, then GetText('SAVED_GAMES') or a copy of +0x6DC). Callers read: CGameSetup_RefreshYearLabel (slot 9, +0x24) and CBookmarkEntry::Update."
+  },
+  {
+   "rva": "0x310500",
+   "kind": "function",
+   "name": "CGameSetup::ClearBookmark",
+   "signature": "void __thiscall CGameSetup::ClearBookmark(CGameSetup* this)",
+   "no_signature": null,
+   "comment": "Slot 10 of CGameSetup, reached from CClearBookmark::Execute through CFrontEnd::ClearBookmark (and called directly by BuildBookmarkLists): the chosen start cleared (+0x6DC, +0x6F8, +0x6FC), MarkSimulatedProvinces(state, 0), the state's +0xD2C = 0, the custom-game settings emptied, and the start-date shields (+0x46C) and their country list (+0x47C) removed. CGameSetup::OnSaveRowChecked posts the command before it chooses a save, **so choosing a save un-chooses the bookmark** and year_label's name becomes `SAVED_GAMES`. Bare ret.",
+   "confidence": "confirmed",
+   "evidence": "vtable.py: CGameSetup slot 10 only; CFrontEnd slot 86 (0x6F1EB0) is a tail jump to views[3] slot 10 (+0x28). Decompiled whole."
+  },
+  {
+   "rva": "0x3106F0",
+   "kind": "function",
+   "name": "CGameSetup::OnShortcutShieldClicked",
+   "signature": "void __thiscall CGameSetup::OnShortcutShieldClicked(CGameSetup* this, void* button)",
+   "no_signature": null,
+   "comment": "**A start-date shield** (the glue +0x368 that CGameSetup::SelectBookmark gives each): the shield found in +0x46C and its country in +0x47C at the same position; a country of id 0 logs `Atempted to select an invalid tag using a shortcut.`; otherwise a CSetCountryControllerCommand(country, the state's current player, the local human) posted and, with no scenario set, the map centred on its capital (front end slot 48). Its tooltip is SHORTCUT_SHIELD (CGameSetup::GetElementTooltip). `ret 4`.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled whole; findRefs --callers 0x6D32E0 lists 0x71083A here. The glue +0x368 is constructed with this as its thirteenth handler (0x704E0B) and attached to each `shield` in SelectBookmark (0x70FA19)."
+  },
+  {
+   "rva": "0x310A40",
+   "kind": "function",
+   "name": "CGameSetup::GetElementTooltip",
+   "signature": "GuiTooltipText* __thiscall CGameSetup::GetElementTooltip(CGameSetup* this, GuiTooltipText* out, void* element)",
+   "no_signature": null,
+   "comment": "Slot 6 of CFrontEndView: the lobby's tooltips, by element name. **`play_button`**: on a multiplayer game with fewer than two humans MP_FEW_PLAYERS; otherwise the first human with no country NOT_SELECT (\"All players must select a country.\"), or whose country owns no province NOT_EXIST (\"$TAG$ does not exist at this time.\", TAG the country's name); otherwise CGameSetup_CanStart's reason (CANT_START_REASON_*), empty when Play may be pressed. **A start-date `shield`**: SHORTCUT_SHIELD (\"$TAG$ is an interesting choice during this period. Click to select it.\"). `button_kick`/`button_ban`: TIP_KICK/TIP_BAN. **`victoryconditions_button`**, only while it is disabled: VC_BUTTON_DISABLED_INVALID with no save loaded, VC_BUTTON_DISABLED_SAVE with one. Anything else is handed to the victory conditions window (0x71CA00) - nothing for the panel, the tabs, the rows or Back. `ret 8`.",
+   "confidence": "confirmed",
+   "evidence": "vtable.py: CGameSetup slot 6 only (CFrontEndView's slot 6 is 0x776F20, a default). Decompiled whole; the name compares are inline strcmp loops on 'play_button' and 'shield', then String_EqualsCString on the rest. Texts from the install's localisation."
+  },
+  {
+   "rva": "0x314BD0",
+   "kind": "function",
+   "name": "CGameSetup_RefreshYearLabel",
+   "signature": "void __stdcall CGameSetup_RefreshYearLabel(CGameSetup* setup)",
+   "no_signature": null,
+   "comment": "**`year_label`**: WORLD_YEAR (\"§Y$NAME$§W, $DAY$ of $MONTH$, $YEAR$\") with YEAR, DAY and MONTH (Date_MonthName, full) of +0x460 - the state's tick, which CGameSetup::Update copies there when it changes - and NAME from CGameSetup::GetStartName (the chosen bookmark's name, or `SAVED_GAMES`). +0x4CC (the panel's refresh flag) set. The .gui's FE_SELECTED_SCENARIO has no localisation and is always overwritten. `ret 4`.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled whole; the four replacement keys and the year/day arithmetic (days = (tick - 43800000) / 24, the month walk over MonthLengthTable) read. Callers: Update (0x709DE8 region, on a tick change), Enter, SelectBookmark."
+  },
+  {
+   "rva": "0x315100",
+   "kind": "function",
+   "name": "CGameSetup::OnNewGameTab",
+   "signature": "void __thiscall CGameSetup::OnNewGameTab(CGameSetup* this)",
+   "no_signature": null,
+   "comment": "**`newgame_tab`** (glue +0x4D0; \"Historical Start\"), and what CGameSetup::Show opens on. Does nothing while a load is pending (+0x6C4). The tab buttons' frames: newgame_tab 2, the other three 1 (button slot 18); `bookmarks` shown, `cgm_bookmarks`, `save_games` and `scenarios` hidden; and **where the state was loaded from a save, a CResetGame posted** - leaving the save for the new-game side resets the world. Bare ret.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled whole, and the frame arguments read on the listing (push 2 for newgame_tab, 1 for the rest). Ends with ret at 0x7154AF; 0x7154B0 abuts with no padding (trap 2) and is OnSavedGamesTab."
+  },
+  {
+   "rva": "0x3154B0",
+   "kind": "function",
+   "name": "CGameSetup::OnSavedGamesTab",
+   "signature": "void __thiscall CGameSetup::OnSavedGamesTab(CGameSetup* this)",
+   "no_signature": null,
+   "comment": "**`savedgame_tab`** (glue +0x520; \"Saved Games\"). savedgame_tab's frame 2, the others 1; `bookmarks`, `scenarios` and `cgm_bookmarks` hidden; `save_games_list` emptied; **the folder `save games`, or `mod/<mod>/save games` under a mod** (the settings' mod name, 0x40C600); ListFilesWithExtensionSorted(folder, \"hoi3\", **newest first**) - the same listing the in-game save dialog makes, over the whole PhysFS search path; **one CSavegameItem (0xC8 bytes) per file, in that order**, its checkbox `save_game` given the glue +0x660 (OnSaveRowChecked) and the row appended to `save_games_list`; then `save_games` shown. **Nothing is ticked and nothing is loaded on opening.** Unlike OnNewGameTab it does not test +0x6C4. Bare ret.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled whole; frames, the folder strings and the `push 1` before the 0x63AA10 call (0x7159BF) read on the listing; the record's ListFilesWithExtensionSorted names this site (0x315A2B) as 'the front end's save list'."
+  },
+  {
+   "rva": "0x315C90",
+   "kind": "function",
+   "name": "CGameSetup::OnCustomGamesTab",
+   "signature": "void __thiscall CGameSetup::OnCustomGamesTab(CGameSetup* this)",
+   "no_signature": null,
+   "comment": "**`cgm_tab`** (glue +0x5C0; \"Custom Games\"). Named by its binding; the body was not read beyond its string references (`save_games`, the tab names) - by its siblings, it shows `cgm_bookmarks` and hides the rest. Bare ret.",
+   "confidence": "inferred",
+   "evidence": "The glue +0x5C0 is constructed with this as its click handler (0x70503A) and attached to 'cgm_tab' (FindButton, this+0x170 as an int index = +0x5C0). Out of scope; recorded so the binding is not lost."
+  },
+  {
+   "rva": "0x316040",
+   "kind": "function",
+   "name": "CGameSetup::OnScenariosTab",
+   "signature": "void __thiscall CGameSetup::OnScenariosTab(CGameSetup* this)",
+   "no_signature": null,
+   "comment": "**`scenario_tab`** (glue +0x570; \"Scenarios\"). Named by its binding; it fills the `scenarios` window's `bookmarks_list` with `scenario_entry` rows (CScenarioEntry) - the body was not read further. Bare ret.",
+   "confidence": "inferred",
+   "evidence": "Glue +0x570 constructed with this as its click handler (0x705012) and attached to 'scenario_tab' (this+0x15C as an int index). String references inside: scenario_entry, bookmarks_list, scenarios. Out of scope."
+  },
+  {
+   "rva": "0x3167A0",
+   "kind": "function",
+   "name": "CGameSetup::OnSaveRowChecked",
+   "signature": "void __thiscall CGameSetup::OnSaveRowChecked(CGameSetup* this, void* checkbox)",
+   "no_signature": null,
+   "comment": "**A save row's `save_game` checkbox** (the CCheckBoxObserverGlue at +0x660; a click elsewhere on the row reaches here through CSavegameItem::OnClicked). A CClearBookmark posted (the bookmark un-chosen); +0x698 = '' and +0x6B4 = -1; then over `save_games_list`: the row whose checkbox was clicked gives its file name to +0x698 and SetLoaded(1); every other row SetLoaded(0) and its checkbox unticked (+0x60 and +0x100 zeroed, where its bytes +0xD8/+0x136 allow - as the in-game save dialog's rows); then **CGameSetup::BeginSaveTransfer** - **so choosing a save loads it at once**, with no button. `ret 4`.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled whole. The checkbox glue at +0x660 has this function at its +0x680 handler slot (constructor: param_1[0x1A0] = 0x7167A0, param_1[0x198] = CCheckBoxObserverGlue vftable) and is attached to each row's save_game in OnSavedGamesTab (0x715ACA)."
+  },
+  {
+   "rva": "0x3169E0",
+   "kind": "function",
+   "name": "CGameSetup::BeginSaveTransfer",
+   "signature": "void __thiscall CGameSetup::BeginSaveTransfer(CGameSetup* this)",
+   "no_signature": null,
+   "comment": "Starts the load of the chosen save (+0x698), which in the original is a transfer to every player even in single player. Only where a save is chosen (+0x6A8, the name's length) and no load is pending (+0x6C4). The whole file read into +0x6B8, timed (`File save loaded in `), compressed and base64'd into +0x6BC (`File compressed in ... to size ... and base64 size ...`), **its checksum (ChecksumFile) into +0x6B4** and logged `Sending <name> with chksum <n>`; the chat line TRANSERING_SAVE (\"Savegame transfer started...\"); one 0xF4-byte transfer made for each row of `multiplayer_list` with the name and checksum; and **+0x6C4 = 1**. The parse itself happens in CGameSetup::Update's server arm on a later frame. Bare ret.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled whole; log strings and the ChecksumFile call read. The +0x6C4 store at 0x717757 found by a displacement search (the only `= 1` writer of +0x6C4 in the lobby's code). That the local player's own row is in multiplayer_list in single player is inferred, not read."
+  },
+  {
+   "rva": "0x31AA30",
+   "kind": "function",
+   "name": "CGameSetup::OnVictoryConditionsButton",
+   "signature": "void __thiscall CGameSetup::OnVictoryConditionsButton(CGameSetup* this)",
+   "no_signature": null,
+   "comment": "**`victoryconditions_button`** (glue +0x228): where the victory conditions window (+0x8B0) is hidden and 0x71C560 answers yes, the window shown, raised and filled (0x71BF10). The button is enabled only with no save loaded (CGameSetup::Update). Bare ret.",
+   "confidence": "inferred",
+   "evidence": "Decompiled whole; glue +0x228 bound to 'victoryconditions_button' at 0x705E25. 0x71C560 (a faction test on the played country) and the window's class were not read."
+  },
+  {
+   "rva": "0x2F1C10",
+   "kind": "function",
+   "name": "CFrontEnd::RequestLobbyStart",
+   "signature": "void __thiscall CFrontEnd::RequestLobbyStart(CFrontEnd* this)",
+   "no_signature": null,
+   "comment": "Slots 67 and 68 of CFrontEnd (one body): `mov byte [ecx+0x764], 1; ret`. CLobbyStartGame::Execute calls slot 68 on the current screen; CGameSetup::Update sees +0x764 and, when CGameSetup_CanStart holds, calls CGameSetup_StartGame. CInGameIdler's slot 68 is an empty stub, so the command does nothing in game.",
+   "confidence": "confirmed",
+   "evidence": "Bytes read; vtable.py --holding 0x6F1C10: CFrontEnd slots 67 and 68 only (one class, so not a fold). CLobbyStartGame::Execute decompiled: in_game_screen->vf_68. Who calls slot 67 was not looked for."
+  },
+  {
+   "rva": "0x2F1CC0",
+   "kind": "function",
+   "name": "CFrontEnd::SelectBookmark",
+   "signature": "void __thiscall CFrontEnd::SelectBookmark(CFrontEnd* this, CBookmark* bookmark)",
+   "no_signature": null,
+   "comment": "Slot 84 of CFrontEnd, called by CSelectBookmark::Execute with the command's bookmark (+0x3C): **the lobby's (views[3], +0x750 + 0xC) slot 7, CGameSetup::SelectBookmark**, then 0x63D350 and the map camera's bounds reset to the whole map (+0x6B4 = map width, +0x6BC = map height - 0x50, the rest 0). `ret 4`.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled whole; vtable.py --holding: CFrontEnd slot 84 only. CSelectBookmark::Execute calls in_game_screen slot 84 (+0x150) with cmd+0x3C. Slot 85 (0x6F1D50) is the scenario twin (views[3] slot 8, the scenario's own bounds) and is not recorded here."
+  },
+  {
+   "rva": "0x2F1EB0",
+   "kind": "function",
+   "name": "CFrontEnd::ClearBookmark",
+   "signature": "void __thiscall CFrontEnd::ClearBookmark(CFrontEnd* this)",
+   "no_signature": null,
+   "comment": "Slot 86 of CFrontEnd, called by CClearBookmark::Execute: a tail jump to the lobby's (views[3]) slot 10, CGameSetup::ClearBookmark. Slots 87 and 88 likewise jump to views[3] slots 11 and 12, which CGameSetup leaves at the shared stubs.",
+   "confidence": "confirmed",
+   "evidence": "Bytes: mov eax,[ecx+0x750]; mov ecx,[eax+0xC]; mov edx,[ecx]; jmp [edx+0x28]. vtable.py --holding: CFrontEnd slot 86 only. No ret of its own - a tail jump."
+  },
+  {
+   "rva": "0x2D51A0",
+   "kind": "function",
+   "name": "CSelectBookmark::Execute",
+   "signature": "void __thiscall CSelectBookmark::Execute(CSelectBookmark* this)",
+   "no_signature": null,
+   "comment": "CCommand slot 6 of CSelectBookmark: the current screen's (state->in_game_screen) slot 84 with this + 0x3C - the bookmark the command carries (CFrontEnd::SelectBookmark). Bare ret.",
+   "confidence": "confirmed",
+   "evidence": "vtable.py --holding 0x6D51A0: CSelectBookmark slot 6 only. Decompiled whole."
+  },
+  {
+   "rva": "0x2D57E0",
+   "kind": "function",
+   "name": "CClearBookmark::Execute",
+   "signature": "void __thiscall CClearBookmark::Execute(CClearBookmark* this)",
+   "no_signature": null,
+   "comment": "CCommand slot 6 of CClearBookmark: the current screen's slot 86 (CFrontEnd::ClearBookmark). Posted by CGameSetup::OnSaveRowChecked. Bare ret.",
+   "confidence": "confirmed",
+   "evidence": "vtable.py --holding 0x6D57E0: CClearBookmark slot 6 only. Decompiled whole."
+  },
+  {
+   "rva": "0x2D4C00",
+   "kind": "function",
+   "name": "CLobbyStartGame::Execute",
+   "signature": "void __thiscall CLobbyStartGame::Execute(CLobbyStartGame* this)",
+   "no_signature": null,
+   "comment": "CCommand slot 6 of CLobbyStartGame: the current screen's slot 68 - in the front end CFrontEnd::RequestLobbyStart, which sets +0x764. Posted by CGameSetup::OnPlay. Bare ret.",
+   "confidence": "confirmed",
+   "evidence": "vtable.py --holding 0x6D4C00: CLobbyStartGame slot 6 only. Decompiled whole (vf_68 on in_game_screen)."
+  },
+  {
+   "rva": "0x2D32E0",
+   "kind": "function",
+   "name": "CSetCountryControllerCommand_Construct",
+   "signature": "CSetCountryControllerCommand* __stdcall CSetCountryControllerCommand_Construct(CSetCountryControllerCommand* this, int countryTag, int countryId, int previousTag, int previousId, int human)",
+   "no_signature": null,
+   "comment": "The constructor every lobby poster uses (class id 0x18D, type ids 0x389): the country chosen to +0x3C/+0x40, the country the human had to +0x44/+0x48, the human's id to +0x4C. Callers: CGameSetup::OnProvinceClicked, CSavegameItem::OnClicked, CGameSetup::OnShortcutShieldClicked, CScenarioEntry's click (0x703BB2), the tutorial (0x71DBBD), 0x43CC58 and 0x696FE7 (not read); an inlined copy at 0x646221. `ret 0x18`.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled whole; ret 0x18 = six stack arguments with the object first, as every call site pushes. findRefs --callers 0x6D32E0: seven calls."
+  },
+  {
+   "rva": "0x2D3390",
+   "kind": "function",
+   "name": "CSetCountryControllerCommand::Execute",
+   "signature": "void __thiscall CSetCountryControllerCommand::Execute(CSetCountryControllerCommand* this)",
+   "no_signature": null,
+   "comment": "CCommand slot 6. The human (FindHumanById, +0x4C) loses its 'primary local' byte (+0x28, `Human X unset as primary local`). **The country it had** (+0x44/+0x48), where no other human holds it: played_countries[it] = 0, its CEU3AI's +0x2C = 1 (the AI takes it), `AI will control <name>`. An intelligence refresh requested. Where the human is unknown or the new id (+0x40) is 0, `Attempted to assign ... to nonextistant human` and stop; otherwise the human is made primary local where no other human of that country is (`Human X set as primary local`), **its country = +0x3C/+0x40**, and **where it is this machine's human**: played_countries[new] = 1, **state->player and the map's player = the country**, its AI's +0x2C = 0, `Local player will control <name>`. Every arm that changes a controller sets the state's controllers_changed (+0xC0), which is what refreshes the lobby's panel. The tail was not read. Bare ret.",
+   "confidence": "inferred",
+   "evidence": "vtable.py --holding 0x6D3390: CSetCountryControllerCommand slot 6 only. Decompiled in a copy of the project - with the command mistyped as CCurrentGameState by Ghidra, so its +0x3C..+0x4C read as last_* fields; the log strings fix which offset is which. The part after `Local player will control` (to 0x6D42E5) was not read."
+  },
+  {
+   "rva": "0x2ECFB0",
+   "kind": "function",
+   "name": "CBookmarkList_Load",
+   "signature": "void __stdcall CBookmarkList_Load(void* list, void* files)",
+   "no_signature": null,
+   "comment": "Reads the bookmark files (a vector of paths, 0x1C each) into the two lists of the 0x20-byte holder at [0x1A8A874]: both emptied; a file that does not exist logs `Failed to open file <path>` (bookmarks.cpp); each top-level block parsed into a CBookmark (CPersistent::Load) and, **where the parse left no message**, copied into a new 0xD4-byte CBookmark **appended at the tail** of the historical list (holder +0) or, when is_cgm, of the custom-game list (holder +0x10) - so the lists are in file order. `ret 8`.",
+   "confidence": "inferred",
+   "evidence": "Decompiled; the append (tail +4, count +8, the old tail's +0xCC = new) read for both lists. The caller and which files it is given (common/bookmarks.txt, the mod's copy) were not followed."
+  }
+ ],
+ "structs": [
+  {
+   "name": "CGameSetup",
+   "vftable_rva": "0x11D59C0",
+   "comment": "The pre-game lobby (gamesetup.cpp), a CFrontEndView with CSessionInfoObserver at +8, CLobbyInterface at +0xC, CLargefileHandlerInterface at +0x3C and CReloadableInterface at +0x6C; the front end's views[3]. Its window is `lobby` of tfh/interface/lobby.gui. Size not read. See reversing/findings/FINDINGS-frontend.md section B.",
+   "evidence": "RTTI export: CGameSetup's five tables, the primary at 0x15D59C0 (rva 0x11D59C0, object offset 0), which CGameSetup::CGameSetup writes at 0x704C72. No size declared: the constructor's allocation was not found."
+  },
+  {
+   "name": "CSavegameItem",
+   "vftable_rva": "0x11D5C7C",
+   "size": "0xC8",
+   "comment": "A row of the lobby's `save_games_list` (window `savegameentry`). A CStandardlistboxItem; its second table at +0x1C. See reversing/findings/FINDINGS-frontend.md section B.3.",
+   "evidence": "RTTI: primary table 0x15D5C7C. Size: CGameSetup::OnSavedGamesTab allocates 200 (0xC8) bytes for each (push 0xC8 at 0x715A54) and nothing else constructs one."
+  },
+  {
+   "name": "CBookmarkEntry",
+   "vftable_rva": "0x11D5A8C",
+   "size": "0x88",
+   "comment": "A row of the lobby's `bookmarks_list` (window `bookmark_entry`). A CStandardlistboxItem; second table at +0x1C. See reversing/findings/FINDINGS-frontend.md section B.2.",
+   "evidence": "RTTI: primary table 0x15D5A8C. Size: CGameSetup::BuildBookmarkLists allocates 0x88 bytes for each (both loops)."
+  },
+  {
+   "name": "CBookmark",
+   "vftable_rva": "0x11D30D4",
+   "size": "0xD4",
+   "inherits": "CPersistent",
+   "comment": "One `bookmark = { }` of common/bookmarks.txt. The keys are CBookmark::LoadKey's seven. Kept in two lists at [0x1A8A874] (historical +0, custom-game +0x10), linked through +0xC8/+0xCC. See reversing/findings/FINDINGS-frontend.md section B.2.",
+   "evidence": "RTTI: CBookmark, base CPersistent at 0, table 0x15D30D4. Size: CBookmarkList_Load allocates 0xD4 for each stored copy."
+  },
+  {
+   "name": "CSetCountryControllerCommand",
+   "vftable_rva": "0x11D3054",
+   "size": "0x50",
+   "inherits": "CCommand",
+   "comment": "The lobby's 'this human now plays that country'. See CSetCountryControllerCommand::Execute and reversing/findings/FINDINGS-frontend.md section B.5.",
+   "evidence": "RTTI: CSetCountryControllerCommand under CCommand at 0, table 0x15D3054. Size: every poster allocates 0x50 (CGameSetup::OnProvinceClicked, CSavegameItem::OnClicked, OnShortcutShieldClicked); the constructor's last store is +0x4C."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CGameSetup",
+   "offset": "0x3B8",
+   "name": "window",
+   "type": "void*",
+   "comment": "the `lobby` window every element is looked up in (slots 13/14/15/27/31 of a CFixedWindow)",
+   "evidence": "Constructor: the gui's slot 11 with 'lobby' stored here; every FindButton/FindListBox/GetSubWindow in the lobby's code is on [this+0x3B8]."
+  },
+  {
+   "struct": "CGameSetup",
+   "offset": "0x42C",
+   "name": "local_human_id",
+   "type": "int",
+   "comment": "the id of this machine's human (the +0x1C of its CHuman); the panel is built from the state's human with this id. Part of a CHuman-shaped record at +0x410 (inferred)",
+   "evidence": "Update compares the state's humans' +0x1C with [this+0x42C] (0x709F4A) to find whose panel to draw."
+  },
+  {
+   "struct": "CGameSetup",
+   "offset": "0x460",
+   "name": "label_tick",
+   "type": "int",
+   "comment": "the tick year_label was last written for; Update rewrites the label when the state's tick differs",
+   "evidence": "Update: tick != [+0x460] -> store and CGameSetup_RefreshYearLabel; RefreshYearLabel reads its date from param_1[0x118] = +0x460."
+  },
+  {
+   "struct": "CGameSetup",
+   "offset": "0x464",
+   "name": "start_date",
+   "type": "int",
+   "comment": "the defines' start_date, copied by the constructor; the lower clamp of a bookmark's date and the date SelectDefaultBookmark runs history to",
+   "evidence": "Constructor: param_1[0x119] = GetDefines()->start_date; SelectBookmark clamps against +0x464/+0x468."
+  },
+  {
+   "struct": "CGameSetup",
+   "offset": "0x468",
+   "name": "end_date",
+   "type": "int",
+   "comment": "the defines' end_date; the upper clamp of a bookmark's date",
+   "evidence": "Constructor: param_1[0x11A] = GetDefines()->end_date."
+  },
+  {
+   "struct": "CGameSetup",
+   "offset": "0x46C",
+   "name": "shortcut_shields",
+   "type": "void*",
+   "comment": "list head of the start-date `shield` buttons SelectBookmark lays out (node: button, country node, next at +8)",
+   "evidence": "SelectBookmark appends to +0x46C/+0x470/+0x474; ClearBookmark and Leave walk and hide them; OnShortcutShieldClicked walks it beside +0x47C."
+  },
+  {
+   "struct": "CGameSetup",
+   "offset": "0x47C",
+   "name": "shortcut_countries",
+   "type": "void*",
+   "comment": "the chosen bookmark's country list (id nodes, next at +0xC), copied by IdList_Assign",
+   "evidence": "SelectBookmark: IdList_Assign(bookmark +0x94) into +0x47C; OnShortcutShieldClicked takes the country at the clicked shield's position."
+  },
+  {
+   "struct": "CGameSetup",
+   "offset": "0x48C",
+   "name": "wars",
+   "type": "void*",
+   "comment": "the countries the panel's country is at war with, rebuilt with the panel; only its emptiness reaches the text (ATPEACE/ATWAR)",
+   "evidence": "Update: cleared, then a 0x14-byte node per diplomacy status with a war; count +0x494 == 0 chooses ATPEACE."
+  },
+  {
+   "struct": "CGameSetup",
+   "offset": "0x4CC",
+   "name": "panel_dirty",
+   "type": "bool",
+   "comment": "set by CGameSetup_RefreshYearLabel; Update rebuilds the `singleplayer` panel when it or the state's controllers_changed is set, and clears it",
+   "evidence": "Update tests [+0x4CC] and clears it at LAB_00709EAA; RefreshYearLabel's last store is param_1[0x133] = +0x4CC."
+  },
+  {
+   "struct": "CGameSetup",
+   "offset": "0x698",
+   "name": "chosen_save",
+   "type": "Hoi3CString",
+   "comment": "the file name of the chosen save row, `save games/` + this being what is loaded",
+   "evidence": "OnSaveRowChecked writes the row's +0x28 here; BeginSaveTransfer and Update's load arms build the path from it."
+  },
+  {
+   "struct": "CGameSetup",
+   "offset": "0x6B4",
+   "name": "chosen_save_checksum",
+   "type": "int",
+   "comment": "ChecksumFile of the chosen save, -1 when none; a client compares its transfer's checksum with it",
+   "evidence": "OnSaveRowChecked stores -1; BeginSaveTransfer stores ChecksumFile's answer; Update compares the transfer's +0xB0 with it."
+  },
+  {
+   "struct": "CGameSetup",
+   "offset": "0x6C4",
+   "name": "load_pending",
+   "type": "bool",
+   "comment": "a save's transfer started and not yet loaded; tabs, CanStart and a second transfer all wait on it",
+   "evidence": "The only store of 1 is BeginSaveTransfer's (0x717757); Update clears it after each load arm; OnNewGameTab, CanStart and BeginSaveTransfer test it."
+  },
+  {
+   "struct": "CGameSetup",
+   "offset": "0x6C5",
+   "name": "save_parsed",
+   "type": "bool",
+   "comment": "the server arm has parsed the save; it is what stops a second LoadSaveFile while transfers finish",
+   "evidence": "Update: set after LoadSaveFile in each arm (0x70B748, 0x70BA40, and the 0x70B2EF word store of 0x100 over +0x6C4/+0x6C5); tested at 0x70AEA4."
+  },
+  {
+   "struct": "CGameSetup",
+   "offset": "0x6C7",
+   "name": "save_loaded",
+   "type": "bool",
+   "comment": "a save, not a bookmark, is what Play will start; cleared by Enter and SelectBookmark",
+   "evidence": "Set by Update's server arm (0x70AD4D) and the matching client arm; CanStart's save_games arm and the victoryconditions_button test it; SelectBookmark (0x70ED88) and Enter clear it."
+  },
+  {
+   "struct": "CGameSetup",
+   "offset": "0x6DC",
+   "name": "bookmark_name",
+   "type": "Hoi3CString",
+   "comment": "the chosen bookmark's localised name; empty when none (year_label then says SAVED_GAMES)",
+   "evidence": "SelectBookmark assigns the bookmark's +8 here; GetStartName returns it unless its length (+0x6EC) is 0; Enter, ClearBookmark and SelectDefaultBookmark empty it."
+  },
+  {
+   "struct": "CGameSetup",
+   "offset": "0x6F8",
+   "name": "bookmark_is_cgm",
+   "type": "bool",
+   "comment": "the chosen bookmark is a custom-game one",
+   "evidence": "SelectBookmark stores the bookmark's +0xA8; CBookmarkEntry::Update compares its row's byte with it; CanStart's cgm arm needs it."
+  },
+  {
+   "struct": "CGameSetup",
+   "offset": "0x6FC",
+   "name": "scenario",
+   "type": "void*",
+   "comment": "the chosen scenario; 0 when none",
+   "evidence": "Cleared by Enter, SelectBookmark, ClearBookmark; CanStart's scenarios arm needs it non-zero."
+  },
+  {
+   "struct": "CGameSetup",
+   "offset": "0x8B0",
+   "name": "victory_window",
+   "type": "void*",
+   "comment": "the victory conditions window (`victory_conditions_window`, 0xA4 bytes)",
+   "evidence": "Constructor: operator_new(0xA4) with 'victory_conditions_window' stored at param_1[0x22C]; OnPlay, CanStart and the victory button test its window's shown byte (+0x20 -> +0x5B)."
+  },
+  {
+   "struct": "CSavegameItem",
+   "offset": "0x28",
+   "name": "file_name",
+   "type": "Hoi3CString",
+   "comment": "the file's name in `save games/`, as listed",
+   "evidence": "Constructor: assignString(param_1 + 10, fileName); OnSaveRowChecked and Update compare it with CGameSetup +0x698."
+  },
+  {
+   "struct": "CSavegameItem",
+   "offset": "0x44",
+   "name": "player",
+   "type": "CCountryTag",
+   "comment": "the save's `player`, read positionally from its header; `---`/0 when absent",
+   "evidence": "Constructor: '---' then GetTag's tag and id into param_1[0x11]/[0x12]; OnClicked uses both."
+  },
+  {
+   "struct": "CSavegameItem",
+   "offset": "0x4C",
+   "name": "date",
+   "type": "int",
+   "comment": "the header's first value as a date; what `date` shows through FormatHourDate",
+   "evidence": "Constructor: param_1[0x13] = null date, then Date_SetFromString of the first pair, and FormatHourDate(param_1 + 0x13)."
+  },
+  {
+   "struct": "CSavegameItem",
+   "offset": "0x50",
+   "name": "setup",
+   "type": "CGameSetup*",
+   "comment": "the lobby; OnClicked calls its slot 5 with the player's capital",
+   "evidence": "Constructor: param_1[0x14] = third argument; OnClicked: (**(+0x50))[5](capital)."
+  },
+  {
+   "struct": "CSavegameItem",
+   "offset": "0x54",
+   "name": "front_end",
+   "type": "void*",
+   "comment": "the CFrontEnd; OnClicked takes the session from its slot 18",
+   "evidence": "Constructor: param_1[0x15] = fourth argument (the caller passes CGameSetup +4); OnClicked: (**(+0x54))[18]() then the channel's slot 6."
+  },
+  {
+   "struct": "CSavegameItem",
+   "offset": "0xA8",
+   "name": "loaded",
+   "type": "bool",
+   "comment": "this row's save is the chosen one (CSavegameItem::SetLoaded)",
+   "evidence": "SetLoaded is `mov [ecx+0xA8], arg`; OnClicked tests it; the constructor clears it."
+  },
+  {
+   "struct": "CSavegameItem",
+   "offset": "0xAC",
+   "name": "scenario_name",
+   "type": "Hoi3CString",
+   "comment": "the header's `scenario`, emptied when no such scenario exists",
+   "evidence": "Constructor: assigned from the second pair when it is `scenario`, and set to '' after the 'loading scenario that doesnt exist' log."
+  },
+  {
+   "struct": "CBookmarkEntry",
+   "offset": "0x28",
+   "name": "bookmark",
+   "type": "CBookmark*",
+   "comment": "the bookmark the row shows and posts",
+   "evidence": "Constructor: param_3[10] = the bookmark; OnBookmarkClicked builds CSelectBookmark from [this+0x28]."
+  },
+  {
+   "struct": "CBookmarkEntry",
+   "offset": "0x2C",
+   "name": "button",
+   "type": "void*",
+   "comment": "the row's `bookmark` button",
+   "evidence": "Constructor: param_3[0xB] = FindButton('bookmark'); Update sets its frame through +0x1C+0x10."
+  },
+  {
+   "struct": "CBookmarkEntry",
+   "offset": "0x80",
+   "name": "setup",
+   "type": "CGameSetup*",
+   "comment": "the lobby, asked for the chosen start in Update",
+   "evidence": "Constructor: param_3[0x20]; Update reads it at this(+0x1C)+0x64."
+  },
+  {
+   "struct": "CBookmarkEntry",
+   "offset": "0x84",
+   "name": "is_cgm",
+   "type": "bool",
+   "comment": "the row is in the custom-game list",
+   "evidence": "Constructor: *(param_3 + 0x21) = last argument (0 or 1 by list); Update compares it with CGameSetup +0x6F8."
+  },
+  {
+   "struct": "CBookmark",
+   "offset": "0x8",
+   "name": "name",
+   "type": "Hoi3CString",
+   "comment": "`name`, localised (GetText of the key)",
+   "evidence": "LoadKey's `name` arm parses into +8, copies the key to +0x40, then replaces +8 with the rendered text; FUN_006EC690 returns +8."
+  },
+  {
+   "struct": "CBookmark",
+   "offset": "0x24",
+   "name": "desc",
+   "type": "Hoi3CString",
+   "comment": "`desc`, localised",
+   "evidence": "LoadKey's `desc` arm: +0x24, key copied to +0x5C, then rendered."
+  },
+  {
+   "struct": "CBookmark",
+   "offset": "0x40",
+   "name": "name_key",
+   "type": "Hoi3CString",
+   "comment": "`name` as written",
+   "evidence": "LoadKey copies the parsed name here before localising +8; SaveContents writes +0x40 as `name`."
+  },
+  {
+   "struct": "CBookmark",
+   "offset": "0x5C",
+   "name": "desc_key",
+   "type": "Hoi3CString",
+   "comment": "`desc` as written",
+   "evidence": "LoadKey and SaveContents, as for +0x40."
+  },
+  {
+   "struct": "CBookmark",
+   "offset": "0x78",
+   "name": "icon",
+   "type": "Hoi3CString",
+   "comment": "`icon`: the sprite of the row's button",
+   "evidence": "LoadKey's `icon` arm ParseString(this + 0x78); CBookmarkEntry::CBookmarkEntry sets the button's sprite from +0x78 when its length (+0x88) is not 0."
+  },
+  {
+   "struct": "CBookmark",
+   "offset": "0x94",
+   "name": "countries",
+   "type": "void*",
+   "comment": "the `country` tags, in order (0x14-byte id nodes, next at +0xC; tail +0x98, count +0x9C); a tag that is no country logs `Bad tag X in bookmark Y` and is left out",
+   "evidence": "LoadKey's `country` arm appends {tag, id} at +0x98/+0x9C; SaveContents walks +0x94."
+  },
+  {
+   "struct": "CBookmark",
+   "offset": "0xA4",
+   "name": "date",
+   "type": "int",
+   "comment": "`date`, a tick",
+   "evidence": "LoadKey's `date` arm Date_SetFromString (date in ESI = this + 0xA4); CBookmarkEntry shows FormatHourDate(+0xA4); CGameSetup::SelectBookmark clamps it."
+  },
+  {
+   "struct": "CBookmark",
+   "offset": "0xA8",
+   "name": "is_cgm",
+   "type": "bool",
+   "comment": "`is_cgm`",
+   "evidence": "LoadKey: ParseBool(this + 0xA8); SaveContents writes it."
+  },
+  {
+   "struct": "CBookmark",
+   "offset": "0xAC",
+   "name": "cgm_folder",
+   "type": "Hoi3CString",
+   "comment": "`cgm_folder`",
+   "evidence": "LoadKey: ParseString(this + 0xAC); SaveContents writes it."
+  },
+  {
+   "struct": "CBookmark",
+   "offset": "0xCC",
+   "name": "next",
+   "type": "CBookmark*",
+   "comment": "the next bookmark of its list (file order); +0xC8 the previous",
+   "evidence": "CBookmarkList_Load: new[0x32] = old tail, old tail +0xCC = new; BuildBookmarkLists walks +0xCC."
+  },
+  {
+   "struct": "CSetCountryControllerCommand",
+   "offset": "0x3C",
+   "name": "country",
+   "type": "CCountryTag",
+   "comment": "the country to control",
+   "evidence": "Constructor: +0x3C tag, +0x40 id; Execute's 'Local player will control' names +0x3C."
+  },
+  {
+   "struct": "CSetCountryControllerCommand",
+   "offset": "0x44",
+   "name": "previous",
+   "type": "CCountryTag",
+   "comment": "the country the human had (the state's player when posted from the lobby); handed to the AI where no other human holds it",
+   "evidence": "Constructor: +0x44/+0x48; Execute's 'AI will control' names +0x44 and zeroes played_countries[+0x48]."
+  },
+  {
+   "struct": "CSetCountryControllerCommand",
+   "offset": "0x4C",
+   "name": "human",
+   "type": "int",
+   "comment": "the human's id (CHuman +0x1C)",
+   "evidence": "Constructor: +0x4C = last argument; Execute: FindHumanById(state, +0x4C) and a compare with the session's +0x6C."
+  },
+  {
+   "struct": "CHuman",
+   "offset": "0x1C",
+   "name": "id",
+   "type": "int",
+   "comment": "the human's id; the state's humans are found by it",
+   "evidence": "0x685E10 walks state +0x60 comparing +0x1C; Update and the command compare it with the lobby's and the session's id."
+  },
+  {
+   "struct": "CHuman",
+   "offset": "0x28",
+   "name": "primary_local",
+   "type": "bool",
+   "comment": "logged 'set/unset as primary local' by CSetCountryControllerCommand::Execute",
+   "evidence": "Execute writes +0x28 = 0 and 1 beside those two log lines."
+  },
+  {
+   "struct": "CHuman",
+   "offset": "0x54",
+   "name": "next",
+   "type": "CHuman*",
+   "comment": "the next human of the state's list (+0x60)",
+   "evidence": "Every walk of state +0x60 in the lobby's code and in 0x685E10 steps through +0x54."
+  },
+  {
+   "struct": "CGameState",
+   "offset": "0xC0",
+   "name": "controllers_changed",
+   "type": "bool",
+   "comment": "set by CSetCountryControllerCommand::Execute when a country changes hands; the lobby's Update rebuilds its panel and clears it",
+   "evidence": "Execute stores 1 in two arms; CGameSetup::Update tests and clears it (field_0xc0)."
+  },
+  {
+   "struct": "CCurrentGameState",
+   "offset": "0xC0",
+   "name": "controllers_changed",
+   "type": "bool",
+   "comment": "as on CGameState (the record keeps the two apart)",
+   "evidence": "The same reads and writes on g_CCurrentGameState."
+  },
+  {
+   "struct": "CFrontEnd",
+   "offset": "0x764",
+   "name": "lobby_start_requested",
+   "type": "bool",
+   "comment": "set by CLobbyStartGame (CFrontEnd::RequestLobbyStart); CGameSetup::Update starts the game when it is set and CGameSetup_CanStart holds",
+   "evidence": "Slot 67/68 body `mov byte [ecx+0x764], 1`; Update at 0x70C07B reads [this+4]+0x764."
+  }
+ ],
+ "vftable_slots": {
+  "CGameSetup": {
+   "1": {
+    "name": "Prepare",
+    "signature": "void __thiscall Prepare(CGameSetup* this)"
+   },
+   "2": {
+    "name": "Show",
+    "signature": "void __thiscall Show(CGameSetup* this)"
+   },
+   "3": {
+    "name": "Hide",
+    "signature": "void __thiscall Hide(CGameSetup* this)"
+   },
+   "5": {
+    "name": "OnProvinceClicked",
+    "signature": "void __thiscall OnProvinceClicked(CGameSetup* this, CMapProvince* province)"
+   },
+   "6": {
+    "name": "GetElementTooltip",
+    "signature": "GuiTooltipText* __thiscall GetElementTooltip(CGameSetup* this, GuiTooltipText* out, void* element)"
+   },
+   "7": {
+    "name": "SelectBookmark",
+    "signature": "void __thiscall SelectBookmark(CGameSetup* this, CBookmark* bookmark)"
+   },
+   "9": {
+    "name": "GetStartName",
+    "signature": "Hoi3CString* __thiscall GetStartName(CGameSetup* this, Hoi3CString* out)"
+   },
+   "10": {
+    "name": "ClearBookmark",
+    "signature": "void __thiscall ClearBookmark(CGameSetup* this)"
+   },
+   "13": {
+    "name": "BuildBookmarkLists",
+    "signature": "void __thiscall BuildBookmarkLists(CGameSetup* this)"
+   }
+  },
+  "CSavegameItem": {
+   "4": {
+    "name": "OnClicked",
+    "signature": "void __thiscall OnClicked(CSavegameItem* this)"
+   },
+   "7": {
+    "name": "SetLoaded",
+    "signature": "void __thiscall SetLoaded(CSavegameItem* this, bool loaded)"
+   }
+  },
+  "CBookmarkEntry@0x1C": {
+   "9": "Update"
+  },
+  "CFrontEnd": {
+   "67": {
+    "name": "RequestLobbyStart",
+    "signature": "void __thiscall RequestLobbyStart(CFrontEnd* this)"
+   },
+   "68": {
+    "name": "RequestLobbyStart",
+    "signature": "void __thiscall RequestLobbyStart(CFrontEnd* this)"
+   },
+   "84": {
+    "name": "SelectBookmark",
+    "signature": "void __thiscall SelectBookmark(CFrontEnd* this, CBookmark* bookmark)"
+   },
+   "86": {
+    "name": "ClearBookmark",
+    "signature": "void __thiscall ClearBookmark(CFrontEnd* this)"
+   }
+  },
+  "CSelectBookmark": {
+   "6": "Execute"
+  },
+  "CClearBookmark": {
+   "6": "Execute"
+  },
+  "CLobbyStartGame": {
+   "6": "Execute"
+  },
+  "CSetCountryControllerCommand": {
+   "6": "Execute"
+  }
+ },
+ "frontier": [
+  "0x30FB30",
+  "0x317D60",
+  "0x308190",
+  "0x30E3D0",
+  "0x31C560",
+  "0x31CA00",
+  "0x31BF10",
+  "0x2F1D50",
+  "0x23D350",
+  "0x244FE0",
+  "0x28BA80",
+  "0x2D59B0",
+  "0x2D4F70",
+  "0x2FBA00",
+  "0x2F1320",
+  "0x303930",
+  "0x8558F0"
+ ]
+}
