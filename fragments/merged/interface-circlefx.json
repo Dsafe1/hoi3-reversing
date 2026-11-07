@@ -1,0 +1,321 @@
+{
+ "agent": "interface-circlefx",
+ "question": "How the air map mode's range rings are drawn through gfx/FX/circle.fx and map/Sector.dds, exactly enough for another program to feed the install's own circle.fx as the original does: the vertices, every parameter, the technique, the render states, when and in what order.",
+ "source": "reversing/findings/FINDINGS-airmap.md",
+ "addresses": [
+  {
+   "rva": "0x1350",
+   "kind": "function",
+   "name": "CAreaCircleObject::CAreaCircleObject",
+   "signature": "CAreaCircleObject* __stdcall CAreaCircleObject::CAreaCircleObject(CAreaCircleObject* this@stack:4, CGraphics* graphics@stack:8) @EAX",
+   "no_signature": null,
+   "comment": "**The range ring's constructor**; `this` is a stack argument, as C3dVisibleObject's is. C3dVisibleObject::C3dVisibleObject(this, type 0) - so no object type, and slot 12 later answers no mesh; radius (+0x138) = 0; graphics (+0x13C); the CColor at +0x148 built inline (vftable VA 0x15B6914, token 0x18D, r = g = b = a = 1.0); full (+0x160) = 1; **texture (+0x140) = the graphics' texture table (+0x158) entry for `map/Sector.dds`** (0xA60F30, flag 1); **effect (+0x144) = FxHandler_Register(graphics +0x6BCFC, <folder> + `/FX/circle.fx`, key `circle`, the device)** - one ID3DXEffect shared by every ring, the folder from the settings object at VA 0x1A85558 (+0xB8, or +0x25C, or both through 0x44C2F0 by its +0x4C); then SetRadius(0), which writes nothing because the radius is already 0. Returns `this`, `ret 8`. One caller, UpdateAirBaseCircles, after `new 0x218`. The name is ours. See reversing/findings/FINDINGS-airmap.md, section 8.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-airmap.md",
+   "evidence": "Read whole off the listing 0x401350-0x4016BA (`ret 8`, int3 after): `push edi(0); push ebx; call 0x4011b0`; `mov [ebx], 0x15b4cd4` (the CAreaCircleObject vftable, findRefs --vftable); `mov [ebx+0x13c], eax` from [ebp+0xc]; `mov [ebx+0x14c], 0x18d; mov [ebx+0x148], 0x15b6914` (CColor's vftable by the RTTI export); four movss of 1.0 (0x171DBAC) to +0x150..+0x15C; `mov byte [ebx+0x160], 1`; `push 0x15b4948 'map/Sector.dds'` ... `call 0xa60f30` result to +0x140; `push 0x15b4958 '/FX/circle.fx'`, `push 0x15b4968 'circle'`, `add eax, 0x6bcfc` (CGraphics effect_handler), `call 0xa61dd0` (FxHandler_Register) result to +0x144; `call 0x401720` with +0x138. findRefs --callers 0x401350: one call, 0x86B216. Wrong if the 0x4011B0 call were not C3dVisibleObject's constructor (the record names it)."
+  },
+  {
+   "rva": "0x1950",
+   "kind": "function",
+   "name": "CAreaCircleObject::Draw",
+   "signature": "void __thiscall CAreaCircleObject::Draw(CAreaCircleObject* this, CGraphics* graphics, void* device, float* world, float slot22, int unused1, int unused2)",
+   "no_signature": null,
+   "comment": "CAreaCircleObject slot 10, called by MapObjectGroup_Draw's no-mesh path with (the CGraphics, its device, &this->world (+0x94), slot 22's float - 0.0 here - and slot 22's two zero arguments, which that stub leaves on the stack); **only the first two are read**. The effect is graphics +0x6BD00 [effect (+0x144) - 1] (no test for a null pointer): SetMatrix(`WorldMatrix`, this +0x94 - the world transform, which for a ring is a pure translation to the air base at height 1.0); SetMatrix(`ViewMatrix`, the view's (graphics +0x6BC88) +0x1C object slot 91 (+0x16C)); SetMatrix(`ProjectionMatrix`, the same object's slot 93 (+0x174)); SetFloatArray(`vStrength`, {+0x150, +0x15C}, 2) - the CColor's r (the strength share) and a (1, or 0.3 dimmed); SetTexture(`SectorTex`, the texture table's entry +0x140 - null where it is -1 or above 9999); Begin(&passes, 0) - flags 0, so the effect saves and restores the device state it sets; BeginPass(0) **only**; device SetFVF(0x102 = D3DFVF_XYZ | D3DFVF_TEX1); **DrawIndexedPrimitiveUP(D3DPT_TRIANGLELIST, 0, 9 vertices, 8 triangles, the 24 indices at rva 0x1312310 (VA 0x1712310), D3DFMT_INDEX16, the vertices at +0x164, stride 0x14)**; EndPass; End. **No SetTechnique**: the effect's current technique is drawn, which in circle.fx can only be its one technique `Standard`. No render state is set here; the pass sets ZENABLE and ZWRITEENABLE false, ALPHABLENDENABLE true and ALPHATESTENABLE false, and the blend factors are left as MapObjectGroup_Draw set them (SRCALPHA / INVSRCALPHA). `ret 0x18`. The name is ours. See reversing/findings/FINDINGS-airmap.md, section 8.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-airmap.md",
+   "revises": "signature written - the six stack dwords are identified (the old no_signature said four were not); the comment now gives the device calls, the primitive, the index buffer, the FVF, the effect's flags and the absence of SetTechnique",
+   "evidence": "Read whole off the listing 0x401950-0x401AF9. ID3DXEffect slots by D3DX9's vtable order: +0x24 GetParameterByName (strings 0x15B4970 'WorldMatrix', 0x15B497C 'ViewMatrix', 0x15B4988 'ProjectionMatrix', 0x15B499C 'vStrength', 0x15B49A8 'SectorTex'), +0x98 SetMatrix, +0x80 SetFloatArray (push 2), +0xD0 SetTexture, +0xFC Begin (push 0; lea edx,[ebp-4]), +0x100 BeginPass (push 0), +0x108 EndPass, +0x10C End; device +0x164 SetFVF (push 0x102), +0x150 DrawIndexedPrimitiveUP (pushes 0x14, ebx+0x164, 0x65, 0x1712310, 8, 9, 0, 4). The call site 0xA72115-0xA7213D in MapObjectGroup_Draw: `push 0; push 0; call [vt+0x58]` (slot 22 = rva 0x750610, `fldz; ret`, which pops nothing), then `push ecx(float); push edi+0x94; push device; push esi(graphics)` and `call [vt+0x28]` - six dwords for `ret 0x18`. findRefs --address 0x1712310: one reference, this push. Wrong if MapObjectGroup_Draw were not the only caller of slot 10 for a ring (vtable.py --holding 0x401950: one table)."
+  },
+  {
+   "rva": "0x1720",
+   "kind": "function",
+   "name": "CAreaCircleObject::SetRadius",
+   "signature": "void __thiscall CAreaCircleObject::SetRadius(CAreaCircleObject* this, float radius)",
+   "no_signature": null,
+   "comment": "CAreaCircleObject slot 39: where the radius differs from +0x138 (compared in double precision; equal does nothing), keeps it there and writes **nine vertices of {x, y, z, u, v}** at +0x164, 0x14 bytes each, r the radius: 0 (0, 0, 0) uv (1, 1) - the centre; 1 (0, 0, r) (1, 0); 2 (-r, 0, r) (0, 0); 3 (-r, 0, 0) (0, 1); 4 (-r, 0, -r) (0, 0); 5 (0, 0, -r) (1, 0); 6 (r, 0, -r) (0, 0); 7 (r, 0, 0) (0, 1); 8 (r, 0, r) (0, 0). y is up and 0; z is north. The static index list at rva 0x1312310 makes them eight triangles, two to a quarter: (3,2,1) (3,1,0) north-west, (0,1,8) (0,8,7) north-east, (4,3,0) (4,0,5) south-west, (5,0,7) (5,7,6) south-east - clockwise seen from above. So **u = 1 - |x| / r and v = 1 - |z| / r**: Sector.dds is mirrored into each quarter with its corner (1, 1) - the bottom right of the image - at the centre. `ret 4`. The name is ours. See reversing/findings/FINDINGS-airmap.md, sections 6 and 8.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-airmap.md",
+   "revises": "comment only: the nine vertices, their texture coordinates and the index list written out in place of 'the four quarters ... the centre at texture (1, 1)'",
+   "evidence": "Read whole off the listing 0x401720-0x401944: xmm2 = the radius, xmm1 = -radius (`xorps` with the sign mask at VA 0x160A380), xmm0 = 0, the float at 0x171DBAC = 1.0; each store traced through the [ebp-0x10]/[ebp-0xc]/[ebp-8] staging (e.g. +0x18C <- (-r, 0), +0x194 <- r, +0x198/+0x19C <- 0). 0x218 - 0x164 = 0xB4 = 9 x 0x14, the object's size. Indices read from the image at VA 0x1712310: 3,2,1, 3,1,0, 0,1,8, 0,8,7, 4,3,0, 4,0,5, 5,0,7, 5,7,6. The texture's corner checked on the file: Sector.dds (L8, 1024 x 1024) is 0 within 0.47 of the side from its bottom-right corner, rises to 254 at 0.92 and is 0 again by 0.96 - a quarter ring centred on that corner. Wrong if a later call rewrote +0x164 (nothing else writes there: the constructor's SetRadius(0) is a no-op)."
+  },
+  {
+   "rva": "0x46AD60",
+   "kind": "function",
+   "name": "UpdateAirBaseCircles",
+   "signature": "void __stdcall UpdateAirBaseCircles(void* provinceObjects)",
+   "no_signature": null,
+   "comment": "**The circles of range round the player's air bases.** The argument is the map-graphics object (WaterObject / CProvinceManager, the graphics owner's +0x1DC4: +0x3C the CGraphics, +0x4158 the graphics owner). ClearAirBaseCircles; selected = some entry of the in-game idler's selection (CCurrentGameState +0xBE8 -> +0x1304) answers 2 from its slot 1 (an air unit); then for each province of the player's AirBases (CCountry +0xD70) whose air base object (CMapProvince +0x54) has units: the units sorted by their definition's range (InsertUnitByRange), grouped where a unit's range is within 100 of the group's (the floor of 100.5 at 0x160A684) - the group taking the joiner's range, adding its regiments' strength (+0x5C) and its slot 23 (most strength), selected where any unit's is_selected (+0x4) is set - and for each group: share = float(strength / 1000.0) / float(most / 1000.0); `new 0x218` and CAreaCircleObject::CAreaCircleObject(graphics); its CColor (+0x148) = (share, share, share, a) with a = 0.3 (VA 0x15C05EC) where an air unit is selected and none of the group's is, and full (+0x160) = 0, else a = 1.0 and full = share > 0.999 (the double at VA 0x160A2D8); SetRadius(float(float(range / 1000.0) x 0.25)) (slot 39); **ObjectLayer_Add on the graphics owner's layer +0x14D4** - WaterObject +0x60, the last object group MapGraphics_DrawScene draws; Show (slot 13); C3dObject::Translate (slot 33) by (air base position - label point): (CProvinceTemplate +0x258 [the air base building's +0x54 index].x - label_x, 0, .y - label_y); **ProvinceGraphics_PlacePicture(owner +0x1DF0 [province id], owner, circle, raise 1)** where that entry exists - hung on the province's CProvinceObject, 1.0 higher; the province's count +0x398 + 1. Each circle is kept in the vector at +0x4 with its province. Called by MapMode_Air_Set, CInGameIdler::DailyUpdate, MapMode_SwitchIcons and, when the idler's byte +0x1D3C is set in mode 18, CInGameIdler::Update. The name is ours. See reversing/findings/FINDINGS-airmap.md, sections 6 and 8.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-airmap.md",
+   "revises": "comment: the colour is a CColor (+0x148), the share's single-precision arithmetic, the layer it goes on (owner +0x14D4 = WaterObject +0x60), the Translate and the PlacePicture with raise 1 that place it",
+   "evidence": "Read off the listing 0x86ADB4-0x86B3A3: the selection walk 0x86AE45-0x86AE6D (`mov ecx,[eax+0xbe8]; mov esi,[ecx+0x1304]`, slot 1 `cmp eax, 2`); position 0x86AF89-0x86AFEB (`mov ecx,[ecx+0xd4]`, ints +0x5C/+0x60, `[eax+0x54] shl 4 add [ecx+0x258]`, floats +8/+0xC, y slot 0); share 0x86B188-0x86B1CE (cvtdq2ps, /1000.0 at VA 0x160A300, cvtpd2ps, divsd); 0x86B1EB `push 0x218`, 0x86B216 `call 0x401350`; 0x86B221-0x86B2D0 the a and full tests; 0x86B2FB `mov [esi+0x14c], 0x18d`; 0x86B307 `[eax+0x9c]` (slot 39) with the range x 0.25 (VA 0x160A258); 0x86B326 `mov ecx,[ebx+0x4158]; ... add ecx, 0x14d4; call [vt+0x10]`; 0x86B340 `[vt+0x34]`; 0x86B349 `[vt+0x84]` with &[esp+0x48]; 0x86B362-0x86B379 `[ecx+0x1df0][id]`, `push 1; push esi; push ecx; call 0x640ca0`; 0x86B388 `inc [eax+0x398]`. WaterObject +0x60 = owner +0x14D4 from the constructor 0x84F570's `mov [ebx+0x60], [ebp+0x40]` and the setup's last push `lea eax,[edi+0x14d4]` at 0x640763."
+  },
+  {
+   "rva": "0x65CD80",
+   "kind": "function",
+   "name": "C3dObject::Translate",
+   "signature": "void __thiscall C3dObject::Translate(C3dObject* this, const float* xyz)",
+   "no_signature": null,
+   "comment": "C3dObject slot 33, inherited unchanged by thirteen derived classes: **the local transform (+0x54, sixteen floats, D3D row-major) times a translation by (x, y, z)** - an identity made by Matrix4x4_Diagonal(1.0) with xyz as its fourth row, multiplied on the right, each product in double precision and stored as float; it writes +0x54..+0x90 and nothing else. On an object whose local transform is still the identity it simply sets the translation row (+0x84, +0x88, +0x8C) to xyz. The large air base, the resource icons and the range rings are placed with it at (position - label point), and CProvinceObject's constructor puts a province's anchor at its point. `ret 4`. The name is ours. See reversing/findings/FINDINGS-airmap.md, section 8.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-airmap.md",
+   "evidence": "Read off the listing 0xA5CD80-0xA5D3C9 (`ret 4`; slot 44 starts at 0xA5D3D0): `movss xmm1, [0x171dbac]; lea eax,[esp+8]; call 0x401b00` (identity), then e.g. new +0x54 = m00*T0 + m01*T4 + m02*T8 + m03*x (x = [arg]), new +0x60 = m00*T3 + m01*T7 + m02*T11 + m03, last store +0x90. vtable.py --holding 0xA5CD80: slot 33 of C3dObject, C3dVisibleObject, CAreaCircleObject, CCounterObject, CCounterStack, CHoiAvatar, CMasked3dFlag, CProjectionObject, CProvinceCollisionObject, CProvinceObject, CProvinceWaterObject, CShield3dObject, CSmallAvatarBase, CUnitArrow - one family, so inheritance (trap 4). Wrong if the multiply were on the left (it would then move by the matrix's own axes; for the identity locals here the two agree)."
+  },
+  {
+   "rva": "0x477920",
+   "kind": "function",
+   "name": "CProvinceObject::CProvinceObject",
+   "signature": "CProvinceObject* __stdcall CProvinceObject::CProvinceObject(CProvinceObject* this@ESI, const int* point@EDI, CGraphics* graphics@stack:4, int provinceId@stack:8) @EAX",
+   "no_signature": null,
+   "comment": "**A land province's anchor on the map** - the node at its province graphics entry's +0x10 that every picture of the province is hung on (ProvinceGraphics_PlacePicture). C3dVisibleObject::C3dVisibleObject(this, no type); CProvinceCollisionObject's part inline (its vftable, +0x138 the graphics, +0x13C/+0x140 the point's two ints, +0x144 the province id); its own vftable; +0x14C = 0; then **C3dObject::Translate(float(point.x), 0, float(point.y))** - so the anchor stands at height 0. The map-graphics builder (0x856AF9 and around) passes the template's centre (CProvinceTemplate +0x2C/+0x30) for a land province with a bounding box (bbox_width +0x88 not 0); a sea zone gets a CProvinceWaterObject (0x477E20) at its label point (+0x5C/+0x60) instead. Returns `this`, `ret 8`. The name is ours. See reversing/findings/FINDINGS-airmap.md, section 8.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-airmap.md",
+   "evidence": "Read whole off the listing 0x877920-0x87799E: `push 0; push esi; call 0x4011b0`; `mov [esi], 0x15e205c` (CProvinceCollisionObject's vftable, RTTI), +0x138 <- [ebp+8], +0x13C <- [edi], +0x140 <- [edi+4], +0x144 <- [ebp+0xc]; `mov [esi], 0x15e345c` (CProvinceObject's, findRefs --vftable); +0x14C <- 0; cvtdq2ps of [edi] and [edi+4] with 0.0 between, `call 0xa5cd80`; `mov eax, esi; ret 8`. The caller at 0x856CAC-0x856CCE: `cmp [ebx+0x88], 0`, `push 0x160; call new`, `push edi(id)`, `lea edi,[ebx+0x2c]`, `push [esi+0x3c]` (the CGraphics); ebx is CMap +0x2A60 [id] (the template), after `cmp byte [ebx+0x22], 0` (is_land) sent sea zones to 0x856BD3 (`lea edi,[ebx+0x5c]; call 0x877e20`). Wrong if the anchor's parent added a translation of its own (not read: see the section's open list)."
+  },
+  {
+   "rva": "0x23EBC0",
+   "kind": "function",
+   "name": "ProvinceGraphics_Construct",
+   "signature": "void* __stdcall ProvinceGraphics_Construct(void* entry@stack:4, CProvinceTemplate* tmpl@stack:8, CMapProvince* province@ECX, CProvinceCollisionObject* anchor@EDX) @EAX",
+   "no_signature": null,
+   "comment": "**A province graphics entry's constructor** (0xA4 bytes; the entries of WaterObject +0x2C, which the graphics owner reads as its +0x1DF0 [province id]). Writes +8 the template, +0xC the province, **+0x10 the anchor** - the CProvinceObject or CProvinceWaterObject the map-graphics builder made just before - zeroes the vectors and fields after, +0x38 the tag `NON`, +0xA0 from a running counter (VA 0x1A855F8, incremented), and ends with +0x8C from a comparison. Only the head (to 0x63EC38) and the tail were read. Returns the entry, `ret 8`. The name is ours. See reversing/findings/FINDINGS-airmap.md, section 8.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-airmap.md",
+   "evidence": "Listing 0x63EBC0-0x63EC38: `mov eax,[ebp+0xc]; mov ebx,[ebp+8]; mov [ebx+8], eax; mov [ebx+0xc], ecx; mov [ebx+0x10], edx`, `mov [ebx+0x38], 0x4e4f4e`, `mov eax,[0x1a855f8]; mov [ebx+0xa0], eax; inc eax`; tail 0x63ED2C `mov eax, ebx` ... `ret 8` at 0x63ED39, retsBefore(0x63EBC0, 0x63ED39) empty. Callers 0x856C3D (sea, edx = the CProvinceWaterObject) and 0x856D1A (land, edx = the CProvinceObject), each after `push 0xa4; call new`, `mov ecx,[ebx+0x10]`, `push ebx`; the entry is then appended to [esi+0x2c..0x34] (0x856C57-0x856C96). Wrong if +0x10 were overwritten later in the body (the middle 0x63EC38-0x63ED20 was not read)."
+  },
+  {
+   "rva": "0x44E450",
+   "kind": "function",
+   "name": "Matrix4x4_Multiply",
+   "signature": "float* __stdcall Matrix4x4_Multiply(float* out@EAX, const float* left@stack:4, const float* right@EDX) @EAX",
+   "no_signature": null,
+   "comment": "out = left x right, sixteen floats each, D3D row-major (a row vector times left, then right); every product summed in double precision and stored as float, the result built in locals and copied to out at the end, so out may alias neither argument safely only by that copy. Returns out. ProvinceGraphics_PlacePicture makes a picture's world transform with it: its local transform (+0x54) x its anchor's world (+0x94). `ret 4` at 0x44EAC6. The name is ours. See reversing/findings/FINDINGS-airmap.md, section 8.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-airmap.md",
+   "evidence": "Listing 0x84E450-0x84EAC6: `mov ecx,[ebp+8]` (left), the first sum L[13]*R[4] + L[12]*R[0] + L[14]*R[8] + L[15]*R[12] (+0x34, +0x30, +0x38, +0x3C against [edx], +0x10, +0x20, +0x30) - row 3 of left times right; the eight `movq qword [eax+n]` stores at 0x84EA79-0x84EABE; `ret 4`. PlacePicture's call at 0x640D20: `push ebx+0x54; lea edx,[node+0x94]; lea eax,[esp+0x24]`, the result copied from EAX into +0x94. Note a decode started at 0x84EA50 shows a spurious `ret` (trap 9); the real end is 0x84EAC6."
+  },
+  {
+   "rva": "0x1B00",
+   "kind": "function",
+   "name": "Matrix4x4_Diagonal",
+   "signature": null,
+   "no_signature": "The output matrix in EAX and the diagonal value in XMM1, nothing on the stack and a bare `ret` - an SSE register argument no signature can place.",
+   "comment": "Writes sixteen floats at EAX: XMM1 on the diagonal and 0.0 elsewhere - with XMM1 = 1.0 (VA 0x171DBAC) the identity. C3dObject's constructor (0xA600E0) makes its local (+0x54) and world (+0x94) transforms with it, so both start as the identity, and C3dObject::Translate builds its translation from it. The name is ours. See reversing/findings/FINDINGS-airmap.md, section 8.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-airmap.md",
+   "evidence": "Listing 0x401B00-0x401BBE (bare `ret`): xmm0 zeroed, pairs staged on the stack and stored with movq to [eax]..[eax+0x38], xmm1 at floats 0, 5, 10 and 15. Callers seen: 0xA60141 and 0xA60154 (`lea eax,[esi+0x54]` / `lea eax,[esi+0x94]`, xmm1 = 1.0), 0xA5CD98, 0xA65317. Wrong if a float off the diagonal took xmm1 (each store pair was read)."
+  },
+  {
+   "rva": "0x665720",
+   "kind": "function",
+   "name": "ObjectLayer_Add",
+   "signature": "void __stdcall ObjectLayer_Add(void* layer@ECX, C3dVisibleObject* object@stack:4)",
+   "no_signature": null,
+   "comment": "Slot 4 of the map's object layer (a 0x17C-byte class with no RTTI, vftable VA 0x15FCEA8; the graphics owner embeds nineteen, at +0xC + 0x17C k, and WaterObject +0x44..+0x70 point at twelve of them): marks the layer dirty (+0x134 = 1), gives the object the layer through its slot 16 (its scene, +0xE8), links it under the layer's root C3dObject (+0x2C) through its slot 29, and enters it in the layer's map at +4, keyed by the object's address. `ret 4`. UpdateAirBaseCircles adds every ring to owner +0x14D4. The name is ours. See reversing/findings/FINDINGS-airmap.md, section 8.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-airmap.md",
+   "evidence": "Listing 0xA65720-0xA65758: `mov byte [esi+0x134], 1`; `call [vt+0x40]` with esi; `lea ecx,[esi+0x2c]; push ecx; call [vt+0x74]`; `lea eax,[esi+4]; lea edx,[ebp+8]; call 0x86b9c0` (a red-black tree find-or-insert on the key [edx]); `mov [eax], edi`; `ret 4`. Slot 4 of the table 0x15FCEA8, which the layer constructor 0xA65250 writes. The layer is not in the RTTI export, so vtable.py cannot list other holders of this body."
+  },
+  {
+   "rva": "0x6716D0",
+   "kind": "function",
+   "name": "MapObjectGroup_Draw",
+   "signature": "void __stdcall MapObjectGroup_Draw(CGraphics* graphics, void* view, void* group)",
+   "no_signature": null,
+   "comment": "Draws one map object group (the graphics' groups +0x5C, +0x70, +0x64, +0x60 in MapGraphics_DrawScene, each only where MapObjects_UpdateLayerVisibility set its +0x179) - the fixed-function and effect objects of the map: CGraphics +0x6BC88 = view; sampler 0 MINFILTER ANISOTROPIC, MAGFILTER LINEAR; SetViewport(the view's first 24 bytes); VIEW and PROJECTION transforms from the view; stage 0 COLOROP/ALPHAOP MODULATE (TEXTURE, CURRENT), stage 1 off; ALPHABLENDENABLE 1, SRCALPHA/INVSRCALPHA; then per object kind AMBIENT, WORLD, LIGHTING 1 / SPECULAR 0, ZENABLE and ALPHABLENDENABLE toggled - read only through its state calls; what each kind draws was not read. **The no-mesh path, read for the range rings** (0xA72047-0xA72160): for each object of the group's draw list (the layer's +0x14, slot 9) whose slot 79 answers true (visible +0x29 and +0x4D): where its slot 12 answers no mesh - a C3dVisibleObject with no object type, as a CAreaCircleObject - WORLD = its +0x94; ZENABLE set to the opposite of its slot 78 (byte +0x135) where it differs; ALPHABLENDENABLE made 1; its slot 5; its slot 22's float; **its slot 10 (Draw) with (graphics, device, &+0x94, that float)**; ALPHABLENDENABLE put back. The scene follows each call with an inlined counter of calls per second into CGraphics +0x84 (timeGetTime, every 1000 ms). Stack-realigned frame, `ret 0xC`. The name is ours. See reversing/findings/FINDINGS-airmap.md, section 8.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-mapdraw.md",
+   "revises": "comment: the no-mesh path that calls a ring's Draw added, with the arguments it passes; the rest kept as it was",
+   "evidence": "Listing 0xA72047-0xA72160: `call [vt+0x13c]`, `test al,al`; `call [vt+0x30]`, `test eax,eax; jne` (the mesh path); device +0xB0 SetTransform(0x100 = D3DTS_WORLD, edi+0x94); +0xE8 GetRenderState(7) and `call [vt+0x138]` with the two-way set; GetRenderState(0x1B) / SetRenderState(0x1B, 1); `call [vt+0x14]`; `push 0; push 0; call [vt+0x58]`; `push ecx; fstp [esp]; push edi+0x94; push device; push esi; call [vt+0x28]`; GetRenderState(0x1B) and restore. The early states (0x1B = 1, 0x13 = 5, 0x14 = 6) from the decompilation of the head. Slot 79 = rva 0x1140 (`cmp [ecx+0x29],0; cmp [ecx+0x4d],0`), slot 78 = 0x12A0 (`mov al,[ecx+0x135]`), slot 12 = 0x65E720 (null where +0xF8 is null), slot 22 = 0x750610 (`fldz; ret`) in CAreaCircleObject's table."
+  },
+  {
+   "rva": "0x241950",
+   "kind": "function",
+   "name": "GraphicsOwner_DrawLayers",
+   "signature": "void __stdcall GraphicsOwner_DrawLayers(void* owner@EDI, MapCamera* camera@stack:4, void* view@stack:8)",
+   "no_signature": null,
+   "comment": "**The graphics owner's own object layers, after the map's 3D scene** (the in-game frame calls MapGraphics_DrawScene at 0x25704B and this at 0x25716B). ALPHATESTENABLE 0 and ALPHABLENDENABLE 0; then, each through MapObjectGroup_Draw's wrapper (0x673B10) and each only where its visible byte (+0x179) is set but the first: +0xEE4 always; +0xC; +0x8F4 (after 0xA659C0); +0x480 with ZWRITEENABLE and ZENABLE off around it; +0x1060; +0x188; +0xBEC; +0x11DC; +0x304 with ZENABLE off around it; +0xA70; WaterObject's 0x85BB60 where the camera's height is below the settings' +0xFC, the settings' +0x58 is set and the layer mask has 0x4; +0x1948; and +0x1AC4 after clearing the depth and stencil buffers. **The layer at +0x14D4, where the range rings are, is not among them** - it is WaterObject +0x60 and is drawn inside MapGraphics_DrawScene. Its +0xC argument slot is reused as a local. `ret 8`. The name is ours. See reversing/findings/FINDINGS-airmap.md, section 8.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-airmap.md",
+   "evidence": "Listing 0x641950-0x641BA4: device +0xE4 SetRenderState(0xF, 0), (0x1B, 0); `lea eax,[edi+0xee4]; mov ecx, ebx; call 0xa73b10`; the tests `cmp byte [edi+0x185]` (+0xC + 0x179), +0xA6D (+0x8F4), +0x5F9 (+0x480, with (0xE,0),(7,0) before and (7,1),(0xE,1) after), +0x11D9, +0x301, +0xD65, +0x1355, +0x47D (+0x304, (7,0)/(7,1)), +0xBE9, +0x1AC1, +0x1C3D (+0x1AC4, after device +0xAC Clear(0, 0, 6, 0xFF000000, 1.0, 0)); no `0x14d4` and no `+0x164D` test in the body. findRefs --callers 0x641950: 0x65716B, 0x69EC0B, 0x6EED57; the frame routine's 0x65704B `call 0x85be50` precedes 0x65716B."
+  }
+ ],
+ "structs": [
+  {
+   "name": "CProvinceCollisionObject",
+   "inherits": "C3dVisibleObject",
+   "vftable_rva": "0x11E205C",
+   "comment": "The base of a province's anchor on the map (CProvinceObject for land, CProvinceWaterObject for a sea zone): a C3dVisibleObject with the graphics, the map point it stands on and the province's id. Its constructor is inlined into both derived constructors. See reversing/findings/FINDINGS-airmap.md, section 8.",
+   "source": "reversing/findings/FINDINGS-airmap.md",
+   "evidence": "RTTI export: CProvinceCollisionObject's one base is C3dVisibleObject at offset 0, its table 0x015E205C (VA) with 96 slots; CProvinceObject::CProvinceObject (VA 0x877920) and CProvinceWaterObject's constructor (0x877E20) both write 0x15E205C right after C3dVisibleObject's constructor and before their own vftable. Size omitted: the land object is 0x160 and the water object 0x15C, so the base is at most 0x15C."
+  },
+  {
+   "name": "CProvinceObject",
+   "size": "0x160",
+   "inherits": "CProvinceCollisionObject",
+   "vftable_rva": "0x11E345C",
+   "comment": "**A land province's anchor on the map**: the node at its province graphics entry's +0x10 on which ProvinceGraphics_PlacePicture hangs the province's pictures - buildings, resources, the large air base, the range rings. Placed by C3dObject::Translate at the province's centre (CProvinceTemplate +0x2C/+0x30), height 0. See reversing/findings/FINDINGS-airmap.md, section 8.",
+   "source": "reversing/findings/FINDINGS-airmap.md",
+   "evidence": "RTTI export: base CProvinceCollisionObject at 0, table 0x015E345C (VA). The builder's `push 0x160; call 0xb9602f` at 0x856CAC before `call 0x877920`."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CAreaCircleObject",
+   "offset": "0x13C",
+   "name": "graphics",
+   "type": "CGraphics*",
+   "comment": "The CGraphics the ring was made with (the constructor's argument): its texture table (+0x158) holds the texture and its effect list (+0x6BD00) the effect. See reversing/findings/FINDINGS-airmap.md, section 8.",
+   "evidence": "Constructor `mov [ebx+0x13c], eax` from [ebp+0xc]; Draw `mov ecx,[ebx+0x13c]; mov edx,[ecx+0x6bd00]` and `mov edx,[ebx+0x13c]` ... `[ecx+edx+0x15c]`."
+  },
+  {
+   "struct": "CAreaCircleObject",
+   "offset": "0x140",
+   "name": "texture",
+   "type": "int",
+   "comment": "The index of `map/Sector.dds` in the graphics' texture table (+0x158, 0x2C an entry, the texture pointer at +4 of the entry); Draw hands SectorTex nothing where it is -1 or above 9999. See reversing/findings/FINDINGS-airmap.md, section 8.",
+   "evidence": "Constructor `call 0xa60f30` ... `mov [ebx+0x140], eax`; Draw `cmp ecx, -1; cmp ecx, 0x270f; imul ecx, ecx, 0x2c; mov ecx,[ecx+edx+0x15c]`."
+  },
+  {
+   "struct": "CAreaCircleObject",
+   "offset": "0x144",
+   "name": "effect",
+   "type": "int",
+   "comment": "The 1-based index of `circle.fx` in the graphics' effect list, from FxHandler_Register under the key `circle` - one ID3DXEffect shared by every ring. See reversing/findings/FINDINGS-airmap.md, section 8.",
+   "evidence": "Constructor `call 0xa61dd0; mov [ebx+0x144], eax`; Draw `mov eax,[ebx+0x144]` ... `mov esi,[edx+eax*4-4]`."
+  },
+  {
+   "struct": "CAreaCircleObject",
+   "offset": "0x148",
+   "name": "colour_vftable",
+   "type": "void*",
+   "comment": "A **CColor held by value** occupies +0x148..+0x15F: this is its vftable word (VA 0x15B6914), +0x14C its CPersistent token and +0x150, +0x154, +0x158, +0x15C its r, g, b, a. UpdateAirBaseCircles sets it to (share, share, share, dim). Recorded by its parts so that share and dim keep their names. See reversing/findings/FINDINGS-airmap.md, section 8.",
+   "evidence": "Constructor `mov [ebx+0x148], 0x15b6914` - CColor's vftable by the RTTI export, whose record has r, g, b, a at +8..+0x14 - and the four floats after it."
+  },
+  {
+   "struct": "CAreaCircleObject",
+   "offset": "0x14C",
+   "name": "colour_token",
+   "type": "SaveToken",
+   "comment": "The CColor's CPersistent token, `none` (0x18D), written by the constructor and again by UpdateAirBaseCircles; nothing reads it. Not a colour component - FINDINGS-airmap.md, section 6, listed it as the first of five. See reversing/findings/FINDINGS-airmap.md, section 8.",
+   "evidence": "Constructor `mov [ebx+0x14c], 0x18d`; UpdateAirBaseCircles 0x86B2FB `mov [esi+0x14c], 0x18d`; the same value every inlined CPersistent constructor writes."
+  },
+  {
+   "struct": "CAreaCircleObject",
+   "offset": "0x150",
+   "name": "share",
+   "type": "float",
+   "comment": "The CColor's r: the strength share of the ring's group, float(strength / 1000) / float(most strength / 1000); g (+0x154) and b (+0x158) hold the same. The first half of vStrength, which circle.fx turns into red (0) through yellow (0.5) to green (1). See reversing/findings/FINDINGS-airmap.md, sections 6 and 8.",
+   "revises": "comment: it is the r of a CColor at +0x148, and the share's arithmetic",
+   "evidence": "UpdateAirBaseCircles stores [esp+0x7c..0x88] = (share, share, share, a) as two qwords at +0x150 and +0x158; Draw reads +0x150 into vStrength.x."
+  },
+  {
+   "struct": "CAreaCircleObject",
+   "offset": "0x154",
+   "name": "share_g",
+   "type": "float",
+   "comment": "The CColor's g: the share again. Nothing in the ring's drawing reads it. See reversing/findings/FINDINGS-airmap.md, section 8.",
+   "evidence": "UpdateAirBaseCircles 0x86B2A1 `movss [esp+0x80], xmm0` then the qword store to +0x150; Draw reads only +0x150 and +0x15C."
+  },
+  {
+   "struct": "CAreaCircleObject",
+   "offset": "0x158",
+   "name": "share_b",
+   "type": "float",
+   "comment": "The CColor's b: the share again. Nothing in the ring's drawing reads it. See reversing/findings/FINDINGS-airmap.md, section 8.",
+   "evidence": "UpdateAirBaseCircles 0x86B2AA `movss [esp+0x84], xmm0` then the qword store to +0x158."
+  },
+  {
+   "struct": "CAreaCircleObject",
+   "offset": "0x15C",
+   "name": "dim",
+   "type": "float",
+   "comment": "The CColor's a: 1, or 0.3 where an air unit is selected and none of the ring's group is; the second half of vStrength, a factor on the alpha. See reversing/findings/FINDINGS-airmap.md, sections 6 and 8.",
+   "revises": "comment: it is the a of the CColor at +0x148",
+   "evidence": "UpdateAirBaseCircles `movss [esp+0x88], 0.3 (VA 0x15C05EC)` or 1.0, stored by the qword at +0x158; Draw reads +0x15C into vStrength.y."
+  },
+  {
+   "struct": "CAreaCircleObject",
+   "offset": "0x160",
+   "name": "full",
+   "type": "bool",
+   "comment": "The share above 0.999, where the circle is not dimmed (0 where it is); 1 from the constructor. **No reader found**: none of the ring's own routines, and a scan of every [reg+0x160] byte access in the image finds the three writes and no read on a ring. See reversing/findings/FINDINGS-airmap.md, section 8.",
+   "revises": "comment: the reader search and its control",
+   "evidence": "fieldchain.py --field 0x160 lists the constructor's write (0x4013F1) and UpdateAirBaseCircles's two (0x86B269, 0x86B2D0) - the positive control - and byte reads only in unrelated functions (rva 0x6F90, 0x79A0, 0x7A40 walking vectors at [x+0x10], 0x3363A0.., 0x66671E, 0x7DC0B0, 0x7E76B0). No inherited slot can read it: C3dVisibleObject ends at 0x138, where the ring's own fields begin. Wrong if a ring were reached through a register the scan's single-instruction window cannot see."
+  },
+  {
+   "struct": "CAreaCircleObject",
+   "offset": "0x164",
+   "name": "vertices",
+   "type": "float[45]",
+   "comment": "Nine vertices of {x, y, z, u, v} (D3DFVF_XYZ | D3DFVF_TEX1, stride 0x14), written by SetRadius: the centre (0,0,0) uv (1,1), then round from north (0,0,r) (1,0), north-west (-r,0,r) (0,0), west (-r,0,0) (0,1), south-west (-r,0,-r) (0,0), south (0,0,-r) (1,0), south-east (r,0,-r) (0,0), east (r,0,0) (0,1), north-east (r,0,r) (0,0). Drawn as eight triangles from the index list at rva 0x1312310. Ends the object at 0x218. See reversing/findings/FINDINGS-airmap.md, section 8.",
+   "evidence": "SetRadius's stores +0x164..+0x214; Draw `add ebx, 0x164; push ebx; push 0x14` into DrawIndexedPrimitiveUP; UpdateAirBaseCircles `push 0x218` for the allocation."
+  },
+  {
+   "struct": "C3dVisibleObject",
+   "offset": "0x84",
+   "name": "position",
+   "type": "float[4]",
+   "comment": "The object's world position as a homogeneous vector: slot 90 (SetPosition, rva 0x44AB80) copies three floats into +0x84/+0x88/+0x8C and writes 1.0f into +0x90. CCombat::UpdateCombatStatusWindow sets it to the negated midpoint of the attacker's and defender's first units each tick. **It is the fourth row - the translation - of the local transform at +0x54** (sixteen floats, D3D row-major, C3dObject's, made the identity by its constructor): C3dObject::Translate (slot 33) multiplies the whole of +0x54 by a translation, and ProvinceGraphics_PlacePicture's raise adds 1.0 to its float 13, which is +0x88. Relative to the object's parent, not the world, for anything hung on a province's anchor. See reversing/findings/FINDINGS-airmap.md, section 8.",
+   "revises": "comment only: what the four floats are part of (the local transform +0x54), and that they are relative to the parent",
+   "evidence": "C3dObject's constructor 0xA600E0: `lea eax,[esi+0x54]; call 0x401b00` with xmm1 = 1.0; C3dObject::Translate writes +0x54..+0x90; PlacePicture 0x640CBA `movq xmm0,[ebx+0x84]` ... `addsd 1.0` stored at the copy's float 13 and set back through slot 41 (rva 0x65E110, `rep movsd` 16 dwords into +0x54)."
+  },
+  {
+   "struct": "C3dVisibleObject",
+   "offset": "0x94",
+   "name": "world",
+   "type": "float[16]",
+   "comment": "**The object's world transform**, D3D row-major (row 3 the translation): the identity from C3dObject's constructor, and for a picture hung on a province's anchor its local transform (+0x54) x the anchor's world, as ProvinceGraphics_PlacePicture computes it through Matrix4x4_Multiply. MapObjectGroup_Draw gives it to the device's WORLD transform and to an effect object's slot 10, and CAreaCircleObject::Draw hands it to circle.fx as WorldMatrix. See reversing/findings/FINDINGS-airmap.md, section 8.",
+   "evidence": "0xA6014E `lea eax,[esi+0x94]; call 0x401b00`; PlacePicture 0x640D2F `lea edi,[ebx+0x94]; mov ecx,0x10; rep movsd` from Matrix4x4_Multiply's result; MapObjectGroup_Draw 0xA7207D `lea ecx,[edi+0x94]; push ecx; push 0x100` (SetTransform WORLD); CAreaCircleObject::Draw `lea ecx,[ebx+0x94]` into SetMatrix(WorldMatrix). Not in luabind.json's C3dVisibleObject fields (41, 78, 132, 232, 248 decimal)."
+  },
+  {
+   "struct": "CProvinceCollisionObject",
+   "offset": "0x138",
+   "name": "graphics",
+   "type": "CGraphics*",
+   "comment": "The CGraphics, the constructor's first stack argument. See reversing/findings/FINDINGS-airmap.md, section 8.",
+   "evidence": "CProvinceObject::CProvinceObject `mov eax,[ebp+8]; mov [esi+0x138], eax`; the builder pushes [esi+0x3c] (WaterObject's graphics)."
+  },
+  {
+   "struct": "CProvinceCollisionObject",
+   "offset": "0x13C",
+   "name": "anchor_x",
+   "type": "int",
+   "comment": "The map-pixel x the anchor stands on: a land province's centre (CProvinceTemplate +0x2C), a sea zone's label point (+0x5C). See reversing/findings/FINDINGS-airmap.md, section 8.",
+   "evidence": "`mov ecx,[edi]; mov [esi+0x13c], ecx` with edi = template +0x2C (0x856CC8) or +0x5C (0x856BEF)."
+  },
+  {
+   "struct": "CProvinceCollisionObject",
+   "offset": "0x140",
+   "name": "anchor_y",
+   "type": "int",
+   "comment": "The map-pixel y beside anchor_x (it grows northward): +0x30 or +0x60 of the template. See reversing/findings/FINDINGS-airmap.md, section 8.",
+   "evidence": "`mov edx,[edi+4]; mov [esi+0x140], edx`."
+  },
+  {
+   "struct": "CProvinceCollisionObject",
+   "offset": "0x144",
+   "name": "province_id",
+   "type": "int",
+   "comment": "The province's id, the constructor's second stack argument (the builder's loop counter over CMap +0x2A60). See reversing/findings/FINDINGS-airmap.md, section 8.",
+   "evidence": "`mov ecx,[ebp+0xc]; mov [esi+0x144], ecx`; the builder `push edi` where edi is the index, from 1 below CMap +0x21FC."
+  }
+ ],
+ "vftable_slots": {
+  "C3dObject": {
+   "33": "Translate"
+  },
+  "CAreaCircleObject": {
+   "10": "Draw",
+   "39": "SetRadius"
+  }
+ },
+ "frontier": [
+  "0xA60F30 (VA) - the texture table's load by path, with the flag 1: how Sector.dds is created (format, mip levels) was not read",
+  "0x4012B0 (VA) - C3dVisibleObject's destructor body, called by the ring's slot 9",
+  "the code that fills a layer's draw list (+0x14), which decides the order rings are drawn in",
+  "0x856AF9 (VA) - the map-graphics builder that makes the province anchors and entries; functionStart's answer, not checked against an entry",
+  "0x477E20 (VA) - CProvinceWaterObject's constructor",
+  "who adds a province's CProvinceObject to a layer and so computes its world transform"
+ ]
+}

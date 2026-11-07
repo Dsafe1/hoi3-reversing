@@ -86,7 +86,7 @@ six indices a line, and fills them with `HierarchyLines_AddBelow` (`0x883AF0`), 
     it is a land unit (slot 15)
     it is aboard neither a fleet nor an air unit (its slot 9 object's +0x300 and +0x304)
     it has a commander (CUnit +0x1E0)
-    the commander, where a land unit, is aboard nothing either
+    (the commander's own aboard test is not made: the code asks the unit's slot 9 a second time - section 7.2)
     the commander is in another province
 
 and the line runs **from the unit's province's unit point to the commander's**
@@ -116,7 +116,7 @@ and a theatre 2.4. (The 0.2 is the double at `0x160A260`.)
 
 **The four vertices**, each `x, y, u, v, range, colour`:
 
-    d      = to - from, with to.x moved by the map's width where |d.x| is over half of it
+    d      = to - from, after moving whichever end is further east a map width west where they are more than half the map's width apart (section 7.2)
     across = (d.y, -d.x) * halfWidth / |d|
     from - across   u 0   v 0
     from + across   u 1   v 0
@@ -147,12 +147,11 @@ these hold:
     the camera is lower than 500
     lines->+0x14
 
-It then adds to the phase - the frame's time where that is over 0.2 seconds, and **0.2
-otherwise, so 0.2 a frame** - takes 100 off it once it passes 100 (three whole pictures at the
-effect's 0.03, so nothing jumps), and calls `HierarchyLines_Draw` (`0x883030`), which sets the
-effect's `WorldViewProjectionMatrix`, `LineTexture` and `Time` and draws the mesh **twice with
-two values of `CameraPosition`** - `inferred` to be the two copies of the map either side of
-its seam.
+It then adds to the phase the seconds since the previous frame's Present where those are over 0.2, and **0.2
+otherwise, so in practice 0.2 a frame**, takes 100 off it once it passes 100 (three whole pictures at the effect's 0.03,
+so nothing jumps), and calls `HierarchyLines_Draw` (`0x883030`). That sets the effect's `WorldViewProjectionMatrix`
+(view × projection), `CameraPosition`, `LineTexture` and `Time`, and draws the mesh **twice: once where it is and once
+with `CameraPosition.x` less the map width, a map width to the east**. There is no copy to the west (section 7.4).
 
 ## 6. The highlight: the rings of the units under the selected one
 
@@ -191,10 +190,161 @@ within sixteen bytes. Here the 3 is pushed for `CUnit_SetRingBelow`, which hands
 variable, so there is no literal beside the fetch. Looking instead for every fetch of the
 slot off an avatar's two counters found the three routines at once.
 
+## 7. The lines through hierarchy.fx, whole
+
+*Read 2026-11-07, by a delegated agent (fragment `interface-hierarchyfx.json`), so that another program can draw the lines
+through the install's own `hierarchy.fx`, fed exactly as the original feeds it. Static reading; addresses are VAs unless
+marked rva. **[exe]** hardcoded, **[mod: file]** a file can change it. `confirmed` unless a line says otherwise.*
+
+**Corrections, rather than additions**: the phase grows by the seconds since the previous frame's Present or 0.2, so in
+practice 0.2 a drawn frame, not by "the frame's time" (7.4); the second draw is a map width **east** only, not two copies
+either side of the seam (7.4); AddLine's seam moves whichever end lies further east a map width west, not to.x (7.2); the
+"commander aboard nothing" test does not exist (7.2); and `HierarchyLines_LoadShader`'s old `no_signature` (EBX read before
+written) was wrong - it is `void __stdcall (CGraphics*)`.
+
+### 7.1 Loading: `HierarchyLines_LoadShader` (`0x883290`)
+
+Two callers: LoadEverything (`0x6319D9`) and `0x43BBBE` (not read). It takes the CGraphics on the stack (`ret 4`; EBX is
+saved and zeroed, not an argument) and keeps it in `g_HierarchyGraphics` (`0x1A8CB5C`). Then:
+
+- **The vertex declaration**, from the static list at `0x170ABD8` (CreateVertexDeclaration, device slot 86), into
+  `0x1A8CB40` [exe]; on failure the message box "CreateVertexDeclaration failed!! (HierarchyVertexDecl)" and exit.
+
+  | stream | offset | type | usage |
+  | --- | --- | --- | --- |
+  | 0 | 0 | FLOAT2 | POSITION0 |
+  | 0 | 8 | FLOAT3 | TEXCOORD0 |
+  | 0 | 20 | D3DCOLOR | COLOR0 |
+
+  Stride 24, exactly hierarchy.fx's `VS_INPUT`: `float2 vPosition`, `float3 vUV_Range`, `float4 Color`.
+- **The effect** `/FX/hierarchy.fx` under the key `Hierarchy`, its path built from the game's directory settings as the
+  other map effects'; it goes through `FxHandler_Reload` first and then `FxHandler_Register`, so loading again (the second
+  caller) recompiles it; into `g_HierarchyEffect` (`0x1A8CB44`).
+- **The handles, by name**: `WorldViewProjectionMatrix`, `CameraPosition`, `LineTexture`, `Time` and the technique
+  `Hierarchy` (`0x1A8CB48`..`0x1A8CB58`).
+- **The texture** `/mapitems/hierarchy_line.tga`, registered with the graphics' texture handler (`0xA60F30`) into
+  `0x1A8CB60`; TextureHandler_LoadFile opens it as **`gfx/mapitems/hierarchy_line.dds`** wherever that exists
+  (`FINDINGS-textureload.md`), and the install has only the `.dds`: 64×64 A8R8G8B8, 7 mips [mod: gfx/mapitems]. Left half
+  (u 0..0.5) a white band with black edges and a dark notch, two arrowheads a picture, tips at rows 9 and 41, pointing
+  towards row 0 (v = 0); right half (u 0.5..1) a white dashed band, opaque on rows 0..26 and 45..63, clear on 27..44.
+
+### 7.2 The mesh: `HierarchyLines_Rebuild` (`0x883890`) and `HierarchyLines_AddLine` (`0x882B30`)
+
+The object at `CInGameIdler +0x1DE0` is a 0x40-byte `HierarchyLines`; its mesh (`+0x1C`, a MeshBuffer) is made whenever
+the walk changes (section 2): four vertices a line in a vertex buffer (stride 0x18, FVF 0, not dynamic) and six 16-bit
+indices a line, both in the **managed pool**; a **triangle list** (the mesh's kind, `+0x3C`, is 0 from construction and
+never written); the declaration above. The lines are counted first by `HierarchyLines_CountUnit` (`0x8829F0`) and
+`HierarchyLines_CountBelow` (`0x883AB0`) with exactly AddUnit's tests, so the buffers are filled exactly.
+
+**Order**: the walk's - the selected unit first, then depth first down the `+0x1E4` lists in list order. With depth off and
+blending on, a later line draws over an earlier one.
+
+**Which lines**: a unit gets one when it is a land unit, its own slot 9 object is aboard neither a fleet nor an air unit,
+it has a commander, and the commander's province (`+0x130`) is not its own. **Correction to section 3**: there is no
+"commander aboard nothing" test - where the commander is a land unit, the code at `0x882AC8`..`0x882AEA` asks slot 9 of the
+*unit* again (`mov ecx, esi`), which has already answered; the counter tests no commander either, so the two agree.
+
+**The two ends**, integers turned to floats: `f` (from) the unit's province's unit point (`CProvinceTemplate
++0x64/+0x68`), `t` (to) the commander's.
+
+**Colour (ARGB) and range** [exe]:
+
+| | colour | range |
+| --- | --- | --- |
+| out of radio range | `0xFF800000` | 0.0 |
+| the selected unit itself | `0xFF007800` | 1.0 |
+| its commander is the selected unit | `0xFF1432C8` | 1.0 |
+| its commander's commander is | `0xFF6464D2` | 1.0 |
+| further down | `0xFFC8C8C8` | 1.0 |
+
+**Half width** `w = (float)((double)(size + 1) × 0.2)` [exe], the size from the **unit's own** `oob_level` through the jump
+table at `0x883010`: theatre 5 (w 1.2), army group 4 (1.0), army 3 (0.8), corps 2 (0.6), division with more than one
+brigade (`+0x40 > 1`) 1 (0.4), a division otherwise 0 (0.2), navy 1, air 0 - only land units get lines.
+
+**The seam** (correction to section 4), W the map width (`CMap +0x2A74`), W/2 computed once per process (`0x1BEB714`):
+where `t.x − f.x > W/2`, `t.x −= W`; else where `f.x − t.x > W/2`, `f.x −= W`. Whichever end lies further east is moved a
+whole map width **west**, so a line across the seam hangs off the map's west edge.
+
+**The vertices**, each `(x, y, u, v, range, colour)`, `d = t − f`, `L = sqrtf(d.x² + d.y²)` (CRT sqrt, rounded to float),
+`a = d × (w / L)`, **`V = L / (2w) × 0.2`** [exe]:
+
+    0: (f.x − a.y, f.y + a.x, 0, 0)
+    1: (f.x + a.y, f.y − a.x, 1, 0)
+    2: (t.x − a.y, t.y + a.x, 0, V)
+    3: (t.x + a.y, t.y − a.x, 1, V)
+    indices: n, n+1, n+2, n+1, n+3, n+2
+
+So v is 0 at the **unit's** end and grows **by length** towards the commander, one picture every `10w` map units and an
+arrowhead every 5w; u 0 on the side left of the unit-to-commander direction, seen from above with north up (map y grows
+north). Seen so, both triangles wind counter-clockwise, which CULLMODE CCW would remove - the visible lines show the cull
+mode is not CCW there, agreeing with `FINDINGS-mapdraw.md` C.1's NONE (*inferred*). The arithmetic is double, rounded to
+float at each store, as the other map code.
+
+### 7.3 The shader's view of it [mod: gfx/FX/hierarchy.fx]
+
+The vertex shader places a vertex at `(x − CameraPosition.x, 2.0, y − CameraPosition.y, 1)` and multiplies by
+`WorldViewProjectionMatrix`: **a flat ribbon in the horizontal plane, 2.0 world units up** (the land at 0.35, the sea at
+−0.32), its width in **map units**, not facing the camera. u becomes `u × 0.5 + 0.5 − 0.5 × range` - the left half of the
+picture in reach, the right half out of it; v becomes `v + Time × 0.03 × range`; the pixel `tex2D(LineSampler, uv) ×
+Color`, Color the D3DCOLOR as `(R, G, B, A) / 255`; the sampler WRAP/WRAP, MIN/MAG LINEAR, MIP NONE. As sampled v grows
+with Time the picture moves towards smaller v, towards the unit, as the arrowheads point: in reach a band of arrowheads in
+its colour running from commander to subordinate; out of reach a still, dashed, dark red line.
+
+### 7.4 The draw: `CInGameIdler_Render` (`0x656E10`) and `HierarchyLines_Draw` (`0x883030`)
+
+`CInGameIdler_Render`, once a frame at the end of `CInGameIdler::Update` (`0x656756`): BeginScene and Clear (grey, depth
+1.0); MapGraphics_DrawScene (`FINDINGS-mapdraw.md` C.1); `0x8482F0` on `+0x1DDC` (another effect's list of meshes, not
+read; it sets only ZWRITEENABLE 0 and ZENABLE 0); **the hierarchy lines** (`0x657061`..`0x657152`); the unit layers
+(`0x641950`) - so **the counters are drawn over the lines**; later draws not read; EndScene and Present.
+
+**The gates**, all of: the lines object exists (`+0x1DE0`); `render_hierarchy` (settings `+0xE8`); `alwaysCounters`
+(`+0xF9`), or the camera's height (MapCamera `+0x348`) **strictly above** `counter_distance` (`+0xFC`); the height
+**strictly under 500.0** [exe, the double at `0x160A538`]; the object's `has_lines` (`+0x14`).
+
+**The phase** (`HierarchyLines +0x18`, 0.0 when made, never reset), each frame that passes the gates, before the draw:
+
+    step  = g_RenderIdleSeconds > 0.2 ? g_RenderIdleSeconds : 0.2f
+    phase = (float)((double)phase + step)
+    if (phase > 100.0) phase = (float)(phase − 100.0)
+
+`g_RenderIdleSeconds` (`0x1BEA47C`) is written at the head of the render: the render's own clock (`CInGameIdler +0x1934`, a
+CHighPerfWinClock in seconds) less `g_RenderEndTime` (`0x1BEA484`), the same clock read **after the previous frame's
+Present** - the update in between, not the whole frame. **Correction to section 5**: that is normally a few milliseconds,
+so the step is **0.2 a drawn frame**, frame-rate dependent; only a stall over 0.2 s adds its own length. Time has no unit of
+its own: 0.006 of a picture a frame at the effect's 0.03, about 0.36 pictures (3.6w map units) a second at 60 frames. The
+wrap at 100 is three whole pictures, so nothing jumps, and the phase stops while the lines are not drawn.
+
+**`HierarchyLines_Draw(camera, mesh, phase)`**, `ret 0xC`: returns without drawing where the mesh has no primitives or the
+graphics have no current view (`CGraphics +0x6BC88`); `ZWRITEENABLE 0`, `ZENABLE 0` [exe], not put back; the effect with
+`Begin(&passes, 0)` (D3DX restores the pass's states at End): `SetTechnique(Hierarchy)`; **`WorldViewProjectionMatrix`** =
+`D3DXMatrixMultiply(view, projection)` of the current view camera (slots 91 and 93, `+0x16C`, `+0x174`; the scene's
+left-handed LookAt and PerspectiveFov, `FINDINGS-mapdraw.md` A.4), no world matrix - camera-relative, hence the
+shader's subtraction; **`CameraPosition`** = (MapCamera x_settled `+0x33C`, y_settled `+0x340`) (SetFloatArray, 2);
+**`LineTexture`** the handler's texture; **`Time`** the phase. For the file's one pass `p0`: BeginPass, CommitChanges,
+**the mesh** (VertexBuffer_Draw: the declaration, stream 0 stride 24, the indices, `DrawIndexedPrimitive(TRIANGLELIST, 0,
+0, vertices, 0, 2 × lines)`); then `CameraPosition.x = (float)((double)x − (double)(float)W)`, CommitChanges, **and the
+mesh again**; EndPass; End. **Correction to section 5**: the second draw is the mesh a map width **east**; with AddLine's
+seam rule it covers a line crossing the seam from both sides, but no copy is drawn a width **west**, so from a camera just
+across the seam on the west, a line near the east edge is not drawn (the consequence *inferred*; the two draws read).
+
+**States at the draw**: the pass `p0` [mod: hierarchy.fx] `ALPHABLENDENABLE TRUE`, `ALPHATESTENABLE FALSE`, `ZWRITEENABLE
+FALSE`, `vs_1_1` / `ps_2_0`; the engine [exe] `ZENABLE FALSE`, `ZWRITEENABLE FALSE` - **not depth tested**, over the whole
+map scene and under the counters; the blend factors the engine's last, as neither the file nor the draw sets them: every
+setter after the land in DrawScene sets `SRCALPHA / INVSRCALPHA` and `0x8482F0` sets none, so that pair (*likely*: the
+object groups `+0x4C` and `+0x48` were not read); BLENDOP Direct3D's default ADD (*inferred*); CULLMODE NONE (*likely*,
+and the winding needs it).
+
+### 7.5 Not established
+
+What `0x8482F0` (`CInGameIdler +0x1DDC`) draws, just before the lines with the same pattern (its own effect,
+CameraPosition from `+0x33C`, one copy); the loader's second caller `0x43BBBE`; whether the two unread object groups of
+DrawScene change SRCBLEND, DESTBLEND or CULLMODE; where a counter is drawn relative to its province's unit point when its
+stack is fanned - the line ends at the unit point either way. Frontier: `0x483B30` (the records' push_back),
+`0x482980`/`0x483A70` (IsCurrent's walk), `0x241950`, `0x4482F0`, `0x673B10`, `0x660F30`, `0x6610E0`, `0x676E80` (rvas).
+
 ## What was not read
 
 - the rest of `0x652540`, the key handler, and of `0x668780`, which goes on to an AI-commanded
   unit's objectives and its `AutomationArrow`s;
 - `0x6F80A0`, the settings menu's side;
-- why `HierarchyLines_Draw` draws twice, beyond the two camera positions;
 - the rest of `CUnit::OnSelected`, which was read for the rings only.

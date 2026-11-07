@@ -11415,10 +11415,11 @@
    "rva": "0x440BC0",
    "kind": "function",
    "name": "LoadFlags",
-   "comment": "Called once from LoadEverything at 0x6326B1, between the sound-effect stage and the `Loading Flags <` timer (eu3application.cpp:553). Extent 0x840BC0..0x840C66, bare `ret`. This is the stage where a country with no flag .tga kills startup, so it is the function to look in for that; the interior was not read and the name is from its position.",
-   "confidence": "likely",
-   "source": "reversing/findings/FINDINGS-startup.md",
-   "signature": "void __cdecl LoadFlags(void)"
+   "signature": "void __fastcall LoadFlags(CEU3Graphics* graphics@ECX)",
+   "no_signature": null,
+   "comment": "**Builds the flag atlas**: FlagTextureMap_Build(graphics +0x6BD6C, \"gfx/flags\", the country database (made if missing), graphics). Called once from LoadEverything at 0x6326B1 with ECX = the application's graphics ([edi+0x11C]), between the sound-effect stage and the `Loading Flags <` timer (eu3application.cpp:553). Extent 0x840BC0..0x840C66, bare `ret`. The graphics arrive in ECX and nothing is passed on the stack. See reversing/findings/FINDINGS-maskedflag.md, section 5, and reversing/findings/FINDINGS-startup.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-maskedflag.md"
   },
   {
    "rva": "0x4450B0",
@@ -11461,9 +11462,10 @@
    "kind": "function",
    "name": "CMaskedSpriteType::LoadKey",
    "signature": "void __thiscall CMaskedSpriteType::LoadKey(CMaskedSpriteType* this, CParseContext* parse, SaveToken key)",
-   "comment": "**The keys its switch names**, 3 of them, one case each: `effectFile`, `textureFile1`, `textureFile2`. Read from the switch by reversing/scripts/definitions.py. A loader may resolve further keys as names out of a database - CGovernment and CMinister both do - but anything that is neither is dropped in silence.",
+   "no_signature": null,
+   "comment": "**The keys of a `maskedShieldType`**, three cases, each through the string reader 0x67AFB0: token 0x25 `textureFile1` (the overlay) to +0x1C0, token 0x26 `textureFile2` (the mask) to +0x1A4, token 0x59 `effectFile` to **+0x1F4** - its own string, not CSpriteType's +0x5C. **Every other key goes to CSpriteType::LoadKey (0x6B7A00)**, so `allwaystransparent`, `transparencecheck`, `clicksound`, `noOfFrames` and `textureFile` are accepted too (core.gfx's GFX_minishield_war and eu3dialog.gfx's two dialog shields give `allwaystransparent`). `ret 8`. See reversing/findings/FINDINGS-maskedflag.md, section 1.",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-definitions.md"
+   "source": "reversing/findings/FINDINGS-maskedflag.md"
   },
   {
    "rva": "0x44E330",
@@ -25514,18 +25516,18 @@
    "name": "CCounterObject_DrawBatch",
    "signature": "void __cdecl CCounterObject_DrawBatch(void* graphics)",
    "no_signature": null,
-   "comment": "**Draws every counter CCounterObject::Render queued this frame, in three passes, and empties the queue** (VA 0x1A8C224..0x1A8C22C): each counter's quad (CCounterType_DrawQuad), each a step nearer the camera than the one before; then the flag of every counter whose `is_top` is set (CCounterObject_DrawShield); then the texts of the same ones (CCounterObject_DrawTexts). Likely, not confirmed: the passes were read in the decompiled C. See reversing/findings/FINDINGS-counters.md.",
-   "confidence": "inferred",
+   "comment": "**Draws every counter CCounterObject::Render queued (g_CounterDrawQueue, VA 0x1A8C224) in three passes and empties the queue.** Called only by CEU3Graphics::FlushDeferredObjects, at the end of each MapObjectGroup_Draw. Nothing where the queue is empty. (1) CCounterType_BeginDraw with the FIRST counter's type - one Begin for the whole batch. (2) **lift = acos(up.z) / (pi/2) x 3.5**, up the normalised second column (_12, _22, _32) of the current camera's view (slot 91) - the camera's up vector in the world, so 0 for a camera looking straight down with north up, 3.5 for one looking at the horizon. (3) Pass 1, each counter i from 0: SetRenderState(D3DRS_DEPTHBIAS, bias), bias starting at 0.0 and less 0.0001 for each counter; a copy of the counter's matrix (+0x94) translated by (0, lift, 0) (Matrix_PostTranslate); slot 22 called and its answer (always 0) thrown away; s = (size - 1) x the type's level_scale (+0x1D0) x g_CounterScale + 1.0 in doubles; the picture (+0x14C) looked up in the graphics' texture table (+0x158, 0x2C a row, the texture at +4), null where -1 or above 9999; then CCounterType_DrawQuad(type, graphics, device, matrix, size, picture, &colour (+0x150), +0x1BB, +0x1BC, +0x1BD, slot 94 (the selection word), s). EndPass and End on the first counter's type's effect. (4) Pass 2, bias from -0.000005, less 0.0001 a counter, the same lifted copy: CCounterObject_DrawShield where `is_top`. (5) Pass 3, the same biases: CCounterObject_DrawTexts where `is_top`. (6) DEPTHBIAS back to 0 and the queue emptied. So **later in the queue is nearer the camera**, a stack's top counter last of its stack. Read off the listing. See reversing/findings/FINDINGS-counters.md, section 10.",
+   "confidence": "confirmed",
    "source": "reversing/findings/FINDINGS-counters.md"
   },
   {
    "rva": "0x43BC80",
    "kind": "function",
    "name": "CCounterType_DrawQuad",
-   "signature": "void __stdcall CCounterType_DrawQuad(CCounterType* type, void* graphics, void* device, float* position, int size, void* picture, CColor* colour, bool markA, bool markB, bool markC, short selection, float scale)",
+   "signature": "void __stdcall CCounterType_DrawQuad(CCounterType* type, void* graphics, void* device, float* matrix, int size, void* picture, CColor* colour, bool markYellow, bool markRed, bool markOrange, short selection, float scale)",
    "no_signature": null,
-   "comment": "**Draws one counter's quad with gfx/FX/counter.fx.** Sets the shader's BackgroundTex, MaskTex and SizeTex from the type's three textures (+0xA4, +0xA8, +0xAC), CounterTex from the picture it is given, SizeOffset from the type's +0x198, SizeFrame from the size, CountryColor from the colour, vOtherColor from one of four static colours by the three marks (none; markB red; else markC orange; else markA yellow), SelectionColor by the selection word (1 white, 2 the type's color1 at +0x1E0, 3 its color2 at +0x1FC), SelectionIntensity as `0.5 + 0.5 * |f|`, Selected, CounterScale, and a WorldMatrix that is the camera's rotation with the counter's position. Likely: read in the decompiled C; the parameter names of the shader are literals. See reversing/findings/FINDINGS-counters.md.",
-   "confidence": "inferred",
+   "comment": "**Draws one counter's quad with gfx/FX/counter.fx**, inside the Begin/BeginPass CCounterType_BeginDraw opened; `ret 0x30`. The effect is the type's (+0xA0, 1-based into the graphics' effect list at +0x6BD00). Every handle is fetched by name each call (ID3DXEffect slot 9): BackgroundTex, MaskTex, SizeTex = the type's +0xA4, +0xA8, +0xAC (texture table entries +4, null where -1 or above 9999), CounterTex = `picture` (a texture pointer the batch resolved); SizeOffset = the type's +0x198; SizeFrame = (float)size; CountryColor = the four floats of `colour` +8; **vOtherColor = one of four static CColors at VA 0x1BEB670 (g_CounterMarkColours), made on first use: index 2 red (1,0,0,1) where markRed, else 3 orange (1,0.5,0,1) where markOrange, else 1 yellow (1,1,0,1) where markYellow, else 0 = (0,0,0,0)** - alpha 0 switches the shader's corner off; SelectionColor by `selection`: 1 white (1,1,1,1), 2 the type's color1 floats (+0x1E0), 3 its color2 floats (+0x1FC), anything else **not set** (the last counter's value stays, harmless because Selected is then 0); **WorldMatrix = the current view's camera's inverse view (graphics +0x6BC88 -> +0x1C, slot 92 Camera_GetViewInverse) with _14, _24, _34 zeroed and its translation row replaced by `matrix` +0x30..+0x38, _44 = 1** - a quad lying in the camera's own right/up plane at the counter's place; **SelectionIntensity = 0.5 + 0.5 x |sin(2t)|**, t the platform clock's seconds (g_PlatformClock slot 5, CHighPerfWinClock::GetSeconds) as a float, sin the CRT's _CIsin (VA 0xC0BB90) - a pulse between 0.5 and 1.0 with a period of pi/2 s; Selected = 1.0 where selection is 1, 2 or 3, else 0.0; CounterScale = `scale`. Then CommitChanges (slot 65) and VertexBuffer_Draw on the type's quad (+0x90) - an indexed triangle list of 4 vertices and 2 triangles. Read off the listing, every store and call. See reversing/findings/FINDINGS-counters.md, section 10.",
+   "confidence": "confirmed",
    "source": "reversing/findings/FINDINGS-counters.md"
   },
   {
@@ -26492,9 +26494,9 @@
    "rva": "0x483890",
    "kind": "function",
    "name": "HierarchyLines_Rebuild",
-   "signature": "void __stdcall HierarchyLines_Rebuild(void* lines, CUnit* unit)",
+   "signature": "void __stdcall HierarchyLines_Rebuild(HierarchyLines* lines, CUnit* unit)",
    "no_signature": null,
-   "comment": "**Makes the mesh of the hierarchy lines for a selected unit.** Counts the lines, makes a vertex buffer of four vertices a line (0x18 bytes each) and an index buffer of six indices a line, and fills them through HierarchyLines_AddBelow starting at the unit itself. Remembers the unit's commander at +0x10 and sets the byte +0x14; with no unit, or no line, clears it. The object is CInGameIdler +0x1DE0. The names of these five are ours. See reversing/findings/FINDINGS-hierarchy.md, section 3.",
+   "comment": "**Makes the mesh of the hierarchy lines for a selected unit.** With no unit, clears +0x14 and returns. Otherwise empties the records, remembers the unit's commander at +0x10, and counts: HierarchyLines_CountUnit on the unit and HierarchyLines_CountBelow on each unit under it, which also records each land unit aboard nothing with its province. The mesh (+0x1C) has its vertex and index buffers released (the declaration pointer is zeroed first, so the shared declaration is not), its counts and FVF zeroed, and with no line +0x14 is cleared. Otherwise the mesh is made in the managed pool (+0x30 = 1) with g_HierarchyVertexDecl: VertexBuffer_Create(4 x lines, stride 0x18, FVF 0, not dynamic), IndexBuffer_Create(6 x lines) - a triangle list, the kind +0x3C being 0 from construction; both locked whole (flags 0), and HierarchyLines_AddBelow walks the unit and everything under it with the context {vertices, indices, 0, 0, the unit, W * 0.5}; both unlocked, +0x14 = 1. The phase +0x18 is not touched. The object is CInGameIdler +0x1DE0. See reversing/findings/FINDINGS-hierarchy.md, sections 3 and 7.",
    "confidence": "confirmed",
    "source": "reversing/findings/FINDINGS-hierarchy.md"
   },
@@ -26524,7 +26526,7 @@
    "name": "HierarchyLines_AddUnit",
    "signature": "bool __fastcall HierarchyLines_AddUnit(CUnit* unit@EAX, void* context@stack:4) @AL",
    "no_signature": null,
-   "comment": "Adds a unit's line to the mesh where it is a land unit aboard nothing, has a commander that (where a land unit) is aboard nothing either, and the two are in different provinces: from the unit point of its province to that of its commander's (CProvinceTemplate +0x64), with CUnit::IsOutOfRadioRange as the line's flag. See reversing/findings/FINDINGS-hierarchy.md, section 3.",
+   "comment": "Adds a unit's line where it is a land unit (slot 15) aboard neither a fleet nor an air unit (its slot 9 object's +0x300 and +0x304 both 0), has a commander (+0x1E0), and the commander's province (+0x130) is not its own: HierarchyLines_AddLine(from = the unit's province's unit point, template +0x64/+0x68; to = the commander's; CUnit::IsOutOfRadioRange of the unit). **The commander's own aboard test is never made**: where the commander is a land unit the code asks slot 9 of the *unit* again, which has already answered - so a commander that is aboard something still gets the line, to whatever province it is in. Always answers true. See reversing/findings/FINDINGS-hierarchy.md, sections 3 and 7.",
    "confidence": "confirmed",
    "source": "reversing/findings/FINDINGS-hierarchy.md"
   },
@@ -26534,7 +26536,7 @@
    "name": "HierarchyLines_AddLine",
    "signature": "void __fastcall HierarchyLines_AddLine(void* context@ESI, CUnit* unit@EDX, int* from@stack:4, int* to@stack:8, bool outOfReach@stack:12)",
    "no_signature": null,
-   "comment": "**One line of the hierarchy: four vertices and six indices.** Colour by the unit's place under the selected one: 0xFF007800 itself, 0xFF1432C8 directly under, 0xFF6464D2 two under, 0xFFC8C8C8 further, 0xFF800000 out of radio range. Half its width is (the counter size + 1) * 0.2 map pixels. The far end's v is length / (2 * half width) * 0.2; the fifth float of a vertex is 1.0 in reach and 0.0 out of it, which gfx/FX/hierarchy.fx turns into the sliding or the still half of its picture. See reversing/findings/FINDINGS-hierarchy.md, section 4.",
+   "comment": "**One line of the hierarchy: four 24-byte vertices and six 16-bit indices**, written at the context's cursors (context +0 the locked vertices, +4 the locked indices, +8 vertices so far, +0xC indices so far, +0x10 the selected unit). Colour (ARGB) and range: out of radio range 0xFF800000 and 0.0; otherwise 1.0 and 0xFF007800 for the selected unit itself, 0xFF1432C8 where its commander (+0x1E0) is the selected unit, 0xFF6464D2 where its commander's commander is, 0xFFC8C8C8 further down. Half width w = (float)((double)(size + 1) * 0.2), size from the **unit's own** oob_level by the jump table at rva 0x483010: 0 theatre 5, 1 army group 4, 2 army 3, 3 corps 2, 4 division 1 where it has more than one brigade (+0x40 > 1) else 0, 5 navy 1, 6 air 0, anything else 0. f = from (the unit's province's unit point), t = to (the commander's), as floats. **The seam**: where t.x - f.x > W/2, t.x -= W; else where f.x - t.x > W/2, f.x -= W (W the map width CMap +0x2A74, W/2 cached once in g_HierarchyHalfMapWidth) - the eastern end is moved a map width west. d = t - f, L = sqrtf(d.x^2 + d.y^2), a = d * (w / L). Vertices in order, each (x, y, u, v, range, colour): (f.x - a.y, f.y + a.x, 0, 0), (f.x + a.y, f.y - a.x, 1, 0), (t.x - a.y, t.y + a.x, 0, V), (t.x + a.y, t.y - a.x, 1, V), with **V = L / (2w) * 0.2**; indices n, n+1, n+2, n+1, n+3, n+2 for the vertex count n before the line. `ret 0xC`. See reversing/findings/FINDINGS-hierarchy.md, sections 4 and 7.",
    "confidence": "confirmed",
    "source": "reversing/findings/FINDINGS-hierarchy.md"
   },
@@ -26542,9 +26544,9 @@
    "rva": "0x483030",
    "kind": "function",
    "name": "HierarchyLines_Draw",
-   "signature": "void __stdcall HierarchyLines_Draw(void* camera, void* mesh, float phase)",
+   "signature": "void __stdcall HierarchyLines_Draw(MapCamera* camera, MeshBuffer* mesh, float phase)",
    "no_signature": null,
-   "comment": "Draws the hierarchy's mesh with the effect hierarchy.fx: sets WorldViewProjectionMatrix, LineTexture and Time (the phase), and draws twice with two values of CameraPosition - by all appearance the two copies of the map either side of its seam. Called from the game screen's frame routine (rva 0x256E10) while render_hierarchy is on, counters are in view and the camera is under 500. See reversing/findings/FINDINGS-hierarchy.md, section 5.",
+   "comment": "**Draws the hierarchy mesh through hierarchy.fx.** Nothing where the mesh has no primitives (+0x10) or the graphics have no current view (CGraphics +0x6BC88). Device first: ZWRITEENABLE 0, ZENABLE 0 (SetRenderState, not put back afterwards). Then on g_HierarchyEffect: SetTechnique(Hierarchy); Begin(&passes, 0); **WorldViewProjectionMatrix = D3DXMatrixMultiply(view slot 91 (+0x16C), view slot 93 (+0x174))** of the current view's camera (+0x1C) - the scene's view x projection, no world matrix (SetMatrix); **CameraPosition = (camera x_settled +0x33C, y_settled +0x340)**, SetFloatArray of 2; LineTexture = the texture handler's entry g_HierarchyTextureIndex (graphics + index * 0x2C + 0x15C), null where the index is -1 or above 9999; **Time = phase** (SetFloat, where the handle exists). For each pass: BeginPass, CommitChanges, VertexBuffer_Draw(mesh) - an indexed triangle list of the mesh's vertices -; then CameraPosition.x = (float)((double)x - (double)(float)map width, CMap +0x2A74), CommitChanges, the mesh again; EndPass. End. So the mesh is drawn where it is and **once more a map width to the east, never to the west**. `ret 0xC`. One caller, CInGameIdler_Render (VA 0x657152). See reversing/findings/FINDINGS-hierarchy.md, section 7.",
    "confidence": "confirmed",
    "source": "reversing/findings/FINDINGS-hierarchy.md"
   },
@@ -26552,9 +26554,9 @@
    "rva": "0x483290",
    "kind": "function",
    "name": "HierarchyLines_LoadShader",
-   "signature": null,
-   "no_signature": "`ret 4` with EBX read before it is written; what the one stack argument and EBX are was not worked out",
-   "comment": "Loads the effect `/FX/hierarchy.fx`, its technique `Hierarchy`, the parameters WorldViewProjectionMatrix, CameraPosition, LineTexture and Time, the vertex declaration, and the texture `/mapitems/hierarchy_line.tga`. See reversing/findings/FINDINGS-hierarchy.md, section 5.",
+   "signature": "void __stdcall HierarchyLines_LoadShader(CGraphics* graphics)",
+   "no_signature": null,
+   "comment": "**Loads what the hierarchy lines are drawn with.** Two callers: LoadEverything (VA 0x6319D9) and VA 0x43BBBE. Keeps the graphics in g_HierarchyGraphics. CreateVertexDeclaration (device slot 86) of HierarchyVertexDecl_Elements - FLOAT2 POSITION0 at 0, FLOAT3 TEXCOORD0 at 8, D3DCOLOR COLOR0 at 20, stride 24 - into g_HierarchyVertexDecl; on failure MessageBoxA 'CreateVertexDeclaration failed!! (HierarchyVertexDecl)' and FatalExit(1). The effect `/FX/hierarchy.fx`, its path made from the game's directory settings (the global at VA 0x1A85558, +0xB8 / +0x25C by its mode +0x4C) as the other map effects' are: FxHandler_Reload under the key `Hierarchy` first, then FxHandler_Register(the graphics' effect handler +0x6BCFC, path, `Hierarchy`, device), and g_HierarchyEffect = the handler's list entry for the index it answers (null for 0). Then by name: the handles of WorldViewProjectionMatrix, CameraPosition, LineTexture and Time (effect slot 9) and the technique `Hierarchy` (slot 13). Last the texture `/mapitems/hierarchy_line.tga`, any index already held released first (VA 0xA610E0), registered with the graphics' texture handler (+0x158, VA 0xA60F30) into g_HierarchyTextureIndex - TextureHandler_LoadFile opens it as hierarchy_line.dds where that exists, which is the only copy the install has. `ret 4`. EBX is saved and zeroed before any read, so it is not an argument (the former no_signature said otherwise). See reversing/findings/FINDINGS-hierarchy.md, section 7.",
    "confidence": "confirmed",
    "source": "reversing/findings/FINDINGS-hierarchy.md"
   },
@@ -30584,7 +30586,7 @@
    "name": "UpdateAirBaseCircles",
    "signature": "void __stdcall UpdateAirBaseCircles(void* provinceObjects)",
    "no_signature": null,
-   "comment": "**The circles of range round the player's air bases.** ClearAirBaseCircles; then for each province of the player's AirBases (CCountry +0xD70) whose air base object (CMapProvince +0x54) has units: the units sorted by their definition's range (InsertUnitByRange), grouped where a unit's range is within 100 of the group's (the floor of 100.5 at 0x160A684), and for each group a CAreaCircleObject of radius range / 1000 x 0.25 at the air base's position less the label point, coloured (share, share, share, a) - share the regiments' strength over CUnit::GetTotalMaxStrength, a 0.3 where an air unit is selected (a selection entry's slot 1 answers 2) and none of the group's units is selected, else 1 - with its byte +0x160 = share above 0.999 where a is 1. Each circle is kept in the vector at +0x4 with its province. Called by MapMode_Air_Set, CInGameIdler::DailyUpdate, MapMode_SwitchIcons and, when the idler's byte +0x1D3C is set in mode 18, CInGameIdler::Update. The name is ours. See reversing/findings/FINDINGS-airmap.md, section 6.",
+   "comment": "**The circles of range round the player's air bases.** The argument is the map-graphics object (WaterObject / CProvinceManager, the graphics owner's +0x1DC4: +0x3C the CGraphics, +0x4158 the graphics owner). ClearAirBaseCircles; selected = some entry of the in-game idler's selection (CCurrentGameState +0xBE8 -> +0x1304) answers 2 from its slot 1 (an air unit); then for each province of the player's AirBases (CCountry +0xD70) whose air base object (CMapProvince +0x54) has units: the units sorted by their definition's range (InsertUnitByRange), grouped where a unit's range is within 100 of the group's (the floor of 100.5 at 0x160A684) - the group taking the joiner's range, adding its regiments' strength (+0x5C) and its slot 23 (most strength), selected where any unit's is_selected (+0x4) is set - and for each group: share = float(strength / 1000.0) / float(most / 1000.0); `new 0x218` and CAreaCircleObject::CAreaCircleObject(graphics); its CColor (+0x148) = (share, share, share, a) with a = 0.3 (VA 0x15C05EC) where an air unit is selected and none of the group's is, and full (+0x160) = 0, else a = 1.0 and full = share > 0.999 (the double at VA 0x160A2D8); SetRadius(float(float(range / 1000.0) x 0.25)) (slot 39); **ObjectLayer_Add on the graphics owner's layer +0x14D4** - WaterObject +0x60, the last object group MapGraphics_DrawScene draws; Show (slot 13); C3dObject::Translate (slot 33) by (air base position - label point): (CProvinceTemplate +0x258 [the air base building's +0x54 index].x - label_x, 0, .y - label_y); **ProvinceGraphics_PlacePicture(owner +0x1DF0 [province id], owner, circle, raise 1)** where that entry exists - hung on the province's CProvinceObject, 1.0 higher; the province's count +0x398 + 1. Each circle is kept in the vector at +0x4 with its province. Called by MapMode_Air_Set, CInGameIdler::DailyUpdate, MapMode_SwitchIcons and, when the idler's byte +0x1D3C is set in mode 18, CInGameIdler::Update. The name is ours. See reversing/findings/FINDINGS-airmap.md, sections 6 and 8.",
    "confidence": "confirmed",
    "source": "reversing/findings/FINDINGS-airmap.md"
   },
@@ -30682,9 +30684,9 @@
    "rva": "0x1950",
    "kind": "function",
    "name": "CAreaCircleObject::Draw",
-   "signature": null,
-   "no_signature": "`ret 0x18`: six stack dwords, of which the body reads two (the renderer and the device); the other four were not identified.",
-   "comment": "CAreaCircleObject slot 10: sets the effect's WorldMatrix, ViewMatrix and ProjectionMatrix, `vStrength` to the two floats +0x150 and +0x15C, and `SectorTex` to its texture (+0x140), then draws the vertices at +0x164. `gfx/FX/circle.fx` makes of vStrength = (s, a) a colour from red through yellow (s = 0.5) to green (s = 1) and an alpha of the texture x 0.3 x a. The name is ours. See reversing/findings/FINDINGS-airmap.md, section 6.",
+   "signature": "void __thiscall CAreaCircleObject::Draw(CAreaCircleObject* this, CGraphics* graphics, void* device, float* world, float slot22, int unused1, int unused2)",
+   "no_signature": null,
+   "comment": "CAreaCircleObject slot 10, called by MapObjectGroup_Draw's no-mesh path with (the CGraphics, its device, &this->world (+0x94), slot 22's float - 0.0 here - and slot 22's two zero arguments, which that stub leaves on the stack); **only the first two are read**. The effect is graphics +0x6BD00 [effect (+0x144) - 1] (no test for a null pointer): SetMatrix(`WorldMatrix`, this +0x94 - the world transform, which for a ring is a pure translation to the air base at height 1.0); SetMatrix(`ViewMatrix`, the view's (graphics +0x6BC88) +0x1C object slot 91 (+0x16C)); SetMatrix(`ProjectionMatrix`, the same object's slot 93 (+0x174)); SetFloatArray(`vStrength`, {+0x150, +0x15C}, 2) - the CColor's r (the strength share) and a (1, or 0.3 dimmed); SetTexture(`SectorTex`, the texture table's entry +0x140 - null where it is -1 or above 9999); Begin(&passes, 0) - flags 0, so the effect saves and restores the device state it sets; BeginPass(0) **only**; device SetFVF(0x102 = D3DFVF_XYZ | D3DFVF_TEX1); **DrawIndexedPrimitiveUP(D3DPT_TRIANGLELIST, 0, 9 vertices, 8 triangles, the 24 indices at rva 0x1312310 (VA 0x1712310), D3DFMT_INDEX16, the vertices at +0x164, stride 0x14)**; EndPass; End. **No SetTechnique**: the effect's current technique is drawn, which in circle.fx can only be its one technique `Standard`. No render state is set here; the pass sets ZENABLE and ZWRITEENABLE false, ALPHABLENDENABLE true and ALPHATESTENABLE false, and the blend factors are left as MapObjectGroup_Draw set them (SRCALPHA / INVSRCALPHA). `ret 0x18`. The name is ours. See reversing/findings/FINDINGS-airmap.md, section 8.",
    "confidence": "confirmed",
    "source": "reversing/findings/FINDINGS-airmap.md"
   },
@@ -30694,7 +30696,7 @@
    "name": "CAreaCircleObject::SetRadius",
    "signature": "void __thiscall CAreaCircleObject::SetRadius(CAreaCircleObject* this, float radius)",
    "no_signature": null,
-   "comment": "CAreaCircleObject slot 39: where the radius differs from +0x138, keeps it there and writes the four quarters of the square, centre to radius, each with the whole texture: the centre at texture (1, 1). The name is ours. See reversing/findings/FINDINGS-airmap.md, section 6.",
+   "comment": "CAreaCircleObject slot 39: where the radius differs from +0x138 (compared in double precision; equal does nothing), keeps it there and writes **nine vertices of {x, y, z, u, v}** at +0x164, 0x14 bytes each, r the radius: 0 (0, 0, 0) uv (1, 1) - the centre; 1 (0, 0, r) (1, 0); 2 (-r, 0, r) (0, 0); 3 (-r, 0, 0) (0, 1); 4 (-r, 0, -r) (0, 0); 5 (0, 0, -r) (1, 0); 6 (r, 0, -r) (0, 0); 7 (r, 0, 0) (0, 1); 8 (r, 0, r) (0, 0). y is up and 0; z is north. The static index list at rva 0x1312310 makes them eight triangles, two to a quarter: (3,2,1) (3,1,0) north-west, (0,1,8) (0,8,7) north-east, (4,3,0) (4,0,5) south-west, (5,0,7) (5,7,6) south-east - clockwise seen from above. So **u = 1 - |x| / r and v = 1 - |z| / r**: Sector.dds is mirrored into each quarter with its corner (1, 1) - the bottom right of the image - at the centre. `ret 4`. The name is ours. See reversing/findings/FINDINGS-airmap.md, sections 6 and 8.",
    "confidence": "confirmed",
    "source": "reversing/findings/FINDINGS-airmap.md"
   },
@@ -64394,9 +64396,9 @@
    "name": "CUnit::UpdateAvatar",
    "signature": "void __thiscall CUnit::UpdateAvatar(CUnit* this, float unused, bool far, int stackIndex, bool refreshIntel)",
    "no_signature": null,
-   "comment": "**Slot 36 of CUnit, CArmy and CAir: a unit's avatar (+0x164) told how it is seen this frame.** Called by ProvinceGraphics_Update for every unit of a province with MapGraphics_Update's far flag (camera height above counter_distance). Writes the avatar's seen_from_far (+0x152) = `far` **inline** - CHoiAvatar's slot 92 is not called - and its near counter's (+0x140) order (+0x1A8) = `stackIndex`; then for the played country's own units each counter's mark_yellow (+0x1BB), mark_red (+0x1BC) and mark_orange (+0x1BD) from the unit's fields; then CUnit_RefreshIntelLevel(this, refreshIntel). `ret 0x10`; the float (0.1 from the caller) is not read here. CNavy overrides it. The name is ours. See reversing/findings/FINDINGS-farmap.md, section A.",
+   "comment": "**Slot 36 of CUnit, CArmy and CAir: a unit's avatar (+0x164) told how it is seen this frame.** Called by ProvinceGraphics_Update for every unit of a province with MapGraphics_Update's far flag (camera height above counter_distance). Writes the avatar's seen_from_far (+0x152) = `far` **inline** - CHoiAvatar's slot 92 is not called - and its near counter's (+0x140) order (+0x1A8) = `stackIndex`; then, on both counters, the three marks - **each false for any unit not the played country's own** (owner_id +0x128 against g_CCurrentGameState +0xC34): **mark_yellow (+0x1BB) = combat_cooldown (+0xD4, `attack_delay`) above 0, no combat (+0x11C <= 0) and not retreating (+0x158)**; **mark_red (+0x1BC) = supply_received_percentage (+0xFC) or fuel_received_percentage (+0x100) below Define50 (50, i.e. 5%)**; **mark_orange (+0x1BD) = the unit has an upgrade line (+0x298 not empty)**. Then CUnit_RefreshIntelLevel(this, refreshIntel). `ret 0x10`; the float (0.1 from the caller) is not read here. CNavy overrides it. The name is ours. See reversing/findings/FINDINGS-farmap.md, section A, and reversing/findings/FINDINGS-counters.md, section 10.",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-farmap.md"
+   "source": "reversing/findings/FINDINGS-counters.md"
   },
   {
    "rva": "0x1CF290",
@@ -64404,9 +64406,9 @@
    "name": "CNavy::UpdateAvatar",
    "signature": "void __thiscall CNavy::UpdateAvatar(CNavy* this, float unused, bool far, int stackIndex, bool refreshIntel)",
    "no_signature": null,
-   "comment": "CNavy's slot 36, its own version of CUnit::UpdateAvatar: the same writes - the avatar's seen_from_far (+0x152) = `far` at 0x1CF492, the near counter's order (+0x1A8) = `stackIndex` - with a fleet's own marks. `ret 0x10` at 0x1CF639. The name is ours. See reversing/findings/FINDINGS-farmap.md, section A.",
+   "comment": "CNavy's slot 36, its own version of CUnit::UpdateAvatar: the intel level refreshed first and inline (9 where 0x5D37D0 answers for the played country, else the province's byte; the rebuild byte +0x10C set on a change), then **the same three marks from the same fields with the same player-only gate** - yellow attack delay, red supplies or fuel under Define50, orange an upgrade line - then the avatar's seen_from_far (+0x152) = `far` at 0x1CF492 and the near counter's order (+0x1A8) = `stackIndex`. `ret 0x10` at 0x1CF639. The name is ours. See reversing/findings/FINDINGS-farmap.md, section A, and reversing/findings/FINDINGS-counters.md, section 10.",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-farmap.md"
+   "source": "reversing/findings/FINDINGS-counters.md"
   },
   {
    "rva": "0x661DD0",
@@ -64554,7 +64556,7 @@
    "name": "MapObjectGroup_Draw",
    "signature": "void __stdcall MapObjectGroup_Draw(CGraphics* graphics, void* view, void* group)",
    "no_signature": null,
-   "comment": "Draws one map object group (the graphics' groups +0x5C, +0x70, +0x64, +0x60 in MapGraphics_DrawScene, each only where MapObjects_UpdateLayerVisibility set its +0x179) - the fixed-function and effect objects of the map: CGraphics +0x6BC88 = view; sampler 0 MINFILTER ANISOTROPIC, MAGFILTER LINEAR; SetViewport(the view's first 24 bytes); VIEW and PROJECTION transforms from the view; stage 0 COLOROP/ALPHAOP MODULATE (TEXTURE, CURRENT), stage 1 off; ALPHABLENDENABLE 1, SRCALPHA/INVSRCALPHA; then per object kind AMBIENT, WORLD, LIGHTING 1 / SPECULAR 0, ZENABLE and ALPHABLENDENABLE toggled - read only through its state calls; what each kind draws was not read. The scene follows each call with an inlined counter of calls per second into CGraphics +0x84 (timeGetTime, every 1000 ms). Stack-realigned frame, `ret 0xC`. The name is ours.",
+   "comment": "Draws one map object group (the graphics' groups +0x5C, +0x70, +0x64, +0x60 in MapGraphics_DrawScene, each only where MapObjects_UpdateLayerVisibility set its +0x179) - the fixed-function and effect objects of the map: CGraphics +0x6BC88 = view; sampler 0 MINFILTER ANISOTROPIC, MAGFILTER LINEAR; SetViewport(the view's first 24 bytes); VIEW and PROJECTION transforms from the view; stage 0 COLOROP/ALPHAOP MODULATE (TEXTURE, CURRENT), stage 1 off; ALPHABLENDENABLE 1, SRCALPHA/INVSRCALPHA; then per object kind AMBIENT, WORLD, LIGHTING 1 / SPECULAR 0, ZENABLE and ALPHABLENDENABLE toggled - read only through its state calls; what each kind draws was not read. **The no-mesh path, read for the range rings** (0xA72047-0xA72160): for each object of the group's draw list (the layer's +0x14, slot 9) whose slot 79 answers true (visible +0x29 and +0x4D): where its slot 12 answers no mesh - a C3dVisibleObject with no object type, as a CAreaCircleObject - WORLD = its +0x94; ZENABLE set to the opposite of its slot 78 (byte +0x135) where it differs; ALPHABLENDENABLE made 1; its slot 5; its slot 22's float; **its slot 10 (Draw) with (graphics, device, &+0x94, that float)**; ALPHABLENDENABLE put back. The scene follows each call with an inlined counter of calls per second into CGraphics +0x84 (timeGetTime, every 1000 ms). Stack-realigned frame, `ret 0xC`. The name is ours. See reversing/findings/FINDINGS-airmap.md, section 8.",
    "confidence": "inferred",
    "source": "reversing/findings/FINDINGS-mapdraw.md"
   },
@@ -65507,6 +65509,606 @@
    "comment": "sinf: the CRT's _CIsin (VA 0xC0BB90, its x87 path an fsin) on the float, answered as a float. Bare `ret`. The name is ours.",
    "confidence": "confirmed",
    "source": "reversing/findings/FINDINGS-farmap.md"
+  },
+  {
+   "rva": "0x4829F0",
+   "kind": "function",
+   "name": "HierarchyLines_CountUnit",
+   "signature": "bool __fastcall HierarchyLines_CountUnit(void* context@EAX, CUnit* unit@ESI) @AL",
+   "no_signature": null,
+   "comment": "HierarchyLines_Rebuild's count of one unit: where the unit is a land unit (slot 15) aboard nothing (slot 9 object's +0x300 and +0x304), adds one to the context's +4 when it has a commander (+0x1E0) in another province (+0x130), and in either case appends {unit, its province} to the records vector the context's +0 points at - the lines object's +0, which HierarchyLines_IsCurrent compares later. Always answers true. The name is ours. See reversing/findings/FINDINGS-hierarchy.md, section 7.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-hierarchy.md"
+  },
+  {
+   "rva": "0x483AB0",
+   "kind": "function",
+   "name": "HierarchyLines_CountBelow",
+   "signature": "void __cdecl HierarchyLines_CountBelow(CUnit* unit, void* context)",
+   "no_signature": null,
+   "comment": "HierarchyLines_CountUnit on a unit, then itself on each unit under it (CUnit +0x1E4), in that list's order. The counting twin of HierarchyLines_AddBelow. The name is ours. See reversing/findings/FINDINGS-hierarchy.md, section 7.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-hierarchy.md"
+  },
+  {
+   "rva": "0x483770",
+   "kind": "function",
+   "name": "HierarchyLines_Destruct",
+   "signature": "void __stdcall HierarchyLines_Destruct(HierarchyLines* lines)",
+   "no_signature": null,
+   "comment": "Takes a HierarchyLines apart: the mesh's declaration pointer (+0x24) zeroed, then its vertex and index buffers (+0x1C, +0x20) Released and its counts and FVF zeroed, and the records vector (+0) freed. One caller, the in-game screen's teardown (VA 0x649829), which deletes the object after it. `ret 4`. The name is ours. See reversing/findings/FINDINGS-hierarchy.md, section 7.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-hierarchy.md"
+  },
+  {
+   "rva": "0x256E10",
+   "kind": "function",
+   "name": "CInGameIdler_Render",
+   "signature": "void __stdcall CInGameIdler_Render(CInGameIdler* idler)",
+   "no_signature": null,
+   "comment": "**The in-game screen draws a frame.** Called once, at the end of CInGameIdler::Update (VA 0x656756); in no virtual table. 0x256E10 to the `ret 4` at rva 0x258EBD (the bare `ret` at rva 0x258978 is a catch funclet's). Makes its own clock at +0x1934 on first use (g_random_object slot 1, started); **g_RenderIdleSeconds = that clock now less g_RenderEndTime**, the seconds since the last frame's Present. In order, as far as read: BeginScene, Clear(0, NULL, TARGET|ZBUFFER|STENCIL, 0xFF808080, 1.0, 0), MapGraphics_DrawScene, VA 0x8482F0 on +0x1DDC (another effect's meshes, not read; it sets ZWRITEENABLE 0 and ZENABLE 0 and no blend state), then **the hierarchy lines** (VA 0x657061..0x657152) where all hold: hierarchy_lines (+0x1DE0) exists, render_hierarchy (settings +0xE8) is set, alwaysCounters (settings +0xF9) is set or the map camera's height (+0x1C80, MapCamera +0x348) is strictly above counter_distance (settings +0xFC), the height is strictly under 500.0, and the lines' +0x14 is set; then **phase (+0x18) += g_RenderIdleSeconds where that is above 0.2, else the float 0.2**, less 100 once strictly above 100, and HierarchyLines_Draw(map camera +0x1938, lines +0x1C, phase); then the unit layers (VA 0x641950), FILLMODE SOLID, further draws not read, EndScene, Present (VA 0xA73B80), and g_RenderEndTime = the clock. Under the layer-mask bit settings +0xEC & 0x2000000 it shows four of its timings x 10000. The name is ours, after CFrontEnd_Render. See reversing/findings/FINDINGS-hierarchy.md, section 7.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-hierarchy.md"
+  },
+  {
+   "rva": "0x483010",
+   "kind": "jumptable",
+   "name": "HierarchyLines_AddLine_SizeCases",
+   "signature": null,
+   "no_signature": "data",
+   "comment": "Seven entries, HierarchyLines_AddLine's switch on the unit's oob_level 0..6: the counter size 5, 4, 3, 2, (more than one brigade ? 1 : 0), 1, 0. Anything above 6 is 0.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-hierarchy.md"
+  },
+  {
+   "rva": "0x130ABD8",
+   "kind": "global",
+   "name": "HierarchyVertexDecl_Elements",
+   "signature": null,
+   "no_signature": "data",
+   "comment": "The hierarchy lines' D3DVERTEXELEMENT9 list, static in .data: {stream 0, offset 0, FLOAT2, DEFAULT, POSITION 0}, {0, 8, FLOAT3, DEFAULT, TEXCOORD 0}, {0, 20, D3DCOLOR, DEFAULT, COLOR 0}, D3DDECL_END - hierarchy.fx's VS_INPUT, a 24-byte vertex. Its one reference is HierarchyLines_LoadShader's CreateVertexDeclaration.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-hierarchy.md"
+  },
+  {
+   "rva": "0x168CB40",
+   "kind": "global",
+   "name": "g_HierarchyVertexDecl",
+   "signature": null,
+   "no_signature": "data",
+   "comment": "IDirect3DVertexDeclaration9* made from HierarchyVertexDecl_Elements by HierarchyLines_LoadShader; HierarchyLines_Rebuild puts it on the mesh (+8), where VertexBuffer_Draw sets it.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-hierarchy.md"
+  },
+  {
+   "rva": "0x168CB44",
+   "kind": "global",
+   "name": "g_HierarchyEffect",
+   "signature": null,
+   "no_signature": "data",
+   "comment": "The ID3DXEffect of gfx/FX/hierarchy.fx, from the effect handler's list (HierarchyLines_LoadShader); HierarchyLines_Draw uses it.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-hierarchy.md"
+  },
+  {
+   "rva": "0x168CB48",
+   "kind": "global",
+   "name": "g_HierarchyHandle_WorldViewProjectionMatrix",
+   "signature": null,
+   "no_signature": "data",
+   "comment": "D3DXHANDLE of hierarchy.fx's WorldViewProjectionMatrix (HierarchyLines_LoadShader); HierarchyLines_Draw sets view x projection through it.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-hierarchy.md"
+  },
+  {
+   "rva": "0x168CB4C",
+   "kind": "global",
+   "name": "g_HierarchyHandle_CameraPosition",
+   "signature": null,
+   "no_signature": "data",
+   "comment": "D3DXHANDLE of hierarchy.fx's CameraPosition (float2); HierarchyLines_Draw sets it twice a pass.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-hierarchy.md"
+  },
+  {
+   "rva": "0x168CB50",
+   "kind": "global",
+   "name": "g_HierarchyHandle_Technique",
+   "signature": null,
+   "no_signature": "data",
+   "comment": "D3DXHANDLE of hierarchy.fx's technique `Hierarchy` (GetTechniqueByName); HierarchyLines_Draw's SetTechnique.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-hierarchy.md"
+  },
+  {
+   "rva": "0x168CB54",
+   "kind": "global",
+   "name": "g_HierarchyHandle_LineTexture",
+   "signature": null,
+   "no_signature": "data",
+   "comment": "D3DXHANDLE of hierarchy.fx's LineTexture; HierarchyLines_Draw's SetTexture.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-hierarchy.md"
+  },
+  {
+   "rva": "0x168CB58",
+   "kind": "global",
+   "name": "g_HierarchyHandle_Time",
+   "signature": null,
+   "no_signature": "data",
+   "comment": "D3DXHANDLE of hierarchy.fx's Time; HierarchyLines_Draw sets the phase through it where it is not null.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-hierarchy.md"
+  },
+  {
+   "rva": "0x168CB5C",
+   "kind": "global",
+   "name": "g_HierarchyGraphics",
+   "signature": null,
+   "no_signature": "data",
+   "comment": "The CGraphics HierarchyLines_LoadShader was given: its device (+0x64), current view (+0x6BC88) and texture handler entries (+0x15C, 0x2C each) are what HierarchyLines_Draw and HierarchyLines_Rebuild use.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-hierarchy.md"
+  },
+  {
+   "rva": "0x168CB60",
+   "kind": "global",
+   "name": "g_HierarchyTextureIndex",
+   "signature": null,
+   "no_signature": "data",
+   "comment": "The texture handler's index of hierarchy_line.tga (opened as .dds); HierarchyLines_Draw takes the texture from the graphics' entry index * 0x2C + 0x15C where the index is neither -1 nor above 9999. Released before a reload where above 0.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-hierarchy.md"
+  },
+  {
+   "rva": "0x17EA47C",
+   "kind": "global",
+   "name": "g_RenderIdleSeconds",
+   "signature": null,
+   "no_signature": "data",
+   "comment": "Float seconds: at the head of CInGameIdler_Render, the idler's frame clock (+0x1934) less g_RenderEndTime - the time from the last frame's Present to this frame's drawing, the update in between, **not** the whole frame. What the hierarchy phase advances by where it is above 0.2. Also shown x 10000 among the render timings.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-hierarchy.md"
+  },
+  {
+   "rva": "0x17EA484",
+   "kind": "global",
+   "name": "g_RenderEndTime",
+   "signature": null,
+   "no_signature": "data",
+   "comment": "Float: the idler's frame clock read as the last thing CInGameIdler_Render does, after Present.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-hierarchy.md"
+  },
+  {
+   "rva": "0x17EB714",
+   "kind": "global",
+   "name": "g_HierarchyHalfMapWidth",
+   "signature": null,
+   "no_signature": "data",
+   "comment": "Float, the map width (CMap +0x2A74) x 0.5, worked out by the first HierarchyLines_AddLine of the process (guard bit 0 of the dword at rva 0x17EB718) and kept: the seam test's half.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-hierarchy.md"
+  },
+  {
+   "rva": "0x1350",
+   "kind": "function",
+   "name": "CAreaCircleObject::CAreaCircleObject",
+   "signature": "CAreaCircleObject* __stdcall CAreaCircleObject::CAreaCircleObject(CAreaCircleObject* this@stack:4, CGraphics* graphics@stack:8) @EAX",
+   "no_signature": null,
+   "comment": "**The range ring's constructor**; `this` is a stack argument, as C3dVisibleObject's is. C3dVisibleObject::C3dVisibleObject(this, type 0) - so no object type, and slot 12 later answers no mesh; radius (+0x138) = 0; graphics (+0x13C); the CColor at +0x148 built inline (vftable VA 0x15B6914, token 0x18D, r = g = b = a = 1.0); full (+0x160) = 1; **texture (+0x140) = the graphics' texture table (+0x158) entry for `map/Sector.dds`** (0xA60F30, flag 1); **effect (+0x144) = FxHandler_Register(graphics +0x6BCFC, <folder> + `/FX/circle.fx`, key `circle`, the device)** - one ID3DXEffect shared by every ring, the folder from the settings object at VA 0x1A85558 (+0xB8, or +0x25C, or both through 0x44C2F0 by its +0x4C); then SetRadius(0), which writes nothing because the radius is already 0. Returns `this`, `ret 8`. One caller, UpdateAirBaseCircles, after `new 0x218`. The name is ours. See reversing/findings/FINDINGS-airmap.md, section 8.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-airmap.md"
+  },
+  {
+   "rva": "0x65CD80",
+   "kind": "function",
+   "name": "C3dObject::Translate",
+   "signature": "void __thiscall C3dObject::Translate(C3dObject* this, const float* xyz)",
+   "no_signature": null,
+   "comment": "C3dObject slot 33, inherited unchanged by thirteen derived classes: **the local transform (+0x54, sixteen floats, D3D row-major) times a translation by (x, y, z)** - an identity made by Matrix4x4_Diagonal(1.0) with xyz as its fourth row, multiplied on the right, each product in double precision and stored as float; it writes +0x54..+0x90 and nothing else. On an object whose local transform is still the identity it simply sets the translation row (+0x84, +0x88, +0x8C) to xyz. The large air base, the resource icons and the range rings are placed with it at (position - label point), and CProvinceObject's constructor puts a province's anchor at its point. `ret 4`. The name is ours. See reversing/findings/FINDINGS-airmap.md, section 8.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-airmap.md"
+  },
+  {
+   "rva": "0x477920",
+   "kind": "function",
+   "name": "CProvinceObject::CProvinceObject",
+   "signature": "CProvinceObject* __stdcall CProvinceObject::CProvinceObject(CProvinceObject* this@ESI, const int* point@EDI, CGraphics* graphics@stack:4, int provinceId@stack:8) @EAX",
+   "no_signature": null,
+   "comment": "**A land province's anchor on the map** - the node at its province graphics entry's +0x10 that every picture of the province is hung on (ProvinceGraphics_PlacePicture). C3dVisibleObject::C3dVisibleObject(this, no type); CProvinceCollisionObject's part inline (its vftable, +0x138 the graphics, +0x13C/+0x140 the point's two ints, +0x144 the province id); its own vftable; +0x14C = 0; then **C3dObject::Translate(float(point.x), 0, float(point.y))** - so the anchor stands at height 0. The map-graphics builder (0x856AF9 and around) passes the template's centre (CProvinceTemplate +0x2C/+0x30) for a land province with a bounding box (bbox_width +0x88 not 0); a sea zone gets a CProvinceWaterObject (0x477E20) at its label point (+0x5C/+0x60) instead. Returns `this`, `ret 8`. The name is ours. See reversing/findings/FINDINGS-airmap.md, section 8.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-airmap.md"
+  },
+  {
+   "rva": "0x23EBC0",
+   "kind": "function",
+   "name": "ProvinceGraphics_Construct",
+   "signature": "void* __stdcall ProvinceGraphics_Construct(void* entry@stack:4, CProvinceTemplate* tmpl@stack:8, CMapProvince* province@ECX, CProvinceCollisionObject* anchor@EDX) @EAX",
+   "no_signature": null,
+   "comment": "**A province graphics entry's constructor** (0xA4 bytes; the entries of WaterObject +0x2C, which the graphics owner reads as its +0x1DF0 [province id]). Writes +8 the template, +0xC the province, **+0x10 the anchor** - the CProvinceObject or CProvinceWaterObject the map-graphics builder made just before - zeroes the vectors and fields after, +0x38 the tag `NON`, +0xA0 from a running counter (VA 0x1A855F8, incremented), and ends with +0x8C from a comparison. Only the head (to 0x63EC38) and the tail were read. Returns the entry, `ret 8`. The name is ours. See reversing/findings/FINDINGS-airmap.md, section 8.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-airmap.md"
+  },
+  {
+   "rva": "0x44E450",
+   "kind": "function",
+   "name": "Matrix4x4_Multiply",
+   "signature": "float* __stdcall Matrix4x4_Multiply(float* out@EAX, const float* left@stack:4, const float* right@EDX) @EAX",
+   "no_signature": null,
+   "comment": "out = left x right, sixteen floats each, D3D row-major (a row vector times left, then right); every product summed in double precision and stored as float, the result built in locals and copied to out at the end, so out may alias neither argument safely only by that copy. Returns out. ProvinceGraphics_PlacePicture makes a picture's world transform with it: its local transform (+0x54) x its anchor's world (+0x94). `ret 4` at 0x44EAC6. The name is ours. See reversing/findings/FINDINGS-airmap.md, section 8.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-airmap.md"
+  },
+  {
+   "rva": "0x1B00",
+   "kind": "function",
+   "name": "Matrix4x4_Diagonal",
+   "signature": null,
+   "no_signature": "The output matrix in EAX and the diagonal value in XMM1, nothing on the stack and a bare `ret` - an SSE register argument no signature can place.",
+   "comment": "Writes sixteen floats at EAX: XMM1 on the diagonal and 0.0 elsewhere - with XMM1 = 1.0 (VA 0x171DBAC) the identity. C3dObject's constructor (0xA600E0) makes its local (+0x54) and world (+0x94) transforms with it, so both start as the identity, and C3dObject::Translate builds its translation from it. The name is ours. See reversing/findings/FINDINGS-airmap.md, section 8.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-airmap.md"
+  },
+  {
+   "rva": "0x665720",
+   "kind": "function",
+   "name": "ObjectLayer_Add",
+   "signature": "void __stdcall ObjectLayer_Add(void* layer@ECX, C3dVisibleObject* object@stack:4)",
+   "no_signature": null,
+   "comment": "Slot 4 of the map's object layer (a 0x17C-byte class with no RTTI, vftable VA 0x15FCEA8; the graphics owner embeds nineteen, at +0xC + 0x17C k, and WaterObject +0x44..+0x70 point at twelve of them): marks the layer dirty (+0x134 = 1), gives the object the layer through its slot 16 (its scene, +0xE8), links it under the layer's root C3dObject (+0x2C) through its slot 29, and enters it in the layer's map at +4, keyed by the object's address. `ret 4`. UpdateAirBaseCircles adds every ring to owner +0x14D4. The name is ours. See reversing/findings/FINDINGS-airmap.md, section 8.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-airmap.md"
+  },
+  {
+   "rva": "0x241950",
+   "kind": "function",
+   "name": "GraphicsOwner_DrawLayers",
+   "signature": "void __stdcall GraphicsOwner_DrawLayers(void* owner@EDI, MapCamera* camera@stack:4, void* view@stack:8)",
+   "no_signature": null,
+   "comment": "**The graphics owner's own object layers, after the map's 3D scene** (the in-game frame calls MapGraphics_DrawScene at 0x25704B and this at 0x25716B). ALPHATESTENABLE 0 and ALPHABLENDENABLE 0; then, each through MapObjectGroup_Draw's wrapper (0x673B10) and each only where its visible byte (+0x179) is set but the first: +0xEE4 always; +0xC; +0x8F4 (after 0xA659C0); +0x480 with ZWRITEENABLE and ZENABLE off around it; +0x1060; +0x188; +0xBEC; +0x11DC; +0x304 with ZENABLE off around it; +0xA70; WaterObject's 0x85BB60 where the camera's height is below the settings' +0xFC, the settings' +0x58 is set and the layer mask has 0x4; +0x1948; and +0x1AC4 after clearing the depth and stencil buffers. **The layer at +0x14D4, where the range rings are, is not among them** - it is WaterObject +0x60 and is drawn inside MapGraphics_DrawScene. Its +0xC argument slot is reused as a local. `ret 8`. The name is ours. See reversing/findings/FINDINGS-airmap.md, section 8.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-airmap.md"
+  },
+  {
+   "rva": "0x43BB80",
+   "kind": "function",
+   "name": "CCounterType_BeginDraw",
+   "signature": "void __stdcall CCounterType_BeginDraw(CCounterType* type@EAX, void* graphics@stack:4)",
+   "no_signature": null,
+   "comment": "Opens the counters' effect for a batch: SetVertexDeclaration(the type's +0x98, POSITION float3 + TEXCOORD0 float2) on the graphics' device; ViewProjectionMatrix = D3DXMatrixMultiply(view (slot 91), projection (slot 93)) of the current view's camera (graphics +0x6BC88 -> +0x1C), set by name; then ID3DXEffect::Begin(&passes, 0) - flags 0, so D3DX saves the device state and End restores it - and BeginPass(0). **No SetTechnique**: the technique is whatever the effect holds from its creation, which for counter.fx, with one technique, is `Standard`. `ret 4`. The name is ours. See reversing/findings/FINDINGS-counters.md, section 10.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-counters.md"
+  },
+  {
+   "rva": "0x43A080",
+   "kind": "function",
+   "name": "Matrix_PostTranslate",
+   "signature": null,
+   "no_signature": "the matrix in ESI, x and y on the stack, z in XMM0; `ret 8` - a register float no stack signature can place",
+   "comment": "M = M x D3DXMatrixTranslation(x, y, z), in place, every row multiplied out in doubles: on a matrix whose 4th column is (0, 0, 0, 1) this adds (x, y, z) to the translation row and leaves the rest. Three callers, all in CCounterObject_DrawBatch, each with (0, lift, 0) - the lift of a counter by the camera's tilt. The name is ours. See reversing/findings/FINDINGS-counters.md, section 10.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-counters.md"
+  },
+  {
+   "rva": "0x43B260",
+   "kind": "function",
+   "name": "CCounterType::LoadResources",
+   "signature": "void __thiscall CCounterType::LoadResources(CCounterType* this, void* graphics)",
+   "no_signature": null,
+   "comment": "**Slot 6: makes what a counter type draws with.** Stores graphics +0x158 (the texture table) at +0x44; loads textureFile..textureFile4 by name into +0xA4, +0xA8, +0xAC, +0xB0 (VA 0xA60F30); where `effect` (+0x140) is empty, copies effectFile into it, then FxHandler_Register(graphics +0x6BCFC, effectFile, effect, device) into +0xA0 - so both counter types, keyed by the same path, share one ID3DXEffect. **The quad**, from the background texture's own width w and height h (texture table entry +0x24, +0x28 - the picture's size, D3DXIMAGE_INFO) and `scale` (+0x9C): hw = scale x w / h, hh = scale; um = w / P(w), vm = h / P(h), P the next power of two at or above. A MeshBuffer (0x24 bytes) at +0x90: VertexBuffer_Create(4 vertices, stride 0x14, fvf 0, not dynamic), IndexBuffer_Create(6); vertices (x, y, z, u, v) = (-hw, -hh, 0, 0, vm), (-hw, hh, 0, 0, 0), (hw, -hh, 0, um, vm), (hw, hh, 0, um, 0); indices 0 1 2, 2 1 3 - clockwise seen from -z, D3D's front face. **SizeOffset (+0x198) = (w3 / P(w3)) / noOfFrames**, w3 the size strip's own width. CreateVertexDeclaration(CounterVertexElements) into +0x98; the font (+0x178) looked up into +0x19C. `ret 4`. P(w) is there because the loader asks D3DX for D3DX_DEFAULT sizes with D3DX_FILTER_NONE, which puts the picture unscaled at the corner of a power-of-two texture. The name is CWeatherBillboardType's slot 6's. See reversing/findings/FINDINGS-counters.md, section 10.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-counters.md"
+  },
+  {
+   "rva": "0x440E70",
+   "kind": "function",
+   "name": "CEU3Graphics::FlushDeferredObjects",
+   "signature": "void __thiscall CEU3Graphics::FlushDeferredObjects(CEU3Graphics* this)",
+   "no_signature": null,
+   "comment": "Slot 4 of CEU3Graphics: CCounterObject_DrawBatch(this), then BillboardList_DrawBatch on the list at VA 0x1A8CBEC (g_WeatherBillboardDrawList). MapObjectGroup_Draw calls it through the table (0xA71D37) after it has drawn its group's objects and its own billboard list, and turns ALPHABLENDENABLE off after it - so counters are drawn at the end of each object group, with that function's SRCBLEND SRCALPHA / DESTBLEND INVSRCALPHA still set. Bare `ret`. The name is ours. See reversing/findings/FINDINGS-counters.md, section 10.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-counters.md"
+  },
+  {
+   "rva": "0x1D3B10",
+   "kind": "function",
+   "name": "CUnit_HasUpgradeLine",
+   "signature": "bool __stdcall CUnit_HasUpgradeLine(CUnit* unit, CMilitaryConstruction* line)",
+   "no_signature": null,
+   "comment": "Whether the unit's list of upgrade lines (+0x298, 0x28-byte records) holds `line`: each record's persistent id (+4, +8) resolved through FindPersistentById and cached at +0; true on the first equal. `ret 8`. Callers: CMilitaryConstruction_RegisterUpgradeTarget, and the unit panel's CWindowForSubUnitsEntry. The name is ours. See reversing/findings/FINDINGS-counters.md, section 10.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-counters.md"
+  },
+  {
+   "rva": "0x1D3BC0",
+   "kind": "function",
+   "name": "CUnit_RemoveUpgradeLine",
+   "signature": "void __stdcall CUnit_RemoveUpgradeLine(CUnit* unit, CMilitaryConstruction* line)",
+   "no_signature": null,
+   "comment": "Takes `line`'s record out of the unit's upgrade lines (+0x298), shifting the rest down, and then **sets the orange mark (+0x1BD) of both of the avatar's counters** to whether any upgrade line is left - for the played country's own units only, false for everyone else's. `ret 8`. One caller, CMilitaryConstruction::~CMilitaryConstruction. The name is ours. See reversing/findings/FINDINGS-counters.md, section 10.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-counters.md"
+  },
+  {
+   "rva": "0x1D3DD0",
+   "kind": "function",
+   "name": "CUnit_AddUpgradeLine",
+   "signature": "void __stdcall CUnit_AddUpgradeLine(CUnit* unit, CMilitaryConstruction* line)",
+   "no_signature": null,
+   "comment": "Appends a record of `line` - its persistent id (CConstruction +8, +0xC) and a name, made by VA 0x7C9530 - to the unit's upgrade lines (+0x298), then sets the orange mark (+0x1BD) of both of the avatar's counters as CUnit_RemoveUpgradeLine does. `ret 8`. Two callers: CMilitaryConstruction_RegisterUpgradeTarget and CUpgradeRegimentCommand's slot 6 (VA 0x5DAED0). The name is ours. See reversing/findings/FINDINGS-counters.md, section 10.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-counters.md"
+  },
+  {
+   "rva": "0x84030",
+   "kind": "function",
+   "name": "CMilitaryConstruction_RegisterUpgradeTarget",
+   "signature": "void __cdecl CMilitaryConstruction_RegisterUpgradeTarget(CMilitaryConstruction* line@EDI)",
+   "no_signature": null,
+   "comment": "Where the line has a target (+0x90/+0x94) and at least one of its brigade items (+0x7C) upgrades from another type (item +0x38 not 0), finds the target unit (FindPersistentById, less 8) and adds the line to its upgrade lines unless it already holds it (CUnit_HasUpgradeLine, CUnit_AddUpgradeLine). One caller, CCountry::AfterLoad (0x4D2720) - how a loaded game's counters get their orange mark back. Bare `ret`. The name is ours. See reversing/findings/FINDINGS-counters.md, section 10.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-counters.md"
+  },
+  {
+   "rva": "0x83F20",
+   "kind": "function",
+   "name": "CMilitaryConstruction::~CMilitaryConstruction",
+   "signature": "void __thiscall CMilitaryConstruction::~CMilitaryConstruction(CMilitaryConstruction* this)",
+   "no_signature": null,
+   "comment": "The destructor body (slot 0, 0x483EF0, calls it): restores the CMilitaryConstruction vftable, and where a brigade item upgrades from another type takes the line off its target unit (CUnit_RemoveUpgradeLine) - so an upgrade line finished or cancelled clears the unit's orange mark - then frees the item list. Only its head was read. Bare `ret` at 0x48402A. See reversing/findings/FINDINGS-counters.md, section 10.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-counters.md"
+  },
+  {
+   "rva": "0x16857E4",
+   "kind": "global",
+   "name": "g_PlatformClock",
+   "signature": null,
+   "no_signature": null,
+   "comment": "The process's clock: g_random_object's slot 1 (Platform_MakeClock, a CHighPerfWinClock) stored here once at start-up (VA 0xA57382) and started. Slot 5 is CHighPerfWinClock::GetSeconds. Read for the counters' SelectionIntensity pulse, the rivers' and decals' vTime, the animation library's step and a new game's seed. See reversing/findings/FINDINGS-counters.md, section 10.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-counters.md"
+  },
+  {
+   "rva": "0x17EB670",
+   "kind": "global",
+   "name": "g_CounterMarkColours",
+   "signature": null,
+   "no_signature": null,
+   "comment": "Four CColors of 0x1C bytes (VA 0x1BEB670..0x1BEB6DF; vftable 0x15B6914, then 0x18D, four floats from +8, a byte), made on CCounterType_DrawQuad's first call (guard bit 1 of VA 0x1BEB6E0): 0 = (0,0,0,0), 1 = yellow (1,1,0,1), 2 = red (1,0,0,1), 3 = orange (1,0.5,0,1). vOtherColor is one of them. Not the type's `delayAfterAttackColor`, which nothing reads. See reversing/findings/FINDINGS-counters.md, section 10.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-counters.md"
+  },
+  {
+   "rva": "0x130AD18",
+   "kind": "global",
+   "name": "CounterVertexElements",
+   "signature": null,
+   "no_signature": null,
+   "comment": "The counter quad's D3DVERTEXELEMENT9 array: {0, 0, FLOAT3, DEFAULT, POSITION, 0}, {0, 12, FLOAT2, DEFAULT, TEXCOORD, 0}, D3DDECL_END - 20 bytes a vertex, which is counter.fx's VS_INPUT. CCounterType::LoadResources makes the type's +0x98 from it. See reversing/findings/FINDINGS-counters.md, section 10.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-counters.md"
+  },
+  {
+   "rva": "0x168C224",
+   "kind": "global",
+   "name": "g_CounterDrawQueue",
+   "signature": null,
+   "no_signature": null,
+   "comment": "A std::vector<CCounterObject*> (begin VA 0x1A8C224, end +4, capacity +8): CCounterObject::Render appends each counter it would draw, CCounterObject_DrawBatch draws them in that order and empties it. See reversing/findings/FINDINGS-counters.md, sections 2 and 10.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-counters.md"
+  },
+  {
+   "rva": "0x44BE10",
+   "kind": "function",
+   "name": "CMaskedSpriteType::CMaskedSpriteType",
+   "signature": "CMaskedSpriteType* __stdcall CMaskedSpriteType::CMaskedSpriteType(CMaskedSpriteType* this@stack:4, void* flagAtlas@stack:8, CGraphics* graphics@ECX) @EAX",
+   "no_signature": null,
+   "comment": "**Makes a `maskedShieldType`** (0x250 bytes, operator new at VA 0x8409CB in the spriteTypes factory 0x8408E0, which hands it ECX = the graphics and the flag atlas `&graphics +0x6BD6C`). Calls the CSpriteType constructor (VA 0xAB7450) with the graphics, writes the vftable (rva 0x11E1D44), stores the graphics at +0x1A0, empties the three strings +0x1A4 (textureFile2), +0x1C0 (textureFile1) and +0x1F4 (effectFile), sets both texture indices +0x210 and +0x214 to -1 and **stores the flag atlas at +0x244**. `ret 8`. See reversing/findings/FINDINGS-maskedflag.md, section 1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-maskedflag.md"
+  },
+  {
+   "rva": "0x44BED0",
+   "kind": "function",
+   "name": "CMaskedSpriteType::DeletingDestructor",
+   "signature": "CMaskedSpriteType* __thiscall CMaskedSpriteType::DeletingDestructor(CMaskedSpriteType* this, unsigned int flags)",
+   "no_signature": null,
+   "comment": "Slot 0: CMaskedSpriteType::~CMaskedSpriteType (rva 0x44BF00), then frees the object where bit 0 of `flags` is set. `ret 4`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-maskedflag.md"
+  },
+  {
+   "rva": "0x44BF00",
+   "kind": "function",
+   "name": "CMaskedSpriteType::~CMaskedSpriteType",
+   "signature": "void __stdcall CMaskedSpriteType::~CMaskedSpriteType(CMaskedSpriteType* this@stack:4)",
+   "no_signature": null,
+   "comment": "Writes the vftable back, releases and frees the plain quad at +0x220 (its +4 object's slot 2, then free), hands the two texture indices +0x210 and +0x214 back to the texture handler (VA 0xA610E0, the handler `graphics +0x158` in EDI) where they are not negative, destroys the strings +0x1F4, +0x1C0 and +0x1A4, and calls the CSpriteType destructor (VA 0xAB7F60). `this` is the stack argument. `ret 4`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-maskedflag.md"
+  },
+  {
+   "rva": "0x44C0A0",
+   "kind": "function",
+   "name": "CMaskedSpriteType::LoadResources",
+   "signature": "void __thiscall CMaskedSpriteType::LoadResources(CMaskedSpriteType* this, void* graphics)",
+   "no_signature": null,
+   "comment": "Slot 6. **Loads the two pictures and the effect and takes the effect's handles by name.** +0x44 = graphics +0x158 (the texture handler); the mask (+0x1A4) through the handler (VA 0xA60F30, flag 1) into +0x210, the overlay (+0x1C0) into +0x214; each picture's own width and height (handler entry +0x24/+0x28 - the file's size, the texture being padded to a power of two) into +0x1DC/+0x1E0 (mask) and +0x1E4/+0x1E8 (overlay), 0 for an index of 10000 or more. **The effect: FxHandler_Register(graphics +0x6BCFC, path +0x1F4, key +0x1F4, device)** into +0x218 - the effectFile string is both path and key, so every masked sprite naming one file shares one ID3DXEffect. A plain quad of four (position, uv, white) vertices the mask's size, built by VA 0xA74470, into +0x220 - no draw read uses it. The effect pointer (the handler's list +0x6BD00, index - 1) into +0x21C, then GetParameterByName(NULL, ...) for `tex0` +0x224, `tex1` +0x228, `FlagCoords` +0x234, `WorldViewProjectionMatrix` +0x22C, and GetTechniqueByName for `tec0` +0x230, `over` +0x238, `down` +0x23C, `disable` +0x240. The argument is not read. `ret 4`. See reversing/findings/FINDINGS-maskedflag.md, section 2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-maskedflag.md"
+  },
+  {
+   "rva": "0x44C4E0",
+   "kind": "function",
+   "name": "CMaskedSpriteType::ContainsPoint",
+   "signature": "bool __thiscall CMaskedSpriteType::ContainsPoint(CMaskedSpriteType* this, short* point, short* origin, float scale)",
+   "no_signature": null,
+   "comment": "Slot 16: whether `point` is inside the overlay's rectangle at `origin` - origin.x < point.x < origin.x + overlay width (+0x1E4) and the same for y with +0x1E8, **strict at both ends** (CSpriteType's own slot 16, VA 0xAB8270, is inclusive at the near end and scales the frame by `scale`); `scale` is not read here. The point's halves are read unsigned, the origin's signed. `ret 0xC`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-maskedflag.md"
+  },
+  {
+   "rva": "0x44C530",
+   "kind": "function",
+   "name": "CMaskedSpriteType::IsTransparentAt",
+   "signature": "bool __thiscall CMaskedSpriteType::IsTransparentAt(CMaskedSpriteType* this, short* point, unsigned short frame)",
+   "no_signature": null,
+   "comment": "Slot 18, CSpriteType::IsTransparentAt (0x6B80E0) for a shield: true (see-through) where `allwaystransparent` (+0x178) is set. **`transparencecheck` is not asked**: the pixels are always tested. The point is moved by the mask's offset in the overlay (+0x1EC, +0x1F0 - each coordinate at or below the offset becomes 0) and is see-through where it is then past the mask's **width** in x or in y (+0x1DC both times - the height is not used, kept as read); else solid where the mask's alpha there is not nought (a DXT3 nibble, or byte 3 of a four-byte pixel); else the overlay is fetched by name (VA 0xA61300 on +0x1C0) and the point, unmoved, is solid where its alpha is not nought, see-through where it is. `frame` is not read. `ret 8`. See reversing/findings/FINDINGS-maskedflag.md, section 6.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-maskedflag.md"
+  },
+  {
+   "rva": "0x44C7A0",
+   "kind": "function",
+   "name": "CMaskedSpriteType_DrawFlag",
+   "signature": "void __stdcall CMaskedSpriteType_DrawFlag(CMaskedSpriteType* type, CGraphics* graphics, float* world, void* flagTexture, float* flagCoords, int state)",
+   "no_signature": null,
+   "comment": "**Draws the flag through the masked sprite's effect.** effect = the handler's list (+0x6BD00)[+0x218 - 1], kept at +0x21C. **Technique by `state`: 2 `down` (+0x23C), 3 `over` (+0x238), 4 `disable` (+0x240), anything else `tec0` (+0x230).** `WorldViewProjectionMatrix` = world (16 floats, the object's +0x94) x identity x **D3DXMatrixOrthoRH(screen width +0x6B9BC, screen height +0x6B9C0, 0, 1)**; `tex0` = flagTexture; `tex1` = the mask (+0x210 through the texture table, graphics +0x15C + 0x2C x index); +0x1EC = (int)((overlay width - mask width) x 0.5), +0x1F0 likewise for the height; `FlagCoords` = the four floats at flagCoords. Where world's float at +0x3C differs from +0x110 (-1.0 after slot 29), +0x110 takes it and slot 27 rebuilds the quad. Then Begin(&passes, 0), BeginPass(0), CommitChanges, VertexBuffer_Draw of the quad at +0xEC (FVF 0x202, a triangle fan), EndPass, End. Begin with flags 0 saves and restores the device state. One caller, CShieldObject::Render (VA 0x87EAA2). `ret 0x18`. See reversing/findings/FINDINGS-maskedflag.md, section 3.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-maskedflag.md"
+  },
+  {
+   "rva": "0x44CAE0",
+   "kind": "function",
+   "name": "CMaskedSpriteType::CreateInstance",
+   "signature": "CShieldObject* __thiscall CMaskedSpriteType::CreateInstance(CMaskedSpriteType* this, void* arg)",
+   "no_signature": null,
+   "comment": "Slot 23: operator new(0x1AC) and CShieldObject::CShieldObject with this type in ECX, the graphics (+0x1A0), the flag atlas (+0x244) and the address of `arg`; null where the allocation fails. `ret 4`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-maskedflag.md"
+  },
+  {
+   "rva": "0x44CB60",
+   "kind": "function",
+   "name": "CMaskedSpriteType::GetSize",
+   "signature": "int* __thiscall CMaskedSpriteType::GetSize(CMaskedSpriteType* this, int* out)",
+   "no_signature": null,
+   "comment": "Slot 17: out = the overlay's width and height (+0x1E4, +0x1E8) - **the size of the sprite is textureFile1's**, where CSpriteType's slot 17 (VA 0xAB80C0) answers +0xA4/+0xA8. `ret 4`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-maskedflag.md"
+  },
+  {
+   "rva": "0x44CB80",
+   "kind": "function",
+   "name": "CMaskedSpriteType::CreateQuadBuffer",
+   "signature": "void __thiscall CMaskedSpriteType::CreateQuadBuffer(CMaskedSpriteType* this)",
+   "no_signature": null,
+   "comment": "Slot 29: +0x110 = -1.0 (the float at VA 0x170AC0C), releases the quad MeshBuffer at +0xEC, clears it, primitive kind (+0x10C) 2 - a triangle fan - not managed, and **VertexBuffer_Create(+0xEC, device, 4 vertices, stride 0x1C, FVF 0x202 = XYZ|TEX2, not dynamic)**: position and two texture coordinates a vertex. CSpriteType's own slot 29 (VA 0xAB7750) makes a 0x14-stride XYZ|TEX1 strip. Bare `ret`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-maskedflag.md"
+  },
+  {
+   "rva": "0x44CC10",
+   "kind": "function",
+   "name": "CMaskedSpriteType::BuildQuad",
+   "signature": "void __thiscall CMaskedSpriteType::BuildQuad(CMaskedSpriteType* this)",
+   "no_signature": null,
+   "comment": "Slot 27: **fills the four vertices of the masked flag**, calling slot 29 first where the buffer has no vertices (+0xF8). With W, H the mask's size (+0x1DC, +0x1E0), FW, FH the overlay's (+0x1E4, +0x1E8), ox = (FW - W) x 0.5, oy = (FH - H) x 0.5, R the turn by the rotation +0xA0 (x' = cos x - sin y, y' = sin x + cos y; _CIcos 0xC0BCC0, _CIsin 0xC0BB90), w2 = W/2 and h2 = H/2 in whole numbers and P(n) the least power of two not below n: v0 = R(ox - w2, oy - h2) + (w2, h2), uv (0,1), mask uv (0, H/P(H)); v1 = R(ox - W/2, oy + H/2) + (W/2, H/2), (0,0), (0,0); v2 = R(ox + W/2, oy + H/2) + (W/2, H/2), (1,0), (W/P(W), 0); v3 = R(ox + w2, oy - h2) + (W/2, H/2), (1,1), (W/P(W), H/P(H)); z = 1.0 for all. y runs up. The lock asks D3DLOCK_DISCARD only for a dynamic buffer. Bare `ret` at 0x84D394. See reversing/findings/FINDINGS-maskedflag.md, section 4.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-maskedflag.md"
+  },
+  {
+   "rva": "0x47E760",
+   "kind": "function",
+   "name": "CShieldObject::CShieldObject",
+   "signature": "CShieldObject* __stdcall CShieldObject::CShieldObject(CShieldObject* this@stack:4, CGraphics* graphics@stack:8, void* flagAtlas@stack:0xC, void* arg@stack:0x10, CMaskedSpriteType* type@ECX) @EAX",
+   "no_signature": null,
+   "comment": "**The drawn shield.** Calls the CSprite constructor (VA 0xB05EB0) with *arg, writes CShieldObject's vftable (rva 0x11E3A8C), +0x184 = the type, +0x188 = the graphics, **+0x18C = CCountryDataBase::GetTag(\"SWE\") - a new shield is Sweden's until a country is set**, +0x1A0 = the flag atlas, +0x1A4 = 0 (no picture of its own), +0x194/+0x198 = the type's overlay width and height. `ret 0x10`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-maskedflag.md"
+  },
+  {
+   "rva": "0x47E6C0",
+   "kind": "function",
+   "name": "CShieldObject::DeletingDestructor",
+   "signature": "CShieldObject* __thiscall CShieldObject::DeletingDestructor(CShieldObject* this, unsigned int flags)",
+   "no_signature": null,
+   "comment": "Slot 9 (this family's destructor slot; slot 0 is a getter): writes the vftable back, frees the string at +0x15C, calls the base destructor (VA 0xA5F190), frees the object where bit 0 of `flags` is set. `ret 4`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-maskedflag.md"
+  },
+  {
+   "rva": "0x47E830",
+   "kind": "function",
+   "name": "CShieldObject::Render",
+   "signature": "void __thiscall CShieldObject::Render(CShieldObject* this, CGraphics* graphics, void* device, int arg3, int arg4, unsigned short state, int arg6)",
+   "no_signature": null,
+   "comment": "Slot 10: **draws the shield - the flag through the effect, then the overlay over it.** Saves ZENABLE and ZWRITEENABLE and sets both 1, FOGVERTEXMODE 0, **SRCBLEND SRCALPHA (5), DESTBLEND INVSRCALPHA (6)**. The flag's cell: id = +0x190, 0 taken as 1; the atlas's cells (+0x14) are rows of {u, v} pairs, `columns` a row, and cell id - 1 gives (u, v); **FlagCoords = (columns +0x28, rows +0x24, u, v)** as floats and the texture the atlas's own (+0); **where +0x1A4 holds a picture, FlagCoords = (1, 1, 0, 0) and that picture instead**. Where the object's rotation +0x14C differs from the type's +0xA0 it is copied there and the type's slot 27 rebuilds the quad. Then CMaskedSpriteType_DrawFlag(type, graphics, this +0x94, texture, &FlagCoords, state). **Then the overlay**: four vertices R(+-FW/2, +-FH/2) + (FW/2, FH/2), z 1.0, uv (0, FH/P(FH)), (0,0), (FW/P(FW), 0), (FW/P(FW), FH/P(FH)) - FW, FH from +0x194/+0x198, R by +0x14C, halves times 0.5 - SetTexture(0, the type's +0x214 overlay), ALPHABLENDENABLE 1, SetFVF(0x102), DrawPrimitiveUP(TRIANGLEFAN, 2, stride 0x14), ALPHABLENDENABLE 0, and the two depth states put back. `state` picks the technique for the flag only; the overlay is drawn the same in every state. `ret 0x18`. See reversing/findings/FINDINGS-maskedflag.md, section 3.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-maskedflag.md"
+  },
+  {
+   "rva": "0x47F160",
+   "kind": "function",
+   "name": "CShieldObject::SetCountry",
+   "signature": "void __thiscall CShieldObject::SetCountry(CShieldObject* this, int countryId)",
+   "no_signature": null,
+   "comment": "Slot 83: +0x1A8 = countryId, the country tag and id (+0x18C/+0x190) from the country database's countries_first[countryId], and **+0x1A4 = 0** - setting a country drops any picture set with slot 84. CIcon::SetCountry forwards here. `ret 4`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-maskedflag.md"
+  },
+  {
+   "rva": "0x47F210",
+   "kind": "function",
+   "name": "CShieldObject::SetTexture",
+   "signature": "void __thiscall CShieldObject::SetTexture(CShieldObject* this, unsigned int textureIndex)",
+   "no_signature": null,
+   "comment": "Slot 84: +0x1A4 = the texture handler's texture of that index (graphics +0x15C + 0x2C x index), or nothing for -1 or an index of 10000 or more. While +0x1A4 is set the shield draws that picture whole through the mask (FlagCoords (1,1,0,0)) instead of the country's flag. Who calls it was not read. `ret 4`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-maskedflag.md"
+  },
+  {
+   "rva": "0x47F200",
+   "kind": "function",
+   "name": "CShieldObject::GetCountry",
+   "signature": "int __thiscall CShieldObject::GetCountry(CShieldObject* this)",
+   "no_signature": null,
+   "comment": "Slot 85: the country id last given to SetCountry (+0x1A8). Bare `ret`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-maskedflag.md"
+  },
+  {
+   "rva": "0x47E6B0",
+   "kind": "function",
+   "name": "CShieldObject::GetType",
+   "signature": "CMaskedSpriteType* __thiscall CShieldObject::GetType(CShieldObject* this)",
+   "no_signature": null,
+   "comment": "Slot 91: the masked sprite type (+0x184). Bare `ret`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-maskedflag.md"
+  },
+  {
+   "rva": "0x706050",
+   "kind": "function",
+   "name": "CShieldObject::UpdateStateName",
+   "signature": "void __thiscall CShieldObject::UpdateStateName(CShieldObject* this)",
+   "no_signature": null,
+   "comment": "Slot 8: asks its own slot 26 for the state and writes a name into the string at +8 - **2 `down`, 3 `over`, 4 `disable`, anything else (0, 1, above 4) `up`** - the technique names of buttonstate.fx and maskedflag.fx; CSpriteType's object does the same at VA 0xAB5B20. What reads +8 was not read; the name is ours. Bare `ret`.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-maskedflag.md"
+  },
+  {
+   "rva": "0x6A2730",
+   "kind": "function",
+   "name": "CIcon::SetCountry",
+   "signature": "void __thiscall CIcon::SetCountry(CIcon* this, int countryId)",
+   "no_signature": null,
+   "comment": "Slot 53 of the icon widget's table (CIcon, rva 0x11FFC68, inherited by CEU3Minimap): a tail jump to slot 83 of the icon's sprite object (+0x88) - **for a masked shield sprite, CShieldObject::SetCountry**. SetDialogLeftShield and SetDialogRightShield give a dialog's shield its country through this slot with the country's id. No `ret` of its own.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-maskedflag.md"
+  },
+  {
+   "rva": "0x4427C0",
+   "kind": "function",
+   "name": "FlagTextureMap_Build",
+   "signature": "void __stdcall FlagTextureMap_Build(void* map, Hoi3CString* folder, CCountryDataBase* countries, CGraphics* graphics)",
+   "no_signature": null,
+   "comment": "**Makes the flag atlas every masked shield and `@TAG` in text draw from** (log lines name flagtexturemap.cpp; the name is ours). `map` is CGraphics +0x6BD6C. One flag file a country: `<TAG>.tga` for every country of the database whose tag starts with a letter, in database order. N flags: s = (int)sqrt(N); where s is a power of two, rows = s and columns = s, columns = the next power of two above s where s x s < N; otherwise rows = the least power of two not below s and columns = the least power of two not below ceil(N / rows). map +0x24 = rows, +0x28 = columns. The texture is P(93 x columns) by P(64 x rows) (+0x2C = 93 and +0x30 = 64 from CEU3Graphics::CEU3Graphics), so a cell is texture width / columns by texture height / rows; each flag is drawn whole into its cell; the cell of country id k is k - 1, row-major from the top, and map +0x14 holds each row's {u = column / columns, v = row / rows}. A render target cleared to white (0xFFFFFFFF) holds the drawing, which is copied into an A8R8G8B8 texture (+0). The result is cached as gfx/flags/flagfiles.tga, with flagfiles.txt listing `PowerOf2` and every flag file in order; logs `Missing flag for <TAG>` and `Failed to load flag texture`. When the cache is used rather than rebuilt (the test 0x8417E0) was not read. Extent 0x8427C0..0x844A55, `ret 0x10`. See reversing/findings/FINDINGS-maskedflag.md, section 5.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-maskedflag.md"
   }
  ],
  "structs": [
@@ -68419,6 +69021,13 @@
    "name": "CInGameIdler",
    "fields": [
     {
+     "offset": "0x1934",
+     "name": "frame_clock",
+     "type": "void*",
+     "comment": "A second clock, made and started by CInGameIdler_Render on its first frame from g_random_object's slot 1 (a CHighPerfWinClock in seconds in a running game); read through its slot 5 for g_RenderIdleSeconds, g_RenderEndTime and the render timings. Distinct from +0x192C, the clock Enter makes.",
+     "source": "reversing/findings/FINDINGS-hierarchy.md"
+    },
+    {
      "offset": "0x88",
      "name": "map_refresh_provinces",
      "type": "void*",
@@ -69037,8 +69646,8 @@
     {
      "offset": "0x1DE0",
      "name": "hierarchy_lines",
-     "type": "void*",
-     "comment": "the 0x40-byte object holding the mesh of the selected unit's hierarchy lines: the records it was built from at +0, the unit's commander at +0x10, a byte at +0x14 that there is something to draw, the picture's phase at +0x18, the mesh from +0x1C. See reversing/findings/FINDINGS-hierarchy.md, section 2.",
+     "type": "HierarchyLines*",
+     "comment": "The selected unit's hierarchy lines (a HierarchyLines, 0x40 bytes): the records it was built from at +0, the unit's commander at +0x10, a byte at +0x14 that there is something to draw, the picture's phase at +0x18, the mesh from +0x1C. See reversing/findings/FINDINGS-hierarchy.md, sections 2 and 7.",
      "source": "reversing/findings/FINDINGS-hierarchy.md"
     },
     {
@@ -72270,6 +72879,20 @@
   {
    "name": "CUnit",
    "fields": [
+    {
+     "offset": "0x29C",
+     "name": "upgrade_lines_end",
+     "type": "void*",
+     "comment": "End of the upgrade_lines vector.",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0x298",
+     "name": "upgrade_lines",
+     "type": "void*",
+     "comment": "Begin of a vector of 0x28-byte records, one for each production line upgrading a brigade of this unit: +0 the CMilitaryConstruction (cached), +4/+8 its persistent id, +0xC a name (Hoi3CString). Filled by CUnit_AddUpgradeLine, emptied by CUnit_RemoveUpgradeLine; the unit panel lists a row for each, and a non-empty list is the counters' orange mark.",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
     {
      "offset": "0x49",
      "name": "saved_this_pass",
@@ -86318,6 +86941,55 @@
    "name": "CGraphics",
    "fields": [
     {
+     "offset": "0x6BD9C",
+     "name": "flag_cell_height",
+     "type": "int",
+     "comment": "64, set by CEU3Graphics::CEU3Graphics: the atlas's height is the least power of two not below 64 x rows.",
+     "source": "reversing/findings/FINDINGS-maskedflag.md"
+    },
+    {
+     "offset": "0x6BD98",
+     "name": "flag_cell_width",
+     "type": "int",
+     "comment": "93, set by CEU3Graphics::CEU3Graphics: the atlas's width is the least power of two not below 93 x columns.",
+     "source": "reversing/findings/FINDINGS-maskedflag.md"
+    },
+    {
+     "offset": "0x6BD94",
+     "name": "flag_atlas_columns",
+     "type": "int",
+     "comment": "Columns of the flag atlas: `FlagCoords.x`. 8 for Their Finest Hour's 101 flags.",
+     "source": "reversing/findings/FINDINGS-maskedflag.md"
+    },
+    {
+     "offset": "0x6BD90",
+     "name": "flag_atlas_rows",
+     "type": "int",
+     "comment": "Rows of the flag atlas: `FlagCoords.y`. 16 for Their Finest Hour's 101 flags.",
+     "source": "reversing/findings/FINDINGS-maskedflag.md"
+    },
+    {
+     "offset": "0x6BD84",
+     "name": "flag_atlas_cells_end",
+     "type": "void*",
+     "comment": "End of the rows at +0x6BD80: (end - begin) / 16 is the number of rows.",
+     "source": "reversing/findings/FINDINGS-maskedflag.md"
+    },
+    {
+     "offset": "0x6BD80",
+     "name": "flag_atlas_cells",
+     "type": "void*",
+     "comment": "The flag atlas's rows: 16-byte records whose first two dwords are the begin and end of that row's 8-byte {float u, float v} cells, `columns` a row.",
+     "source": "reversing/findings/FINDINGS-maskedflag.md"
+    },
+    {
+     "offset": "0x6BD6C",
+     "name": "flag_atlas_texture",
+     "type": "void*",
+     "comment": "The flag atlas's texture (IDirect3DTexture9), the first member of the flag texture map that starts here and that FlagTextureMap_Build fills; every masked shield's `tex0` unless it has a picture of its own, and the `@TAG` icon's texture.",
+     "source": "reversing/findings/FINDINGS-maskedflag.md"
+    },
+    {
      "offset": "0x6BCFC",
      "name": "effect_handler",
      "type": "FxHandler",
@@ -86730,6 +87402,13 @@
    "vftable_rva": "0x11B4B54",
    "fields": [
     {
+     "offset": "0x94",
+     "name": "world",
+     "type": "float[16]",
+     "comment": "**The object's world transform**, D3D row-major (row 3 the translation): the identity from C3dObject's constructor, and for a picture hung on a province's anchor its local transform (+0x54) x the anchor's world, as ProvinceGraphics_PlacePicture computes it through Matrix4x4_Multiply. MapObjectGroup_Draw gives it to the device's WORLD transform and to an effect object's slot 10, and CAreaCircleObject::Draw hands it to circle.fx as WorldMatrix. See reversing/findings/FINDINGS-airmap.md, section 8.",
+     "source": "reversing/findings/FINDINGS-airmap.md"
+    },
+    {
      "offset": "0x29",
      "name": "visible",
      "type": "uint8_t",
@@ -86747,8 +87426,8 @@
      "offset": "0x84",
      "name": "position",
      "type": "float[4]",
-     "comment": "The object's world position as a homogeneous vector: slot 90 (SetPosition, rva 0x44AB80) copies three floats into +0x84/+0x88/+0x8C and writes 1.0f into +0x90. CCombat::UpdateCombatStatusWindow sets it to the negated midpoint of the attacker's and defender's first units each tick.",
-     "source": "reversing/findings/FINDINGS-gui.md"
+     "comment": "The object's world position as a homogeneous vector: slot 90 (SetPosition, rva 0x44AB80) copies three floats into +0x84/+0x88/+0x8C and writes 1.0f into +0x90. CCombat::UpdateCombatStatusWindow sets it to the negated midpoint of the attacker's and defender's first units each tick. **It is the fourth row - the translation - of the local transform at +0x54** (sixteen floats, D3D row-major, C3dObject's, made the identity by its constructor): C3dObject::Translate (slot 33) multiplies the whole of +0x54 by a translation, and ProvinceGraphics_PlacePicture's raise adds 1.0 to its float 13, which is +0x88. Relative to the object's parent, not the world, for anything hung on a province's anchor. See reversing/findings/FINDINGS-airmap.md, section 8.",
+     "source": "reversing/findings/FINDINGS-airmap.md"
     },
     {
      "offset": "0xE8",
@@ -90521,10 +91200,45 @@
    "source": "reversing/findings/FINDINGS-counters.md",
    "fields": [
     {
+     "offset": "0xB0",
+     "name": "texture4",
+     "type": "int",
+     "comment": "`textureFile4`, loaded as an index into the texture table and read by nothing found in the counter's draw. unit_counter_close names counter_arrows.dds, the arrow's own texture.",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0x98",
+     "name": "vertex_declaration",
+     "type": "void*",
+     "comment": "IDirect3DVertexDeclaration9* made from CounterVertexElements (POSITION float3, TEXCOORD0 float2); CCounterType_BeginDraw sets it.",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0x90",
+     "name": "quad",
+     "type": "MeshBuffer*",
+     "comment": "The counter's quad, made by CCounterType::LoadResources: 4 vertices of 20 bytes (position, uv) and 6 indices, drawn as a triangle list by VertexBuffer_Draw in CCounterType_DrawQuad. Half its height is `scale`, half its width scale x the background picture's width over its height.",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0x8C",
+     "name": "graphics",
+     "type": "void*",
+     "comment": "The graphics owner: its +0x64 is the device, +0x6BD00 the effect list, +0x6BCFC the effect handler. Read by LoadResources, BeginDraw and DrawQuad; the type base's (CBillboardType reads the same offset).",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
+     "offset": "0x44",
+     "name": "texture_table",
+     "type": "void*",
+     "comment": "graphics +0x158, set by CCounterType::LoadResources: the table of textures, 0x2C bytes a row - +4 the texture, +0x24 the picture's width, +0x28 its height. The same offset is read by CBillboardType's draw, so likely a field of the type base.",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
      "offset": "0x210",
      "name": "delay_after_attack_color",
      "type": "CColor",
-     "comment": "`delayAfterAttackColor`; no use of it was found",
+     "comment": "`delayAfterAttackColor`. **Read by nothing**: the corner an attack delay gives a counter (CCounterObject +0x1BB) is drawn in the static yellow of g_CounterMarkColours, whatever the file says.",
      "source": "reversing/findings/FINDINGS-counters.md"
     },
     {
@@ -90608,7 +91322,7 @@
      "offset": "0x198",
      "name": "size_offset",
      "type": "float",
-     "comment": "what the shader gets as SizeOffset, which it multiplies `u + SizeFrame` by - so one over `frames`; where it is computed was not read",
+     "comment": "What the shader gets as SizeOffset: (w3 / P(w3)) / noOfFrames, w3 the size strip's own width and P the next power of two at or above it, made by CCounterType::LoadResources - so for a 384-wide strip of 6 frames 0.125, which on the 512-wide texture D3DX made of it is one frame. On the strip as a picture of its own that is (u + SizeFrame) / noOfFrames.",
      "source": "reversing/findings/FINDINGS-counters.md"
     },
     {
@@ -90712,24 +91426,31 @@
    "source": "reversing/findings/FINDINGS-counters.md",
    "fields": [
     {
+     "offset": "0x94",
+     "name": "world_matrix",
+     "type": "float[16]",
+     "comment": "The matrix CCounterObject::Render was handed, copied here; the batch uses only its translation row (+0x30..+0x38 of it), lifted by the camera's tilt, as where the counter's quad, flag and texts stand. For a stack's counter it is the stack's matrix with its translation moved (CCounterStack::Render).",
+     "source": "reversing/findings/FINDINGS-counters.md"
+    },
+    {
      "offset": "0x1BD",
      "name": "mark_orange",
      "type": "bool",
-     "comment": "the corner is orange, where mark_red is clear",
+     "comment": "**An upgrade under way**: the unit is the target of a production line rebuilding one of its brigades as another type (CUnit +0x298 not empty) - only on the played country's own units. Written by CUnit::UpdateAvatar and CNavy::UpdateAvatar each frame and by CUnit_AddUpgradeLine / CUnit_RemoveUpgradeLine when a line comes or goes. Orange corner, second in priority.",
      "source": "reversing/findings/FINDINGS-counters.md"
     },
     {
      "offset": "0x1BC",
      "name": "mark_red",
      "type": "bool",
-     "comment": "the corner is red, before either other mark",
+     "comment": "**Short of supplies**: the unit's supply_received_percentage (+0xFC) or fuel_received_percentage (+0x100) is under Define50 (50 thousandths) - only on the played country's own units. Written by CUnit::UpdateAvatar and CNavy::UpdateAvatar each frame, and by CUnit::ConsumeSuppliesAndFuel after a unit's day (set outright where its depot's holder is no friend). Red corner, first in priority.",
      "source": "reversing/findings/FINDINGS-counters.md"
     },
     {
      "offset": "0x1BB",
      "name": "mark_yellow",
      "type": "bool",
-     "comment": "the corner is yellow, where neither of the other two marks is set; what sets it was not read",
+     "comment": "**An attack delay**: the unit's combat_cooldown (+0xD4) is above 0 while it is in no combat and not retreating - and only on the played country's own units. Written for both counters by CUnit::UpdateAvatar and CNavy::UpdateAvatar each frame. Yellow corner, the last of the three in priority.",
      "source": "reversing/findings/FINDINGS-counters.md"
     },
     {
@@ -91501,24 +92222,80 @@
    "source": "reversing/findings/FINDINGS-airmap.md",
    "fields": [
     {
+     "offset": "0x164",
+     "name": "vertices",
+     "type": "float[45]",
+     "comment": "Nine vertices of {x, y, z, u, v} (D3DFVF_XYZ | D3DFVF_TEX1, stride 0x14), written by SetRadius: the centre (0,0,0) uv (1,1), then round from north (0,0,r) (1,0), north-west (-r,0,r) (0,0), west (-r,0,0) (0,1), south-west (-r,0,-r) (0,0), south (0,0,-r) (1,0), south-east (r,0,-r) (0,0), east (r,0,0) (0,1), north-east (r,0,r) (0,0). Drawn as eight triangles from the index list at rva 0x1312310. Ends the object at 0x218. See reversing/findings/FINDINGS-airmap.md, section 8.",
+     "source": "reversing/findings/FINDINGS-airmap.md"
+    },
+    {
+     "offset": "0x158",
+     "name": "share_b",
+     "type": "float",
+     "comment": "The CColor's b: the share again. Nothing in the ring's drawing reads it. See reversing/findings/FINDINGS-airmap.md, section 8.",
+     "source": "reversing/findings/FINDINGS-airmap.md"
+    },
+    {
+     "offset": "0x154",
+     "name": "share_g",
+     "type": "float",
+     "comment": "The CColor's g: the share again. Nothing in the ring's drawing reads it. See reversing/findings/FINDINGS-airmap.md, section 8.",
+     "source": "reversing/findings/FINDINGS-airmap.md"
+    },
+    {
+     "offset": "0x14C",
+     "name": "colour_token",
+     "type": "SaveToken",
+     "comment": "The CColor's CPersistent token, `none` (0x18D), written by the constructor and again by UpdateAirBaseCircles; nothing reads it. Not a colour component - FINDINGS-airmap.md, section 6, listed it as the first of five. See reversing/findings/FINDINGS-airmap.md, section 8.",
+     "source": "reversing/findings/FINDINGS-airmap.md"
+    },
+    {
+     "offset": "0x148",
+     "name": "colour_vftable",
+     "type": "void*",
+     "comment": "A **CColor held by value** occupies +0x148..+0x15F: this is its vftable word (VA 0x15B6914), +0x14C its CPersistent token and +0x150, +0x154, +0x158, +0x15C its r, g, b, a. UpdateAirBaseCircles sets it to (share, share, share, dim). Recorded by its parts so that share and dim keep their names. See reversing/findings/FINDINGS-airmap.md, section 8.",
+     "source": "reversing/findings/FINDINGS-airmap.md"
+    },
+    {
+     "offset": "0x144",
+     "name": "effect",
+     "type": "int",
+     "comment": "The 1-based index of `circle.fx` in the graphics' effect list, from FxHandler_Register under the key `circle` - one ID3DXEffect shared by every ring. See reversing/findings/FINDINGS-airmap.md, section 8.",
+     "source": "reversing/findings/FINDINGS-airmap.md"
+    },
+    {
+     "offset": "0x140",
+     "name": "texture",
+     "type": "int",
+     "comment": "The index of `map/Sector.dds` in the graphics' texture table (+0x158, 0x2C an entry, the texture pointer at +4 of the entry); Draw hands SectorTex nothing where it is -1 or above 9999. See reversing/findings/FINDINGS-airmap.md, section 8.",
+     "source": "reversing/findings/FINDINGS-airmap.md"
+    },
+    {
+     "offset": "0x13C",
+     "name": "graphics",
+     "type": "CGraphics*",
+     "comment": "The CGraphics the ring was made with (the constructor's argument): its texture table (+0x158) holds the texture and its effect list (+0x6BD00) the effect. See reversing/findings/FINDINGS-airmap.md, section 8.",
+     "source": "reversing/findings/FINDINGS-airmap.md"
+    },
+    {
      "offset": "0x160",
      "name": "full",
      "type": "bool",
-     "comment": "The share above 0.999, where the circle is not dimmed. Read by none of the circle's own four routines. See reversing/findings/FINDINGS-airmap.md, section 6.",
+     "comment": "The share above 0.999, where the circle is not dimmed (0 where it is); 1 from the constructor. **No reader found**: none of the ring's own routines, and a scan of every [reg+0x160] byte access in the image finds the three writes and no read on a ring. See reversing/findings/FINDINGS-airmap.md, section 8.",
      "source": "reversing/findings/FINDINGS-airmap.md"
     },
     {
      "offset": "0x15C",
      "name": "dim",
      "type": "float",
-     "comment": "1, or 0.3 where an air unit is selected and none of the circle's group; the second half of vStrength, a factor on the alpha. See reversing/findings/FINDINGS-airmap.md, section 6.",
+     "comment": "The CColor's a: 1, or 0.3 where an air unit is selected and none of the ring's group is; the second half of vStrength, a factor on the alpha. See reversing/findings/FINDINGS-airmap.md, sections 6 and 8.",
      "source": "reversing/findings/FINDINGS-airmap.md"
     },
     {
      "offset": "0x150",
      "name": "share",
      "type": "float",
-     "comment": "The strength share of the circle's group, also at +0x154 and +0x158; the first half of vStrength. See reversing/findings/FINDINGS-airmap.md, section 6.",
+     "comment": "The CColor's r: the strength share of the ring's group, float(strength / 1000) / float(most strength / 1000); g (+0x154) and b (+0x158) hold the same. The first half of vStrength, which circle.fx turns into red (0) through yellow (0.5) to green (1). See reversing/findings/FINDINGS-airmap.md, sections 6 and 8.",
      "source": "reversing/findings/FINDINGS-airmap.md"
     },
     {
@@ -99108,6 +99885,27 @@
    "source": "reversing/findings/FINDINGS-transparencecheck.md",
    "fields": [
     {
+     "offset": "0x110",
+     "name": "quad_scale",
+     "type": "float",
+     "comment": "Set to -1.0 when the quad buffer is made (slot 29), so the next draw rebuilds it; the masked draw compares it with the object's matrix float at +0x3C and rebuilds where they differ. CSpriteType's own quad builder multiplies by it (VA 0xAB85C1), hence the name; the masked builder does not read it.",
+     "source": "reversing/findings/FINDINGS-maskedflag.md"
+    },
+    {
+     "offset": "0xEC",
+     "name": "quad",
+     "type": "MeshBuffer",
+     "comment": "The type's one quad, shared by every object drawn with it: a 0x24-byte MeshBuffer made by slot 29 (CSpriteType: 4 vertices, stride 0x14, XYZ|TEX1, a strip; CMaskedSpriteType: stride 0x1C, XYZ|TEX2, a fan) and filled by slot 27.",
+     "source": "reversing/findings/FINDINGS-maskedflag.md"
+    },
+    {
+     "offset": "0xA0",
+     "name": "rotation",
+     "type": "float",
+     "comment": "The rotation in radians the type's shared quad (+0xEC) was last built at. CShieldObject::Render copies its object's +0x14C here and calls slot 27 where they differ; CMaskedSpriteType::BuildQuad turns each corner by it; CSpriteType's own slot 27 tests it at VA 0xAB882B. Read on the masked type; that it means the same on every sprite type is likely, not read.",
+     "source": "reversing/findings/FINDINGS-maskedflag.md"
+    },
+    {
      "offset": "0x17C",
      "name": "click_sound",
      "type": "Hoi3CString",
@@ -102758,6 +103556,354 @@
      "source": "reversing/findings/FINDINGS-farmap.md"
     }
    ]
+  },
+  {
+   "name": "HierarchyLines",
+   "size": "0x40",
+   "comment": "The object the in-game screen keeps at CInGameIdler +0x1DE0 for the selected unit's hierarchy lines: made as the screen is built (VA 0x6492EF, 0x40 bytes, every word zero, the phase 0.0), destroyed by HierarchyLines_Destruct in the screen's teardown. No vftable. The name is ours. See reversing/findings/FINDINGS-hierarchy.md, sections 2 and 7.",
+   "source": "reversing/findings/FINDINGS-hierarchy.md",
+   "fields": [
+    {
+     "offset": "0x1C",
+     "name": "mesh",
+     "type": "MeshBuffer",
+     "comment": "The lines' mesh by value: 4 vertices of 24 bytes and 6 16-bit indices a line, managed pool, triangle list, g_HierarchyVertexDecl. HierarchyLines_Draw is handed its address.",
+     "source": "reversing/findings/FINDINGS-hierarchy.md"
+    },
+    {
+     "offset": "0x18",
+     "name": "phase",
+     "type": "float",
+     "comment": "hierarchy.fx's Time: 0.0 when made, never reset; each drawn frame CInGameIdler_Render adds g_RenderIdleSeconds where that is above 0.2 and 0.2 otherwise, and takes 100 off once it is above 100.",
+     "source": "reversing/findings/FINDINGS-hierarchy.md"
+    },
+    {
+     "offset": "0x14",
+     "name": "has_lines",
+     "type": "bool",
+     "comment": "Set by Rebuild when the mesh holds at least one line, cleared with no unit or no line; CInGameIdler::Update sets it to whether a land unit is selected; CInGameIdler_Render draws only while it is set.",
+     "source": "reversing/findings/FINDINGS-hierarchy.md"
+    },
+    {
+     "offset": "0x10",
+     "name": "commander",
+     "type": "CUnit*",
+     "comment": "The commander (+0x1E0) of the unit the mesh was built for; HierarchyLines_IsCurrent's first test.",
+     "source": "reversing/findings/FINDINGS-hierarchy.md"
+    },
+    {
+     "offset": "0x8",
+     "name": "records_capacity",
+     "type": "void*",
+     "comment": "End of the records vector's storage.",
+     "source": "reversing/findings/FINDINGS-hierarchy.md"
+    },
+    {
+     "offset": "0x4",
+     "name": "records_end",
+     "type": "void*",
+     "comment": "End of the records vector.",
+     "source": "reversing/findings/FINDINGS-hierarchy.md"
+    },
+    {
+     "offset": "0x0",
+     "name": "records",
+     "type": "void*",
+     "comment": "Begin of a vector of 8-byte records {CUnit* unit, CMapProvince* province} - every land unit aboard nothing that the last build walked, with the province it was in; +4 its end, +8 its capacity. HierarchyLines_IsCurrent compares the walk against it.",
+     "source": "reversing/findings/FINDINGS-hierarchy.md"
+    }
+   ]
+  },
+  {
+   "name": "CProvinceCollisionObject",
+   "vftable_rva": "0x11E205C",
+   "inherits": "C3dVisibleObject",
+   "comment": "The base of a province's anchor on the map (CProvinceObject for land, CProvinceWaterObject for a sea zone): a C3dVisibleObject with the graphics, the map point it stands on and the province's id. Its constructor is inlined into both derived constructors. See reversing/findings/FINDINGS-airmap.md, section 8.",
+   "source": "reversing/findings/FINDINGS-airmap.md",
+   "fields": [
+    {
+     "offset": "0x144",
+     "name": "province_id",
+     "type": "int",
+     "comment": "The province's id, the constructor's second stack argument (the builder's loop counter over CMap +0x2A60). See reversing/findings/FINDINGS-airmap.md, section 8.",
+     "source": "reversing/findings/FINDINGS-airmap.md"
+    },
+    {
+     "offset": "0x140",
+     "name": "anchor_y",
+     "type": "int",
+     "comment": "The map-pixel y beside anchor_x (it grows northward): +0x30 or +0x60 of the template. See reversing/findings/FINDINGS-airmap.md, section 8.",
+     "source": "reversing/findings/FINDINGS-airmap.md"
+    },
+    {
+     "offset": "0x13C",
+     "name": "anchor_x",
+     "type": "int",
+     "comment": "The map-pixel x the anchor stands on: a land province's centre (CProvinceTemplate +0x2C), a sea zone's label point (+0x5C). See reversing/findings/FINDINGS-airmap.md, section 8.",
+     "source": "reversing/findings/FINDINGS-airmap.md"
+    },
+    {
+     "offset": "0x138",
+     "name": "graphics",
+     "type": "CGraphics*",
+     "comment": "The CGraphics, the constructor's first stack argument. See reversing/findings/FINDINGS-airmap.md, section 8.",
+     "source": "reversing/findings/FINDINGS-airmap.md"
+    }
+   ]
+  },
+  {
+   "name": "CProvinceObject",
+   "vftable_rva": "0x11E345C",
+   "size": "0x160",
+   "inherits": "CProvinceCollisionObject",
+   "comment": "**A land province's anchor on the map**: the node at its province graphics entry's +0x10 on which ProvinceGraphics_PlacePicture hangs the province's pictures - buildings, resources, the large air base, the range rings. Placed by C3dObject::Translate at the province's centre (CProvinceTemplate +0x2C/+0x30), height 0. See reversing/findings/FINDINGS-airmap.md, section 8.",
+   "source": "reversing/findings/FINDINGS-airmap.md",
+   "fields": [
+   ]
+  },
+  {
+   "name": "CMaskedSpriteType",
+   "vftable_rva": "0x11E1D44",
+   "size": "0x250",
+   "inherits": "CSpriteType",
+   "comment": "A `maskedShieldType` of the .gfx files: a country's flag drawn through a mask (textureFile2) with an overlay (textureFile1) over it, through effectFile. Its drawn object is a CShieldObject. See reversing/findings/FINDINGS-maskedflag.md.",
+   "source": "reversing/findings/FINDINGS-maskedflag.md",
+   "fields": [
+    {
+     "offset": "0x244",
+     "name": "flag_atlas",
+     "type": "void*",
+     "comment": "The flag atlas, &CGraphics +0x6BD6C, from the constructor; handed to every CShieldObject it makes.",
+     "source": "reversing/findings/FINDINGS-maskedflag.md"
+    },
+    {
+     "offset": "0x240",
+     "name": "technique_disable",
+     "type": "void*",
+     "comment": "D3DXHANDLE of `disable`, state 4.",
+     "source": "reversing/findings/FINDINGS-maskedflag.md"
+    },
+    {
+     "offset": "0x23C",
+     "name": "technique_down",
+     "type": "void*",
+     "comment": "D3DXHANDLE of `down`, state 2.",
+     "source": "reversing/findings/FINDINGS-maskedflag.md"
+    },
+    {
+     "offset": "0x238",
+     "name": "technique_over",
+     "type": "void*",
+     "comment": "D3DXHANDLE of `over`, state 3.",
+     "source": "reversing/findings/FINDINGS-maskedflag.md"
+    },
+    {
+     "offset": "0x234",
+     "name": "handle_flag_coords",
+     "type": "void*",
+     "comment": "D3DXHANDLE of `FlagCoords`: (columns, rows, cell u, cell v) of the flag atlas, or (1, 1, 0, 0) for a picture of the shield's own.",
+     "source": "reversing/findings/FINDINGS-maskedflag.md"
+    },
+    {
+     "offset": "0x230",
+     "name": "technique_tec0",
+     "type": "void*",
+     "comment": "D3DXHANDLE of the technique `tec0`, used for every state but 2, 3 and 4.",
+     "source": "reversing/findings/FINDINGS-maskedflag.md"
+    },
+    {
+     "offset": "0x22C",
+     "name": "handle_world_view_projection",
+     "type": "void*",
+     "comment": "D3DXHANDLE of `WorldViewProjectionMatrix`: the object's matrix x D3DXMatrixOrthoRH(screen width, screen height, 0, 1).",
+     "source": "reversing/findings/FINDINGS-maskedflag.md"
+    },
+    {
+     "offset": "0x228",
+     "name": "handle_tex1",
+     "type": "void*",
+     "comment": "D3DXHANDLE of `tex1`: the mask.",
+     "source": "reversing/findings/FINDINGS-maskedflag.md"
+    },
+    {
+     "offset": "0x224",
+     "name": "handle_tex0",
+     "type": "void*",
+     "comment": "D3DXHANDLE of the effect's `tex0`: the flag (the atlas, or the shield's own picture).",
+     "source": "reversing/findings/FINDINGS-maskedflag.md"
+    },
+    {
+     "offset": "0x220",
+     "name": "plain_quad",
+     "type": "void*",
+     "comment": "A mesh of four (position, uv, white) vertices the mask's size, made by VA 0xA74470 in LoadResources and released in the destructor. No draw read here uses it.",
+     "source": "reversing/findings/FINDINGS-maskedflag.md"
+    },
+    {
+     "offset": "0x21C",
+     "name": "effect",
+     "type": "void*",
+     "comment": "The ID3DXEffect, fetched again from the handler at every draw.",
+     "source": "reversing/findings/FINDINGS-maskedflag.md"
+    },
+    {
+     "offset": "0x218",
+     "name": "effect_index",
+     "type": "int",
+     "comment": "FxHandler_Register's answer: the effect is the handler's list (graphics +0x6BD00) at index - 1.",
+     "source": "reversing/findings/FINDINGS-maskedflag.md"
+    },
+    {
+     "offset": "0x214",
+     "name": "overlay_texture",
+     "type": "int",
+     "comment": "The overlay's index in the texture handler; drawn by CShieldObject::Render after the flag, fixed-function.",
+     "source": "reversing/findings/FINDINGS-maskedflag.md"
+    },
+    {
+     "offset": "0x210",
+     "name": "mask_texture",
+     "type": "int",
+     "comment": "The mask's index in the texture handler (-1 none); its texture is graphics +0x15C + 0x2C x index. `tex1`.",
+     "source": "reversing/findings/FINDINGS-maskedflag.md"
+    },
+    {
+     "offset": "0x1F4",
+     "name": "masked_effect_file",
+     "type": "Hoi3CString",
+     "comment": "`effectFile`, this class's own (CSpriteType's +0x5C is left empty): the path handed to FxHandler_Register and also its key.",
+     "source": "reversing/findings/FINDINGS-maskedflag.md"
+    },
+    {
+     "offset": "0x1F0",
+     "name": "mask_offset_y",
+     "type": "int",
+     "comment": "(int)((overlay height - mask height) x 0.5), as +0x1EC.",
+     "source": "reversing/findings/FINDINGS-maskedflag.md"
+    },
+    {
+     "offset": "0x1EC",
+     "name": "mask_offset_x",
+     "type": "int",
+     "comment": "(int)((overlay width - mask width) x 0.5), written by every flag draw and by nothing else; IsTransparentAt moves a point by it. The quad itself is built from the unrounded half.",
+     "source": "reversing/findings/FINDINGS-maskedflag.md"
+    },
+    {
+     "offset": "0x1E8",
+     "name": "overlay_height",
+     "type": "int",
+     "comment": "The overlay file's own height.",
+     "source": "reversing/findings/FINDINGS-maskedflag.md"
+    },
+    {
+     "offset": "0x1E4",
+     "name": "overlay_width",
+     "type": "int",
+     "comment": "The overlay file's own width: the sprite's width (slot 17) and the box the mask is centred in.",
+     "source": "reversing/findings/FINDINGS-maskedflag.md"
+    },
+    {
+     "offset": "0x1E0",
+     "name": "mask_height",
+     "type": "int",
+     "comment": "The mask file's own height.",
+     "source": "reversing/findings/FINDINGS-maskedflag.md"
+    },
+    {
+     "offset": "0x1DC",
+     "name": "mask_width",
+     "type": "int",
+     "comment": "The mask file's own width (the texture handler's entry +0x24), not the padded texture's.",
+     "source": "reversing/findings/FINDINGS-maskedflag.md"
+    },
+    {
+     "offset": "0x1C0",
+     "name": "overlay_file",
+     "type": "Hoi3CString",
+     "comment": "`textureFile1`: the overlay drawn over the flag (a frame, a shadow). Loaded into +0x214; its size is the sprite's.",
+     "source": "reversing/findings/FINDINGS-maskedflag.md"
+    },
+    {
+     "offset": "0x1A4",
+     "name": "mask_file",
+     "type": "Hoi3CString",
+     "comment": "`textureFile2`: the mask, whose alpha is the shield's shape. Loaded into +0x210.",
+     "source": "reversing/findings/FINDINGS-maskedflag.md"
+    },
+    {
+     "offset": "0x1A0",
+     "name": "graphics",
+     "type": "CGraphics*",
+     "comment": "The graphics, from the constructor's ECX: device +0x64, texture handler +0x158, effect handler +0x6BCFC, screen size +0x6B9BC.",
+     "source": "reversing/findings/FINDINGS-maskedflag.md"
+    }
+   ]
+  },
+  {
+   "name": "CShieldObject",
+   "vftable_rva": "0x11E3A8C",
+   "size": "0x1AC",
+   "inherits": "CSprite",
+   "comment": "The object a CMaskedSpriteType makes for each element that shows it (slot 23): which country's flag, or a picture of its own, and the draw. See reversing/findings/FINDINGS-maskedflag.md.",
+   "source": "reversing/findings/FINDINGS-maskedflag.md",
+   "fields": [
+    {
+     "offset": "0x1A8",
+     "name": "country_id",
+     "type": "int",
+     "comment": "The id last given to SetCountry; slot 85 answers it.",
+     "source": "reversing/findings/FINDINGS-maskedflag.md"
+    },
+    {
+     "offset": "0x1A4",
+     "name": "picture",
+     "type": "void*",
+     "comment": "An IDirect3DTexture9 set by SetTexture (slot 84) and cleared by SetCountry: where set, it is drawn whole through the mask in place of the flag.",
+     "source": "reversing/findings/FINDINGS-maskedflag.md"
+    },
+    {
+     "offset": "0x1A0",
+     "name": "flag_atlas",
+     "type": "void*",
+     "comment": "The flag atlas (&CGraphics +0x6BD6C): +0 its texture, +0x14 its rows of {u, v} cells, +0x24 rows, +0x28 columns.",
+     "source": "reversing/findings/FINDINGS-maskedflag.md"
+    },
+    {
+     "offset": "0x198",
+     "name": "overlay_height",
+     "type": "int",
+     "comment": "Copied from the type's +0x1E8.",
+     "source": "reversing/findings/FINDINGS-maskedflag.md"
+    },
+    {
+     "offset": "0x194",
+     "name": "overlay_width",
+     "type": "int",
+     "comment": "Copied from the type's +0x1E4: the overlay quad's width.",
+     "source": "reversing/findings/FINDINGS-maskedflag.md"
+    },
+    {
+     "offset": "0x18C",
+     "name": "country",
+     "type": "CCountryTag",
+     "comment": "Whose flag: tag and id. SWE's from the constructor, until SetCountry. Render picks the atlas cell by the id at +0x190, 0 taken as 1.",
+     "source": "reversing/findings/FINDINGS-maskedflag.md"
+    },
+    {
+     "offset": "0x188",
+     "name": "graphics",
+     "type": "CGraphics*",
+     "comment": "The graphics; Render takes the device's render states through +0x64.",
+     "source": "reversing/findings/FINDINGS-maskedflag.md"
+    },
+    {
+     "offset": "0x184",
+     "name": "type",
+     "type": "CMaskedSpriteType*",
+     "comment": "The masked sprite type it is drawn with (slot 91 answers it).",
+     "source": "reversing/findings/FINDINGS-maskedflag.md"
+    }
+   ]
   }
  ],
  "equates": [
@@ -102798,6 +103944,24 @@
   }
  ],
  "vftable_slots": {
+  "CShieldObject": {
+   "8": "UpdateStateName",
+   "9": "DeletingDestructor",
+   "10": "Render",
+   "83": "SetCountry",
+   "84": "SetTexture",
+   "85": "GetCountry",
+   "91": "GetType"
+  },
+  "CEU3Graphics": {
+   "4": "FlushDeferredObjects"
+  },
+  "CCounterType": {
+   "6": "LoadResources"
+  },
+  "C3dObject": {
+   "33": "Translate"
+  },
   "CChangeProvinceNameCommand": {
    "4": "LoadKey",
    "6": "Execute"
@@ -103071,6 +104235,15 @@
    "6": {"name": "GetTooltip", "signature": "void* __thiscall GetTooltip(CLandOrdersView* this, void* out, void* element)"}
   },
   "CMaskedSpriteType": {
+   "0": "DeletingDestructor",
+   "4": "LoadKey",
+   "6": "LoadResources",
+   "16": "ContainsPoint",
+   "17": "GetSize",
+   "18": "IsTransparentAt",
+   "23": "CreateInstance",
+   "27": "BuildQuad",
+   "29": "CreateQuadBuffer",
    "22": "CSpriteType::SetTransparenceCheckDefault"
   },
   "COutLinerMember": {
@@ -104761,6 +105934,7 @@
    "7": {"name": "GetName", "signature": "Hoi3CString* __thiscall GetName(CProvince* this, Hoi3CString* out) @EAX"}
   },
   "CEU3Minimap": {
+   "53": "CIcon::SetCountry",
    "54": "TButton::ClearShortcut",
    "24": {"name": "GetPosition", "signature": "short* __thiscall GetPosition(CEU3Minimap* this, short* out) @EAX"}
   },

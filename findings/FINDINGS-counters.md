@@ -24,7 +24,7 @@ the loader for the strings and colours and from the draw routines for the rest:
 | `textureFile` | `+0xB4` (name), `+0xA4` (texture) | the shader's `BackgroundTex` |
 | `textureFile2` | `+0xD0`, `+0xA8` | `MaskTex` |
 | `textureFile3` | `+0xEC`, `+0xAC` | `SizeTex`, a strip of `noOfFrames` frames |
-| `textureFile4` | `+0x124` | not followed |
+| `textureFile4` | `+0x124` (name), `+0xB0` (texture) | loaded, and read by nothing in the draw |
 | `effectFile` | `+0x15C`, `+0xA0` | the shader |
 | `noOfFrames` | `+0x194` | frames in `SizeTex`; `+0x198` is handed to the shader as `SizeOffset` |
 | `scale` | `+0x9C` | half the counter's height, in map units |
@@ -37,7 +37,7 @@ the loader for the strings and colours and from the draw routines for the rest:
 | `shieldtype` | `+0x1CC` set, `+0x1C4`, `+0x1C8` | that there is a flag, and its width and height |
 | `color1` | `+0x1D8` (a `CColor`; its four floats from `+0x1E0`) | selection colour 2 |
 | `color2` | `+0x1F4` (floats from `+0x1FC`) | selection colour 3 |
-| `delayAfterAttackColor` | `+0x210` | read, and not followed to a use |
+| `delayAfterAttackColor` | `+0x210` | read, and used by nothing: the attack-delay corner is a static yellow (section 10.6) |
 
 `confirmed` for the string, colour and `noOfFrames` rows, which are the loader's own stores;
 `likely` for the float rows, which are named from the order the draw routines use them in and
@@ -77,7 +77,7 @@ copies the matrix it is given, appends itself to a global vector (`0x1A8C224`..`
 sets `is_top`, and draws its arrow if `shows_arrow`. `0x8396C0` then draws the whole vector in
 three passes and empties it:
 
-1. **every counter's quad**, `0x83BC80`, each a little nearer the camera than the one before;
+1. **every counter's quad**, `0x83BC80`, each with a D3DRS_DEPTHBIAS 0.0001 lower than the one before, so later is nearer (section 10.3);
 2. **the flag** of each counter whose `is_top` is set and whose type has a `shieldtype`
    (`0x838F50`), at `offset * scale * 0.1 * s`;
 3. **the texts** of each counter whose `is_top` is set (`0x839110`): `figures` at
@@ -97,19 +97,20 @@ tenths of `scale`, and a text's size too. `likely`: read in the decompiled C, th
 | `SizeOffset` | the type's `+0x198` |
 | `SizeFrame` | the object's `size`, as a float |
 | `CountryColor` | the object's `colour` |
-| `vOtherColor` | one of four fixed colours by the three marks: none; `+0x1BC` red `(1,0,0)`; else `+0x1BD` orange `(1,0.5,0)`; else `+0x1BB` yellow `(1,1,0)` |
+| `vOtherColor` | one of four fixed colours by the three marks: none; `+0x1BC` red `(1,0,0)`; else `+0x1BD` orange `(1,0.5,0)`; else `+0x1BB` yellow `(1,1,0)`; alpha 1 for each mark, (0,0,0,0) for none |
 | `SelectionColor` | by `selection`: 1 white, 2 the type's `color1`, 3 its `color2` |
-| `SelectionIntensity` | `0.5 + 0.5 * |f(time)|`, a pulse; `f` not read |
+| `SelectionIntensity` | `0.5 + 0.5 * |sin(2t)|`, t the platform clock in seconds (section 10.4) |
 | `Selected` | 1 or 0 |
 | `CounterScale` | `s` |
-| `WorldMatrix` | the camera's rotation with the counter's position: the quad faces the camera |
+| `WorldMatrix` | the camera's inverse view rotation with the counter's position, lifted by the camera's tilt, as its translation: the quad lies in the camera's right/up plane (section 10.4) |
 
 What the shader does with them is in the file: the background's colour times the country's
 where the mask's red is set; the unit picture over that by its alpha; the size strip's frame
 over that by its alpha, sampled at `((u + SizeFrame) * SizeOffset, v)`; then the selection
 colour through the mask's blue and green. The second colour replaces the country's in the
-corner where `u + v > 1.6`, with a black line where `u + v` is between 1.57 and 1.6. **What
-sets the three marks was not read.**
+corner where `u + v > 1.6`, with a black line where `u + v` is between 1.57 and 1.6. **The three
+marks are an attack delay (yellow), supplies or fuel under 5% (red) and an upgrade under way (orange), on the played
+country's own units only** - section 10.6.
 
 **The hit test** (`0x83C2B0`, reached from slot 20 at `0x839620`) takes the quad as
 `scale * s` up and down and that times the background texture's width over its height left
@@ -134,7 +135,9 @@ answers `(order + 1) * 0.1 + 1`, a miss `-1`: the caller keeps the highest.
 setg al`, `mov eax,1`, `xor eax,eax`. The record has level 5 as a fleet.
 
 **A counter's scale is `s = (size - 1) * level_scale * g + 1`**, where `g` is a global
-(`0x170AF84`) the settings' constructor sets to 1 beside `counter_scale`. `likely`. With the
+(`0x170AF84`) the settings' constructor sets to 1 beside `counter_scale`. `confirmed` off `CCounterObject_DrawBatch`'s
+listing (section 10.3): `g` multiplies only the growth with rank, so `counter_scale` leaves a counter of size 1 - and
+every near counter - as it is. With the
 file's `level_scale = 0.20` on `unit_counter` a lone brigade is drawn at 0.8, a division at 1
 and a theatre at 1.8; `unit_counter_close` gives no `level_scale` and every counter is 1.
 
@@ -383,7 +386,8 @@ the green pixels:
 
 The direction agrees to the degree, which is the orbit and not a fixed corner: a pointer
 drawn at a fixed place and merely turned would not lie on the line it points along. The
-distance is a seventh more than `offset` and that is **not explained**; the counter's middle
+distance is a seventh more than `offset` and that is **not explained** (one candidate, not checked: the batch lifts the
+counter by the camera's tilt, section 10.3, and the arrow, drawn by `Render`, is not lifted); the counter's middle
 was taken from its plate's edges, and where the counter's quad is drawn from the object's
 position was not read.
 
@@ -392,6 +396,154 @@ with a stack of five standing in it, lies 3.7 map units east and 0.5 north of th
 top counter. The top counter of a fanned stack is itself 0.3 west and north for each one
 under it, which puts the moving point about **2.5 east and 1.5 north of the standing one** -
 half a counter and a third of one. `inferred`: the count of the stack is read off its edges.
+
+## 10. The quad through counter.fx, whole
+
+*Read off the listing on 2026-11-07, every store and call, by a delegated agent (fragment `interface-counterfx.json`), for
+a program that draws the counter through the install's own `counter.fx`. VAs as in the rest of this file; `confirmed`
+except where a line says otherwise.*
+
+**Corrections, rather than additions**: the "step nearer the camera" between counters is `D3DRS_DEPTHBIAS`, 0.0001 less a
+counter; `SizeOffset` is `(w/P(w))/frames`, 0.125 for the 384-wide strip, not 1/6; `delayAfterAttackColor` is used by
+nothing, the yellow being a static colour; `counter_scale` multiplies only the growth with rank; and CNavy's marks are the
+land unit's three tests unchanged.
+
+### 10.1 Who draws it, and when
+
+`CCounterObject::Render` (slot 10) only queues the counter, in `g_CounterDrawQueue` (VA 0x1A8C224, a
+`std::vector<CCounterObject*>`), copying the matrix it is handed to `+0x94`. The queue is drawn by
+`CCounterObject_DrawBatch` (0x8396C0), whose one caller is slot 4 of `CEU3Graphics` (0x840E70, `FlushDeferredObjects`),
+which draws the counters and then the weather billboards (`BillboardList_DrawBatch` on VA 0x1A8CBEC). `MapObjectGroup_Draw`
+calls that slot through the table (0xA71D37) after drawing its group's objects, and turns ALPHABLENDENABLE off after it.
+**So counters are drawn at the end of each map object group**, after every figure, building and billboard of the group, in
+the order their `Render` was called.
+
+### 10.2 The quad: `CCounterType::LoadResources` (slot 6, 0x83B260)
+
+The four textures are loaded by name into `+0xA4`, `+0xA8`, `+0xAC`, `+0xB0` (`textureFile4` loaded and read by nothing in
+the draw). The effect is registered by `FxHandler_Register` under the key `effect`, defaulting to `effectFile`; both counter
+types name the same path, so **they share one ID3DXEffect**. Then the quad, from the background texture's own picture size
+`w`, `h` (the texture table row's `+0x24`/`+0x28`, its D3DXIMAGE_INFO) and `scale` (`+0x9C`):
+
+    hw = scale · w / h        hh = scale
+    um = w / P(w)             vm = h / P(h)       P(n) = the least power of two >= n
+
+    vertex  position        uv
+      0     (-hw, -hh, 0)   (0,  vm)    lower left
+      1     (-hw,  hh, 0)   (0,  0 )    upper left
+      2     ( hw, -hh, 0)   (um, vm)    lower right
+      3     ( hw,  hh, 0)   (um, 0 )    upper right
+    indices 0 1 2, 2 1 3 - a triangle list of two
+
+In a MeshBuffer at `+0x90`: 4 vertices of stride 0x14, no FVF, not dynamic, 6 16-bit indices; the vertex declaration at
+`+0x98` from `CounterVertexElements` (VA 0x170AD18): stream 0, offset 0 FLOAT3 POSITION, offset 12 FLOAT2 TEXCOORD0. Seen
+from −z, x right and y up, both triangles run clockwise, D3D's front face. **`SizeOffset` (`+0x198`) = `(w3 / P(w3)) /
+noOfFrames`**, w3 the size strip's own width.
+
+The `P(...)` is there because the texture loader calls `D3DXCreateTextureFromFileInMemoryEx` with Width and Height
+`D3DX_DEFAULT`, MipLevels `D3DX_FROM_FILE`, pool MANAGED and **Filter `D3DX_FILTER_NONE`** (0xA60B26): D3DX makes a
+power-of-two texture with the picture unscaled in its corner (*inferred* from D3DX's documentation, *confirmed* that the
+code compensates for it). With TFH's files both backgrounds (`counterbackground*.tga`, loaded as their `.dds`) are 64×64, so
+the quad is square and um = vm = 1; both size strips are 384×64 in a 512 texture, so **SizeOffset = 0.75/6 = 0.125**,
+sampled as `(u + SizeFrame) · 0.125` on that texture - exactly frame `SizeFrame`; on the strip loaded as a 384-wide picture
+of its own it would be `(u + SizeFrame) / 6`.
+
+### 10.3 The batch: `CCounterObject_DrawBatch`
+
+1. **`CCounterType_BeginDraw`** (0x83BB80, the first counter's type), once: SetVertexDeclaration(type `+0x98`);
+   **`ViewProjectionMatrix` = view (slot 91) × projection (slot 93)** of the current view's camera (graphics `+0x6BC88` →
+   `+0x1C`, the scene view MapObjectGroup_Draw installed); `Begin(&passes, 0)` and `BeginPass(0)`. **No SetTechnique**: the
+   effect keeps its technique from when it was made, and counter.fx has one, `Standard` (control: the same search finds the
+   weather billboard draw's SetTechnique at 0x883FBD).
+2. **The lift.** `up` = the normalised second column (_12, _22, _32) of that camera's view matrix, the camera's up in the
+   world; **lift = acos(up.z) / (π/2) × 3.5** - 0 for a camera looking straight down with north up, 3.5 at the horizon. The
+   helper at 0xC083A0 is the CRT's acos (its SSE2 path emulated gives acos(0.5) = 1.0472). With the figures' camera aim
+   (0, 12, 30) of FINDINGS-camera.md, *inferred*: up.z = (h − 12)/√((h − 12)² + 900), the lift 0.74 at height 100, 0.21 at
+   330, 0.14 at 500.
+3. **Pass 1, the quads**, for each counter i of the queue from 0: `SetRenderState(D3DRS_DEPTHBIAS, −0.0001 · i)`; the
+   counter's matrix (`+0x94`) copied and moved by (0, lift, 0) (`Matrix_PostTranslate`, 0x83A080); slot 22 called and its
+   answer (`fldz`, always 0) thrown away; **s = (size − 1) · level_scale (`+0x1D0`) · g_CounterScale + 1.0**, in doubles;
+   the picture (`+0x14C`) resolved in the graphics' texture table (null where −1 or above 9999); `CCounterType_DrawQuad`.
+   Then EndPass and End.
+4. **Pass 2, the flags**: depth bias `−0.000005 − 0.0001 · i`, the same lifted matrix, `CCounterObject_DrawShield` where
+   `is_top`.
+5. **Pass 3, the texts**: the same biases, `CCounterObject_DrawTexts` where `is_top`.
+6. DEPTHBIAS back to 0 and the queue emptied.
+
+So **later in the queue is nearer the camera**: in a stack `CCounterStack::Render` queues the drawn counters in ascending
+`order` and the top one last, and each flag and text is 0.000005 nearer than its own quad.
+
+### 10.4 One counter: `CCounterType_DrawQuad` (0x83BC80)
+
+Every handle fetched by name, every call:
+
+| parameter | value |
+| --- | --- |
+| `BackgroundTex`, `MaskTex`, `SizeTex` | the type's `+0xA4`, `+0xA8`, `+0xAC` |
+| `CounterTex` | the unit type's picture: `GFX_small_counter_<key>` far, `GFX_map_counter_<key>` near (section 4) |
+| `SizeOffset` | the type's `+0x198`, as in 10.2 |
+| `SizeFrame` | (float) the counter's `size`, 0 to 5 (section 3) |
+| `CountryColor` | the four floats of the counter's `colour` (`+0x150` → `+0x158`): its owner's colour |
+| `vOtherColor` | from the static `g_CounterMarkColours` (VA 0x1BEB670, made on first use): **red (1,0,0,1) where `+0x1BC`, else orange (1,0.5,0,1) where `+0x1BD`, else yellow (1,1,0,1) where `+0x1BB`, else (0,0,0,0)** - alpha 0 turns the corner off |
+| `SelectionColor` | selection 1 white (1,1,1,1); 2 the type's `color1`; 3 its `color2`; otherwise **not set**, the previous counter's staying, harmless as `Selected` is then 0 |
+| `WorldMatrix` | the camera's **inverse view** (slot 92, `+0x208`) with `_14`, `_24`, `_34` zeroed and the translation row the lifted position, `_44` = 1 |
+| `SelectionIntensity` | **0.5 + 0.5 · \|sin(2t)\|**, t the platform clock's seconds as a float (`g_PlatformClock`, VA 0x1A857E4, slot 5, CHighPerfWinClock::GetSeconds): a pulse between 0.5 and 1 every π/2 seconds |
+| `Selected` | 1.0 for selection 1, 2 or 3, else 0.0 |
+| `CounterScale` | s |
+
+Then `CommitChanges` and `VertexBuffer_Draw` on the type's own quad: SetStreamSource(0, VB, 0, 20), SetIndices,
+`DrawIndexedPrimitive(TRIANGLELIST, 0, 0, 4, 0, 2)`. The declaration and effect are the first counter's type's; the two
+types' are identical and shared, so it makes no difference.
+
+### 10.5 Render states
+
+From the pass: ZENABLE, ZWRITEENABLE, ALPHATESTENABLE and ALPHABLENDENABLE true; nothing else is set by the pass or the
+code around it but DEPTHBIAS. The rest is the device's: **ALPHAREF 8, ALPHAFUNC GREATEREQUAL** (written nowhere but
+`CGraphics_SetDefaultRenderStates`); **SRCBLEND SRCALPHA / DESTBLEND INVSRCALPHA**, set at the start of
+`MapObjectGroup_Draw`, whose only blend writes those are (*inferred* that nothing between changes them: a census of
+immediate SetRenderState calls in that function, and effects under Begin(0) restore their state); CULLMODE NONE by
+default, the quad facing the camera anyway; ZFUNC not looked at. The samplers are the file's: clamp, linear, CounterTex
+anisotropic 4.
+
+### 10.6 The three marks
+
+Written for both of a unit's counters each frame by `CUnit::UpdateAvatar` / `CNavy::UpdateAvatar` (slot 36), and false on
+any unit not the played country's own (`owner_id` against `CCurrentGameState +0xC34`):
+
+| mark | corner | set where |
+| --- | --- | --- |
+| `+0x1BB` | yellow | `combat_cooldown` (`+0xD4`, the save's `attack_delay`) above 0, no combat (`+0x11C` ≤ 0), not retreating (`+0x158`) |
+| `+0x1BC` | red | `supply_received_percentage` (`+0xFC`) or `fuel_received_percentage` (`+0x100`) under Define50 = 50, i.e. 5% |
+| `+0x1BD` | orange | the unit's upgrade lines (`CUnit +0x298`, 0x28-byte records) are not empty |
+
+`CUnit::ConsumeSuppliesAndFuel` also sets the red mark after a unit's day, outright where its depot's holder is no friend.
+`CUnit_AddUpgradeLine` / `CUnit_RemoveUpgradeLine` set the orange one as a line comes or goes; a line is added by
+`CUpgradeRegimentCommand`'s slot 6 and, after a load, by `CMilitaryConstruction_RegisterUpgradeTarget` from
+`CCountry::AfterLoad`, for a construction with a target whose brigade items upgrade from another type, and removed by
+`CMilitaryConstruction`'s destructor. **`delayAfterAttackColor` is read by nothing**: the attack-delay corner is the static
+yellow.
+
+### 10.7 Near and far
+
+Both `CounterType`s name `counter.fx` and share the effect, the batch and these rules; they differ in their data alone:
+
+| | `unit_counter` (far) | `unit_counter_close` (near) |
+| --- | --- | --- |
+| background | `counterbackground_small` 64×64 | `counterbackground` 64×64 |
+| mask | `countercolormask_small.tga` 64×64 | `countercolormask.tga` 64×64 |
+| size strip | `counterarmysize_counter_small` 384×64 | `counterarmysize_counter` 384×64 |
+| picture | `smallcounters/<key>` 32×32 | `mapcounters/<key>` 64×64 |
+| scale | 3, so 6 units square × s | 2.5, so 5 units square |
+| level_scale | 0.2, s = 0.8 to 1.8 × counter_scale's share | none, s = 1 |
+
+A smaller picture is sampled over the same UV range. That the far counter reaches the queue through the avatar's own
+`Render`, not a stack, is *inferred*: the avatar's render was not read.
+
+**Not established here**: who queues the far counter; ZFUNC at the batch; whether nothing between the start of
+`MapObjectGroup_Draw` and its counter batch changes the blend factors; the camera's up with `always_counters`, on which
+the lift depends; what sets `selection` 1, 2 or 3 (slot 23's callers); the rest of `CMilitaryConstruction`'s destructor
+past 0x483FC4; the x87 path of the acos helper, taken as the SSE2 path emulated. Frontier (rvas): 0x3C9530, 0x4F910,
+0x504B0, 0x660F30, 0x1DA7C0, 0x83EF0.
 
 ## What was not read
 
@@ -403,11 +555,10 @@ half a counter and a third of one. `inferred`: the count of the stack is read of
   `CCounterType +0x19C`).
 - **Who tells an avatar it is far away**, and the test against `counter_distance`.
 - **What `order` is set from** (`CCounterObject +0x1A8`).
-- **The three marks** that choose the second colour, and `delayAfterAttackColor`.
 - **Of the arrow** (section 9): what hides it again, when its red frame is used, where
   `scale` and `offset` land in `CBillboardType`, and why it is a seventh further from the
-  counter on the screenshot than `offset`. And `textureFile4` of the counter type, which
-  names the same texture and was not followed; and the `Rank` object.
+  counter on the screenshot than `offset`. `textureFile4` is loaded (`+0xB0`) and not read by the
+  draw; and the `Rank` object.
 - **The province's port and air base icons**, which are how a fleet in port and a wing at
   its base are shown: `0x6400E0` and `0x6402A0`.
 - **The unit of the map.** Nothing read here says how long a map unit is. The stack's
