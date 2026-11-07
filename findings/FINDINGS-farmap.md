@@ -158,7 +158,8 @@ two border loops. **A hand decision**: `WaterObject` is the whole map-graphics o
 the water alone - a rename the merge cannot make; by its RTTI it is **`CProvinceManager`** (its constructor, 0x44F570,
 writes the vftable VA 0x15E3384 the export gives that class; B.1).
 
-Frontier: 0x4608D0 (B.5), 0x47C8A0, 0x45DD50, 0x463930, 0x45F450, 0x241D00, 0x6BB7E0.
+Frontier: 0x47C8A0, 0x45DD50, 0x463930, 0x45F450, 0x241D00, 0x6BB7E0. (0x4608D0, the province names, is B.7; the
+rivers, the water borders and the trees are `FINDINGS-mapdraw.md`'s C.6, B.8 and C.8.)
 
 ## B. The country names
 
@@ -313,19 +314,171 @@ map style, the zoom and a scenario.
 
 ### B.5 Province names, near, for contrast
 
-`ProvinceTexts_Create` (0x456710) runs once as the map is built ("CreateProvinceTexts()"): an entry for each province of
-each map tile, **sea zones included** and marked so, the template's name, with `text_position`, `text_rotation` and
-`text_scale` (CProvinceTemplate +0x3C/+0x40, **+0x54, +0x58**) [mod: map/positions.txt]. Drawn only below camera
-height 100 [exe] and with layer-mask bit 8, and below 100 updated each frame (0x455EA0): at most 1000 at once, font
-`tahoma_60` [mod: core.gfx], wrapped at 320, a name over 50 characters cut to 49 (each buffer 300 vertices, 50 letters),
-the scale text_scale × 0.5; each fades in at alpha = (now − start) × 170, capped at 255 [exe; the clock's unit not
-read], set as `TEXTUREFACTOR = alpha<<24 | 0xFFFFFF`. **Between heights 100 and 500 neither kind of name is drawn.**
+Below camera height 100 [exe], in every map mode, every province - land and sea zones alike - at its `text_position` [mod: map/positions.txt], or the
+centre of its bounding box where it has none, shows its `PROV<id>` localisation in its own case, in `tahoma_60` [mod: interface/core.gfx], black in TFH
+[mod: the atlas], standing on text_position, turned by text_rotation radians, at text_scale × 0.5, wrapped at 320 font
+pixels, fading in over 1.5 s [exe] whenever its tile comes into view. **Between heights 100 and 500 neither kind of name is
+drawn.** Section B.7 has all of it.
 
 ### B.6 Not established
 
-TEXTUREFACTOR when the country names are drawn, so whether they are fully opaque; who sets a province entry's shown byte
-(+0x44); what 0x4564A0 does; the `MaptextFont` lookup failure; what fills the country-name table, so whether dynamic names
-reach the map; the thirteen other object-type cases of 0x670550; the two callees of CountryMapNames_Reserve (0x43F650,
-0x43F530).
+TEXTUREFACTOR when the country names are drawn, so whether they are fully opaque; the `MaptextFont` lookup failure; what
+fills the country-name table, so whether dynamic names reach the map; the thirteen other object-type cases of 0x670550; the
+two callees of CountryMapNames_Reserve (0x43F650, 0x43F530). The province names' open items are in B.7.5.
 
-Frontier: 0x43F3E0, 0x43F530, 0x43F650, 0x43F6E0, 0x4564A0, 0x298D10, 0x240600, 0x46B620, 0x4E7F90.
+Frontier: 0x43F3E0, 0x43F530, 0x43F650, 0x43F6E0, 0x298D10, 0x240600, 0x46B620, 0x4E7F90.
+
+### B.7 The province names, near
+
+*Read 2026-11-07, statically, by a delegated agent (fragment `mapdraw-provincetexts.json`). Addresses rvas unless marked VA;
+`confirmed` unless marked.*
+
+**In one line.** Below camera height 100, in every map mode and whatever the settings, every province - land and sea alike - shows its `PROV<id>` localisation [mod: localisation] in its
+own case, in the font called `tahoma_60` [mod: interface/core.gfx] at text_scale × 0.5, turned by text_rotation radians
+anticlockwise, standing on its text_position (the bounding box's centre where positions.txt gives none [mod]), wrapped at 320 font pixels [exe], fading in over 1.5 s [exe] each time its
+tile comes into view.
+
+**Corrections.** B.5's "the clock's unit not read": seconds. B.1's upper-casing is the country-name builder's, not the font's
+or the layout's: province names keep their case although tahoma_60 has no `effect = no`. The record's `MapTile_Update`
+(0x45CA30) is an instruction inside MapGraphics_Update's tile loop (VA 0x85CA28..0x85CA4A), not an entry - renamed by hand
+`MapGraphics_Update_SimulatedLoop`.
+
+#### B.7.1 The entries, and who shows them
+
+ProvinceTexts_Create (0x456710), once as the map is built, makes one 0x60-byte `ProvinceMapText` for every province
+graphics entry of every tile (one tile per province, `FINDINGS-mapdraw.md` A.1), on the tile's deque (`MapTile +0x120`,
+count `+0x130`), in the tile's province order:
+
+| offset | what |
+| --- | --- |
+| +0x00 | its MeshBuffer: 300 vertices, XYZ\|TEX1, dynamic (ProvinceTexts_CreateBuffers 0x456610) |
+| +0x24 | the name: CProvinceTemplate +0xB0, set at the template's construction by CProvinceTemplate_LocaliseName (0xA9930) from the key `PROV<id>` (`ANY_ALL` for id 0) |
+| +0x40 | province id |
+| +0x44 | shown - **1 for every entry** |
+| +0x45 | is_sea (template +0x22 clear) - **read by nothing** |
+| +0x48 | slot, −1 |
+| +0x4C, +0x50, +0x54 | text_position x − tile middle x, **0.52** (VA 0x160A438), text_position y − tile middle z |
+| +0x58, +0x5C | text_rotation, text_scale |
+
+The tile middle is 50·col + 25, 50·row + 25, the tile's own translation, so the world matrix puts the name on text_position
+itself. **The shown byte gates nothing**: ProvinceTexts_Create writes 1; MapGraphics_RefreshByFlags (0x460D30) writes 1 again
+to every entry wherever the map has a player (CMap +0x2A8C ≠ 0); nothing writes 0. *Search*: byte stores to +0x44 in every
+int3-bounded chunk that calls the deque indexer 0x86B620, and stores of any size at +0x44 in VA 0x830000-0x880000 - which
+find both known writers and the copy 0x46D7D0 and nothing else. So **no intelligence, owner, setting or map mode test** -
+sea zones too.
+
+**Defaults.** The template's constructor (CProvinceTemplate::CProvinceTemplate, 0xA92F8..0xA932A) starts text_position
+at (0, 0), text_rotation at 0 and text_scale at **1.0** (VA 0x171DBAC), and CMap::LoadPositionsFile reads text_rotation
+and text_scale with `%f` into +0x54/+0x58 - **but a province with no text_position has its name at the centre of its
+bounding box**, not at (0, 0): `FINDINGS-movement.md` has the text position fall back to the centre (its terrain is
+counted around that point, and the rule reproduces every province's terrain), `FINDINGS-mapbuild.md` reads the template's
+neighbouring points filled with the centre as floats where the file gives none, and the maintainer's screenshot of the
+original (2026-11-07) names Stolp (1684), Belgard (1744) and Falkenburg (1803) - three provinces positions.txt gives no
+text_position - where their centres are. Which step writes the centre into +0x3C/+0x40 was not read; this said, until
+the same day, that such a name was laid out at the map's (0, 0) and never seen, which was wrong. In TFH's positions.txt
+6,167 of 14,168 provinces have text_position: 5,574 with ids below 10500 (where default.map's sea_starts begins) and 593
+above. TFH's text_rotation runs 0 to 12.6 (radians beyond 2π occur), text_scale 0.5 to 2.1.
+
+#### B.7.2 Slots and the fade
+
+1000 slots at WaterObject +0x2D8 (`ProvinceTextSlot`, 0x10: used, alpha, start seconds, text). Only a text holding a slot
+is laid out and drawn.
+
+**Taken** by ProvinceTexts_Update (0x455EA0), called only from MapGraphics_Update (0x45D6F1) while the camera height is
+strictly below 100.0 [exe]. For each visible tile (+0x78, in order) and each of its texts (deque order), a text with no
+slot takes the first free one: used 1, alpha 0, start = now. **No slot free: the function returns**, the rest wait for a
+later frame. Then it is laid out once (B.7.3); the buffer is not touched again while the slot is held.
+
+**The fade** [exe]: each call first sets, for every used slot with alpha below 255, alpha = min(255, trunc((now − start) ×
+170.0)) (the double at VA 0x160A790), now being the renderer's clock (WaterObject +0x28, CHighPerfWinClock::GetSeconds,
+**seconds**, as a float). **Full strength after 1.5 s.** Alpha 0 is not drawn, so a name first appears on the frame after
+its slot is taken. The fade advances only while ProvinceTexts_Update runs, i.e. below 100.
+
+**Freed** by:
+- MapGraphics_Update's tile-visibility pass (0x45CF93..0x45D0EA): **when a tile's visible byte (MapTile +0x138) goes from 1
+  to 0**, while the camera is below highest_height − 30 (970) - so a tile scrolled away and back fades its names in again;
+  one that stays in view keeps them, also across a zoom out past 100 and back.
+- ProvinceTexts_ReleaseBuffers (0x4564A0) on a lost device, then ProvinceTexts_CreateBuffers on the reset: everything fades
+  in again.
+- ProvinceTexts_Refresh (0x455BA0), for one province.
+
+*Search*: every access to +0x2D8..+0x2E4 and +0x4288 in all of .text (2,755,661 instructions, int3-bounded chunks) - the
+writers above and nothing else in the renderer.
+
+**Alpha 255 at once**: WaterObject +0x4288, set only by ProvinceTexts_Refresh and consumed by the next slot taken -
+whichever text that is - which starts at 255 instead of 0.
+
+**Renames.** CRenameProvinceEffect (`change_province_name`), CChangeProvinceNameCommand::Execute (0x14DBF0) and
+CProvince::LoadKey (a name from the save, *inferred*) call ProvinceTexts_SetText (0x468400), which replaces +0x24 of the
+province's text. The first two then call ProvinceTexts_Refresh: slot freed, position re-taken from the template, the instant
+flag set, **and y set to 0.02 on land or 0.0 on sea** (VA 0x17179B0) instead of 0.52 - the original's, kept. The save
+loader does not refresh. The hidden map editor's handlers (0x29ED40.., *inferred*) also call Refresh.
+
+#### B.7.3 The layout
+
+ProvinceTexts_Update, on taking a slot: buffer locked (DISCARD), all 6000 bytes zeroed; the name, if longer than 50
+characters, cut to its first 49 [exe]; then `BitmapFont_LayOutTextQuads(tahoma_60, buffer, name, origin, up, along, s, 320)`
+with
+- origin = (+0x4C, +0x50, +0x54) in the tile's frame;
+- along = (cos r, 0, sin r), up = (−sin r, 0, cos r), r = text_rotation through cosf/sinf - **radians**; along × up is the
+  world's up, and the map is seen east right, north (+z) up, so **positive r turns the name anticlockwise** on screen
+  (*inferred* only in that the camera's orientation is taken from FINDINGS-camera);
+- s = text_scale × 0.5 [exe], so one font pixel is **0.05 × s = 0.025 × text_scale map pixels** [exe].
+
+No upper-casing, and the font's `color` is not read.
+
+**BitmapFont_LayOutTextQuads** (0x6FF5E0), two passes [exe]:
+1. *Breaking*, char by char: a newline or carriage return (no glyph) ends the line; another char with no glyph is skipped.
+   Each glyph adds xadvance plus its kerning with the next char to the line and the word. **Only at a glyph of height 0 -
+   the space (in kart_font also chars 215 and 247) - is the line tested: if the line, this word and its space included, is
+   wider than 320 (strictly), a break goes in before this word**, which starts the next line. So a word is never split, the
+   last word is never tested (a final line may be wider than 320), a broken line's width keeps its trailing space, and a
+   first word wider than 320 leaves an empty first line. At most 55 lines.
+2. *Placing*: top = lines × lineHeight; each line's pen starts at −trunc(width / 2) - **each line centred horizontally on
+   the origin**; each break lowers top by lineHeight. A glyph of height under 1 only advances the pen (xadvance, no
+   kerning). Any other glyph is a quad x ∈ [pen + xoffset, + width], y ∈ [top − yoffset − height, top − yoffset], u, v its
+   atlas rectangle over the atlas size (v0 at the glyph's top). Vertex = origin + along·(x·0.05·s) + up·(y·0.05·s).
+   Vertices (x0,y0)(x1,y0)(x0,y1), (x1,y1)(x1,y0)(x0,y1), y0 the bottom; 20 bytes each, XYZ|TEX1.
+
+**So the text block stands on text_position**: its bottom (the last line's box) at the point, its top at lines ×
+lineHeight above it, not centred vertically. With TFH's kart_font (lineHeight 76, base 63) the last line's baseline is 13
+font pixels above the point.
+
+**Height and matrix**: every vertex at y = 0.52 in the tile's frame (0.17 above the land's LAND_ALT 0.35). WORLD = the
+tile's +0x17C, Translation(tile middle − camera settled x/y), shifted a map's width across the seam - so the world position
+is text_position (x, 0.52, y) less the camera.
+
+**tahoma_60** [mod]: TFH core.gfx (both copies) has `bitmapfont { name = "tahoma_60" fontname = "kart_font" color =
+0xff333333 }`, no `effect`. kart_font.fnt (identical in the base game and tfh/): "Another Typewriter", lineHeight 76,
+base 63, space xadvance 33; kart_font.tga is 512×512 32-bit, **every opaque texel black**. BlackICE's core.gfx uses
+`tungsten` (B.1). 320 font pixels is about nine to ten kart_font characters, so multi-word names longer than that wrap.
+
+#### B.7.4 The draw
+
+ProvinceTexts_Draw (0x4608D0), called by MapGraphics_DrawScene (0x45C411) **only while the height is below 100** (strict)
+**and layer-mask bit 0x8 is set** [exe]. Every map-mode setter writes one of 0xFF9A, 0xFFAA, 0xFFBA, 0xFFBB, 0xFFBE,
+0xFFFF to settings +0xF0, all with 0x8. +0xEC starts 0xFFFF, and only bit 0 (renderTrees) is ever changed
+(CSettingsScreen::StoreChoices). So **no map mode and no settings.txt key hides them**; settings' "onmap" is a message-type
+key, unrelated.
+
+States: sampler 0 MIN/MAG LINEAR (mip not set); LIGHTING 0; ALPHABLENDENABLE 1, SRCALPHA / INVSRCALPHA; ZWRITEENABLE 0,
+ZENABLE 0; stage 0 colour and alpha MODULATE(TEXTURE, TFACTOR), stage 1 off; texture 0 the tahoma_60 atlas. CULLMODE is
+not set: the quads wind anticlockwise as seen, so the state the earlier draws leave must not cull them (*inferred*).
+
+Then, visible tiles in order, texts in deque order: where shown, with a slot whose alpha ≠ 0, WORLD = tile +0x17C,
+TEXTUREFACTOR = alpha << 24 | 0xFFFFFF (the old value saved and put back each time), the 300-vertex triangle list drawn whole
+(unused triangles degenerate). **Colour = the atlas's - black in TFH - and alpha = atlas alpha × alpha/255.** No depth, so a
+later name draws over an earlier one. At the end only stage 0's COLORARG2/ALPHAARG2 (CURRENT) and ALPHAOP (MODULATE) are
+restored.
+
+**Between 100 and 500 neither kind of name is drawn**; above 500 the country names (B.4).
+
+#### B.7.5 Not established
+
+How CULLMODE stands when the names draw; whether MapGraphics_Update runs before the scene draw in a frame (it decides only
+that a new name shows on the next frame); the global at VA 0x1A858C4, which makes the clock answer a fixed figure; the save
+key CProvince::LoadKey hands to ProvinceTexts_SetText; what GetText answers for a missing `PROV<id>`; who posts
+CChangeProvinceNameCommand; the MeshBuffer byte +0x16 the lock tests; the extra tiles MapGraphics_Update marks visible
+through MapTile +0x38C.
+
+Frontier: 0x46D7D0, 0x468270, 0x468290, 0x14DF20, 0x14DF30.

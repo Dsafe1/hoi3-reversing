@@ -856,7 +856,7 @@ One class per effect, trigger, command and decision the event scripts can use. E
 | `CChangeMinisterCommand` | `CCommand` | 0x4C | 4 | 3/3 | 7 |  | 1 | placed |  |
 | `CChangeOccupationPolicyCommand` | `CCommand` | 0x50 | 3 | 3/3 | 7 |  | 1 | placed |  |
 | `CChangePriorityCommand` | `CCommand` |  |  | 2/3 | 3 |  | 1 | placed |  |
-| `CChangeProvinceNameCommand` | `CCommand` |  |  | 2/2 | 1 |  | 1 | placed |  |
+| `CChangeProvinceNameCommand` | `CCommand` |  |  | 2/2 | 2 |  | 1 | placed |  |
 | `CChangeResourcesInConvoyCommand` | `CCommand` |  |  | 1/2 | 1 |  | 1 | placed |  |
 | `CChangeTechPriorityCommand` | `CCommand` |  |  | 3/3 | 1 |  | 1 | placed |  |
 | `CChangeTemplateCommand` | `CCommand` |  |  | 2/2 | 1 |  | 1 | placed |  |
