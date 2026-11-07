@@ -227,7 +227,12 @@ which `ObjectLayer_Add` keys by the object's address, so the order is *likely* a
 
 ## Not established
 
-- **Whether the pictures moved after they are hung ever stand where they were moved to.** These are the three large icons
+- ~~**Whether the pictures moved after they are hung ever stand where they were moved to.**~~ **Settled 2026-11-07: they
+  do.** The maintainer's two screenshots of the original's air map mode have the air battle icon east of the province and
+  the bombing icon south-west of it in one and north-west in the other: the battle's (3, 3, 0) and the bombings'
+  (0, 3, -3) and (0, 3, 3) read as east, up and north, with the camera's tilt. So a refresh of +0x94 exists that the search
+  below did not find - another negative without a positive control on the right path (`TRAPS.md`, closing section). The
+  reasoning as it stood: These are the three large icons
   and the seven battle/naval event icons. Each is given its Translate after `ProvinceGraphics_PlacePicture` has computed its
   world transform (+0x94) from its local one, and that Translate writes only the local. Nothing found re-derives +0x94
   afterwards:
@@ -240,6 +245,7 @@ which `ObjectLayer_Add` keys by the object's address, so the order is *likely* a
   (`positions.txt` `building_nudge`, written by SetLocal after hanging) does not reach the screen either (*inferred*). *A
   screenshot of the air map mode with an air battle and a bombing in one province settles it: offset icons mean a refresh
   exists that was not found.*
+  It did, and they are offset.
 - Who sets a billboard's `+0x148` to 1 (`vMultiplier` 1.5), if anything does.
 - What hides a counter's pointer again, and when its red frame is used.
 - The type's slots 32 (hit test) and 33. The object's destructor.

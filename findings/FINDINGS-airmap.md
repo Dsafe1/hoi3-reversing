@@ -149,7 +149,7 @@ of section 5 are given the building's position less the label point through the 
 a middle figure of 0). So the vector is east, up and north: the air battle stands 3 east of the
 point, "bombed us" 3 north and "bombed them" 3 south, all three raised by 3. That the third
 figure counts north is `inferred` from the building positions, whose y counts north. All three
-are drawn at the type's `scale`, 3.5. *Whether the vector reaches the screen is open*: the slot 33 call comes after
+are drawn at the type's `scale`, 3.5. *Whether the vector reaches the screen* was open, and **it does** (settled 2026-11-07 by the maintainer's screenshots, `FINDINGS-billboardfx.md`, *Not established*): the slot 33 call comes after
 ProvinceGraphics_PlacePicture has computed the world transform, and no later refresh was found
 (`FINDINGS-billboardfx.md`, Not established).
 
