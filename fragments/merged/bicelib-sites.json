@@ -1,0 +1,217 @@
+{
+ "agent": "BiceLib old-code review (2026-11-07)",
+ "question": "Read every site of BiceLib's 2024-2025 hooks and byte patches off the bytes, against an untouched copy of the executable, so the records that cited only the DLL's own source carry a reading instead.",
+ "source": "reversing/findings/FINDINGS-bicelibsites.md",
+ "addresses": [
+  {
+   "rva": "0x1D7CDC", "kind": "instruction", "name": "Hook_LeaderRankChange", "signature": null, "no_signature": null,
+   "comment": "In CPromoteLeaderCommand::Execute, the new rank stored: `mov [edi+0x6C], eax; cmp [edi+0x68], ebx` (89 47 6C 39 5F 68, vanilla), EDI the leader and EAX the rank; the cmp's flags feed the jne after it. BiceLib's RankSpecificTraits stands here and replays both. See reversing/findings/FINDINGS-bicelibsites.md, section 2.",
+   "confidence": "confirmed",
+   "evidence": "Decoded at 0x1D7CC8..0x1D7CE8 from both the vanilla and the installed exe, identical; `mov [edi+0x6C], eax` follows `add/sub eax, [esi+0x68]` on the direction byte at +0x64. Wrong if EDI were not the leader - CLeader +0x6C is rank in CLeader.hpp, read live.",
+   "revises": "source was BiceLib/bice.cpp alone; now the bytes, the registers, and the flags dependency"
+  },
+  {
+   "rva": "0x17FF08", "kind": "instruction", "name": "Hook_LeaderSaveTrait", "signature": null, "no_signature": null,
+   "comment": "In CLeader::SaveContents' trait loop: `add ecx, 0x2C; lea edi, [esp+0xC]` (83 C1 2C 8D 7C 24 0C, vanilla), ECX the trait (`mov ecx, [ebx]` at 0x17FF03, a list node's data), turned into its name (CTrait +0x2C) for the call at 0x17FF0F. BiceLib's RankSpecificTraits hands a blank string here for a rank-specific trait. See reversing/findings/FINDINGS-bicelibsites.md, section 2.",
+   "confidence": "confirmed",
+   "evidence": "Decoded 0x17FEF2..0x17FF20 in both files: the loop loads [edi+0x30] (the leader's trait list), `mov ecx,[ebx]; mov ebx,[ebx+8]` walks it. CTrait::Offsets::name is 0x2C in CTrait.hpp. Wrong if the loop walked something other than the traits.",
+   "revises": "source was BiceLib/bice.cpp alone; now the bytes and where ECX comes from"
+  },
+  {
+   "rva": "0x365688", "kind": "instruction", "name": "Hook_LeaderListShowSkill", "signature": null, "no_signature": null,
+   "comment": "In CLeaderAssignmentEntry's constructor, after the skill (leader +0x70) is turned into text in a stack buffer by the runtime call at 0x79A0C4 (value, buffer, 10): `mov esi, eax; mov ecx, esi; add esp, 0xC` (8B F0 8B CE 83 C4 0C, vanilla), EAX the buffer, which is then measured and copied into the row's string. **The leader is [ebp+0x14]**, the constructor's fourth argument, read by the game at 0x365666; BiceLib's first hook here read the game's esp+0xC instead, which by the stack arithmetic is the EDI the prologue saved - the caller's register. See reversing/findings/FINDINGS-bicelibsites.md, section 3.",
+   "confidence": "confirmed",
+   "evidence": "Bytes and [ebp+0x14] confirmed: `mov edx,[ebp+0x14]; mov eax,[edx+0x70]` at 0x365666, and the record's signature puts leader fourth. The saved-EDI claim is inferred from the prologue (push ebp; three SEH dwords; sub esp,0xB8; push ebx/esi/edi) with every call before the site assumed balanced, plus the three _itoa arguments still on the stack.",
+   "revises": "source was BiceLib/bice.cpp alone; now where the leader really is, and what the old hook read"
+  },
+  {
+   "rva": "0x3679D4", "kind": "instruction", "name": "Hook_LeaderListShowSkillSelected", "signature": null, "no_signature": null,
+   "comment": "In CLeaderAssignmentPanel's constructor, the same seven bytes as Hook_LeaderListShowSkill (8B F0 8B CE 83 C4 0C, vanilla) for the selected leader's skill. The leader is [ebp+0xC]: the unit argument's slot, which LeaderPanel_StoreUnitLeader (0x367935) has overwritten with the unit's leader; the game reads it at 0x3679B2. See reversing/findings/FINDINGS-bicelibsites.md, section 3.",
+   "confidence": "confirmed",
+   "evidence": "Decoded 0x367900..0x3679F0: `mov edx,[ebp+0xC]; mov eax,[edx+0x12C]` ... `mov [ebp+0xC], eax` at 0x367935, then `mov edx,[ebp+0xC]; mov eax,[edx+0x70]` at 0x3679B2. No prologue or int3 padding between the function's start 0x3671A0 and the site.",
+   "revises": "source was BiceLib/bice.cpp alone; now the bytes and why [ebp+0xC] is the leader"
+  },
+  {
+   "rva": "0x367935", "kind": "instruction", "name": "LeaderPanel_StoreUnitLeader", "signature": null, "no_signature": null,
+   "comment": "`mov dword ptr [ebp+0xC], eax` in CLeaderAssignmentPanel's constructor: the unit's leader (CUnit +0x12C, loaded at 0x367925) stored over the constructor's own `unit` argument, which is the leader from here on - the selected leader's name and skill are read through it. See reversing/findings/FINDINGS-bicelibsites.md, section 3.",
+   "confidence": "confirmed",
+   "evidence": "Decoded in the function at 0x367922..0x367935; CUnit::Offsets::leader_ptr is 0x12C. Wrong if [ebp+0xC] were rewritten again before 0x3679B2 - the scan of the function for [ebp+0xc] finds reads only after it."
+  },
+  {
+   "rva": "0x1B9733", "kind": "instruction", "name": "Hook_UnitAttachmentLimit", "signature": null, "no_signature": null,
+   "comment": "In CUnit_MayTakeSubordinate, the count against the limit: `cmp dword ptr [ebp+8], 5; pop edi` (83 7D 08 05 5F, vanilla), then `jl` to the yes. [ebp+8] is the count, kept in the subordinate argument's own slot once EBX holds it (cleared at 0x1B96FE); EBX is the unit to attach and **EDI the last subordinate counted** (`mov edi, [esi]` each pass). ECX is not: it is `this` for the virtual call each pass makes, so whatever that call leaves - BiceLib's first hook read it there. See reversing/findings/FINDINGS-bicelibsites.md, section 6.",
+   "confidence": "confirmed",
+   "evidence": "Decoded the function from 0x1B96B0 to 0x1B974F in both files: `mov edi,[esi]; mov edx,[edi]; mov eax,[edx+0x3C]; mov esi,[esi+8]; mov ecx,edi; call eax` at 0x1B9710. Wrong if the count were somewhere else - the only `inc` in the loop is `inc dword ptr [ebp+8]` at 0x1B972C.",
+   "revises": "source was BiceLib/bice.cpp alone, and said ECX was the last counted unit; it is EDI"
+  },
+  {
+   "rva": "0x1B9705", "kind": "instruction", "name": "UnitAttachmentLimit_EarlyExit", "signature": null, "no_signature": null,
+   "comment": "`test esi, esi; je 0x1B974B` in CUnit_MayTakeSubordinate, after `mov esi, [esi+0x1E4]` (the commander's first subordinate node): with no subordinates the function answers true here, before the counting loop and before it pushes EDI - so Hook_UnitAttachmentLimit is only reached with one counted. See reversing/findings/FINDINGS-bicelibsites.md, section 2.",
+   "confidence": "confirmed",
+   "evidence": "Decoded 0x1B96F8..0x1B9710; 0x1B974B is `pop esi; mov al, 1`. CUnit::Offsets::children is 0x1E4. Was inferred from the DLL's comment.",
+   "revises": "inferred from BiceLib/Hooks/CArmyHooks.cpp; now read, and what the exit answers"
+  },
+  {
+   "rva": "0x166560", "kind": "instruction", "name": "Hook_NavyScreenPenalty", "signature": null, "no_signature": null,
+   "comment": "In CNavalCombatant::ApplyCombatModifiers, the test that starts the poor-screens penalty: `cmp esi, edx; jge 0x1665F6` (3B F2 0F 8D 8E 00 00 00, vanilla), ESI the screens, EDX the capital ships (already above 0, `jle` at 0x16655A), and [esp+0x1C] the penalty, set to EBX - zeroed at 0x1664E9 - at 0x166554. The sliding scale follows to 0x1665F2. BiceLib's NavyScreenPenalty replaces test and scale with a flat penalty below a ratio. See reversing/findings/FINDINGS-bicelibsites.md, section 2.",
+   "confidence": "confirmed",
+   "evidence": "Decoded 0x166530..0x166610 in both files, and 0x166480..0x1664F0 for the `xor ebx, ebx`. Wrong if [esp+0x1C] were not the penalty - the scale's end stores its result there at 0x1665F2.",
+   "revises": "source was BiceLib/bice.cpp alone; now the bytes and every register"
+  },
+  {
+   "rva": "0x1665F6", "kind": "instruction", "name": "NavyScreenPenalty_Continue", "signature": null, "no_signature": null,
+   "comment": "`cmp byte ptr [ebp+0xC], 0` in CNavalCombatant::ApplyCombatModifiers, where both exits of the screen penalty scale meet (the `jle` at 0x16655A and the `jge` at 0x166562). Nothing from here reads EDX or EAX before setting them - `mov edx, [esp+0x18]` at 0x166600 - as the scale's own end leaves both changed. See reversing/findings/FINDINGS-bicelibsites.md, section 2.",
+   "confidence": "confirmed",
+   "evidence": "Decoded 0x1665F6..0x166610; both branches target 0x1665F6. Wrong if a path from here read EDX first - the next reference is the load at 0x166600.",
+   "revises": "source was BiceLib/bice.cpp alone; now what meets here and what is free"
+  },
+  {
+   "rva": "0xF0F22", "kind": "instruction", "name": "Hook_OffmapIc_CountLocalIc", "signature": null, "no_signature": null,
+   "comment": "In CCountry::UpdateIC's province loop: `mov ecx, [esi+0x330]` (8B 8E 30 03 00 00, vanilla), just after the province's term `IC * (1000 + LOCAL_IC) / 1000` is in EAX - the province modifier's values at [esi+0x114] (CMapProvince::modifier + CModifier::values), entries +0x78 (IC) and +0x80 (LOCAL_IC). ESI the province, EBX the country. The term is added to the sum whatever the owner test after it says (0xF0F6F). See reversing/findings/FINDINGS-bicelibsites.md, section 2.",
+   "confidence": "confirmed",
+   "evidence": "Decoded 0xF0EB0..0xF0FA0 in both files. 0xFC + 0x18 = 0x114 and entry 15 * 8 = 0x78, 16 * 8 = 0x80 by CModifier.hpp. Wrong if the sum at [ebp+8] skipped some terms - `test eax,eax; jle; add [ebp+8], eax` is the only add.",
+   "revises": "source was BiceLib/bice.cpp alone; now the bytes and what EAX holds"
+  },
+  {
+   "rva": "0xF0F9D", "kind": "instruction", "name": "Hook_OffmapIc_SetBaseIc", "signature": null, "no_signature": null,
+   "comment": "In CCountry::UpdateIC, the total stored: `mov [ebx+0x604], eax` (89 83 04 06 00 00, vanilla) - total_ic - then +0x60C. EAX the provinces' sum in whole IC (divided by 1000 through 0x10624DD3 from 0xF0F8B); ECX [ebx+0xDA8], which is global_modifier (+0xD90) + CModifier::values (+0x18), the global modifier's value array. See reversing/findings/FINDINGS-bicelibsites.md, section 2.",
+   "confidence": "confirmed",
+   "evidence": "Decoded 0xF0F85..0xF0FC0 in both files; [ecx+0x88] read at 0xF0FAF is entry 17, GLOBAL_IC. Wrong if +0xDA8 were its own field - CCountry.hpp has nothing at 0xDA8 and 0xD90 + 0x18 lands exactly on it.",
+   "revises": "source was BiceLib/bice.cpp alone; now the bytes and what ECX is"
+  },
+  {
+   "rva": "0xF0F90", "kind": "instruction", "name": "UpdateIC_SumToWholeIC", "signature": null, "no_signature": null,
+   "comment": "`imul dword ptr [ebp+8]` with 0x10624DD3 in EAX - the first step of dividing CCountry::UpdateIC's summed provincial IC by 1000 (then `sar edx, 6` and the sign fix). Was the site of an early BiceLib offmap IC byte patch, long unused and deleted on 2026-11-07. See reversing/findings/FINDINGS-bicelibsites.md, section 9.",
+   "confidence": "confirmed",
+   "evidence": "Decoded 0xF0F85..0xF0F9D; 0x10624DD3 with `sar 6` is the compiler's division by 1000. Vanilla bytes F7 6D 08.",
+   "replaces": "Patch_OffmapIc_1",
+   "revises": "named after a patch that no longer exists; now named for the instruction"
+  },
+  {
+   "rva": "0xF0FA9", "kind": "instruction", "name": "UpdateIC_TotalToThousandths", "signature": null, "no_signature": null,
+   "comment": "`imul eax, eax, 0x3E8` in CCountry::UpdateIC, right after total_ic is stored: the whole-IC total back in thousandths for the GLOBAL_IC term that follows ([ecx+0x88] at 0xF0FAF). Was the site of an early BiceLib offmap IC byte patch, long unused and deleted on 2026-11-07. See reversing/findings/FINDINGS-bicelibsites.md, section 9.",
+   "confidence": "confirmed",
+   "evidence": "Decoded 0xF0FA3..0xF0FC0. Vanilla bytes 69 C0 E8 03 00 00.",
+   "replaces": "Patch_OffmapIc_2",
+   "revises": "named after a patch that no longer exists; now named for the instruction"
+  },
+  {
+   "rva": "0x17E4E5", "kind": "instruction", "name": "Hook_PlaceBuildingCheck", "signature": null, "no_signature": null,
+   "comment": "In CBuildingDeployment::CanDeployIn: `test al, al; je 0x17E5B7` (84 C0 0F 84 CA 00 00 00, vanilla) on CCountry::IsBuildingAllowed's answer, called at 0x17E4E0 with the building [edi+0x38]; EDI the deployment, EBX the province. 0x17E5B7 is the refusal, 0x17E4ED the way on. BiceLib's PlaceUnresearchedBuildings skips the answer and asks only whether the level already there is below max_allowed_level - which also skips IsBuildingAllowed's control, queued-levels, port, not_if_x_exists and prerequisite checks. See reversing/findings/FINDINGS-bicelibsites.md, section 7.",
+   "confidence": "confirmed",
+   "evidence": "Decoded the function from 0x17E480 to 0x17E4F6 in both files: `mov ecx, [edi+0x38]; push ebx; push ecx; mov ecx, esi; call 0x4DFFC0` and the test after. Wrong if 0x17E5B7 were not the false exit - the record's own comment on CanDeployIn has it so.",
+   "revises": "source was BiceLib/bice.cpp alone; now the bytes, both exits, and what the hook skips"
+  },
+  {
+   "rva": "0x181A60", "kind": "function", "name": "CLeader::AddTrait", "signature": "void __stdcall AddTrait(CLeader* leader, CTrait* trait)", "no_signature": null,
+   "comment": "**Gives a leader a trait.** The leader from [ebp+8], the trait from [ebp+0xC], nothing from ECX, both exits `ret 8` (0x181C2A, 0x181C44). Before anything is added it tests the byte at trait + leader type (+0x68) + 0x2B0 - three bytes on the trait, one per leader type. BiceLib's addTraitToLeader calls it. See reversing/findings/FINDINGS-bicelibsites.md, section 8.",
+   "confidence": "confirmed",
+   "evidence": "Decoded 0x181A60..0x181AD0 and the two `ret 8`. Wrong if it were __thiscall - ECX is not read before it is set (`lea ecx, [esp+0x18]` at 0x181AA4).",
+   "revises": "comment was one line from BiceLib/bice.cpp; now the convention read off the bytes, and the type test"
+  },
+  {
+   "rva": "0xDE3ED", "kind": "instruction", "name": "Patch_MinisterTechDecay", "signature": null, "no_signature": null,
+   "comment": "In CCountry::RebuildStaticModifiers, the third pass over tech_decay_modifier (+0x1174): `mov [ecx+esi], eax` (89 04 31, vanilla) stores technology_status (+0xDF8) -> +0x1F8 [category] over each category - after the rebuild zeroed them (0xDDFBA) and added every minister's figure (0xDE37B), so vanilla throws the ministers' figures away. BiceLib's fixMinisterTechDecay makes it `add` (01 04 31). **The installed exe already holds 01 here**, written on disk. Not the `decay` effect's handler, which FINDINGS-techdecay.md section 4 said. See reversing/findings/FINDINGS-bicelibsites.md, sections 1 and 4.",
+   "confidence": "confirmed",
+   "evidence": "Decoded 0xDDF9E..0xDDFC4 and 0xDE36F..0xDE3F4; the function record puts 0xDDD80..0xDF97D around both. Vanilla byte 89 from the untouched copy.",
+   "revises": "said only that a byte was patched to 0x01; now what the instruction is, why the patch is right, and that the install is pre-patched"
+  },
+  {
+   "rva": "0xDE37B", "kind": "instruction", "name": "RebuildStaticModifiers_AddMinisterDecay", "signature": null, "no_signature": null,
+   "comment": "`add dword ptr [eax+edi*4], edx` in CCountry::RebuildStaticModifiers: a minister type's decay figure (CMinisterType +0x50 [category]) added into the country's tech_decay_modifier (+0x1174) for each category, after 0xDDFBA zeroed them and before Patch_MinisterTechDecay overwrites them. See reversing/findings/FINDINGS-bicelibsites.md, section 4.",
+   "confidence": "confirmed",
+   "evidence": "Decoded 0xDE36A..0xDE38A: `mov eax,[eax+0x50]; mov edx,[eax+edi*4]; mov eax,[ebx+0x1174]; add [eax+edi*4], edx`. The function record's step 5 describes the same."
+  },
+  {
+   "rva": "0xDCBD3", "kind": "instruction", "name": "Patch_WarExhaustionNeutralityReset_3", "signature": null, "no_signature": null,
+   "comment": "In CCountry::UpdateMonthly, vanilla `add [esi+0xAD0], eax; jns +6; mov [esi+0xAD0], ebx` (01 86 D0 0A 00 00 79 06 89 9E D0 0A 00 00): the month's war exhaustion added to +0xAD0, floored at 0. BiceLib's disableWarExhaustionNeutralityReset writes `mov dword ptr [esi+0xAD0], 0` and four nops, so the hand-over at 0xDCC09 never has anything to hand over. **The installed exe already holds the patched bytes.** See reversing/findings/FINDINGS-bicelibsites.md, sections 1 and 5.",
+   "confidence": "confirmed",
+   "evidence": "Vanilla bytes from the untouched copy; the installed copy differs exactly here. Wrong if the floor were elsewhere - the `jns` skips only the store of EBX.",
+   "revises": "said only what the patch writes; now what vanilla does there, and that the install is pre-patched"
+  },
+  {
+   "rva": "0xDCC18", "kind": "instruction", "name": "Patch_WarExhaustionNeutralityReset_2", "signature": null, "no_signature": null,
+   "comment": "In CCountry::UpdateMonthly, vanilla `mov [esi+0xAD0], ebx` (89 9E D0 0A 00 00) - war exhaustion zeroed after it is handed to 0x4FBF80. Nopped by disableWarExhaustionNeutralityReset; also the target of the `je` at 0xDCBC8. **The installed exe already holds the six nops.** See reversing/findings/FINDINGS-bicelibsites.md, sections 1 and 5.",
+   "confidence": "confirmed",
+   "evidence": "Vanilla bytes from the untouched copy; the installed copy differs exactly here.",
+   "revises": "said only that six bytes are nopped; now what vanilla does, and that the install is pre-patched"
+  },
+  {
+   "rva": "0xDCC11", "kind": "instruction", "name": "UpdateMonthly_WarExhaustionArgument", "signature": null, "no_signature": null,
+   "comment": "`mov [ecx], eax` (89 01, vanilla) in CCountry::UpdateMonthly: war exhaustion written into the by-value argument for the call to 0x4FBF80 at 0xDCC13. BiceLib used to write 0x01 to its second byte - the byte vanilla already holds, so a no-op, dropped 2026-11-07. **The installed exe holds 89 19** (`mov [ecx], ebx`), not written by the DLL. Unreachable while Patch_WarExhaustionNeutralityReset_3 stores 0. See reversing/findings/FINDINGS-bicelibsites.md, section 5.",
+   "confidence": "confirmed",
+   "evidence": "Vanilla 01 at 0xDCC12 from the untouched copy, 19 in the installed. The record's old entry put an instruction at 0xDCC12, which is the ModRM byte of this one.",
+   "replaces": "Patch_WarExhaustionNeutralityReset_1",
+   "revises": "was a patch of one byte in the middle of an instruction, which changed nothing; now the instruction"
+  },
+  {
+   "rva": "0x4B348A", "kind": "instruction", "name": "Patch_InterAiExpeditionaries_1", "signature": null, "no_signature": null,
+   "comment": "In CAIUnit::ManageExpeditions, `jne` rel32 (0F 85 91 05 00 00, vanilla). BiceLib's disableInterAiExpeditionaries writes 90 E9 over its first two bytes - a nop and a jmp with the same displacement, which ends at the same byte and so lands on the same target. See reversing/findings/FINDINGS-bicelibsites.md, section 9.",
+   "confidence": "confirmed",
+   "evidence": "Vanilla bytes from both copies, identical.",
+   "revises": "comment from BiceLib/Patches.cpp alone; now the vanilla bytes and why the target is unchanged"
+  },
+  {
+   "rva": "0x4B37E5", "kind": "instruction", "name": "Patch_InterAiExpeditionaries_2", "signature": null, "no_signature": null,
+   "comment": "In CAIUnit::ManageExpeditions, `je` rel32 (0F 84 32 02 00 00, vanilla), made `90 E9` by disableInterAiExpeditionaries as Patch_InterAiExpeditionaries_1 is. See reversing/findings/FINDINGS-bicelibsites.md, section 9.",
+   "confidence": "confirmed",
+   "evidence": "Vanilla bytes from both copies, identical.",
+   "revises": "comment from BiceLib/Patches.cpp alone; now the vanilla bytes"
+  },
+  {
+   "rva": "0x1832A8", "kind": "instruction", "name": "Patch_HistoricalModelLogic_1", "signature": null, "no_signature": null,
+   "comment": "**A BiceLib patch site.** `neg ecx` (F7 D9, vanilla) - the absolute value that makes a model wanting more technology than the country has score the same as one wanting less by as much. historicalModelLogicFix writes `jmp +0x2A` (EB 2A) here, landing on 0x1832D4 in the padding after CHistoricalModel::PickBestModel. See reversing/findings/FINDINGS-bicelibsites.md, section 9.",
+   "confidence": "confirmed",
+   "evidence": "Vanilla bytes from both copies; 0x1832AA + 0x2A = 0x1832D4.",
+   "revises": "source was BiceLib/Patches.cpp alone; now checked against the vanilla bytes and the jump's landing"
+  },
+  {
+   "rva": "0x1832D4", "kind": "instruction", "name": "Patch_HistoricalModelLogic_2", "signature": null, "no_signature": null,
+   "comment": "**A BiceLib patch site**, six bytes of the int3 padding after CHistoricalModel::PickBestModel (CC x 6, vanilla): historicalModelLogicFix writes `mov ecx, 0x100000` (C7 C1 00 00 10 00), the flat penalty, here. See reversing/findings/FINDINGS-bicelibsites.md, section 9.",
+   "confidence": "confirmed",
+   "evidence": "Vanilla bytes from both copies: CC from 0x1832D4 to 0x1832DF, and a prologue at 0x1832E0.",
+   "revises": "source was BiceLib/Patches.cpp alone; now checked against the vanilla bytes"
+  },
+  {
+   "rva": "0x1832DA", "kind": "instruction", "name": "Patch_HistoricalModelLogic_3", "signature": null, "no_signature": null,
+   "comment": "**A BiceLib patch site**, two more bytes of that padding (CC CC, vanilla): historicalModelLogicFix writes `jmp -0x32` (EB CE) back to 0x1832AA, the `add eax, ecx` after the `neg ecx` it replaced. See reversing/findings/FINDINGS-bicelibsites.md, section 9.",
+   "confidence": "confirmed",
+   "evidence": "Vanilla bytes from both copies; 0x1832DC - 0x32 = 0x1832AA, which decodes `add eax, ecx`.",
+   "revises": "source was BiceLib/Patches.cpp alone; now checked against the vanilla bytes and the jump's landing"
+  },
+  {
+   "rva": "0x266E74", "kind": "instruction", "name": "MapMode_SimplifiedTerrain_SetMapStyle", "signature": null, "no_signature": null,
+   "comment": "mov dword ptr [eax+0xF4], 8 (C7 80 F4 00 00 00 08 00 00 00, vanilla) - the Simplified Terrain setter writing the map style. BiceLib's seaTerrainColourInSimplifiedMapMode makes the 8 an 18. See reversing/findings/FINDINGS-mapmode.md and FINDINGS-bicelibsites.md, section 9.",
+   "confidence": "confirmed",
+   "evidence": "Vanilla bytes from both copies, identical.",
+   "revises": "source was BiceLib/Patches.cpp alone; now the vanilla bytes"
+  },
+  {
+   "rva": "0x83020", "kind": "instruction", "name": "Patch_QueuedHistoricalModel", "signature": null, "no_signature": null,
+   "comment": "**A BiceLib patch site.** `cmp eax, [esi+0x18]; jae 0x82FF1` (3B 46 18 73 CC, vanilla, then 8B F0 83 C0 0C 39 16) - in CBrigadeConstructionDefinition::LoadKey's `historical_model` arm, the end of the search through the model's 12-byte entries for one technology of the unit type; the `jae` is what skips a technology the model does not name, so the levels after it shift in the line's list. fixQueuedHistoricalModel writes a 5-byte `jmp` over the two instructions to a stub that repeats the test, goes on to 0x83025 if an entry is left, and otherwise points esi at a zeroed entry and jumps to the append at 0x8302E (8B 5F 04 6A 10), which reads the level from [esi+4] - so the technology gets level 0, what CHistoricalModel::ApplyTo gives it on the map. esi is free to change: the outer loop reloads it from [esp+0xc] at 0x8301C before every search and the function's exit at 0x82E25 pops it. See reversing/findings/FINDINGS-buildqueue.md, section 10.",
+   "confidence": "confirmed",
+   "evidence": "Vanilla bytes from both copies. The addresses in the old comment were VAs; this one is all rvas.",
+   "revises": "source was BiceLib/Hooks/HookedPatches.cpp, and four addresses in the comment were VAs; now rvas and the vanilla bytes"
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CBuildingDeployment", "offset": "0x38", "name": "building", "type": "CBuilding*",
+   "comment": "the building being placed - CBuildingDeployment::CanDeployIn passes it to CCountry::IsBuildingAllowed as the building at 0x17E4D9. See reversing/findings/FINDINGS-bicelibsites.md, section 7.",
+   "evidence": "`mov ecx, [edi+0x38]; push ebx; push ecx; mov ecx, esi; call 0x4DFFC0` with EDI the deployment, and IsBuildingAllowed's signature takes the building second.",
+   "revises": "source was BiceLib/Hooks/HookedPatches.cpp alone; now the game's own use"
+  },
+  {
+   "struct": "CBuilding", "offset": "0x54", "name": "index", "type": "int",
+   "comment": "index into a province's building array (CMapProvince +0x310) and the availability array - IsBuildingAllowed reads it at 0xDFFDD and 0xE0068. See reversing/findings/FINDINGS-bicelibsites.md, section 7.",
+   "evidence": "`mov eax, [ebx+0x54]` at 0xDFFDD indexing technology_status +0x28C, and again at 0xE0068 indexing [province+0x310].",
+   "revises": "source was BiceLib/Hooks/HookedPatches.cpp alone; now the game's own reads"
+  },
+  {
+   "struct": "CBuilding", "offset": "0x68", "name": "max_allowed_level", "type": "int",
+   "comment": "`max_level`, in whole levels - IsBuildingAllowed reads it at 0xE007E and sets it against the province's level_max / 1000. See reversing/findings/FINDINGS-bicelibsites.md, section 7.",
+   "evidence": "`mov ecx, [ebx+0x68]` at 0xE007E beside the /1000 of [buildings[index]+0x20] at 0xE006E..0xE0089.",
+   "revises": "source was BiceLib/Hooks/HookedPatches.cpp alone; now the game's own read"
+  }
+ ]
+}

@@ -143,7 +143,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CBookmark` | `CPersistent` | 0xD4 | 10 | 3/7 | 1 |  | 4 | read | **read**: `bookmarks.txt`, 7 keys |
 | `CBrigadeConstructionDefinition` | `CPersistent` |  | 9 + 1 lua | 5/7 | 5 | CConstruction.hpp | 4,192 | read |  |
 | `CBuildingConstruction` | `CConstruction` |  | 2 | 2/2 | 9 | CConstruction.hpp | 154 | placed |  |
-| `CBuildingDeployment` | `CDeployment` |  | 2 | 1/2 | 7 |  |  | placed |  |
+| `CBuildingDeployment` | `CDeployment` |  | 2 | 1/2 | 7 | CProvinceBuilding.hpp |  | placed |  |
 | `CCallAllyAction` | `CDiplomaticAction` |  | 1 lua | 1/1 | 15 |  | 10 | placed |  |
 | `CCarrierProtection` | `CAirOrder` |  |  |  | 4 |  | 59 | RTTI |  |
 | `CCasusBelli` | `CRelation` |  | 1 | 1/1 | 7 |  | 7 | placed |  |
