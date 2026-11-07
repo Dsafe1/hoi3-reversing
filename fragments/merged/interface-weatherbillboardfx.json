@@ -1,0 +1,214 @@
+{
+ "agent": "delegated agent, 2026-11-07: the weather pictures through gfx/fx/weather_billboard.fx, whole",
+ "question": "How the original feeds weather_billboard.fx: the matrices, the technique, vTime and its unit, the render states, the order, vFlip/vXOffset, the quads' vertices and uv, noOfFrames - so another program can draw the weather pictures through the install's own effect file exactly.",
+ "source": "reversing/findings/FINDINGS-weathersim.md",
+ "addresses": [
+  {
+   "rva": "0x483F70",
+   "kind": "function",
+   "name": "CWeatherBillboardType::DrawQuad",
+   "signature": "void __thiscall CWeatherBillboardType::DrawQuad(CWeatherBillboardType* this, int animationFrame, void* graphics, void* device, float* matrix, float time, short mode, int a, int column, bool flip, float rotation, int b, float scale)",
+   "no_signature": null,
+   "comment": "**Slot 31: how a weather picture is drawn - one whole effect Begin/End per picture.** The effect is the graphics' list (+0x6BD00) [this +0x94 - 1]. In order: (1) **SetTechnique(GetTechniqueByName(`effect`, this +0xB8))** - RainTech or SnowTech, every picture; (2) **ViewProjectionMatrix = D3DXMatrixMultiply(view, projection)** of the current view's camera (graphics +0x6BC88 -> +0x1C, slots 91 and 93), set through GetParameterByName + SetMatrix; (3) **WorldMatrix = F x W**, W = D3DXMatrixInverse(view) with _14, _24, _34 zeroed and its translation row replaced by `matrix` +0x30/+0x34/+0x38 (the object's world translation), _44 = 1 - so the rows are the camera's right, up and forward and the quad lies in the camera's own plane, a plain screen-aligned billboard **with no lift** (unlike the counters' acos lift); F = D3DXMatrixRotationY(pi) where `flip`, else the identity; (4) SetFloat(`vXOffset`, this +0xF4 x max(column, 0)) - computed in doubles; (5) SetFloat(`vFlip`, -1.0 with `flip`, else 1.0) - the shader never reads vFlip; (6) **Begin(&passes, 0)** (D3DX saves the device state, End restores it) and BeginPass(0); (7) by the number of textures n (this +0x148 - +0x144, over 4): **n == 2** - SetFloat(`vTime`, time), SetTexture(`tex0`, texture 1), CommitChanges, the lower quad (+0x15C) through VertexBuffer_Draw; **n > 2 and animationFrame > 0** - SetTexture(`tex0`, texture[animationFrame]), vTime = 0, CommitChanges, the lower quad; **n > 2 and animationFrame <= 0, or n < 2** - no lower quad; (8) **always**: tex0 = texture 0, vTime = 0, CommitChanges, the upper quad (+0x158); (9) EndPass, End. A texture is the texture table row's +4 (this +0x44 + id x 0x2C), null where the id is -1 or above 9999. `tex1` is never set and the shader never samples it. `mode`, `a`, `rotation`, `b` and `scale` are not read. So the cloud is drawn still over the moving rain or snow, or over a lightning frame; a one-texture `_simple` picture is its upper quad alone, still; and the thunderstorm, whose textures are stormcloud and lightning01-03, shows no rain at all. `ret 0x30`. See reversing/findings/FINDINGS-weathersim.md, section C.3.1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-weathersim.md",
+   "revises": "comment only: the world matrix is the inverse of the whole view (D3DXMatrixInverse, its 4th column zeroed and translation replaced), not 'the inverse of the view rotation', and F multiplies on the left; adds the per-picture Begin(0)/BeginPass/CommitChanges/EndPass/End, which the record did not mention and which is what applies the pass's states to every picture; adds that a type with more than two textures draws no lower quad while no frame shows; adds that vFlip is unread by the shader and which arguments are unread.",
+   "evidence": "Listing 0x883F70-0x88436E: 0x883FB9 GetTechniqueByName(+0xB8 string, SSO test at +0xCC) and 0x883FC5 SetTechnique (vtable +0xE8, slot 58); 0x883FE0/0x883FFE camera slots 91 (+0x16C) and 93 (+0x174), 0x88402E D3DXMatrixMultiply (IAT 0xD2B438 resolves to that name) into 'ViewProjectionMatrix' (0x884035); 0x884077 D3DXMatrixRotationY (IAT 0xD2B400) with pi (float at 0x15C0544) only on flip, else 16 stores building the identity; 0x8840EE D3DXMatrixInverse(out, NULL, view) (IAT 0xD2B450); 0x8840F4-0x884151 translation row from matrix +0x30..+0x38, _44 = 1.0 (0x171DBAC), _14/_24/_34 = 0; 0x88415A D3DXMatrixMultiply(out = W, F, W); 'WorldMatrix' at 0x884161. 0x88417C max(column,0) x [this+0xF4]; 0x8841B9 vFlip -1.0 (0x170AC0C) or 1.0; 0x88420E Begin (vtable +0xFC) with flags 0, 0x88421B BeginPass(0) (+0x100); 0x884231 cmp n,2 / 0x88428F jle for n<2 and test animationFrame > 0; CommitChanges +0x104, EndPass +0x108, End +0x10C; both quads through 0xAD4C30 with ESI = device. Wrong if any of those IAT names, or the vtable slots against ID3DXEffect's declared order, is wrong."
+  },
+  {
+   "rva": "0x6B6A80",
+   "kind": "function",
+   "name": "CBillboardObject::Draw",
+   "signature": "void __stdcall CBillboardObject::Draw(CBillboardObject* this@ESI, void* graphics@stack:4, void* device@stack:8, float* matrix@stack:12, float time@stack:16)",
+   "no_signature": null,
+   "comment": "Draws one billboard. **With more than two frames** (the type's slot 34; for a weather picture its number of textures): showing none (+0x150 = 0) and `time` - the time it last changed (+0x154) above 15000.0, it shows frame ((int)time % (frames - 1)) + 1 (cvttss2si, truncating) and notes `time`; showing one and `time - +0x154` above 1000.0, it shows none again and notes time + r x 10000.0, r = (a draw of the object's **own** MT19937 (+0x15C) & 0x7FFFFFFF) x 2^-31 - so a thunderstorm flashes one of its lightning textures for more than 1000 units of the picture's time and then waits 15000 to 25000. **Those are units of the picture's animation time (+0x14C), not milliseconds**: ProvinceGraphics_Update adds fmod(seconds since launch, 1000) to it each frame, so in real time the flash and the wait shrink as the clock's seconds-modulo-1000 grow and as the frame rate rises (FINDINGS-weathersim.md C.3.1). Past a time of 2^31 the truncation overflows to 0x80000000 and the frame becomes -1, which DrawQuad does not draw. Then the type's slot 31 with twelve arguments: the frame (+0x150), graphics, device, matrix, time, +0x148, 0, the object's slot 25 (C3dVisibleObject +0x4E, the frame column), +0x14A (flip), the rotation (+0xB24), slot 69's answer and the scale (+0xB28). A two-frame type such as `counter_arrow` keeps the frame it was given. `ret 0x10`. The name is ours. See reversing/findings/FINDINGS-counters.md, section 9, and reversing/findings/FINDINGS-weathersim.md, sections C.3 and C.3.1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-weathersim.md",
+   "revises": "comment only: 'flashes for a second, then waits 15 to 25' read the picture's time as milliseconds; it is the sum of fmod(seconds since launch, 1000) per frame, so the thresholds are not seconds; adds the r scaling, the truncation and its overflow, and that slot 25 is the C3dVisibleObject frame at +0x4E.",
+   "evidence": "Listing 0xAB6A80-0xAB6BD7: 0xAB6ABD comisd against 15000.0 (double at 0x160A3A0); 0xAB6ADF cvttss2si time, idiv by frames - 1, inc; 0xAB6B01 against 1000.0 (0x160A300); 0xAB6B1F MT19937Next on +0x15C, and 0x7FFFFFFF, x 4.656612873077393e-10 (0x160A2B8) rounded to float, x 10000.0 (0x160A370), + time; push order of the slot-31 call at 0xAB6BD3 counted against `ret 0x30` of 0x883F70: 12 arguments with the scale pushed before slot 69 is called. The per-frame add is ProvinceGraphics_Update's (0x63F441-0x63F473). Slot 25 of 0x16010D0 is 0xA60470 = movsx eax, word [ecx+0x4E]."
+  },
+  {
+   "rva": "0x23EF30",
+   "kind": "function",
+   "name": "ProvinceGraphics_Update",
+   "signature": "void __stdcall ProvinceGraphics_Update(void* provinceGraphics, CGraphics* graphics, void* owner, bool far)",
+   "no_signature": null,
+   "comment": "**One province's pictures on the map, each frame** - called for every province graphics entry from 1, unconditionally, by MapGraphics_Update (0x85D842), which the graphics owner's update (0x641D00) runs from CInGameIdler_Render at 0x656F64, before that frame's MapGraphics_DrawScene (0x65704B) - so a picture's time is advanced and then drawn in the same frame. Read for the weather: it counts a frame at +0xA0 (which the entry's constructor starts from a running counter, so provinces' 15th frames are staggered); where the province's weather picture (+0x88) exists, **adds (float)fmod(g_PlatformClock slot 5, 1000.0) to the picture's time** (CBillboardObject::AddTime) - slot 5 being CHighPerfWinClock::GetSeconds, **the seconds since the clock was started at launch, never reset** - not a frame interval: each frame adds the whole clock reading modulo 1000, so the animation's speed is the frame rate x (seconds since launch mod 1000) units a second; then, **on every frame but each 15th** (+0xA0 % 15 != 0): with the template's `simulated` (+0x13D) set and the owner's +0x60F9 (the weather mode) set, ProvinceGraphics_UpdateWeatherPicture and the picture shown if hidden; otherwise the picture, if any, hidden and destroyed. On each 15th frame instead (and only for a province with an owner and a controller): the port, air base and supply depot pictures, the building pictures and the underground icon, and the counter reset. The units' counters (the first part, under `far`) were not read. The name is ours. See reversing/findings/FINDINGS-weathersim.md, sections C.3 and C.3.1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-weathersim.md",
+   "revises": "comment only: says what is added each frame - fmod of the launch clock's seconds, not an elapsed interval - which settles C.7's open 'units of the clock's slot 5'; adds the call chain and its order against the draw, and the staggered frame counter.",
+   "evidence": "0x63F441 mov ecx,[0x1A857E4] (g_PlatformClock), call [vtable+0x14] (slot 5); 0x63F44E fld 1000.0 (double at 0x160A300); 0x63F45C call 0xC0892A (the CRT's _CIfmod: mov edx, table; jmp - fprem loop at 0xC08936), x in ST1, y in ST0; 0x63F461 fstp dword; 0x63F473 call [vtable+0xBC] = slot 47 AddTime on +0x88. No subtraction of an earlier reading anywhere between. Of 82 references to 0x1A857E4, 77 call slot 5, one calls slot 1 (Start, at start-up, VA 0xA57381) and two slot 0 (delete): nothing resets it, and the switch at 0x1A858C4 that would freeze it has one writer, the clock's constructor, writing 0 (0xB4F75F). Caller: 0x85D830-0x85D84D loops every entry from 1 with no test. 0x656F64 call 0x641D00 precedes 0x65704B call 0x85BE50 (MapGraphics_DrawScene) in CInGameIdler_Render."
+  },
+  {
+   "rva": "0x6B6F80",
+   "kind": "function",
+   "name": "CBillboardObject::AddTime",
+   "signature": "void __thiscall CBillboardObject::AddTime(CBillboardObject* this, float elapsed)",
+   "no_signature": null,
+   "comment": "Slot 47 of the billboard object's table (VA 0x16010D0): +0x14C += elapsed, the sum taken in doubles and rounded back to a float. ProvinceGraphics_Update calls it each frame on a province's weather picture with fmod(the launch clock's seconds, 1000) - so `elapsed` is not an interval. Being a float, the time's spacing reaches 2 at 2^24 and 16 at 2^27, where an addend under 8 is lost. See reversing/findings/FINDINGS-weathersim.md, sections C.3 and C.3.1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-weathersim.md",
+   "revises": "comment only: the precision of the sum and what its caller passes.",
+   "evidence": "0xAB6F83-0xAB6F9A: movss +0x14C, cvtps2pd both, addsd, cvtpd2ps, stored to +0x14C. The spacing figures are IEEE single precision arithmetic."
+  },
+  {
+   "rva": "0x4845A0",
+   "kind": "function",
+   "name": "CWeatherBillboardType::LoadResources",
+   "signature": "void __thiscall CWeatherBillboardType::LoadResources(CWeatherBillboardType* this, void* unused)",
+   "no_signature": null,
+   "comment": "**Slot 6: builds what the weather pictures are drawn with.** Frees any earlier set (CWeatherBillboardType_FreeResources), sizes the id vector to the `textureFile` count, then the effect: **FxHandler_Register(graphics +0x6BCFC, path = `effectFile` (+0xD4), key = `effect` (+0xB8), device)** into +0x94 - keyed by the technique's name, so every type naming RainTech shares one ID3DXEffect and every SnowTech type another, and a second `effectFile` under a key already registered would be ignored; a vertex declaration (+0x90) by CreateVertexDeclaration (device slot 86) from WeatherVertexElements (POSITION float3, TEXCOORD0 float2, 20 bytes a vertex). Then for each `textureFile` in the order written: the texture loaded (0xA60F30) and its id kept (+0x144 vector); its picture size w, h read from the texture table row (+0x24, +0x28); **+0xF4 = (w / P(w)) / `noOfFrames` (+0xF0)**, P the least power of two >= n, rewritten for every texture so that it ends as the last texture's; and for the first two only, a quad (BuildWeatherQuad) with halfHeight = `scale` (+0x98), lift, uExtent = that +0xF4, vExtent = h / P(h), aspect = w / h. The first quad (+0x158) has lift 0; **the second (+0x15C) has lift (float)((float)(scale x 2.0) - 0.3f), which BuildWeatherQuad subtracts - the lower quad is moved down by it**, 4.7 at scale 2.5. Textures past the second get no quad of their own: they are drawn on the second's, whose size and uv come from texture 1. A string `tex` + the index is built and thrown away each turn. `ret 4`. The name is ours. See reversing/findings/FINDINGS-weathersim.md, sections C.3 and C.3.1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-weathersim.md",
+   "revises": "comment only: 'lifted by scale x 2.0 - 0.3' was the wrong way round - the figure is subtracted from y; adds the effect's registration key (`effect`, not the path), the vertex declaration's elements, that +0xF4 ends as the last texture's, and the float rounding of the lift.",
+   "evidence": "0x8845FD FxHandler_Register with pushes device, &+0xB8, &+0xD4, handler (graphics +0x6BCFC) - its documented order is (handler, path, key, device); 0x884620 device vtable +0x158 (CreateVertexDeclaration) with elements at VA 0x170ABB4 and out &+0x90; 0x88464F texture load; 0x88470F-0x884791 w/P(w)/frames into +0xF4; 0x884799-0x88480D h/P(h) and w/h; 0x884849 and 0x8848BC the two BuildWeatherQuad calls, the second's lift computed at 0x88484E-0x88487B as float(float(scale x 2.0 (0x160A360)) - 0.30000001192 (0x160A3E8)); BuildWeatherQuad's y = 3.0 - (halfHeight + lift) and 3.0 + halfHeight - lift (0x884452-0x8844AE)."
+  },
+  {
+   "rva": "0x484380",
+   "kind": "function",
+   "name": "BuildWeatherQuad",
+   "signature": "void* __cdecl BuildWeatherQuad(CGraphics* graphics@EAX, float halfHeight@stack:4, float lift@stack:8, float uExtent@stack:12, float vExtent@stack:16, float aspect@stack:20) @EAX",
+   "no_signature": null,
+   "comment": "A 0x24-byte MeshBuffer (managed pool, not dynamic, no declaration or FVF of its own - so the declaration BeginBatch set governs - primitive kind 0, a triangle list) of four vertices (x, y, z, u, v) and six 16-bit indices: v0 (-hw, 3 - (hh + lift), 0) uv (0, vExtent); v1 (-hw, 3 + hh - lift, 0) uv (0, 0); v2 (hw, 3 - (hh + lift), 0) uv (uExtent, vExtent); v3 (hw, 3 + hh - lift, 0) uv (uExtent, 0); hh = halfHeight, hw = halfHeight x aspect, each y worked in doubles and rounded to float; indices 0 1 2, 2 1 3 - seen from the camera with x right and y up both triangles run clockwise, D3D's front face. So v = 0 is the quad's top edge. Bare `ret`. See reversing/findings/FINDINGS-weathersim.md, sections C.3 and C.3.1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-weathersim.md",
+   "revises": "comment only: each vertex with its uv spelled out, the buffer's flags, the winding.",
+   "evidence": "0x884389-0x8843D6: new 0x24 zeroed, byte +0x14 = 1 (managed), 0xAD4510(mesh, device, 4, 0x14, 0, 0), 0xAD48B0(mesh, device, 6); both buffers locked (vtable +0x2C) and unlocked (+0x30). Vertex stores 0x88448B-0x88454F traced: [esi+0]/[+4]/[+8]/[+0xC]/[+0x10] for v0 and on in 0x14 steps; index stores at 0x884569-0x884577 give 0,1,2,2,1,3."
+  },
+  {
+   "rva": "0x7073B0",
+   "kind": "function",
+   "name": "BillboardList_DrawBatch",
+   "signature": "void __cdecl BillboardList_DrawBatch(void* list@EDI, void* graphics@stack:4)",
+   "no_signature": null,
+   "comment": "Draws a list of billboard objects and empties it; nothing where the list is empty. The first object's type's slot 35 (begin - for weather CWeatherBillboardType::BeginBatch, SetVertexDeclaration); **for each object in list order**, CBillboardObject::Draw(object, graphics, graphics +0x64 (the device), &object +0x94 (its world transform, as the scene left it - nothing here moves or lifts it), its time (slot 22, GetTime)); the first object's type's slot 36 (end - for weather the shared `ret 4` stub 0x60CD50, so nothing); then CBillboardObject_DrawCaption for each, which does nothing for an empty caption, as every weather picture's is; and the list emptied. CEU3Graphics::FlushDeferredObjects runs it on g_WeatherBillboardDrawList right after CCounterObject_DrawBatch. The order is the order QueueForDraw was reached, i.e. the order the object group's draw met the pictures, and with Z off a later picture is drawn over an earlier one. See reversing/findings/FINDINGS-weathersim.md, sections C.3 and C.3.1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-weathersim.md",
+   "revises": "confidence inferred -> confirmed, read off the listing; names the post-pass (CBillboardObject_DrawCaption, a no-op for the weather), says slot 36 is the empty stub for the weather type, and that the matrix is the object's +0x94 untouched.",
+   "evidence": "0xB073B0-0xB074D5: 0xB073C2 test (end - begin) & ~3; 0xB073E9 [type+0x8C] slot 35; loop 0xB07400-0xB07448 calls 0xAB6A80 with ESI = object and pushes (graphics, device = [graphics+0x64], &obj+0x94, slot-22 float); 0xB0745D slot 36 (+0x90) = 0x60CD50 in the weather table (0x15E3F44 + 36x4), whose body is `ret 4`; loop 0xB07471-0xB074AC calls 0xAB6BE0; 0xB074C8 the erase. QueueForDraw (0x883EC0) is a push_back onto 0x1A8CBEC."
+  },
+  {
+   "rva": "0x6B6BE0",
+   "kind": "function",
+   "name": "CBillboardObject_DrawCaption",
+   "signature": "void __stdcall CBillboardObject_DrawCaption(CBillboardObject* object, CGraphics* graphics, void* device, float* matrix)",
+   "no_signature": null,
+   "comment": "BillboardList_DrawBatch's second pass, once per object after every picture of the batch is drawn. **Returns at once where the caption (+0xB2C, a std::string; its length at +0xB3C) is empty** - as it is for every weather picture, whose caption nothing sets; otherwise works with the current view's camera (graphics +0x6BC88 -> +0x1C, slot 91) and the view's figures at +0x114.. towards drawing the text - the combat_status number, which CCombat::UpdateCombatStatusWindow writes there. Only the gate and the head were read; the drawing itself was not. `ret 0x10`. The name is ours, from the field it gates on. See reversing/findings/FINDINGS-weathersim.md, section C.3.1.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-weathersim.md",
+   "evidence": "0xAB6BEC cmp dword [object+0xB3C], 0; je 0xAB6EBA (the epilogue, `ret 0x10` at 0xAB6EC0). One caller, 0xB074A2. 'Caption' is inferred: +0xB2C is the record's caption string and +0xB3C is its size (std::string at +0xB2C: buffer 0x10, size +0x10, capacity +0x14 = +0xB40, which the constructor sets to 0xF at 0xAB697D). Wrong if the body past the gate draws something other than that string."
+  },
+  {
+   "rva": "0x477E20",
+   "kind": "function",
+   "name": "CProvinceWaterObject::CProvinceWaterObject",
+   "signature": "CProvinceWaterObject* __stdcall CProvinceWaterObject::CProvinceWaterObject(CProvinceWaterObject* this@ESI, const int* point@EDI, CGraphics* graphics@stack:4, int provinceId@stack:8) @EAX",
+   "no_signature": null,
+   "comment": "**A sea zone's anchor on the map** - the land anchor's twin (CProvinceObject::CProvinceObject, 0x477920). C3dVisibleObject::C3dVisibleObject(this, no type); the CProvinceCollisionObject part inline (vftable 0x15E205C, +0x138 the graphics, +0x13C/+0x140 the point's two ints, +0x144 the province id); its own vftable 0x15E3664; then **C3dObject::Translate(float(point.x), 0.3, float(point.y))** - so a sea zone's anchor stands **0.3 above** the ground plane where a land province's stands at 0, and a picture hung on it with the 1.0 raise (a sea zone's weather picture) at 1.3; and a live-object counter (VA 0x1A85678) incremented. The map-graphics builder calls it once (0x856BF5) with the template's label point (+0x5C/+0x60). Returns `this`, `ret 8`. See reversing/findings/FINDINGS-weathersim.md, section C.3.1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-weathersim.md",
+   "evidence": "0x877E20-0x877E99: 0x877E29 call 0x4011B0 (C3dVisibleObject ctor) with type 0; 0x877E31 vftable 0x15E205C, 0x877E57 vftable 0x15E3664, which the RTTI export gives as CProvinceWaterObject's own (its slot 9 0x877EA0 is the destructor just below); 0x877E69 the float at 0x15C05EC = 0.30000001 as the middle coordinate; 0x877E89 call 0xA5CD80 (C3dObject::Translate, slot 33). One caller (0x856BF5). The 0.3 height is wrong only if Translate's second coordinate is not the height, which the land anchor's 0 and PlacePicture's +1.0 to float 13 (+0x88) of the same matrix both say it is."
+  },
+  {
+   "rva": "0x130ABB4",
+   "kind": "global",
+   "name": "WeatherVertexElements",
+   "signature": null,
+   "no_signature": null,
+   "comment": "The weather quads' D3DVERTEXELEMENT9 array: {0, 0, FLOAT3, DEFAULT, POSITION, 0}, {0, 12, FLOAT2, DEFAULT, TEXCOORD, 0}, D3DDECL_END - 20 bytes a vertex, weather_billboard.fx's VS_INPUT; identical to CounterVertexElements. CWeatherBillboardType::LoadResources makes the type's +0x90 from it. See reversing/findings/FINDINGS-weathersim.md, section C.3.1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-weathersim.md",
+   "evidence": "Bytes at VA 0x170ABB4: 00 00 00 00 02 00 00 00 | 00 00 0C 00 01 00 05 00 | FF 00 00 00 11 00 00 00 - stream, offset, type (2 FLOAT3, 1 FLOAT2), method, usage (0 POSITION, 5 TEXCOORD), index; then the END element (stream 0xFF, type 17 UNUSED). Pushed at 0x88461A as CreateVertexDeclaration's elements."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CWeatherBillboardType",
+   "offset": "0x15C",
+   "name": "lower_quad",
+   "type": "void*",
+   "comment": "the quad built from texture 1, **moved down** by (float)(float(scale x 2.0) - 0.3f) - y from 3.3 - 3 x scale to 3.3 - scale, -4.2 to 0.8 at scale 2.5 - on which the rain or snow, or the thunderstorm's lightning, is drawn; its width and uv are texture 1's, so the thunderstorm's is lightning01's narrow 32 x 64 (half-width 1.25).",
+   "source": "reversing/findings/FINDINGS-weathersim.md",
+   "revises": "comment only: the offset is subtracted from y, so 'lifted' was the wrong way round; adds the y range and that its size is texture 1's.",
+   "evidence": "BuildWeatherQuad's y = 3 - (hh + lift) .. 3 + hh - lift (0x884452-0x8844AE) with the lift computed at 0x88484E; the store to +0x15C at 0x8848C1."
+  },
+  {
+   "struct": "CWeatherBillboardType",
+   "offset": "0x144",
+   "name": "texture_ids_begin",
+   "type": "int*",
+   "comment": "the loaded textures' ids, one per `textureFile` in order; GetFrameCount is their number. Texture 0 is the cloud; texture 1 the rain or snow where there are two; in the thunderstorm, which has four and no rain, 1 to 3 are lightning01-03, drawn one at a time while a flash shows.",
+   "source": "reversing/findings/FINDINGS-weathersim.md",
+   "revises": "comment only: the thunderstorm's texture 1 is lightning01, not rain (tfh/interface/mapitems.gfx lists stormcloud then lightning01-03).",
+   "evidence": "tfh/interface/mapitems.gfx weather_thunderstorm: stormcloud.dds, lightning01.dds, lightning02.dds, lightning03.dds; Draw's frame ((int)t % 3) + 1 picks 1..3."
+  },
+  {
+   "struct": "CWeatherBillboardType",
+   "offset": "0x94",
+   "name": "effect",
+   "type": "int",
+   "comment": "the 1-based index of the type's effect in the graphics' effect list (+0x6BD00), made by LoadResources through FxHandler_Register **keyed by `effect`** (the technique's name) with `effectFile` as the path - so all RainTech types share one ID3DXEffect and all SnowTech types another; DrawQuad takes the effect at [list + 4 x (index - 1)] and sets its technique by the same name every picture.",
+   "source": "reversing/findings/FINDINGS-weathersim.md",
+   "revises": "comment only: the registration key is the `effect` string, which decides the sharing.",
+   "evidence": "0x8845E8-0x8845FD: push device, push &+0xB8 (key), push &+0xD4 (path), push graphics +0x6BCFC; store to +0x94 at 0x884602."
+  },
+  {
+   "struct": "CWeatherBillboardType",
+   "offset": "0x8C",
+   "name": "graphics",
+   "type": "void*",
+   "comment": "The graphics owner: its +0x64 is the device, +0x6BD00 the effect list, +0x6BCFC the effect handler, +0x158 the texture table. Read by LoadResources, BeginBatch and DrawQuad; the billboard type base's, as on CCounterType.",
+   "source": "reversing/findings/FINDINGS-weathersim.md",
+   "evidence": "0x8845DF, 0x883F50, 0x883F91: [type+0x8C] then +0x64 / +0x6BCFC / +0x6BD00; texture sizes at [graphics + 0x158 + id x 0x2C + 0x24/0x28] (0x88471C)."
+  },
+  {
+   "struct": "CWeatherBillboardType",
+   "offset": "0x44",
+   "name": "texture_table",
+   "type": "void*",
+   "comment": "the table of textures, 0x2C bytes a row - +4 the texture; DrawQuad resolves each texture id through it (null where the id is -1 or above 9999). As on CCounterType, where LoadResources sets it to graphics +0x158.",
+   "source": "reversing/findings/FINDINGS-weathersim.md",
+   "evidence": "0x884263, 0x8842A8, 0x884307: mov reg,[type+0x44]; imul id,0x2C; mov eax,[id + reg + 4], each after cmp id,-1 / cmp id,0x270F."
+  },
+  {
+   "struct": "CBillboardObject",
+   "offset": "0x14C",
+   "name": "animation_time",
+   "type": "float",
+   "comment": "the time a picture animates by, 0 from the constructor, answered by GetTime; for a weather picture ProvinceGraphics_Update adds **(float)fmod(seconds since launch, 1000)** each frame through AddTime - not an interval, so it grows at the frame rate x (seconds since launch mod 1000) units a second. It is vTime for the rain or snow and the clock of the lightning's 15000/1000/10000 thresholds. Restarts at 0 with each new picture.",
+   "source": "reversing/findings/FINDINGS-weathersim.md",
+   "revises": "comment only: what is added each frame, and in what unit.",
+   "evidence": "0x63F441-0x63F473 (the fmod of g_PlatformClock slot 5 by 1000.0, then slot 47); the constructor's 0 at 0xAB691E."
+  },
+  {
+   "struct": "CBillboardObject",
+   "offset": "0x14A",
+   "name": "flipped",
+   "type": "uint8_t",
+   "comment": "handed to the type's DrawQuad as `flip`: the weather type then turns the picture by pi about y and sets vFlip -1. 0 from the constructor and set (to 1) only on a port's building picture east of its naval base (ProvinceGraphics_UpdatePictures) - **never on a weather picture**, so a weather picture's vFlip is always 1 and its world matrix unturned.",
+   "source": "reversing/findings/FINDINGS-weathersim.md",
+   "revises": "comment only: adds the census of writers.",
+   "evidence": "A byte-pattern census of every .text instruction carrying displacement 0x14A, re-decoded in place: two real stores - 0xAB6940 (the constructor, 0) and 0x63FBD4 (the port picture, 1; the positive control the census had to find) - the rest stack slots or misaligned decodes."
+  },
+  {
+   "struct": "CBillboardObject",
+   "offset": "0xB28",
+   "name": "draw_scale",
+   "type": "float",
+   "comment": "1.0 from the constructor; handed to the type's DrawQuad as its last argument (`scale`). The weather type does not read it.",
+   "source": "reversing/findings/FINDINGS-weathersim.md",
+   "evidence": "0xAB696D-0xAB6975 stores 1.0 (0x171DBAC); 0xAB6B66 pushes it first of the slot-31 call's twelve; CWeatherBillboardType::DrawQuad never reads [ebp+0x34]."
+  },
+  {
+   "struct": "CBillboardObject",
+   "offset": "0x148",
+   "name": "draw_mode",
+   "type": "short",
+   "comment": "0 from the constructor; handed zero-extended to the type's DrawQuad as its sixth argument (`mode`). The weather type does not read it; what the billboard type does with it was not read.",
+   "source": "reversing/findings/FINDINGS-weathersim.md",
+   "evidence": "0xAB694E word store of 0; 0xAB6BA1 movzx ecx, word [esi+0x148] pushed as argument 6; CWeatherBillboardType::DrawQuad never reads [ebp+0x1C]."
+  }
+ ],
+ "frontier": ["0x4E8160", "0x660F30"],
+ "slots_noted": "CWeatherBillboardType slot 36 is the shared `ret 4` stub 0x60CD50 (1420 holders, trap 4) and is left unnamed; CBillboardObject slot 25 is C3dVisibleObject's frame getter 0xA60470, already described on C3dVisibleObject +0x4E."
+}

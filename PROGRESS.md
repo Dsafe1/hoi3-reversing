@@ -25,10 +25,10 @@ how many objects a census found (taken 2026-09-20).
 
 | | classes |
 | --- | --- |
-| `read` | 153 |
+| `read` | 156 |
 | `placed` | 140 |
-| `keys` | 77 |
-| `part` | 154 |
+| `keys` | 76 |
+| `part` | 152 |
 | `named` | 5 |
 | `RTTI` | 612 |
 | **all** | **1141** |
@@ -248,7 +248,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CNavalTransportOrder` | `CNavalOrder` |  |  |  | 3 |  | 3 | RTTI |  |
 | `CNavy` | `CUnit` |  | 3 |  | 16 |  | 1,738 | keys |  |
 | `CNukeMission` | `CAirOrder` |  |  |  | 4 |  |  | keys |  |
-| `CObjectType` | `CPersistent` |  | 1 |  |  |  |  | part |  |
+| `CObjectType` | `CPersistent` |  | 5 |  | 1 |  |  | read |  |
 | `CObjective` | `CPersistent` |  | 8 | 1/4 | 1 |  | 9,637 | read |  |
 | `COfferLendLeaseAction` | `CDiplomaticAction` |  |  | 5/6 | 8 |  | 1 | RTTI |  |
 | `COfferMilitaryAccessAction` | `CDiplomaticAction` |  |  | 5/6 | 9 |  | 1 | RTTI |  |
@@ -340,7 +340,7 @@ Definitions out of `common/` and the rest of the mod. Their `LoadKey` is the gra
 | `CBuilding` | `CModifierEntry` `CPersistent` |  | 30 + 1 lua | 9/18 | 2 | CProvinceBuilding.hpp | 59 | read | `buildings.txt`, the worked example the method came from |
 | `CCGExtraPracticeDecay` | `CPersistent` |  |  |  | 1 |  | 1 | keys |  |
 | `CCasusBelliType` | `CPersistent` |  | 26 | 19/28 | 3 | CWar.hpp | 24 | read | **read**: `cb_types.txt`, 28 keys - the `po_*` peace options among them |
-| `CColor` | `CPersistent` |  | 4 |  | 2 |  | 319,186 | part |  |
+| `CColor` | `CPersistent` |  | 5 |  | 3 |  | 319,186 | read |  |
 | `CCombatTactic` | `CPersistent` | 0xDC | 12 | 8/9 | 3 |  | 42 | read | **read**: `combat_tactics.txt`, 9 keys and the file uses exactly those. See findings/FINDINGS-definitions.md |
 | `CContinent` | `CPersistent` `H::__CList` |  |  |  |  |  | 8 | RTTI |  |
 | `CCounterType` | `C3dObjectType` |  | 31 | 11/18 | 3 |  | 2 | read | **read**: how a map counter is drawn, 18 keys |
@@ -386,7 +386,7 @@ Definitions out of `common/` and the rest of the mod. Their `LoadKey` is the gra
 | `CProvinceHistoryEntry` | `CHistoryEntry` |  | 1 |  | 1 |  |  | part |  |
 | `CProvinceModifier` | `CModifier` | 0x30 | 3 | 1/2 |  |  | 14,190 | part |  |
 | `CProvinceTemplate` | `CPersistent` |  | 50 |  | 12 |  | 14,190 | read |  |
-| `CProvinceType` | `C3dObjectType` |  |  |  | 1 |  | 1 | keys |  |
+| `CProvinceType` | `C3dObjectType` |  |  |  |  |  | 1 | RTTI |  |
 | `CProvinceWaterType` | `C3dObjectType` |  |  |  |  |  | 1 | RTTI |  |
 | `CRebelType` | `CPersistent` |  | 18 | 16/17 | 1 | CRebelFaction.hpp | 7 | read | **read**: `rebel_types.txt`, 17 keys. `unit_transfer` is not one, though the file uses it - see the mod's bugs.md |
 | `CRule` | `CPersistent` |  |  | 1/2 | 4 |  | 112 | placed | plumbing |
@@ -407,7 +407,7 @@ Definitions out of `common/` and the rest of the mod. Their `LoadKey` is the gra
 | `CTutorialChapter` | `CPersistent` |  |  | 9/11 | 1 |  |  | placed | the tutorial script; plumbing |
 | `CUnitAdjuster` | `CPersistent` | 0x18 | 5 | 4/4 | 3 | CUnitAdjuster.hpp | 3,012,281 | read |  |
 | `CVictoryCondition` | `CPersistent` | 0x6C | 6 |  | 1 |  | 87 | read |  |
-| `CWeatherBillboardType` | `CBillboardType` |  | 16 | 1/3 | 8 |  | 14 | read |  |
+| `CWeatherBillboardType` | `CBillboardType` |  | 18 | 1/3 | 8 |  | 14 | read |  |
 
 ### Neither - live only (300)
 
@@ -541,7 +541,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CHoiAvatar` | `CSmallAvatarBase` | 0x154 | 8 |  | 4 |  | 8,642 | read |  |
 | `CHumanItem` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
 | `CICCostComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
-| `CIcon` | `CButton` |  |  |  | 2 |  |  | RTTI |  |
+| `CIcon` | `CButton` |  |  |  | 4 |  |  | RTTI |  |
 | `CIdler` |  |  |  |  |  |  |  | RTTI |  |
 | `CInGameIdler` | `CEU3Idler` `CLostDeviceInterface` `CReloadDispatcher` |  | 107 |  | 100 | CInGameIdler.hpp | 3 | read |  |
 | `CIngameSettingsScreen` | `CSettingsScreen` | 0x3E0 | 1 |  | 2 |  | 1 | part |  |
@@ -615,7 +615,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CProvinceManager` | `CLostDeviceInterface` |  |  |  | 1 |  | 1 | RTTI |  |
 | `CProvinceObject` | `CProvinceCollisionObject` | 0x160 |  |  | 1 |  | 10,642 | RTTI |  |
 | `CProvinceView` | `CReloadableInterface` | 0x1A4 | 14 |  | 8 |  | 1 | read |  |
-| `CProvinceWaterObject` | `CProvinceCollisionObject` |  |  |  |  |  | 3,547 | RTTI |  |
+| `CProvinceWaterObject` | `CProvinceCollisionObject` |  |  |  | 1 |  | 3,547 | RTTI |  |
 | `CPuppetCreationDialogDialogue` | `CEU3Dialog` |  |  |  |  |  |  | RTTI |  |
 | `CPuppetEntry` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
 | `CRegionSelectionItem` | `CStandardlistboxItem` |  |  |  | 1 |  |  | RTTI |  |
@@ -644,7 +644,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CSessionInfoObserver` |  |  |  |  |  |  | 1 | RTTI |  |
 | `CSettingsScreen` |  | 0x3DC | 46 |  | 32 |  |  | read |  |
 | `CShield3dObject` | `C3dVisibleObject` |  |  |  |  |  | 23,393 | RTTI |  |
-| `CShieldObject` | `CSprite` | 0x1AC | 8 |  | 8 |  | 187 | read |  |
+| `CShieldObject` | `CSprite` | 0x1AC | 8 |  | 7 |  | 187 | read |  |
 | `CShipBuilder` | `CReloadableInterface` |  | 9 |  | 7 |  | 1 | read |  |
 | `CShipSortInterface` |  |  |  |  |  |  |  | RTTI |  |
 | `CSideMenu` | `CReloadableInterface` | 0x2C | 4 |  | 7 |  |  | part |  |
@@ -1240,7 +1240,7 @@ Windows, pages, sprites and the map's own drawing.
 
 | class | derives from | size | fields | placed | fn | doc | live | state | notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `C2dObject` | `CGraphicalObject` |  |  |  |  |  | 1,087 | RTTI |  |
+| `C2dObject` | `CGraphicalObject` |  |  |  | 1 |  | 1,087 | RTTI |  |
 | `C2dObjectType` | `CObjectType` |  |  |  |  |  |  | RTTI |  |
 | `C2dVisibleObject` | `C2dObject` |  |  |  |  |  |  | RTTI |  |
 | `CButton` | `TButton` |  |  |  | 1 |  |  | RTTI |  |
@@ -1264,8 +1264,8 @@ Windows, pages, sprites and the map's own drawing.
 | `CRadioButtonGroupObserver` |  |  |  |  |  |  | 1 | RTTI |  |
 | `CShareTechnologyDialog` | `CEU3Dialog` | 0x78 | 4 |  | 7 |  |  | part |  |
 | `CSingleUnitButtons` | `CUnitViewBaseEntry` |  |  |  | 8 |  |  | RTTI |  |
-| `CSprite` | `C2dVisibleObject` |  |  |  |  |  |  | RTTI |  |
-| `CSpriteType` | `C2dObjectType` |  | 11 |  | 4 |  |  | read |  |
+| `CSprite` | `C2dVisibleObject` | 0x184 | 14 |  | 7 |  |  | read |  |
+| `CSpriteType` | `C2dObjectType` |  | 26 |  | 13 |  |  | read |  |
 | `CStratWarfareWindow` | `CReloadableInterface` |  |  |  | 1 |  | 1 | RTTI |  |
 | `CTextBlock` | `CPersistent` |  |  |  |  |  | 8 | RTTI |  |
 | `CTextBufferObserver` |  |  |  |  |  |  |  | RTTI |  |

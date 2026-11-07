@@ -26,7 +26,7 @@ the graphics in ECX and the flag atlas `&CGraphics +0x6BD6C`). `CMaskedSpriteTyp
 | --- | --- | --- |
 | `textureFile1` | 0x25 | `+0x1C0` - **the overlay**, drawn over the flag |
 | `textureFile2` | 0x26 | `+0x1A4` - **the mask**, whose alpha is the shield's shape |
-| `effectFile` | 0x59 | `+0x1F4` - its own string; `CSpriteType`'s `+0x5C` stays empty |
+| `effectFile` | 0x59 | `+0x1F4` - its own string; `CSpriteType`'s `+0x5C` keeps the constructor's default `gfx/FX/buttonstate.fx`, which the masked type never uses (`FINDINGS-buttonstatefx.md`, section 1) |
 | anything else | | `CSpriteType::LoadKey` (`0x6B7A00`) - so `allwaystransparent`, `transparencecheck`, `clicksound`, `noOfFrames`, `textureFile` are accepted |
 
 `confirmed`. Of the passed-through keys only `allwaystransparent` is written in the game's files (core.gfx's
@@ -183,7 +183,7 @@ So a shield is solid wherever the mask or the overlay is opaque. `confirmed`.
 - **How the object's matrix (`CShieldObject +0x94`) is made** from the element's position and orientation; whether it
   carries a rotation as well as `+0x14C`; and what its float at `+0x3C` is. So the rotation's sense on screen (−1.5708 a
   clockwise quarter turn, if the matrix does not mirror y) is `inferred`, as is how z = 1.0 under `OrthoRH(…, 0, 1)` (clip
-  z = −1) escapes clipping.
+  z = −1) escapes clipping - answered for the interface by `FINDINGS-buttonstatefx.md`, section 4: the interface's world matrices carry `_43` = −1, so z = 1.0 lands at nought.
 - **Who sets `+0x14C`.** That it is the `.gui` `rotation` is `inferred` from the files.
 - **Which state each element kind passes** to the render, and so when `over`, `down` and `disable` appear; who calls
   `Render`.

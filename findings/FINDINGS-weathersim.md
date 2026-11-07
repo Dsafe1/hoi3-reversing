@@ -778,38 +778,188 @@ The x100 is `x * floor(100000.5) / 1000` **[exe]**.
 The seven strings are built by CRT initialisers at `0xCB39F0`-`0xCB3AB0`, in the table's order.
 
 **When a picture is made.** Once an hour `UpdateProvinceWeatherRange` stores the name at `+0x98` and sets `+0x9C`
-where it changed. Every frame `ProvinceGraphics_Update` (`0x63EF30`) adds, for each province entry with a picture,
-`fmod(clock.slot5(), 1000)` to the picture's time (`CBillboardObject +0x14C`); and on 14 frames in 15, where the template
+where it changed. Every frame `ProvinceGraphics_Update` (`0x63EF30`) adds, for each province entry with a picture, `fmod(T, 1000)` to the picture's time, T the seconds since launch on the platform clock - the whole reading, not the time since the last frame (C.3.1) (`CBillboardObject +0x14C`); and on 14 frames in 15, where the template
 is simulated and the weather mode is on (`+0x60F9`), calls `ProvinceGraphics_UpdateWeatherPicture` (`0x63FE90`), else
 destroys any picture. **So weather pictures exist only in the weather mode.** `ProvinceGraphics_UpdateWeatherPicture`
 reads and clears `+0x9C`; where it was clear and a picture exists, keeps it while the name is not empty and destroys it
 otherwise; else it takes the name afresh from `GraphicName`, appends `_simple` where the entry's cached byte `+0x8C` is
 set, destroys an existing picture whose type differs or whose cached setting differs from **`alwaysCounters`**
-(settings `+0xF9`), caches that setting in `+0x8C`, makes the billboard by name from `mapitems.gfx`, hangs it on the
-province's anchor node (graphics `+0x10`) 1.0 higher **[exe]**, and shows it - so **the simple art follows
+(settings `+0xF9`), caches that setting in `+0x8C`, makes the billboard by name from `mapitems.gfx`, hangs it on the province's anchor node (graphics `+0x10`) 1.0 higher **[exe]** - 1.0 above the ground on land, 1.3 at sea, where the anchor stands at 0.3 (C.3.1), and shows it - so **the simple art follows
 `alwaysCounters` one rebuild late**.
 
 **The types** (`CWeatherBillboardType`, `tfh/interface/mapitems.gfx`, the keys **[mod]**): `CWeatherBillboardType::LoadKey`
 keeps `textureFile` in a list of its own, in order, any number; `animation` and `simple` are stored and read by nothing
 found; `effectFile`, `effect`, `scale` and `noOfFrames` come from the billboard type. The entries are `rain_test`,
 `rain_test_simple` and `weather_{snow, snow_storm, rain, thunderstorm, partialcloud, cloud}`, each with a `_simple`
-twin, all of scale 2.5 and `gfx/fx/weather_billboard.fx`, technique RainTech or SnowTech; texture 0 is the cloud and
-texture 1 the rain or snow, and the thunderstorm adds `lightning01`-`03`. `LoadResources` (slot 6) builds two quads
+twin, all of scale 2.5 and `gfx/fx/weather_billboard.fx`, technique RainTech or SnowTech; texture 0 is the cloud and texture 1 the rain or snow - except the thunderstorm, whose four are `stormcloud` and `lightning01`-`03`, with no rain. `LoadResources` (slot 6) builds two quads
 facing the camera, z = 0: the **upper**, for texture 0, half-height = scale and half-width = scale x the texture's
-aspect, y from 3 - s to 3 + s; the **lower**, for texture 1 and the lightning, lifted by 2s - 0.3, y from 3.3 - 3s to
+aspect, y from 3 - s to 3 + s; the **lower**, for texture 1 and the lightning, its size and uv texture 1's, moved down by 2s - 0.3, y from 3.3 - 3s to
 3.3 - s, hanging under the cloud and overlapping it by 0.3. u is scaled by width / (width rounded up to a power of two) /
 frames, v likewise. The 3.0, 2.0 and 0.3 are **[exe]**.
 
 **How it is drawn.** Each frame `QueueForDraw` (slot 37) puts the picture on `g_WeatherBillboardDrawList`, which
 `BillboardList_DrawBatch` draws after the counters. `CBillboardObject::Draw` first cycles the lightning where there are
 more than two textures (only the thunderstorm): with none showing and time - last change > 15000 it shows frame
-`((int)time % 3) + 1`; after 1000 it shows none again and waits a further `r x 10000`, `r` from **the picture's own
+`((int)time % 3) + 1`; after 1000 it shows none again and waits a further `r x 10000` (all in units of the picture's time, which grows at the frame rate × the launch clock's seconds modulo 1000 a second - C.3.1), `r` from **the picture's own
 MT19937 seeded with its address** - not the game's generator, not reproducible **[exe]**. `CWeatherBillboardType::DrawQuad`
 (slot 31) then draws, with two textures, `tex0` = texture 1 at `vTime` = time on the lower quad; with a lightning frame
 showing, `tex0` = that texture at `vTime` = 0 on the lower quad; and always, last, `tex0` = texture 0 at `vTime` = 0 on the
 upper quad. `vXOffset` = 0, `vFlip` = 1; `tex1` is never set, as the shader never samples its BottomTexture. **From the
 shader**: rain samples its colour at uv + (0.000025t, -0.00005t) and its alpha at uv; snow at uv + (sin(-0.00001t x 3 x
 3.14) / 100, -0.00001t). The clouds are still.
+
+### C.3.1 The pictures through weather_billboard.fx, whole
+
+*Read off the listing on 2026-11-07 by a delegated agent (fragment `interface-weatherbillboardfx.json`), for a program
+that draws the weather pictures through the install's own `gfx/fx/weather_billboard.fx`; the time's add and the world
+matrix checked again off the bytes by the collecting session. VAs; `confirmed` except where a line says otherwise.
+`FINDINGS-counters.md` section 10 is the same reading for the counters, which share the batch slot.*
+
+**Corrections, rather than additions.**
+- The picture's time is not milliseconds: each frame adds `fmod(seconds since launch, 1000)`. So every rate on screen
+  depends on the frame rate and on how long the game has been running, and C.3's lightning figures are in those units.
+- The lower quad is moved **down** by 2s − 0.3. C.3's y range was right and its "lifted" was not.
+- The thunderstorm has no rain: its textures 1 to 3 are the lightning, and its lower quad is lightning01's narrow one.
+- The world matrix is the inverse of the whole view, not of its rotation.
+- A sea zone's picture stands 1.3 above the ground, not 1.0.
+
+**Where a picture stands.** `ProvinceGraphics_UpdateWeatherPicture` (0x63FE90) makes the picture and gives it no
+position of its own: there is no slot 33 or slot 24 call (0x64005F-0x640083). It then hangs the picture with
+`ProvinceGraphics_AttachPicture(owner, template +0x7C, picture, raise 1)`.
+- `ProvinceGraphics_PlacePicture` (0x640CA0) adds 1.0 to float 13 of the identity local transform, then sets world
+  (`+0x94`) = local × the anchor's world.
+- A land province's anchor is a `CProvinceObject` at (centre_x, **0**, centre_y), the template's `+0x2C`/`+0x30`
+  (`FINDINGS-airmap.md` 8.3).
+- A sea zone's anchor is a `CProvinceWaterObject` (0x877E20) at its label point (`+0x5C`/`+0x60`), translated by (x,
+  **0.3**, y): the float at 0x15C05EC, passed at 0x877E69.
+
+So the picture's translation is **(centre_x, 1.0, centre_y)** on land and **(label_x, 1.3, label_y)** at sea. The label
+point is a copy of the centre (B.9). That the anchor's world is its own translation is `likely`: the anchor's parent was
+not read (airmap 8.3).
+
+**The quads** (`LoadResources` 0x8845A0, `BuildWeatherQuad` 0x884380). Each quad has 4 vertices (x, y, z, u, v), 20
+bytes each, declared by `WeatherVertexElements` (VA 0x170ABB4): POSITION float3, TEXCOORD0 float2. Six 16-bit indices
+form a triangle list. The buffer is managed, carries no declaration of its own, and has primitive kind 0. With s =
+`scale`, hw = s·w/h, b = the lift, U = (w/P(w))/`noOfFrames` and V = h/P(h), where P is the least power of two ≥ n:
+
+    v0 (-hw, 3 - (s + b), 0)  uv (0, V)      lower left
+    v1 (-hw, 3 + s - b,   0)  uv (0, 0)      upper left
+    v2 ( hw, 3 - (s + b), 0)  uv (U, V)      lower right
+    v3 ( hw, 3 + s - b,   0)  uv (U, 0)      upper right
+    indices 0 1 2, 2 1 3 - clockwise seen from the camera, D3D's front face
+
+- The upper quad (`+0x158`) has b = 0 and is built from texture 0.
+- The lower quad (`+0x15C`) has b = (float)((float)(s·2.0) − 0.3f) = 4.6999998 at s = 2.5 [exe] and is built from
+  texture 1. Every later texture is drawn on it.
+- U and V come from the texture table row's picture size (`+0x24`/`+0x28`) because the loader makes power-of-two
+  textures with the picture in their corner (`FINDINGS-counters.md` 10.2). Every TFH weather file is already a power of
+  two, so U = V = 1.
+
+With `tfh/interface/mapitems.gfx` [mod] (scale 2.5 throughout):
+
+| picture | upper quad | lower quad |
+| --- | --- | --- |
+| full art (cloud 128×64) | x ±5, y 0.5..5.5 | rain or snow 128×64: x ±5, y −4.2..0.8 (−4.1999998 and 0.8000002 as floats) |
+| `weather_thunderstorm` | stormcloud: x ±5, y 0.5..5.5 | lightning01 32×64: **x ±1.25**, y −4.2..0.8 |
+| any `_simple` (64×64, one texture) | x ±2.5, y 0.5..5.5 | none |
+
+**The batch** (`BillboardList_DrawBatch`, 0xB073B0, from `CEU3Graphics::FlushDeferredObjects` right after the
+counters):
+1. The first queued picture's type's slot 35 (`BeginBatch`) sets the vertex declaration.
+2. For each picture in queue order, `CBillboardObject::Draw` runs with the picture's own world transform (`+0x94`),
+   untouched (no lift), and its time (slot 22).
+3. Slot 36, which for the weather type is the `ret 4` stub 0x60CD50.
+4. `CBillboardObject_DrawCaption` (0xAB6BE0) runs for each picture and returns at once on an empty caption, which every
+   weather picture has.
+5. The list is emptied.
+
+`Draw` runs the lightning cycle where the type has more than two textures, then calls the type's slot 31.
+
+**One picture: `CWeatherBillboardType::DrawQuad` (0x883F70).** For every picture, in order:
+1. SetTechnique(GetTechniqueByName(`effect`)).
+2. Set the two matrices and the two floats in the table below, all before Begin.
+3. **Begin(&passes, 0)** and BeginPass(0).
+4. The lower quad, if any.
+5. The upper quad.
+6. EndPass and End.
+
+| parameter | value |
+| --- | --- |
+| `ViewProjectionMatrix` | D3DXMatrixMultiply(view, projection) of the current view's camera (graphics `+0x6BC88` → `+0x1C`, slots 91 and 93: the scene's LookAtLH and PerspectiveFovLH, `FINDINGS-mapdraw.md` A.4) |
+| `WorldMatrix` | F × W. W = D3DXMatrixInverse(view) (the import called at 0x8840EE) with `_14`, `_24`, `_34` = 0, the translation row = the picture's world translation (`+0x30..+0x38`, from 0x8840F4), `_44` = 1, so its rows are the camera's right, up and forward. F = D3DXMatrixRotationY(π) (0x884077) only where `flip`, which is never for a weather picture. |
+| `vXOffset` | type `+0xF4` × max(frame column `+0x4E`, 0): **always 0**, since nothing sets a weather picture's frame |
+| `vFlip` | **always 1.0**. Only the constructor (0) and the port picture (1) write `+0x14A`; that store census found the port write as its positive control. The shader never reads vFlip anyway. |
+| `tex0`, lower quad | with exactly two textures, texture 1 at **`vTime` = the picture's time**; with more than two and a lightning frame k > 0 showing, texture k at `vTime` = 0; otherwise no lower quad |
+| `tex0`, upper quad | texture 0 at `vTime` = 0, always last |
+| `tex1` | never set; the shader never samples it |
+
+CommitChanges runs before each VertexBuffer_Draw. Because the key is `effect`, all RainTech types share one ID3DXEffect
+and all SnowTech types another (`FxHandler_Register` keyed by `+0xB8`). A second `effectFile` under the same `effect`
+name would be ignored.
+
+**The time.** Each drawn frame, `CInGameIdler_Render` runs the graphics owner's update (0x656F64) before
+`MapGraphics_DrawScene` (0x65704B). That update reaches `ProvinceGraphics_Update` for every province graphics entry,
+unconditionally (0x85D830). For each entry with a picture (0x63F441-0x63F473: the clock's slot 5, `fprem` against the
+double 1000.0 at 0x160A300 through `_CIfmod` 0xC0892A, stored as a float and handed to the picture's slot 47):
+
+    t = (float)((double)t + (double)(float)fmod(T, 1000.0))
+
+- T is `g_PlatformClock`'s `CHighPerfWinClock::GetSeconds`: (performance counter now − at start) / frequency. That is
+  the **seconds since the clock was started at start-up**.
+- Of 82 references, 77 call slot 5, one calls Start (start-up) and two delete it, so nothing resets it. The freeze
+  switch at VA 0x1A858C4 is written only by the constructor, with 0.
+- t starts at 0 with each new picture. A picture is remade when its province's picture name changes, or when the
+  weather mode is left and re-entered.
+
+So t grows at **F × (T mod 1000) units a second**, F being the frame rate. At 60 frames and T mod 1000 = 300 that is
+18,000 a second:
+- Rain colour moves 0.9 texture heights a second downward and 0.45 widths leftward.
+- Snow falls 0.18 heights a second, swaying ±0.01 with a period of 66,700 units (3.7 s).
+- The first lightning flash comes once t > 15,000 (0.8 s). A flash lasts just over 1,000 units (about 4 frames), and
+  each wait is 15,000 to 25,000 units (0.8 to 1.4 s).
+
+At T mod 1000 = 10 everything is thirty times slower. The rates build up for 16.7 minutes and collapse at each wrap. The
+old reading of "a second, then 15 to 25" is the rate at 1,000 units a second, which 60 frames reach at T mod 1000 ≈
+16.7.
+
+t is a float:
+- Its spacing is 2 from 2^24 and 16 from 2^27, where an addend under 8 is lost, so the time stalls just after each wrap.
+- From 2^31 the lightning's `(int)t` overflows to frame −1, which is never drawn.
+
+**Render states.** The pass sets these and End restores them, for every picture: ZENABLE false, ZWRITEENABLE false,
+ALPHABLENDENABLE true, ALPHATESTENABLE false; vs_2_0 / ps_2_0.
+
+Nothing in the code or the pass sets anything else, so the rest is the device's:
+- SRCBLEND SRCALPHA / DESTBLEND INVSRCALPHA, from the start of `MapObjectGroup_Draw` (*inferred*, as for the counters,
+  `FINDINGS-counters.md` 10.5); BLENDOP default ADD.
+- CULLMODE NONE (`CGraphics_SetDefaultRenderStates`).
+- DEPTHBIAS 0, left by the counter batch. It is irrelevant with Z off.
+- FOGENABLE is written by nothing read, so it is D3D's FALSE (*inferred*).
+- The sampler is the file's: WRAP, linear min, mag and mip, on the DDS's own mips.
+
+**The order.** The queue is a push_back (`QueueForDraw` 0x883EC0) in the order the object group's draw reached each
+picture's Render. That walk was not read; it is *inferred* to be the group's object order. With Z off, a later picture
+covers an earlier one; within a picture, the cloud covers the lower quad's top 0.3. The list is flushed at the end of
+the object group that queued it. `FINDINGS-airmap.md` 8.4 puts that group before the air map's rings and before the
+owner's layers that hold the counters, so the counters draw over the weather (`likely`).
+
+**What the shader then does** [mod: the .fx].
+- RainTech outputs the colour of `tex0` at uv + (0.000025t, −0.00005t) with the **alpha at uv unshifted**, so the rain's
+  mask stands still while its colour runs.
+- SnowTech shifts the whole sample by (sin(−0.00001t·3·3.14)/100, −0.00001t).
+- At t = 0 both are a plain sample, which is how the cloud, the lightning and every `_simple` picture appear: still.
+
+**noOfFrames.** No weather entry sets it, so it is 1. Were one set, each quad's u would cover only the first frame and
+vXOffset would stay 0, so the other frames would never show. The lightning's frame count is the number of textures, not
+`noOfFrames`.
+
+**Not settled here:**
+- The anchor's parent, and so that the anchor's world is its bare translation (`likely`).
+- The walk that orders the queue.
+- Whether anything between the start of `MapObjectGroup_Draw` and the batch changes the blend factors.
+- Whether a picture near the map's seam is drawn twice.
+- What the billboard type does with `+0x148`, slot 69 (0x8E8160) and `+0xB28`; the weather type ignores all three.
+- The body of `CBillboardObject_DrawCaption` past its gate.
 
 ### C.4 The "movement tooltip" at `0x73D460`
 
@@ -855,6 +1005,8 @@ attrition effects are accounted for, none in interface code.
 - The sync estimate uses the destination's weather and terrain and leaves out `LOCAL_UNIT_SPEED`.
 - `Graphics_CreateObjectByName` has no null test, so a missing `weather_*` entry would crash.
 - No intelligence or zoom gate in the update path, and sea provinces get pictures too.
+- The thunderstorm shows no rain: only its cloud and, now and then, a lightning frame.
+- Every animation runs at the frame rate × (seconds since launch mod 1000): it speeds up for 16.7 minutes and collapses at each wrap.
 
 ### C.7 Not settled
 
@@ -868,8 +1020,7 @@ the 1.0 raise and the 3.0 middle of C.3 with up off the map seen as north; and *
 only the eight lines and the word, the word on a line of its own after `Frozen`. The half brightness of C.1 was not
 seen: `debug fow` gives every province 9.
 
-- **The units of the clock's slot 5** (`[0x1A857E4]`), and with them the speed of the rain, the snow and the lightning:
-  milliseconds is inferred from the 15000/1000/10000 constants.
+- ~~**The units of the clock's slot 5**~~ Settled 2026-11-07 (C.3.1): seconds since launch, of which each frame adds the remainder modulo 1000 - neither milliseconds nor an interval.
 - **Which texture the style-0 terrain shader samples as `GeneralTexture`** (inferred Texture1), and **what `CMapProvince
   +0xC` is** (it decides G = 0.1 or 0).
 - **Whether the scene culls the pictures by zoom or layer**: no test in the update path, and group `+0x64` is
