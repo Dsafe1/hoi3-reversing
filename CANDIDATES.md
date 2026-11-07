@@ -1406,7 +1406,7 @@ of it.
 
 ## What has already been read
 
-196 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
+199 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
 header lives. This replaces the `Done` archive: the archive restated each file's headline and named
 only 40 of the 67 there were then, so it was both longer and less useful than a complete list.
 
@@ -1428,7 +1428,7 @@ the six it was missing were wave 15's.
 | `findings/FINDINGS-resetpath.md` | the deferred session-exit path, and whether `Update` can reach the reset with `in_game` set |
 | `findings/FINDINGS-startup.md` | how the engine boots, stage by stage, and which loader claims each `common/` file |
 | `findings/FINDINGS-mappoint.md` | 879,780 map points: 14,190 x 62 exactly, and the 13 MiB they cost |
-| `findings/FINDINGS-resourceicons.md` | **where the map's resource icons stand**: no key of their own - crude oil, metal, energy and rare materials are drawn at the position of the building in database slot 3 to 6 (so BlackICE's `coastal_fort`, `beach_defence`, `land_fort`, `fortress`, two of them all but undeclared), an undeclared position is (0, 0), and the strategic resource icon stands on the label point |
+| `findings/FINDINGS-resourceicons.md` | **where the map's resource icons stand**: no key of their own - crude oil, metal, energy and rare materials are drawn at the position of the building in database slot 3 to 6 (so BlackICE's `coastal_fort`, `beach_defence`, `land_fort`, `fortress`, two of them all but undeclared), an icon with an undeclared position in its province's middle (the maintainer's word, 2026-11-07, correcting the reading's map corner), and the strategic resource icon stands on the label point |
 | `findings/FINDINGS-mapbuild.md` | the map build, its cache, and how the frontend is reached |
 | `findings/FINDINGS-allocator.md` | the allocator, and what a call site gives away |
 | `findings/FINDINGS-save.md` | how the game writes a save |
@@ -1559,6 +1559,9 @@ the six it was missing were wave 15's.
 | `findings/FINDINGS-buttonstatefx.md` | **a plain sprite through buttonstate.fx (2026-11-07)**: every `spriteType` drawn through an effect, buttonstate.fx by the constructor's default; the interface's batch setting the technique by name from the object's state, which element passes which, `Color`, `vXOffset` and the column, the half-pixel quad and its quarter turns; `interpolated_buttonstate.fx` differs only in its Linear sampler and draws the portraits; corrects `CSprite::UpdateStateName` and `CCheckBox_ShowState` |
 | `findings/FINDINGS-billboardfx.md` | **plain billboards through billboard.fx (2026-11-07)**: `CBillboardType`'s keys and defaults (effect key "Billboard" shared by every plain type), the square quad with u padded and v not, technique `standard` once a batch, `vMultiplier` 1.5 for a selected object, the whole inverse view, `flip` thrown away, the pointer always at scale 1; which map things are billboards - the pointer, the battle markers at height 0, the buildings, the large air and naval icons and the event icons - and the open question whether the pictures translated after hanging ever move |
 | `findings/FINDINGS-minimap.md` | **the minimap and the map mode buttons (2026-11-07)**: `CEU3Minimap` a fixed picture with a white one-pixel frame whose size is a straight line in the camera's height, a left press jumping the camera there; the day/night overlay by the hour; the sixteen buttons bound to their modes' full setters, frame 2 pressed, `MAPMODE_N` tooltips, no shortcuts; the modes pushed and popped by themselves; a game starting in terrain; corrects the map tooltip's anchor - the minimap's corner, not the mouse |
+| `findings/FINDINGS-mapmodescountries.md` | **the diplomatic, intel and theatre map modes (2026-11-07)**: each province's colours with their packed values - the owner's relation to the player and its cores as stripes, the intel ramp, a theatre in the region of its own index's colour - when each is coloured again and its tooltip line; the political stripes settled as the owner's; corrects `CCountry +0xC30` to a colour held by value |
+| `findings/FINDINGS-mapmodesfigures.md` | **the infrastructure, victory point, strength and resources map modes (2026-11-07)**: the infrastructure ramp by floor(infra / 100), the VP mode's three fixed hues, strength by everybody's land units weighed by what is known, IC green striped by the strategic resource; the resource icons on settings +0xE7; the layer mask's bit names; none of them recoloured by a unit's move; corrects the VP hue and `0x266C5F`'s mode |
+| `findings/FINDINGS-mapmodesrest.md` | **the simplified terrain, region and naval map modes (2026-11-07)**: each terrain's `color`, each region's colour handed out from `interface/colors.txt` with its wrap, the naval mode's grey, orange undeclared wars, green patrols and escorts and red raids; the naval icons four yes/no flags from the week's battles; each mode's own colouring routine, not the generic path |
 
 **The interface, and text**
 

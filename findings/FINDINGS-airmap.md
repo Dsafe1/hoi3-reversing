@@ -402,7 +402,8 @@ never used (`inferred`: a ring reached through a register the scan's window cann
 
 ## What was not read
 
-- **The naval mode's icons** (`0x46A6F0`, `0x46AA70`).
+- ~~**The naval mode's icons**~~ - its icons, colours and tooltip: read 2026-11-07, `FINDINGS-mapmodesrest.md`,
+section 3.
 - **What the province object's picture at `+0x98` is**, which the setter hides.
 - **What the shaders make of a province colour's alpha** in style 18.
 - **The order the rings are drawn in** among themselves and among the air map icons of the same

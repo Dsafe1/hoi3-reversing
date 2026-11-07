@@ -169,7 +169,8 @@ Every setter has the same shape:
 7. The mode's colouring runs, then Map_RefreshColourTextures(0); the graphics owner's +0x60DC = 1.
 
 **The province tooltip needs nothing redone**, because it asks the mode each time it is built
-(FINDINGS-mapmode.md). Which counters and pictures the layer mask hides was not read. `confirmed`
+(FINDINGS-mapmode.md). Which counters and pictures the layer mask hides was not read. (For 0xFFBA and 0xFF9A: no trees, no shadow pre-pass, and under 0xFF9A no hit on the small building pictures -
+`FINDINGS-mapmodesrest.md`; the bit names, `FINDINGS-mapmodesfigures.md`, section 6.) `confirmed`
 for the table, read off all sixteen setters.
 
 **The pressed look.** `MapMode_ShowButton` sets every `mapmode_1`..`16` to frame 1, then
@@ -251,16 +252,17 @@ minimap.
 - Whether the overlay, created after the minimap, lets clicks through by its CIcon handler. The
   game's own behaviour says it must.
 - The order the frame lines and the icons are drawn in, and the scrolling sprite's u extent.
-- What the settings' +0xE7 governs. No reader was found next to a GetGameSettings call, and a reader
-  through a held pointer would not show in that scan.
-- Which counters and pictures each layer mask value hides.
+- ~~What the settings' +0xE7 governs.~~ The resource icons' visibility (`FINDINGS-mapmodesfigures.md`, section 5).
+- Which counters and pictures each layer mask value hides - the bit names and the modes read are in
+  `FINDINGS-mapmodesfigures.md`, section 6, and `FINDINGS-mapmodesrest.md`; bits 0x4 and 0x40 and the Overlay
+  groups' contents stay open.
 - The menubar window's own show and hide, which takes the buttons and `minimap_bg_shadow` with it.
 - The `+4` the air orders window's destructor switches on after popping: no writer was found in its
   constructor.
 - ~~The fourth `mapmode_8` reference, in CInGameIdler::Update at `0x6568C8`.~~ Already read: the Arcade game mode greys it (`FINDINGS-frontend.md`, D.2).
 - DoTutorialAction's arms other than `mapmode`, and its caller `0x8E4490`.
-- The region, resources, naval and theatre-editor colouring routines. They were left to the map
-  mode readers, as asked.
+- The theatre-editor colouring routine (the region and naval ones are `FINDINGS-mapmodesrest.md`, the resources one
+  `FINDINGS-mapmodesfigures.md`, section 5).
 
 Frontier: 0x4E4490, 0x23D350, 0x465930, 0x4660E0, 0x4674E0, 0x465290, 0x267AE0, 0x66FCA0, 0x6B2770,
 0x46AA70

@@ -12,7 +12,8 @@ the goods pool. With slot 0 the engine's own `nobuilding`, that is the 3rd to 6t
 `radar_station`, all of which its positions.txt declares. BlackICE's inserts `beach_defence` and
 `fortress` before them, which moves the goods onto `coastal_fort`, `beach_defence`, `land_fort` and
 `fortress`. BlackICE's file declares the second and third of these for 0 and 165 provinces, and
-an undeclared building position is (0, 0). The strategic resource icon (`STRATEGIC_` + name) is
+an icon whose building's position is undeclared stands **in the middle of its province** - the
+maintainer's word, 2026-11-07, against section 4's inference of the map's corner. The strategic resource icon (`STRATEGIC_` + name) is
 given no position, so it stands on the province's label point.
 
 ## 1. Who makes them
@@ -80,9 +81,21 @@ building type (`FINDINGS-mappoint.md`, section 4). `CMap::ComputeProvinceGeometr
 the length already right and writes nothing (`0x4919E5..0x491AAB`, read again for this). Only
 `CMap::LoadBuildingPositions` writes a point, and only for a key the file declares. A scan of every
 `.text` instruction addressing `+0x258` found one other store of a point, at `0x29C38B`, inside the
-in-game nudge editor (`nudge_warning`, `nudge_x`, `nudge_z` beside it). **So an undeclared point is
-(0, 0)**, and an icon placed there is put at (-label_x, -label_y) from its province's anchor: the
-map's south-west corner, nowhere near the province (`inferred`: not seen on screen).
+in-game nudge editor (`nudge_warning`, `nudge_x`, `nudge_z` beside it).
+
+**Corrected 2026-11-07.** This section concluded that an undeclared point stays (0, 0), so that an
+icon placed there would stand at (-label_x, -label_y) from its anchor, in the map's south-west
+corner. That was `inferred` and never seen on screen, and it is wrong: **the maintainer's word is
+that the original puts such an icon in the middle of its province** - which, the position being
+taken less the label point, is what a point equal to the label point gives. So something does
+write a default for an undeclared building, and the scan above missed it: a store through a
+register that does not address `+0x258` directly, or a copy of the whole vector, are the likely
+places. Not looked for; the negative above stands as a record of a search that was too narrow, and
+`TRAPS.md`'s closing section on negatives without a positive control is the lesson. BlackICE's
+`beach_defence` metal icons, with no point declared anywhere, therefore stand on their provinces'
+middles, on the strategic resource icon where there is one. A building's picture is placed from the same point
+(section 2), so an undeclared building stands in its province's middle too (inferred from that
+shared point, not seen separately).
 
 ## 5. The four keys, by buildings.txt
 

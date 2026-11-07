@@ -201,7 +201,7 @@ Every `billboardType` of `mapitems.gfx` is drawn by section 2. Where each one is
 | `large_air_base`, `large_anti_air`, `large_naval_base` | `ShowLargeAirBaseIcon`, `ShowLargeAntiAirIcon`, `ShowLargeNavalBaseIcon` | +0x14D4 (WaterObject group +0x60) | hung with raise 1 **then** Translate(building position − label point, 0); see the open point below | frame from Update{AirBase,Port}Picture; **`+0xB28` = (level − 1) × 0.2 + 1** |
 | `air_battle_icon`, `air_bombed_us_icon`, `air_bombed_them_icon` | `ShowAirBattleIcon` etc. (`FINDINGS-airmap.md` 4) | +0x14D4 | hung, **then** Translate (3,3,0) / (0,3,3) / (0,3,−3) | 0, 0, 1 |
 | `naval_convoy_raided_icon`, `naval_convoy_sunk_icon`, `naval_raider_defended_icon`, `naval_raider_attacked_icon` | `ShowConvoyRaidedIcon` `0x642D30`, `ShowConvoySunkIcon` `0x642E90`, `ShowRaiderDefendedIcon` `0x643000`, `ShowRaiderAttackedIcon` `0x643160`, from `UpdateNavalMapIcons` (mode 19) | +0x14D4 | hung, **then** Translate (3,3,0) / (−3,3,0) / (0,3,3) / (0,3,−3) | 0, 0, 1 |
-| `supply_depot`, `resource_*`, `STRATEGIC_*`, `icon_objective_strip` | `ProvinceGraphics_UpdateSupplyDepotPicture`, `…UpdateResourcePictures`, `…UpdateStrategicResourcePicture`, `GraphicsOwner_RefreshColourTextures` | not read here | not read here | not read here |
+| `supply_depot`, `resource_*`, `STRATEGIC_*`, `icon_objective_strip` | `ProvinceGraphics_UpdateSupplyDepotPicture`, `…UpdateResourcePictures`, `…UpdateStrategicResourcePicture`, `GraphicsOwner_RefreshColourTextures` | `resource_*`, `STRATEGIC_*`: the owner's +0x17CC (WaterObject group +0x70), shown with GameSettings +0xE7 under 500 (`FINDINGS-mapmodesfigures.md`, section 5); the others not read here | not read here | not read here |
 | `airnaval_combat_icon` | **nothing**: no reference to its name in `.text` (*inferred* unused; the same scan found every other name) | | | |
 
 **The battle marker's number and colour.**
@@ -243,7 +243,8 @@ which `ObjectLayer_Add` keys by the object's address, so the order is *likely* a
 - Who sets a billboard's `+0x148` to 1 (`vMultiplier` 1.5), if anything does.
 - What hides a counter's pointer again, and when its red frame is used.
 - The type's slots 32 (hit test) and 33. The object's destructor.
-- What the four naval counts count (the fill loop of `UpdateNavalMapIcons`).
+- ~~What the four naval counts count.~~ Answered 2026-11-07 (`FINDINGS-mapmodesrest.md`, 3.2): they are four yes/no
+  flags, not counts, from the week's naval battles - convoys we sank, our convoys raided, we were attacked, we attacked.
 - The capital's vector, and the frames of `building_underground` and `icon_objective_strip`.
 - The font's slot 7: how 2, 0x140, the size and 1.0 turn into glyphs.
 - Whether the lower-case `texturefile` of the `STRATEGIC_*` entries matches the `textureFile` token.

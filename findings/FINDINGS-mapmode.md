@@ -18,7 +18,10 @@ if ([province+0xD4 template] +0x13D) == 0: xmm1 = 0    ; water gets nothing
 CColor at [esp+0x2C] = { r=g=b = xmm1 * 0.9, a = 1 }   ; the grey base
 if ([province+0x34] victory points) > 0:
     brightness = clamp((points / 15) * 0.3 + 0.7, 1.0)
-    ... blend with the colour of the controller ([province+0x334] tag, +0x338 id)
+        controller is the player, or in the player's real faction -> (0.3b, kb, 0.3b) green
+    at war with the player, or either tag REB                  -> (kb, 0.3b, 0.3b) red
+    anyone else                                                -> (kb, kb, 0.3b) yellow
+    (b the grey's brightness above, k the brightness here; FINDINGS-mapmodesfigures.md, section 3)
 lea ecx, [esp+0x2C]
 call 0x6628B0                        ; CColor -> packed 0xAARRGGBB in eax
 mov [entry], eax                     ; and [entry+4]
@@ -32,9 +35,10 @@ emulating the magic-number sequence), and the result is clamped at 1.0, so
 in the mod has more than 30. Feeding a building level 1-10 into the victory point field
 would leave every province the same shade.
 
-**It is not a green ramp.** The province is drawn in its *controller's* colour at one of
-those two brightnesses. Hooking only the value read would give owner-coloured provinces,
-not the green ramp that was wanted.
+**It is not a green ramp.** The province is drawn in one of three fixed hues - green for the player's own and its faction's, red
+for an enemy's (or REB), yellow for anyone else's - at one of those two brightnesses, dimmed to half below
+intelligence 2. It is not the controller's own colour (corrected 2026-11-07, `FINDINGS-mapmodesfigures.md`,
+section 3). Hooking only the value read would still not give the green ramp that was wanted.
 
 ## The place to take it over
 
@@ -116,26 +120,29 @@ are lined up, because that one was already known from the disassembly.
 | `mapmode_1` | Terrain | **0** | generic path |
 | `mapmode_2` | Political | **1** | `0x266220` |
 | `mapmode_3` | Weather | **11** | generic path |
-| `mapmode_4` | Intel | **6** | `0x267510` |
+| `mapmode_4` | Intel | **6** | `0x4671F0` via its setter `0x267510` |
 | `mapmode_5` | Revoltrisk | **12** | generic path |
-| `mapmode_6` | Diplomatic | **2** | `0x2668C0` |
-| `mapmode_7` | Region (`MAPMODE_7G`) | **3** | generic path |
+| `mapmode_6` | Diplomatic | **2** | `0x464330` via its setter `0x2668C0` |
+| `mapmode_7` | Region (`MAPMODE_7G`) | **3** | `0x465930` via its setter |
 | `mapmode_8` | Supply | **4** | `0x266EE0` |
 | `mapmode_9` | Infrastructure | **5** | `0x2670F0` |
 | `mapmode_10` | VP | **7** | `0x267710` |
-| `mapmode_11` | Theatre | **8** | `0x267920` |
+| `mapmode_11` | Theatre | **8** | `0x464C40` via its setter `0x267920` and `0x267AE0` |
 | `mapmode_12` | Strength | **9** | `0x267B50` |
 | `mapmode_13` | Resources | **10** | generic path |
-| `mapmode_14` | Simplified Terrain | **13** | generic path |
+| `mapmode_14` | Simplified Terrain | **13** | `0x465B70` via its setter |
 | `mapmode_15` | Air | **18** | generic path |
-| `mapmode_16` | Naval | **19** | generic path |
+| `mapmode_16` | Naval | **19** | `0x4674E0` via its setter |
 
-The dispatch that picks a routine only runs for a mode whose entry in the table at
-`[map+0x30]` is 1; everything else takes the generic path. It also has a case for mode 17, the theatre editor, which no button produces
+The dispatch that picks a routine only runs for a mode whose entry in the table at `[map+0x30]`
+is 1; everything else takes the generic path. The addresses in the last column for the other modes are likewise
+setters; CInGameIdler_RefreshMap re-runs those setters, not loops (`FINDINGS-mapmodescountries.md`, section 5). It also has a case for mode 17, the theatre editor, which no button produces
 (CInGameIdler::SetTheatreEditing; `FINDINGS-minimap.md`, section 6).
 
-**Simplified Terrain is mode 13, and takes the generic path** - so there is no routine
-of its own to change, and whatever it does about sea provinces it does somewhere shared.
+**Simplified Terrain (13), Region (3) and Naval (19) are coloured by their setters' own routines** (`0x465B70`,
+`0x465930`, `0x4674E0`), and CInGameIdler_RefreshMap has no arm for any of them, so their colours are made only when
+the mode is chosen (and for 19 when a naval mission of the player's starts or ends). *Corrected 2026-11-07,
+`FINDINGS-mapmodesrest.md`.*
 
 ## Simplified Terrain, and why the sea is not coloured
 
@@ -365,8 +372,8 @@ reason the land is unaffected.
 
 `Patches::seaTerrainColourInSimplifiedMapMode` changes one byte: the immediate of
 `mov dword ptr [eax+0xF4], 8` at **`0x266E74`**, in the Simplified Terrain setter, from
-8 to 18. The ten bytes are checked before the one is written. Infrastructure writes the
-same 8 from its own setter at `0x266C5F` and is left alone.
+8 to 18. The ten bytes are checked before the one is written. The **region** mode writes the same 8 from its own setter, at `0x266C5F` (which this file once put in the
+infrastructure setter - that one writes 9), and is left alone.
 
 Confirmed in a running game before the patch was written, by poking `settings+0xF4` to
 18 while mode 13 was on screen: the sea took province colours and the land stayed
@@ -413,7 +420,8 @@ before each conversion). That confirms the byte order BiceLib's own `pack()` use
 | 9 | 0.25 / 0.73 | `63, 186, 0` |
 | 10 | 0.00 / 1.00 | `0, 255, 0` |
 
-Below 1 the loop leaves the colour alone entirely rather than choosing one.
+Below 1 the colour stays the loop's default, black (0, 0, 0, 1), and so does any province the player has no
+intelligence of (the loop asks for 1 or more). `FINDINGS-mapmodesfigures.md`, section 2.
 
 Note the ladder is not monotonic in brightness: 6 is a bright yellow green and 7 a dark
 one. Reproduced as is in `CustomMapMode`'s heat palette rather than smoothed.

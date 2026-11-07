@@ -28,9 +28,9 @@ how many objects a census found (taken 2026-09-20).
 | `read` | 158 |
 | `placed` | 140 |
 | `keys` | 75 |
-| `part` | 152 |
+| `part` | 153 |
 | `named` | 5 |
-| `RTTI` | 611 |
+| `RTTI` | 610 |
 | **all** | **1141** |
 
 ## What to read next
@@ -164,8 +164,8 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CConstruction` | `CReferenceObject` |  | 13 + 2 lua |  | 6 | CConstruction.hpp |  | read |  |
 | `CConvoy` | `CReferenceObject` |  | 22 + 3 lua | 6/13 | 18 | CConvoy.hpp | 839 | read |  |
 | `CConvoyConstruction` | `CConstruction` |  | 1 | 1/1 | 6 | CConstruction.hpp | 40 | placed |  |
-| `CConvoyEscortOrder` | `CNavalOrder` |  |  | 1/3 | 7 |  |  | placed |  |
-| `CConvoyRaid` | `CNavalOrder` |  |  | 1/1 | 6 |  | 62 | placed |  |
+| `CConvoyEscortOrder` | `CNavalOrder` |  |  | 1/3 | 8 |  |  | placed |  |
+| `CConvoyRaid` | `CNavalOrder` |  |  | 1/1 | 7 |  | 62 | placed |  |
 | `CCountry` | `CPersistent` |  | 279 + 71 lua | 69/126 | 168 | CCountry.hpp | 108 | read |  |
 | `CCountryDate` | `CPersistent` |  |  | 1/2 | 1 |  |  | placed |  |
 | `CCountryHistory` | `CHistoryContainer` |  |  |  | 1 | CCountryHistory.hpp | 108 | keys | **read**: `history/countries`, where a date is a key. See GameClasses/CCountryHistory.hpp |
@@ -254,7 +254,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `COfferMilitaryAccessAction` | `CDiplomaticAction` |  |  | 5/6 | 9 |  | 1 | RTTI |  |
 | `COrder` | `CPersistent` |  | 11 | 5/10 | 9 | COrder.hpp |  | read |  |
 | `CParadropMission` | `CAirOrder` |  | 1 |  | 9 |  |  | keys |  |
-| `CPatrolOrder` | `CNavalOrder` |  |  | 1/1 | 8 |  | 286 | placed |  |
+| `CPatrolOrder` | `CNavalOrder` |  |  | 1/1 | 9 |  | 286 | placed |  |
 | `CPauseGame` | `CCommand` |  |  |  | 1 |  | 2 | keys |  |
 | `CPeaceAction` | `CDiplomaticAction` |  |  | 5/6 | 11 |  |  | RTTI |  |
 | `CPlayerConnected` | `CCommand` |  |  | 1/4 | 1 |  | 1 | placed |  |
@@ -271,7 +271,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CRebelFaction` | `CReferenceObject` | 0xA4 | 21 | 8/10 | 4 | CRebelFaction.hpp | 1 | read |  |
 | `CReferenceObject` | `CPersistent` |  |  |  | 3 |  | 4,725 | keys |  |
 | `CRegiment` | `CSubUnit` | 0xD8 | 1 | 8/13 | 4 | CRegiment.hpp | 27,277 | part |  |
-| `CRegion` | `CPersistent` `H::__CArray` |  | 5 + 2 lua |  |  |  | 2,308 | read |  |
+| `CRegion` | `CPersistent` `H::__CArray` |  | 7 + 2 lua |  | 1 |  | 2,308 | read |  |
 | `CRelation` | `CPersistent` | 0x24 | 5 | 5/5 | 3 |  | 6,684 | read |  |
 | `CRemoveTraitEntry` | `CLeaderHistoryEntry` |  |  |  | 2 |  |  | RTTI |  |
 | `CReopenLobby` | `CCommand` |  |  |  | 1 |  | 1 | RTTI |  |
@@ -342,7 +342,7 @@ Definitions out of `common/` and the rest of the mod. Their `LoadKey` is the gra
 | `CCasusBelliType` | `CPersistent` |  | 26 | 19/28 | 3 | CWar.hpp | 24 | read | **read**: `cb_types.txt`, 28 keys - the `po_*` peace options among them |
 | `CColor` | `CPersistent` |  | 5 |  | 3 |  | 319,186 | read |  |
 | `CCombatTactic` | `CPersistent` | 0xDC | 12 | 8/9 | 3 |  | 42 | read | **read**: `combat_tactics.txt`, 9 keys and the file uses exactly those. See findings/FINDINGS-definitions.md |
-| `CContinent` | `CPersistent` `H::__CList` |  |  |  |  |  | 8 | RTTI |  |
+| `CContinent` | `CPersistent` `H::__CList` |  | 3 |  | 1 |  | 8 | part |  |
 | `CCounterType` | `C3dObjectType` |  | 31 | 11/18 | 3 |  | 2 | read | **read**: how a map counter is drawn, 18 keys |
 | `CCountryHistoryEntry` | `CHistoryEntry` |  | 1 |  | 1 |  |  | part |  |
 | `CCovertOpsMission` | `CPersistent` |  | 4 | 1/4 | 1 |  | 39 | placed |  |
@@ -400,7 +400,7 @@ Definitions out of `common/` and the rest of the mod. Their `LoadKey` is the gra
 | `CSubUnitDefinition` | `CPersistent` |  | 81 + 20 lua | 71/73 | 8 | CSubUnitDefinition.hpp | 60,485 | read | **the unit files**, and the most used class in the mod. The stat block is done; nine keys are still unplaced, most of them moved by technology |
 | `CTechStatistics` | `CPersistent` |  | 55 | 46/50 | 3 | CCountryHistory.hpp |  | read | **read**: the 47 country-wide effects a technology can have, one case each. See GameClasses/CCountryHistory.hpp |
 | `CTechnology` | `CTechStatistics` |  | 23 + 7 lua | 13/21 | 2 | CTechnology.hpp | 1,175 | read | the technology files: a dozen keys of its own, and every other key read as a unit type's name, which is how an effect is written |
-| `CTerrain` | `CPersistent` |  | 16 | 9/12 | 3 | CTerrain.hpp | 45 | read | mostly done; `movement_cost`, `temperature` and `precipitation` went in last |
+| `CTerrain` | `CPersistent` |  | 17 | 9/12 | 3 | CTerrain.hpp | 45 | read | mostly done; `movement_cost`, `temperature` and `precipitation` went in last |
 | `CTerrainGraphical` | `CPersistent` | 0x7C | 7 | 2/10 | 2 |  | 256 | read | **read**: how a terrain type is drawn. `CTerrain` is what it does |
 | `CTrait` | `CModifier` |  | 9 | 2/33 | 6 | CTrait.hpp | 343 | read | `traits.txt`: 31 effects and a count that stops at sixteen. `gainable_traits.txt` is a different class, `CGainableTrait`, still unread |
 | `CTree` | `CPersistent` | 0x48 | 3 |  | 1 |  | 7 | keys |  |
@@ -543,7 +543,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CICCostComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CIcon` | `CButton` |  |  |  | 4 |  |  | RTTI |  |
 | `CIdler` |  |  |  |  |  |  |  | RTTI |  |
-| `CInGameIdler` | `CEU3Idler` `CLostDeviceInterface` `CReloadDispatcher` |  | 113 |  | 107 | CInGameIdler.hpp | 3 | read |  |
+| `CInGameIdler` | `CEU3Idler` `CLostDeviceInterface` `CReloadDispatcher` |  | 116 |  | 107 | CInGameIdler.hpp | 3 | read |  |
 | `CIngameSettingsScreen` | `CSettingsScreen` | 0x3E0 | 1 |  | 2 |  | 1 | part |  |
 | `CLandOrdersView` | `COrdersView` | 0x198 | 10 |  | 10 |  |  | read |  |
 | `CLawEntry` | `CStandardlistboxItem` | 0x88 | 4 |  | 3 |  | 16 | part |  |
@@ -609,7 +609,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CPossibleSingleBrigadeEntry` | `CStandardlistboxItem` |  |  |  | 1 |  |  | RTTI |  |
 | `CPowerRatioEntry` | `CUnitViewBaseEntry` |  |  |  |  |  |  | RTTI |  |
 | `CPrioComparator` | `CBrigadeSortInterface` |  |  |  | 1 |  | 2 | RTTI |  |
-| `CProductionView` | `CCountryView` |  | 9 |  | 27 |  | 1 | read |  |
+| `CProductionView` | `CCountryView` |  | 9 |  | 28 |  | 1 | read |  |
 | `CProjectionObject` | `C3dVisibleObject` |  |  |  |  |  |  | RTTI |  |
 | `CProvinceCollisionObject` | `C3dVisibleObject` |  | 4 |  |  |  |  | part |  |
 | `CProvinceManager` | `CLostDeviceInterface` |  |  |  | 1 |  | 1 | RTTI |  |

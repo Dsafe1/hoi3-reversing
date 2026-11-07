@@ -3,8 +3,10 @@
 Read for OpenHOI3's map tooltip, 2026-10-11: `ProvinceTooltip_Build` (`0x4973E0`) whole - its head
 on a selected unit's move, its frame, the parts for the terrain, political and supply map modes,
 and its tail - with the inline flag icon its political part writes. The air part is
-`FINDINGS-airmap.md`, section 7; the diplomatic, intel, VP, theatre, weather, resources and
-naval parts were left. How the tooltip is shown at all is `FINDINGS-tooltips.md`.
+`FINDINGS-airmap.md`, section 7; the diplomatic, intel and theatre parts are
+`FINDINGS-mapmodescountries.md`, sections 2.3, 3.3 and 4.3; the weather part was left; the infrastructure,
+VP and resources parts are `FINDINGS-mapmodesfigures.md` (strength has none), the region and naval parts
+`FINDINGS-mapmodesrest.md`, sections 2 and 3.3. How the tooltip is shown at all is `FINDINGS-tooltips.md`.
 
 Every address is a VA of this build.
 
@@ -152,4 +154,5 @@ height off `y` (`0xAFD127`), so the `y` handed in is the line's top. Slot 26 (`0
 - The flag atlas's texture, and so how a flag is shrunk into its cell.
 - The debug block's text beyond its literals.
 - The objectives' lines (section 7, 3) beyond their keys.
-- The diplomatic, intel, VP, theatre, weather, resources and naval parts.
+- The weather part (infrastructure, VP and resources: `FINDINGS-mapmodesfigures.md`; region and naval:
+  `FINDINGS-mapmodesrest.md`; diplomatic, intel and theatre: `FINDINGS-mapmodescountries.md`).

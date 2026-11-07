@@ -151,8 +151,8 @@ This corrects `FINDINGS-mapmode.md`'s style table, which had Theatre at 0, Weath
 
 ### A.4 Not established
 
-What 0x43ED10 draws (section B); which unit layer at graphics +0x4158 is which beyond the mask bits; the groups at +0x44,
-+0x60 and +0x70 and what `GameSettings +0xE7` is; the graphics +0x42E9 byte that gates the surf; what 0x4608D0 (mask
+What 0x43ED10 draws (section B); which unit layer at graphics +0x4158 is which beyond the mask bits; the contents of the group at +0x44 (+0x60 holds the large and event icons, +0x70 the resource icons, and
+`GameSettings +0xE7` shows the latter: `FINDINGS-mapmodesfigures.md`, sections 5 and 6); the graphics +0x42E9 byte that gates the surf; what 0x4608D0 (mask
 0x8, under 100) and 0x6BB7E0 do; five of the eight `+0x170` call sites `slotcalls.py` lists for slot 92; the "+2" of the
 two border loops. **A hand decision**: `WaterObject` is the whole map-graphics object (the graphics owner's +0x1DC4), not
 the water alone - a rename the merge cannot make; by its RTTI it is **`CProvinceManager`** (its constructor, 0x44F570,
