@@ -202,6 +202,15 @@ what fixes its meaning:
 `confirmed` for the write and the four comparisons; this replaces "what `[this+0x1F8]` holds
 is not established" in the four `Get...Value` entries.
 
+**The test for 9** is `CUnit_IsSeenAsOwnBy` (`0x5D37D0`, rva `0x1D37D0`; read on the listing 2026-11-07, for the map's
+fog of war in OpenHOI3): the unit in EAX, the observer's `CCountryTag*` on the stack, `ret 4`, a bool in AL. True where
+the unit's owner id (`CUnit +0x128`) is the observer's; else, where the owner's faction (`CCountry +0xD8`, never null)
+answers its slot 7 true - a real faction, not the shared null one - and the observer's faction is the same object; else
+where the owner's diplomatic status towards the observer (`CCountry +0xE28`[observer id]) has an alliance (`+0x14`). So:
+its own units, its faction's and its allies'. No puppet, guarantee or war test. Eleven direct callers
+(`findRefs.py --callers`), `CUnit_RefreshIntelLevel` (`0x5BAC63`) and `CUnit::EnterProvince` (`0x5BF23F`) among them; the
+other nine were not read.
+
 ## 6. Which units have a counter, and the five stacks
 
 `CProvinceTemplate` holds, for the province's map picture:

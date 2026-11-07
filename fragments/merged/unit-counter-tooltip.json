@@ -1,0 +1,59 @@
+{
+ "agent": "agent-countertooltip, 2026-11-07",
+ "question": "What text CUnit's CSelectable slot 3 (VA 0x5C4B20) builds - the map tooltip over a unit's counter - line for line, with its extent, convention, the units it covers and the intel gates.",
+ "source": "reversing/findings/FINDINGS-countertooltip.md",
+ "addresses": [
+  {
+   "rva": "0x1C4B20",
+   "kind": "function",
+   "name": "CUnit::BuildTooltip",
+   "signature": "GuiTooltipText* __thiscall CUnit::BuildTooltip(CUnit* this, GuiTooltipText* out, CMapProvince* province) @EAX",
+   "no_signature": null,
+   "comment": "**Slot 3, the CSelectable slot: a unit's tooltip, which is the map's tooltip over its counter** (CInGameIdler::GetTooltip asks the hovered selectable's slot 3, then puts the box at the minimap's corner less 50 and 20, `below` false) and the second half of CPort::GetTooltip (the first fleet in port). One body for CUnit, CArmy, CNavy and CAir. 0x5C4B20 to the one `ret 8` at 0x5C5AB5, eight int3 after; **no padding before it** - CUnit_SetName's `ret 4` is at 0x5C4B1D (trap 2). The `province` argument is never read. Builds the record in place (all three strings empty, position 0, below 1; only `text` is ever filled) and answers `out`.\n\n**Which units.** The hovered unit's province's units (+0x130 -> +0x2B8, in the order they entered it); a fleet in a land province takes its port's list instead (+0x354, the CUnitList at CPort +8 - the fleets in port, which a click on the port rotates); an air unit whose base object (+0x98) answers its own province from slot 0 takes the base's list (+4, the units based there). From that list a land unit is dropped when the province is a sea zone, and a fleet is dropped when the hovered unit is a land unit and the province is land. **Every country's units, no visibility test, no cap**; the hovered unit's own intel_level (+0x1F8) gates them all.\n\n**The text.** Where at least one unit passed: `@TAG ` for each owner in order of first appearance (distinct by owner_id +0x128), then `?\\n` under intel 5, otherwise the chosen leader's name (+0x4C) + `\\n` - the leader starts as g_NullLeader ('(no leader)', NO_LEADER) and a unit's leader replaces him where (its rank >= his and its skill > his) or he is not valid (CLeader slot 8). Then the brigades of all the units bucketed by type_index, and under intel 3 the whole body is `? \\xA3unknown` with no line break; otherwise one line per type with any, in type_index order: intel >= 8: count + ` \\xA3` + key + ` ` + a strength icon `{NN` per brigade (` ` after every fifth) + `\\n`; intel 6-7: (` ` if count >= 10) + count + ` \\xA3` + key + `\\n`; intel 3-5: `? \\xA3` + key + `\\n` where the type's priority (+0x194) >= 6, else `? \\xA3unknown\\n`. The icon: max = CSubUnit::GetMaxStrength(false, false); max <= 0 gives `{10`; else ratio = strength (+0x5C) x 1000 / max truncated (64-bit where it could overflow), t = ratio x 10000 / 1000, and t >= g_UnitTooltipFullStrength (9900) gives `{10`, otherwise `{0` + _itoa(t / 1000) - so frame floor(10 x share), and 10 from 99.0%. `{NN` draws frame NN of GFX_tooltip_strength (CEU3BitmapFont::DrawText, kind 3 through slots 23 and 22). See reversing/findings/FINDINGS-countertooltip.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countertooltip.md",
+   "evidence": "Read whole on the listing VA 0x5C4B20-0x5C5AB5 and against a headless decompile of a copy of Hoi3_v12.1.2 (which labels the body CUnit::Load - the stale primary-table name trap 4's fix removes). vtable.py --holding 0x5C4B20: slot 3 of CUnit, CArmy, CNavy and CAir, nobody else. No branch in the body leaves 0x5C4B20-0x5C5AB8 (scripted over every jcc/jmp), so the single `ret 8` is the end; [ebp+0xC] is never read. Strings read with image.read: 0x15B4E94 ' ', 0x15C49F4 '@', 0x15C82BC '?\\n', 0x15B57D0 '\\n', 0x15BD2DC ' \\xA3', 0x15C82D8 '? \\xA3unknown' (10), 0x15C82CC '? \\xA3unknown\\n' (11), 0x15C82C8 '? \\xA3', 0x15C82C0 '{0', 0x15C82C4 '{10', 0x15B4945 '' (a zero byte after 'sinh'). The callers: CInGameIdler::GetTooltip's call at 0x662B41 (push of [eax+0xC], push out, call [edx+0xC]) and CPort::GetTooltip's at 0x4942A4 (first unit of the port's list, push [ebp+0xC], push out). Wrong if a CUnit subclass outside the four overrides slot 3, or if 0x15B4945 is not the empty string in the running image (it is .rdata, so it is)."
+  },
+  {
+   "rva": "0x17EBFE0",
+   "kind": "global",
+   "name": "g_UnitTooltipFullStrength",
+   "signature": null,
+   "no_signature": "data",
+   "comment": "VA 0x1BEBFE0, an int: 9900, made on first use inside CUnit::BuildTooltip as (int)floorf(9900.499f) (the float at rva 0x120AACC), guarded by bit 0 of the dword at VA 0x1BEBFE4. A brigade whose strength share x 10000 reaches it shows the full strength icon `{10` in the unit tooltip. Hardcoded: no define moves it.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countertooltip.md",
+   "evidence": "image.findBytes of 0x1BEBFE0 finds exactly two references, the store at 0x5C55CF and the compare at 0x5C55D4, both in CUnit::BuildTooltip; the guard 0x1BEBFE4 two (0x5C55A2 test, 0x5C55B5 or); the float 0x160AACC one (0x5C55AD), and it reads 0x461AB1FF = 9900.499. The initialising sequence is `movss xmm0,[0x160AACC]; push; floorf; _ftol2_sse; mov [0x1BEBFE0],eax`. Wrong if another reference exists that a byte search of the image cannot see."
+  },
+  {
+   "rva": "0x120AACC",
+   "kind": "global",
+   "name": "f_UnitTooltipFullStrength",
+   "signature": null,
+   "no_signature": "data",
+   "comment": "The float 9900.499f (0x461AB1FF), floored to 9900 into g_UnitTooltipFullStrength the first time CUnit::BuildTooltip draws a strength icon. Its only reference.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countertooltip.md",
+   "evidence": "image.read gives ff b1 1a 46 = 9900.4990234375; image.findBytes of VA 0x160AACC finds one reference, at 0x5C55AD."
+  },
+  {
+   "rva": "0x79A0C4",
+   "kind": "function",
+   "name": "_itoa",
+   "signature": "char* __cdecl _itoa(int value, char* buffer, int radix)",
+   "no_signature": null,
+   "comment": "The C runtime's _itoa: where radix is 10 and value is negative it converts with the sign (the inner xtoa at 0xB9A081 with is_negative 1), otherwise unsigned in the radix; answers buffer. Bare `ret` - cdecl. Several record comments already name it ('_itoa at 0x79A0C4') without an entry.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-countertooltip.md",
+   "evidence": "Decoded VA 0xB9A0C4-0xB9A0ED: `cmp [ebp+0x10],0xA; jne; test eax,eax; jns; push 1; push 0xA` / `push 0; push [ebp+0x10]`, `mov ecx,[ebp+0xC]; call 0xB9A081; mov eax,[ebp+0xC]; ret` - MSVC's _itoa line for line; Ghidra's function ID names it __itoa; every call site seen pushes (value, buffer, 10) and adds 0xC. Wrong if a caller does not clean the three arguments itself."
+  }
+ ],
+ "vftable_slots": {
+  "CUnit": {"3": {"name": "BuildTooltip", "signature": "GuiTooltipText* __thiscall BuildTooltip(CUnit* this, GuiTooltipText* out, CMapProvince* province) @EAX"}},
+  "CArmy": {"3": {"name": "BuildTooltip", "signature": "GuiTooltipText* __thiscall BuildTooltip(CUnit* this, GuiTooltipText* out, CMapProvince* province) @EAX"}},
+  "CNavy": {"3": {"name": "BuildTooltip", "signature": "GuiTooltipText* __thiscall BuildTooltip(CUnit* this, GuiTooltipText* out, CMapProvince* province) @EAX"}},
+  "CAir": {"3": {"name": "BuildTooltip", "signature": "GuiTooltipText* __thiscall BuildTooltip(CUnit* this, GuiTooltipText* out, CMapProvince* province) @EAX"}}
+ },
+ "struct_fields": [],
+ "frontier": ["0x45F300", "0x649D80", "0x6B9B90", "0x794BEC", "0x799220"]
+}
