@@ -304,7 +304,9 @@ gives every province two colours, a fill and a stripe, the same:
 All with alpha 1 but the first. It is called by the constructor, with the map's refresh
 (`0x880D90`, false), and by `0x743B10`, which `Update` calls where the sliders moved and every
 shape button and right click call, with the refresh true. It has no other caller: **the colours
-are the window's own, not a map mode's**. The destructor (`0x7415E0`) recolours the map by the
+are the window's own, not a map mode's**. The window does put the map in a mode of its own: the constructor pushes the current mode and
+calls CInGameIdler slot 100, which sets mode 15 with map style 16 and no colouring, and the
+destructor pops it before the recolour below (`FINDINGS-minimap.md`, section 6). The destructor (`0x7415E0`) recolours the map by the
 mode at `+0x4` - political, diplomatic, supply, infrastructure, intelligence, victory points,
 theatre, strength and two more - so the map comes back as it was.
 

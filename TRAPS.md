@@ -63,7 +63,7 @@ merges the `building_position` loader with the `building_nudge` loader, i.e. a
 `vector<CMapPoint>` writer with a `vector<float>` writer), `0x4A9D40`/`0x4A9D70` (`ret 4` then a
 fresh SEH prologue - and `findRefs --callers` on the wrong entry then reports 12 callers where the
 right answer is 8), `0x4ACED0`/`0x4ACF10` (bare `ret`, no padding, and `0x4ACED0` is a copy loop
-over **0x14**-byte elements, so the misattribution would have put a 0x14 stride on `CMapPoint`), `0x893C80`/`0x893E70` (the first ends `ret 8` at `0x893E6D` with no padding at all, so `functionStart(0x893E70)` answers `0x893C80` - and `0x893E70` is the AI's real landing-province chooser, so losing it loses the end of the invasion chain).
+over **0x14**-byte elements, so the misattribution would have put a 0x14 stride on `CMapPoint`), `0x893C80`/`0x893E70` (the first ends `ret 8` at `0x893E6D` with no padding at all, so `functionStart(0x893E70)` answers `0x893C80` - and `0x893E70` is the AI's real landing-province chooser, so losing it loses the end of the invasion chain), `0x258EBD`/`0x258EC0` (`CInGameIdler_Render`'s `ret 4` and then `CInGameIdler::ReloadMenubar`'s `push ebp`, no padding) and `0x24B2CD`/`0x24B2D0` (`CInGameIdler` slot 80's `ret 4` and then slot 81's `push ebp`, no padding; `functionStart` inside slot 81 answers slot 80's entry) - both from the minimap reading of 2026-11-07, `FINDINGS-minimap.md`.
 
 **Wave 12 added nine, all rvas, from three agents reading three different families.** The
 event-script language is unusually dense with them because the leaves are small and the

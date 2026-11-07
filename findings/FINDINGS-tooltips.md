@@ -127,12 +127,13 @@ for the arithmetic; it reads as a bug, and is what the original does.
    once and kept at `0x1BEBD28`.
 3. **Otherwise, the mouse over the map** (the input's slot 17): where a province is under the mouse
    (`+0x1DD4`) its own tooltip - slot 3 of `CProvince`'s second table, `ProvinceTooltip_Build`, the
-   one that switches on the map mode - with **`below` false** and the point **50 to the left of the
-   mouse and 20 above it** (the map camera's slot 24, then `-0x32` and `-0x14`). So a province's
-   tooltip stands above the mouse, its bottom 20 short of it. The argument it is given is the
+   one that switches on the map mode - with **`below` false** and the point **50 to the left of and 20 above the minimap's top-left
+corner** (CInGameIdler +0x1920, the CEU3Minimap - not the map camera - its slot 24, then `-0x32`
+and `-0x14`). So a province's tooltip stands above the minimap, its bottom 20 above the minimap's
+top, wherever the mouse is (`FINDINGS-minimap.md`, section 8; corrected 2026-11-07). The argument it is given is the
    `+0xC` of a row of the unit list when `+0x1DD0` is set; when it is not, the code reads `+0xC` of
    a null pointer - never reached, presumably, since the two are set together (`inferred`).
-   Nothing under the mouse: an empty tooltip at 60 left, 20 up.
+   Nothing under the mouse: an empty tooltip at the minimap's corner, 60 left, 20 up.
 4. The result is kept in a static `GuiTooltipText` (`0x1BEBD48`) and returned; `0x1BEA490` and
    `0x1BEA494` keep the element or the province it came from. Nothing read here reads those two.
 

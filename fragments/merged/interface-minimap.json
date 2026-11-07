@@ -1,0 +1,650 @@
+{
+ "agent": "minimap and map mode buttons (2026-11-07)",
+ "question": "What CEU3Minimap draws and does, and how the map mode buttons switch the map, look, and say",
+ "source": "reversing/findings/FINDINGS-minimap.md",
+ "addresses": [
+  {
+   "rva": "0x2435E0",
+   "kind": "function",
+   "name": "CEU3Gui_CreateMinimap",
+   "signature": "CEU3Minimap* __stdcall CEU3Gui_CreateMinimap(CGui* gui@ESI, Hoi3CString* name@EDX, void* parent@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "**Makes the minimap element from an `iconType` by name.** Looks the type up through the gui's type tree (+0x34, its slot 1, Find(name)), news 0x120 bytes and runs CEU3Minimap::CEU3Minimap(new, gui +0x30 (the graphics), gui, parent) with the type in EDX, then appends the object to the gui's element vector (+0x5C, 0x8DDBE0). `ret 4`. Two callers, both for `minimap_pic`: CInGameIdler::Enter (VA 0x65F99A, kept at CInGameIdler +0x1920) and CInGameIdler::ReloadMenubar (VA 0x6595EB, the same slot). The only way a CEU3Minimap is made, which is why exactly one exists. The name is ours. See reversing/findings/FINDINGS-minimap.md, section 1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "Read whole, 0x6435E0 to the `ret 4` at 0x643663. Callers by findRefs --callers: exactly 0x6595EB and 0x65F99A, each preceded by the string 'minimap_pic' and followed by a store to +0x186C (on idler+0xB4) / +0x1920. Wrong if a third caller turns up or the type lookup is not gui+0x34 slot 1."
+  },
+  {
+   "rva": "0x27A3C0",
+   "kind": "function",
+   "name": "CEU3Minimap::CEU3Minimap",
+   "signature": "CEU3Minimap* __stdcall CEU3Minimap::CEU3Minimap(CEU3Minimap* this@stack:4, CEU3Graphics* graphics@stack:8, CGui* gui@stack:0xC, void* parent@stack:0x10, void* type@EDX) @EAX",
+   "no_signature": null,
+   "comment": "Calls CIcon::CIcon (rva 0x6A1C00) at 0x67A47D, then `mov [esi], 0x15cf15c`. The one live instance is the iconType named minimap_pic, which is why a CEU3Minimap turns up in CGui+0x5C alongside twelve RTTI-less widget classes.  **The arguments, read 2026-11-07**: this, the graphics (the gui's +0x30 - screen size at +0x6B9BC/+0x6B9C0), the gui, the parent, and the iconType in EDX; `ret 0x10`. After CIcon::CIcon it keeps: +0xF0 the graphics global [VA 0x1A85634], +0xF4 the gui, +0xF8 the parent, +0xFC the map graphics owner [VA 0x1A855FC], **+0x100 the map camera** (the owner's +4, which the CInGameIdler constructor points at its own +0x1938), then makes **two line objects** through Graphics_CreateLineObject on +0xF0 - +0x118 the camera frame and +0x11C one never given a point - each with width 1.0 (its +0x1134 and ID3DXLine::SetWidth) and shown (slot 13); and +0x110/+0x114 = float(CMap +0x2A74/+0x2A78), the map's width and height (5616, 2160). Its only maker is CEU3Gui_CreateMinimap. See reversing/findings/FINDINGS-minimap.md, section 1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "Read whole, 0x67A3C0..0x67A595. The four stack arguments line up with CEU3Gui_CreateMinimap's pushes (eax=new, edx=[gui+0x30], esi=gui, ecx=its own stack argument) and the type with its EDX; the stores to +0xF0..+0x11C are in the listing. Revised: adds the signature and the fields; nothing earlier is contradicted.",
+   "revises": true
+  },
+  {
+   "rva": "0x27A5A0",
+   "kind": "function",
+   "name": "CEU3Minimap::ScalarDeletingDestructor",
+   "signature": "CEU3Minimap* __thiscall CEU3Minimap::ScalarDeletingDestructor(CEU3Minimap* this, int deleteFlag)",
+   "no_signature": null,
+   "comment": "CEU3Minimap slot 5: CEU3Minimap::~CEU3Minimap(this) and, where bit 0 of the flag is set, frees the object. `ret 4`. See reversing/findings/FINDINGS-minimap.md, section 1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "Read whole 0x67A5A0..0x67A5BF; held at slot 5 by CEU3Minimap's table alone (vtable.py --holding). CIcon's slot 5 is 0xAA1D90."
+  },
+  {
+   "rva": "0x27A5D0",
+   "kind": "function",
+   "name": "CEU3Minimap::~CEU3Minimap",
+   "signature": "void __stdcall CEU3Minimap::~CEU3Minimap(CEU3Minimap* this@stack:4)",
+   "no_signature": null,
+   "comment": "Puts CEU3Minimap's two vftables back, hands both line objects (+0x118, +0x11C) to the graphics' remover (0xA6FCA0, with the graphics +0xF0 in ESI), then CIcon's destructor (0xAA21A0). `this` on the stack, `ret 4`. See reversing/findings/FINDINGS-minimap.md, section 1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "Read whole 0x67A5D0..0x67A645; one caller, the scalar deleting destructor at 0x67A5A7, which pushes esi."
+  },
+  {
+   "rva": "0x27A650",
+   "kind": "function",
+   "name": "CEU3Minimap::Update",
+   "signature": "void __thiscall CEU3Minimap::Update(CEU3Minimap* this, void* mouse)",
+   "no_signature": null,
+   "comment": "**CEU3Minimap slot 6, run on every shown element each frame by CGui::ProcessInput: redraws the camera frame when the camera or the minimap has moved.** The mouse argument is not read. Nothing happens unless the map camera's x_settled (+0x33C), y_settled (+0x340) or height (+0x348) differ from the copies at +0x104/+0x108/+0x10C, or the minimap's position (slot 70) differs from a function-local static pair (VA 0x1BEB590/594, set on the first call). Then it keeps the three and the position, empties both line objects (+0x1114 = 0) and gives +0x118 five points, a closed rectangle: fx = x_settled / map width (+0x110), fy = y_settled / map height (+0x114); (w, h) = the minimap's size (slot 61, shorts); centre cx = pos.x + fx*w - [VA 0x1BEA498] (a .bss float nothing writes, so 0), cy = pos.y + (h - fy*h - 4) - **y flipped, the map's y running north**; t = height / (highest - lowest) (+0x348 / (+0x350 - +0x34C)), half width hw = int(t*1410 + 70) * 0.1 * 0.25, half height hh = int(t*820 + 80) * 0.1 * 0.25; corners truncated to int: (cx-hw, cy-hh), (cx-hw, cy+hh), (cx+hw, cy+hh), (cx+hw, cy-hh), (cx-hw, cy-hh). So **the frame's size is a straight line in the camera's height, not a projection of the view**, and nothing clips it or wraps it at the minimap's edges. +0x11C is never given a point. `ret 4`. See reversing/findings/FINDINGS-minimap.md, section 2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "Read whole 0x67A650..0x67AB64. Constants read off the image: 1410.0, 70.0, 820.0, 80.0 (doubles at VA 0x160A338/330/328/320), 0.1 as a float widened (0x160A3C0), 0.25 (0x160A258), -4.0 (0x160A428). 0x1BEA498 has one reference in .text (this read) and lies in .data's uninitialised tail. Slot 6 = Update per CGui::ProcessInput's record. Wrong if the two comparisons against +0x33C/+0x340 are against the look pair +0x334/+0x338 instead - they are not, in the listing."
+  },
+  {
+   "rva": "0x27AB70",
+   "kind": "function",
+   "name": "CEU3Minimap::Show",
+   "signature": "void __thiscall CEU3Minimap::Show(CEU3Minimap* this)",
+   "no_signature": null,
+   "comment": "CEU3Minimap slot 13: unless the byte +0xEA is set, is_open (+0x43) = 1, +0xAC = 0.0 and the drawable (+0x88) slot 13; then both line objects' slot 13 (Show) - the second as a tail jump. So the frame comes and goes with the minimap. See reversing/findings/FINDINGS-minimap.md, section 1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "Read whole 0x67AB70..0x67ABB1 (ends `jmp edx`, a tail call, so there is no `ret` of its own). CIcon's slot 13 is 0xAA2390."
+  },
+  {
+   "rva": "0x27ABC0",
+   "kind": "function",
+   "name": "CEU3Minimap::Hide",
+   "signature": "void __thiscall CEU3Minimap::Hide(CEU3Minimap* this)",
+   "no_signature": null,
+   "comment": "CEU3Minimap slot 14: is_open (+0x43) = 0, +0xAC = 0.0, the drawable (+0x88) slot 14, then both line objects' slot 14 (Hide), the second as a tail jump. See reversing/findings/FINDINGS-minimap.md, section 1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "Read whole 0x67ABC0..0x67ABF8 (tail `jmp edx`)."
+  },
+  {
+   "rva": "0x27AC00",
+   "kind": "function",
+   "name": "CEU3Minimap::HandleMouse",
+   "signature": "void __thiscall CEU3Minimap::HandleMouse(CEU3Minimap* this, void* event, int unused)",
+   "no_signature": null,
+   "comment": "**CEU3Minimap slot 1, the minimap's whole answer to the mouse, replacing GuiButton_HandleMouse and never calling it.** Only a mouse event (+8 == 0) on a shown minimap (+0x2C) that is a **left press** (+0x10 == 3, +0x14 == 1) does anything; moves, releases, the right and middle buttons fall through unhandled. The pointer (the event's +0xC object, slot 19, two ints) less the minimap's position truncated (slot 70) gives (rx, ry), taken only where **0 < rx < w and 0 < ry < h**, strictly, (w, h) the minimap's size (slot 61). Then x = (rx - 1.0) * (map width / w) and y = (h - (ry - 1.0)) * (map height / h), the width and height the map graphics owner's +0x60D4/+0x60D8 (copies of CMap +0x2A74/+0x2A78, 5616 and 2160), and MapCamera_JumpTo(&(x, y), camera +0x100) - **the camera is put there at once, its height untouched**; the event is marked handled (+0x18 = 1), which takes it off the frame's list so the map never sees the press. No sound, no drag, no tooltip of its own. `ret 8`. See reversing/findings/FINDINGS-minimap.md, section 3.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "Read whole 0x67AC00..0x67AE00. Slot 1 of CEU3Minimap's table is this, where CIcon's slot 1 is GuiButton_HandleMouse (0xACFBE0) - read off both tables. The 1.0 is the double at VA 0x160A248. Wrong if a move event (+0x10 other than 3) reaches the JumpTo: the four gates at 0x67AC15..0x67AC33 all jump to the epilogue."
+  },
+  {
+   "rva": "0x23D3C0",
+   "kind": "function",
+   "name": "MapCamera_JumpTo",
+   "signature": "void __stdcall MapCamera_JumpTo(float* point@ECX, MapCamera* camera@EAX)",
+   "no_signature": null,
+   "comment": "**Puts the map camera on a point at once**: unless the camera's frozen byte (+0x356) is set, x and y (+0x334/+0x338) and x_settled and y_settled (+0x33C/+0x340) all take the point's two floats, so the move is not eased. The height is not touched. Bare `ret`. One direct caller, CEU3Minimap::HandleMouse (VA 0x67ADEE). The name is ours. See reversing/findings/FINDINGS-minimap.md, section 3.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "Read whole 0x63D3C0..0x63D3F2; findRefs --callers gives exactly one call, at 0x67ADEE. Every operand is in the listing."
+  },
+  {
+   "rva": "0x261BC0",
+   "kind": "function",
+   "name": "CInGameIdler::HourlyUpdate",
+   "signature": "bool __thiscall CInGameIdler::HourlyUpdate(CInGameIdler* this)",
+   "no_signature": null,
+   "comment": "**Slot 52, the in-game screen's hourly hook**: called every hour, unconditionally, at the end of RunHourlyTick (VA 0x68240D, `[state +0xBE8]` slot 52). Its whole work: where the day/night overlay `minimap_overlay` (+0x191C) exists, its frame (slot 18) = (CCurrentGameState +0xBDC - 43,800,000) mod 24 - **the hour of the day**. Returns true, bare `ret`. See reversing/findings/FINDINGS-minimap.md, section 4.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "Read whole 0x661BC0..0x661C92; vtable.py --holding: CInGameIdler slot 52 only. The call at 0x68240D..0x68241B is in RunHourlyTick's last block (cfg: reached from 0x6823E5/0x6823F7 with no condition on the hour). 0x29C55C0 = 43,800,000 = 1,825,000 x 24."
+  },
+  {
+   "rva": "0x265220",
+   "kind": "function",
+   "name": "CInGameIdler_CloseCountryView",
+   "signature": "void __stdcall CInGameIdler_CloseCountryView(CInGameIdler* idler@ESI, int index@EDI)",
+   "no_signature": null,
+   "comment": "Closes country view `index` (+0xD00[index], its slots 5 and 4), hides `bg_main_menus` (+0x1914) and **shows the minimap, `minimap_bg` and `minimap_overlay` again** (+0x1920, +0x1918, +0x191C, slot 13, the last as a tail jump). The counterpart of CInGameIdler::OpenCountryView, which hides those three. Callers at VA 0x41EA6E, 0x678243 and 0x7D9948. The name is ours. See reversing/findings/FINDINGS-minimap.md, section 1.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "Read whole 0x665220..0x665272 (ends `jmp eax`). The behaviour is in the listing; the name - which of the three callers closes which view - rests on OpenCountryView's record, so inferred. Wrong if a caller passes something other than a view index in EDI."
+  },
+  {
+   "rva": "0x258EC0",
+   "kind": "function",
+   "name": "CInGameIdler::ReloadMenubar",
+   "signature": "bool __fastcall CInGameIdler::ReloadMenubar(CReloadDispatcher* idlerAtB4@ECX) @AL",
+   "no_signature": null,
+   "comment": "**Slot 0 of the CReloadDispatcher table CInGameIdler carries at +0xB4: makes the menubar's pieces again from the gui.** `this` is the idler + 0xB4, so every offset in it is 0xB4 short of the idler's. Among the rest (`menubar`, `chat_list`, the message log and chat windows): the old `bg_main_menus`, `minimap_bg`, `minimap_pic` and `minimap_overlay` are deleted (slot 12) and made again - `bg_main_menus` and hidden (idler +0x1914), `minimap_bg` (+0x1918, gui slot 31, shown), **`minimap_pic` through CEU3Gui_CreateMinimap** (+0x1920, shown), `minimap_overlay` (+0x191C, gui slot 31) - then the overlay's frame set to the hour of the day as CInGameIdler::HourlyUpdate does, and shown. Returns true, bare `ret`. See reversing/findings/FINDINGS-minimap.md, section 1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "0x658EC0 abuts CInGameIdler_Render's `ret 4` at 0x658EBD (no padding - trap 2); vtable.py --holding: CInGameIdler slot 0 at object offset 180 (0xB4), whose base there is CReloadDispatcher. gui = [ebx-0x54] = idler +0x60, which is what slot 14 answers. Read from 0x6594B8 to the `ret` at 0x65975D; the menubar half before it only skimmed for its names."
+  },
+  {
+   "rva": "0x24B2D0",
+   "kind": "function",
+   "name": "CInGameIdler::DoTutorialAction",
+   "signature": "void __thiscall CInGameIdler::DoTutorialAction(CInGameIdler* this, Hoi3CString* key, Hoi3CString* value, void* unknown, int number)",
+   "no_signature": null,
+   "comment": "**Slot 81: a named action on the in-game screen, as a tutorial page gives it.** `ret 0x10`. Compares the key with `close_all`, `diplomacy`, `industry`, `div_designer`, `div_designer_armor`, `technology`, `politics`, `intel`, `ledger`, `message_log`, `units`, `province` / `open`, `zoom`, `mapmode`, `exclusive` / `yes` and others; **`mapmode` calls a map mode's button setter by the value**: `terrain` MapMode_Terrain_Set, `political` the political setter, `diplomacy` the diplomatic, `region` MapMode_Region_Set, **`culture` MapMode_Supply_Colour (the supply setter - an EU3 name left on it)**, `theatre` the theatre setter, `strength` the strength setter; any other value does nothing. `zoom` hands float(number) to 0x63D350 on the map camera (not read). Only the `mapmode` arm was read through. Its one known caller is VA 0x8E560D in the unrecorded 0x8E4490, which passes 'mapmode' and the page's +0x1A8 string - and `tutorial/chapter1.txt` pages carry `mapmode = \"terrain\"` and `zoom = 200`. See reversing/findings/FINDINGS-minimap.md, section 6.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "0x64B2D0 opens `push ebp` on the byte after slot 80's `ret 4` at 0x64B2CD, with no padding (trap 2); retsBefore from 0x64ACB0 shows `ret 4` up to 0x64B2CD and `ret 0x10` from 0x64B3FD, which cannot be one function. vtable.py --holding: CInGameIdler slot 81. The 'mapmode' arm 0x64B925..0x64BA66 read whole. The tutorial reading of the caller is inferred from the string arguments."
+  },
+  {
+   "rva": "0x277380",
+   "kind": "function",
+   "name": "CInGameIdler::SetAirOrdersMapMode",
+   "signature": "void __thiscall CInGameIdler::SetAirOrdersMapMode(CInGameIdler* this)",
+   "no_signature": null,
+   "comment": "**Slot 100: map mode 15, the air orders window's.** The air and naval icons down when leaving 18 or 19 (as every setter), the idler's +0xD34 and CMap +0x2A90 = 15, the settings' +0xE7 = 0, layer mask +0xF0 = 0xFFBA and map style +0xF4 = 16. **No sound, no MapMode_ShowButton and no colouring** - the window colours the map itself (0x867DB0) - so the button that was down stays down. Called by CAirOrdersView::CAirOrdersView right after PushMapMode (VA 0x741132, 0x74119C); the window's destructor pops the mode (VA 0x741688). Bare `ret`. See reversing/findings/FINDINGS-minimap.md, section 5.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "Read whole 0x677380..0x677401; vtable.py --holding: CInGameIdler slot 100. The 0xF loaded at 0x6773C1. The two vcalls in CAirOrdersView::CAirOrdersView are [edx+0x188] and [edx+0x190] on the game state's +0xBE8."
+  },
+  {
+   "rva": "0x266680",
+   "kind": "function",
+   "name": "CInGameIdler::SetTheatreEditing",
+   "signature": "void __thiscall CInGameIdler::SetTheatreEditing(CInGameIdler* this, CUnit* headquarters)",
+   "no_signature": null,
+   "comment": "**Slot 110: map mode 17, the theatre editor, on and off.** Given a headquarters: +0x7C = it, PushMapMode, the air and naval icons down as every setter, +0xD34 and CMap +0x2A90 = 17, settings +0xE7 = 0, layer mask 0xFFBE, map style 2, the graphics owner's +0x60F8 = 0, HideProvinceObjects98, the theatre colouring (VA 0x865290), Map_RefreshColourTextures(0), +0x60DC = 1. **No MapMode_ShowButton.** Given null: PopMapMode, then where +0x7C was set and the province list (+0x74) is not empty, the edited provinces go out as a command for the headquarters' theatre (CUnit_FindTheatre, `new 0x54`, 0x5EA010) and the list is freed. CInGameIdler_HandleInput's Alt / Ctrl+R with a theatre headquarters selected alone calls it. `ret 4`. See reversing/findings/FINDINGS-minimap.md, section 5.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "Read 0x666680..0x6668B3 (`ret 4`); the null branch's command build skimmed only. vtable.py --holding: CInGameIdler slot 110. Mode 17 is the `mov eax, 0x11` at 0x666819."
+  },
+  {
+   "rva": "0x266020",
+   "kind": "function",
+   "name": "MapMode_Terrain_Set",
+   "signature": "void __fastcall MapMode_Terrain_Set(CInGameIdler* idler@ECX)",
+   "no_signature": null,
+   "comment": "**The terrain map mode's setter** (mode 0, button `mapmode_1`, bound through the glue at CInGameIdler +0xD38). Unless the mode is already 0, the `click` sound where it is not already playing (the sound's slot 25, then slot 9); the air icons and circles down when leaving 18 (HideAirMapIcons, ClearAirBaseCircles), the naval icons down (0x46AA70) when leaving 19; the idler's +0xD34 and CMap +0x2A90 = 0; **MapMode_ShowButton(1)**; the settings' layer mask +0xF0 = 0xFFFF, map style +0xF4 = 0 and +0xE7 = 0; HideProvinceObjects98; the graphics owner's +0x60F9 = 0; MapMode_Terrain_Colour; Map_RefreshColourTextures(0); the graphics owner's +0x60DC = 1. Bare `ret`. Also what PopMapMode runs for a popped 0, 14, 15 or 16, what DoTutorialAction's `mapmode terrain` runs, and what CInGameIdler_RefreshMap runs in mode 0 when the refresh flags have any of 0xF but are not exactly 2 - which is how a new session's first frame paints the terrain mode. See reversing/findings/FINDINGS-minimap.md, section 5.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "Read whole 0x666020..0x666217. Bound to mapmode_1 in CInGameIdler::Enter (0x65DD11 lea [ebx+0xD38] after 'mapmode_1'); the constructor stores 0x666020 into that glue (0x647D90). Direct callers by findRefs: 0x64B94E (DoTutorialAction) and 0x6518DC (the refresh); PopMapMode reaches it by its table."
+  },
+  {
+   "rva": "0x266AD0",
+   "kind": "function",
+   "name": "MapMode_Region_Set",
+   "signature": "void __fastcall MapMode_Region_Set(CInGameIdler* idler@ECX)",
+   "no_signature": null,
+   "comment": "**The region map mode's setter** (mode 3, button `mapmode_7`, bound through the glue at CInGameIdler +0xE78). Unless the mode is already 3, the `click` sound where it is not already playing (the sound's slot 25, then slot 9); the air icons and circles down when leaving 18 (HideAirMapIcons, ClearAirBaseCircles), the naval icons down (0x46AA70) when leaving 19; the idler's +0xD34 and CMap +0x2A90 = 3; **MapMode_ShowButton(7)**; the settings' layer mask +0xF0 = 0xFFBA, map style +0xF4 = 8 and +0xE7 = 0; the graphics owner's +0x60F8 = 0; HideProvinceObjects98; the region colouring (VA 0x865930, not read); Map_RefreshColourTextures(0); the graphics owner's +0x60DC = 1. Bare `ret`. Its tooltip key is `MAPMODE_7G` ('Region Mapmode'), not MAPMODE_7. Also DoTutorialAction's `mapmode region` and the air orders window's destructor for a saved 3. See reversing/findings/FINDINGS-minimap.md, section 5.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "Read 0x666AD0..0x666CC0 (the `ret` after the last store). Bound to mapmode_7 (0x65E08F lea [ebx+0xE78]); the constructor stores 0x666AD0 there (0x647E3F). The 3 compared at 0x666AF1 and stored at 0x666C2F; ShowButton's push 7 at 0x666C3F."
+  },
+  {
+   "rva": "0x278400",
+   "kind": "function",
+   "name": "MapMode_Resources_Set",
+   "signature": "void __fastcall MapMode_Resources_Set(CInGameIdler* idler@ECX)",
+   "no_signature": null,
+   "comment": "**The resources map mode's setter** (mode 10, button `mapmode_13`, bound through the glue at CInGameIdler +0x1148). Unless the mode is already 10, the `click` sound where it is not already playing (the sound's slot 25, then slot 9); the air icons and circles down when leaving 18 (HideAirMapIcons, ClearAirBaseCircles), the naval icons down (0x46AA70) when leaving 19; the idler's +0xD34 and CMap +0x2A90 = 10; **MapMode_ShowButton(13)**; the settings' layer mask +0xF0 = 0xFFAA, map style +0xF4 = 20 and +0xE7 = 1; the graphics owner's +0x60F8 = 0; HideProvinceObjects98; the resources colouring (VA 0x8660E0, not read); Map_RefreshColourTextures(0); the graphics owner's +0x60DC = 1. Bare `ret`. **The only setter that writes 1 to the settings' +0xE7.** See reversing/findings/FINDINGS-minimap.md, section 5.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "Read whole 0x678400..0x678600. Bound to mapmode_13 (0x65E3C5 lea [ebx+0x1148]); constructor store at 0x647FB9. No direct caller (findRefs --callers); PopMapMode's table entry 10 jumps to it."
+  },
+  {
+   "rva": "0x2680E0",
+   "kind": "function",
+   "name": "MapMode_Naval_Set",
+   "signature": "void __fastcall MapMode_Naval_Set(CInGameIdler* idler@ECX)",
+   "no_signature": null,
+   "comment": "**The naval map mode's setter** (mode 19, button `mapmode_16`, bound through the glue at CInGameIdler +0x11E8). Unless the mode is already 19, the `click` sound where it is not already playing (the sound's slot 25, then slot 9); the air icons and circles down when leaving 18 (HideAirMapIcons, ClearAirBaseCircles), then, whatever the mode was, the naval icons up (UpdateNavalMapIcons); the idler's +0xD34 and CMap +0x2A90 = 19; **MapMode_ShowButton(16)**; the settings' layer mask +0xF0 = 0xFF9A, map style +0xF4 = 19 and +0xE7 = 0; the graphics owner's +0x60F8 = 0; HideProvinceObjects98; the naval colouring (VA 0x8674E0, not read); Map_RefreshColourTextures(0); the graphics owner's +0x60DC = 1. Bare `ret`. Map style 19 is one of the three that colour the sea. See reversing/findings/FINDINGS-minimap.md, section 5.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "Read whole 0x6680E0..0x6682D7. Bound to mapmode_16 (0x65E53C lea [ebx+0x11E8]); constructor store at 0x64800D. 19 = edi, compared at 0x668108 and stored at 0x66823A and +0xF4 at 0x66826F."
+  },
+  {
+   "rva": "0x266220",
+   "kind": "function",
+   "name": "MapMode_Political_Colour",
+   "signature": "void __fastcall MapMode_Political_Colour(CInGameIdler* idler@ECX)",
+   "no_signature": null,
+   "comment": "Was: 'Colouring routine for map mode 1 (Political).' **The political map mode's setter, not a colouring loop** - the name is kept because other entries use it (mode 1, button `mapmode_2`, bound through the glue at CInGameIdler +0xD88). Unless the mode is already 1, the `click` sound where it is not already playing (the sound's slot 25, then slot 9); the air icons and circles down when leaving 18 (HideAirMapIcons, ClearAirBaseCircles), the naval icons down (0x46AA70) when leaving 19; the idler's +0xD34 and CMap +0x2A90 = 1; **MapMode_ShowButton(2)**; the settings' layer mask +0xF0 = 0xFFBE, map style +0xF4 = 2 and +0xE7 = 0; the graphics owner's +0x60F8 = 0; HideProvinceObjects98; the political colouring (VA 0x864000); Map_RefreshColourTextures(0); the graphics owner's +0x60DC = 1. Bare `ret`. MapMode_ShowButton comes after the refill here. See reversing/findings/FINDINGS-minimap.md, section 5.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "Read with the same summary pass as the new setters (sound, mode compare and store, ShowButton argument, the three settings stores, the calls). Bound to `mapmode_2` by CInGameIdler::Enter at the lea of +0xD88; the constructor stores this address into that glue. Revised: the old one-line comment called it the colouring routine; it is the button's setter, and a signature is added.",
+   "revises": true
+  },
+  {
+   "rva": "0x2668C0",
+   "kind": "function",
+   "name": "MapMode_Diplomatic_Colour",
+   "signature": "void __fastcall MapMode_Diplomatic_Colour(CInGameIdler* idler@ECX)",
+   "no_signature": null,
+   "comment": "Was: 'Colouring routine for map mode 2 (Diplomatic).' **The diplomatic map mode's setter, not a colouring loop** - the name is kept because other entries use it (mode 2, button `mapmode_6`, bound through the glue at CInGameIdler +0xE28). Unless the mode is already 2, the `click` sound where it is not already playing (the sound's slot 25, then slot 9); the air icons and circles down when leaving 18 (HideAirMapIcons, ClearAirBaseCircles), the naval icons down (0x46AA70) when leaving 19; the idler's +0xD34 and CMap +0x2A90 = 2; **MapMode_ShowButton(6)**; the settings' layer mask +0xF0 = 0xFFBA, map style +0xF4 = 6 and +0xE7 = 0; the graphics owner's +0x60F8 = 0; HideProvinceObjects98; the diplomatic colouring (VA 0x864330); Map_RefreshColourTextures(0); the graphics owner's +0x60DC = 1. Bare `ret`. MapMode_ShowButton comes after the refill here. See reversing/findings/FINDINGS-minimap.md, section 5.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "Read with the same summary pass as the new setters (sound, mode compare and store, ShowButton argument, the three settings stores, the calls). Bound to `mapmode_6` by CInGameIdler::Enter at the lea of +0xE28; the constructor stores this address into that glue. Revised: the old one-line comment called it the colouring routine; it is the button's setter, and a signature is added.",
+   "revises": true
+  },
+  {
+   "rva": "0x266CE0",
+   "kind": "function",
+   "name": "MapMode_SimplifiedTerrain_Driver",
+   "signature": "void __fastcall MapMode_SimplifiedTerrain_Driver(CInGameIdler* idler@ECX)",
+   "no_signature": null,
+   "comment": "Was: 'Driver for map mode 13 (Simplified Terrain); calls its colouring loop.' **The simplified terrain map mode's setter, not a colouring loop** - the name is kept because other entries use it (mode 13, button `mapmode_14`, bound through the glue at CInGameIdler +0xEC8). Unless the mode is already 13, the `click` sound where it is not already playing (the sound's slot 25, then slot 9); the air icons and circles down when leaving 18 (HideAirMapIcons, ClearAirBaseCircles), the naval icons down (0x46AA70) when leaving 19; the idler's +0xD34 and CMap +0x2A90 = 13; **MapMode_ShowButton(14)**; the settings' layer mask +0xF0 = 0xFFBA, map style +0xF4 = 8 and +0xE7 = 0; the graphics owner's +0x60F8 = 0; HideProvinceObjects98; MapMode_SimplifiedTerrain_ColourLoop; Map_RefreshColourTextures(0); the graphics owner's +0x60DC = 1. Bare `ret`. BiceLib's patch at 0x266E74 sits in it. See reversing/findings/FINDINGS-minimap.md, section 5.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "Read with the same summary pass as the new setters (sound, mode compare and store, ShowButton argument, the three settings stores, the calls). Bound to `mapmode_14` by CInGameIdler::Enter at the lea of +0xEC8; the constructor stores this address into that glue. Revised: the old one-line comment called it the colouring routine; it is the button's setter, and a signature is added.",
+   "revises": true
+  },
+  {
+   "rva": "0x2670F0",
+   "kind": "function",
+   "name": "MapMode_Infrastructure_Colour",
+   "signature": "void __fastcall MapMode_Infrastructure_Colour(CInGameIdler* idler@ECX)",
+   "no_signature": null,
+   "comment": "Was: 'Colouring driver for map mode 5 (Infrastructure).' **The infrastructure map mode's setter, not a colouring loop** - the name is kept because other entries use it (mode 5, button `mapmode_9`, bound through the glue at CInGameIdler +0xF68). Unless the mode is already 5, the `click` sound where it is not already playing (the sound's slot 25, then slot 9); the air icons and circles down when leaving 18 (HideAirMapIcons, ClearAirBaseCircles), the naval icons down (0x46AA70) when leaving 19; the idler's +0xD34 and CMap +0x2A90 = 5; **MapMode_ShowButton(9)**; the settings' layer mask +0xF0 = 0xFFBA, map style +0xF4 = 9 and +0xE7 = 0; the graphics owner's +0x60F8 = 0; HideProvinceObjects98; MapMode_Infrastructure_ColourLoop; Map_RefreshColourTextures(0); the graphics owner's +0x60DC = 1. Bare `ret`. See reversing/findings/FINDINGS-minimap.md, section 5.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "Read with the same summary pass as the new setters (sound, mode compare and store, ShowButton argument, the three settings stores, the calls). Bound to `mapmode_9` by CInGameIdler::Enter at the lea of +0xF68; the constructor stores this address into that glue. Revised: the old one-line comment called it the colouring routine; it is the button's setter, and a signature is added.",
+   "revises": true
+  },
+  {
+   "rva": "0x267510",
+   "kind": "function",
+   "name": "MapMode_Intel_Colour",
+   "signature": "void __fastcall MapMode_Intel_Colour(CInGameIdler* idler@ECX)",
+   "no_signature": null,
+   "comment": "Was: 'Colouring routine for map mode 6 (Intel).' **The intelligence map mode's setter, not a colouring loop** - the name is kept because other entries use it (mode 6, button `mapmode_4`, bound through the glue at CInGameIdler +0x1008). Unless the mode is already 6, the `click` sound where it is not already playing (the sound's slot 25, then slot 9); the air icons and circles down when leaving 18 (HideAirMapIcons, ClearAirBaseCircles), the naval icons down (0x46AA70) when leaving 19; the idler's +0xD34 and CMap +0x2A90 = 6; **MapMode_ShowButton(4)**; the settings' layer mask +0xF0 = 0xFFBA, map style +0xF4 = 12 and +0xE7 = 0; the graphics owner's +0x60F8 = 0; HideProvinceObjects98; the intel colouring (VA 0x8671F0); Map_RefreshColourTextures(0); the graphics owner's +0x60DC = 1. Bare `ret`. See reversing/findings/FINDINGS-minimap.md, section 5.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "Read with the same summary pass as the new setters (sound, mode compare and store, ShowButton argument, the three settings stores, the calls). Bound to `mapmode_4` by CInGameIdler::Enter at the lea of +0x1008; the constructor stores this address into that glue. Revised: the old one-line comment called it the colouring routine; it is the button's setter, and a signature is added.",
+   "revises": true
+  },
+  {
+   "rva": "0x267920",
+   "kind": "function",
+   "name": "MapMode_Theatre_Colour",
+   "signature": "void __fastcall MapMode_Theatre_Colour(CInGameIdler* idler@ECX)",
+   "no_signature": null,
+   "comment": "Was: 'Colouring routine for map mode 8 (Theatre).' **The theatre map mode's setter, not a colouring loop** - the name is kept because other entries use it (mode 8, button `mapmode_11`, bound through the glue at CInGameIdler +0x10A8). Unless the mode is already 8, the `click` sound where it is not already playing (the sound's slot 25, then slot 9); the air icons and circles down when leaving 18 (HideAirMapIcons, ClearAirBaseCircles), the naval icons down (0x46AA70) when leaving 19; the idler's +0xD34 and CMap +0x2A90 = 8; **MapMode_ShowButton(11)**; the settings' layer mask +0xF0 = 0xFFBA, map style +0xF4 = 14 and +0xE7 = 0; then 0x667AE0 (not read) in place of the usual colouring and refill; the graphics owner's +0x60DC = 1. Bare `ret`. PopMapMode also runs it for a popped 17, the theatre editor's mode. See reversing/findings/FINDINGS-minimap.md, section 5.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "Read with the same summary pass as the new setters (sound, mode compare and store, ShowButton argument, the three settings stores, the calls). Bound to `mapmode_11` by CInGameIdler::Enter at the lea of +0x10A8; the constructor stores this address into that glue. Revised: the old one-line comment called it the colouring routine; it is the button's setter, and a signature is added.",
+   "revises": true
+  },
+  {
+   "rva": "0x267B50",
+   "kind": "function",
+   "name": "MapMode_Strength_Colour",
+   "signature": "void __fastcall MapMode_Strength_Colour(CInGameIdler* idler@ECX)",
+   "no_signature": null,
+   "comment": "Was: 'Colouring routine for map mode 9 (Strength).' **The strength map mode's setter, not a colouring loop** - the name is kept because other entries use it (mode 9, button `mapmode_12`, bound through the glue at CInGameIdler +0x10F8). Unless the mode is already 9, the `click` sound where it is not already playing (the sound's slot 25, then slot 9); the air icons and circles down when leaving 18 (HideAirMapIcons, ClearAirBaseCircles), the naval icons down (0x46AA70) when leaving 19; the idler's +0xD34 and CMap +0x2A90 = 9; **MapMode_ShowButton(12)**; the settings' layer mask +0xF0 = 0xFFBA, map style +0xF4 = 15 and +0xE7 = 0; the graphics owner's +0x60F8 = 0; HideProvinceObjects98; the strength colouring (VA 0x8646B0); Map_RefreshColourTextures(0); the graphics owner's +0x60DC = 1. Bare `ret`. See reversing/findings/FINDINGS-minimap.md, section 5.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "Read with the same summary pass as the new setters (sound, mode compare and store, ShowButton argument, the three settings stores, the calls). Bound to `mapmode_12` by CInGameIdler::Enter at the lea of +0x10F8; the constructor stores this address into that glue. Revised: the old one-line comment called it the colouring routine; it is the button's setter, and a signature is added.",
+   "revises": true
+  },
+  {
+   "rva": "0x267710",
+   "kind": "function",
+   "name": "MapMode_VictoryPoints_Recolour",
+   "signature": "void __stdcall MapMode_VictoryPoints_Recolour(CInGameIdler* idler@ECX)",
+   "no_signature": null,
+   "comment": "Recolours the map for the VP map mode (mode 7); called with ecx pointing at the in game idler. **It is the VP button's setter** (mapmode_10, glue +0x1058): unless already 7 the `click`; air and naval icons down as every setter; +0xD34 and CMap +0x2A90 = 7; MapMode_ShowButton(10); layer mask 0xFFBA, map style 13, settings +0xE7 = 0; the graphics owner's +0x60F8 = 0; MapMode_VictoryPoints_ColourLoop, HideProvinceObjects98, Map_RefreshColourTextures(0); +0x60DC = 1. See reversing/findings/FINDINGS-minimap.md, section 5.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "Same pass as the other setters; bound to mapmode_10 at 0x65E24E (lea [ebx+0x1058]). Revised: adds what the setter does; the signature and name are kept.",
+   "revises": true
+  },
+  {
+   "rva": "0x265980",
+   "kind": "function",
+   "name": "MapMode_ShowButton",
+   "signature": "void __stdcall MapMode_ShowButton(CInGameIdler* idler@ESI, int button@stack:4)",
+   "no_signature": null,
+   "comment": "Shows which map mode button is down: every one of `mapmode_1` to `mapmode_16` to frame 1, then `mapmode_` and the number given to frame 2. First, where the settings' +0xF0 & +0xEC has 0x1, every 0x24-byte entry of the graphics owner's +0x1EF8 (counted at +0x1EF4) gets -1 and 0x862260 runs. The air mode gives 15. The name is ours. See reversing/findings/FINDINGS-airmap.md, section 1. **The number is the button's own** (1..16, not the game's mode): every button setter passes its button - terrain 1, political 2, weather 3, intel 4, revolt 5, diplomatic 6, region 7, supply 8, infrastructure 9, VP 10, theatre 11, strength 12, resources 13, simplified terrain 14, air 15, naval 16 - and CInGameIdler::Enter calls it with 1 just after binding the buttons (VA 0x65E588). The frames are the button's slot 18 (SetFrame): 1 up, 2 down, the two halves of each `mapmode_*` sprite (noOfFrames = 2). The modes with no button - 14 (placing a deployment), 15 (air orders), 17 (theatre editor) - never call it, so the last button pressed stays down under them. Nothing hides or greys a map mode button: `mapmode_1`..`mapmode_16` are named only here, in Enter's binding and in GetElementTooltip. See reversing/findings/FINDINGS-minimap.md, section 5.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "The 16 push values read off each setter's call (setters.py summary over all 16 bound setters). String references: each of 'mapmode_1'..'mapmode_16' has exactly three in .text (0x65D..., 0x665..., 0x6C8...), plus 'mapmode_8' a fourth at 0x6568C8 (CInGameIdler::Update, not followed). Revised: adds the numbering and the callers.",
+   "revises": true
+  },
+  {
+   "rva": "0x278A00",
+   "kind": "function",
+   "name": "MapMode_SwitchIcons",
+   "signature": "void __stdcall MapMode_SwitchIcons(CInGameIdler* idler@stack:4, int mode@EDI)",
+   "no_signature": null,
+   "comment": "The map mode change's part for the air and naval icons: given 18, UpdateAirMapIcons and UpdateAirBaseCircles; otherwise, where the mode was 18, HideAirMapIcons and ClearAirBaseCircles, and given 19 the naval icons (0x46A6F0); leaving 19, the naval icons down (0x46AA70). Then the idler's +0xD34 and CMap's +0x2A90 take the new mode. The name is ours. See reversing/findings/FINDINGS-airmap.md, section 1. **One caller: the CInGameIdler constructor** (VA 0x648B52, mode 0), right after it points the map graphics owner's +4 and +0x1DE4 at its own map camera (+0x1938); the constructor then writes the terrain mode's settings (layer mask 0xFFFF, map style 0, +0xE7 = 0). So a screen is born in mode 0. See reversing/findings/FINDINGS-minimap.md, section 7.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "findRefs --callers 0x678A00: exactly 0x648B52, with edi zeroed at 0x648B47. Revised: adds the caller.",
+   "revises": true
+  },
+  {
+   "rva": "0x275320",
+   "kind": "function",
+   "name": "CInGameIdler::PushMapMode",
+   "signature": "void __thiscall CInGameIdler::PushMapMode(CInGameIdler* this)",
+   "no_signature": null,
+   "comment": "Slot 98: pushes the current map mode (+0xD34) on the front of the list at +0xAB8 (tail +0xABC, count +0xAC0). Bare `ret`. The name is ours. Three users in the image, each paired with a PopMapMode: placing a deployment (SetDeploymentBeingPlaced, mode 14), the air orders window (CAirOrdersView::CAirOrdersView then SetAirOrdersMapMode, mode 15; the destructor pops) and the theatre editor (SetTheatreEditing, mode 17). The list is a stack - the newest mode first. See reversing/findings/FINDINGS-minimap.md, section 5.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "Every access to +0xAB8/+0xAC0 in a resumed sweep of .text on a CInGameIdler is in the constructor (0x647BED/0x647BF9), PushMapMode and PopMapMode; the slot 98 vcalls ([reg+0x188] on the idler) found at 0x6667D8, 0x741132 and 0x667DEA. Revised: adds the users.",
+   "revises": true
+  },
+  {
+   "rva": "0x275380",
+   "kind": "function",
+   "name": "CInGameIdler::PopMapMode",
+   "signature": "void __thiscall CInGameIdler::PopMapMode(CInGameIdler* this)",
+   "no_signature": null,
+   "comment": "Slot 99: where the list at +0xAB8 is not empty, takes its first mode off and tail-jumps to that mode's setter through a 20-entry table at 0x67545C - 1 political, 2 diplomatic, 18 MapMode_Air_Set, 19 0x6680E0 and the rest; 0, 14, 15 and 16 all go to 0x666020. So a mode 14 popped sets the map to what 0 sets. Bare `ret` where the list is empty. The name is ours. The whole table (VA 0x67545C): 0 MapMode_Terrain_Set, 1 political, 2 diplomatic, 3 MapMode_Region_Set, 4 supply, 5 infrastructure, 6 intel, 7 VP, 8 theatre, 9 strength, 10 MapMode_Resources_Set, 11 weather, 12 revolt, 13 simplified terrain, 14/15/16 terrain, **17 the theatre setter (mode 8)**, 18 air, 19 MapMode_Naval_Set; above 19 terrain. Each is a button's full setter, so the button is pressed again and the `click` plays where the mode changes. Callers: SetDeploymentBeingPlaced(null), SetTheatreEditing(null) and the air orders window's destructor. See reversing/findings/FINDINGS-minimap.md, section 5.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "The 20 table entries read off the image and each tail jump followed (0x6753B6..0x675451). Revised: names the entries the old comment left as 'the rest' and adds 17 and 13.",
+   "revises": true
+  },
+  {
+   "rva": "0x2627D0",
+   "kind": "function",
+   "name": "CInGameIdler::GetTooltip",
+   "signature": "GuiTooltipText* __thiscall CInGameIdler::GetTooltip(CInGameIdler* this, GuiTooltipText* out) @EAX",
+   "no_signature": null,
+   "comment": "**Slot 20: the tooltip under the mouse.** Empty when g_TooltipsEnabled is 0. An interface element under the mouse (the gui's +0x98) is asked through slot 109, and when its `delayed_extra` is empty and the element's slot 39 answers its shortcut, `delayed_extra` becomes the localised SHORTCUT ('§WShortcut: §Y') and the shortcut. Otherwise, over the map (input slot 17), the province under the mouse (+0x1DD4) is asked through its slot 3 - ProvinceTooltip_Build - placed at **the minimap's corner** (+0x1920, CEU3Minimap, its slot 24 - CButton::GetPosition) **less 50 and 20**, with `below` false - so the box stands above that point wherever the mouse is; corrected 2026-11-07, this said 'the mouse'; nothing there gives an empty tooltip at the minimap's corner less 60 and 20. The result is kept in g_InGameTooltip. See reversing/findings/FINDINGS-tooltips.md, section 4.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "0x662B6A `mov ebx,[ebx+0x1920]` then `call [eax+0x60]` (slot 24) and `add word [esp+0xC], -0x32` / `add word [esp+0xE], -0x14`; the empty path at 0x662BBB the same with -0x3C. +0x1920 is written only by CInGameIdler::Enter (0x65F99F, the return of CEU3Gui_CreateMinimap for 'minimap_pic') and ReloadMenubar (0x6595FC, the same) - a resumed sweep of .text for the displacement. Revised: the point is the minimap's corner, not the mouse.",
+   "revises": true
+  },
+  {
+   "rva": "0x2692A0",
+   "kind": "function",
+   "name": "CInGameIdler::ZoomIn",
+   "signature": "void __thiscall CInGameIdler::ZoomIn(CInGameIdler* this)",
+   "no_signature": null,
+   "comment": "**`map_zoom_in` (PAGE_DOWN)**, through the glue at +0x1238: the `click` where not already playing; the camera's height wanted (+0x1C7C = MapCamera +0x344) less float(float(h / 20) * 20) * 0.2 - a fifth off - held at or above the lowest (+0x1C84 = +0x34C, 40). Bare `ret`. The name is ours. See reversing/findings/FINDINGS-minimap.md, section 5.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "Read whole 0x6692A0..0x669414; bound to map_zoom_in at 0x65E5C6 (lea [ebx+0x1238]). 20.0 at VA 0x160A318, 0.2 a float widened at 0x160A260."
+  },
+  {
+   "rva": "0x269420",
+   "kind": "function",
+   "name": "CInGameIdler::ZoomOut",
+   "signature": "void __thiscall CInGameIdler::ZoomOut(CInGameIdler* this)",
+   "no_signature": null,
+   "comment": "**`map_zoom_out` (PAGE_UP)**, through the glue at +0x1288: as CInGameIdler::ZoomIn but adding the fifth, held at or below the highest (+0x1C88 = MapCamera +0x350, 1000). Bare `ret`. The name is ours. See reversing/findings/FINDINGS-minimap.md, section 5.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "Read 0x669420..0x669595 (the arithmetic at 0x669516..0x669584); bound to map_zoom_out at 0x65E648 (lea [ebx+0x1288])."
+  },
+  {
+   "rva": "0x670160",
+   "kind": "function",
+   "name": "Graphics_CreateLineObject",
+   "signature": "void* __fastcall Graphics_CreateLineObject(CGraphics* graphics@ECX) @EAX",
+   "no_signature": null,
+   "comment": "Makes a screen-space line object (0x1138 bytes, LineObject_Construct with the screen's width and height packed into one dword), appends it to the graphics' vector at +0xB8 and hangs it on the interface tree (+0x6B9E0, the object's slot 29) - the tree CGraphics_DrawInterface walks. Bare `ret`. Three callers; CEU3Minimap::CEU3Minimap makes its two through it. The name is ours. See reversing/findings/FINDINGS-minimap.md, section 2.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "Read whole 0xA70160..0xA70210. That slot 29 attaches to the tree is inferred from CGraphics_DrawInterface's record ('the first object of the tree at +0x6B9E0'); the rest is in the listing."
+  },
+  {
+   "rva": "0x6CF7F0",
+   "kind": "function",
+   "name": "LineObject_Construct",
+   "signature": "void* __stdcall LineObject_Construct(void* line, int screenSize, CGraphics* graphics) @EAX",
+   "no_signature": null,
+   "comment": "The line object's constructor: the base 0xAB2770(line, screenSize), vftables 0x1602660 (at 0) and 0x16027D0 (at +0x14C), the graphics at +0x170, no points (+0x1114 = 0, room for 500 at +0x174, 8 bytes each), **colour (1, 1, 1, 1) - white, opaque** - as a CColor at +0x1118 (r, g, b, a at +0x1120..+0x112C), a width (+0x1134) from the float at VA 0x171DC88, and an ID3DXLine from D3DXCreateLine on the device (graphics +0x64) at +0x16C, given that width (its slot 11, SetWidth). `ret 0xC`. The name is ours. See reversing/findings/FINDINGS-minimap.md, section 2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "Read whole 0xACF7F0..0xACF907. ID3DXLine's slot 11 is SetWidth (QueryInterface, AddRef, Release, GetDevice, Begin, Draw, DrawTransform, SetPattern, GetPattern, SetPatternScale, GetPatternScale, SetWidth). The table has no RTTI."
+  },
+  {
+   "rva": "0x6CF9F0",
+   "kind": "function",
+   "name": "LineObject_Draw",
+   "signature": "void __fastcall LineObject_Draw(void* line@ECX, int unused0@stack:4, int unused1@stack:8, int unused2@stack:0xC, int unused3@stack:0x10, int unused4@stack:0x14, int unused5@stack:0x18)",
+   "no_signature": null,
+   "comment": "Slot 10 of the line object: nothing where it has no points (+0x1114 == 0); otherwise ID3DXLine Begin, **Draw(points +0x174, count, the CColor +0x1118 packed by CColor -> 0xAARRGGBB, 0x6628B0)**, End - a polyline in screen pixels. None of its six stack arguments is read. `ret 0x18`. The name is ours. See reversing/findings/FINDINGS-minimap.md, section 2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "Read whole 0xACF9F0..0xACFA45; slot 10 of the table 0x1602660 read off the image. ID3DXLine slots 4 Begin (+0x10), 5 Draw (+0x14), 17 End (+0x44)."
+  }
+ ],
+ "structs": [
+  {
+   "name": "CEU3Minimap",
+   "size": "0x120",
+   "inherits": "CGuiObject",
+   "vftable_rva": "0x11CF15C",
+   "comment": "The minimap: an icon (CEU3Minimap < CIcon < CButton < TButton < CGuiObject) made only from `minimap_pic` by CEU3Gui_CreateMinimap, 0x120 bytes. Its own slots are 1 HandleMouse (a left press moves the camera), 5 the deleting destructor, 6 Update (redraws the camera frame), 13 Show, 14 Hide; everything else, the picture among it, is CIcon's. See reversing/findings/FINDINGS-minimap.md.",
+   "evidence": "`push 0x120; call operator_new` in CEU3Gui_CreateMinimap (0x643606); the vftable written at 0x67A49E; RTTI bases CIcon at 0 and on to CGuiObject at 0 (hoi3_tfh-classes.json, guilive §1). CGuiObject is the nearest base with a record."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CEU3Minimap",
+   "offset": "0xF0",
+   "name": "line_graphics",
+   "type": "CEU3Graphics*",
+   "comment": "The graphics global (VA 0x1A85634) the two line objects are made and removed through.",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "Ctor 0x67A4AB from [0x1A85634]; used as ECX for Graphics_CreateLineObject (0x67A4C8, 0x67A50A) and as ESI for the remover in the destructor."
+  },
+  {
+   "struct": "CEU3Minimap",
+   "offset": "0xF4",
+   "name": "gui",
+   "type": "CGui*",
+   "comment": "The gui it was made by (constructor argument 3).",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "Ctor 0x67A4B1 from [ebp+0x10], which CEU3Gui_CreateMinimap pushes as ESI (the gui)."
+  },
+  {
+   "struct": "CEU3Minimap",
+   "offset": "0xF8",
+   "name": "parent",
+   "type": "void*",
+   "comment": "Constructor argument 4, also handed to CIcon::CIcon: the in-game screen passes its +0x1794. What it is was not read.",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "Ctor 0x67A4B7 from ebx = [ebp+0x14]."
+  },
+  {
+   "struct": "CEU3Minimap",
+   "offset": "0xFC",
+   "name": "map_graphics_owner",
+   "type": "void*",
+   "comment": "The map graphics owner (VA 0x1A855FC, the in-game screen's slot 15): +4 the map camera, +0x60D4/+0x60D8 the map's width and height, which HandleMouse scales a click by.",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "Ctor 0x67A498 from [0x1A855FC]; HandleMouse reads +0x60D4/+0x60D8 through it (0x67ACD4, 0x67AD22); those two are written from CMap +0x2A74/+0x2A78 at 0x640916/0x640928."
+  },
+  {
+   "struct": "CEU3Minimap",
+   "offset": "0x100",
+   "name": "camera",
+   "type": "MapCamera*",
+   "comment": "The map camera, read once as the graphics owner's +4 - which the CInGameIdler constructor points at its own +0x1938 (VA 0x648B49). Update reads its x_settled, y_settled, height, lowest and highest; HandleMouse jumps it.",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "Ctor 0x67A4C2 = [[0x1A855FC]+4]; the field reads (+0x33C, +0x340, +0x348, +0x34C, +0x350) and MapCamera_JumpTo's writes are all MapCamera's recorded offsets."
+  },
+  {
+   "struct": "CEU3Minimap",
+   "offset": "0x104",
+   "name": "drawn_camera_x",
+   "type": "float",
+   "comment": "The camera's x_settled when the frame was last drawn.",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "Update 0x67A6B2 compares, 0x67A76A stores."
+  },
+  {
+   "struct": "CEU3Minimap",
+   "offset": "0x108",
+   "name": "drawn_camera_y",
+   "type": "float",
+   "comment": "The camera's y_settled when the frame was last drawn.",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "Update 0x67A6D6 compares, 0x67A776 stores."
+  },
+  {
+   "struct": "CEU3Minimap",
+   "offset": "0x10C",
+   "name": "drawn_camera_height",
+   "type": "float",
+   "comment": "The camera's height when the frame was last drawn.",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "Update 0x67A6F6 compares, 0x67A784 stores."
+  },
+  {
+   "struct": "CEU3Minimap",
+   "offset": "0x110",
+   "name": "map_width",
+   "type": "float",
+   "comment": "float(CMap +0x2A74), 5616 in TFH: what the camera's x is divided by.",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "Ctor 0x67A551..0x67A577 from g_CMap (VA 0x1A8557C) +0x2A74; Update 0x67A7D2."
+  },
+  {
+   "struct": "CEU3Minimap",
+   "offset": "0x114",
+   "name": "map_height",
+   "type": "float",
+   "comment": "float(CMap +0x2A78), 2160 in TFH: what the camera's y is divided by.",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "Ctor 0x67A561..0x67A57D from +0x2A78; Update 0x67A7EC."
+  },
+  {
+   "struct": "CEU3Minimap",
+   "offset": "0x118",
+   "name": "frame",
+   "type": "void*",
+   "comment": "The line object the camera frame is drawn with: 5 points, a closed rectangle, white, 1 pixel. Made by Graphics_CreateLineObject.",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "Ctor 0x67A4D5; Update writes its points (+0x174 + 8i) and count (+0x1114)."
+  },
+  {
+   "struct": "CEU3Minimap",
+   "offset": "0x11C",
+   "name": "frame_unused",
+   "type": "void*",
+   "comment": "A second line object, made, shown and hidden with the first and emptied by every Update, but never given a point - so it draws nothing.",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "Ctor 0x67A50F; the only writes through it are Update's count reset at 0x67A7C0, Show/Hide and the destructor."
+  },
+  {
+   "struct": "CInGameIdler",
+   "offset": "0x1918",
+   "name": "minimap_bg",
+   "type": "CGuiObject*",
+   "comment": "The icon `minimap_bg` (menubar.gui, GFX_minimap_bg, 340 x 160), made by Enter and ReloadMenubar through the gui's slot 31 and shown; hidden with the minimap while a country view is open (OpenCountryView) and shown again by CInGameIdler_CloseCountryView.",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "Stores at 0x65F920 (Enter, after 'minimap_bg') and 0x65959D (ReloadMenubar, ebx+0x1864 with ebx = idler+0xB4); readers in OpenCountryView, CloseCountryView, Leave and ApplyCustomGameSettings (resumed sweep)."
+  },
+  {
+   "struct": "CInGameIdler",
+   "offset": "0x191C",
+   "name": "minimap_overlay",
+   "type": "CGuiObject*",
+   "comment": "The icon `minimap_overlay` (sprite day_night_scroll, a scrollingSprite over the minimap): its frame is the hour of the day, set by HourlyUpdate every hour and by Enter and ReloadMenubar.",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "Stores at 0x648423 (constructor, null), 0x65FA21 (Enter) and 0x659662 (ReloadMenubar); the frame writes at 0x661C7E and 0x659712 (slot 18 with (tick - 43,800,000) mod 24)."
+  },
+  {
+   "struct": "CInGameIdler",
+   "offset": "0x1920",
+   "name": "minimap",
+   "type": "CEU3Minimap*",
+   "comment": "**The minimap**, made from `minimap_pic` by CEU3Gui_CreateMinimap in Enter and ReloadMenubar. Besides showing and hiding it with the country views, the screen reads it in one other place: GetTooltip places the map's tooltip at its corner less (50, 20).",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "Stores only at 0x65F99F (Enter) and 0x6595FC (ReloadMenubar, ebx+0x186C), each the return of CEU3Gui_CreateMinimap; GetTooltip's reads at 0x662B6A and 0x662BBB (resumed sweep over .text)."
+  },
+  {
+   "struct": "CInGameIdler",
+   "offset": "0xD38",
+   "name": "mapmode_button_glue",
+   "type": "uint8_t[1280]",
+   "comment": "Sixteen 0x50-byte member-function glues, one per map mode setter, made by the constructor (0x679650) and subscribed to the `mapmode_N` buttons by Enter: +0xD38 terrain (mapmode_1), +0xD88 political (2), +0xDD8 revolt (5), +0xE28 diplomatic (6), +0xE78 region (7), +0xEC8 simplified terrain (14), +0xF18 supply (8), +0xF68 infrastructure (9), +0xFB8 weather (3), +0x1008 intel (4), +0x1058 VP (10), +0x10A8 theatre (11), +0x10F8 strength (12), +0x1148 resources (13), +0x1198 air (15), +0x11E8 naval (16).",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "Constructor stores of each setter's address followed by `lea eax,[ebx+N]; call 0x679650` (0x647D90..0x64801A); Enter's `lea edx,[ebx+N]` after each button name (0x65DD11..0x65E53C), handed to the button's +0x48 observer's slot 1."
+  },
+  {
+   "struct": "CInGameIdler",
+   "offset": "0x1238",
+   "name": "zoom_in_glue",
+   "type": "uint8_t[80]",
+   "comment": "The glue `map_zoom_in` is subscribed to: CInGameIdler::ZoomIn.",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "Constructor 0x648044 (0x6692A0); Enter 0x65E5C6 after 'map_zoom_in'."
+  },
+  {
+   "struct": "CInGameIdler",
+   "offset": "0x1288",
+   "name": "zoom_out_glue",
+   "type": "uint8_t[80]",
+   "comment": "The glue `map_zoom_out` is subscribed to: CInGameIdler::ZoomOut.",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "Constructor 0x64806E (0x669420); Enter 0x65E648 after 'map_zoom_out'."
+  },
+  {
+   "struct": "MapCamera",
+   "offset": "0x356",
+   "name": "frozen",
+   "type": "bool",
+   "comment": "**Set while a country view or a builder window is up**: the per-frame update (VA 0x64FC27/0x64FC38) writes 1 where the open country view's slot 7 answers true or +0x1CE0 is set, else 0. MapCamera_JumpTo does nothing while it is set, so a minimap click cannot move the camera then (the minimap is hidden under a country view anyway). UpdateMapCamera tests it twice (VA 0x63CB52, 0x63CCF0, not read through); the front end's view switches write it too.",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "Resumed sweep of .text for byte accesses at +0x356: writers 0x63C294 (camera construction), 0x64FC27/0x64FC38, 0x6F1296, 0x6F13A2, 0x6FC957, 0x6FCA84, 0x6FEE3D, 0x70203D, 0x7CDABA; readers 0x63CB52, 0x63CCF0, 0x63D3C0, 0x69B950, 0x6F1358, 0x6F1E2B. The meaning of the front end's writes was not read."
+  },
+  {
+   "struct": "GameSettings",
+   "offset": "0xE7",
+   "name": "mapmode_byte_e7",
+   "type": "uint8_t",
+   "comment": "Written by every map mode setter and the CInGameIdler constructor: 1 by the resources mode alone, 0 by all the others. No reader found next to a GetGameSettings call; what it governs is not established.",
+   "source": "reversing/findings/FINDINGS-minimap.md",
+   "evidence": "The scan for `call GetGameSettings` followed within six instructions by an access to [eax+0xE7] finds 20 sites, every one a write (the constructor, 18 setters, SetDeploymentBeingPlaced); readers through a held settings pointer would not show in that scan."
+  }
+ ],
+ "vftable_slots": {
+  "CEU3Minimap": {
+   "1": "HandleMouse",
+   "5": "ScalarDeletingDestructor",
+   "6": "Update",
+   "13": "Show",
+   "14": "Hide"
+  },
+  "CInGameIdler": {
+   "52": "HourlyUpdate",
+   "81": "DoTutorialAction",
+   "100": "SetAirOrdersMapMode",
+   "110": "SetTheatreEditing"
+  },
+  "CInGameIdler@0xB4": {
+   "0": "ReloadMenubar"
+  }
+ },
+ "frontier": [
+  "0x4E4490",
+  "0x23D350",
+  "0x465930",
+  "0x4660E0",
+  "0x4674E0",
+  "0x465290",
+  "0x267AE0",
+  "0x66FCA0",
+  "0x6B2770",
+  "0x46AA70"
+ ]
+}

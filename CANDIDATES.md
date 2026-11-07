@@ -1406,7 +1406,7 @@ of it.
 
 ## What has already been read
 
-195 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
+196 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
 header lives. This replaces the `Done` archive: the archive restated each file's headline and named
 only 40 of the 67 there were then, so it was both longer and less useful than a complete list.
 
@@ -1558,6 +1558,7 @@ the six it was missing were wave 15's.
 | `findings/FINDINGS-progressfx.md` | **a progress bar through progress.fx (2026-11-07)**: `progressbartype` is a `CProgressBarType` with no RTTI, each icon a `CProgressBarObject`; its keys and colours, `ColorProgress` where both pictures load and `tec0` otherwise, `CurrentState` the share times textureFile2's width fraction, the quad with v nought along its foot - why both pictures come out upside down - and the share set through the icon's frame; corrects `CObjectType::LoadKey`, recorded as `CProvinceType`'s |
 | `findings/FINDINGS-buttonstatefx.md` | **a plain sprite through buttonstate.fx (2026-11-07)**: every `spriteType` drawn through an effect, buttonstate.fx by the constructor's default; the interface's batch setting the technique by name from the object's state, which element passes which, `Color`, `vXOffset` and the column, the half-pixel quad and its quarter turns; `interpolated_buttonstate.fx` differs only in its Linear sampler and draws the portraits; corrects `CSprite::UpdateStateName` and `CCheckBox_ShowState` |
 | `findings/FINDINGS-billboardfx.md` | **plain billboards through billboard.fx (2026-11-07)**: `CBillboardType`'s keys and defaults (effect key "Billboard" shared by every plain type), the square quad with u padded and v not, technique `standard` once a batch, `vMultiplier` 1.5 for a selected object, the whole inverse view, `flip` thrown away, the pointer always at scale 1; which map things are billboards - the pointer, the battle markers at height 0, the buildings, the large air and naval icons and the event icons - and the open question whether the pictures translated after hanging ever move |
+| `findings/FINDINGS-minimap.md` | **the minimap and the map mode buttons (2026-11-07)**: `CEU3Minimap` a fixed picture with a white one-pixel frame whose size is a straight line in the camera's height, a left press jumping the camera there; the day/night overlay by the hour; the sixteen buttons bound to their modes' full setters, frame 2 pressed, `MAPMODE_N` tooltips, no shortcuts; the modes pushed and popped by themselves; a game starting in terrain; corrects the map tooltip's anchor - the minimap's corner, not the mouse |
 
 **The interface, and text**
 

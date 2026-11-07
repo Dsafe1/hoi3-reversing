@@ -25,12 +25,12 @@ how many objects a census found (taken 2026-09-20).
 
 | | classes |
 | --- | --- |
-| `read` | 157 |
+| `read` | 158 |
 | `placed` | 140 |
 | `keys` | 75 |
 | `part` | 152 |
 | `named` | 5 |
-| `RTTI` | 612 |
+| `RTTI` | 611 |
 | **all** | **1141** |
 
 ## What to read next
@@ -520,7 +520,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CEU3DialogGui` | `CFixedWindow` |  |  |  | 2 |  |  | RTTI |  |
 | `CEU3DirectSound` | `CDirectSound` |  |  |  |  |  | 1 | RTTI |  |
 | `CEU3Idler` | `CIdler` |  |  |  | 4 |  |  | RTTI |  |
-| `CEU3Minimap` | `CIcon` |  |  |  | 1 |  | 2 | RTTI |  |
+| `CEU3Minimap` | `CIcon` | 0x120 | 12 |  | 7 |  | 2 | read |  |
 | `CEasymodeView` | `CFrontEndView` | 0x90 | 1 |  | 2 |  |  | part |  |
 | `CEntryForTechCategory` | `CStandardlistboxItem` |  | 4 |  | 2 |  | 4 | part |  |
 | `CEspionageView` | `CCountryView` | 0x37C | 27 |  | 55 |  | 1 | read |  |
@@ -543,7 +543,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CICCostComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CIcon` | `CButton` |  |  |  | 4 |  |  | RTTI |  |
 | `CIdler` |  |  |  |  |  |  |  | RTTI |  |
-| `CInGameIdler` | `CEU3Idler` `CLostDeviceInterface` `CReloadDispatcher` |  | 107 |  | 100 | CInGameIdler.hpp | 3 | read |  |
+| `CInGameIdler` | `CEU3Idler` `CLostDeviceInterface` `CReloadDispatcher` |  | 113 |  | 107 | CInGameIdler.hpp | 3 | read |  |
 | `CIngameSettingsScreen` | `CSettingsScreen` | 0x3E0 | 1 |  | 2 |  | 1 | part |  |
 | `CLandOrdersView` | `COrdersView` | 0x198 | 10 |  | 10 |  |  | read |  |
 | `CLawEntry` | `CStandardlistboxItem` | 0x88 | 4 |  | 3 |  | 16 | part |  |

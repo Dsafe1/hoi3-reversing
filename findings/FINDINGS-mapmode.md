@@ -119,7 +119,7 @@ are lined up, because that one was already known from the disassembly.
 | `mapmode_4` | Intel | **6** | `0x267510` |
 | `mapmode_5` | Revoltrisk | **12** | generic path |
 | `mapmode_6` | Diplomatic | **2** | `0x2668C0` |
-| `mapmode_7` | (no localisation) | **3** | generic path |
+| `mapmode_7` | Region (`MAPMODE_7G`) | **3** | generic path |
 | `mapmode_8` | Supply | **4** | `0x266EE0` |
 | `mapmode_9` | Infrastructure | **5** | `0x2670F0` |
 | `mapmode_10` | VP | **7** | `0x267710` |
@@ -131,8 +131,8 @@ are lined up, because that one was already known from the disassembly.
 | `mapmode_16` | Naval | **19** | generic path |
 
 The dispatch that picks a routine only runs for a mode whose entry in the table at
-`[map+0x30]` is 1; everything else takes the generic path. It also has a case for mode
-17, which no button produces.
+`[map+0x30]` is 1; everything else takes the generic path. It also has a case for mode 17, the theatre editor, which no button produces
+(CInGameIdler::SetTheatreEditing; `FINDINGS-minimap.md`, section 6).
 
 **Simplified Terrain is mode 13, and takes the generic path** - so there is no routine
 of its own to change, and whatever it does about sea provinces it does somewhere shared.
