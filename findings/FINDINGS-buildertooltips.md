@@ -231,6 +231,30 @@ registered anywhere. `UpdateDesign` calls it on `operator new(0x228)` with `---`
 bytes**. BiceLib's header has 0x248 as the distance between neighbours in memory, which would be
 the heap's own overhead on top. `confirmed`
 
+## 7. The combined arms indicator, and the lines BiceLib adds
+
+*Read 2026-11-07.* The indicator arm (section 2) reaches the group as the unit database's
+`unit_groups[atoi(suffix)]` into EDI (`0x7EB48E`..`0x7EB495`), makes its name into a temporary and
+copies that into the tooltip with `call 0x401BD0` at `0x7EB4B0` (`out` in ECX and EBX). EDI is read
+again after the call (`lea ecx, [edi+8]` at `0x7EB4D0`), so the copy keeps it. `confirmed`
+
+**What the icon's frame and the design's bonus test**, from `UpdateDesign`:
+
+- the base test: for each brigade, `unit_groups[definition->unit_group (+0x1B4)]` and its byte at
+  `+0x24` (`0x7E65B7`..`0x7E65CD`) - one base group anywhere sets the design's "has a base" byte;
+- the light: for each group index `i` from 1, a brigade whose `+0x1B4` is `i` and that byte set
+  give frame `i` and `bonus += unit_groups[i]->+0x28 + technology_status->+0x5C[i]`
+  (`0x7EA205`, `0x7EA5E8`..`0x7EA628`); otherwise the greyed frame.
+
+So a group's own figure is `value + the country's research bonus for it`, and it counts only
+alongside a base group - which combat gates on too (`CUnit +0x1CC`, `FINDINGS-combatmods.md`).
+
+BiceLib's `Hooks/Tooltips/CombinedArmsLine` replaces the `call` at `0x7EB4B0`: it makes the copy,
+then adds `Combined arms bonus: +X%` - with the research part apart where there is one - and
+`Base: yes` or `no` under the name. It finds the group's index by looking for EDI in
+`unit_groups`, as the arm reached it, and the research bonus through the player's
+`CCountry +0xDF8`.
+
 ## Kept as read, though they look odd
 
 1. **Attrition is written without its hundred**: an adjuster's attrition of `0.5` reads `+0.5%`
@@ -263,3 +287,6 @@ Section 6 by `fragments/merged/designer-paradrop-line.json`: the instruction
 revised from `CList` to `CList<CSubUnitDefinition*>`. Then by
 `fragments/merged/designer-paradrop-weight.json`: `CSubUnitDefinition::CSubUnitDefinition`
 (`0x1A3510`) new, and `+0x1B4`'s comment revised to say its definitions are the database's.
+
+Section 7 by `fragments/merged/designer-combined-arms-line.json`: the instruction
+`DivisionDesigner_BuildTooltip_GroupNameCopy` (`0x3EB4B0`) new.
