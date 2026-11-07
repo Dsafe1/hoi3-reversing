@@ -159,6 +159,25 @@ already there against `+0x68`, with nothing queued counted - so it skips all of 
 target `0x17E5B7` and the resume `0x17E4ED` (after the eight bytes) are the `je`'s two outcomes;
 the old hook resumed at `+6`, inside its own nop padding.
 
+### 7.1 What the hook stands on since, so that only research is waived
+
+Rewritten the same day to leave the game's other five questions in place. **Only
+`CanDeployIn`'s call is affected**: `IsBuildingAllowed` has four other direct callers -
+`CConstructBuildingCommand::IsValid` (`0x14562D`), `CBuildingMember::OnClick` (`0x2DC0F0`) and
+`CBuildingMember::Update` (`0x2DC558`, `0x2DC66C`), the production screen's building buttons -
+and research must keep counting for queuing a construction. `CanDeployIn` itself has no direct
+caller; it is `CBuildingDeployment`'s slot 10, so every way a waiting building is placed reaches
+it through the table. Slot 9, `DeployAt` (`0x17E640`), does the placing and does not ask again.
+
+- **`0x17E4E0`**, `call 0xDFFC0` (`E8 DB 1A F6 FF`), becomes a jump to a stub that raises a flag,
+  makes the same call - ECX and the two arguments are as the game left them, and the callee's
+  `ret 8` takes the arguments - lowers the flag and resumes at `0x17E4E5`, the vanilla `test al,
+  al`.
+- **`0xDFFF0`**, `cmp byte ptr [eax+edx], 0; jne 0xE000B` (`80 3C 10 00 75 15`) - the research
+  test, EAX the building's index (`+0x54`, from `0xDFFDD`) and EDX `technology_status ->
+  +0x28C` - becomes a stub that goes straight to `0xE000B` while the flag is up and otherwise
+  makes the test itself; its false way is `0xDFFF6`, `xor al, al`. Neither target reads the flags.
+
 ## 8. `CLeader::AddTrait`
 
 `0x181A60`: `push ebp; mov ebp, esp`, the leader from `[ebp+8]` and the trait from `[ebp+0xC]`,
