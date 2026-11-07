@@ -351,13 +351,14 @@ figure. `CBillboardObject::SetRotation`, already recorded, stores `-(angle + pi/
 negated**. `CUnit::SetHeading` (`0x5CB4F0`, the unit in EAX and the angle in XMM0) is the
 same store and call with an angle given.
 
-**Where it is drawn.** `CCounterObject::Render` copies the counter's own matrix to the arrow,
-sets its scale to the counter's own (`(size - 1) * level_scale + 1`) and has it drawn.
+**Where it is drawn.** `CCounterObject::Render` copies the counter's own matrix to the arrow, calls the arrow's slot 39 with the counter's own
+scale, and has it drawn. Slot 39 is C3dVisibleObject's SetScale, which writes +0xF4 and the local matrix. The draw
+reads neither, so **the pointer is always drawn at scale 1** (`FINDINGS-billboardfx.md` 2).
 `CBillboardType`'s slot 31 (`0xB076D0`) builds the quad's matrix:
 
     T = a translation of [type + 0xF8] along x
     R = D3DXMatrixRotationZ(the billboard's rotation)
-    world = T * R * (the view's rotation, inverted) , placed at the object's position
+    world = T * R * W, W = inverse(view) with _14 _24 _34 zeroed and its translation row the object's position
 
 `D3DXMatrixMultiply(out, T, R)` at `0xB078B5` - translation first, rotation second - so the
 picture is moved out along its own x and **then turned about the object's position**: it
@@ -368,9 +369,8 @@ the counter. The shader is given `vXOffset` as the frame times one over `noOfFra
 `CBillboardType::LoadKey` (`0xB071C0`, slot 4 of the table at VA 0x1605258) reads
 `noOfFrames` to `+0xF0`, `font` to `+0x114`, `textureFile` to `+0x9C`, `effect` to `+0xB8`,
 `effectFile` to `+0xD4` and `font_size` to `+0x104`, and hands `scale`, `offset` and
-`offset2` to two list readers whose destinations the decompilation loses. `+0xF8` being
-`offset` is `inferred` from the draw: it is the one length the draw translates by, and
-`offset` is the one length the declaration has besides `scale`.
+`offset2` to two list readers whose destinations the decompilation loses. `+0xF8` is `offset`, a single float, read by ParseFloat (`FINDINGS-billboardfx.md` 1); `scale` is +0x98 and
+`offset2` +0x108.
 
 ### Against the screenshot
 
@@ -555,8 +555,7 @@ past 0x483FC4; the x87 path of the acos helper, taken as the SSE2 path emulated.
   `CCounterType +0x19C`).
 - **Who tells an avatar it is far away**, and the test against `counter_distance`.
 - **What `order` is set from** (`CCounterObject +0x1A8`).
-- **Of the arrow** (section 9): what hides it again, when its red frame is used, where
-  `scale` and `offset` land in `CBillboardType`, and why it is a seventh further from the
+- **Of the arrow** (section 9): what hides it again, when its red frame is used, and why it is a seventh further from the
   counter on the screenshot than `offset`. `textureFile4` is loaded (`+0xB0`) and not read by the
   draw; and the `Rank` object.
 - **The province's port and air base icons**, which are how a fleet in port and a wing at

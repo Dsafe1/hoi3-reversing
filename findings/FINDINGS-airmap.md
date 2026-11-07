@@ -149,7 +149,9 @@ of section 5 are given the building's position less the label point through the 
 a middle figure of 0). So the vector is east, up and north: the air battle stands 3 east of the
 point, "bombed us" 3 north and "bombed them" 3 south, all three raised by 3. That the third
 figure counts north is `inferred` from the building positions, whose y counts north. All three
-are drawn at the type's `scale`, 3.5.
+are drawn at the type's `scale`, 3.5. *Whether the vector reaches the screen is open*: the slot 33 call comes after
+ProvinceGraphics_PlacePicture has computed the world transform, and no later refresh was found
+(`FINDINGS-billboardfx.md`, Not established).
 
 **The counts are bytes, and signed.** Each is one `char` of a buffer of three to a province, and
 read back sign-extended: 128 entries of one kind in a province within the week reads as below 1
@@ -171,7 +173,8 @@ province, `FINDINGS-mapmode.md`):
 Each, where its figure is above 0: makes, where there is none (at the province object's `+0x7C`,
 and `+0x84`), the billboard `large_air_base` - or `large_anti_air` - placed through slot 33 at
 the building's position (`CProvinceTemplate +0x258` by the building's index) less the label
-point, at height 0; the air base's frame is then set by `ProvinceGraphics_UpdateAirBasePicture`
+point, at height 0 (*whether that reaches the screen is open*, as in section 4: `FINDINGS-billboardfx.md`, Not
+established); the air base's frame is then set by `ProvinceGraphics_UpdateAirBasePicture`
 (`FINDINGS-seaair.md`, section 6: frame 1 with an air unit at home). And every time, **its size:
 the picture's `+0xB28` = (n - 1) x 0.2 + 1** - 1 for a level 1 base and 2.8 for a level 10.
 Where the figure is below 1, the picture is taken down. `CMapProvince +0x308` is the

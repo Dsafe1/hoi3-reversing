@@ -25,9 +25,9 @@ how many objects a census found (taken 2026-09-20).
 
 | | classes |
 | --- | --- |
-| `read` | 156 |
+| `read` | 157 |
 | `placed` | 140 |
-| `keys` | 76 |
+| `keys` | 75 |
 | `part` | 152 |
 | `named` | 5 |
 | `RTTI` | 612 |
@@ -132,7 +132,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CAreaBorder` | `PAVCProvince::__CArray` `CPersistent` |  | 6 | 1/4 | 1 |  | 2,595 | read |  |
 | `CArmy` | `CUnit` |  | 8 |  | 8 |  | 13,590 | read |  |
 | `CAutosave` | `CCommand` |  |  |  | 1 |  | 1 | keys |  |
-| `CBillboardType` | `C3dObjectType` |  |  |  | 3 |  |  | keys |  |
+| `CBillboardType` | `C3dObjectType` |  | 17 |  | 9 |  |  | read |  |
 | `CBitmapFont` | `CFont` `CLostDeviceInterface` |  |  |  |  |  |  | RTTI |  |
 | `CBombInstallationOrder` | `CAirOrder` |  |  |  | 3 |  |  | RTTI |  |
 | `CBombLogisiticsOrder` | `CAirOrder` |  |  |  | 5 |  |  | RTTI |  |
@@ -416,7 +416,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | class | derives from | size | fields | placed | fn | doc | live | state | notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `C3dObject` | `CGraphicalObject` |  |  |  | 1 |  | 22 | RTTI |  |
-| `C3dVisibleObject` | `C3dObject` |  | 6 |  | 11 |  |  | read |  |
+| `C3dVisibleObject` | `C3dObject` |  | 7 |  | 11 |  |  | read |  |
 | `CAccessAreaCostCallback` | `CAreaCostCallback` |  |  |  |  |  |  | RTTI |  |
 | `CAdjMember` | `CStandardlistboxItem` | 0x34 | 4 |  | 2 |  | 12 | part |  |
 | `CAirAttackComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
@@ -689,7 +689,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CTutorial` | `CReloadableInterface` |  |  |  |  |  |  | RTTI |  |
 | `CTutorialScreen` | `CFrontEndView` |  |  |  | 2 |  |  | RTTI |  |
 | `CUnitAirStanceEntry` | `CUnitViewBaseEntry` |  |  |  |  |  |  | RTTI |  |
-| `CUnitArrow` | `C3dVisibleObject` | 0x160 | 5 |  | 2 |  |  | read |  |
+| `CUnitArrow` | `C3dVisibleObject` | 0x160 | 9 |  | 6 |  |  | read |  |
 | `CUnitAttachmentEntry` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
 | `CUnitBase` |  |  |  |  | 1 |  |  | RTTI |  |
 | `CUnitBaseCarrier` | `CUnitBase` |  | 2 |  |  |  | 3,339 | part |  |

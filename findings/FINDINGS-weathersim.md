@@ -958,8 +958,10 @@ vXOffset would stay 0, so the other frames would never show. The lightning's fra
 - The walk that orders the queue.
 - Whether anything between the start of `MapObjectGroup_Draw` and the batch changes the blend factors.
 - Whether a picture near the map's seam is drawn twice.
-- What the billboard type does with `+0x148`, slot 69 (0x8E8160) and `+0xB28`; the weather type ignores all three.
-- The body of `CBillboardObject_DrawCaption` past its gate.
+- ~~What the billboard type does with `+0x148`, slot 69 (0x8E8160) and `+0xB28`~~ Settled 2026-11-07
+  (`FINDINGS-billboardfx.md` 2): `+0x148` = 1 gives vMultiplier 1.5, `+0xB28` is vScale, slot 69's answer is read by
+  neither type.
+- ~~The body of `CBillboardObject_DrawCaption` past its gate.~~ Settled 2026-11-07 (`FINDINGS-billboardfx.md` 2).
 
 ### C.4 The "movement tooltip" at `0x73D460`
 

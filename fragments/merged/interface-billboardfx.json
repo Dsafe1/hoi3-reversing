@@ -1,0 +1,570 @@
+{
+ "agent": "delegated agent, 2026-11-07: plain billboardType objects through gfx/FX/billboard.fx, whole",
+ "question": "How the original feeds billboard.fx for every plain billboardType - the type's keys, texture, effect, quad and technique, every parameter of the draw, the states and the order, and which map things are such billboards and where each stands - so another program can draw them through the install's own effect file exactly.",
+ "source": "reversing/findings/FINDINGS-billboardfx.md",
+ "addresses": [
+  {
+   "rva": "0x706AA0",
+   "kind": "function",
+   "name": "CBillboardType::CBillboardType",
+   "signature": "CBillboardType* __stdcall CBillboardType::CBillboardType(CBillboardType* this@stack:4, void* graphics@stack:8) @EAX",
+   "no_signature": null,
+   "comment": "**Constructs a `billboardType`** and is what identifies the table: it writes vftable VA 0x1605258 at 0xB06AFB. Defaults: +0x8C the graphics, +0x90 (vertex declaration) 0, +0x94 (effect index) -1, **`scale` (+0x98) 1.0**, `textureFile` (+0x9C) empty, **`effect` (+0xB8) = \"Billboard\"** (string at VA 0x160521C), **`effectFile` (+0xD4) = \"gfx/FX/billboard.fx\"** (VA 0x1605228), `noOfFrames` (+0xF0) 1, +0xF4 0.0, `offset` (+0xF8) 0.0, +0xFC (quad) 0, +0x100 (texture id) -1, **`font_size` (+0x104) 1.0**, `offset2` (+0x108..+0x110) 0, `font` (+0x114) empty, +0x130 (font object) 0. `ret 8`. CWeatherBillboardType's constructor calls it first. See reversing/findings/FINDINGS-billboardfx.md, section 1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-billboardfx.md",
+   "evidence": "Listing 0xB06AA0-0xB06BEC: the vftable store at 0xB06AFB, the two std::string assigns at 0xB06B4A/0xB06B68 with the string addresses named, the float at 0x171DBAC read as 1.0. Wrong if 0x1605258 were written by some other constructor too - findRefs finds it here and in the destructor helper 0xB06C41 only."
+  },
+  {
+   "rva": "0x706DB0",
+   "kind": "function",
+   "name": "CBillboardType::LoadResources",
+   "signature": "void __thiscall CBillboardType::LoadResources(CBillboardType* this, void* graphics)",
+   "no_signature": null,
+   "comment": "**Slot 6: what a plain billboard is drawn with.** +0x44 = graphics +0x158 (the texture table); **the texture: +0x100 = the texture loader (0xA60F30) on `textureFile`**; **the effect: FxHandler_Register(graphics +0x6BCFC, path `effectFile` (+0xD4), key `effect` (+0xB8), device) into +0x94** - with the constructor's defaults every plain billboardType registers gfx/FX/billboard.fx under the key \"Billboard\", so all of them share one ID3DXEffect; a type naming its own `effectFile` but not `effect` would get the same shared effect, the key being taken first; CreateVertexDeclaration (device slot 86) from BillboardVertexElements into +0x90. The texture's picture size w, h (table row +0x24/+0x28); **+0xF4 = (float)(w / P(w)) / noOfFrames**, P the least power of two >= w. **The quad** (any earlier one freed first): a 0x24-byte MeshBuffer at +0xFC, managed (+0x14 = 1), VertexBuffer_Create(4, stride 0x14, fvf 0, not dynamic), IndexBuffer_Create(6); with s = `scale` (+0x98) and U = +0xF4 the vertices (x, y, z, u, v) are (-s, -s, 0, 0, 1), (-s, s, 0, 0, 0), (s, -s, 0, U, 1), (s, s, 0, U, 0) and the indices 0 1 2, 2 1 3. **Always a square 2s across**: unlike the counter and weather quads there is no aspect term and **v is not scaled by h / P(h)** - only u is compensated. Last, where `font` (+0x114) is not empty, +0x130 = the font of that name (StringHashFind_AtC in graphics +0x88, else +0x94), otherwise 0. `ret 4`. See reversing/findings/FINDINGS-billboardfx.md, section 1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-billboardfx.md",
+   "evidence": "Listing 0xB06DB0-0xB07175, every store: the float stores of the 20 vertex floats at 0xB06FD3-0xB070EA and the six index words at 0xB070EF-0xB07105; +0xF4 from fild/fdivp/fidiv at 0xB06E6E-0xB06E9A; FxHandler_Register's arguments pushed at 0xB06DE6-0xB06DFA. Wrong if the vertex at [edi+0x10] were not v: the layout matches BillboardVertexElements (POSITION float3 at 0, TEXCOORD0 float2 at 12)."
+  },
+  {
+   "rva": "0x707180",
+   "kind": "function",
+   "name": "CBillboardType::ReleaseResources",
+   "signature": "void __thiscall CBillboardType::ReleaseResources(CBillboardType* this, void* unused)",
+   "no_signature": null,
+   "comment": "Slot 7: frees the texture (+0x100) through the texture table (0xA610E0) and releases the vertex declaration (+0x90, then 0). The quad (+0xFC) is freed by the next LoadResources, not here. `ret 4`. See reversing/findings/FINDINGS-billboardfx.md, section 1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-billboardfx.md",
+   "evidence": "Listing 0xB07180-0xB071B0. Slot 7 of the table at VA 0x1605258 (read directly). Wrong if 0xA610E0 were not a texture free - it is called with ecx = the texture id and edi = the table, as the weather type's free does."
+  },
+  {
+   "rva": "0x7074E0",
+   "kind": "function",
+   "name": "CBillboardType::BeginBatch",
+   "signature": "void __thiscall CBillboardType::BeginBatch(CBillboardType* this, void* graphics)",
+   "no_signature": null,
+   "comment": "**Slot 35: once before a batch of plain billboards** (BillboardList_DrawBatch calls it on the first queued object's type): SetVertexDeclaration(+0x90) (device slot 87); the effect = graphics' list (+0x6BD00)[+0x94 - 1]; **SetTechnique(GetTechniqueByName(\"standard\"))** - the technique by name, not `effect`; **ViewProjectionMatrix = D3DXMatrixMultiply(view, projection)** of the current view's camera (graphics +0x6BC88 -> +0x1C, slots 91 and 93); **Begin(&passes, 0)** and **BeginPass(0)**. So one Begin/End covers the whole batch, and every object of it is drawn with the first object's type's technique and declaration. `ret 4`. See reversing/findings/FINDINGS-billboardfx.md, section 2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-billboardfx.md",
+   "evidence": "Listing 0xB074E0-0xB075EE; 'standard' at VA 0x160523C, 'ViewProjectionMatrix' at 0x15E1264; ID3DXEffect slots 13 (GetTechniqueByName), 58 (SetTechnique), 9 (GetParameterByName), 38 (SetMatrix), 63 (Begin), 64 (BeginPass) by their vtable offsets 0x34/0xE8/0x24/0x98/0xFC/0x100. Slot 35 of VA 0x1605258 read directly."
+  },
+  {
+   "rva": "0x707600",
+   "kind": "function",
+   "name": "CBillboardType::EndBatch",
+   "signature": "void __thiscall CBillboardType::EndBatch(CBillboardType* this, void* graphics)",
+   "no_signature": null,
+   "comment": "Slot 36: EndPass and End on the type's effect (graphics' list [+0x94 - 1]), closing BeginBatch's pass. `ret 4`. See reversing/findings/FINDINGS-billboardfx.md, section 2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-billboardfx.md",
+   "evidence": "Listing 0xB07600-0xB07636: ID3DXEffect vtable +0x108 (EndPass) and +0x10C (End). Slot 36 of VA 0x1605258 read directly."
+  },
+  {
+   "rva": "0x707640",
+   "kind": "function",
+   "name": "CBillboardType::QueueForDraw",
+   "signature": "void __thiscall CBillboardType::QueueForDraw(CBillboardType* this, void* object)",
+   "no_signature": null,
+   "comment": "Slot 37: push_back of the object onto g_BillboardDrawList (VA 0x1B26A48), the plain billboards' list, which MapObjectGroup_Draw has BillboardList_DrawBatch draw and empty at the end of each object group. Reached through CBillboardObject::Render. `ret 4`. See reversing/findings/FINDINGS-billboardfx.md, section 2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-billboardfx.md",
+   "evidence": "Listing 0xB07640-0xB076C9: the vector's begin/end/capacity at 0x1B26A48/0x1B26A4C/0x1B26A50, the standard push_back with the aliasing test. Wrong if another list were meant: the only reader that empties it is the BillboardList_DrawBatch call at 0xA71D28."
+  },
+  {
+   "rva": "0x6B6A60",
+   "kind": "function",
+   "name": "CBillboardObject::Render",
+   "signature": "void __thiscall CBillboardObject::Render(CBillboardObject* this, void* graphics, void* device, float* matrix, int a, int b, int c)",
+   "no_signature": null,
+   "comment": "Slot 10 of VA 0x16010D0: **draws nothing and ignores its arguments** - it calls its type's slot 37 (QueueForDraw) on itself. **It does not copy `matrix` into +0x94** (CCounterObject::Render does): a billboard is drawn from the world transform it already holds. `ret 0x18`. See reversing/findings/FINDINGS-billboardfx.md, section 2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-billboardfx.md",
+   "evidence": "Listing 0xAB6A60-0xAB6A73: mov eax,ecx; type = [eax+0x138]; call [vtbl+0x94] with the object pushed; ret 0x18. Slot 10 read directly from VA 0x16010D0; the counter's slot 10 (0x838E60) takes the same six stack arguments."
+  },
+  {
+   "rva": "0x6B6ED0",
+   "kind": "function",
+   "name": "CBillboardObject::HitTest",
+   "signature": "float __thiscall CBillboardObject::HitTest(CBillboardObject* this, float x, float y, float* matrix, float a, float b, float c, int d, int e)",
+   "no_signature": null,
+   "comment": "Slot 20: whether a point of the screen is on the billboard. Asks its type's slot 32 (0xB07A50, not read) with (&x, &the world transform +0x94, its frame (slot 25), its draw scale +0xB28) and answers 1.0 on a hit and -1.0 on a miss. `ret 0x20`. See reversing/findings/FINDINGS-billboardfx.md, section 2.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-billboardfx.md",
+   "evidence": "Listing 0xAB6ED0-0xAB6F21; the 1.0 (fld1) / -1.0 (0x170AC0C) answers and ret 0x20 are read. 'Hit test' rests on the slot (20, as CCounterObject::HitTest and CHoiAvatar::HitTest) and the shape; the type's slot 32 body was not read."
+  },
+  {
+   "rva": "0x6B6F30",
+   "kind": "function",
+   "name": "CBillboardObject::SetSelection",
+   "signature": "void __thiscall CBillboardObject::SetSelection(CBillboardObject* this, short state)",
+   "no_signature": null,
+   "comment": "Slot 23 (+0x5C): stores the word at +0x148, which CBillboardObject::Draw hands to the type's DrawQuad as `mode` - and **mode 1 draws the billboard with vMultiplier 1.5**, any other value with 1.0. The slot is CCounterObject::SetSelection's on the counter, whence the name. No caller that reaches a billboard was found (inferred: a scan of the province-graphics and combat code for slot 23 calls found none on a picture). `ret 4`. See reversing/findings/FINDINGS-billboardfx.md, section 2.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-billboardfx.md",
+   "evidence": "Listing 0xAB6F30-0xAB6F3F: mov ax,[ebp+8]; mov [ecx+0x148],ax; ret 4. The body is confirmed; the name is from the slot sibling, and the caller search is a chunk scan of VA 0x63C000-0x645000 and 0x57A000-0x57E000 whose positive control found CUnit::OnSelected's slot 23 calls in 0x5C0000-0x5C1000."
+  },
+  {
+   "rva": "0x67B640",
+   "kind": "function",
+   "name": "ParseFloat",
+   "signature": "void __cdecl ParseFloat(CParseContext* parse@ECX, float* out@EAX)",
+   "no_signature": null,
+   "comment": "`sscanf(parse +0x22C, \"%f\", out)` (format at VA 0x15FD134) and ReportParseError (0xA7A960) where that fails - the float twin of ParseInt. CBillboardType::LoadKey reads `scale` and `offset` through it, the spriteType loader `defaultAnimationTime`, CWindowType `priority`. Bare `ret`. See reversing/findings/FINDINGS-billboardfx.md, section 1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-billboardfx.md",
+   "evidence": "Listing 0xA7B640-0xA7B662; '%f' read at 0x15FD134. Callers put the parse context in ecx and the destination in eax (0xB07266, 0xB07278)."
+  },
+  {
+   "rva": "0x67B070",
+   "kind": "function",
+   "name": "ParseVector3",
+   "signature": "void __cdecl ParseVector3(CParseContext* parse@ECX, float* out@EAX)",
+   "no_signature": null,
+   "comment": "Reads `{ x y z }` into three floats at out, out+4, out+8: expects the open brace (token kind 3), then three numbers (kind 0xC), each through sscanf \"%f\", then the close (kind 4), ReportParseError at any mismatch. CBillboardType::LoadKey reads `offset2` through it. Bare `ret`. See reversing/findings/FINDINGS-billboardfx.md, section 1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-billboardfx.md",
+   "evidence": "Listing 0xA7B070-0xA7B13F: the three sscanf calls into edi, edi+4, edi+8 and the kind tests 3 / 0xC / 4. Wrong if the stride were not 4 - the adds are lea ecx,[edi+4] and add edi,8."
+  },
+  {
+   "rva": "0x2432D0",
+   "kind": "function",
+   "name": "ShowLargeNavalBaseIcon",
+   "signature": "void __stdcall ShowLargeNavalBaseIcon(void* mapObjects@ECX, void* provinceObject@stack:4, int level@stack:8)",
+   "no_signature": null,
+   "comment": "**The naval map mode's large naval base picture**, ShowLargeAirBaseIcon's twin: with a level above 0 and none yet (the province object's +0x80) the billboard `large_naval_base` made by name, added to the owner's layer +0x14D4, hung on the province (ProvinceGraphics_PlacePicture, raise 1), shown, **then** moved through slot 33 by (naval base position - label point, 0) - the position CProvinceTemplate +0x258 by the building's +0x54 index - and its frame set by ProvinceGraphics_UpdatePortPicture. Every time: its +0xB28 = (level - 1) x 0.2 + 1. A level below 1 takes it down. One caller, UpdateNavalMapIcons. `ret 8`. See reversing/findings/FINDINGS-billboardfx.md, section 3.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-billboardfx.md",
+   "evidence": "Listing 0x6432D0-0x6434BD; 'large_naval_base' at VA 0x15CD728 (pushed at 0x64334F), the +0xB28 store at 0x6434A5 with the doubles 0.2 (0x160A260) and 1.0 (0x160A248). findRefs --callers gives the one call at 0x86AA43."
+  },
+  {
+   "rva": "0x242D30",
+   "kind": "function",
+   "name": "ShowConvoyRaidedIcon",
+   "signature": "void __stdcall ShowConvoyRaidedIcon(void* mapObjects@ECX, void* provinceObject@stack:4, int count@stack:8)",
+   "no_signature": null,
+   "comment": "The naval map mode's icon `naval_convoy_raided_icon` (interface/mapitems.gfx, scale 3.5), as ShowAirBattleIcon: with a count above 0 and none yet (the province object's +0x6C) the billboard is made, added to the owner's layer +0x14D4, hung on the province (raise 1), shown, **then** given the vector (3, 3, 0) through slot 33; with one and a count under 1 it is hidden and destroyed. Called by UpdateNavalMapIcons with one signed byte of its four-byte count per province. `ret 8`. See reversing/findings/FINDINGS-billboardfx.md, section 3.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-billboardfx.md",
+   "evidence": "The string reference to 'naval_convoy_raided_icon' is in this body (namerefs scan of .text for its .rdata address); the keep offset, the layer +0x14D4 and the slot 33 vector (floats 3.0 at 0x171DC88, -3.0 at 0x171DC8C) read off the listing; ret 8. What the count counts was not read."
+  },
+  {
+   "rva": "0x242E90",
+   "kind": "function",
+   "name": "ShowConvoySunkIcon",
+   "signature": "void __stdcall ShowConvoySunkIcon(void* mapObjects@ECX, void* provinceObject@stack:4, int count@stack:8)",
+   "no_signature": null,
+   "comment": "The naval map mode's icon `naval_convoy_sunk_icon` (interface/mapitems.gfx, scale 3.5), as ShowAirBattleIcon: with a count above 0 and none yet (the province object's +0x70) the billboard is made, added to the owner's layer +0x14D4, hung on the province (raise 1), shown, **then** given the vector (-3, 3, 0) through slot 33; with one and a count under 1 it is hidden and destroyed. Called by UpdateNavalMapIcons with one signed byte of its four-byte count per province. `ret 8`. See reversing/findings/FINDINGS-billboardfx.md, section 3.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-billboardfx.md",
+   "evidence": "The string reference to 'naval_convoy_sunk_icon' is in this body (namerefs scan of .text for its .rdata address); the keep offset, the layer +0x14D4 and the slot 33 vector (floats 3.0 at 0x171DC88, -3.0 at 0x171DC8C) read off the listing; ret 8. What the count counts was not read."
+  },
+  {
+   "rva": "0x243000",
+   "kind": "function",
+   "name": "ShowRaiderDefendedIcon",
+   "signature": "void __stdcall ShowRaiderDefendedIcon(void* mapObjects@ECX, void* provinceObject@stack:4, int count@stack:8)",
+   "no_signature": null,
+   "comment": "The naval map mode's icon `naval_raider_defended_icon` (interface/mapitems.gfx, scale 3.5), as ShowAirBattleIcon: with a count above 0 and none yet (the province object's +0x74) the billboard is made, added to the owner's layer +0x14D4, hung on the province (raise 1), shown, **then** given the vector (0, 3, 3) through slot 33; with one and a count under 1 it is hidden and destroyed. Called by UpdateNavalMapIcons with one signed byte of its four-byte count per province. `ret 8`. See reversing/findings/FINDINGS-billboardfx.md, section 3.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-billboardfx.md",
+   "evidence": "The string reference to 'naval_raider_defended_icon' is in this body (namerefs scan of .text for its .rdata address); the keep offset, the layer +0x14D4 and the slot 33 vector (floats 3.0 at 0x171DC88, -3.0 at 0x171DC8C) read off the listing; ret 8. What the count counts was not read."
+  },
+  {
+   "rva": "0x243160",
+   "kind": "function",
+   "name": "ShowRaiderAttackedIcon",
+   "signature": "void __stdcall ShowRaiderAttackedIcon(void* mapObjects@ECX, void* provinceObject@stack:4, int count@stack:8)",
+   "no_signature": null,
+   "comment": "The naval map mode's icon `naval_raider_attacked_icon` (interface/mapitems.gfx, scale 3.5), as ShowAirBattleIcon: with a count above 0 and none yet (the province object's +0x78) the billboard is made, added to the owner's layer +0x14D4, hung on the province (raise 1), shown, **then** given the vector (0, 3, -3) through slot 33; with one and a count under 1 it is hidden and destroyed. Called by UpdateNavalMapIcons with one signed byte of its four-byte count per province. `ret 8`. See reversing/findings/FINDINGS-billboardfx.md, section 3.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-billboardfx.md",
+   "evidence": "The string reference to 'naval_raider_attacked_icon' is in this body (namerefs scan of .text for its .rdata address); the keep offset, the layer +0x14D4 and the slot 33 vector (floats 3.0 at 0x171DC88, -3.0 at 0x171DC8C) read off the listing; ret 8. What the count counts was not read."
+  },
+  {
+   "rva": "0x46A6F0",
+   "kind": "function",
+   "name": "UpdateNavalMapIcons",
+   "signature": "void __stdcall UpdateNavalMapIcons(void* provinceObjects)",
+   "no_signature": null,
+   "comment": "**What the naval map mode (19) shows**, UpdateAirMapIcons' twin: fills a buffer of four signed bytes per province, then for every province from 1 ShowConvoyRaidedIcon (byte 1), ShowConvoySunkIcon (byte 0), ShowRaiderDefendedIcon (byte 2), ShowRaiderAttackedIcon (byte 3), and ShowLargeNavalBaseIcon with the naval base's built level (CMapProvince +0x300 -> +0x20, / 1000) where the player's intel of the province (+0x370[player]) is 2 or more, else 1 where it has a naval base at all. What fills the four bytes was not read. Called by the map mode change and the repaint of mode 19. `ret 4`. See reversing/findings/FINDINGS-billboardfx.md, section 3.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-billboardfx.md",
+   "evidence": "The loops at 0x86A959-0x86AA4C read off the listing (calls 0x642D30/0x642E90/0x643000/0x643160/0x6432D0 with the byte offsets); ret 4 at 0x86AA61. The fill loop 0x86A784-0x86A953 was not read, which is why this is inferred; the mode-19 calls are named in the record's comments on CInGameIdler slot 53 and the mode change."
+  },
+  {
+   "rva": "0x1726A48",
+   "kind": "global",
+   "name": "g_BillboardDrawList",
+   "signature": null,
+   "no_signature": "data",
+   "comment": "A vector of billboard objects (begin here, end +4, capacity +8): **the plain billboardType pictures** queued this frame by CBillboardType::QueueForDraw - building pictures, the counters' pointers, the battle markers, the map-mode icons - drawn and emptied by BillboardList_DrawBatch from MapObjectGroup_Draw (0xA71D28) at the end of each object group, before the counters and the weather pictures. See reversing/findings/FINDINGS-billboardfx.md, section 2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-billboardfx.md",
+   "evidence": "findRefs: the push_back in 0xB07640 and the mov edi,0x1B26A48 before call 0xB073B0 at 0xA71D23; the CRT tear-down at 0xD29693."
+  },
+  {
+   "rva": "0x13092EC",
+   "kind": "global",
+   "name": "BillboardVertexElements",
+   "signature": null,
+   "no_signature": null,
+   "comment": "The plain billboard quad's D3DVERTEXELEMENT9 array: {0, 0, FLOAT3, DEFAULT, POSITION, 0}, {0, 12, FLOAT2, DEFAULT, TEXCOORD, 0}, D3DDECL_END - 20 bytes a vertex, billboard.fx's VS_INPUT; identical to CounterVertexElements and WeatherVertexElements. CBillboardType::LoadResources makes the type's declaration from it. See reversing/findings/FINDINGS-billboardfx.md, section 1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-billboardfx.md",
+   "evidence": "The 32 bytes at VA 0x17092EC decoded as (stream, offset, type, method, usage, index): (0,0,2,0,0,0), (0,12,1,0,5,0), (0xFF,0,17,0,0,0)."
+  },
+  {
+   "rva": "0x1309CEC",
+   "kind": "global",
+   "name": "g_BillboardCaptionZEnable",
+   "signature": null,
+   "no_signature": "data",
+   "comment": "The ZENABLE value CBillboardObject_DrawCaption sets for a caption: 1 in the file, **set to 0 by the graphics owner's constructor** (0x640939, `mov [0x1709CEC], ebx` with ebx zeroed at 0x640629) and written by nothing else, so the battle marker's number is drawn with Z off. See reversing/findings/FINDINGS-billboardfx.md, section 2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-billboardfx.md",
+   "evidence": "findRefs 0x1709CEC: two references, the store at 0x640939 and the read at 0xAB6E11. Wrong if ebx changed between 0x640629 and 0x640939 - every ebx use in between is a store of it."
+  },
+  {
+   "rva": "0x17EA41C",
+   "kind": "global",
+   "name": "g_CombatStatusMarkerDrop",
+   "signature": null,
+   "no_signature": "data",
+   "comment": "A float in .data's zero-filled tail, read once, at 0x57C080, by CCombat::UpdateCombatStatusWindow, negated and used as the height of the battle markers' local position. **No writer was found** (no reference to the address anywhere else in .text, .rdata or .data), so it is 0.0 and the marker stands on its province's anchor's plane. See reversing/findings/FINDINGS-billboardfx.md, section 3.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-billboardfx.md",
+   "evidence": "findRefs 0x1BEA41C: one reference, the read; a byte search of every section for the address finds only that one. Positive control: the same search finds the store to the neighbouring 0x1BEA418 at 0x511B95. A writer through a computed pointer would not be seen."
+  },
+  {
+   "rva": "0x7071C0",
+   "kind": "function",
+   "name": "CBillboardType::LoadKey",
+   "signature": "void __thiscall CBillboardType::LoadKey(CBillboardType* this, CParseContext* parse, SaveToken key)",
+   "no_signature": null,
+   "comment": "**Slot 4 of the table at VA 0x1605258: the keys of a `billboardType`**, by token: `noOfFrames` (0x1B) -> int +0xF0 (ParseInt), `font` (0x1D) -> string +0x114, `textureFile` (0x24) -> string +0x9C, `effect` (0x58) -> string +0xB8, `effectFile` (0x59) -> string +0xD4 (each through ParseString), **`scale` (0x5C) -> float +0x98 and `offset` (0x161) -> float +0xF8 (ParseFloat)**, **`offset2` (0x17F) -> three floats +0x108/+0x10C/+0x110 (ParseVector3)**, `font_size` (0x182) -> float +0x104 (sscanf \"%f\"). Anything else goes to CObjectType::LoadKey (`name` and the rest). So `offset` is one float, not a vector - mapitems.gfx's `offset = 4.5`. The defaults are the constructor's (CBillboardType::CBillboardType). See reversing/findings/FINDINGS-counters.md, section 9, and reversing/findings/FINDINGS-billboardfx.md, section 1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-counters.md; reversing/findings/FINDINGS-billboardfx.md",
+   "revises": "comment only: the destinations of `scale`, `offset` and `offset2` (+0x98, +0xF8, +0x108) that the decompilation lost, the token of each case, and that the two 'list readers' are ParseFloat and ParseVector3.",
+   "evidence": "Listing 0xB071C0-0xB072DB: the jump table at 0xB072E0/0xB072F4 decoded (0x1B, 0x1D, 0x24, 0x58), the direct compares 0x59, 0x5C, 0x161, 0x17F, 0x182; token names from saveTokens.py. The weather type's record already had `scale` at +0x98 (token 0x5C), which agrees."
+  },
+  {
+   "rva": "0x7076D0",
+   "kind": "function",
+   "name": "CBillboardType::DrawQuad",
+   "signature": "void __thiscall CBillboardType::DrawQuad(CBillboardType* this, int animationFrame, void* graphics, void* device, float* matrix, float time, short mode, int a, int column, bool flip, float rotation, int b, float scale)",
+   "no_signature": null,
+   "comment": "**Slot 31: one plain billboard, inside the pass BeginBatch opened.** The effect is the graphics' list (+0x6BD00)[+0x94 - 1]. In order: **vMultiplier = 1.5 where `mode` (the object's +0x148) is 1, else 1.0** (the float at 0x17179AC); **tex0 = the type's texture** (+0x100 through the table, null where -1 or above 9999); **WorldMatrix = T x R x W**: T a translation by (`offset` (+0xF8), 0, 0), R = D3DXMatrixRotationZ(`rotation`), multiplied T then R (0xB078B5), and W = **D3DXMatrixInverse of the whole view** (slot 91) with _14, _24, _34 zeroed, its translation row replaced by `matrix` +0x30/+0x34/+0x38 (the object's world translation) and _44 = 1 - so the picture lies in the camera's own plane, `offset` from the object in the direction it is turned to; **`flip` does not turn it**: D3DXMatrixRotationY(pi) is computed into the same local matrix and RotationZ then overwrites it (0xB0779A, 0xB0781A, both into [esp+0x10]); **vXOffset = (float)((double)+0xF4 x max(column, 0))**, column the object's frame (+0x4E); **vScale = `scale`** (the object's +0xB28); **vFlip = -1.0 with `flip`, else 1.0** (billboard.fx never reads it); CommitChanges; VertexBuffer_Draw of the quad (+0xFC). No technique, view-projection, Begin or End here - those are BeginBatch's and EndBatch's. `animationFrame`, `time`, `a` and `b` are not read. `ret 0x30`. See reversing/findings/FINDINGS-counters.md, section 9, and reversing/findings/FINDINGS-billboardfx.md, section 2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-counters.md; reversing/findings/FINDINGS-billboardfx.md",
+   "revises": "comment only: W is the inverse of the whole view, not of its rotation; adds vMultiplier and its 1.5, tex0, the flip that is computed and thrown away, vXOffset's arithmetic, the parameters it does not read, and that `offset` (+0xF8) is now confirmed by LoadKey.",
+   "evidence": "Listing 0xB076D0-0xB07A41, every call: imports resolved from the IAT (0xD2B3AC RotationZ, 0xD2B400 RotationY, 0xD2B438 Multiply, 0xD2B450 Inverse); the stack offsets of the RotationY and RotationZ outputs both resolve to the frame's [esp+0x10]; the floats 0x17179AC = 1.5, 0x15C0544 = pi, 0x170AC0C = -1.0."
+  },
+  {
+   "rva": "0x707340",
+   "kind": "function",
+   "name": "CBillboardType::CreateInstance",
+   "signature": "void* __thiscall CBillboardType::CreateInstance(CBillboardType* this)",
+   "no_signature": null,
+   "comment": "**Slot 18 of a `CObjectType` is its factory**, and this is the billboard one: `new 0xB48`, then the constructor at rva 0x6B68F0 with the type as an argument, giving the object whose vftable is 0x16010D0. Held at slot 18 by two `.rdata` tables - 0x15E3F44, which the RTTI export names `CWeatherBillboardType`, and **0x1605258**, which it does not name and which is therefore `CBillboardType`'s own. This is what `CCombat::UpdateCombatStatusWindow` calls at 0x57BE62 and 0x57BEE5 to build the two `combat_status` billboards. Siblings for comparison: C3dObjectType 0x43AD10 (0x138), CCounterType 0x43BB00 (0x1C0), CMasked3dFlagType 0x44B600 (0x158), CFlagType the empty stub 0xA80690. The owning table, first found by elimination, is now confirmed by CBillboardType::CBillboardType (0x706AA0), which writes it.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-gui.md; reversing/findings/FINDINGS-billboardfx.md",
+   "revises": "confidence likely -> confirmed: the table 0x1605258 that holds it at slot 18 is written by the billboard type's own constructor.",
+   "evidence": "0xB06AFB: mov dword ptr [esi], 0x1605258 in CBillboardType::CBillboardType; slot 18 of that table read as 0xB07340."
+  },
+  {
+   "rva": "0x6B6F50",
+   "kind": "function",
+   "name": "CBillboardObject::SetRotation",
+   "signature": "void __thiscall CBillboardObject::SetRotation(CBillboardObject* this, float radians)",
+   "no_signature": null,
+   "comment": "Slot 37 (`+0x94`) on vftable 0x16010D0, overriding C3dVisibleObject's 0x65DCD0. Eight instructions: `[this+0xB24] = -(radians + pi/2)`, the sum in double, the pi/2 being the double at 0x160A2A0 and the negation the sign mask at 0x160A290. `CCombat::UpdateCombatStatusWindow` passes `attacker.units[0]->+0x104 + pi/2` at 0x57C120, so the battle marker stores **-(h + pi)**, h the heading +0x104 - the biases add, they do not cancel; with h = a - pi/2 (CUnit::FaceNextProvince) that is -(a + pi/2), a quarter turn past the counter pointer's -a. CHoiAvatar::SetRotation passes h itself, so the pointer stores -(h + pi/2) = -a. See reversing/findings/FINDINGS-billboardfx.md, section 3.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-gui.md; reversing/findings/FINDINGS-billboardfx.md",
+   "revises": "comment: 'the two biases cancel into a plain negation' was wrong - the caller's +pi/2 and this function's +pi/2 add to pi; and the signature drops `@stack:4`, which placed one parameter of two (checkSignatures).",
+   "evidence": "0xAB6F53-0xAB6F6F: addsd [0x160A2A0] (1.5707963705) then xorpd the sign mask; 0x57C11D-0x57C137: the caller's addsd [0x160A2A0] before the call through vtbl +0x94."
+  },
+  {
+   "rva": "0x6B6BE0",
+   "kind": "function",
+   "name": "CBillboardObject_DrawCaption",
+   "signature": "void __stdcall CBillboardObject_DrawCaption(CBillboardObject* object, CGraphics* graphics, void* device, float* matrix)",
+   "no_signature": null,
+   "comment": "BillboardList_DrawBatch's second pass, once per object after every picture of the batch is drawn (so after End). **Returns at once where the caption (+0xB2C, a std::string; its length at +0xB3C) is empty** - every billboard but the two battle markers. Otherwise: the camera's up = normalize(view column 2: _12, _22, _32) and right = normalize(column 1: _11, _21, _31) of the current view (graphics +0x6BC88 -> +0x1C, slot 91) - a look direction from the view's +0x114/+0x120 points is normalized too and not used; **SetTransform(D3DTS_WORLD, matrix)** - the object's whole world transform; nothing more where the type has no font (+0x130); k = (float)(the type's `scale` x 0.1) (the double at 0x160A3C0); the position = `offset2` x k; ZENABLE and ZWRITEENABLE saved, then set to g_BillboardCaptionZEnable (0) and 0; **the font's slot 7 (text, 2, 0x140, &position, &up, &right, height = k x `font_size`, 1.0, 0, 0xF)**; the two states restored. For `combat_status`: k 0.26, position (0, 0, -0.65), height 1.82; `combat_status_close`: k 0.17, (0, 0, -0.51), 1.19. The font's slot 7 itself was not read. `ret 0x10`. See reversing/findings/FINDINGS-weathersim.md, section C.3.1, and reversing/findings/FINDINGS-billboardfx.md, section 2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-weathersim.md; reversing/findings/FINDINGS-billboardfx.md",
+   "revises": "comment and confidence inferred -> confirmed: the body past the gate is read - the world transform, the camera vectors, offset2 and font_size scaled by scale x 0.1, the Z states and the font call's arguments.",
+   "evidence": "Listing 0xAB6BE0-0xAB6EC0; imports 0xD2B42C D3DXVec3Normalize; device slots 44 (SetTransform, 0x100 = WORLD), 58 GetRenderState and 57 SetRenderState with states 7 and 0xE; the font from the type's +0x130 (LoadResources' store)."
+  },
+  {
+   "rva": "0x7073B0",
+   "kind": "function",
+   "name": "BillboardList_DrawBatch",
+   "signature": "void __cdecl BillboardList_DrawBatch(void* list@EDI, void* graphics@stack:4)",
+   "no_signature": null,
+   "comment": "Draws a list of billboard objects and empties it; nothing where the list is empty. The first object's type's slot 35 (begin - for weather CWeatherBillboardType::BeginBatch, SetVertexDeclaration); **for each object in list order**, CBillboardObject::Draw(object, graphics, graphics +0x64 (the device), &object +0x94 (its world transform, as the scene left it - nothing here moves or lifts it), its time (slot 22, GetTime)); the first object's type's slot 36 (end - for weather the shared `ret 4` stub 0x60CD50, so nothing); then CBillboardObject_DrawCaption for each, which does nothing for an empty caption, as every weather picture's is; and the list emptied. It runs twice at the end of each map object group: **first on g_BillboardDrawList, the plain billboards, from MapObjectGroup_Draw (0xA71D28)** - slot 35 then CBillboardType::BeginBatch, slot 36 EndBatch - and then, through CEU3Graphics::FlushDeferredObjects, on g_WeatherBillboardDrawList right after CCounterObject_DrawBatch. The order is the order QueueForDraw was reached, i.e. the order the object group's draw met the pictures, and with Z off a later picture is drawn over an earlier one. See reversing/findings/FINDINGS-weathersim.md, sections C.3 and C.3.1. The plain pass is read in reversing/findings/FINDINGS-billboardfx.md, section 2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-weathersim.md; reversing/findings/FINDINGS-billboardfx.md",
+   "revises": "comment only: names the second list it is run on, g_BillboardDrawList, from MapObjectGroup_Draw before the counters.",
+   "evidence": "0xA71D22-0xA71D28: push esi (graphics); mov edi, 0x1B26A48; call 0xB073B0 - immediately before the FlushDeferredObjects call at 0xA71D37."
+  },
+  {
+   "rva": "0x6716D0",
+   "kind": "function",
+   "name": "MapObjectGroup_Draw",
+   "signature": "void __stdcall MapObjectGroup_Draw(CGraphics* graphics, void* view, void* group)",
+   "no_signature": null,
+   "comment": "Draws one map object group (the graphics' groups +0x5C, +0x70, +0x64, +0x60 in MapGraphics_DrawScene, each only where MapObjects_UpdateLayerVisibility set its +0x179) - the fixed-function and effect objects of the map: CGraphics +0x6BC88 = view; sampler 0 MINFILTER ANISOTROPIC, MAGFILTER LINEAR; SetViewport(the view's first 24 bytes); VIEW and PROJECTION transforms from the view; stage 0 COLOROP/ALPHAOP MODULATE (TEXTURE, CURRENT), stage 1 off; ALPHABLENDENABLE 1, SRCALPHA/INVSRCALPHA; then per object kind AMBIENT, WORLD, LIGHTING 1 / SPECULAR 0, ZENABLE and ALPHABLENDENABLE toggled - read only through its state calls; what each kind draws was not read. **The no-mesh path, read for the range rings** (0xA72047-0xA72160): for each object of the group's draw list (the layer's +0x14, slot 9) whose slot 79 answers true (visible +0x29 and +0x4D): where its slot 12 answers no mesh - a C3dVisibleObject with no object type, as a CAreaCircleObject - WORLD = its +0x94; ZENABLE set to the opposite of its slot 78 (byte +0x135) where it differs; ALPHABLENDENABLE made 1; its slot 5; its slot 22's float; **its slot 10 (Draw) with (graphics, device, &+0x94, that float)**; ALPHABLENDENABLE put back. **After the group's objects: BillboardList_DrawBatch(g_BillboardDrawList, graphics) at 0xA71D28 - the plain billboards the group's objects queued - then CEU3Graphics::FlushDeferredObjects (counters, weather pictures) through the table at 0xA71D37, then ALPHABLENDENABLE 0.** A billboard object's slot 12 answers no mesh, so it takes the no-mesh path, and its Render only queues it (reversing/findings/FINDINGS-billboardfx.md, section 2). The scene follows each call with an inlined counter of calls per second into CGraphics +0x84 (timeGetTime, every 1000 ms). Stack-realigned frame, `ret 0xC`. The name is ours. See reversing/findings/FINDINGS-airmap.md, section 8.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-mapdraw.md; reversing/findings/FINDINGS-billboardfx.md",
+   "revises": "comment only: adds the plain billboard flush before FlushDeferredObjects and where billboards enter.",
+   "evidence": "0xA71D22-0xA71D49 read: call 0xB073B0 with edi = 0x1B26A48, call [vtbl+0x10] on the graphics, SetRenderState(0x1B, 0)."
+  },
+  {
+   "rva": "0x17BD70",
+   "kind": "function",
+   "name": "CCombat::UpdateCombatStatusWindow",
+   "signature": "void __stdcall CCombat::UpdateCombatStatusWindow(CCombat* combat@ESI)",
+   "no_signature": null,
+   "comment": "**The combat_status window's per-tick refresh**, and the end of the chain that consumes every combat modifier. 0x609 bytes, bare `ret` at 0x17C379, the receiver in **ESI** and never loaded from the frame (trap: it takes no stack argument at all). One caller, 0x16F34C at the very end of CCombat::Tick, guarded by the combat not being kind 2 or 3 and by the player's own country tag appearing in `defender->countries` (+0x54) or `attacker->countries` - so it runs only for a combat the player is in. On its first call it looks up the GUI windows named 'combat_status' (0x11C4C78) and 'combat_status_close' (0x11C4C88) and caches them in CCombat +0x2C and +0x30; thereafter it jumps straight to 0x17BF92. It then calls CCombat::GetAttackerStrengthShare (slot 17) at 0x17C15C, picks one of three icon states from the share against 660 and 330 thousandths - the order inverted when the player is the defender - pushes the state into [combat+0x2C]'s slot 24, and formats share x 100000 / 1000 into a string through 0x65ACA0. Marked likely because the two GUI objects' classes were not identified; the arithmetic and the call chain are read.\n\n**'Window' in this name is a misnomer, established 2026-10-02** (reversing/findings/FINDINGS-gui.md). What it updates is a pair of **billboards** - textured quads drawn on the map - not GUI windows: `combat_status` and `combat_status_close` are `billboardType` entries in `interface/mapitems.gfx`, and the lookup runs against the object-type registry at `CGraphics +0x6BCF0`, which is not the GUI registry and does not resemble it. The name is kept only because FINDINGS-gui.md and FINDINGS-combat3.md both cite it throughout; read it as UpdateCombatStatusBillboards.\n\n**The refresh is gated on the PLAYER being a belligerent, established 2026-10-02.** In CCombat::Tick the call at 0x16F34C is reached only when CountryIdListContains (0x4A8630) answers true for the **defender's** CCombatant::countries (+0x54) at 0x16F330 or the **attacker's** at 0x16F343, and the id it looks for is the player's: 0x16F2E9/0x16F2EF load `[gameState+0xC30]` and `[gameState+0xC34]` - player tag and player id - into the local the gate is handed. \n\n**So this runs only for combats the human player is in.** An AI-vs-AI battle never calls it, and therefore never computes CCombatant slot 11 or reads CSubUnit +0x54 at all. That is a stronger statement than 'the defence-side naval/air/bombing modifiers only feed a display': they are **player-only**, so they cannot be part of a symmetric simulation even in principle. It also means a live probe on slot 11 sees nothing unless the player is a belligerent - an observer country gives zero calls, which must not be mistaken for a negative result.\n\n**Where the two markers go, read 2026-11-07** (reversing/findings/FINDINGS-billboardfx.md, section 3): on the first call each billboard is added to the graphics owner's layer - `combat_status` to +0xA70, `combat_status_close` to +0xBEC - hung on the battle province's anchor (ProvinceGraphics_PlacePicture with raise 1, province = combat +0x18 -> +0xD0) and shown. Every call: A and D = the positions (slot 30, ints made floats) of the attacker's and the defender's first units; M = (A + D) x 0.5; SetPosition(M.x - D.x, -g_CombatStatusMarkerDrop, M.y - D.y) - **half the vector from the defender to the attacker**, the height 0.0, so the 1.0 raise is overwritten after the first call - then UpdateTransform (world = local x the anchor's world); SetRotation(heading + pi/2) on both; the frame and the caption as above, the same on both.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-slot11.md; reversing/findings/FINDINGS-combat3.md; reversing/findings/FINDINGS-billboardfx.md",
+   "revises": "comment and confidence likely -> confirmed: the two objects are CBillboardObjects (vftable_CBillboardObject, the factory read); adds the layers, the placement - half the defender-to-attacker vector at height 0 - and that the raise does not survive.",
+   "evidence": "Listing 0x57BD70-0x57C379: the layer adds through [owner+0xA70]/[owner+0xBEC] slot 4 at 0x57BE6F/0x57BEF2, PlacePicture at 0x57BF47/0x57BF77, the arithmetic 0x57BFB1-0x57C09C with 0.5 at 0x160A308 and the sign mask at 0x160A380, slot 90 and slot 44 at 0x57C0B7-0x57C100."
+  },
+  {
+   "rva": "0x44AB80",
+   "kind": "function",
+   "name": "C3dVisibleObject::SetPosition",
+   "signature": "void __thiscall C3dVisibleObject::SetPosition(C3dVisibleObject* this, const float* xyz)",
+   "no_signature": null,
+   "comment": "**Slot 90 (`+0x168`)** - and its existence is what rules out any reading of CCombat +0x2C as a GUI window, since no gui-type vftable in the image is 91 slots long. Copies three floats from the argument into `[this+0x84]`, `[+0x88]`, `[+0x8C]` and writes 1.0f (the float at 0x171DBAC) into `[+0x90]`, i.e. a homogeneous position with w = 1. CCombat::UpdateCombatStatusWindow calls it at 0x57C0B7 and 0x57C0F3 with half the vector from the defender's first unit to the attacker's - (M - D), M their midpoint - and height 0.0: a position relative to the battle province's anchor, not a negated midpoint.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-gui.md; reversing/findings/FINDINGS-billboardfx.md",
+   "revises": "comment: what the combat marker passes is M - D, half the defender-to-attacker vector, not the negated midpoint; and the signature drops `@stack:4`, which placed one parameter of two (checkSignatures).",
+   "evidence": "0x57C05E/0x57C065: D - M in double, then xorps with the sign mask at 0x57C075/0x57C08F - so -(D - M) = M - D."
+  },
+  {
+   "rva": "0x65D3D0",
+   "kind": "function",
+   "name": "C3dVisibleObject::UpdateTransform",
+   "signature": "void __thiscall C3dVisibleObject::UpdateTransform(C3dVisibleObject* this)",
+   "no_signature": null,
+   "comment": "Slot 44 (`+0xB0`), no arguments. Where it has a parent (`+0xE4`): **world (+0x94) = local (+0x54) x the parent's world** through 0x84E450, then the children (first at `+0xDC`, siblings by `+0xD8`) are walked by 0xA5FA10, which gives each the same product with this world and recurses. Its no-argument calls found in the image are few (the battle markers, the AI objective markers near 0x6686AC, the interface's member rows); **nothing found calls it on a province's anchor or its pictures**. See reversing/findings/FINDINGS-billboardfx.md, section 3.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-gui.md; reversing/findings/FINDINGS-billboardfx.md",
+   "revises": "comment and confidence likely -> confirmed: the matrix arithmetic and the child walk are read; adds where it is and is not called.",
+   "evidence": "Listing 0xA5D3D0-0xA5D426 and 0xA5FA10's head and tail (the +0xDC recursion at 0xA600B4, the +0xD8 sibling loop); a sweep of .text for a vptr load, mov reg,[vptr+0xB0], call reg with no push between found 79 sites, the two battle-marker calls among them."
+  },
+  {
+   "rva": "0x240CA0",
+   "kind": "function",
+   "name": "ProvinceGraphics_PlacePicture",
+   "signature": "void __stdcall ProvinceGraphics_PlacePicture(void* provinceGraphics@EAX, void* owner@stack:4, void* picture@stack:8, bool raise@stack:12)",
+   "no_signature": null,
+   "comment": "**Hangs a picture on a province's anchor** - the node at the province graphics' +0x10. With `raise`, the picture's own transform (+0x54, sixteen floats) is set again through its slot 41 (SetLocal) with its height (+0x88) **plus 1.0** ([0x160A248]); then **its world transform (+0x94) = local x the anchor's +0x94** (0x84E450), stored directly; slot 32 unlinks it from any parent and slot 29 links it as the anchor's last child; the owner's +0x60DC = 1 (MapGraphics_Update's `force`). `ret 0xC`. **The world is computed once, here**: a Translate (slot 33) or SetLocal made afterwards changes only +0x54, and no refresh of a picture's world from it was found (reversing/findings/FINDINGS-billboardfx.md, section 3). The name is ours. See reversing/findings/FINDINGS-weathersim.md, section C.3.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-weathersim.md; reversing/findings/FINDINGS-billboardfx.md",
+   "revises": "comment only: the world is stored by PlacePicture itself, not 'through slot 32' - slot 32 is the unlink and slot 29 the link; adds that a later change of the local transform does not reach the world.",
+   "evidence": "Listing 0x640CA0-0x640D5E; slot 32 (0xA60230) read as an unlink of +0xD4/+0xD8/+0xE4, slot 29 (0xA602B0) as unlink-then-append under the argument, slot 41 (0xA5E110) as a copy of 16 floats into +0x54."
+  }
+ ],
+ "structs": [
+  {
+   "name": "CBillboardType",
+   "vftable_rva": "0x1205258",
+   "comment": "A plain `billboardType` of interface/mapitems.gfx: its keys (CBillboardType::LoadKey), its texture, effect and square quad (LoadResources) and its drawing through gfx/FX/billboard.fx (BeginBatch, DrawQuad, EndBatch). No RTTI entry; CWeatherBillboardType is built on it. See reversing/findings/FINDINGS-billboardfx.md.",
+   "source": "reversing/findings/FINDINGS-billboardfx.md",
+   "evidence": "The constructor 0xB06AA0 writes the table at VA 0x1605258 (rva 0x1205258) and every field below; size omitted - the last field read is the font at +0x130, and CWeatherBillboardType's own fields begin at +0x134."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CBillboardType",
+   "offset": "0x44",
+   "name": "texture_table",
+   "type": "void*",
+   "comment": "graphics +0x158, the texture table (0x2C bytes a row, +4 the texture, +0x24/+0x28 the picture's size); set by LoadResources.",
+   "source": "reversing/findings/FINDINGS-billboardfx.md",
+   "evidence": "LoadResources' store at 0xB06DCF; DrawQuad's read at 0xB07763."
+  },
+  {
+   "struct": "CBillboardType",
+   "offset": "0x8C",
+   "name": "graphics",
+   "type": "void*",
+   "comment": "the graphics owner the type was made with: +0x64 the device, +0x6BD00 the effect list, +0x6BCFC the effect handler.",
+   "source": "reversing/findings/FINDINGS-billboardfx.md",
+   "evidence": "CBillboardType::CBillboardType (0xB06AA0) writes it; read by LoadResources, BeginBatch, DrawQuad."
+  },
+  {
+   "struct": "CBillboardType",
+   "offset": "0x90",
+   "name": "vertex_declaration",
+   "type": "void*",
+   "comment": "from BillboardVertexElements, made by LoadResources, set by BeginBatch, released by ReleaseResources.",
+   "source": "reversing/findings/FINDINGS-billboardfx.md",
+   "evidence": "0xB06E1E (CreateVertexDeclaration), 0xB0750A (SetVertexDeclaration), 0xB0719C."
+  },
+  {
+   "struct": "CBillboardType",
+   "offset": "0x94",
+   "name": "effect",
+   "type": "int",
+   "comment": "1-based index of the type's ID3DXEffect in the graphics' list (+0x6BD00), from FxHandler_Register keyed by `effect`; -1 from the constructor.",
+   "source": "reversing/findings/FINDINGS-billboardfx.md",
+   "evidence": "0xB06E06 store; reads at 0xB076E0, 0xB0750C, 0xB07600."
+  },
+  {
+   "struct": "CBillboardType",
+   "offset": "0x98",
+   "name": "scale",
+   "type": "float",
+   "comment": "the `scale` key (token 0x5C), 1.0 by default: the quad's half side, and with x 0.1 the caption's size and offset2's scale.",
+   "source": "reversing/findings/FINDINGS-billboardfx.md",
+   "evidence": "LoadKey 0xB07278 via ParseFloat; LoadResources 0xB06FAB; DrawCaption 0xAB6D75."
+  },
+  {
+   "struct": "CBillboardType",
+   "offset": "0x9C",
+   "name": "texture_file",
+   "type": "Hoi3CString",
+   "comment": "the `textureFile` key (token 0x24).",
+   "source": "reversing/findings/FINDINGS-billboardfx.md",
+   "evidence": "LoadKey 0xB071EB; LoadResources hands it to the texture loader at 0xB06DC3."
+  },
+  {
+   "struct": "CBillboardType",
+   "offset": "0xB8",
+   "name": "effect_key",
+   "type": "Hoi3CString",
+   "comment": "the `effect` key (token 0x58), \"Billboard\" by default: the key the effect is registered under, **not** the technique - BeginBatch sets `standard` by name.",
+   "source": "reversing/findings/FINDINGS-billboardfx.md",
+   "evidence": "CBillboardType::CBillboardType (0xB06AA0) writes it; LoadKey 0xB07200; FxHandler_Register's key at 0xB06DE7."
+  },
+  {
+   "struct": "CBillboardType",
+   "offset": "0xD4",
+   "name": "effect_file",
+   "type": "Hoi3CString",
+   "comment": "the `effectFile` key (token 0x59), \"gfx/FX/billboard.fx\" by default.",
+   "source": "reversing/findings/FINDINGS-billboardfx.md",
+   "evidence": "CBillboardType::CBillboardType (0xB06AA0) writes it; LoadKey 0xB0723C; FxHandler_Register's path at 0xB06DEE."
+  },
+  {
+   "struct": "CBillboardType",
+   "offset": "0xF0",
+   "name": "frames",
+   "type": "int",
+   "comment": "the `noOfFrames` key (token 0x1B), 1 by default; divides the quad's u extent.",
+   "source": "reversing/findings/FINDINGS-billboardfx.md",
+   "evidence": "LoadKey 0xB07215 (ParseInt); fidiv at 0xB06E94."
+  },
+  {
+   "struct": "CBillboardType",
+   "offset": "0xF4",
+   "name": "frame_u_extent",
+   "type": "float",
+   "comment": "(w / P(w)) / frames, w the texture's picture width and P the least power of two >= w: the quad's u extent and DrawQuad's vXOffset step.",
+   "source": "reversing/findings/FINDINGS-billboardfx.md",
+   "evidence": "LoadResources 0xB06E9A; DrawQuad 0xB0799E."
+  },
+  {
+   "struct": "CBillboardType",
+   "offset": "0xF8",
+   "name": "offset",
+   "type": "float",
+   "comment": "the `offset` key (token 0x161), one float, 0 by default: how far the picture stands from its object along its own turned x - the counter pointer's 4.5.",
+   "source": "reversing/findings/FINDINGS-billboardfx.md",
+   "evidence": "LoadKey 0xB07266 via ParseFloat; DrawQuad's translation at 0xB0782B."
+  },
+  {
+   "struct": "CBillboardType",
+   "offset": "0xFC",
+   "name": "quad",
+   "type": "void*",
+   "comment": "the MeshBuffer of the square quad, made by LoadResources and drawn by DrawQuad.",
+   "source": "reversing/findings/FINDINGS-billboardfx.md",
+   "evidence": "0xB06F19 store; VertexBuffer_Draw at 0xB07A36."
+  },
+  {
+   "struct": "CBillboardType",
+   "offset": "0x100",
+   "name": "texture_id",
+   "type": "int",
+   "comment": "the loaded `textureFile`'s id in the texture table, -1 by default.",
+   "source": "reversing/findings/FINDINGS-billboardfx.md",
+   "evidence": "LoadResources 0xB06DD7; DrawQuad 0xB07750; ReleaseResources 0xB07183."
+  },
+  {
+   "struct": "CBillboardType",
+   "offset": "0x104",
+   "name": "font_size",
+   "type": "float",
+   "comment": "the `font_size` key (token 0x182, sscanf \"%f\"), 1.0 by default: the caption's height is scale x 0.1 x this.",
+   "source": "reversing/findings/FINDINGS-billboardfx.md",
+   "evidence": "LoadKey 0xB072B1-0xB072C8; DrawCaption 0xAB6D60."
+  },
+  {
+   "struct": "CBillboardType",
+   "offset": "0x108",
+   "name": "offset2",
+   "type": "float[3]",
+   "comment": "the `offset2` key (token 0x17F), three floats: the caption's position from the object, each x scale x 0.1 - combat_status's {0 0 -2.5}.",
+   "source": "reversing/findings/FINDINGS-billboardfx.md",
+   "evidence": "LoadKey 0xB0728A via ParseVector3; DrawCaption 0xAB6D68-0xAB6DB0."
+  },
+  {
+   "struct": "CBillboardType",
+   "offset": "0x114",
+   "name": "font_name",
+   "type": "Hoi3CString",
+   "comment": "the `font` key (token 0x1D).",
+   "source": "reversing/findings/FINDINGS-billboardfx.md",
+   "evidence": "LoadKey 0xB07227; LoadResources' lookup at 0xB07138."
+  },
+  {
+   "struct": "CBillboardType",
+   "offset": "0x130",
+   "name": "font",
+   "type": "void*",
+   "comment": "the font named by `font`, looked up by LoadResources (graphics +0x88, else +0x94), or 0; DrawCaption draws nothing without it.",
+   "source": "reversing/findings/FINDINGS-billboardfx.md",
+   "evidence": "0xB0715A / 0xB0716A; DrawCaption 0xAB6D4A."
+  },
+  {
+   "struct": "CBillboardObject",
+   "offset": "0x148",
+   "name": "selection",
+   "type": "short",
+   "comment": "set by slot 23 (CBillboardObject::SetSelection), 0 from the constructor; handed to the type's DrawQuad as `mode`: the plain type draws with vMultiplier **1.5 where it is 1**, else 1.0. The weather type does not read it. No caller setting it on a picture was found.",
+   "source": "reversing/findings/FINDINGS-billboardfx.md",
+   "evidence": "SetSelection 0xAB6F37; Draw's movzx at 0xAB6BA1; DrawQuad's mode test at 0xB07703-0xB07727.",
+   "revises": "name draw_mode -> selection, and the comment: what the billboard type does with it (vMultiplier 1.5 for 1) and its setter."
+  },
+  {
+   "struct": "CBillboardObject",
+   "offset": "0xB28",
+   "name": "draw_scale",
+   "type": "float",
+   "comment": "1.0 from the constructor; the plain type's vScale (DrawQuad's last argument), which multiplies the quad's vertices before the world matrix - so it sizes the picture and **not** `offset`. Written only by the constructor and the three large map-mode icons ((level - 1) x 0.2 + 1). **Never written on a counter's pointer**: CCounterObject::Render calls the arrow's slot 39, C3dVisibleObject's SetScale, which writes +0xF4 and the local matrix, neither of which the draw reads - so the pointer is always drawn at scale 1. The weather type does not read it.",
+   "source": "reversing/findings/FINDINGS-billboardfx.md",
+   "evidence": "A sweep of .text for the displacement +0xB28 lists stores at 0xAB6975 (constructor), 0x642B1A, 0x642D0B, 0x6434A5 (the three large icons) and an unrelated CCurrentGameState store at 0x67D204; slot 39 0xA5E040 read.",
+   "revises": "comment only: who writes it, that vScale does not scale `offset`, and that the counter pointer's is always 1.0."
+  },
+  {
+   "struct": "CBillboardObject",
+   "offset": "0x14A",
+   "name": "flipped",
+   "type": "uint8_t",
+   "comment": "handed to the type's DrawQuad as `flip`. The weather type then turns the picture by pi about y and sets vFlip -1; **the plain type sets vFlip -1 and does not turn it** - its RotationY(pi) is overwritten by the RotationZ before use, and billboard.fx never reads vFlip - so the one picture that sets it, a port's building picture east of its naval base (ProvinceGraphics_UpdatePictures), looks no different. 0 from the constructor.",
+   "source": "reversing/findings/FINDINGS-billboardfx.md",
+   "evidence": "DrawQuad 0xB0777E-0xB0781A (both D3DX outputs at [esp+0x10]) and 0xB079E4; the store census already in the record (0x63FBD4, 0xAB6940).",
+   "revises": "comment only: adds that on a plain billboard the flip has no visible effect."
+  }
+ ],
+ "frontier": [
+  "0x707A50",
+  "0x7080E0",
+  "0x6B6A00"
+ ],
+ "slots_noted": "CBillboardType (table rva 0x1205258) and CBillboardObject (rva 0x12010D0) have no RTTI entry, so their slots cannot be keyed in vftable_slots; each slot is named in its function's name and listed on the two vftable labels. CBillboardObject slot 21 (0xB06250) is a two-instruction +0x14C setter the record names CSprite::SetRotation - a fold, left alone (trap 4)."
+}

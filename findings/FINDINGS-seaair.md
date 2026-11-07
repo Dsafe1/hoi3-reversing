@@ -437,9 +437,11 @@ building of the province from index 1 up (`CMapProvince +0x310`):
 
     made, where shown and not there yet: the billboard type named "building_" + the building's
     name, placed at the building's position (CProvinceTemplate +0x258[index]) less the label
-    point, raised by the building's nudge (+0x268[index]); a building type with +0xDD set
+    point, raised by the building's nudge (+0x268[index]) - written to the picture's local transform after its world was
+    computed, so *inferred* to have no effect on screen (`FINDINGS-billboardfx.md`, Not established); a building type with +0xDD set
     (port) whose position is more than the constant at 0x15BED10 east of the naval base
-    position has the byte +0x14A set on its picture
+    position has the byte +0x14A set on its picture - which on a plain billboard has no visible effect
+    (`FINDINGS-billboardfx.md` 2)
 
 The pictures are kept at `province graphics +0x40`, by building index; two more at `+0x7C` and
 `+0x80` are the `large_air_base` and `large_naval_base` ones.

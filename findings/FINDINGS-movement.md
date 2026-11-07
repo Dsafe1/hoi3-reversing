@@ -542,14 +542,16 @@ Read on 2026-10-09 after the maintainer gave a screenshot of it: a hollow green 
 from the unit to where it is going, with an outlined head.
 
 **`CUnit::MakeArrow`** (`0x5CC230`, the unit in ECX) makes it, for a unit with a path and a
-graphics owner; `CUnit::ShowMoving` calls it only for a selected unit, and so does
-`CUnit::EnterProvince` for a selected unit with a path left. `CUnit::RemakeArrow`
+graphics owner; `CUnit::ShowMoving` calls it only for a selected unit, and so do `CUnit::EnterProvince` for a selected unit
+with a path left, `CUnit::OnSelected`, and `CUnit::ShowFighting` and `CUnit::ShowCombatOver` for a selected
+unit (section 11.1). `CUnit::RemakeArrow`
 (`0x5CC200`) frees the old one and makes another; `CUnit::FreeArrow` (`0x5CB920`) frees it.
 
 1. **Its points**, each of three floats - x, a height, y: the unit's own place, which is its
    stack's point (the moving one, or one of the two battle points) plus the label point; and
    then the unit point (`+0x64/+0x68`) of every province of the path, x moved by the map's
-   width where that is the short way round. The height is 0.02 over land and 0 over sea. For
+   width where that is the short way round. The height is 0.02 over land and 0 over sea. `CUnitArrow::BuildMesh` replaces these heights with its own
+   (section 11.3), so they shape nothing that is drawn. For
    a fleet the first point is the naval base where it is in a land province and the last is
    the naval base where it ends in one; for a wing the same with air bases.
 2. **A point is added beyond each end**, 5 from it in line with the end's own leg, so that
@@ -561,9 +563,9 @@ graphics owner; `CUnit::ShowMoving` calls it only for a selected unit, and so do
    redeployment order (type `0x5A4`), and `moveArrow` otherwise - the names of `arrowType`
    blocks in `interface/arrows.gfx`.
 4. The object is a **`CUnitArrow`**, 0x160 bytes, a `C3dVisibleObject`
-   (vftable VA 0x15E3C14); its constructor (`0x87F250`, the type in ECX) copies the points
-   into a vector at `+0x14C`, dropping one that is within 0.1 of the next, and calls
-   `CUnitArrow::BuildMesh`.
+   (vftable VA 0x15E3C14); its constructor (`0x87F250`, the type in ECX) copies the points into a vector at `+0x14C` - the first and last always, and any other unless its x, y and
+   z each lie within 0.1 of the next point's, in which case **both it and the next point are left out** (section
+   11.2) - and calls `CUnitArrow::BuildMesh`.
 5. `+0x15C` is set at once to `movement_progress` over `CUnit::PathDistance`, and
    `CUnit::AdvanceMovement` keeps it so each hour.
 
@@ -576,7 +578,8 @@ graphics owner; `CUnit::ShowMoving` calls it only for a selected unit, and so do
         from the second leg on: across = the mean of this and the cut before's, one long
         two vertices: p + across * 2 and p - across * 2
         u = 0.5
-        within 4 of the end: u = 0.5 + 0.5 * clamp(1 - distance * 0.25, 0, 1)
+        for the last 119 cuts only, where the cut's centre p is within 4 of the last real point:
+            u = 0.5 + 0.5 * clamp(1 - distance * 0.25, 0, 1)
     each vertex's progress = its cut's number over the number of cuts
 
 So the band is **4 map units wide**, a Catmull-Rom curve through every point of the path,
@@ -595,9 +598,169 @@ enters, the fill starts again from nothing there.
 Against the screenshot: the shaft's two lines are about 1 map unit apart and the head about
 3.3 wide and 3.4 long, at 14.5 pixels to a unit; the texture's shaft is 18 of its 64 rows and
 its head 52, which of a band 4 wide are 1.1 and 3.25. `confirmed` by that for the width and
-the head's length. The tip in the screenshot is whole, where a last cut a twentieth of a leg
-short of the end would blunt it; what the distance in the head's rule is measured to was not
-made out, the decompilation losing the operands.
+the head's length. The band does stop at the last cut, a twentieth of the last leg short of the end, and the distance in the
+head's rule runs from the cut's centre on the curve to the last real point (section 11.3). So the tip is
+clipped by about a twentieth of the last leg less 0.19 - on the screenshot about 0.15 unit, two pixels, which
+is why it looked whole.
+
+## 11. The arrow through arrow.fx, whole
+
+*Read off the listing on 2026-11-07, every store and call, by a delegated agent (fragment `interface-arrowfx.json`), for
+a program that draws the path arrow through the install's own `arrow.fx`; the constructor's skip and the texture's binding
+checked again off the bytes by the collecting session. VAs as in the rest of this file; `confirmed` except where a line
+says otherwise. **[exe]** marks a figure in the executable, **[file]** one a mod can change.*
+
+**Corrections, rather than additions**: the constructor drops a point within 0.1 of the next *and skips the next one
+too*, and its turn test never fires; the arrow's world matrix is a lift of 0.48 (land) or 0.78 (sea), not the identity;
+the vertices' heights are BuildMesh's own, not MakeArrow's; the texture drawn is `bodytexture`'s, not `textureFile`'s;
+and MakeArrow has six callers, not three.
+
+### 11.1 Who makes it, and which
+
+`CUnit::MakeArrow` (`0x5CC230`) is called for a **selected** unit (CUnit `+4`) by `CUnit::ShowMoving`,
+`CUnit::EnterProvince`, `CUnit::OnSelected` (`0x5C0646`), `CUnit::ShowFighting` (`0x5C7C46`) and `CUnit::ShowCombatOver`
+(`0x5C8070`), and by `CUnit::RemakeArrow`; each frees the old arrow first, and `CUnit::OnDeselected` frees it. So every
+selected unit with a path has an arrow of its own (*inferred* for a selection of several: the calls are per unit). The
+`arrowType` is found by name in the graphics' object-type registry (`+0x6BCF0`): `unitInvasionArrow` where `0x5C2E80(unit,
+1)`, `retreatArrow` where retreating (`+0x158`), `attackArrow` where `CUnit::IsNextProvinceEnemyHeld`, `stratArrow` under
+order `0x5A4`, else `moveArrow`. `invasionArrow` is made by another function (`0x5CB980`), and `AutomationArrow` and
+`OtherAutomationArrow` by `0x6682E0` from `CInGameIdler::ShowSelection` - all through the same `CUnitArrow`.
+
+### 11.2 The constructor (`0x87F250`)
+
+Type in ECX, then the object, the graphics (`+0x13C`), the object layer (`+0x140`, and the scene `+0xE8`), the graphics
+owner (`+0x144`), the list of points and `overLand` - which MakeArrow passes as `is_land` of the unit's **current**
+province. The list is doubly linked (x, y, z, prev `+0xC`, next `+0x10`). The first and last nodes are always copied
+into `+0x14C`. Any other node whose x, y and z each lie within 0.1 **[exe]** of the next node's is dropped **and the next
+node is passed over too** - neither is copied (`next` taken at 0x87F39E and again at 0x87F605). A turn test follows (acos
+of the two legs' dot × 57.296 against **−500°**), which can never be met, so it removes nothing. Then
+`BuildMesh(this, overLand)`.
+
+### 11.3 The vertices: `CUnitArrow::BuildMesh` (`0x87FA30`)
+
+R real points (the vector less the two added ends), R ≥ 2. Leg j runs from real point j to j+1; k = 0..19:
+
+    p = D3DXVec3CatmullRom(P[j-1], P[j], P[j+1], P[j+2], k/20)
+    q = the same at k/20 + 0.05                                  [exe] 20, 0.05
+    n = normalize(-(q-p).z, 0, (q-p).x)          -- (q-p) x (0,1,0): horizontal, left of travel
+    across = n on the first leg; from the second leg on normalize((n + previous cut's n) / 2)
+    A = p + 2·across   (v = 0)                                    [exe] 2.0
+    B = p - 2·across   (v = 0.5)                                  [exe] 0.5
+    u = 0.5, except for the last 119 cuts (cut number > total - 120): d = |P[last real] - p|, the straight
+        3D distance from the cut's centre on the curve to the last real point; where d <= 4,
+        u = 0.5 + 0.5 · clamp(1 - d/4, 0, 1)                      [exe] 4.0, 0.25, 120
+
+Each side is appended unless its position lies within a **squared** distance of 0.001 of that side's last vertex, which
+is then reused (a degenerate case only). Its index goes onto a 16-bit list, **A then B every cut**. Afterwards every
+vertex gets **TEXCOORD0.x = floor(index/2) / (indices/2)**: its cut's number over the number of cuts, 0 to (N−1)/N,
+never 1. TEXCOORD0.y is **never written**; the shader reads only `.x`.
+
+The buffer: `VertexBuffer_Create(count, stride 0x1C, **FVF 0x202 = D3DFVF_XYZ | D3DFVF_TEX2**, not dynamic)` in a managed
+MeshBuffer of primitive kind 1. The layout is x, y, z, TEXCOORD0 (progress, unused), TEXCOORD1 (u, v). Copying into it
+**replaces every height**:
+
+    y = (0 where the province at pixel (trunc(x + 1.0), trunc(z + 0.5)) of the province raster has is_land clear,
+         else 0.02 - a missing province counts as land)
+      + (0.62 where overLand, else 0.05)                          [exe] 0.02, 0.62, 0.05, 1.0, 0.5
+
+The raster is CMap `+0x20E0`, reached through `+0x144 → +0x1DC0`, at data + row·stride + x·2, with **no bounds test**: a
+vertex past the map's east or west edge reads the row beside. MakeArrow's own 0 / 0.02 shape only the curve's y, which is
+thrown away. The index buffer holds the list as built. So the arrow is a **TRIANGLESTRIP of 2·cuts − 2 triangles**,
+cuts = 20·(R − 1). Seen from above with z north, the first triangle (A0, B0, A1) runs counter-clockwise. That does not
+matter, since nothing culls (11.6).
+
+**The head.** The band stops at the last cut, at t = 0.95 of the last leg, so the head is drawn only up to
+u = 0.5 + 0.5·(1 − d_last/4), with d_last ≈ 1/20 of the last leg. `movearrow.tga`'s tip is at about u = 0.977, so a last
+leg longer than about 3.8 units clips the tip. On the 2026-10-09 screenshot (head 3.4 long, against 3.56 unclipped) that
+clip is about 0.15 unit, two pixels, which is why it looked whole there.
+
+### 11.4 Where it stands
+
+After the constructor, MakeArrow translates the arrow's local matrix by (−label_x, **−0.52**, −label_y) of the current
+province (`C3dObject::Translate`; template `+0x5C/+0x60`), adds it to the graphics owner's layer at `+0x8F4`, and calls
+`ProvinceGraphics_PlacePicture(that province, raise)`. That adds 1.0 to the height and sets world = local × the anchor's
+world. The anchor stands at (centre, 0) on land and (label, 0.3) at sea, and the label is a copy of the centre
+(`FINDINGS-weathersim.md` C.3, B.9 - *likely* there). So **the world is a translation by (0, 0.48, 0) over land and
+(0, 0.78, 0) at sea**, and a vertex stands at
+
+    land province:  1.10 (sea pixel) or 1.12 (land pixel) above y = 0
+    sea province:   0.83 or 0.85
+
+flat, whatever the terrain's own height. Then `+0x15C = movement_progress / PathDistance`, and Show (slot 13). The unit's
+`arrow_state` (`+0x18C`) is stepped and handed to the arrow's slot 23, which for an arrow is a no-op.
+
+### 11.5 The draw: `CUnitArrow::Render` (slot 10, `0x87F770`)
+
+`MapObjectGroup_Draw` takes the arrow down its no-mesh path, because the type's slot 19 is ReturnZero. That path sets
+WORLD = `+0x94`, ZENABLE = !`+0x135` (0, so **on**), and ALPHABLENDENABLE 1, then calls slot 10. Slot 79 asks only
+`visible` (`+0x29`). Render reads none of the arguments it is handed but the graphics, and then:
+
+| step | value |
+| --- | --- |
+| effect | graphics `+0x6BD00`[type `+0x140` − 1] - the ArrowEffect (11.7) |
+| technique | `SetTechnique("tec0")`, the name as the handle |
+| begin | `Begin(&passes, 0)` once |
+| `WorldViewProjectionMatrix` | world (`+0x94`) × view (camera slot 91) × projection (slot 93), camera = graphics `+0x6BC88 → +0x1C`, `D3DXMatrixMultiply` twice; by name |
+| `CurrentProgress` | `+0x15C`, by name |
+| `tex0` | the texture named by the type's `bodytexture` (`+0x100`, read at 0x87F9B8), looked up in the graphics' map at `+0x6B81C` each draw and read from the texture table; null where absent |
+| draw | per pass: BeginPass; `VertexBuffer_Draw`: SetFVF(0x202), SetStreamSource(0, VB, 0, 28), SetIndices, `DrawIndexedPrimitive(TRIANGLESTRIP, 0, 0, vertices, 0, indices − 2)`; EndPass |
+| twice | the whole of the above runs for i = 0 and 1; for i = 1 the world's `_41` is moved by the map width (CMap `+0x2A74`), east where `_41` ≤ 0 (it is 0), so a second copy one map width east |
+| end | `End` once |
+
+No CommitChanges is called: the parameters are set before each BeginPass. A type with no `effect` leaves `+0x140` at −1,
+and Render does not test for it.
+
+### 11.6 Render states
+
+From the pass: ALPHABLENDENABLE and ALPHATESTENABLE true. From the device's defaults: **ALPHAREF 8, ALPHAFUNC
+GREATEREQUAL** (written nowhere else). From `MapObjectGroup_Draw`: **SRCBLEND SRCALPHA / DESTBLEND INVSRCALPHA**.
+**ZENABLE on** (the no-mesh path, `+0x135` = 0). ZWRITEENABLE is set by none of this code (*inferred* TRUE: D3D's
+default, and `GraphicsOwner_DrawLayers` sets it back to 1 after the layer at `+0x480`). **CULLMODE NONE**: a census of
+immediate SetRenderState writes found all six CULLMODE writes in the image writing NONE (positive control: the same scan
+finds `MapObjectGroup_Draw`'s ALPHABLENDENABLE and ZENABLE writes), and effects under Begin(0) put their state back.
+The samplers are the file's: min anisotropic 4, mag linear, no mip, clamp. Every arrow picture is 64×128, a power of
+two, so the loader's no-filter padding does not come in.
+
+**When.** The arrow is in the graphics owner's layer at `+0x8F4`. `GraphicsOwner_DrawLayers` draws that layer after the
+map's 3D scene - third, after `+0xEE4` and `+0xC`, before `+0x480` - with ALPHATEST and ALPHABLEND off at its start.
+Before drawing it, it refills the layer's draw list from a map keyed by object address, so arrows draw in address order
+(*inferred*). The counters queued in the layer's group flush after it, as section 10 of FINDINGS-counters.md says.
+
+### 11.7 The arrowType: `CArrowType`
+
+The class has no RTTI (the table at VA 0x16051A0 has no complete-object locator), so the name is ours. It is 0x144
+bytes, made by `ObjectType_CreateByToken` for token 86 (`0xB06440`). `LoadKey` (`0xB06700`):
+
+| key | where | what it does |
+| --- | --- | --- |
+| `name` | base | the registry key MakeArrow looks up |
+| `size` | `+0x8C` float | **nothing** - the band is 4 wide |
+| `endAt` | `+0x90` float, default 1.0 | nothing |
+| `textureFile` | `+0x94`, loaded to `+0xB0` | loaded, **not drawn** |
+| `color` | `+0xB4` CColor | nothing (arrow.fx has no colour) |
+| `colortwo` | `+0xD0` CColor | nothing |
+| `height` | `+0xF4` float | nothing |
+| `type` | `+0xF8` int | nothing |
+| `heading` | `+0xFC` float, default 0.2 | nothing |
+| `bodytexture` | `+0x100` | **the texture drawn**, found by name each draw |
+| `effect` | `+0x120` | registered by LoadResources (`0xB06910`) under the fixed key **"ArrowEffect"**; FxHandler_Register loads nothing for a key it already holds, so **every arrow type uses the first one's effect** |
+
+"Nothing" means: no read in CUnitArrow's constructor, BuildMesh, Render or destructor, in MakeArrow or the two other
+makers' type handling, or in any of the type's 31 slots. A reader elsewhere that finds an `arrowType` by name was not
+excluded by a full scan (*inferred*). The bodytexture's load index is thrown away, so FreeResources never releases it.
+
+### 11.8 What the shader then does
+
+A vertex is "walked" (output 1) where `CurrentProgress` ≥ its progress. The pixel shader samples (u, v + 0.5), the
+filled lower half, wherever the interpolated value is above 0. So the fill runs **through the first cut not yet
+reached**. It is counted in cuts - equal to every leg whatever its length - against a `CurrentProgress` that is a share of
+the path's distance.
+
+**Not established here**: who calls slot 11; `0x5C2E80` (the landing test); the bodies of the `invasionArrow` maker
+`0x5CB980` and the automation-arrow maker `0x6682E0`, and the constructor's caller at `0x676F68`; `0x8E7DD0` and
+`0x6434C0` inside the draw-list rebuild; the texture loader `0xA60F30`, and whether its name index is keyed by the exact
+string Render looks up (it must be, since the game draws arrows); ZWRITEENABLE traced through the whole frame. Frontier
+(rvas): 0x1CB980, 0x2682E0, 0x2764F0, 0x660F30, 0x1C2E80, 0x4E7DD0, 0x2434C0.
 
 ---
 
@@ -609,9 +772,9 @@ made out, the decompilation losing the operands.
   (`FINDINGS-unitpanel.md`, section 2) - so the branch is what a click does to a unit an AI
   commands. The fleet's and the wing's branches are read since too: `FINDINGS-seaair.md`,
   section 1.
-- **of the arrow** (section 10): the loader of an `arrowType` and what its `size`, `height`,
-  `endAt`, `heading`, `type` and two colours do; the test `0x5C5B20` for the attack arrow;
-  and what the head's distance is measured to.
+- ~~**of the arrow** (section 10): the loader of an `arrowType` and what its keys do; the test
+  `0x5C5B20`; what the head's distance is measured to~~: read since - section 11, and
+  `FINDINGS-combatview.md` section 9 for `0x5C5B20`.
 - **`CSafePathFind` and `CVerySafePathFind`** beyond what is recorded; the player's click asks
   for neither.
 - **order type `0x6E7`** in `CMoveCommand::Execute`, and the reader of the failed-order record

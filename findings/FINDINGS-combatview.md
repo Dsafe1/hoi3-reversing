@@ -272,9 +272,10 @@ open:
   **no decimals**. That write-up's "66.000" was the figure before it is formatted.
 - **Where**: half way between the place of the attacker's first unit and the defender's first
   unit (each unit's slot 30). The marker is hung on the battle's province, which is why the
-  routine hands it half the difference and not the middle itself. `inferred` for the second
-  sentence; the arithmetic is read.
-- **Which way it points**: the heading (`CUnit +0x104`) of the attacker's first unit.
+  routine hands it half the difference and not the middle itself. Both sentences are read (`FINDINGS-billboardfx.md` 3). The marker is hung on the province's anchor and stands at the
+anchor plus half the defender-to-attacker vector, **at height 0**: the hanging's 1.0 raise is overwritten at every call.
+- **Which way it points**: the heading (`CUnit +0x104`) of the attacker's first unit, stored as −(h + π) by
+  CBillboardObject::SetRotation (`FINDINGS-billboardfx.md` 2).
 
 **The arrow of a unit that attacks** is the `attackArrow` of `interface/arrows.gfx`, drawn as
 every selected unit's arrow is (`FINDINGS-movement.md`, section 10). What picks it is
