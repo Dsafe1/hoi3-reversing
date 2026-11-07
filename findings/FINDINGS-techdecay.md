@@ -143,8 +143,9 @@ Three consequences worth having for tuning:
   no floor: with `BASE_TECH_DECAY = -0.02`, a modifier of `+49000` would make `step = -1000`
   and wipe the category to zero in one month, and past that the level would go negative. That
   is only reachable by stacking, and BiceLib's `fixMinisterTechDecay` (rva `0xDE3ED`, the
-  `mov` turned into an `add`) is what makes `+0x1174` stack - so the boundary is worth knowing
-  even though nothing plausible reaches it.
+  `mov` turned into an `add`) is what makes `+0x1174` stack - the ministers' figures with the
+  technology's, in `CCountry::RebuildStaticModifiers` (`findings/FINDINGS-bicelibsites.md`,
+  section 4) - so the boundary is worth knowing even though nothing plausible reaches it.
 
 ## 5. The rest of `CCountry::UpdateMonthly`, for context
 
@@ -228,9 +229,13 @@ which is trap 2 in this folder's list.
 - **`CDistributionSetting +8`.** Unchanged from `FINDINGS-research.md`: `+0x10` is recorded as
   `factor`, `+8` is undocumented, and the slack term is their product. Which slider state the
   product represents - the share actually spent, or the share requested - was not read.
-- **Whether `+0x1174` is ever non-zero in a plain game.** The only writer recorded is
+- ~~**Whether `+0x1174` is ever non-zero in a plain game.** The only writer recorded is
   `0x4DE3ED` in the `decay` effect's handler; nothing here checked what fills it from
-  ministers or ideas.
+  ministers or ideas.~~ **Answered 2026-11-07, and the location was wrong**: `0x4DE3ED` is in
+  `CCountry::RebuildStaticModifiers`, not an effect handler. The rebuild zeroes `+0x1174` for
+  every category, adds every minister's figure, and then stores the technology's own figure over
+  the top - so in vanilla it holds the technology's figure and the ministers' never survive.
+  `findings/FINDINGS-bicelibsites.md`, section 4.
 - **Why the two decay rules differ.** That `0x4204A0` is a months-scaled catch-up applied when
   settings change and `0x4DC840` the per-month step is the obvious reading, but the code says
   only what each one does.
