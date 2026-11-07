@@ -431,8 +431,14 @@ for the bigger members of its faction.*
   must be controlled, owned, or reachable. No country in the save has two of one.
 - **The unread parts of `SetUpCountryForNewGame`** (`0xD6230`), listed at the end of section
   10, and the two war dates it reads through `0xA51D20` and `0xA51F40`.
-- **What takes the starting war exhaustion off again.** Section 10 gives Italy 0.150 for its
-  three months at war; the save, two days on, has every country at 0.000.
+- ~~**What takes the starting war exhaustion off again.**~~ **Settled 2026-11-07**: nothing in
+  the original. Section 10 gives Italy 0.150 for its three months at war, and the month's pass of
+  a new game's two days adds 0.041; the save's 0.000 is BiceLib's
+  `disableWarExhaustionNeutralityReset`, which replaces `CCountry::UpdateMonthly`'s addition with a
+  store of nought and was written into the install's executable on disk when every save of the
+  maintainer's was made (`FINDINGS-diplostate.md`, C.6; the record's
+  `Patch_WarExhaustionNeutralityReset_3`). That the month's pass runs in the two days at all is
+  shown by the same save: under the patch, Italy's 0.150 is gone by the first screen.
 - ~~**What sets `officers` at the start.**~~ **Settled 2026-10-08**, and it is not in
   `SetUpCountryForNewGame` at all: `CInGameIdler::Enter` adds up each unit's officers, times
   the history's `officers_ratio`, straight after it reads the order of battle.
