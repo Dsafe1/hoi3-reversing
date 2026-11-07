@@ -72,7 +72,18 @@ is the text's word and not the code's: `likely`.
 **The designer's own four** (`0x7EA930`):
 
 - **`terrainbonus`**: `text` = the terrain summary the design keeps at `+0x1D4` (section 5), with no
-  `delayed`. `confirmed` (`0x7EA99F`..`0x7EA9E0`)
+  `delayed`. `confirmed` (`0x7EA99F`..`0x7EA9E0`). The whole arm, read 2026-11-07 for BiceLib's
+  paradrop line (section 6):
+
+      0x7EA9CD  push -1 ; push 0 (eax, zero from the compare)
+      0x7EA9D0  mov eax, [ebp-0x14] ; add eax, 0x1D4 ; push eax    ; the designer's terrain text
+      0x7EA9D9  mov ecx, ebx                                       ; the tooltip, `out`
+      0x7EA9DB  call 0x401BD0                                      ; std::string::assignString
+      0x7EA9E0  jmp 0x7EC51E                                       ; the epilogue
+
+  So the designer is in `[ebp-0x14]` (stored from ECX at `0x7EA957`) and `out` in EBX for the whole
+  arm, `text` is `out + 0`, and the epilogue sets EAX from EBX itself (`0x7EC523`), so nothing after
+  the call reads what it left in EAX.
 - **`combined_arms_bonus_value`**: `text` = `BUILD_CA_BONUS_VALUE`, "Combined arms bonus for combat".
 - **A name beginning `combined_arms_indicator_`** (a compare of its first 24 characters): the number
   after it, by `atoi`; for one above 0, the combined arms group of that index in the unit database's
@@ -185,6 +196,21 @@ brigades and one armoured, by the base game's files and no technology: the mount
 = -0.40` over four. The same design's river line is the armour's `-0.05` and four times `-0.6`, over
 four: "River: Attack §R-61.2%§W".
 
+## 6. The design's list, and the paradrop line BiceLib adds
+
+*Read 2026-11-07.* **The design at `+0x1B4` is a `CList<CSubUnitDefinition*>`.** The record had
+"a CList of unit types". `UpdateDesign`'s brigade loop takes each node's data (`[node+0]`, next at
+`[node+8]`) and reads `+0x1B4` off it (`0x7E65A0`..`0x7E65B7`), which is `CSubUnitDefinition`'s
+combined arms group; and `AddBrigade` (`0x7EA880`) inserts its own argument by a `CPrioComparator`,
+which reads `priority` (`+0x194`) off the same pointer. `confirmed`
+
+**So whether a design can be paradropped is a read of the list.** `CAir::MayLoad` wants every
+brigade's `can_paradrop` (`CSubUnitDefinition +0x38`, `FINDINGS-transport.md` D.2); its organisation
+and weight tests have nothing to answer them on a design. BiceLib's `Hooks/Tooltips/ParadropLine`
+replaces the `call` at `0x7EA9DB`: it makes the copy, then puts "This unit can / can not be
+paradropped" in front of it, with the blocking brigades listed under a "can not". An empty design
+adds nothing - its terrain text is empty and the game shows no tooltip.
+
 ## Kept as read, though they look odd
 
 1. **Attrition is written without its hundred**: an adjuster's attrition of `0.5` reads `+0.5%`
@@ -211,3 +237,7 @@ new (`CShipBuilder`, `CAirBuilder`, `CBrigadeBuilder::BuildTooltip`), `CUnitAdju
 the practical icon, `CInGameIdler_ViewTooltip` for what `+0x1CE0` is not,
 `BuildBuilderSortColumnLabel` renamed `BuildLedgerColumnTooltip`, and
 `CDivisionDesigner::UpdateDesign` for the terrain summary.
+
+Section 6 by `fragments/merged/designer-paradrop-line.json`: the instruction
+`DivisionDesigner_BuildTooltip_TerrainCopy` (`0x3EA9DB`) new, and `CDivisionDesigner +0x1B4`
+revised from `CList` to `CList<CSubUnitDefinition*>`.

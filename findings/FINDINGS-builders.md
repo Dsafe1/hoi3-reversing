@@ -83,7 +83,7 @@ held at `+0x1C4`), which is shown and hidden with it.
 | `+0x150` | `parallel`, starting at 1 |
 | `+0x154` | `serial`, starting at 1 |
 | `+0x184` | the template on show, `-1` for none |
-| `+0x1B4` | **the design**: a `CList` of unit types (`+0x1BC` its count) |
+| `+0x1B4` | **the design**: a `CList<CSubUnitDefinition*>` (`+0x1BC` its count; `FINDINGS-buildertooltips.md`, section 6) |
 | `+0x1C4` | the brigade picker |
 | `+0x1C8`, `+0x1CC` | the manpower and the IC a day last worked out |
 | `+0x1D0` | the softness last worked out |

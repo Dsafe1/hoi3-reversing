@@ -27384,6 +27384,36 @@
    ]
   },
   {
+   "name": "CList<CSubUnitDefinition*>",
+   "size": 16,
+   "fields": [
+    {
+     "offset": 0,
+     "name": "first",
+     "type": "CListNode<CSubUnitDefinition*>*",
+     "comment": "first node (BiceLib/HoiDataStructures.hpp:53)"
+    },
+    {
+     "offset": 4,
+     "name": "last",
+     "type": "CListNode<CSubUnitDefinition*>*",
+     "comment": "last node (BiceLib/HoiDataStructures.hpp:54)"
+    },
+    {
+     "offset": 8,
+     "name": "count",
+     "type": "int",
+     "comment": "how many nodes (BiceLib/HoiDataStructures.hpp:55)"
+    },
+    {
+     "offset": 12,
+     "name": "no_unlink",
+     "type": "unsigned char",
+     "comment": "**The list's fourth member: a deferred-deletion lock.** While it is set, code that would remove a node from this list instead **marks the node and leaves it linked**, so nothing is unlinked while something is walking it; the node carries the matching mark at its own +0xC. Read with those semantics by CWeatherManager::Tick at 0x4B5CD7 - `cmp byte ptr [edi+0x14], 0` on a list at +0x8, i.e. this member - which on the set branch does `mov byte ptr [eax+0xc], 1` on the spent node and skips the unlink, and on the clear branch relinks prev/next and fixes `first` and `last`. That same unlink confirms the head layout from the other side.\n\n**The head really is 0x10 and this really is part of it.** CEffect's inlined base constructor writes `+8 = +0xC = +0x10 = 0` and then `byte +0x14 = 0` - three dwords and a byte, which is this head being zeroed rather than a triple followed by a holder's own field. CCountry's thirteen CCountryLists sit at a 0x10 stride, each with its byte; CFaction's head at +0x28 ends here at +0x34 with `members_changed` a separate field at +0x38; and CWeatherFront's hand-decomposed `provinces` triple put its byte at +0x18, which is this offset exactly.\n\n**Three field records were each describing this one member from their holder's side, and all three were folded away** - a field inside a larger typed one never reaches the apply - so they disagreed in silence and none of them was visible in Ghidra. Deleted 2026-10-07 and preserved here: `CEffect +0x14 unused`, \"a byte every effect carries, zeroed when it is built and touched by nothing else in the image\"; `CWeatherFront +0x18 provinces_flag`, \"the byte that follows the game's CList triple; zeroed by the constructor and never read in this class\"; and `CWeatherManager +0x14 freeze_fronts`, \"while set, CWeatherManager::Tick marks a spent front's node at +0xC instead of unlinking it, so no front is ever removed\" - which is the one that had the semantics right and only mistook them for weather. Each is consistent with this reading: an effect never iterates-and-deletes its children, so its copy stays clear.\n\n**One record still does not fit.** `CNavy +0x2F0 at_sea` is written as a *dword* by CNavy::LoadKey's save-token-0x3FC handler, at what is this offset inside `CUnit +0x2E4 carrying`. Both offsets are instruction-anchored, so either a fleet loaded at sea leaves its carrying list permanently locked, or one of the two is misread - see CANDIDATES.md. (reversing/findings/FINDINGS-factbase.md)"
+    }
+   ]
+  },
+  {
    "name": "CDivisionDesigner",
    "size": null,
    "fields": [
@@ -27420,8 +27450,8 @@
     {
      "offset": 436,
      "name": "design",
-     "type": "CList",
-     "comment": "the unit types of the division being designed; the count is at +0x1BC (reversing/findings/FINDINGS-builders.md)"
+     "type": "CList<CSubUnitDefinition*>",
+     "comment": "the brigades of the division being designed, each node's data a CSubUnitDefinition*, kept in priority order; the count is at +0x1BC (reversing/findings/FINDINGS-buildertooltips.md)"
     },
     {
      "offset": 452,
@@ -38407,6 +38437,36 @@
      "offset": 8,
      "name": "next",
      "type": "CListNode<CRelation*>*",
+     "comment": "the next node"
+    },
+    {
+     "offset": 12,
+     "name": "flag",
+     "type": "unsigned char",
+     "comment": "a byte the node is made with cleared, like CList's own"
+    }
+   ]
+  },
+  {
+   "name": "CListNode<CSubUnitDefinition*>",
+   "size": 16,
+   "fields": [
+    {
+     "offset": 0,
+     "name": "data",
+     "type": "CSubUnitDefinition*",
+     "comment": "what the node holds (BiceLib/HoiDataStructures.hpp:53)"
+    },
+    {
+     "offset": 4,
+     "name": "prev",
+     "type": "CListNode<CSubUnitDefinition*>*",
+     "comment": "the previous node"
+    },
+    {
+     "offset": 8,
+     "name": "next",
+     "type": "CListNode<CSubUnitDefinition*>*",
      "comment": "the next node"
     },
     {
@@ -217199,6 +217259,15 @@
    "kind": "instruction",
    "confidence": "CERTAIN",
    "evidence": "In CLeaderAssignmentPanel's constructor, the same seven bytes as Hook_LeaderListShowSkill (8B F0 8B CE 83 C4 0C, vanilla) for the selected leader's skill. The leader is [ebp+0xC]: the unit argument's slot, which LeaderPanel_StoreUnitLeader (0x367935) has overwritten with the unit's leader; the game reads it at 0x3679B2. See reversing/findings/FINDINGS-bicelibsites.md, section 3.\n(reversing/findings/FINDINGS-bicelibsites.md)",
+   "type": null
+  },
+  {
+   "rva": 4106715,
+   "namespace": "",
+   "name": "DivisionDesigner_BuildTooltip_TerrainCopy",
+   "kind": "instruction",
+   "confidence": "CERTAIN",
+   "evidence": "`call 0x401BD0` (E8 F0 71 C1 FF) in CDivisionDesigner::BuildTooltip's terrainbonus arm: std::string::assignString(out@ECX, &designer->terrain_text (+0x1D4), 0, -1), the three arguments pushed at 0x7EA9CD..0x7EA9D8. The designer is in [ebp-0x14] (stored from ECX at 0x7EA957) and `out` in EBX throughout the arm; the next instruction jumps to the epilogue, which sets EAX from EBX itself (0x7EC523). BiceLib's Hooks/Tooltips/ParadropLine replaces this call to put the paradrop line in front of the copied text. See reversing/findings/FINDINGS-buildertooltips.md, sections 2 and 6.\n(reversing/findings/FINDINGS-buildertooltips.md)",
    "type": null
   },
   {
