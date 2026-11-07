@@ -211,6 +211,26 @@ replaces the `call` at `0x7EA9DB`: it makes the copy, then puts "This unit can /
 paradropped" in front of it, with the blocking brigades listed under a "can not". An empty design
 adds nothing - its terrain text is empty and the game shows no tooltip.
 
+**The definitions in the design are the database's own, with no research in them.** `Populate`
+makes each type at the country's levels into a local vector (`MakeCountrySubUnitDefinition` at
+`0x7ED3A4`, `out` stepping `0x228` a type) and sorts those, but then, for each one, takes its key
+(`+8`) and looks the type up in the unit database (`0x7ED4DB`: `call 0x9C7D60` on the database's
+`+0x10`); that type is what the line is made for, and what `OnSelect` hands to `AddBrigade` from
+`+0x78`. The local vector is gone when `Populate` returns. `confirmed`
+
+So BiceLib's "(Weight: X)" on the line makes each brigade at the player's levels itself, as the
+picker's columns are made, and sums `transport_weight` (`+0x10C`) cut to a whole number - the figure
+`CAir::MayLoad` sets against a plane's room. Technology moves `transport_weight` in BlackICE.
+
+**`CSubUnitDefinition::CSubUnitDefinition`** is `0x5A3510 / 0x1A3510`: `__stdcall (this, name,
+index)`, `ret 0xC`, returning `this`. It writes the vftable `0x15BDC04` (the RTTI export's for the
+class), `+4` = `0x18D`, assigns `name` at `+8` and `index` at `+0x24`, makes the shared default at
+the global `0x1A855D4` on first use and keeps it at `+0x3C`, and clears the rest - nothing is
+registered anywhere. `UpdateDesign` calls it on `operator new(0x228)` with `---` and 0
+(`0x7E6B39`..`0x7E6B9B`), and the picker's vector steps `0x228`, so **a definition is `0x228`
+bytes**. BiceLib's header has 0x248 as the distance between neighbours in memory, which would be
+the heap's own overhead on top. `confirmed`
+
 ## Kept as read, though they look odd
 
 1. **Attrition is written without its hundred**: an adjuster's attrition of `0.5` reads `+0.5%`
@@ -240,4 +260,6 @@ the practical icon, `CInGameIdler_ViewTooltip` for what `+0x1CE0` is not,
 
 Section 6 by `fragments/merged/designer-paradrop-line.json`: the instruction
 `DivisionDesigner_BuildTooltip_TerrainCopy` (`0x3EA9DB`) new, and `CDivisionDesigner +0x1B4`
-revised from `CList` to `CList<CSubUnitDefinition*>`.
+revised from `CList` to `CList<CSubUnitDefinition*>`. Then by
+`fragments/merged/designer-paradrop-weight.json`: `CSubUnitDefinition::CSubUnitDefinition`
+(`0x1A3510`) new, and `+0x1B4`'s comment revised to say its definitions are the database's.
