@@ -1,0 +1,86 @@
+{
+ "agent": "map cache wave, reader D",
+ "question": "CBorderManager_FillBitmap branch by branch and MapBinCache_Build's raster half: every byte of border_bitmap.bin and map.bin, made again from the map files and compared byte for byte with the original's on two maps",
+ "source": "reversing/findings/FINDINGS-mapcache.md",
+ "addresses": [
+  {
+   "rva": "0x434910",
+   "kind": "function",
+   "name": "CBorderManager_FillBitmap",
+   "signature": "void __stdcall CBorderManager_FillBitmap(CBorderManager* borders)",
+   "no_signature": null,
+   "comment": "**Makes border_bitmap.bin** (only when it is missing or CMap +0x28 says stale; CBorderManager_Construct). 0x434910 to the one `ret 4` at 0x4364A2. Read branch by branch and **checked whole**: a program built on this rule gives both TFH's and BlackICE's file byte for byte (FINDINGS-mapcache.md section D, which has the full rule). Inputs: the province raster (+0x20E0, 16-bit ids, y counted from the south), the template of each id (CMap +0x2A60[id]; **every id below max_provinces has one, id 0 included**, CMap::LoadMapFiles' loop at VA 0x48A153, so the 'null template' arms never fire on a real map), the first region listed for a province (CMapProvince +0x358's first node, in region.txt's order, 0 where none), is_land (template +0x22, = not listed in default.map's sea_starts) and the map.bin raster. Writes (W+1) x (H+1) four-byte entries, row y at y x 4 x (W+1). **Stage A**, y 1..H-1: byte 0 |= 1 at (0,y) and |= 2 at (1,y); a same-landness pair of different ids between (W-1,y-1) and (W-1,y) gives 8 and 4 (0x18 and 0x14 where their regions differ) to byte 0 of those two pixels, row y-1 getting the 8 - the column 0 twin goes to the scratch masks only. **Stage B**, x 1..W-2, y 1..H-2: byte 1 = 0x40 (0xFF only with 3+ null templates); byte 0 is zeroed; the province mask +0x60 and region mask +0x64 get, for each of (x+1,y) 1, (x-1,y) 2, (x,y+1) 4, (x,y-1) 8, the bit where both pixels are land with different nonzero ids (the region mask, with 0x10, where their first regions differ) or both sea with different nonzero ids, and that neighbour's map.bin byte passes a mask (0xE, 0xB, 0xA, 0xF for the four). **Stage C**: a pixel with one province bit and one region bit is merged into a corner code 3, 7, 11, 12, 13, 14, 15 or region code 0x13 by which neighbours' regions match. **Stage D**: at a map.bin cut pixel (low nibble set) with any mask set: byte 3 = 1 or 2 (0x11, 0x12 for the region mask) by the cut and the bits it touches, the bits the cut removes being cleared unless the neighbour across has the matching bit (the original's test against code 13, 'S.m == 0xD', is kept). **Stage E**: a pixel with no byte 3 yet takes byte 3 = 3, 4, 5 or 6 by the first of its four map.bin neighbours that carries a cut, +0x10 where the diagonal neighbour's region differs from its own; a pixel with one spreads its mask bits to the neighbour across unless that neighbour's mask is already a corner code. **The first test, for bit 2, reads the pixel's own province mask rather than the neighbour's (VA 0x835C49..0x835C4E: `imul eax,edx; add eax,ecx; mov al,[eax+edi]`) - the original's slip, and it is what makes the file agree.** **Stage F**: eight (region, province) pairs of mask values become one corner code (0x18, 2 becoming 3 where 0x12, 8 becomes 15), then byte 0 |= both masks. **Stage G**, y 1..H-1: byte 1 of columns 0 and 1 is copied from column 3, of W-1 and W-2 from W-3. **Byte 2 is never written. The extra row y = H and column x = W stay 0** and rows 0 and H-1 get no byte 1. The in_game arm that shades byte 1 by template +0x21 runs only where a player exists, which the map build does not have. The name is from the log line its caller writes.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-mapcache.md",
+   "revises": "Was inferred with only the outline read. Now read branch by branch, the ladder of codes settled (7 stages), the off-by-one in the first spread test found, and confirmed by whole-file agreement on two maps. Comment rewritten; corrects 'less 10 per neighbour whose template +0x21 is set' to an arm that does not run at the map build, and 'three or more have no template' to never occurring.",
+   "evidence": "scratch rasters.py builds the file and compares: TFH 48,553,348 of 48,553,348 bytes, BlackICE 48,553,348 of 48,553,348, each of the four byte lanes whole. Negative controls: byte 0 and byte 3 diverge with the region map replaced by last-listed (82,285 / 109,209 pixels) or nothing (173,827 / 250,767), with all provinces land (184,013 / 11,771), and with no template for id 0 byte 1 diverges 14,045 pixels. The own-pixel test at 0x835C4E was found by 8 remaining differences (12 ours, 13 theirs and 5 ours, 4 theirs) and vanished when it was applied. What would show it wrong: a third map whose file differs, or a raster holding an id at or above max_provinces (out of bounds read here)."
+  },
+  {
+   "rva": "0x873C0",
+   "kind": "function",
+   "name": "MapBinCache_Build",
+   "signature": "void __stdcall MapBinCache_Build(MapBinCache* cache)",
+   "no_signature": null,
+   "comment": "Makes map.bin's contents when stale or unreadable. 0x4873C0 to the `ret 4` at 0x487C88. First the river sources (rivers.bmp pixels of index 0, y = 0.. then x = 0.., y as the engine's, from the south) onto +0x10. Then +0xC = new byte[(W+1) x (H+1)], zeroed, and two passes over 1 <= x <= W-2, 1 <= y <= H-2 of the province raster P (out of bounds read as 0). With sea(id) = CMap +0x21F8[id] (default.map's sea_starts): **Pass 1** (asked for every pixel with d = P(x,y-1) != 0): where c = P(x,y) differs from l = P(x-1,y), l = P(x-1,y-1) = d and sea(d) == sea(c): m[x,y] &= 0xF0, then **m[x,y] = 2** (the whole byte, so a 0x10 already there goes - VA 0x4877F2), and m[x-1,y] |= 0x20; then, where c != d, d = P(x+1,y-1) = P(x+1,y) and sea(d) == sea(c): m[x,y] = (m[x,y] & 0xF0) | 8, m[x+1,y] |= 0x10. **Pass 2**, again in order and only for a land c (not sea, not 0): where m[x,y]'s low nibble is 0, c != l, l = P(x-1,y+1) = P(x,y+1), l is land and not 0, c = d = P(x+1,y) and neither m[x,y+1] nor m[x-1,y] has bit 2 or 8: m[x,y] = (m[x,y] & 0xF0) | 4, m[x-1,y] |= 0x20; then the mirror: low nibble still 0, c != r = P(x+1,y), r = P(x+1,y+1) = P(x,y+1), r land and not 0, c = d = l, neither m[x,y+1] nor m[x+1,y] has bit 2 or 8: m[x,y] = (m[x,y] & 0xF0) | 1, m[x+1,y] |= 0x10. So the low nibble says which corner of the pixel is cut (2 SW, 8 SE, 4 NW, 1 NE) and the high two bits mark the pixel across that cut: **0x20 'the pixel east of me is cut on its west', 0x10 'the pixel west of me is cut on its east'**. Readers: FillBitmap, BorderManager_UpdateControllerBits and BorderManager_ApplyDiagonalCuts take only the low nibble, QuadBuild_AddPixelEntries (0x456DF0) only bits 1, 2, 4, 8, and QuadBuild_RunQuad (0x448EE0) those and **0x20** (twice, at VA 0x848F39 and 0x848F7F, looking at the pixel at x+1). **Nothing reads 0x10** (nothing holds the object but g_MapBinCache's 11 sites, WaterObject +0x418C's 6, and the two functions those call; each was read for `test`s on bits). So the map.bin raster has its 207,098 TFH pixels of 16 and 32 for 0x20's sake alone, and 0x10 is written and never used. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-mapcache.md",
+   "revises": "Was inferred with only the source list read. The raster half read whole; its two passes given in full; values 16 and 32 explained and their readers listed; confirmed by whole-file agreement on two maps.",
+   "evidence": "scratch rasters.py makes the raster from provinces.bmp, definition.csv and default.map and compares with map.bin: TFH 12,138,337 of 12,138,337 raster bytes, BlackICE the same, and the 20-byte head and river list whole on both (TFH 5,800 bytes, BlackICE 5,872). 0x4877F2 `mov byte ptr [eax+ecx], 2` is the whole-byte write of the first test, after the `and ..., 0xF0` at 0x4877E5 (so the and is dead). What would show it wrong: a third map's map.bin differing. The negative on readers of 0x10 has a positive control: the same scan of the mesh functions found the `test al, 0x20` at 0x848F39 and 0x848F7F."
+  },
+  {
+   "rva": "0x87C90",
+   "kind": "function",
+   "name": "MapBinCache_Save",
+   "signature": "void __fastcall MapBinCache_Save(MapBinCache* cache@ESI)",
+   "no_signature": null,
+   "comment": "Writes map.bin at +0x28 (mode 1, through the file class at rvas 0x66C1B0 and 0x66D080): the 20-byte head - the 12 bytes of the string 'MAP_CACHE' padded with zeros to a dword (0x15BDF80: eight bytes as read, then a dword 'E') and the two int32s **2 and 3** - then int32 N = the river-source count, N x 8 bytes of (int32 x, int32 y) only where N is not 0, then the (W+1) x (H+1) raster (+0x24 x +0x20 bytes). No trailing data: 24 + 8N + (W+1)(H+1) bytes, TFH 12,144,137. 0x487C90 to the bare `ret` at 0x487DAE. 2 and 3 are constants compared whole by MapBinCache_Load; nothing else reads them (*inferred* a format version pair).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-mapcache.md",
+   "evidence": "Disassembled and decompiled; the written head equals the first 20 bytes of TFH's and BlackICE's map.bin, the file's size is the sum, and the rebuilt file agrees whole. The caller is CreateMapBinCacheOwner's build path (rva 0x86F10)."
+  },
+  {
+   "rva": "0x87DB0",
+   "kind": "function",
+   "name": "MapBinCache_Load",
+   "signature": "bool __fastcall MapBinCache_Load(MapBinCache* cache@ESI) @AL",
+   "no_signature": null,
+   "comment": "Reads map.bin: +0 / +4 = CMap map width / height; where the file at +0x28 exists, opens it and reads 20 bytes, compared whole with {'MAP_CACH', dword 'E', 2, 3} (four bytes at a time, an inlined memcmp, the mismatch returning false; so the two int32s of the head must be exactly 2 and 3 or the file is built anew); then int32 N, resizes +0x10 to N (RiverSourceVector_Resize) and reads N (x, y) int32 pairs into it, then new byte[(W+1) x (H+1)] into +0xC and reads it. Answers false where the file is missing, does not open or the head differs. 0x487DB0 to the bare `ret` at 0x487F76 (an early `ret` at 0x487E54 for the false path). The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-mapcache.md",
+   "revises": "Comment adds that all 20 head bytes are compared, including the two int32s 2 and 3, which a failing compare builds anew. Confidence raised; the file format was reproduced whole.",
+   "evidence": "Decompiled whole: local_40 = 'MAP_CACH', 'E', 2, 3 against the 20 bytes read (local_2c), the compare loop returning false on a difference. Reproducing the file byte for byte (rasters.py) confirms the layout read."
+  },
+  {
+   "rva": "0x88000",
+   "kind": "function",
+   "name": "RiverSourceVector_Resize",
+   "signature": "void __fastcall RiverSourceVector_Resize(int count@EAX, int* vector@EDI)",
+   "no_signature": null,
+   "comment": "std::vector of 8-byte (x, y) pairs resized to count, in EAX, vector in EDI: truncated in place, or grown through 0x3C62C0. Called by MapBinCache_Load after reading N. 0x488000 to the bare `ret` at 0x48804D and again at 0x48808C. The name is ours.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-mapcache.md",
+   "evidence": "Disassembled: `mov esi, eax`, `mov ecx,[edi+4]; mov edx,[edi]`, the sar 3 of the byte size, the shrink-or-grow branch. Inferred only in that the template it instantiates (element size 8, a default-constructing grow) was not confirmed against the map.bin list alone."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CProvinceTemplate",
+   "offset": "0x21",
+   "name": "unknown_21",
+   "type": "uint8_t",
+   "comment": "A per-province flag: zeroed by the constructor (word store at 0x4A92F4 with +0x20) and by CProvince_ResetState (0x49734B), written by CInGameIdler slot 56 from a byte of its per-province table at 0x6731AD (and cleared at 0x673393). CBorderManager_FillBitmap's byte-1 shade and BorderManager_UpdateControllerBits read it, only where a player exists / fog of war is on, so it never reaches border_bitmap.bin; what it means was not settled. *Inferred* to be fog-of-war related from those sites and from sitting beside CProvince +0x36D in slot 56.",
+   "evidence": "fieldchain.py and disassembly of the writers named; the fill's in_game arm at the shade. What would show it wrong: a writer that is not about visibility."
+  },
+  {
+   "struct": "MapBinCache",
+   "offset": "0xC",
+   "name": "raster",
+   "type": "uint8_t*",
+   "comment": "The (W+1) x (H+1) byte raster of map.bin, row y at y x (W+1), made by MapBinCache_Build from the province raster and sea_starts (the file agrees whole on two maps) or read by MapBinCache_Load. The low nibble marks a cut corner of the pixel (1 NE, 2 SW, 4 NW, 8 SE); 0x20 = the pixel to the east is cut on its west side, 0x10 = the pixel to the west is cut on its east side (and is read by nothing). FINDINGS-mapcache.md section D; FINDINGS-mapdraw.md B.7 has what the border code reads of it.",
+   "evidence": "See MapBinCache_Build; the file reproduced byte for byte on TFH and BlackICE.",
+   "revises": "Comment now says what every value of the raster means, the rule it is built by and that bit 0x10 has no reader."
+  }
+ ],
+ "vftable_slots": {},
+ "frontier": ["0x66C1B0", "0x66D080", "0x3C62C0", "0x3C6440", "0x66C880", "0x66C7D0", "0x22760", "0xA3C0"]
+}

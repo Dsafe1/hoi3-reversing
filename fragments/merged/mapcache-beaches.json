@@ -1,0 +1,192 @@
+{
+ "agent": "map cache wave, reader C",
+ "question": "The beach builder 0x470700 and its helpers, the per-pixel builders 0x46EB60/0x46EB20: pieces 5, 6 and 7 of a tile's record in all_quads.bin, made again from the map files and compared byte for byte against TFH's and BlackICE's caches.",
+ "source": "reversing/findings/FINDINGS-mapcache.md",
+ "addresses": [
+  {
+   "rva": "0x470700",
+   "kind": "function",
+   "name": "QuadBuild_Beaches",
+   "signature": "void __stdcall QuadBuild_Beaches(int tile@ECX, WaterObject* mgr@stack:4, BeachBuild* build@stack:8, void* exponents@stack:0xC)",
+   "no_signature": null,
+   "comment": "**Makes a tile's beach mesh** (pieces 5 and 6 of its all_quads.bin record) from the tile's BeachSegment list. Called by QuadBuild_Tile (VA 0x87356C) only where build +0 (vertex count) is not 0, so a tile with no segment has W = 0 and no piece 6. tile in ECX, exponents = &mgr +0x428C. Tile middle (mx, my) = (width x col + width/2, height x row + height/2). VertexBuffer_Create(verts, stride 12, FVF 0), IndexBuffer_Create(indices); updates mgr +0x18 to the largest vertex count seen. **First pass, segments in list order**: types 1..11 (straight, 7 vertices, 15 indices): A, B and a third point M from the segment's pixel by the type (table in the findings), all as (int - mid) + 0.5; d = normalised B - A; P = d crossed with (0,0,-1), normalised, negated, so P = (d.y, -d.x); M = A + 0.5d for types 1..4 and a fixed corner for 5..11; four points Qk = A + (k/3)d, k = 0..3, each moved out along P by QuadBuild_BeachDisplacement(Qk). Vertices A, B, M, Q0..Q3; indices (M, A, Q0), (Qk, Qk+1, M) for k = 0..2, (Q3, B, M). Types 12..15 (corner, 8 vertices, 18 indices): four corners P0..P3 by the type, e1 = normalised P1 - P0, e2 = normalised P2 - P0; Q0 = P0 + disp(P0)e1, Q1 = P1 - disp(P1)e1, Q2 = Q0 + disp(Q0)e2, Q3 = Q1 + disp(Q1)e2. Vertices P0..P3, Q0..Q3; indices (0,4,2), (4,2,6), (6,2,7), (7,2,3), (5,7,3), (1,5,3). Each segment's vertices carry one D3DCOLOR, the province id at (x + colour dx, y + colour dy) in the province raster (0 outside the map) as bytes 00, id >> 8, id & 0xFF, 00. **Every multiplication and addition is SSE2 double arithmetic rounded to float where the code stores a float; 1/sqrt through FloatSqrt and fld1/fdivrp** (the same as float(1.0 / double(float sqrt))). The segment's +0x18..+0x40 are filled here (straight: near = Q0, far = Q3, start = A, match = M; corner: near = Q1, far = Q0, start = P1, match = P0). **Second pass, segments in list order**: BeachSegments_FindNearest(segment); one triangle (start index, near index, third) where third = other's far index if a neighbour is found and the distance from this segment's near point to its far point is under 1.0 (FloatSqrt of the float-rounded squared distance), else the near index. Those triangles go after every first-pass index, one per segment, so a tile has 18 or 21 indices per segment. Reproduces all three pieces of every record of TFH's cache (1,774 of 1,774) and BlackICE's (1,787 of 1,787) byte for byte. The name is ours. See reversing/findings/FINDINGS-mapcache.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-mapcache.md",
+   "evidence": "Read whole in disassembly (0x870700 to the ret 0xc at 0x8721A8) and reimplemented in scratch build.py: piece 5 and piece 6 of every tile of both caches agree byte for byte. Would be shown wrong by any tile differing; none does. Vertex order, index order and the second-pass triangles are each pinned by those bytes."
+  },
+  {
+   "rva": "0x4705F0",
+   "kind": "function",
+   "name": "QuadBuild_BeachDisplacement",
+   "signature": "float __cdecl QuadBuild_BeachDisplacement(float* point@ESI, void* exponents@stack:4) @XMM0",
+   "no_signature": null,
+   "comment": "**How far a point on the beach's outer edge is pushed out.** point = (x, y) tile-local floats (ESI). fBm at (x, y, 0) with H = 0.3f, lacunarity 0.4f, 5 octaves; f = (float)result; f = -f where f < 0; while f > 0.5f, f = (float)(f * 0.5). Returns the float in xmm0. The caller's exponent vector is the third stack argument of QuadBuild_Beaches, WaterObject +0x428C, passed through. The constants are the doubles at VA 0x160A3E8 (0.3f as double), 0x160A618 (0.4f as double) and 0x160A508 (5.0). See reversing/findings/FINDINGS-mapcache.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-mapcache.md",
+   "evidence": "Read whole. The displaced points of both caches are reproduced exactly; the values fold into (0, 0.5]. Would be shown wrong by any vertex differing."
+  },
+  {
+   "rva": "0x470330",
+   "kind": "function",
+   "name": "Noise_FractalBrownianMotion",
+   "signature": "double __cdecl Noise_FractalBrownianMotion(void* exponents@EAX, void* pointVector@EDI, double H@stack:4, double lacunarity@stack:0xC, double octaves@stack:0x14) @XMM0",
+   "no_signature": null,
+   "comment": "**Musgrave's fBm.** Where the exponent vector (EAX, double elements) is empty, it is resized to octaves + 1 and filled with pow(frequency, -H) for frequency = 1, lacunarity, lacunarity^2, ... (doubles, lacunarity multiplied in as a double). value = 0; for i < (int)octaves: value += (double)Perlin_Noise3(point) * exponent[i], then each component of the point multiplied by (float)lacunarity in double and rounded to float. The remainder term runs only where octaves - (int)octaves is not 0 - dead here, octaves being 5.0. value < -5.0 gives 0. Returns the double in xmm0. The point is a std::vector<float> of three elements (EDI). Called only by QuadBuild_BeachDisplacement. See reversing/findings/FINDINGS-mapcache.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-mapcache.md",
+   "evidence": "Read whole; it is the textbook routine, and the same values reproduce both caches. Would be shown wrong by any vertex differing."
+  },
+  {
+   "rva": "0x4704E0",
+   "kind": "function",
+   "name": "BeachSegments_FindNearest",
+   "signature": "uint __cdecl BeachSegments_FindNearest(BeachBuild* build@EAX, BeachSegment* segment@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "**The segment whose match point lies nearest this one's start.** Over the build's list in order, skipping any with the same x, y and type (so the segment itself): dx = (float)(start.x - other.match.x), dy likewise, distance = FloatSqrt((float)(dy*dy + dx*dx)); the first strictly smaller value wins, starting from 1e17f. Returns the index where the best is under 2.0f (VA 0x1718064), else -1. Used by QuadBuild_Beaches's second pass. See reversing/findings/FINDINGS-mapcache.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-mapcache.md",
+   "evidence": "Read whole; the link triangles of both caches agree byte for byte. Would be shown wrong by any link index differing."
+  },
+  {
+   "rva": "0x46EB60",
+   "kind": "function",
+   "name": "QuadBuild_PixelBeachesAndSurf",
+   "signature": "void __stdcall QuadBuild_PixelBeachesAndSurf(WaterObject* mgr@ECX, int tile@EDX, BeachBuild* build@stack:4, int* pixel@stack:8, int provinceId@stack:0xC, int* colourOffset@stack:0x10)",
+   "no_signature": null,
+   "comment": "**One land pixel's surf records and beach segments.** Calls MapShore_GenerateWavePixels first (with tile in EDI, mgr in ESI), then nothing more unless 0 < x < width - 1 and 0 < y < height - 1. W = TerrainRaster_IsWater. Each added segment is BeachSegment_Init(pixel, type, provinceId, colourOffset[0], colourOffset[1]) then BeachBuild_AddSegment. In order: **3** where (x-1,y+1), (x,y+1), (x+1,y+1) are all water; **4** the same on row y-1; **1** where (x+1,y-1), (x+1,y), (x+1,y+1) are water; **2** the same on column x-1. Then the lone ones: **15** (x,y-1) water and both (x-1,y-1) and (x+1,y-1) land; **14** the same on row y+1; **13** (x-1,y) water and (x-1,y+1), (x-1,y-1) land; **12** the same on column x+1, and 12 returns at once. If 13, 14 or 15 was added, returns. Corners: **8** if (x-1,y-1), (x,y-1), (x-1,y), not (x-1,y+1), (x-2,y); else **7** if (x+1,y-1), (x,y-1), (x+1,y), not (x-1,y-1), (x,y-2); else **6** if (x-1,y+1), (x-1,y), not (x-1,y-1); else **5** if (x+1,y+1), (x+1,y), not (x+1,y-1). Then, independently: **9** if (x-1,y-1), (x,y-1), not (x+1,y-1), (x,y-2); **10** if (x+1,y-1), (x,y-1), not (x-1,y-1), (x,y-2); **11** if (x+1,y+1), (x,y+1), not (x-1,y+1), (x,y+2). colourOffset is the entry at the pixel's own index in the 0x6C-byte province entry's offsets vector (+0x5C), which holds 1 or 2 entries per pixel. 0x46EB60 to the ret 0x10 at 0x86F130. Called only by QuadBuild_Tile. The name is ours. See reversing/findings/FINDINGS-mapcache.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-mapcache.md",
+   "evidence": "Read whole, past the surf call that was all FINDINGS-mapdraw C.7 had. The segments and records come out in the cache's order on both maps: 95,015 segments of TFH and 94,653 of BlackICE, by byte comparison of pieces 5 to 7."
+  },
+  {
+   "rva": "0x46EB20",
+   "kind": "function",
+   "name": "BeachBuild_AddSegment",
+   "signature": "void __stdcall BeachBuild_AddSegment(BeachSegment* segment@EAX, BeachBuild* build@EDX)",
+   "no_signature": null,
+   "comment": "**Counts a beach segment and pushes it.** build +0 (vertices) += 8 and build +4 (indices) += 21 for types 12..15; += 7 and += 18 for types below 12; no count for type 16 and above, which never arises. Then BeachSegments_PushBack onto build +8. See reversing/findings/FINDINGS-mapcache.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-mapcache.md",
+   "evidence": "Read whole. The counts agree with the buffers written, every tile of both caches."
+  },
+  {
+   "rva": "0x4721B0",
+   "kind": "function",
+   "name": "BeachSegments_PushBack",
+   "signature": "void __stdcall BeachSegments_PushBack(BeachSegment* segment@EAX, void* vector@EDI)",
+   "no_signature": null,
+   "comment": "std::vector<BeachSegment>::push_back, element 0x48 bytes; grows through 0x472290 and copies through 0x46D760 with the usual allowance for an element already in the vector. See reversing/findings/FINDINGS-mapcache.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-mapcache.md",
+   "evidence": "Read whole; the 0x38E38E39 divide is the 0x48-byte element."
+  },
+  {
+   "rva": "0x44EAE0",
+   "kind": "function",
+   "name": "BeachSegment_Init",
+   "signature": "BeachSegment* __stdcall BeachSegment_Init(BeachSegment* segment@EAX, int* pixel@ECX, int type@stack:4, int provinceId@stack:8, int colourDx@stack:0xC, int colourDy@stack:0x10) @EAX",
+   "no_signature": null,
+   "comment": "Fills a BeachSegment: +0 x, +4 y from the pixel; +8 type; +0xC province id; +0x10, +0x14 the colour offset; +0x18, +0x1C = -1; +0x44 = 0. See reversing/findings/FINDINGS-mapcache.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-mapcache.md",
+   "evidence": "Read whole, 0x84EAE0 to the ret 0x10 at 0x84EB16. Stores agree with the readers in QuadBuild_Beaches."
+  },
+  {
+   "rva": "0x705860",
+   "kind": "function",
+   "name": "Perlin_Noise3",
+   "signature": "float __stdcall Perlin_Noise3(void* pointVector@stack:4) @XMM0",
+   "no_signature": null,
+   "comment": "**Ken Perlin's reference noise3 (B = 256, N = 4096), its float arithmetic done in SSE2 double and rounded to float.** Calls Perlin_Init on first use (VA 0x1709304). setup: t = (float)(v + 4096.0); b0 = (int)t & 255; b1 = (b0 + 1) & 255; r0 = (float)(t - (float)(int)t); r1 = (float)(r0 - 1.0). s_curve(t) = (float)((3.0 - t*2.0) * (t*t)); at3 = (float)((q1*ry + q0*rx) + q2*rz); lerp = (float)((b - a)*t + a). Point = three floats through a std::vector<float> (the argument's begin pointer). Returns the float in xmm0. `ret 4`. Called only by Noise_FractalBrownianMotion. See reversing/findings/FINDINGS-mapcache.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-mapcache.md",
+   "evidence": "Read whole; the emulation in scratch noise.py reproduces every displaced point of two caches to the bit."
+  },
+  {
+   "rva": "0x7056C0",
+   "kind": "function",
+   "name": "Perlin_Init",
+   "signature": "void __cdecl Perlin_Init(void)",
+   "no_signature": null,
+   "comment": "**Perlin's table initialiser - its gradients NOT normalised.** For i = 0..255: p[i] = i; g1[i] = (rand() % 512 - 256) * 1/256 (float); g2[i][0..1] likewise, 2 calls; g3[i][0..2] likewise, 3 calls: 6 rand() per i, 1,536 in all. Then i from 255 down to 1: k = p[i]; j = rand() % 256; p[i] = p[j]; p[j] = k: 255 more. The tables are copied to [256..513] for the +2 overrun. Runs once in the process, on the first Perlin_Noise3; **rand() (CRT_rand, whose per-thread state starts at 1 and is never seeded: the image has no srand) makes the tables a function of how many rand() calls the main thread has already made** - measured 292 for TFH's shipped cache, 1140 for BlackICE GitHub's and 15.1's, 364 for 16.0's and 16.1's. Nothing in the map files sets it. Called only by Perlin_Noise3. See reversing/findings/FINDINGS-mapcache.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-mapcache.md",
+   "evidence": "Read whole; the tables at the offsets found reproduce five caches' displaced points; a scan of the image for the srand body (getptd then a store to +0x14) found none, the positive control being rand's own getptd then +0x14 read at 0xB97F3F."
+  },
+  {
+   "rva": "0x797F3F",
+   "kind": "function",
+   "name": "CRT_rand",
+   "signature": "int __cdecl CRT_rand(void)",
+   "no_signature": null,
+   "comment": "The MSVC CRT's rand: holdrand (the per-thread _ptd +0x14) = holdrand * 214013 + 2531011; returns (holdrand >> 16) & 0x7FFF. 29 call sites; no srand in the image, so each thread starts at the CRT's initial 1. Named after what the body is; see reversing/findings/FINDINGS-mapcache.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-mapcache.md",
+   "evidence": "Read whole, the constants are the CRT's. Five caches' noise tables follow from this generator."
+  },
+  {
+   "rva": "0x1309304",
+   "kind": "global",
+   "name": "g_PerlinStart",
+   "signature": null,
+   "no_signature": null,
+   "comment": "Perlin_Noise3's `start` flag, statically 1 and cleared at its first use. VA 0x1709304.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-mapcache.md",
+   "evidence": "Reads 1 from the image; written only by Perlin_Noise3 at 0xB05872."
+  },
+  {
+   "rva": "0x1681D08",
+   "kind": "global",
+   "name": "g_PerlinPermutation",
+   "signature": null,
+   "no_signature": null,
+   "comment": "Perlin_Init's p[], 514 ints: VA 0x1A81D08. g1 follows at VA 0x1A82510 (514 floats), g3 at VA 0x1A82D18 (514 x 3 floats), g2 at VA 0x1A84530 (514 x 2 floats) - all .bss, made by Perlin_Init.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-mapcache.md",
+   "evidence": "Disassembly of Perlin_Init and Perlin_Noise3 addressing the tables by these bases."
+  }
+ ],
+ "structs": [
+  {
+   "name": "BeachSegment",
+   "size": "0x48",
+   "comment": "One beach piece of a land pixel, built by QuadBuild_PixelBeachesAndSurf and turned into vertices and indices by QuadBuild_Beaches; a scratch record of the map cache's build, kept nowhere. The name is ours.",
+   "evidence": "BeachSegment_Init and QuadBuild_Beaches read whole; 0x48-byte stride by the 0x38E38E39 divide in every list walk."
+  },
+  {
+   "name": "BeachBuild",
+   "size": "0x14",
+   "comment": "The accumulator a tile's beach segments are collected in: a local of QuadBuild_Tile (VA ebp-0x9C). The name is ours.",
+   "evidence": "QuadBuild_Tile's local, written by BeachBuild_AddSegment and read by QuadBuild_Beaches."
+  }
+ ],
+ "struct_fields": [
+  {"struct": "BeachSegment", "offset": "0x0", "name": "x", "type": "int", "comment": "Land pixel column.", "evidence": "BeachSegment_Init; QuadBuild_Beaches reads it for its corners."},
+  {"struct": "BeachSegment", "offset": "0x4", "name": "y", "type": "int", "comment": "Land pixel row, northward.", "evidence": "As +0."},
+  {"struct": "BeachSegment", "offset": "0x8", "name": "type", "type": "int", "comment": "1..11 a straight piece, 12..15 a corner (QuadBuild_PixelBeachesAndSurf).", "evidence": "As +0."},
+  {"struct": "BeachSegment", "offset": "0xC", "name": "province_id", "type": "int", "comment": "The province whose pixel made it; nothing reads it - the colour comes from the raster.", "evidence": "BeachSegment_Init writes it; QuadBuild_Beaches, read whole, does not read it."},
+  {"struct": "BeachSegment", "offset": "0x10", "name": "colour_dx", "type": "int", "comment": "Added to x before the province raster is read for the vertex colour.", "evidence": "BeachSegment_Init's colourDx; QuadBuild_Beaches at VA 0x871436."},
+  {"struct": "BeachSegment", "offset": "0x14", "name": "colour_dy", "type": "int", "comment": "Added to y for the same; 0 in every entry the offsets list holds.", "evidence": "As +0x10; QuadBuild_AddPixelEntries writes only a dx."},
+  {"struct": "BeachSegment", "offset": "0x18", "name": "near_index", "type": "int", "comment": "Vertex index of the near outer point: Q0 of a straight piece, Q1 of a corner. Second vertex of the link triangle. -1 until QuadBuild_Beaches's first pass.", "evidence": "QuadBuild_Beaches: VA 0x871530 and 0x871F4E, read at VA 0x872103."},
+  {"struct": "BeachSegment", "offset": "0x1C", "name": "far_index", "type": "int", "comment": "Vertex index of the far outer point: Q3 of a straight piece, Q0 of a corner. Third vertex of a neighbour's link triangle.", "evidence": "VA 0x871542, 0x871F60, read at VA 0x8720F5."},
+  {"struct": "BeachSegment", "offset": "0x20", "name": "start_index", "type": "int", "comment": "Vertex index of the start point: A of a straight piece, P1 of a corner. First vertex of the link triangle.", "evidence": "VA 0x871554, 0x871F72, read at VA 0x8720D4."},
+  {"struct": "BeachSegment", "offset": "0x24", "name": "near_point_x", "type": "float", "comment": "That vertex's x.", "evidence": "VA 0x871536, 0x871F54, read at VA 0x872069."},
+  {"struct": "BeachSegment", "offset": "0x28", "name": "near_point_y", "type": "float", "comment": "That vertex's y.", "evidence": "As +0x24."},
+  {"struct": "BeachSegment", "offset": "0x2C", "name": "far_point_x", "type": "float", "comment": "The far point's x.", "evidence": "VA 0x871548, 0x871F66, read at VA 0x872085."},
+  {"struct": "BeachSegment", "offset": "0x30", "name": "far_point_y", "type": "float", "comment": "The far point's y.", "evidence": "As +0x2C."},
+  {"struct": "BeachSegment", "offset": "0x34", "name": "start_point_x", "type": "float", "comment": "The start point's x; compared by BeachSegments_FindNearest.", "evidence": "VA 0x871557, 0x871F7B, read at VA 0x870540."},
+  {"struct": "BeachSegment", "offset": "0x38", "name": "start_point_y", "type": "float", "comment": "The start point's y.", "evidence": "As +0x34."},
+  {"struct": "BeachSegment", "offset": "0x3C", "name": "match_point_x", "type": "float", "comment": "What a neighbour's start is matched against: M of a straight piece, P0 of a corner.", "evidence": "VA 0x871579, 0x871F9A, read at VA 0x870545."},
+  {"struct": "BeachSegment", "offset": "0x40", "name": "match_point_y", "type": "float", "comment": "Its y.", "evidence": "VA 0x871FCE, read at VA 0x87054A."},
+  {"struct": "BeachSegment", "offset": "0x44", "name": "unused_44", "type": "int", "comment": "Zeroed by BeachSegment_Init; nothing read here reads it.", "evidence": "BeachSegment_Init; negative over QuadBuild_Beaches and BeachSegments_FindNearest read whole."},
+  {"struct": "BeachBuild", "offset": "0x0", "name": "vertex_count", "type": "int", "comment": "Sum over the segments: 7 or 8 each.", "evidence": "BeachBuild_AddSegment."},
+  {"struct": "BeachBuild", "offset": "0x4", "name": "index_count", "type": "int", "comment": "Sum over the segments: 18 or 21 each.", "evidence": "BeachBuild_AddSegment."},
+  {"struct": "BeachBuild", "offset": "0x8", "name": "segments_begin", "type": "BeachSegment*", "comment": "std::vector<BeachSegment>.", "evidence": "BeachSegments_PushBack, QuadBuild_Beaches."},
+  {"struct": "BeachBuild", "offset": "0xC", "name": "segments_end", "type": "BeachSegment*", "comment": "End of the same.", "evidence": "As +8."},
+  {"struct": "BeachBuild", "offset": "0x10", "name": "segments_capacity", "type": "BeachSegment*", "comment": "Capacity end of the same.", "evidence": "As +8."},
+  {"struct": "WaterObject", "offset": "0x18", "name": "beach_max_vertices", "type": "int", "comment": "The largest beach vertex count of any tile so far (QuadBuild_Beaches, VA 0x870766).", "evidence": "VA 0x870761..0x870766, compare and store."},
+  {"struct": "WaterObject", "offset": "0x428C", "name": "beach_fbm_exponents", "type": "double*", "comment": "Begin of a std::vector<double> (+0x4290 end, +0x4294 capacity): the fBm's exponent table, six doubles, pow(0.4^i, -0.3), made on its first use. Passed by QuadBuild_Tile (VA 0x87355D) to QuadBuild_Beaches, and through it to Noise_FractalBrownianMotion.", "evidence": "VA 0x87355D lea edx,[edi+0x428C]; 0x870330's empty test on the vector reaches this object."}
+ ],
+ "frontier": ["0xACD40", "0x472220", "0x472290", "0x46D760", "0x7A0FFE", "0x808620", "0x80BDD0"]
+}

@@ -17,6 +17,51 @@ truth.
 
 ---
 
+## The map cache wave - how the original builds `map/cache` out of the map files
+
+> **LANDED 2026-11-08**, launched on the maintainer's word ("continue with the map cache") for OpenHOI3, which draws the
+> map from the original's own cache and so gets the flat map for any map the original has not built a cache for. Five
+> fragments merged (39 address entries new, 8 revised; 2 structs declared, 40 struct fields); the write-up is
+> `findings/FINDINGS-mapcache.md`, indexed in `CANDIDATES.md`. **Every product agrees byte for byte on both maps**, each
+> reader's script run again by the collecting session. One rva was given as its VA and is corrected in the record.
+> **Left open**: which `rand()` callers make the noise's starting count, which varies by run, so a rebuilt beach matches
+> the original's only given its count; what template +0x21 means; no reader of map.bin's bit 0x10 was found.
+
+**The question, for OpenHOI3**: everything needed to make the cache's drawing half again from `map/` alone, **exactly** -
+`all_quads.bin` and `quad_index.bin`, the 1,774 `quad_textures/quad_texture_<n>.dds`, `border_adj.bin`,
+`border_bitmap.bin` and `map.bin`. The movement half (`adjacencies.bin`, `navaldist.bin`, `climate.bin`) OpenHOI3 already
+computes and checks edge for edge; `provincecache.bin` is the province raster (`FINDINGS-mapbuild.md`) and is not wanted.
+
+**What is known before reading.** `FINDINGS-mapdraw.md` has the formats as the *loaders* read them: A.1 the record's seven
+pieces (`QuadCache_LoadTile`, rva `0x474970`) and the vertex declarations, A.3 the terrain-index texture's size and its
+contents *measured* on two tiles, B.7 `border_adj.bin`, `border_bitmap.bin` (its byte 0 and 3 codes measured, the
+`CBorderManager_FillBitmap` ladder at rva `0x434910` not checked branch by branch) and `map.bin`'s head and list (the
+raster half unread, values 0..48), C.6 map.bin's river sources, C.7 the surf records and `MapShore_GenerateWavePixels`
+(rva `0x46F140`) whole. **Unread**: `CProvinceManager_BuildQuads` (rva `0x45A580`, 0xE8A bytes: 'REcreating quads', five
+VirtualAllocs, writes the two files and the textures) and under it the per-tile builder `0x4727B0` ('Province quad is too
+large'), `0x474F00` (0x5CA, no strings - the record writer, *inferred*), `QuadBuild_EdgeVertices` (`0x4754D0`, 0x20FD,
+named and summarised only), `TempBorderVertices_Weld` (`0x472560`), the beach builder `0x470700` (0x1AAB, with
+`0x4705F0`, `0x4704E0`, `0x470330`), the per-pixel builders `0x46EB60` and `0x46EB20` past their surf call,
+`CreateTerrainOffsetTexture` (`0x469080`, with `0x468F50`) and `MapBinCache_Build` (`0x873C0`). Two things measured and
+not explained: the land mesh's edges bend off the pixel grid (triangle area 4,041,885 against 4,041,291 pixels), and
+one border quad sits ~45 px off its pixel.
+
+| reader | brief | fragment |
+| --- | --- | --- |
+| **A** | **The land mesh and the files**: `CProvinceManager_BuildQuads` whole - tile order, the scratch buffers, what is written where and in what order (quad_index.bin's head, all_quads.bin's records, the dword before V in piece 1, `quad_format.bin`); `0x474F00`; and `0x4727B0`'s land half - which provinces a tile takes and in what order, **how a province's pixels become vertices and triangles** (the bend), the vertex order, the index groups. | `mapcache-land.json` |
+| **B** | **The borders**: `QuadBuild_EdgeVertices` and `TempBorderVertices_Weld` whole - pieces 3 and 4 of a record (each border vertex's position, slot and colour) and `border_adj.bin` (which pixels, in what order); the quad off its pixel. | `mapcache-borders.json` |
+| **C** | **The beaches and the surf's order**: `0x470700` and its helpers, `0x46EB60`/`0x46EB20` whole - pieces 5, 6 and 7 of a record: the beach strip's vertices, smoothing and indices, and the order the per-tile walk visits pixels in. | `mapcache-beaches.json` |
+| **D** | **The two rasters**: `CBorderManager_FillBitmap` branch by branch (`border_bitmap.bin`, all four bytes) and `MapBinCache_Build`'s raster half (`map.bin` whole: its head's figures, values 16 and 32 and whether anything reads them). | `mapcache-rasters.json` |
+| **E** | **The terrain-index textures**: `CreateTerrainOffsetTexture` and `0x468F50` - the mapping from terrain.bmp's index to the texel's, the four channels, what lies outside the land, and the `.dds` as written (header, format, size). | `mapcache-terrainindex.json` |
+
+**The oracle**: TFH's shipped cache, `tfh/map/cache`, stamp `93E125C4`; and a second map, BlackICE's, whose cache the
+original built in the player's folder (`Documents\Paradox Interactive\Hearts of Iron III\BlackICE GitHub\map\cache`,
+from the mod repository's `map/`). Each reader reproduces its products from the map files in a Python script and reports
+**how many bytes of each file agree**, for both maps; a rule is not finished until the files agree whole or every
+difference is explained.
+
+---
+
 ## The saved-battle wave - what a battle in a save holds, and what a load rebuilds of it
 
 > **LANDED 2026-11-05**, launched on the maintainer's word ("Go ahead") for OpenHOI3's savegame loader, whose third

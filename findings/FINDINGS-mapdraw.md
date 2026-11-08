@@ -7,7 +7,8 @@ What the original feeds each effect file of the map, so that a reimplementation 
 section C, the scene as a whole, its device states, the smaller layers and the effect system (`mapdraw-scene.json`).
 Addresses are rvas unless marked VA (VA = rva + 0x400000), valid only for this build. **[exe]** hardcoded; **[mod: file]**
 a file can change it. `confirmed` unless marked. It builds on `FINDINGS-farmap.md`, A (the scene's draws and their
-height gates).
+height gates). **How the cache this file's loaders read is made is `FINDINGS-mapcache.md` (2026-11-08), which also corrects A.1's
+colour, A.3's "mapping not read", B.3's one-pixel quads, B.7's map.bin and byte 1, and C.7's walk order.**
 
 Device slots below are d3d9.h's IDirect3DDevice9 order - SetTransform 44, SetViewport 47, SetMaterial 49, SetRenderState
 57, SetTexture 65, SetTextureStageState 67, SetSamplerState 69, DrawPrimitive 81, DrawIndexedPrimitive 82,

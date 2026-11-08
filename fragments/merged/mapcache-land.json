@@ -1,0 +1,286 @@
+{
+ "agent": "map cache wave, reader A",
+ "question": "CProvinceManager_BuildQuads whole, the record writer 0x474F00, and 0x4727B0's land half: how a province's pixels become land vertices and triangles.",
+ "source": "reversing/findings/FINDINGS-mapcache.md",
+ "addresses": [
+  {
+   "rva": "0x45A580",
+   "kind": "function",
+   "name": "CProvinceManager_BuildQuads",
+   "signature": "void __stdcall CProvinceManager_BuildQuads(WaterObject* mgr)",
+   "no_signature": null,
+   "comment": "**Rebuilds the tile meshes and writes the cache** ('REcreating quads'), when CProvinceManager_LoadQuads finds the cache missing or stale. malloc(0x1000000) as a scratch for the terrain-index textures; opens /cache/all_quads.bin for writing (VirtualFile_Open) and keeps it for the whole run; VirtualAllocs the five scratch buffers (g_pProvinceVertexMemCache 480000, g_pTempVertices 480000, g_pIndexLookup 40000, g_pTempBorderIndices 20000, g_pTempBorderVertices 480000 bytes) and frees them at the end. **Tiles in index order, 0 to columns x rows - 1**: a tile is built where any province in its list (+0) is land (template +0x22; the walk stops at the first), by QuadBuild_Tile(mgr, tile, tile's list, textures folder, the 16 MB); where the land vertex buffer then holds vertices (tile +0x27C > 0) 'writing quad mesh' is logged and QuadCache_WriteTile appends its record, the tile index and the record's size going on two vectors. After each built tile VectorU16_Resize(0) on mgr +0x42C4. Then /cache/quad_index.bin: count, total bytes (sum of the sizes), largest size, then (tile, size) pairs in the order written. **It does not write quad_format.bin** (QuadFormat_Write, from CProvinceManager_CreateMeshes) and the textures are the per-tile builder's. `ret 4`. See reversing/findings/FINDINGS-mapcache.md.",
+   "confidence": "confirmed",
+   "evidence": "Read whole (decompile and disassembly). Oracle: scratch landmesh.py rebuilds pieces 1 and 2 of every record from provinces.bmp, definition.csv, default.map and map.bin raster and compares byte for byte: TFH 1774 of 1774 tiles, BlackICE 1787 of 1787, quad_index.bin whole on both. Wrong if a tile were skipped or reordered: the pair list and the file order would differ.",
+   "revises": true
+  },
+  {
+   "rva": "0x474F00",
+   "kind": "function",
+   "name": "QuadCache_WriteTile",
+   "signature": "int __stdcall QuadCache_WriteTile(WaterObject* mgr@stack:4, int tile@stack:8, void* stream@ESI) @EAX",
+   "no_signature": null,
+   "comment": "**One tile's record of all_quads.bin, returning its size** - the inverse of QuadCache_LoadTile. Stream in ESI (the open all_quads.bin file object, its write is vtable +0x20). In order: dword **tile index**; dword V = land vertex count x 8; the land vertices as SHORT2 x, y = (short)(int)(float - 0.5), then the two id words as they stand (in memory they are 12-byte float, float, id & 0xFF, id >> 8); dword **total land index bytes** (land_indices primitive count x 6); dword N = the tile's +0x10 vector count (one per province of the tile's list, sea included); N times (dword B = group bytes, B bytes of the group, the bytes skipped where the group is empty) with groups from province_index_starts; dword M = border primitive count x 6, M bytes; dword B = border vertex count x 12 and each 24-byte temp record cut to 12 (x or y minus 0.5, then minus 1000 where its corner field is 0 and plus 1000 where 1; left unwritten for any other value - reader of the borders); dword W = beach vertices x 12, W bytes; only where W is not 0 dword X = beach primitive count x 6, X bytes; dword K = wave pixels of the tile (shore +0x18, 16 per tile), K x 0x1C bytes. `ret 8`, two exits (0x4754BC, 0x4754C7). The name is ours. See reversing/findings/FINDINGS-mapcache.md.",
+   "confidence": "confirmed",
+   "evidence": "Read whole. Settles both skipped dwords: piece 1 begins with the tile index and piece 2 with total index bytes, measured on every record of both caches. Oracle: scratch landmesh.py rebuilds pieces 1 and 2 of every record from provinces.bmp, definition.csv, default.map and map.bin raster and compares byte for byte: TFH 1774 of 1774 tiles, BlackICE 1787 of 1787, quad_index.bin whole on both. Wrong if a shipped record parsed differently."
+  },
+  {
+   "rva": "0x4727B0",
+   "kind": "function",
+   "name": "QuadBuild_Tile",
+   "signature": "void __stdcall QuadBuild_Tile(WaterObject* mgr, int tile, void* provinces, Hoi3CString* texturesFolder, void* scratch)",
+   "no_signature": null,
+   "comment": "**Builds one tile's meshes** (provincemanager_mesh.cpp). In order: tile middle = (width x col + width/2, height x row + height/2); the tile's +0x10 vector resized to its province count; 0x6C-byte per-province entries; for each province of the tile's list (+0), in list order: push the current land index count onto province_index_starts; a sea province only has its edges looked at for a land neighbour (+0xA1); a land one: **QuadBuild_ProvinceLand**, then per pixel 0x456DF0 and the beach/surf builder 0x46EB60 (+0xA0/+0xA1 set where a beach was added), and the entry's +0x30/+0x34/+0x38 = centre less the middle (floats) and id. One more start pushed. 'Province quad is too large' is logged where 4 x the sum of the entries' first vectors exceeds 40000 (it only logs); a sum of 0 skips to the beaches. Land vertex buffer created (count, stride 12) and locked; 0x45D990 resets mgr's 60-slot table; land index buffer created; per-province slot vectors (mgr +0x90 pairs of -1, 0); **QuadBuild_EdgeVertices** per province; land vertices stored as float (int + 0.5) and id & 0xFF, id >> 8; land indices copied. Then the +0x10 meshes from mgr's 60-slot table, TempBorderVertices_Weld and the border buffers, the beach builder 0x470700 where any beach data, and Quad_CreateTerrainIndexTexture. `ret 0x14`. The name is ours. See reversing/findings/FINDINGS-mapcache.md.",
+   "confidence": "confirmed",
+   "evidence": "Read whole; its land half reproduces the shipped records. Oracle: scratch landmesh.py rebuilds pieces 1 and 2 of every record from provinces.bmp, definition.csv, default.map and map.bin raster and compares byte for byte: TFH 1774 of 1774 tiles, BlackICE 1787 of 1787, quad_index.bin whole on both. The border, beach and texture parts are only located here, not read."
+  },
+  {
+   "rva": "0x4492C0",
+   "kind": "function",
+   "name": "QuadBuild_ProvinceLand",
+   "signature": "void __cdecl QuadBuild_ProvinceLand(void* pixels, int id, MapBinCache* stairs, void* vertices, void* indices, void* ids, int offsetX, int offsetY, int centreX, int centreY)",
+   "no_signature": null,
+   "comment": "**One province's land mesh, appended to the tile's vertex, index and id vectors.** Walks the province's pixel list (template +0x6C: from the south row by row, west to east, each relative to the centre) in maximal horizontal runs (next pixel x+1 on the same y), one QuadBuild_RunQuad per run in that order; then QuadBuild_WeldNewVertices over what this province added; then pushes the id until ids is as long as the vertices. offsetX/Y = tile middle less centre. Bare `ret`, caller drops 0x28. The name is ours. See reversing/findings/FINDINGS-mapcache.md.",
+   "confidence": "confirmed",
+   "evidence": "Read off the disassembly. Oracle: scratch landmesh.py rebuilds pieces 1 and 2 of every record from provinces.bmp, definition.csv, default.map and map.bin raster and compares byte for byte: TFH 1774 of 1774 tiles, BlackICE 1787 of 1787, quad_index.bin whole on both. Run order and grouping would fail the index comparison if wrong."
+  },
+  {
+   "rva": "0x448EE0",
+   "kind": "function",
+   "name": "QuadBuild_RunQuad",
+   "signature": "void __cdecl QuadBuild_RunQuad(int* centre@EAX, int left@ECX, int right@stack:4, int y@stack:8, MapBinCache* stairs@stack:0xC, int* offset@stack:0x10, void* vertices@stack:0x14, void* indices@stack:0x18)",
+   "no_signature": null,
+   "comment": "**The quad of one horizontal run**, 4 vertices and 6 indices; here is the mesh's bend. left is xs - 1, right is xe (the run's last pixel), y its row, all relative to the centre. Four corners start at L0 = L1 = xs - 1, R0 = R1 = xe and are moved by the map.bin raster at row (centre y + y): **at column (centre x + xs - 1)** for the left, **column (centre x + xe)** for the right, testing in the order 2 (none), 8, 4, 1, 0x20: 8: the south corner one west (L0 = xs - 2; right R0 = xe - 1); 4: the north corner one east (L1 = xs; R1 = xe + 1); 1: the north corner one west (L1 = xs - 2; R1 = xe - 1); 0x20: test the next raster byte east (left xs, right xe + 1): its 2 moves the south corner one east (L0 = xs; R0 = xe + 1), 8 nothing, 4 and 1 as above. Vertices minus offset, in order (L0, y - 1), (R0, y - 1), (L1, y), (R1, y). Indices of the first new vertex n: n+1, n, n+2, n+1, n+2, n+3 (clockwise from above, +y north). 0x10 is not tested. Bare `ret`, caller drops 0x18. The name is ours. See reversing/findings/FINDINGS-mapcache.md.",
+   "confidence": "confirmed",
+   "evidence": "Read off the disassembly. Clearing raster bits 1, 2, 4, 8 or 0x20 in turn in the oracle breaks 1396 to 1663 of 1774 TFH tiles (each carries), clearing 0x10 none. Wrong if any corner rule were otherwise: the shipped vertices would differ."
+  },
+  {
+   "rva": "0x449080",
+   "kind": "function",
+   "name": "QuadBuild_WeldNewVertices",
+   "signature": "void __cdecl QuadBuild_WeldNewVertices(void* vertices, void* indices, int firstVertex, int firstIndex)",
+   "no_signature": null,
+   "comment": "**Welds what one province just added.** Unique vertices in order of first occurrence (equal x and y), written back from firstVertex and the vector cut to that count; each triangle of the new indices remapped and **dropped where any two of its corners came out equal** (collinear ones kept); the index vector cut to what is left. A corner shift can collapse a corner onto another, which is how a triangle disappears. Does nothing without new vertices or indices. Bare `ret`, caller drops 0x10. The name is ours. See reversing/findings/FINDINGS-mapcache.md.",
+   "confidence": "confirmed",
+   "evidence": "Read whole. Oracle: scratch landmesh.py rebuilds pieces 1 and 2 of every record from provinces.bmp, definition.csv, default.map and map.bin raster and compares byte for byte: TFH 1774 of 1774 tiles, BlackICE 1787 of 1787, quad_index.bin whole on both."
+  },
+  {
+   "rva": "0x474970",
+   "kind": "function",
+   "name": "QuadCache_LoadTile",
+   "signature": "bool __stdcall QuadCache_LoadTile(WaterObject* mgr, int tile, const uint8_t* record)",
+   "no_signature": null,
+   "comment": "**One tile's record of all_quads.bin into its buffers.** The record: (1) dword, dword V; V bytes of land vertices -> a vertex buffer of V/8 vertices, stride 8, in the tile's MeshBuffer +0x270; (2) dword, dword N; N times (dword B, B bytes of 16-bit indices) - one group per province of the tile - concatenated into one 16-bit index buffer in MeshBuffer +0x24C (triangle list, primitive count = indices / 3), the start index of each group kept in the int vector at tile +0x20 (N+1 entries); (3) dword M, M bytes of 16-bit indices -> index buffer of MeshBuffer +0x294 (the borders); (4) dword B, B bytes -> vertex buffer of B/12 vertices, stride 12, in MeshBuffer +0x294; (5) dword W, W bytes -> **the beach vertices**, W/12 vertices of stride 12 in MeshBuffer +0x2B8, and only where W is not 0 (6) dword X, X bytes -> **the beach indices**, X/2 16-bit indices in MeshBuffer +0x2DC; (7) dword K and K records of 0x1C bytes, each handed with the tile to 0x432B40 on mgr +0x4164 (the shore) where that is set. All buffers WRITEONLY, managed pool, filled by Lock/memcpy/Unlock. Returns 1. `ret 0xC`. The name is ours. See reversing/findings/FINDINGS-mapdraw.md, section A.1. Read by the land reader of the same wave; the sea reader's shorter reading (border vertices 12 bytes) agrees. **The two dwords it skips** (QuadCache_WriteTile): the first of (1) is the tile index and the first of (2) the total land index bytes (read 2026-11-08).",
+   "confidence": "confirmed",
+   "evidence": "The writer read whole, and both dwords measured on every record of both caches.",
+   "revises": true
+  },
+  {
+   "rva": "0x473610",
+   "kind": "function",
+   "name": "QuadFormat_Matches",
+   "signature": "bool __cdecl QuadFormat_Matches(void)",
+   "no_signature": null,
+   "comment": "**Whether /cache/quad_format.bin matches the two vertex declarations** (the base folder where the override folder has no such file, as Path_PreferOverride): true only where the file exists, opens, holds count 3, then 3 elements equal to VA 0x170AC40's, then count 4 and 4 elements equal to VA 0x170AC58's. Each element on disk is 8 bytes, byte method, word offset, word stream, byte type, byte usage, byte index. False leaves CProvinceManager_CreateMeshes to call QuadFormat_Write afterwards. Bare `ret`. The name is ours. See reversing/findings/FINDINGS-mapcache.md.",
+   "confidence": "confirmed",
+   "evidence": "Read off the decompilation; the file rebuilt from the executable bytes is TFH's 68 bytes exactly (quadformat.py). Wrong if the shipped file differed."
+  },
+  {
+   "rva": "0x473EC0",
+   "kind": "function",
+   "name": "QuadFormat_Write",
+   "signature": "void __cdecl QuadFormat_Write(void)",
+   "no_signature": null,
+   "comment": "**Writes /cache/quad_format.bin**: int 3, the 3 elements of VA 0x170AC40, int 4, the 4 elements of VA 0x170AC58, int 1 - 68 bytes - the order byte method, word offset, word stream, byte type, byte usage, byte index (the constants are VA 0x15C05DC, 0x15C05E0, 0x15C05E4). Called only from CProvinceManager_CreateMeshes (0x4582F3) where QuadFormat_Matches was false. Names beach_format.bin beside it and writes nothing to it on this path. Bare `ret`. The name is ours. See reversing/findings/FINDINGS-mapcache.md.",
+   "confidence": "confirmed",
+   "evidence": "Read off the decompilation; the file rebuilt from the executable bytes is TFH's 68 bytes exactly. BlackICE's cache folder holds none, consistent with the check finding the base folder's."
+  },
+  {
+   "rva": "0x22690",
+   "kind": "function",
+   "name": "VectorIntPair_PushBack",
+   "signature": "void __cdecl VectorIntPair_PushBack(int* value@EAX, void* vector@EDI)",
+   "no_signature": null,
+   "comment": "std::vector of 8-byte pairs: push_back of the pair at value (safe when value is inside the vector). Register arguments, bare `ret`. The name is ours. See reversing/findings/FINDINGS-mapcache.md.",
+   "confidence": "confirmed",
+   "evidence": "Disassembly: capacity grown through VA 0x7C62C0, 8 bytes copied, end += 8. Used by QuadBuild_RunQuad for the four vertices."
+  },
+  {
+   "rva": "0x449480",
+   "kind": "function",
+   "name": "VectorU16_PushBack",
+   "signature": "void __cdecl VectorU16_PushBack(uint32_t* value@EAX, void* vector@EDI)",
+   "no_signature": null,
+   "comment": "std::vector<uint16_t>: push_back of the low word at value (safe when value is inside the vector). Bare `ret`. The name is ours. See reversing/findings/FINDINGS-mapcache.md.",
+   "confidence": "confirmed",
+   "evidence": "Disassembly and the six calls of QuadBuild_RunQuad with movzx values."
+  },
+  {
+   "rva": "0x444AD0",
+   "kind": "function",
+   "name": "VectorIntPair_Resize",
+   "signature": "void __cdecl VectorIntPair_Resize(int count@EAX, void* vector@EDI)",
+   "no_signature": null,
+   "comment": "std::vector of 8-byte pairs: resize to count. Bare `ret`. The name is ours. See reversing/findings/FINDINGS-mapcache.md.",
+   "confidence": "confirmed",
+   "evidence": "Disassembly: shrink moves the end, grow appends. Called by QuadBuild_WeldNewVertices with first + unique."
+  },
+  {
+   "rva": "0x46B510",
+   "kind": "function",
+   "name": "VectorMeshBuffer_Resize",
+   "signature": "void __cdecl VectorMeshBuffer_Resize(int count@EAX, void* vector@ESI)",
+   "no_signature": null,
+   "comment": "std::vector of 0x24-byte elements (MeshBuffer, inferred from the stride and MapTile +0x10's use): resize to count. Called by QuadBuild_Tile with the tile's province count. Bare `ret`. The name is ours. See reversing/findings/FINDINGS-mapcache.md.",
+   "confidence": "inferred",
+   "evidence": "Decompile: stride 0x24, erase/append through 0x46D470/0x46D630 and 0x46BBC0/0x46D160. Wrong if the element were not a MeshBuffer: the end of QuadBuild_Tile treats it as one."
+  },
+  {
+   "rva": "0x4775D0",
+   "kind": "function",
+   "name": "VectorPair8_Resize",
+   "signature": "void __cdecl VectorPair8_Resize(int count@EAX, void* vector@EDI)",
+   "no_signature": null,
+   "comment": "std::vector of 8-byte elements: resize to count (grows through VA 0x7C62C0 and VA 0x991CA0). QuadBuild_Tile's per-province slot vectors, each to mgr +0x90 entries, then filled with (-1, 0). Bare `ret`. The name is ours. See reversing/findings/FINDINGS-mapcache.md.",
+   "confidence": "confirmed",
+   "evidence": "Decompile. Distinct body from VectorIntPair_Resize (a different grow path)."
+  },
+  {
+   "rva": "0x4776E0",
+   "kind": "function",
+   "name": "VectorOfVector8_Reserve",
+   "signature": null,
+   "no_signature": "a __thiscall on a std::vector of 16-byte std::vectors with no class in the record; `ret 4`, one argument (the new capacity).",
+   "comment": "std::vector of 16-byte std::vectors: reserve(count), moving the elements through 0x477860 and freeing through 0x444BB0. The name is ours. See reversing/findings/FINDINGS-mapcache.md.",
+   "confidence": "confirmed",
+   "evidence": "Decompile."
+  },
+  {
+   "rva": "0x4777B0",
+   "kind": "function",
+   "name": "VectorOfVector8_FillEmpty",
+   "signature": "void __cdecl VectorOfVector8_FillEmpty(int count@ECX, int* first@stack:4)",
+   "no_signature": null,
+   "comment": "Constructs count empty 16-byte std::vectors at first (zero three words each, via 0x10E870), the uninitialised-fill half of resize. Bare `ret`. The name is ours. See reversing/findings/FINDINGS-mapcache.md.",
+   "confidence": "confirmed",
+   "evidence": "Decompile and the single call in QuadBuild_Tile."
+  },
+  {
+   "rva": "0x168564C",
+   "kind": "global",
+   "name": "g_pProvinceVertexMemCache",
+   "signature": null,
+   "no_signature": "data",
+   "comment": "VirtualAlloc'd, 480000 bytes, by CProvinceManager_BuildQuads for its run (name from its failure message); QuadBuild_Tile hands it to QuadBuild_EdgeVertices as an output.",
+   "confidence": "confirmed",
+   "evidence": "Three references in code, all read: alloc, free and QuadBuild_Tile at VA 0x8727CF."
+  },
+  {
+   "rva": "0x1685644",
+   "kind": "global",
+   "name": "g_pTempVertices",
+   "signature": null,
+   "no_signature": "data",
+   "comment": "VirtualAlloc'd, 480000 bytes, by CProvinceManager_BuildQuads for its run; TempBorderVertices_Weld's scratch vertices.",
+   "confidence": "confirmed",
+   "evidence": "References read: alloc, free, TempBorderVertices_Weld at VA 0x8725D1 and 0x872711."
+  },
+  {
+   "rva": "0x1685648",
+   "kind": "global",
+   "name": "g_pIndexLookup",
+   "signature": null,
+   "no_signature": "data",
+   "comment": "VirtualAlloc'd, 40000 bytes, by CProvinceManager_BuildQuads for its run; TempBorderVertices_Weld's lookup.",
+   "confidence": "confirmed",
+   "evidence": "References read: alloc, free and TempBorderVertices_Weld."
+  },
+  {
+   "rva": "0x168563C",
+   "kind": "global",
+   "name": "g_pTempBorderIndices",
+   "signature": null,
+   "no_signature": "data",
+   "comment": "VirtualAlloc'd, 20000 bytes, by CProvinceManager_BuildQuads for its run; 16-bit border indices filled by QuadBuild_EdgeVertices, welded, then copied to the tile's border index buffer by QuadBuild_Tile.",
+   "confidence": "confirmed",
+   "evidence": "References read: alloc, free, TempBorderVertices_Weld, QuadBuild_Tile VA 0x8734C8, QuadBuild_EdgeVertices VA 0x8754F5."
+  },
+  {
+   "rva": "0x1685640",
+   "kind": "global",
+   "name": "g_pTempBorderVertices",
+   "signature": null,
+   "no_signature": "data",
+   "comment": "VirtualAlloc'd, 480000 bytes, by CProvinceManager_BuildQuads for its run; the 0x18-byte temporary border records filled by QuadBuild_EdgeVertices, welded, then copied to the tile's border vertex buffer.",
+   "confidence": "confirmed",
+   "evidence": "References read: alloc, free, TempBorderVertices_Weld, QuadBuild_Tile VA 0x87352C, QuadBuild_EdgeVertices VA 0x8754EF."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "MapTile",
+   "offset": "0x0",
+   "name": "provinces",
+   "type": "void*",
+   "comment": "Begin of the tile's list of province entries (their +8 the template), end +4: every province whose centre falls in the tile, land and sea, in ascending id (CProvinceManager_AssignProvincesToTiles).",
+   "evidence": "Read in CProvinceManager_BuildQuads and QuadBuild_Tile; the groups of every record of both caches line up with this list."
+  },
+  {
+   "struct": "MapTile",
+   "offset": "0x4",
+   "name": "provinces_end",
+   "type": "void*",
+   "comment": "End of the vector at +0.",
+   "evidence": "As +0."
+  },
+  {
+   "struct": "MapTile",
+   "offset": "0x10",
+   "name": "province_meshes",
+   "type": "void*",
+   "comment": "Begin of a vector of 0x24-byte MeshBuffers, one per province of the tile's list (end +0x14), sized by QuadBuild_Tile; its element count is the record's N (QuadCache_WriteTile). QuadBuild_Tile's end makes an index buffer in the entry of each province in mgr's 60-slot table.",
+   "evidence": "Read in QuadBuild_Tile and QuadCache_WriteTile."
+  },
+  {
+   "struct": "WaterObject",
+   "offset": "0x418C",
+   "name": "map_bin",
+   "type": "MapBinCache*",
+   "comment": "The map.bin object (raster +0xC, row stride +0x20), set by CProvinceManager_CreateWorld from CreateMapBinCacheOwner at VA 0x850ABD. Its raster's flags bend the land mesh (QuadBuild_RunQuad).",
+   "evidence": "The one store in the image (fieldchain) and the reads in QuadBuild_RunQuad and 0x456DF0."
+  },
+  {
+   "struct": "CProvinceTemplate",
+   "offset": "0x6C",
+   "name": "pixels_begin",
+   "type": "int*",
+   "comment": "Begin of the province's own pixels, pairs of x and y, ending at +0x70. CMap::BuildAdjacencyFromRaster walks it to find the province's neighbours, which is what orders its edges; the order agreeing with adjacencies.bin for every province shows it runs from the south row by row, west to east. See reversing/findings/FINDINGS-movement.md. **Relative to the province's centre**: CMap::ComputeProvinceGeometry subtracts centre_x/centre_y from each pair (VA 0x49187F), so every reader adds them back (read 2026-11-08 for the land mesh).",
+   "evidence": "Disassembly at VA 0x491876..0x49189B; QuadBuild_RunQuad adds the centre, and the shipped meshes agree.",
+   "revises": true
+  }
+ ],
+ "frontier": [
+  "0x456DF0",
+  "0x45D990",
+  "0x46EB60",
+  "0x470700",
+  "0x477660",
+  "0x477860",
+  "0x46C7C0",
+  "0x444BB0",
+  "0x46D470",
+  "0x46D630",
+  "0x46BBC0",
+  "0x46D160",
+  "0x422760",
+  "0x3C60F0",
+  "0x3C62C0",
+  "0x591CA0",
+  "0x66C7D0",
+  "0x66C880",
+  "0x66D080",
+  "0x7853E0",
+  "0x4221F0",
+  "0x10E870"
+ ]
+}

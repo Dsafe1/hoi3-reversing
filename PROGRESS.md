@@ -199,7 +199,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CGameState` | `CPersistent` |  | 74 | 14/33 | 15 |  |  | read |  |
 | `CGoodsPool` | `CPersistent` |  | 8 | 7/7 | 6 | CGoodsPool.hpp | 132,054 | read |  |
 | `CGraphStatistics` | `CPersistent` |  |  |  | 2 |  | 3 | keys |  |
-| `CGraphics` | `CFactory` `CPersistent` |  | 18 |  | 2 |  |  | read |  |
+| `CGraphics` | `CFactory` `CPersistent` |  | 18 |  | 3 |  |  | read |  |
 | `CGroundAttackOrder` | `CAirOrder` |  |  |  | 6 |  | 6 | RTTI |  |
 | `CGroundBombing` | `CBombing` |  |  | 4/6 | 3 |  |  | RTTI |  |
 | `CGroundTargetCombatant` | `CBombTargetCombatant` |  |  | 4/6 | 1 |  | 1 | RTTI |  |
@@ -372,7 +372,7 @@ Definitions out of `common/` and the rest of the mod. Their `LoadKey` is the gra
 | `CLawGroup` | `PAVCLaw::__CList` `CPersistent` |  | 4 + 2 lua |  | 1 |  | 8 | keys |  |
 | `CLocalIntelBoost` | `CIntEffect` |  |  | 3/91 | 2 |  | 9 | RTTI |  |
 | `CMTTHModifier` | `CAndTrigger` |  | 1 | 1/1 | 1 |  | 650 | placed |  |
-| `CMap` | `CPersistent` `CReloadableInterface` |  | 52 | 15/22 | 18 | CMap.hpp | 2 | read | the map load rather than a `common/` file |
+| `CMap` | `CPersistent` `CReloadableInterface` |  | 54 | 15/22 | 18 | CMap.hpp | 2 | read | the map load rather than a `common/` file |
 | `CMasked3dFlagType` | `C3dObjectType` |  |  | 1/4 | 1 |  | 1 | placed |  |
 | `CMaskedSpriteType` | `CSpriteType` | 0x250 | 24 |  | 11 |  | 12 | read |  |
 | `CMeanTimeToHappen` | `CPersistent` | 0x1C | 2 | 5/5 | 3 |  | 9,821 | placed | **read**: the MTTH grammar every event and decision is timed by |
@@ -385,7 +385,7 @@ Definitions out of `common/` and the rest of the mod. Their `LoadKey` is the gra
 | `CProjectionType` | `C3dObjectType` |  |  | 7/10 | 1 |  | 3 | placed |  |
 | `CProvinceHistoryEntry` | `CHistoryEntry` |  | 1 |  | 1 |  |  | part |  |
 | `CProvinceModifier` | `CModifier` | 0x30 | 3 | 1/2 |  |  | 14,190 | part |  |
-| `CProvinceTemplate` | `CPersistent` |  | 50 |  | 12 |  | 14,190 | read |  |
+| `CProvinceTemplate` | `CPersistent` |  | 51 |  | 12 |  | 14,190 | read |  |
 | `CProvinceType` | `C3dObjectType` |  |  |  |  |  | 1 | RTTI |  |
 | `CProvinceWaterType` | `C3dObjectType` |  |  |  |  |  | 1 | RTTI |  |
 | `CRebelType` | `CPersistent` |  | 18 | 16/17 | 1 | CRebelFaction.hpp | 7 | read | **read**: `rebel_types.txt`, 17 keys. `unit_transfer` is not one, though the file uses it - see the mod's bugs.md |
@@ -401,7 +401,7 @@ Definitions out of `common/` and the rest of the mod. Their `LoadKey` is the gra
 | `CTechStatistics` | `CPersistent` |  | 55 | 46/50 | 3 | CCountryHistory.hpp |  | read | **read**: the 47 country-wide effects a technology can have, one case each. See GameClasses/CCountryHistory.hpp |
 | `CTechnology` | `CTechStatistics` |  | 23 + 7 lua | 13/21 | 2 | CTechnology.hpp | 1,175 | read | the technology files: a dozen keys of its own, and every other key read as a unit type's name, which is how an effect is written |
 | `CTerrain` | `CPersistent` |  | 17 | 9/12 | 3 | CTerrain.hpp | 45 | read | mostly done; `movement_cost`, `temperature` and `precipitation` went in last |
-| `CTerrainGraphical` | `CPersistent` | 0x7C | 7 | 2/10 | 2 |  | 256 | read | **read**: how a terrain type is drawn. `CTerrain` is what it does |
+| `CTerrainGraphical` | `CPersistent` | 0x7C | 8 | 2/10 | 2 |  | 256 | read | **read**: how a terrain type is drawn. `CTerrain` is what it does |
 | `CTrait` | `CModifier` |  | 9 | 2/33 | 6 | CTrait.hpp | 343 | read | `traits.txt`: 31 effects and a count that stops at sixteen. `gainable_traits.txt` is a different class, `CGainableTrait`, still unread |
 | `CTree` | `CPersistent` | 0x48 | 3 |  | 1 |  | 7 | keys |  |
 | `CTutorialChapter` | `CPersistent` |  |  | 9/11 | 1 |  |  | placed | the tutorial script; plumbing |

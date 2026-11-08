@@ -1,0 +1,79 @@
+{
+ "agent": "map cache wave, reader E",
+ "question": "How the original makes map/cache/quad_textures/quad_texture_<tile>.dds: which pixels are land, the mapping from terrain.bmp's index to the stored value, the four channels, the edges, the row order and the file as written. Checked byte for byte: every file of TFH (1,774) and BlackICE (1,787) rebuilt from the map files agrees whole.",
+ "source": "reversing/findings/FINDINGS-mapcache.md",
+ "addresses": [
+  {
+   "rva": "0x469080",
+   "kind": "function",
+   "name": "CreateTerrainOffsetTexture",
+   "signature": "void __stdcall CreateTerrainOffsetTexture(WaterObject* mgr, char* path, int tile, void* entries, int count)",
+   "no_signature": null,
+   "comment": "**Makes and writes a tile's terrain-index texture**, `quad_texture_<tile>.dds`. 0x869080 to `ret 0x14` at 0x869A54; the name is the function's own, from its log lines. W, H = the tile's terrain_index_size (+0x3B8, +0x3BC); off = terrain_index_offset (+0x3B0, +0x3B4). Logs 'Creating texture for Quad <tile>' through CGraphics::DrawLoadingText. A W x H x 4 byte buffer is filled with 0xFF. `entries` is `count` 0x6C-byte records, the tile's provinces, whose first vector (+0/+4) holds absolute map pixels (x, y): for each record in order and each pixel in order, with T = CMap terrain_by_palette_index and the raster the 8-bit terrain_raster (index 0 outside it): **a pixel whose own entry's terrain is water (entry +0xC -> CTerrain +0x48) is skipped altogether.** this = entry +0x64 (CTerrainGraphical priority's copy), 2 where negative. left = T[raster(x-1, y)] only where x-1 > 0, up-left = T[raster(x-1, y+1)] where x-1 > 0 and y+1 < map height, up = T[raster(x, y+1)] where y+1 < map height: each takes that entry's +0x64 where the entry is not null and it is not negative, otherwise this pixel's value. So water neighbours (no priority) and the map's top row fall back to the pixel's own. Scale s = 0x100 / CMap +0x2A7C (`terrain`, integer division); the stored bytes are the low byte of s times each value. px = clamp(x - off.x, 0, W-1), py = clamp(y - off.y, 0, H-1); the four bytes of (px, py) are written directly: byte 0 = this, 1 = up-left, 2 = left, 3 = up - in A8R8G8B8 B, G, R, A - each followed by TerrainOffset_SpreadByte for that channel, so a texel that is not a land pixel holds the first non-0xFF value a neighbour offered in processing order, 0xFF where none. Then D3DXCreateTexture(device, W, H, 1, 0, A8R8G8B8, D3DPOOL_SYSTEMMEM), the buffer copied row for row through LockRect (y ascending, the first row saved being y = off.y, the south), D3DXSaveTextureToFileInMemory(D3DXIFF_DDS) and the bytes written to `path` through VirtualFile_Open and 0xA6D080. Called once, from Quad_CreateTerrainIndexTexture, which supplies a path and loads the file straight afterwards. See reversing/findings/FINDINGS-mapcache.md, section E.",
+   "confidence": "confirmed",
+   "evidence": "Read off the disassembly and decompilation whole (arguments: `ret 0x14`, five pushes at 0x869B32..0x869B39). Oracle: a Python rebuild of every texture from terrain.bmp, terrain.txt, provinces.bmp, definition.csv and default.map, by exactly these steps, agrees byte for byte with all 1,774 TFH files and all 1,787 of BlackICE's cache (8,098,950 and 8,158,457 texels), headers included; alternatives fail (raw palette index 884 of 1,774 and 1,554 of 1,787 files; no spread 0 of either; last writer instead of first 30 and 0). Would be shown wrong by any cached file the rule does not reproduce. The x-1 > 0 test is read and not exercised: no processed land pixel has x <= 1 on either map."
+  },
+  {
+   "rva": "0x468F50",
+   "kind": "function",
+   "name": "TerrainOffset_SpreadByte",
+   "signature": "void __cdecl TerrainOffset_SpreadByte(int px@ECX, int width@EAX, uint8_t* buffer@EDI, int py@stack:4, int height@stack:8, uint8_t value@stack:12, int channel@stack:16)",
+   "no_signature": null,
+   "comment": "**Offers one byte of a texel to its eight neighbours**, in CreateTerrainOffsetTexture's buffer: for each of (px, py+1), (px, py-1), (px+1, py), (px-1, py), (px+1, py+1), (px+1, py-1), (px-1, py+1), (px-1, py-1) in that order, where the target is in range and that byte of the target (channel 0..3) is 0xFF, the byte is set to value. Range: x+1 < width, y+1 < height, but **x-1 > 0 and y-1 > 0**: column 0 and row 0 are never written. A land pixel's own direct write happens in the caller, unconditionally, so only texels that are not land keep a spread value - the one first offered, a value of 0xFF being indistinguishable from unset. A bare `ret`; four callers, all in CreateTerrainOffsetTexture, which clear the stack with one `add esp, 0x40` after the four. The name is ours. See reversing/findings/FINDINGS-mapcache.md, section E.",
+   "confidence": "confirmed",
+   "evidence": "Read off the disassembly, each of the eight offers (0x868F50..0x86907D). The whole-file comparison against both caches depends on it: with no spread 0 files agree, with the last writer winning 30 and 0; 331,248 TFH texels and 345,420 BlackICE texels have writers of different values, so the order is exercised. Would be shown wrong by a cached texel whose value is not the first offered."
+  },
+  {
+   "rva": "0x469A60",
+   "kind": "function",
+   "name": "Quad_CreateTerrainIndexTexture",
+   "revises": "The record had read only its head; the comment now says when the file is made and that the two callers' entries differ, and the confidence is raised to confirmed.",
+   "signature": "void __stdcall Quad_CreateTerrainIndexTexture(WaterObject* mgr, int tile, void* entries, int count, Hoi3CString* textureFolder, void* buffer)",
+   "no_signature": null,
+   "comment": "**A tile's terrain-index texture, made if need be and then loaded.** The size and offset as MapTile_SetTerrainIndexRect: offset = land rectangle x, y - 2, size = w, h + 4, the next power of two computed and discarded. The path is sprintf('%squad_texture_%d.dds', folder, tile). **The file is made (CreateTerrainOffsetTexture) unless it exists and CMap +0x28 (cache stale) is 0**; an existing file is overwritten when the cache is stale. Then Quad_LoadTerrainIndexTexture loads it, so a texture made this time is still read back from the disk. `ret 0x18`. Two callers: the per-tile quad builder (0x4727B0, at 0x87358E), whose 0x6C-byte entries carry the pixels of **land provinces only** (a sea province's record is left empty), and CProvinceManager_LoadQuads (at 0x85A386), whose entries come from Quad_FillEntriesFromTileProvinces and carry **every** province of the tile: a missing file made on the load path takes in the non-water pixels of its sea provinces too, clamped to the rectangle - 40 pixels on TFH, 80 on BlackICE, and not what the shipped caches hold. The name is ours. See reversing/findings/FINDINGS-mapcache.md, section E.",
+   "confidence": "confirmed",
+   "evidence": "Read whole, 0x869A60..0x869B51. The only change is the comment: the record said only its head was read. Would be shown wrong by a code path that makes the texture when the file exists and the cache is fresh."
+  },
+  {
+   "rva": "0x456FD0",
+   "kind": "function",
+   "name": "Quad_FillEntriesFromTileProvinces",
+   "signature": "void __stdcall Quad_FillEntriesFromTileProvinces(int tile@EAX, WaterObject* mgr@stack:4, void* tileProvinces@stack:8, void* entries@stack:12)",
+   "no_signature": null,
+   "comment": "**Fills the 0x6C-byte per-province records for a tile on the load path**, so CProvinceManager_LoadQuads can remake a missing terrain-index texture. For each province of the tile's list (`tileProvinces`, the tile's own province vector at tile +0): per entry of the province template's pixels (+0x6C/+0x70) calls 0x456DF0, which adds the pair to the template's +0x2C/+0x30 and pushes the absolute pixel to the record's first vector, among others; then writes the template's +0x2C/+0x30 less the tile's centre and its +0x7C into the record (+0x30, +0x34, +0x38). **No test of is_land** - unlike the per-tile builder 0x4727B0, which leaves a sea province's record empty. The rest of what 0x456DF0 fills was not read. `ret 0xC`; one caller, 0x85A372. The name is ours. See reversing/findings/FINDINGS-mapcache.md, section E.",
+   "confidence": "inferred",
+   "evidence": "Read from the disassembly and decompilation; the tile index in EAX is taken from the caller (`mov eax, ebx` at 0x85A370) and the use of the sum of template +0x2C and the pixel as an absolute pixel is the reading of CreateTerrainOffsetTexture, which subtracts the rectangle from it. Not exercised by the shipped files (a file made by this path was not available to compare). Would be shown wrong by the load path testing is_land."
+  },
+  {
+   "rva": "0x440E90",
+   "kind": "function",
+   "name": "CGraphics::DrawLoadingText",
+   "signature": "void __thiscall CGraphics::DrawLoadingText(CGraphics* this, Hoi3CString* text, bool flag1, bool flag2)",
+   "no_signature": null,
+   "comment": "**The loading screen's progress text**: where 0xA759D0 answers true and +0x6BDC4 is not null, logs 'Load text  <text>' (eu3graphics.cpp), looks up 'Loading_Font' in the two string tables at +0x88 and +0x94, draws and calls the device's Present (slot 0x44). 30 callers across map building, session entry and front-end loading. CreateTerrainOffsetTexture calls it with ('Creating texture for Quad <tile>', true, false). Read only as far as its purpose: the two flags and the drawing were not read. `ret 0xC`; in no virtual table. The name is ours. See reversing/findings/FINDINGS-mapcache.md, section E.",
+   "confidence": "inferred",
+   "evidence": "From the strings 'Load text  ' and 'Loading_Font' at the head, the call on the device's slot 0x44 at the end, and the convention (`ret 0xC`, `mov esi, ecx`, this is the CGraphics from mgr +0x3C at the call 0x8691AD). Would be shown wrong if the routine drew something other than the loading screen; the body between was only skimmed."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CTerrainGraphical",
+   "offset": "0x64",
+   "name": "sheet_slot",
+   "type": "int",
+   "comment": "A copy of `priority` (+0x60), made by LoadKey on token 0x8A (`mov [edi+0x64], ecx` at 0x4AE848); -1 from the constructor. **What goes into the terrain-index texture**: CreateTerrainOffsetTexture stores this times 256/`terrain` for the palette entry of the pixel and of its left, up-left and up neighbours, and the shader then picks the texture sheet's tile by it (FINDINGS-mapdraw.md, A.3). Negative: the pixel's own takes 2 and a neighbour the pixel's own. In TFH and BlackICE it equals the palette index for every entry that gives a priority; ocean1 and pti have none. See reversing/findings/FINDINGS-mapcache.md, section E.",
+   "evidence": "Read off LoadKey (jump table to 0x4AE83A for token 0x8A, saveTokens names it `priority`) and the reads at 0x8693AF, 0x8693CB, 0x8693DF, 0x8693F0 in CreateTerrainOffsetTexture; the byte-for-byte match on both maps uses it as read. Would be shown wrong by a palette entry with a priority different from what the textures hold."
+  },
+  {
+   "struct": "CMap",
+   "offset": "0x2A7C",
+   "name": "terrain_palette_size",
+   "type": "int",
+   "comment": "terrain.txt's top-level `terrain` (256 in TFH and BlackICE), atoi. Read by CreateTerrainOffsetTexture as the divisor of 0x100, an integer division, giving the scale of every value written to a terrain-index texture (1 at 256); the shader's sheet of 16 x 16 is what makes 256 the natural value. Other readers not looked for. See reversing/findings/FINDINGS-mapcache.md, section E.",
+   "revises": "Adds its one known reader; name and type unchanged.",
+   "evidence": "The idiv at 0x869403 with the divisor read from [ebp-0x80], loaded at the function's head from CMap +0x2A7C. Would be shown wrong by a value of `terrain` other than 256 not scaling the textures - not testable on these two maps, both 256."
+  }
+ ],
+ "vftable_slots": {},
+ "frontier": ["0x456DF0", "0x46B510", "0x66D080", "0x32290", "0x32460", "0x6759D0"]
+}
