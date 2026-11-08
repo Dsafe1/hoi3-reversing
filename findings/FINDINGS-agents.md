@@ -196,7 +196,7 @@ area, or our headquarters can reach theirs).
 | `+0x94` | `failed_invasion_areas` | areas where an invasion found nowhere to land (appended by `0x494C40` from `CAIInvasion` stage 3); `RankInvasionAreas` skips them; freed at hour 1 of each month's 1st |
 | `+0xA5` | `unit_pass_done` | set at the end of every AI-branch pass; read only at VA `0x88961B` (first pass) and `0x889A82` (the balancer of divisions). The record's reader at `0x899CF2` is `CSubUnit +0xA5`, `pride` |
 | `+0xA6` | `theatres_changed` | seeded 1; set by the theatre layer for a country nobody plays when a theatre is made or deleted; cleared by the readiness gate (that hour then ends) or by a loaded game's first pass |
-| `+0x128` | `ai_paused` | the console command at VA `0x843720` ("AI Paused for all" / "AI is now Paused") |
+| `+0x128` | `ai_paused` | the console command at VA `0x443720` ("AI Paused for all" / "AI is now Paused") |
 
 `+0xC8` (the ranked invasion areas) and `+0xD8` (the weak enemy ports) are in the helpers' comments, not entered as
 fields.

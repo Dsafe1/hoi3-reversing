@@ -598,7 +598,7 @@ Agreements also end by themselves, in one daily function, `CDiplomacyStatus_Expi
   - **nulls the guarantee between the belligerents without unlinking it** (`0xA12E14`, `0xA12E42`).
 - MakeVassal (nulls it, does not delete), AnnexCountry, and the capitulation.
 - The script: CGuaranteeEffect, CEndGuaranteeEffect, CGuaranteeTrigger.
-- The status lines, the drift breakdown, `GuaranteeTextCommand`, `CDiplomacyStatus_ExpireRelations`, and Lua's `IsGuaranting` / `IsGuaranteed`.
+- The status lines, the drift breakdown, `ConsoleCmd_Guarantee`, `CDiplomacyStatus_ExpireRelations`, and Lua's `IsGuaranting` / `IsGuaranteed`.
 
 ### C.4 Military access
 
