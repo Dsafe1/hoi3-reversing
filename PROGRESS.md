@@ -25,12 +25,12 @@ how many objects a census found (taken 2026-09-20).
 
 | | classes |
 | --- | --- |
-| `read` | 169 |
+| `read` | 173 |
 | `placed` | 140 |
 | `keys` | 75 |
-| `part` | 157 |
+| `part` | 160 |
 | `named` | 5 |
-| `RTTI` | 595 |
+| `RTTI` | 588 |
 | **all** | **1141** |
 
 ## What to read next
@@ -456,8 +456,8 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CBrigadeBuilder` | `CReloadableInterface` |  |  |  | 3 |  | 1 | RTTI |  |
 | `CBrigadePicker` | `CReloadableInterface` |  |  |  | 3 |  | 1 | RTTI |  |
 | `CBrigadeSortInterface` |  |  |  |  |  |  |  | RTTI |  |
-| `CBrigadeStatsEntry` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
-| `CBrigadeView` | `CUpdateable` |  |  |  |  |  |  | RTTI |  |
+| `CBrigadeStatsEntry` | `CStandardlistboxItem` | 0x28 | 1 |  | 1 |  |  | part |  |
+| `CBrigadeView` | `CUpdateable` | 0xBC | 9 |  | 6 |  |  | read |  |
 | `CBrowserItem` | `CStandardlistboxItem` |  |  |  | 1 |  |  | RTTI |  |
 | `CBuildTimeComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CBuildingMember` | `CStandardlistboxItem` |  | 5 |  | 4 |  | 102 | read |  |
@@ -476,7 +476,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CConfirmDeletePlan` | `CEU3Dialog` |  |  |  |  |  |  | RTTI |  |
 | `CConfirmDisband` | `CEU3Dialog` |  |  |  |  |  |  | RTTI |  |
 | `CConfirmDisbandAll` | `CEU3Dialog` |  | 2 |  | 3 |  |  | part |  |
-| `CConfirmMakePride` | `CEU3Dialog` |  |  |  |  |  |  | RTTI |  |
+| `CConfirmMakePride` | `CEU3Dialog` | 0x94 | 4 |  | 3 |  |  | part |  |
 | `CConfirmRemoveAll` | `CEU3Dialog` |  |  |  | 2 |  |  | RTTI |  |
 | `CConfirmSave` | `CEU3Dialog` | 0x88 | 2 |  | 3 |  |  | part |  |
 | `CConfirmSavePlan` | `CEU3Dialog` |  |  |  |  |  |  | RTTI |  |
@@ -543,7 +543,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CICCostComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CIcon` | `CButton` |  |  |  | 4 |  |  | RTTI |  |
 | `CIdler` |  |  |  |  |  |  |  | RTTI |  |
-| `CInGameIdler` | `CEU3Idler` `CLostDeviceInterface` `CReloadDispatcher` |  | 122 |  | 107 | CInGameIdler.hpp | 3 | read |  |
+| `CInGameIdler` | `CEU3Idler` `CLostDeviceInterface` `CReloadDispatcher` |  | 125 |  | 108 | CInGameIdler.hpp | 3 | read |  |
 | `CIngameSettingsScreen` | `CSettingsScreen` | 0x3E0 | 1 |  | 2 |  | 1 | part |  |
 | `CLandOrdersView` | `COrdersView` | 0x198 | 10 |  | 10 |  |  | read |  |
 | `CLawEntry` | `CStandardlistboxItem` | 0x88 | 4 |  | 3 |  | 16 | part |  |
@@ -581,8 +581,8 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CNavalStanceChangeEntry` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
 | `CNavyMember` | `COutLinerMember` | 0x120 | 7 |  | 7 |  |  | read |  |
 | `CNudgeIdler` | `CEU3Idler` `CReloadableInterface` |  |  |  |  |  | 1 | RTTI |  |
-| `COOBBrowser` | `CReloadableInterface` |  |  |  |  |  | 1 | RTTI |  |
-| `COOBUnitEntry` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
+| `COOBBrowser` | `CReloadableInterface` | 0x304 | 23 |  | 26 |  | 1 | read |  |
+| `COOBUnitEntry` | `CStandardlistboxItem` | 0x168 | 11 |  | 7 |  |  | read |  |
 | `CObjectivesEntry` | `CUnitViewBaseEntry` |  |  |  | 3 |  |  | RTTI |  |
 | `COfficersComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `COptionObservable` | `VCOptionClassObservable::anon::VCOptionObserver::__CObservable` |  |  |  |  |  |  | RTTI |  |
@@ -668,8 +668,8 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CStatisticsLedger` | `TStatisticsLedger` | 0x2F8 | 12 |  | 14 |  |  | read |  |
 | `CStrengthComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CSubUnitEntry` | `CUnitViewBaseEntry` |  |  |  | 4 |  |  | RTTI |  |
-| `CSunkenShipEntry` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
-| `CSunkenShipsView` | `CUpdateable` |  |  |  |  |  |  | RTTI |  |
+| `CSunkenShipEntry` | `CStandardlistboxItem` | 0x28 | 1 |  | 1 |  |  | part |  |
+| `CSunkenShipsView` | `CUpdateable` | 0x60 | 6 |  | 4 |  |  | read |  |
 | `CSupplyConsumptionComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CSuppressionComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CTableLedgerItem` |  | 0xB8 | 11 |  | 2 |  |  | read |  |
@@ -1013,7 +1013,7 @@ One class per effect, trigger, command and decision the event scripts can use. E
 | `CLoadOnPlaneCommand` | `CCommand` | 0x8C | 6 | 2/2 | 5 |  | 1 | read |  |
 | `CLostICTrigger` | `CValueTrigger` | 0x44 |  | 2/153 | 2 |  |  | RTTI |  |
 | `CLoyaltyChange` | `CLeaderHistoryEntry` |  |  |  | 2 |  |  | RTTI |  |
-| `CMakePrideCommand` | `CCommand` |  |  | 1/1 | 2 |  | 1 | placed |  |
+| `CMakePrideCommand` | `CCommand` |  |  | 1/1 | 3 |  | 1 | placed |  |
 | `CManpowerChange` | `CProvinceHistoryEntry` |  |  |  |  |  | 62 | RTTI |  |
 | `CManpowerEffect` | `CValueEffect` |  |  | 3/91 | 2 |  | 1,666 | RTTI |  |
 | `CManpowerPercentTrigger` | `CValueTrigger` | 0x44 |  | 2/153 | 2 |  |  | RTTI |  |
@@ -1052,7 +1052,7 @@ One class per effect, trigger, command and decision the event scripts can use. E
 | `CNumOfRevoltsFractionTrigger` | `CValueTrigger` | 0x44 |  | 2/153 | 2 |  |  | RTTI |  |
 | `CNumOfRevoltsTrigger` | `CIntTrigger` | 0x44 |  | 2/153 | 2 |  |  | RTTI |  |
 | `CNumOfVassalsTrigger` | `CIntTrigger` | 0x44 |  | 2/153 | 2 |  | 15 | RTTI |  |
-| `COOBChange` | `CCountryHistoryEntry` |  |  |  |  |  |  | RTTI |  |
+| `COOBChange` | `CCountryHistoryEntry` |  |  |  | 2 |  |  | RTTI |  |
 | `COccupationChange` | `CCountryHistoryEntry` | 0x20 | 3 |  | 4 |  |  | part |  |
 | `COfficerPoolEffect` | `CValueEffect` |  |  | 3/91 | 2 |  | 622 | RTTI |  |
 | `COfficerRatioChange` | `CCountryHistoryEntry` |  |  |  |  |  |  | RTTI |  |
@@ -1111,7 +1111,7 @@ One class per effect, trigger, command and decision the event scripts can use. E
 | `CRemoveProvinceModifierEffect` | `CRemoveModifierEffect` |  |  | 3/91 | 2 |  | 103 | RTTI |  |
 | `CRemoveTheatreCommand` | `CCommand` |  |  | 1/2 | 2 |  | 1 | placed |  |
 | `CRenameProvinceEffect` | `CEffect` |  |  | 3/91 | 2 |  | 1 | RTTI |  |
-| `CRenameSubUnitCommand` | `CCommand` |  |  | 1/2 | 1 |  | 1 | placed |  |
+| `CRenameSubUnitCommand` | `CCommand` |  |  | 1/2 | 3 |  | 1 | placed |  |
 | `CRenameUnitCommand` | `CCommand` |  |  | 1/2 | 1 |  | 1 | placed |  |
 | `CReplaceMinisterEffect` | `CIntEffect` | 0x28 | 1 | 3/91 | 3 |  | 513 | part |  |
 | `CReservesTrigger` | `CBoolTrigger` |  |  | 2/153 | 2 |  | 3 | RTTI |  |

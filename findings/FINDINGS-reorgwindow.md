@@ -172,9 +172,11 @@ CUnit +0x159 is the byte `CCreateUnitCommand::Execute` copies its `is_allowed_em
 on an empty unit only while it is clear (0x5BA011). Recorded as `is_allowed_empty`, following the command's name, which
 is itself inferred.
 
-*Not established:* what keeps a unit emptied while the window is open alive until the close. The window never sets
-+0x159, and the transfer command's Execute is not among its writers (fieldchain). Section B answers that the last
-brigade may move; what `UpdateHourly` then does with the empty unit before the close was not read.
+*What keeps a unit emptied while the window is open alive until the close* (read 2026-11-08). `CUnit::UpdateHourly`, for a
+unit with no brigades, +0x159 clear and no upgrade line, posts a `CDisbandCommand` only where its country has no person
+playing it (asked on the host alone) or where it is the local player's and **not selected** (CUnit +0x4). The window's two
+units are selected, so the window's empty unit stands. A unit emptied by anything else goes on the next hour after it is
+let go.
 
 ### A.7 Tooltips
 
