@@ -284,6 +284,22 @@ becomes a call to a stub and three nops. Off, the stub loads the getter and jump
 so its `ret` comes back to the site. On, it calls the getter and passes the answer
 through `CustomMapMode::tooltipModeFor`.
 
+**Adding lines to the resources branch, 2026-11-08.** The branch's four goods and its
+strategic resource are the only lines it has, so a province's manpower and leadership
+need a hook. `0x9C2EC` is where it stands, the join between the goods and the strategic
+resource: `mov ecx,[edi+0x10]` / `mov edx,[ecx]`, exactly five bytes (`8B 4F 10 8B 11`),
+so a call fits, and nothing that follows reads the flags. Three jumps arrive there, the
+two intelligence tests at `0x9BAAB` and `0x9BABE` and crude oil's skip at `0x9C0EA`, and
+the last good falls through to it. `cfg.py --lands-in 0x49C2EB 0x49C2F1` from the arm
+lists just those three, all on the first byte, and a linear disassembly of `0x498000` to
+`0x49D400`, which unlike the walk sees every arm of the switch, has no other reference to
+those bytes. **Because the intelligence tests jump here, a hook at this point has to make
+its own test.** Nothing but this branch reaches it, so the hook needs no test of the map
+mode. edi is still the +8 subobject, and the text being built is the string at
+`[esp+0xB8]`, which each good is appended to through `0x65B1D0`
+(`std::string::appendWhole`: `this` in ESI, the string to add in EAX, a thin wrapper
+on `std::string::appendString`). *Not yet run in the game.*
+
 ## The sea: found, and it is the water shader
 
 **Solved.** The sea is not skipped by any map mode. `water.fx` draws it, and that
