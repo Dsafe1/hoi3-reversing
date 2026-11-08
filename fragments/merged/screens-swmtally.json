@@ -1,0 +1,298 @@
+{
+ "agent": "screens-E",
+ "question": "What exactly goes into each column of the strategic warfare records, when, and how the rings advance",
+ "source": "reversing/findings/FINDINGS-topscreens.md",
+ "addresses": [
+  {
+   "rva": "0x63EC0", "kind": "function", "name": "GameStrategicWarfare_TallyConvoyRaid",
+   "signature": "void __stdcall GameStrategicWarfare_TallyConvoyRaid(int transportsBefore@EAX, void* warfare@EDX, CCombat* combat@stack:4, CCountryTag* raider@stack:8, CCountryTag* victim@stack:0xC, int transportsLost@stack:0x10, void* cargo@stack:0x14, int partnerLetters@stack:0x18, int partnerId@stack:0x1C)",
+   "no_signature": null,
+   "comment": "From ResolveConvoyRaid at 0x1D2670, before CConvoy::LoseShips: transportsBefore is the convoy's +0x98, transportsLost is round-to-even(thousandths/1000) of the transports' strength lost (raised to one where above 0.3), cargo is the convoy's +0x38 `daily` pool, the partner pair is the lend-lease giver. Escorts sunk are not an argument and count for nothing here. Victim is the played country: the raider's record, columns 0 (ConvoyLossIC, priced by the victim), 1 (cargo), 2 (StratWarfare_UnitDamageIC of combat+0x10, priced by the raider, ships only). Raider is the played country: the victim's record, columns 3, 4, 5, the same three figures. No record or an ended one: nothing. `ret 0x1C`. See reversing/findings/FINDINGS-topscreens.md, section E.1.",
+   "confidence": "confirmed",
+   "revises": "The arguments were never written down and the third figure's owner was left open: the pushes at 0x5D264E..0x5D2670 give all seven, and the two arms' column offsets are read off 0x463F2F, 0x463F4C, 0x463F77 and 0x463FD3, 0x463FF1, 0x46401C.",
+   "evidence": "Listing 0x463EC0..0x464028 against the seven pushes before 0x5D2670. Would be wrong if a push order were misread; the argument count is pinned by `ret 0x1C`. Oracle: Germany1936_09_02_21 ENG and FRA naval records hold whole multiples of 96.00 in column 0, the formula's value for one ship at the default defines."
+  },
+  {
+   "rva": "0x635B0", "kind": "function", "name": "StratWarfare_ConvoyLossIC",
+   "signature": "__int64* __cdecl StratWarfare_ConvoyLossIC(CCountryTag* owner@EAX, __int64* out@ESI, int transportsLost@stack:4, int transportsBefore@stack:8, int partnerLetters@stack:0xC, int partnerId@stack:0x10) @EAX",
+   "no_signature": null,
+   "comment": "Convoy IC lost, Fixed15. perShip = (GetEscortBuildTime * GetEscortBuildCost / 1000, truncated, as thousandths) over CONVOY_CONSTRUCTION_SIZE as Fixed15; out = perShip * transportsLost. **The transports are priced with the ESCORT defines and technologies**, not CONVOY_BUILD_*: the calls are 0x4FD6E0 and 0x4FD670. Where partnerId is not 0 and transportsBefore is above 0, out += CCountry_LendLeaseReceiptFrom(owner, partner) [thousandths, as Fixed15] * (transportsLost / transportsBefore, Fixed15). Both figures come from the defines in common/defines.lua; TFH ESCORT 4 and 240, size 10: 96.0 a ship. Bare `ret`, out returned in EAX. See reversing/findings/FINDINGS-topscreens.md, section E.1.",
+   "confidence": "confirmed",
+   "revises": "The record said 'plus for transports the transport build-cost term'. There is no such term: the second term is the lend-lease receipt share, the only one with a condition. Signature added.",
+   "evidence": "Listing 0x4635B0..0x463728 calls 0x4FD6E0 and 0x4FD670 and reads economy +0x34. The save gives 96.00 per ship exactly at the defaults; a CONVOY_BUILD figure would give 20.0."
+  },
+  {
+   "rva": "0x633E0", "kind": "function", "name": "StratWarfare_CargoTonsSunk",
+   "signature": "unsigned int* __cdecl StratWarfare_CargoTonsSunk(unsigned int* out, unsigned int transportsLost, unsigned int transportsBefore, void* cargo)",
+   "no_signature": null,
+   "comment": "Cargo sunk, Fixed15: goods = the sum of the seven goods of `cargo` (+8..+0x20, thousandths, each converted to Fixed15 then added); out = (CARGO_TONS_SUNK_SCALE as Fixed15 * goods >> 15), then out = (transportsLost / transportsBefore as Fixed15 * out >> 15). `cargo` is the convoy's +0x38 `daily` pool, what it carried at its last sailing, and not the convoy. Division is __alldiv (truncating) and no case guards transportsBefore 0. See reversing/findings/FINDINGS-topscreens.md, section E.1.",
+   "confidence": "confirmed",
+   "revises": "The fourth argument was named `convoy` and the comment said convoy +8..+0x20. It is the pool at convoy +0x38.",
+   "evidence": "Caller pushes `lea ecx,[esi+0x38]`; listing reads +8..+0x20 off the argument. Save's column 1 values are plausible cargo fractions; not a precise check."
+  },
+  {
+   "rva": "0x63730", "kind": "function", "name": "StratWarfare_UnitDamageIC",
+   "signature": "__int64* __cdecl StratWarfare_UnitDamageIC(__int64* out@EDI, CCombatant* side@stack:4, CCountryTag* country@stack:8, bool regiments@stack:0xC, bool ships@stack:0x10, bool bombers@stack:0x14) @EAX",
+   "no_signature": null,
+   "comment": "The IC of what `side` has lost so far, Fixed15, summed over every type whose flag is set (is_land +0x2D, is_ship +0x2E, isBomber +0x37), priced for `country` (not the sub unit's owner). Combat kind (CCombat slot 11) 2, or kind 6 with the side's slot 9 true (the naval target side of a naval bombing): destroyed[type] (+0x88, 1000 a ship) as Fixed15 * GetTotalBuildCost's IC >> 15, plus SubUnitPartialCost(damage[type] (+0x98) as Fixed15). Any other combat: SubUnitPartialCost(destroyed[type] as Fixed15) alone, and +0x98 is never read. So in land, air and bombing battles the figure is the whole accumulated strength lost priced as damage. Out returned in EAX, bare `ret`. See reversing/findings/FINDINGS-topscreens.md, section E.1.",
+   "confidence": "confirmed",
+   "revises": "The record said a fully lost sub-unit is priced whole and damage by the reinforcement fraction everywhere. That is only the naval arm; every other combat prices the whole figure as damage, and the arguments are now named.",
+   "evidence": "Listing 0x463730..0x463AED. Combat slot 11 answers 1 land, 2 CNavalCombat, 3 air, 4, 5, 6 the bombings; the combatant's slot 9 is true only on CNavalTargetCombatant."
+  },
+  {
+   "rva": "0x63AF0", "kind": "function", "name": "StratWarfare_SubUnitPartialCost",
+   "signature": "void __cdecl StratWarfare_SubUnitPartialCost(CCountry* country@EAX, CSubUnitDefinition* definition@stack:4, __int64* ic@stack:8, __int64* manpower@stack:0xC, __int64 amount@stack:0x10)",
+   "no_signature": null,
+   "comment": "The IC and manpower of `amount` strength (Fixed15), for a sub unit type priced for `country`. rate = (max_strength * 1000 / 30000 truncated, as Fixed15) * 0.5 (floor of 16384.5, Fixed15) >> 15, then * ((1 + modifier 0x35 UNIT_REPAIR, Fixed15) * (1 + REINFORCEMENT_BONUS id 0x56, Fixed15) >> 15) >> 15: the type's daily repair rate. If rate > 0 and ic != null: *ic = amount<<15 / rate (truncated) * (repair_cost_multiplier (+0x104) * max(BuildCostIC (+0xF8), 1.0) >> 15) >> 15. If manpower != null: *manpower = (amount<<15 / max_strength (as Fixed15)) * build_cost_manpower (+0xFC) >> 15, whatever the rate. Exe-hardcoded: the 30000, the 0.5, the floor of 1.0; mod-able: the unit keys and the two modifiers. Bare `ret`. See reversing/findings/FINDINGS-topscreens.md, section E.1.",
+   "confidence": "confirmed",
+   "revises": "The earlier comment gave only an outline; this is the whole arithmetic and the arguments.",
+   "evidence": "Listing 0x463AF0..0x463D3B. Oracle: Germany1936_03_31_19 ENG air column 0 over column 2 is 0.509 where the bomber is a TFH strategic_bomber (17 * 0.05 / 1.6665); the later rows at 0.256 fit a doubled rate from a modifier."
+  },
+  {
+   "rva": "0x64030", "kind": "function", "name": "GameStrategicWarfare_RecordBombingEnd",
+   "signature": "void __stdcall GameStrategicWarfare_RecordBombingEnd(void* warfare, CCombatant* side)",
+   "no_signature": null,
+   "comment": "From CBomberCombatant::ReportBombingEnd (0x15FBAC), which CCombat::End calls on both sides; it acts only on the attacking side (`side` +0x38 set). If the played country is on side's own_countries (+0x64): over the other side's own_countries in order, the first with a record gets GameStrategicWarfare_TallyBombing(warfare, side, player, that country), and return. Otherwise over side's own_countries in order the first country the played country has a record for gets TallyBombing(warfare, side, that country, player) - **with no test that the played country is on the other side at all**. `ret 8`. See reversing/findings/FINDINGS-topscreens.md, section E.2.",
+   "confidence": "confirmed",
+   "revises": "The comment said 'for a bombing the played country is a side of'. The second arm never asks whether it is.",
+   "evidence": "Listing 0x464030..0x4640D3: no test on the other side's list before the second arm's call."
+  },
+  {
+   "rva": "0x640E0", "kind": "function", "name": "GameStrategicWarfare_TallyBombing",
+   "signature": "int __stdcall GameStrategicWarfare_TallyBombing(void* warfare, CCombatant* side, CCountryTag* bomber, CCountryTag* target)",
+   "no_signature": null,
+   "comment": "One ended bombing into the air category. provinceIC = sum over buildings [buildings_destroyed[b] (+0x10B4, >0) * building+0x58 / 1000, truncated, as Fixed15] + (RESOURCE_TO_IC_COST * (sum of the seven of +0x10C4 and the seven of +0x10D4) / 1000, truncated, as Fixed15) + [where strength_damage_dealt (+0x10E4, already /100 by ReportBombingEnd) > 0: UnitDamageIC(combat.defender, target, regiments)]. raw = sum of the buildings' figures + the 14 goods + the strength, as Fixed15. bomberIC = UnitDamageIC(side, bomber, bombers). bomberStrength = StratWarfare_BomberStrengthLost as Fixed15. Columns [0,1,2,3] on the bomber's record, or [4,5,6,7] on the target's where the bomber is the played country: bomberIC, provinceIC, bomberStrength, raw. `ret 0x10`. See reversing/findings/FINDINGS-topscreens.md, section E.2.",
+   "confidence": "confirmed",
+   "revises": "The comment named the fourth figure 'buildings raw damage'; it is buildings, goods and the strength dealt together. Argument types tightened.",
+   "evidence": "Listing and decompile of 0x4640E0..0x46445D; the field names are the record's for CBomberCombatant. Save's air columns 1 and 3 run in that proportion with col 2 about 2 times col 0."
+  },
+  {
+   "rva": "0x64460", "kind": "function", "name": "StratWarfare_BomberStrengthLost",
+   "signature": "int* __stdcall StratWarfare_BomberStrengthLost(int* out, CCombatant* side)",
+   "no_signature": null,
+   "comment": "The sum over every isBomber type of `side`'s destroyed[type] (+0x88, thousandths), written to out and returned. Called once, by TallyBombing. See reversing/findings/FINDINGS-topscreens.md, section E.2.",
+   "confidence": "confirmed",
+   "evidence": "Decompile of 0x464460 and the one caller at 0x464377; checkSignatures reads the `ret`."
+  },
+  {
+   "rva": "0x64660", "kind": "function", "name": "GameStrategicWarfare_AddToSeriesZeroOrFour",
+   "signature": "void __stdcall GameStrategicWarfare_AddToSeriesZeroOrFour(void* warfare@ECX, CCountryTag* loser@EAX, CCountryTag* other@stack:4, __int64 amount@stack:8)",
+   "no_signature": null,
+   "comment": "If `loser` is the played country: record `other`, air column 0; otherwise record `loser`, air column 4. Adds amount to the day element at CurrentElement; nothing for no record, an ended one or a null element. `ret 0xC`. See reversing/findings/FINDINGS-topscreens.md, section E.2.",
+   "confidence": "confirmed",
+   "revises": "The comment had column 4 as 'the player's own bombers'; the test is on the loser tag, and which side is which is read off the caller.",
+   "evidence": "Listing 0x464660..0x4646D8."
+  },
+  {
+   "rva": "0x646E0", "kind": "function", "name": "GameStrategicWarfare_RecordBomberLosses",
+   "signature": "void __stdcall GameStrategicWarfare_RecordBomberLosses(CCombat* combat@EAX, void* warfare@stack:4)",
+   "no_signature": null,
+   "comment": "From CAirCombat::End (slot 14, 0x17BCB0) at the start of it, on an air battle only. If the played country is on the attacker's own_countries: v = UnitDamageIC(attacker, player, bombers); where v > 0, for each country c of the defender's own_countries AddToSeriesZeroOrFour(warfare, player, c, v) - **so the player's own bombers lost as attacker go to column 0**, the column that names enemy bombers. Otherwise if the player is on the defender's list: v = UnitDamageIC(defender, player, bombers); where v > 0, for each country c of the attacker's list AddToSeriesZeroOrFour(warfare, c, player, v) - column 4 of c. v is added whole to every c. Nothing else is counted: an air battle's fighters are not. `ret 4`. See reversing/findings/FINDINGS-topscreens.md, section E.2.",
+   "confidence": "confirmed",
+   "revises": "The comment did not say which side's losses land in which column; the attacker arm is a quirk worth saying.",
+   "evidence": "Listing 0x4646E0..0x4647E8. The push orders at 0x46476D..0x464783 and 0x4647C1..0x4647D7 show which tag is passed as loser in each arm."
+  },
+  {
+   "rva": "0x647F0", "kind": "function", "name": "GameStrategicWarfare_TallyLandDamage",
+   "signature": "void __stdcall GameStrategicWarfare_TallyLandDamage(CSubUnit* sub@EAX, CCountryTag* node@ECX, void* warfare@stack:4)",
+   "no_signature": null,
+   "comment": "One carried brigade's damage for one country on the other side. sub owned by the played country: record `node`, columns 0 (IC), 2 (manpower). Otherwise only if node is the played country and CCountry::IsEnemyTag(player, sub->owner): record sub->owner, columns 1, 3. The amount is SubUnit_PendingStrengthLoss and the figures LandDamageCost. `ret 4`. See reversing/findings/FINDINGS-topscreens.md, section E.3.",
+   "confidence": "confirmed",
+   "revises": "The comment read as for any unit's damage; the only caller is OnSettleCombatDamage for a passenger.",
+   "evidence": "Listing 0x4647F0..0x464931."
+  },
+  {
+   "rva": "0x64940", "kind": "function", "name": "GameStrategicWarfare_OnSettleCombatDamage",
+   "signature": "void __stdcall GameStrategicWarfare_OnSettleCombatDamage(CSubUnit* sub@EDI, void* warfare@stack:4, CCombatant* side@stack:8)",
+   "no_signature": null,
+   "comment": "**For a carried brigade only.** The two call sites are in CUnit::SettleCombatDamage's passenger branch (0x1C3CAB and 0x1C3EEA, one for a fleet's passengers and one for an air unit's): where the fleet or air group's isTransport sub units took damage, each brigade carried gets its share of it pending, then this, then CSubUnit::SettleDamage - so the pending figure is read before it is applied. amount = pending strength, /100 for a brigade or wing (slot 9 or 11), held to the sub unit's strength; if amount > 0, the OTHER side of `side` (combat.attacker when side is the defender and vice versa) has every country of its own_countries through GameStrategicWarfare_TallyLandDamage. arg != 0 gates the call: CCombatant::ApplyLosses passes the combatant at its two calls, and CUnit::SettleCombatDamage's third caller (0x193FAA, not a battle) passes 0. `ret 8`. See reversing/findings/FINDINGS-topscreens.md, section E.3.",
+   "confidence": "confirmed",
+   "revises": "The record said it runs for a unit with GetTotal damage; a ship or an army takes the other paths and never comes here. The two call sites are the air and naval passenger loops.",
+   "evidence": "Decompile of CUnit::SettleCombatDamage and listing 0x464940..0x4649BD. Would be wrong only if SettleCombatDamage had a third path; none exists at those call sites."
+  },
+  {
+   "rva": "0x649C0", "kind": "function", "name": "GameStrategicWarfare_TallyUnitDestroyed",
+   "signature": "void __stdcall GameStrategicWarfare_TallyUnitDestroyed(void* warfare@ECX, CCountryTag* killer@EAX, CUnit* unit@stack:4)",
+   "no_signature": null,
+   "comment": "A unit removed whole. unit owned by the played country: record `killer`, columns 0 and 2; otherwise only if killer is the played country and IsEnemy(player, unit->owner): record unit->owner, columns 1 and 3. Value: the sum of every regiment on the unit of GetTotalBuildCost (IC and manpower) of the regiment's own type and owner - the full price, whatever strength it has left. Callers: CUnit::RetreatFromCombat at two places (no retreat province, 0x165BFE; a retreat province it cannot path to, 0x16596B): killer is the first of the other side's own_countries; CUnit::CheckOrderAndCombat (0x1BA68E): a retreating land unit whose next province holds enemy land units with an enemy on its own province and no friendly hold in the next (killer is that next province's controller); CUnit::AdvanceMovement (0x1CA74D): a retreating land unit, no supplies, whose next province's controller is at war with it (killer is that controller). `ret 4`. See reversing/findings/FINDINGS-topscreens.md, section E.3.",
+   "confidence": "confirmed",
+   "revises": "The conditions on each caller and what `killer` is were not stated.",
+   "evidence": "Listing 0x4649C0 and decompile of the three callers; the two RetreatFromCombat sites are the same ending reached two ways, as that function's record says."
+  },
+  {
+   "rva": "0x64B60", "kind": "function", "name": "StratWarfare_LandDamageCost",
+   "signature": "void __stdcall StratWarfare_LandDamageCost(__int64* ic@EDI, __int64* manpower@ESI, CSubUnit* sub@stack:4, int amount@stack:8)",
+   "no_signature": null,
+   "comment": "Adds to *ic and *manpower the price of `amount` of sub's strength, thousandths. Nothing for amount <= 0. amount >= sub's strength (+0x5C): GetTotalBuildCost(type, owner country). Otherwise SubUnitPartialCost(owner country, type, ic, manpower, amount as Fixed15). The owner is the sub unit's own tag at +0x94. `ret 8`. See reversing/findings/FINDINGS-topscreens.md, section E.3.",
+   "confidence": "confirmed",
+   "revises": "Comment corrected from 'the whole sub-unit is lost' to the exact test, and arguments named.",
+   "evidence": "Listing 0x464B60..0x464C71."
+  },
+  {
+   "rva": "0x64C80", "kind": "function", "name": "StratWarfare_CombatSideLandLoss",
+   "signature": "void __stdcall StratWarfare_CombatSideLandLoss(CCombatant* side@EAX, CCountryTag* country@stack:4, __int64* ic@stack:8, __int64* manpower@stack:0xC)",
+   "no_signature": null,
+   "comment": "One hour's land loss of `side` for `country`: nothing unless the side's slot 6 answers true (CLandCombatant only). For every unit of the side with owner_id == country.id and every regiment of it: amount = min(pending_strength_damage (+0xA8), /100 for a brigade or wing, regiment strength) and LandDamageCost(regiment, amount) into the running figures. `ret 0xC`. See reversing/findings/FINDINGS-topscreens.md, section E.4.",
+   "confidence": "confirmed",
+   "revises": "Comment expanded to the exact pending figure and the land-only gate.",
+   "evidence": "Listing 0x464C80..0x464D3B; the side's slot 6 is true only on CLandCombatant by vtable.py."
+  },
+  {
+   "rva": "0x64D40", "kind": "function", "name": "GameStrategicWarfare_TallyLandCombatSide",
+   "signature": "void __stdcall GameStrategicWarfare_TallyLandCombatSide(void* warfare, CCombatant* mine, CCombatant* theirs)",
+   "no_signature": null,
+   "comment": "An hour of a land battle for the played country. ours = CombatSideLandLoss(mine, player). For each country c of theirs' own_countries with a live record: theirs_c = CombatSideLandLoss(theirs, c); land columns 0 += ours IC, 1 += theirs_c IC, 2 += ours manpower, 3 += theirs_c manpower. **Our loss is added to every enemy's record**, so with two enemy countries on the other side it counts twice. `ret 0xC`. See reversing/findings/FINDINGS-topscreens.md, section E.4.",
+   "confidence": "confirmed",
+   "revises": "The comment did not say the four columns' assignment and that ours repeats per enemy.",
+   "evidence": "Listing 0x464D40..0x464E4C."
+  },
+  {
+   "rva": "0x64E50", "kind": "function", "name": "GameStrategicWarfare_OnCombatTick",
+   "signature": "void __stdcall GameStrategicWarfare_OnCombatTick(CCombat* combat@EAX, void* warfare@stack:4)",
+   "no_signature": null,
+   "comment": "CCombat::Tick at 0x16F1A5, after both sides have fired and before CCombatant::ApplyLosses settles them: the figures are this hour's pending damage. Only where either side's slot 6 is true (a land battle); the played country is looked for on the attacker's own_countries first, and TallyLandCombatSide runs for whichever side has it. `ret 4`. See reversing/findings/FINDINGS-topscreens.md, section E.4.",
+   "confidence": "confirmed",
+   "revises": "Comment gives the position in the tick and that pending damage, not the applied damage, is what is read.",
+   "evidence": "Listing 0x464E50..0x464ECE and 0x56F1A5 followed by the two ApplyLosses calls at 0x56F1B2 and after."
+  },
+  {
+   "rva": "0x64EE0", "kind": "function", "name": "GameStrategicWarfare_OnNavalCombatEnd",
+   "signature": "void __stdcall GameStrategicWarfare_OnNavalCombatEnd(CCombat* combat@EAX, void* warfare@stack:4)",
+   "no_signature": null,
+   "comment": "CCombat slot 14 of CNavalCombat and CNavalBombing, before CCombat::End. Not for a convoy battle (+0x2B). Only where either side's slot 7 or slot 9 is true (a fleet side or a naval target); the played country is looked for on the attacker's list first, then TallyNavalEnd for that side. `ret 4`. See reversing/findings/FINDINGS-topscreens.md, section E.5.",
+   "confidence": "confirmed",
+   "revises": "Gate named exactly; the convoy test and which classes reach it.",
+   "evidence": "Listing 0x464EE0..0x464F8A."
+  },
+  {
+   "rva": "0x64F90", "kind": "function", "name": "GameStrategicWarfare_TallyNavalEnd",
+   "signature": "void __stdcall GameStrategicWarfare_TallyNavalEnd(void* warfare, CCombatant* mine, CCombatant* theirs)",
+   "no_signature": null,
+   "comment": "Not a convoy raid: a naval battle where a fleet under order token 0x6E9 (CConvoyRaid) fights. Over `mine` first: the first unit on it with an order of that kind; if there is one and it has an owner, v = UnitDamageIC(mine, that unit's owner, ships) and every country of theirs' own_countries with a live record gets v in its naval column 5. Then over `theirs`: the first unit so ordered, and if its owner has a live record, v = UnitDamageIC(theirs, owner, ships) into that record's naval column 2. Columns 2 and 5 are only ever touched here and in TallyConvoyRaid. `ret 0xC`. See reversing/findings/FINDINGS-topscreens.md, section E.5.",
+   "confidence": "confirmed",
+   "revises": "Was 'inferred' from the outline: read whole. The raider's own order test decides, not which side the player was raiding on.",
+   "evidence": "Listing 0x464F90..0x46512F. The order test is the order's slot 16 (0x40) answering 0x6E9, the CConvoyRaid token CCombat::Tick also uses."
+  },
+  {
+   "rva": "0x65140", "kind": "function", "name": "GameStrategicWarfare_TallyAttrition",
+   "signature": "void __stdcall GameStrategicWarfare_TallyAttrition(void* warfare@ECX, CSubUnit* sub@EAX, int amount@stack:4)",
+   "no_signature": null,
+   "comment": "From ApplyAttrition, before the strength is taken: amount is the day's loss. sub owned by the played country: only if the province it stands on has a controller other than its owner, and IsEnemy(player, province owner): the owner's record, land columns 0, 2 (LandDamageCost IC, manpower). Otherwise only if the province's owner IS the played country and IsEnemy(sub->owner, player): sub->owner's record, columns 1, 3; **there is no test of the province's controller on this arm**. Otherwise nothing. `ret 4`. See reversing/findings/FINDINGS-topscreens.md, section E.6.",
+   "confidence": "confirmed",
+   "revises": "The previous comment's 'land the enemy of its owner controls' is not what the code asks. It compares the province's owner, on both arms.",
+   "evidence": "Listing 0x465140..0x465327 and the call at 0x5C76B5."
+  },
+  {
+   "rva": "0x62260", "kind": "function", "name": "StrategicWarfareRecord_AdvanceDay",
+   "signature": "void __stdcall StrategicWarfareRecord_AdvanceDay(void* record)",
+   "no_signature": null,
+   "comment": "Daily for a running record, per category. day.offset += 1; at max_elements it is 0 and is_full set, and day.current = elements[offset]. If is_full and offset == 0 (the day ring just wrapped): month.current = StrategicWarfareRing_SumInto(day) of all 30 slots; month.offset += 1 with the same wrap; if month just wrapped, year.current = sum of month's 12, year.offset += 1; finally the new month element is zeroed. Otherwise: month.current = SumInto(day ring, includeCurrent) (the rolling 30-day sum, **including the slot about to be zeroed**, which is the oldest); year.current = SumInto(month ring, includeCurrent). Last, the new day.current (the slot at offset) is zeroed. So the month element is a rolling 30 days until its day ring closes, and a tally adds to the slot before offset, which the next day's AdvanceDay zeroes last. A day ring first wraps on the record's 29th AdvanceDay, so the first month holds 29 days. `ret 4`. See reversing/findings/FINDINGS-topscreens.md, section E.7.",
+   "confidence": "confirmed",
+   "revises": "Comment rewritten: the old text had 'the slot now at offset zeroed' before the sum, which would have left the zeroing order wrong.",
+   "evidence": "Listing 0x462260..0x462421. Oracle: on two saves' 15 records every year.current equals its month ring's sum; the unwrapped POL's month element equals the day ring's slots below offset-1; the wrapped rings' month element less the day slots gives a non-negative figure for the zeroed oldest slot."
+  },
+  {
+   "rva": "0x62430", "kind": "function", "name": "StrategicWarfareRecord_CurrentElement",
+   "signature": "void* __fastcall StrategicWarfareRecord_CurrentElement(int category@ECX, void* record@EAX) @EAX",
+   "no_signature": null,
+   "comment": "The day ring's element a tally adds to: count = is_full ? max_elements : offset; if count <= 0 the answer is 0; index = (count-1 + (is_full ? offset : 0)) % max_elements = the slot just before offset. See reversing/findings/FINDINGS-topscreens.md, section E.7.",
+   "confidence": "confirmed",
+   "revises": "Comment states the index arithmetic.",
+   "evidence": "Listing 0x462430..0x46245D."
+  },
+  {
+   "rva": "0x620F0", "kind": "function", "name": "StrategicWarfareRecord_Init",
+   "signature": "void __stdcall StrategicWarfareRecord_Init(void* record, unsigned int years)",
+   "no_signature": null,
+   "comment": "Stores years at +0x20 and makes three categories (naval, air, land), each a block of three ring pointers: 30 days, 12 months, `years` years, all elements 0x40 bytes of zero and the ring's current at element 0. **The day ring alone is advanced once, offset 1 and current elements[1]**, so a new record's first tallies land in slot 0 and its month and year rings have offset 0. `ret 8`. See reversing/findings/FINDINGS-topscreens.md, section E.7.",
+   "confidence": "confirmed",
+   "revises": "Comment states which rings are advanced at construction.",
+   "evidence": "Listing 0x4620F0..0x462257."
+  },
+  {
+   "rva": "0x620A0", "kind": "function", "name": "StrategicWarfareCategory_LoadContents",
+   "signature": "void __stdcall StrategicWarfareCategory_LoadContents(void* category, CParseContext* parse)",
+   "no_signature": null,
+   "comment": "Three `container` blocks in turn, each given to StrategicWarfareRing_LoadContents. `ret 8`. See reversing/findings/FINDINGS-topscreens.md, section E.8.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x4620A0..0x4620E1; token 0x818 tested before each ring call."
+  },
+  {
+   "rva": "0x61B10", "kind": "function", "name": "StrategicWarfareRing_LoadContents",
+   "signature": "void __fastcall StrategicWarfareRing_LoadContents(CParseContext* parse@ECX, void* ring@ESI)",
+   "no_signature": null,
+   "comment": "Reads, each only where the token matches: `max_elements` (0x819) and allocates the ring, zeroed; `offset` (0x161) and sets current; `is_full` (0x81A); `data` (0x117) as a list of reals. If the list has exactly max_elements * 8 values they are stored in element order; otherwise the ring stays zeroed. Bare `ret`. See reversing/findings/FINDINGS-topscreens.md, section E.8.",
+   "confidence": "confirmed",
+   "evidence": "Decompile of 0x461B10; the tokens are the numbers of those save keys, printed by StrategicWarfareRing_SaveContents in the same order."
+  },
+  {
+   "rva": "0x629F0", "kind": "function", "name": "StrategicWarfareRecord_LoadContents",
+   "signature": "bool __stdcall StrategicWarfareRecord_LoadContents(void* record@stack:4, CParseContext* parse@EDI) @AL",
+   "no_signature": null,
+   "comment": "The record's key is its enemy tag, resolved with CCountryDataBase::GetTag, and a record whose tag has no id answers false and is discarded by the caller. Then in file order: `end` (bool), `start_date`, and only where end is yes `end_date`; `years` (1 when absent), StrategicWarfareRecord_Init(years), and three StrategicWarfareCategory_LoadContents. See reversing/findings/FINDINGS-topscreens.md, section E.8.",
+   "confidence": "confirmed",
+   "evidence": "Decompile of 0x4629F0 and the rings' Init call."
+  },
+  {
+   "rva": "0x654D0", "kind": "function", "name": "GameStrategicWarfare_LoadContents",
+   "signature": "void __stdcall GameStrategicWarfare_LoadContents(void* warfare, CParseContext* parse)",
+   "no_signature": null,
+   "comment": "The top-level `strategic_warfare` block's load, from CGameState::LoadKey's arm, after GameStrategicWarfare_Clear. `player` (token 0x3F6) is taken through CCountryDataBase::GetTag into warfare's +0; `count` (0x3A0); then `count` records each read by StrategicWarfareRecord_LoadContents and put in the map by enemy id; a record that fails to read is destroyed. The player tag read here is what makes CInGameIdler's per-frame GameStrategicWarfare_ResetIfPlayerChanged keep the records rather than start again. `ret 8`. See reversing/findings/FINDINGS-topscreens.md, section E.8.",
+   "confidence": "confirmed",
+   "evidence": "Decompile of 0x4654D0 and the arm at 0x68044D."
+  },
+  {
+   "rva": "0x17BCB0", "kind": "function", "name": "CAirCombat::End",
+   "signature": "void __thiscall CAirCombat::End(CAirCombat* this)",
+   "no_signature": null,
+   "comment": "CCombat slot 14 of an air battle only: GameStrategicWarfare_RecordBomberLosses(the combat, the game state's strategic warfare) and then the base CCombat::End. Bare `ret`. See reversing/findings/FINDINGS-topscreens.md, section E.2.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x57BCB0..0x57BD68; vtable.py shows it only in CAirCombat slot 14."
+  },
+  {
+   "rva": "0x1ABA10", "kind": "function", "name": "SubUnit_PendingStrengthLoss",
+   "signature": "void __stdcall SubUnit_PendingStrengthLoss(CSubUnit* sub@EAX, int* out@ESI)",
+   "no_signature": null,
+   "comment": "out = pending_strength_damage (+0xA8), then * g_CombatModifierFloor (10) / 1000 truncated for a regiment or wing (slots 9 and 11 true), then held to the sub unit's strength. The amount of an hour's damage as a brigade's strength; ships are the raw figure. Bare `ret`. See reversing/findings/FINDINGS-topscreens.md, section E.3.",
+   "confidence": "confirmed",
+   "evidence": "Decompile of 0x5ABA10 and the same arithmetic inlined in 0x464940, 0x464C80."
+  },
+  {
+   "rva": "0x108A20", "kind": "function", "name": "CCountry_LendLeaseReceiptFrom",
+   "signature": "int* __stdcall CCountry_LendLeaseReceiptFrom(CCountry* country@EAX, int* out@stack:4, CCountryTag* giver@stack:8) @EAX",
+   "no_signature": null,
+   "comment": "Looks the giver up by id in the country's 12-byte {tag, id, value} list at +0x6D8..+0x6DC (the copy of what givers credited that CCountry::UpdateIC keeps) and writes its value, thousandths, or 0. `ret 8`, out returned in EAX. See reversing/findings/FINDINGS-topscreens.md, section E.1.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x508A20..0x508A8A; 0x6D8 is recorded as the receipts copy."
+  },
+  {
+   "rva": "0x1D6540", "kind": "function", "name": "CUnitList::GetPendingLossOfType",
+   "signature": "int* __thiscall CUnitList::GetPendingLossOfType(CUnitList* this, int* out, CSubUnitDefinition* type)",
+   "no_signature": null,
+   "comment": "The hour's loss of one sub unit type over a unit list: over every unit and every sub unit of `type`, min(pending_strength (+0xA8, /100 for a regiment or wing), strength) * slot 14 (men per strength, 100.0 for a regiment, 1.0 for a ship or wing) / 1000. So CCombatant::ApplyLosses's destroyed[type] in a non-naval combat holds strength for a wing but **strength x 100 for a brigade**. `ret 8`. See reversing/findings/FINDINGS-topscreens.md, section E.3.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x5D6540..0x5D6610; slot 14 is 0x38 in the vftable, answered 100000 by the regiment's and floor(1000.5f) by the ship's and wing's."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CCombatant", "offset": "0x88", "name": "destroyed_begin", "type": "int*",
+   "comment": "Per sub unit type, what the side has lost. In a naval combat or on a naval bombing's target side: 1000 for each ship sunk. In every other combat: CUnitList::GetPendingLossOfType each hour, strength for a wing or a ship, strength x 100 for a brigade. Read by StratWarfare_UnitDamageIC and StratWarfare_BomberStrengthLost. See reversing/findings/FINDINGS-topscreens.md, section E.3.",
+   "source": "reversing/findings/FINDINGS-topscreens.md",
+   "revises": "It said 'subunits destroyed per type (1000 each)', true only of ships.",
+   "evidence": "Decompile of CCombatant::ApplyLosses (0x165FD0) and the listing of 0x1D6540."
+  },
+  {
+   "struct": "CCombatant", "offset": "0x98", "name": "damage_begin", "type": "int*",
+   "comment": "Per sub unit type, strength damage short of sinking, in ships alone: CCombatant::ApplyLosses adds CSubUnit::SettleDamage's figure on the naval path. Never written in land, air or ground bombing combat. See reversing/findings/FINDINGS-topscreens.md, section E.3.",
+   "source": "reversing/findings/FINDINGS-topscreens.md",
+   "revises": "It did not say which battles use it.",
+   "evidence": "Decompile of CCombatant::ApplyLosses, whose only write to +0x98 is on the kind-2 path."
+  }
+ ],
+ "vftable_slots": {
+  "CAirCombat": {"14": "End"}
+ },
+ "frontier": ["0x4613F0"],
+ "slots_noted": "CSubUnit slot 9 and 11 are read as 'regiment' and 'wing' (slot 9 true only for CRegiment, slot 11 only for CWing); left unnamed in vftable_slots, used only to state a branch."
+}

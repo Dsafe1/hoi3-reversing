@@ -456,3 +456,119 @@ Then (the sibling of `CAIUnit_ProvinceHoldValue`):
 - The caller at VA `0x7376B0` (rva `0x3376B0`) of `CUnit::CollectRegiments`, unread.
 
 Frontier: the unread caller of `CUnit::CollectRegiments` at rva `0x3376B0`.
+
+## E. What each strategic warfare column holds
+
+*Addresses are VAs. All Confirmed unless marked; none of it was tested in a running game. "Fixed15" means a 64-bit value with 15 fractional bits. Conversions from thousandths are `x * 32768 / 1000` truncated toward zero. Exe-hardcoded unless a define or key is named.*
+
+**Formulas shared by everything.**
+- Fix(x) is x thousandths as Fixed15.
+- Partial cost is `SubUnitPartialCost(country, type, amount)`, with `amount` in Fixed15:
+  - `rate = Fix(max_strength * 1000 / 30000 truncated) * 0.5`, then times `(1 + country's UNIT_REPAIR modifier, id 0x35) * (1 + REINFORCEMENT_BONUS, id 0x56)`. The 0.5 is the 16384.5 constant cut to 16384. The 30000 and the 0.5 are exe-hardcoded; the keys and modifiers are mod-able.
+  - If rate > 0: `ic = repair_cost_multiplier * max(build_cost_ic, 1.0) * (amount / rate)`, using the sub unit definition's values.
+  - `manpower = (amount / max_strength) * build_cost_manpower`, whether or not rate > 0.
+- `LandDamageCost(sub, amount)`, amount in thousandths: nothing if amount <= 0; if amount >= sub.strength, the full `GetTotalBuildCost`; otherwise partial cost of Fix(amount). Priced for the sub unit's own owner.
+- `UnitDamageIC(side, country, flags)`: sum over types matching the flags (land, ship, isBomber), priced for `country`.
+  - If the battle is kind 2 (`CNavalCombat`) or kind 6 with the side's slot 9 true (`CNavalTargetCombatant`, the naval side of a naval bombing): `Fix(destroyed[t]) * full IC` (destroyed = 1000 a ship, per CCombatant::ApplyLosses), plus partial cost of `Fix(damage[t])`.
+  - Otherwise (land, air, ground and land bombing, and the bomber side of a naval bombing): only partial cost of `Fix(destroyed[t])`.
+
+**CCombatant `destroyed[t]` (+0x88) and `damage[t]` (+0x98).**
+- In a naval combat (or the naval target side), a sub unit losing all its strength adds 1000 to destroyed; otherwise damage gets the strength taken × slot 14 / 1000.
+- In any other combat, destroyed gets `min(pending_strength (+0xA8), /100 for a regiment or wing, strength) * slot 14 / 1000` each hour (`CUnitList::GetPendingLossOfType`). Slot 14 answers 100.0 for a CRegiment and 1000 thousandths for a CShip or CWing.
+- So in non-naval battles a wing's destroyed is strength and **a brigade's is strength x 100**. That is what `UnitDamageIC` prices in a land bombing's target-side term (see E.2).
+
+**E.1 Naval columns 0..5 (convoy raids).** `ResolveConvoyRaid` (0x5D2670), only after a raid that sank something, before `CConvoy::LoseShips`. Raider `R`, victim `V`, `transportsLost` is the rounded whole-ship count used for sinking (round to even of thousandths/1000, the x87 default, the 0.3 raise having been applied). Escorts sunk are passed to `LoseShips` only and count for nothing in these columns.
+
+| column | when | formula |
+| --- | --- | --- |
+| 0 (R's record) / 3 (V's record) | player is V / player is R | `ConvoyLossIC`: `Fix(EscortBuildTime * EscortBuildCost / 1000) / Fix(CONVOY_CONSTRUCTION_SIZE)` Fixed15, times transportsLost; **plus** where the convoy has a lend-lease partner and transports > 0, `(transportsLost / transports before, Fixed15) * Fix(receipt from that partner at owner +0x6D8)`. Priced for V, with V's escort technology. TFH 4 × 240 / 10 = 96.00 a ship |
+| 1 / 4 | same | `CargoTonsSunk`: `CARGO_TONS_SUNK_SCALE * sum of the 7 goods of the convoy's +0x38 daily pool * (transportsLost / transports before)` (defines mod-able, Their Finest Hour 1000) |
+| 2 / 5 | same | `UnitDamageIC(combat attacker, raider R, ships)` Fixed15, priced for R, after the raid's five rounds |
+
+Columns 2 and 5 are also written from `TallyNavalEnd` (E.5).
+
+**E.2 Air columns 0..7.**
+
+Bombing end (`CBomberCombatant::ReportBombingEnd` → `RecordBombingEnd`, called for the attacking bomber side only; never for a convoy raid or a side without country or unit):
+- If the player is on the bomber side, the first country on the other side with a record is the enemy: columns 4..7 there.
+- Otherwise the first attacking-side country the player has a record of gets columns 0..3. **Nothing asks whether the player is on the bombed side.**
+- At this point `strength_damage_dealt` (+0x10E4) has already been divided by 100 by `ReportBombingEnd` (`x * 10 / 1000`, truncated).
+
+| column | meaning |
+| --- | --- |
+| 0 / 4 | `UnitDamageIC(side, bomber's tag, bombers)` |
+| 1 / 5 | Sum over buildings of `Fix(cost (+0x58, CBuilding) * buildings_destroyed[b] / 1000)`, plus `Fix(RESOURCE_TO_IC_COST * sum of the 7 of +0x10C4 and the 7 of +0x10D4 / 1000)`, plus where strength_dealt > 0 `UnitDamageIC(defender, target tag, regiments)` |
+| 2 / 6 | `Fix(bomber strength lost)`: sum of bombers' destroyed[t] |
+| 3 / 7 | Fix(sum of buildings_destroyed + the 14 goods + strength_dealt): the raw total |
+
+The defender's `UnitDamageIC` passes land-type `destroyed`, which for a brigade is strength × 100 (see above), so the land-units part of 1/5 runs as if priced on men; no save has a land bombing to test it.
+
+Air battle end (`CAirCombat::End`, slot 14 → `RecordBomberLosses`):
+- If the player is on the attacker's list, `v = UnitDamageIC(attacker, player, bombers)`; where v > 0 it adds to **column 0 of every country on the defender's list**.
+- If on the defender's list, `v = UnitDamageIC(defender, player, bombers)`, added to **column 4 of every country on the attacker's list**.
+- So the player's own bombers lost while attacking land in column 0, the column the tooltip names enemy bombers; kept as read. Fighters count for nothing.
+
+**E.3 Land columns from passengers and destroyed units.**
+- `OnSettleCombatDamage` runs only from `CUnit::SettleCombatDamage`'s transport branch: a fleet's or air unit's sub unit with is_transport took damage, its share goes pending on every carried brigade, then this, then the brigade's `SettleDamage`. Called only when the combat is passed in (the third caller of `SettleCombatDamage`, 0x593FAA, passes 0).
+- Amount: `SubUnit_PendingStrengthLoss` (pending strength, ×0.01 for a regiment or wing, capped at strength).
+- It walks the **other** side's own_countries.
+- For each country c: if the brigade is the player's, c's record gets IC/manpower in columns 0 and 2. Otherwise only if c is the player and they are at war, the brigade's owner's record gets columns 1 and 3.
+- Not a land-battle writer: a transport fleet's fight is not a land combat, so it cannot double-count with E.4.
+- `TallyUnitDestroyed(killer, unit)`, called when a unit is removed: if the unit is the player's, killer's record gets columns 0 and 2; otherwise only if killer is the player and the two are at war, the unit owner's record gets columns 1 and 3. The value is the full `GetTotalBuildCost` of every regiment. Sites:
+  - `RetreatFromCombat` with no retreat province (0x565BFE), or a province it cannot path to (0x56596B). Killer is the first of the other side's own_countries.
+  - `CheckOrderAndCombat` for a retreating land unit (next province with an enemy land unit, enemy in its own province, no friendly hold in the next). Killer is that next province's controller.
+  - `AdvanceMovement` for a retreating land unit, no supplies, next province controlled by a country at war with it. Killer is that controller.
+
+  It prices the whole unit whatever strength is left, on top of what E.4 already counted hour by hour: **the land columns do double count here, deliberately or not.**
+
+**E.4 Land columns, hourly (0..3).** `OnCombatTick` in `CCombat::Tick` at 0x56F1A5, after both sides have fired and before `CCombatant::ApplyLosses`, so it reads pending damage before it is spent. Only for battles where a side's slot 6 is true (only `CLandCombatant`, so land battles only), and only where the player is on one side's own_countries.
+- ours = sum over the player's units on that side of `LandDamageCost(regiment, pending strength × 0.01, capped)`.
+- For each country c on the other side's own_countries with a live record: theirs_c is the same over c's units.
+- Land columns on c's record: 0 += ours IC, 1 += theirs_c IC, 2 += ours manpower, 3 += theirs_c manpower.
+- **Ours is added whole to every enemy's record**, so with two enemy countries it counts twice.
+
+**E.5 Naval columns 2 and 5 from a fleet battle.** `CNavalCombat::End`/`CNavalBombing` slot 14, before `CCombat::End`; not for a convoy battle (+0x2B); only where either side's slot 7 or 9 is true. `mine` is the side with the player.
+- Over mine's units, the first whose order's token is 0x6E9 (convoy raid), with an owner: `v = UnitDamageIC(mine, that owner, ships)`; every country on the other side with a live record gets v in **column 5**.
+- Over theirs' units, the first so ordered: `v = UnitDamageIC(theirs, its owner, ships)`; that owner's record, **column 2**.
+
+**E.6 Land columns from attrition.** `TallyAttrition` from `ApplyAttrition` (only land units not in a battle, once a day), before the loss is taken.
+- A unit of the player's on a province whose controller differs from its owner, where the player is at war with the province's owner: that owner's record, columns 0 and 2.
+- Any other unit, on a province **owned** by the player, at war with the player (no controller test): that unit's owner's record, columns 1 and 3.
+- Values from `LandDamageCost(sub, the day's loss)`.
+
+**E.7 The rings (each record, per category).** Ring: `elements`, `max_elements`, `offset`, `is_full`, `current` = `elements[offset]`.
+- `Init`: three rings of zeroed elements; **only the day ring is advanced once** (offset 1, current slot 1).
+- A tally adds to `CurrentElement`: `elements[(count - 1 + (is_full ? offset : 0)) % max]`, count = is_full ? max : offset, i.e. the slot before `offset`; null only for an unwrapped ring at offset 0, which the day ring never is.
+- `AdvanceDay` (daily, first thing in `RunDailyPass`, only for a running record):
+  1. `day.offset++`, wrap to 0 with `is_full = true`; day.current = elements[offset].
+  2. If it just wrapped (is_full and offset == 0): `month.current =` sum of all 30 day slots; `month.offset++` with wrap; if month just wrapped, `year.current =` sum of the 12 month slots and `year.offset++`; then the new month element is zeroed.
+  3. Otherwise: `month.current =` sum of the day ring (full: all 30; not full: slots 0..offset-1) plus day.current if not already in the loop; `year.current =` the same over the month ring.
+  4. Last, the new day.current is zeroed.
+
+  The sums read the slot about to be zeroed, so the month element is a rolling 30 days. The first month holds 29 days of tallies because the day ring starts at offset 1.
+- Oracle, read-only (all checks are on the two saves):
+  - Offsets match elapsed days: `Germany1936_03_31_19` records from 2.28 at offset 2 full and 1 month, `09_02_21` records from 2.4 at offset 1 full, month offset 7; POL ended at offset 5, not advanced after 1.31.
+  - Every record's `year.current` equals the sum of its month ring plus month.current, for every column.
+  - POL's unwrapped month.current equals the day slots below offset-1.
+  - On wrapped rings, month.current minus the slots other than today's and the zeroed one is non-negative and a plausible daily figure (ENG naval 96.000 and 2299.988, a past raid's values).
+  - Naval column 0 is exact multiples of 96.00.
+
+**E.8 Records and load.** The `warfare.player` tag is `SetUp`'s argument, `state->player` (+0xC30, the local played country). `ResetIfPlayerChanged` (per frame, `CInGameIdler::Update`) clears and rebuilds if `state->player.id` differs, so with several players each machine holds only its own.
+
+`DailyUpdate`, per record in map order:
+- If running: AdvanceDay, then if no war, ended = true and end_tick set.
+- If ended and at war again: the categories are zeroed, start_tick reset, running.
+- Then every current enemy with no record gets a new one.
+
+Save and load of the top level `strategic_warfare`:
+- `player` tag, `count`, then `count` records.
+- Each record is keyed by its enemy tag (a tag with no id discards the record): `end`, `start_date`, `end_date` only when end=yes, `years` (1 absent), `Init(years)`, three categories of three `container`s.
+- Each container: `max_elements`, `offset`, `is_full`, `data` of max × 8 reals (kept only if the count is exact).
+
+**What is not established.**
+- The cause of POL's hour-9 start (1936.1.27.9); every other record starts at hour 0, and the likely candidate, `SetUpForNewGame` by `ResetIfPlayerChanged`, is unverified.
+- Whether a brigade's destroyed × 100 is intended where a land bombing prices it, or a slip; no save holds a land bombing to test.
+- ENG's halved ratio from the 12th ring slot in 03_31 (a modifier doubling the rate); which modifier was not traced.
+- The exact call order inside `CCombat::End`; only slot 14's position and the bomber report's gate were read.
+
+Frontier: `0x4613F0` (the reader of the `data` list of reals).

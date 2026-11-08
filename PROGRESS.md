@@ -115,7 +115,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CAddTraitEntry` | `CLeaderHistoryEntry` |  |  |  | 2 |  |  | RTTI |  |
 | `CAddWarGoalAction` | `CWarGoalBaseAction` |  |  |  | 5 |  |  | RTTI |  |
 | `CAir` | `CUnit` |  |  |  | 13 |  | 2,052 | keys |  |
-| `CAirCombat` | `CCombat` |  |  | 4/6 | 4 |  | 4 | RTTI |  |
+| `CAirCombat` | `CCombat` |  |  | 4/6 | 5 |  | 4 | RTTI |  |
 | `CAirCombatant` | `CCombatant` | 0x10B4 | 2 |  | 8 |  | 28 | keys |  |
 | `CAirConvoyRaid` | `CAirOrder` |  |  |  | 3 |  |  | RTTI |  |
 | `CAirInterceptOrder` | `CAirOrder` |  |  |  | 11 |  | 208 | RTTI |  |
@@ -695,7 +695,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CUnitBaseCarrier` | `CUnitBase` |  | 2 |  |  |  | 3,339 | part |  |
 | `CUnitBaseProvince` | `CUnitBase` `CSelectable` |  | 3 |  | 1 |  | 56,760 | part |  |
 | `CUnitDeploymentCallback` |  |  |  |  |  |  |  | RTTI |  |
-| `CUnitList` | `PAVCUnit::__CList` |  |  |  | 8 |  |  | RTTI |  |
+| `CUnitList` | `PAVCUnit::__CList` |  |  |  | 9 |  |  | RTTI |  |
 | `CUnitNavalStanceEntry` | `CUnitViewBaseEntry` |  |  |  |  |  |  | RTTI |  |
 | `CUnitStanceEntry` | `CUnitViewBaseEntry` |  |  |  |  |  |  | RTTI |  |
 | `CUnitStatusEntry` | `CUnitViewBaseEntry` |  |  |  | 4 |  |  | RTTI |  |
