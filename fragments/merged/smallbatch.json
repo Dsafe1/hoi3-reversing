@@ -1,0 +1,254 @@
+{
+ "agent": "small batch A",
+ "question": "disbandbutton's click and confirmation; ElectionResultPopup and its builder; what fills ai_need_queue and its rows; selected_plane_desc_list and air_desc_entry.",
+ "source": "reversing/findings/FINDINGS-smallbatch.md",
+ "addresses": [
+  {
+   "rva": "0x35E790",
+   "kind": "function",
+   "name": "CSingleUnitButtons::OnDisbandButton",
+   "signature": "void __thiscall CSingleUnitButtons::OnDisbandButton(CSingleUnitButtons* this, void* unused)",
+   "no_signature": null,
+   "comment": "**`disbandbutton`'s click** (glue +0x310, made at 0x75D1D1-0x75D1F0 with handler 0x75E790, registered on the button at 0x75D34E). Nothing under the custom-game lock (0x4208B0); otherwise a new CConfirmDisband (0x94 bytes, CConfirmDisband::CConfirmDisband(screen +0x30, the unit +0x28)) goes on the screen's dialog list (CEU3Idler::AddDialog). The press itself tests nothing else - the enabling is CSingleUnitButtons::Update's - and nothing is disbanded until it is confirmed. `ret 4`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-smallbatch.md",
+   "evidence": "Read whole on the listing, 0x75E790 to `ret 4` at 0x75E811; the handler address is the push at 0x75D1D1 before the glue +0x310's constructor. Wrong if the glue's constructor binds a different slot order."
+  },
+  {
+   "rva": "0x348170",
+   "kind": "function",
+   "name": "CConfirmDisband::CConfirmDisband",
+   "signature": "CConfirmDisband* __thiscall CConfirmDisband::CConfirmDisband(void* screen, CConfirmDisband* storage, CUnit* unit)",
+   "no_signature": null,
+   "comment": "The dialog `disbandbutton` raises: the window **`DefaultConfirm`** (eu3dialog.gui: 500 x 280, centred on the screen by the file, `Title`, `Description`, AgreeButton OK on ENTER, DeclineButton CANCEL on ESCAPE; not moved in code). Writes vftable 0x15D879C, screen +0x68, the unit's reference +0x6C (0x42DD70). `Title` = CONFIRM_DISBAND_TITLE; `Description` = CONFIRM_DISBAND_DESC with NAME the unit's name (slot 7) - the English text has no $NAME$ in it. `ret 8`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-smallbatch.md",
+   "evidence": "Read whole, 0x748170 to `ret 8` at 0x74843F; the storage is the stack argument (`push eax`) and the screen ECX at the one caller 0x75E7EA. The string keys are the immediates. Wrong if a later key were built that this range does not show; the function has only one `ret`."
+  },
+  {
+   "rva": "0x348450",
+   "kind": "function",
+   "name": "CConfirmDisband::OnConfirm",
+   "signature": "void __thiscall CConfirmDisband::OnConfirm(CConfirmDisband* this)",
+   "no_signature": null,
+   "comment": "Slot 5: finds the unit again through its id pair (+0x70/+0x74, so a stale pointer is never used), makes a **CDisbandCommand(unit)** and posts it on the session's channel (game state +0xBE8 slot 18 -> +0x38 slot 6, the same post as CInGameIdler_DisbandSelection's), the dialog marked done (+0x64 = 1), and sets the screen's reshow_open_view (+0xD30) unless the custom game's +0x18 is 2. **Selection untouched here**: unlike the disband_multiunit dialog, nothing clears it; the command's RemoveUnit deselects the unit when it runs. Bare `ret`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-smallbatch.md",
+   "evidence": "Read whole, 0x748450 to bare `ret` at 0x7485AD; the id pair resolve is the 0x1A857F4/0x1A857F0 pair at 0x748497 and 0x7484B6, and CDisbandCommand is `call 0x5D99A0`. Wrong if the post were not the session's - the slot chain is the same as the multi-unit confirm's, which is recorded."
+  },
+  {
+   "rva": "0x3485B0",
+   "kind": "function",
+   "name": "CConfirmDisband::StaysOpen",
+   "signature": "bool __thiscall CConfirmDisband::StaysOpen(CConfirmDisband* this) @AL",
+   "no_signature": null,
+   "comment": "Slot 7: looks the unit up by its id pair and stores the result at +0x6C; true while the unit still exists. As other dialogs' slot 7, false closes it - so if the unit is gone (destroyed, merged, disbanded otherwise) the dialog takes itself away. **Selecting something else does not close it** (no selection test), unlike CConfirmDisbandAll. Bare `ret`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-smallbatch.md",
+   "evidence": "Read whole, 0x7485B0 to the bare `ret` at 0x7485FD/0x74860C; the only test is the lookup. Wrong if slot 7 is not the keep-open slot here - CConfirmDisbandAll's recorded StaysOpen is the same shape."
+  },
+  {
+   "rva": "0x35EC40",
+   "kind": "function",
+   "name": "CSingleUnitButtons::Update",
+   "signature": "void __fastcall CSingleUnitButtons::Update(void* observer@ECX)",
+   "no_signature": null,
+   "comment": "The strip of buttons, every frame; **read whole**. Opens by setting a lock where a custom game's local player is marked (0x4208B0). Shows one of `create_corps`, `create_army`, `create_armygroup`, `create_theatre`, `edit_theatre` by oob_level (4, 3, 2, 1, 0) and disables the four create buttons together where the unit has a parent no more than one level up, a custom game forbids it (0x420EB0) or manpower is short; `attach_button` for a unit with none above and `detach_button` for one with; the three checkboxes from +0xA4, +0xA6 and +0xA5. **Load and unload**: a land unit aboard a fleet (AsArmy +0x300) shows `unload_button`, hides `load_button`, and enables the unload where the province it is in is land (its template's is_land, +0xD4 -> +0x22) - **a fleet in port** - else disables it; a land unit aboard nothing shows `load_button` enabled where CSingleUnitButtons_FindFleetToBoard finds a fleet; anything else (not a land unit, or a land unit aboard an air unit) hides both. The plane pair the same way: aboard an air unit (+0x304) `unload_plane_button` shown and enabled where CUnit_IsAtOwnBase(that air unit); aboard nothing `load_plane_button` enabled where CSingleUnitButtons_FindPlanesToBoard finds one; otherwise both hidden. Then, under the lock, the checkboxes are locked and `disbandbutton` and `newunitbutton` disabled; otherwise `disbandbutton` is disabled, at the first that holds: a land unit aboard a fleet (+0x300) or a plane (+0x304); **a level-0 unit (oob_level +0x1F4 is 0) whose theatre (CUnit_FindTheatre) still holds provinces (its added_provinces_count, CTheatre +0x68, is above nought)**; a unit with an AI agent (+0x198); a unit on loan (expeditionary_owner_id +0x290 set); in a battle (+0x11C > 0) - and otherwise enabled. See reversing/findings/FINDINGS-smallbatch.md. **`newunitbutton`** is disabled, at the first that holds: a land unit of regiments_count 1 or less - **2 or less where its leader is real** (slot 8); in a battle (+0x11C); an AI agent (+0x198) on it or on any unit above it (+0x1E0 walked); on loan (+0x290); a fleet or an air unit carrying anything (+0x2EC); a land unit aboard a fleet (+0x300) or a plane (+0x304); an attack delay (+0xD4 > 0); and otherwise **enabled only where the screen's slot 51 answers 1 and regiments_count is above 1**. **The tail** (observer +0x394/+0x398 - the strip's +0x3B0/+0x3B4, the new unit waiting from CSingleUnitButtons::OnNewUnitButton): once FindPersistentByIdPair finds it, the id is cleared, the new unit is added to the selection (screen slot 38), the reorganise window is opened (screen slot 49, CInGameIdler::OnReorganiseButton - the panel's unit first, the new one second), and where the panel's unit has a parent (+0x1E0) and CUnit_MayTakeSubordinate(parent, **the panel's unit**, 0) - not the new one - a CAttachUnitCommand(new unit, parent) is posted. See reversing/findings/FINDINGS-unitpanel.md, section 9, reversing/findings/FINDINGS-transport.md, section C.1, and reversing/findings/FINDINGS-newunit.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-smallbatch.md",
+   "evidence": "The disbandbutton tests re-read at 0x75FFxx-0x760070 on the listing/decompilation; the wording now names what the record already had names for (CUnit_FindTheatre 0x1D2A00, CTheatre +0x68 added_provinces_count, CUnit +0x290 expeditionary_owner_id). Only the comment changes.",
+   "revises": "Comment: disbandbutton's enabling tests now name the theatre's added_provinces_count and the unit on loan, and give the order."
+  },
+  {
+   "rva": "0x654640",
+   "kind": "function",
+   "name": "BuildElectionPopupText",
+   "signature": "void __stdcall BuildElectionPopupText(void* popup)",
+   "no_signature": null,
+   "comment": "**ElectionResultPopup, popup_kind 3**: what the ten 4-byte CMessageDialog<T> constructors call in place of BuildMessagePopupText. Read whole 2026-11-08 (0xA54640 to the `ret 4` at 0xA5605C). In order: the right-click observer (+0x144, MessageDialog_OpenSettingWindow) attached to `Background`, `AgreeButton`, `DeclineButton`, `CenterOK`; `<TYPE>_HEADER` and `<TYPE>_1` with one `$KEY$` -> GetText(value) replacement per variable (+0x90 list; no `§W` -> `§b` swap - that is the popup_kind 0 builder's); the **result_chart** (a pie, PieChartType `GFX_election_result_chart`, size 100) where the message's +0xDC is set: for every ideology from index 1 in database order a slice of the ideology's colour (+0x54) and whole percent round(max(values[ideology +0x4C], 1000) / 1000.0) through single precision and `fistp`; `minister_list1` and `minister_list2` cleared, then one `minister_entry2` CMinisterItem per government post from index 1 (n = posts, mid = (n-1)/2: index <= mid to list1, the rest to list2) built with view and minister null, Refresh called; `Title` = `_HEADER`, `Description` = `_1`, each CInternationalizedText::Render; the buttons' layout as DefaultPopup's (y = background height - popup_bottom_button_pos.y + 0x11, x unchanged; the background sized through its sprite's slot 64 to popup_bottom_button_pos.y + popup_textline_dist.x, which for a plain picture is the do-nothing `ret 4`); option no: Agree and Decline hidden, CenterOK shown with `_BTN1`, closing; option yes: CenterOK hidden, Agree `_BTN2` and Decline `_BTN3` with the callback (+0x13C) where there is one; then the cascade (handler +0x2C, 10 x count, clamped to the screen less 10, +0x28 down) and shown. See reversing/findings/FINDINGS-smallbatch.md, section 2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-smallbatch.md",
+   "evidence": "Read whole on the listing and the decompilation, 2026-11-08: the strings are the immediates, the +0xDC is the third-to-last ideology loop at 0xA54CC0. The first record said Not read.",
+   "revises": "Comment only: the builder is now read."
+  },
+  {
+   "rva": "0x534A0",
+   "kind": "function",
+   "name": "BuildElectionPopupText_MemberPtr8",
+   "signature": "void __stdcall BuildElectionPopupText_MemberPtr8(void* popup)",
+   "no_signature": null,
+   "comment": "BuildElectionPopupText for the two 8-byte CMessageDialog<T> (CProvince, CInGameIdler - the kind CCountry_HoldElection posts): the same strings in the same order with the callback +0x140 and the right-click observer +0x14C, everything else as 0x654640. See reversing/findings/FINDINGS-smallbatch.md, section 2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-smallbatch.md",
+   "evidence": "Read the decompilation of 0x4534A0: same sequence, only those two offsets differ.",
+   "revises": "Comment only: confirmed the twin of 0x654640."
+  },
+  {
+   "rva": "0x275CA0",
+   "kind": "function",
+   "name": "CInGameIdler::BuildMessageDialogTooltip",
+   "signature": "GuiTooltipText* __thiscall CInGameIdler::BuildMessageDialogTooltip(CInGameIdler* this, GuiTooltipText* out, CGuiObject* element, void* message, void* window) @EAX",
+   "no_signature": null,
+   "comment": "Slot 37: a popup's tooltip, answered by the in-game screen. Nothing unless the message's type has popup_kind 3 (type +0x30): for `result_chart`, the slice under the mouse (0xAA3270 on the pie) - the ideology's name for the played country (slot 14), ` - §Y`, the whole percent, `%§W`; for anything else, the row of `minister_list1` or `minister_list2` holding the element gets CMinisterItem::BuildTooltip. `ret 0x10`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-smallbatch.md",
+   "evidence": "Read in the decompilation and checked against `ret 0x10` at 0x6761AE; the two literals are 0x15CBB00 and 0x15C2148. vftable slot 37 by vtable.py --holding."
+  },
+  {
+   "rva": "0x3F7250",
+   "kind": "function",
+   "name": "_A0xbb459920::CAINeedEntry::CAINeedEntry",
+   "signature": "_A0xbb459920::CAINeedEntry* __thiscall _A0xbb459920::CAINeedEntry::CAINeedEntry(void* screen, _A0xbb459920::CAINeedEntry* storage, CTheatre* theatre)",
+   "no_signature": null,
+   "comment": "**One row of the production screen's `ai_need_queue`** (window `ai_need_entry`, country_production.gui), 0xC0 bytes, one per theatre of the played country whose HQ resolves. Keeps the theatre's HQ unit by id pair (+0x80 pointer, +0x84/+0x88 the id, CTheatre +0x74/+0x78), attaches the `build` button's glue (+0x30, OnBuild), sizes the needs vector +0xA8/+0xAC/+0xB0 to the sub-unit database with zeros, clears the manpower (+0xB8) and refreshes once (slot 8). `ret 8`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-smallbatch.md",
+   "evidence": "Read whole; the 0xC0 is the operator new at 0x7FCE18; ECX is the screen by the caller 0x7FCCE0."
+  },
+  {
+   "rva": "0x3F74E0",
+   "kind": "function",
+   "name": "_A0xbb459920::CAINeedEntry::Refresh",
+   "signature": "void __thiscall _A0xbb459920::CAINeedEntry::Refresh(_A0xbb459920::CAINeedEntry* this)",
+   "no_signature": null,
+   "comment": "Slot 8: the row, every frame the list is unchanged. The HQ found by id; none, nothing. `name` = the HQ's name (slot 7). If the HQ's plan_subunit_needed (+0x7C..+0x80) has the database's length it is copied to the row, every military line in the played country's queue aimed at this HQ takes its Size off each brigade type it holds, and where anything is left above 0 the `needs` text is `<n> £<key>, ` for each in database order (the trailing `, ` is NOT cut, as CTheatreView's immediate_needs cuts it) and `build` is enabled (no ownership test - the list is the played country's own). Otherwise `needs` = NO_NEEDS_FOR_BUILDS and `build` disabled. Bare `ret`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-smallbatch.md",
+   "evidence": "Read whole on the listing 0x7F74E0 to `ret` at 0x7F7FC2; the literal ` £` is 0x15BD2DC and `, ` 0x15B89F4, and no substring is taken before the text is set. Wrong if the trailing separator were trimmed by 0xB32880 - it is not in the theatre view's route either, which is why the theatre view's own trim is a distinct call."
+  },
+  {
+   "rva": "0x3F7FD0",
+   "kind": "function",
+   "name": "_A0xbb459920::CAINeedEntry::OnBuild",
+   "signature": "void __thiscall _A0xbb459920::CAINeedEntry::OnBuild(_A0xbb459920::CAINeedEntry* this)",
+   "no_signature": null,
+   "comment": "`build`'s click (glue +0x30): +0xB8 = the played country's Manpower, then CAINeedEntry::BuildStep until it answers false. Bare `ret`. The row is not refreshed here; the next frame's Refresh shows the lines the steps posted.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-smallbatch.md",
+   "evidence": "Read whole, 0x7F7FD0 to `ret` at 0x7F80B4."
+  },
+  {
+   "rva": "0x3F80C0",
+   "kind": "function",
+   "name": "_A0xbb459920::CAINeedEntry::BuildStep",
+   "signature": "bool __thiscall _A0xbb459920::CAINeedEntry::BuildStep(_A0xbb459920::CAINeedEntry* this) @AL",
+   "no_signature": null,
+   "comment": "One round of `ai_need_queue`'s Build: CTheatreView::BuildStep's (rva 0x72120, see there) order and arithmetic over the row's needs (+0xA8) and manpower (+0xB8), the command's target the row's HQ.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-smallbatch.md",
+   "evidence": "Likely by shape: a call/compare sequence diff of 0x7F80C0 against 0x472120 agrees (212 against 211 such instructions, differing in the database accessors and the MT19937 inlining); the four-way structure and the strings were read in the decompilation. What would show it wrong: a different constant in the middle of the steps, which the diff prints."
+  },
+  {
+   "rva": "0x3FCCE0",
+   "kind": "function",
+   "name": "CProductionView::RebuildAiNeedQueue",
+   "signature": "void __thiscall CProductionView::RebuildAiNeedQueue(CProductionView* this)",
+   "no_signature": null,
+   "comment": "`ai_need_queue` emptied and refilled from the played country's strategy theatres (Strategy.Theatres) in list order, one CAINeedEntry each whose HQ (CTheatre unit_type/unit_id) resolves, appended (Add with 0); the scrollbar position saved and put back. Called from the view's Update when the row count differs from the theatre count and from Show. Bare `ret`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-smallbatch.md",
+   "evidence": "Read whole; callers 0x7FE6E5 and 0x7FF59D by findRefs."
+  },
+  {
+   "rva": "0x1AB2C0",
+   "kind": "function",
+   "name": "CSubUnit::EquipmentLines",
+   "signature": "void* __thiscall CSubUnit::EquipmentLines(CSubUnit* this, void* out) @EAX",
+   "no_signature": null,
+   "comment": "**The lines of `selected_plane_desc_list`**: the air builder's own form of CSubUnit::EquipmentText, a vector<string> and no YES/NO arm. The country (builder +0x34 if set, else owner +0x94; a government in exile names a level above its own by its faction leader's); for each node of `technologies` (+0x84), one 0x1C string: the technology's name (slot 7) + ` : §Y` + CCountry_TechnologyLevelName(level) + (`§W(+` third figure x 100000/1000 to 2 places `%)` where the figure is above 0) + `§W`. One caller, CAirBuilder::Update at 0x7D2178. `ret 4`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-smallbatch.md",
+   "evidence": "Read whole, 0x5AB2C0 to `ret 4` at 0x5AB67D (an early `ret 4` at 0x5AB349 is the empty-list exit; the `ret 0xC` at 0x5AB6F7 is the next function). Literals 0x15C7700 and 0x15C7708. Receiver: its offsets +0x34/+0x38 builder, +0x94/+0x98 owner and +0x84 technologies are CSubUnit's."
+  }
+ ],
+ "structs": [
+  {
+   "name": "CConfirmDisband",
+   "vftable_rva": "0x11D879C",
+   "size": "0x94",
+   "inherits": "CEU3Dialog",
+   "comment": "The confirmation `disbandbutton` raises. See reversing/findings/FINDINGS-smallbatch.md, section 1.",
+   "source": "reversing/findings/FINDINGS-smallbatch.md",
+   "evidence": "operator new 0x94 at 0x75E7C7; the vftable is written at 0x7481D9 and RTTI names it CConfirmDisband; CEU3Dialog at offset 0."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CConfirmDisband",
+   "offset": "0x68",
+   "name": "screen",
+   "type": "CInGameIdler*",
+   "comment": "The screen the dialog was raised from; OnConfirm writes its reshow_open_view.",
+   "source": "reversing/findings/FINDINGS-smallbatch.md",
+   "evidence": "`mov [esi+0x68], edi` at 0x7481DF and the read at 0x748579."
+  },
+  {
+   "struct": "CConfirmDisband",
+   "offset": "0x6C",
+   "name": "unit",
+   "type": "CUnit*",
+   "comment": "The unit, cached; re-resolved by id pair (+0x70/+0x74) by OnConfirm and StaysOpen.",
+   "source": "reversing/findings/FINDINGS-smallbatch.md",
+   "evidence": "0x42DD70 builds the ref at +0x6C from the second constructor argument; the resolves write it."
+  },
+  {
+   "struct": "CConfirmDisband",
+   "offset": "0x70",
+   "name": "unit_id_type",
+   "type": "int",
+   "comment": "Type half of the unit's id.",
+   "source": "reversing/findings/FINDINGS-smallbatch.md",
+   "evidence": "The two look-ups at 0x7484C6 and 0x7485BC read +0x70 and +0x74."
+  },
+  {
+   "struct": "CConfirmDisband",
+   "offset": "0x74",
+   "name": "unit_id",
+   "type": "int",
+   "comment": "Id half of the unit's id.",
+   "source": "reversing/findings/FINDINGS-smallbatch.md",
+   "evidence": "As +0x70."
+  },
+  {
+   "struct": "CMessage",
+   "offset": "0x70",
+   "name": "election_scores",
+   "type": "CIdeologyData*",
+   "comment": "Constructor argument 6; the only message that carries one is ELECTIONRESULTS (CCountry_HoldElection's scratch CIdeologyData of the election's scores, normalised to 100). Read as +0xDC of the dialog (+0x6C + this) by BuildElectionPopupText for the result_chart pie. Zero elsewhere.",
+   "source": "reversing/findings/FINDINGS-smallbatch.md",
+   "evidence": "HoldElection's `local_dc` is the sixth argument of CMessage::CMessage (decompilation) and the dialog's message starts at +0x6C (its type +0x8C, variables +0x90); CopyTo copies +0x70."
+  },
+  {
+   "struct": "CInGameIdler",
+   "offset": "0xD30",
+   "name": "reshow_open_view",
+   "type": "bool",
+   "comment": "When set, CInGameIdler_UpdateOpenView runs the open view's slots 5, 4 and 2 after its update and clears it. One writer found: CConfirmDisband::OnConfirm sets it, unless the custom game's +0x18 is 2.",
+   "source": "reversing/findings/FINDINGS-smallbatch.md",
+   "revises": "Comment: a writer found.",
+   "evidence": "`mov byte [esi+0xd30],1` at 0x748595 and the custom-game test before it."
+  }
+ ],
+ "vftable_slots": {
+  "CConfirmDisband": {
+   "5": "OnConfirm",
+   "7": "StaysOpen"
+  },
+  "CSingleUnitButtons@0x1C": {
+   "9": "Update"
+  },
+  "CInGameIdler": {
+   "37": "BuildMessageDialogTooltip"
+  },
+  "_A0xbb459920::CAINeedEntry": {
+   "8": "Refresh"
+  }
+ },
+ "frontier": [
+  "0x6A3270",
+  "0x41C4E0",
+  "0x4208B0",
+  "0x4385B0",
+  "0x438460"
+ ]
+}

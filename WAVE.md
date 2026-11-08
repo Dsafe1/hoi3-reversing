@@ -17,15 +17,12 @@ truth.
 
 ---
 
-## The battle plans wave - the window of plans and drawing them on the map
+## The small batch wave - the gaps left in four small pieces of the interface
 
-> **LANDED 2026-11-08**, three fragments merged, launched on the maintainer's word: "Commit and continue with the battle plans". The write-ups are `findings/FINDINGS-battleplans.md` and `findings/FINDINGS-battleplandraw.md`. The next of the gaps in OpenHOI3's readme, *What of the interface is missing*.
-
-**The question, for OpenHOI3**: everything `battleplans_window` does, what a plan is and where it is kept, and how a player draws one on the map. **Known before reading**: `BattlePlan_Serialize` (0x47C0), the `LoadKey`s of `CBattlePlanSendCommand`, `CBattlePlanDeleteCommand` and the tool options; RTTI names `CBattlePlanManager`, `CBattlePlanEntry`, `CBattlePlanToolOption` and its three children, `CConfirmDeletePlan`, `CConfirmSavePlan`. Files: `tfh/interface/battleplansinterface.gui`, `.gfx`, `tfh/interface/menubar.gui`, `battleplans/bp_settings.txt`.
+> **LANDED 2026-11-08**, two fragments merged, launched on the maintainer's word: "start the batch from the list". The write-up is `findings/FINDINGS-smallbatch.md`. The batch is OpenHOI3's readme, *What of the interface is missing*; what it needed that nobody had read is this.
 
 | reader | brief | fragment |
 | --- | --- | --- |
-| **A** | **The window and the plans**: the manager, the data, the three tabs, every action, saved files, sharing with allies, the saved game. | `battleplans.json` |
-| **B** | **Drawing**: each tool, the mouse on the map, what a drawing holds, and how arrows, borders, icons and texts are drawn. | `battleplandraw.json` |
+| **A** | `disbandbutton`'s click and its confirmation; `ElectionResultPopup` and its builder; what fills `ai_need_queue`, its rows and the `needs` tooltip; `selected_plane_desc_list` and `air_desc_entry`. | `smallbatch.json` |
 
-The write-ups will be `findings/FINDINGS-battleplans.md` and `findings/FINDINGS-battleplandraw.md`.
+The write-up will be `findings/FINDINGS-smallbatch.md`.

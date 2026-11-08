@@ -28,9 +28,9 @@ how many objects a census found (taken 2026-09-20).
 | `read` | 176 |
 | `placed` | 140 |
 | `keys` | 75 |
-| `part` | 164 |
+| `part` | 165 |
 | `named` | 5 |
-| `RTTI` | 581 |
+| `RTTI` | 580 |
 | **all** | **1141** |
 
 ## What to read next
@@ -297,7 +297,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CStrategicRedeploymentOrder` | `COrder` |  | 2 | 5/10 | 7 | CStrategicRedeploymentOrder.hpp | 1,197 | part |  |
 | `CStrategicWarfare` | `CPersistent` |  | 4 + 3 lua |  | 7 |  | 108 | keys |  |
 | `CStringIntInt` | `CPersistent` | 0x2C | 3 |  | 1 |  |  | keys |  |
-| `CSubUnit` | `CReferenceObject` | 0xD8 | 31 | 8/13 | 23 |  |  | read |  |
+| `CSubUnit` | `CReferenceObject` | 0xD8 | 31 | 8/13 | 24 |  |  | read |  |
 | `CSupportAttackOrder` | `COrder` |  | 1 |  | 8 | COrder.hpp |  | keys |  |
 | `CSystemSettings` | `CPersistent` |  |  |  | 3 |  |  | keys |  |
 | `CTechnologyStatus` | `CTechStatistics` `PAVCTechnology::__CArray` |  | 42 + 1 lua |  | 12 | CSubUnitDefinition.hpp | 108 | read |  |
@@ -474,7 +474,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CConfigMember` | `CStandardlistboxItem` |  |  |  | 4 |  | 18 | RTTI |  |
 | `CConfirmBuild` | `CReloadableInterface` | 0x14C | 9 |  | 11 |  |  | read |  |
 | `CConfirmDeletePlan` | `CEU3Dialog` | 0x78 | 1 |  | 2 |  |  | part |  |
-| `CConfirmDisband` | `CEU3Dialog` |  |  |  |  |  |  | RTTI |  |
+| `CConfirmDisband` | `CEU3Dialog` | 0x94 | 4 |  | 3 |  |  | part |  |
 | `CConfirmDisbandAll` | `CEU3Dialog` |  | 2 |  | 3 |  |  | part |  |
 | `CConfirmMakePride` | `CEU3Dialog` | 0x94 | 4 |  | 3 |  |  | part |  |
 | `CConfirmRemoveAll` | `CEU3Dialog` |  |  |  | 2 |  |  | RTTI |  |
@@ -543,7 +543,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CICCostComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CIcon` | `CButton` |  |  |  | 4 |  |  | RTTI |  |
 | `CIdler` |  |  |  |  |  |  |  | RTTI |  |
-| `CInGameIdler` | `CEU3Idler` `CLostDeviceInterface` `CReloadDispatcher` |  | 125 |  | 110 | CInGameIdler.hpp | 3 | read |  |
+| `CInGameIdler` | `CEU3Idler` `CLostDeviceInterface` `CReloadDispatcher` |  | 125 |  | 111 | CInGameIdler.hpp | 3 | read |  |
 | `CIngameSettingsScreen` | `CSettingsScreen` | 0x3E0 | 1 |  | 2 |  | 1 | part |  |
 | `CLandOrdersView` | `COrdersView` | 0x198 | 10 |  | 10 |  |  | read |  |
 | `CLawEntry` | `CStandardlistboxItem` | 0x88 | 4 |  | 3 |  | 16 | part |  |
@@ -559,7 +559,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CLostDeviceInterface` |  |  |  |  |  |  |  | RTTI |  |
 | `CMPCostComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CMasked3dFlag` | `C3dVisibleObject` |  |  |  |  |  |  | RTTI |  |
-| `CMessage` |  | 0x78 | 10 |  | 4 |  | 137 | read |  |
+| `CMessage` |  | 0x78 | 11 |  | 4 |  | 137 | read |  |
 | `CMessageSettingsItem` | `CStandardlistboxItem` | 0x68 | 3 |  | 2 |  |  | part |  |
 | `CMetaserverInterface` | `CLoginObserver` `CSessionInfoObserver` `CFrontEndView` |  |  |  |  |  |  | RTTI |  |
 | `CMicroAvailableItemsTab` | `CMicroItemsTab` |  |  |  |  |  |  | RTTI |  |
@@ -609,7 +609,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CPossibleSingleBrigadeEntry` | `CStandardlistboxItem` |  |  |  | 1 |  |  | RTTI |  |
 | `CPowerRatioEntry` | `CUnitViewBaseEntry` |  |  |  |  |  |  | RTTI |  |
 | `CPrioComparator` | `CBrigadeSortInterface` |  |  |  | 1 |  | 2 | RTTI |  |
-| `CProductionView` | `CCountryView` |  | 11 |  | 30 |  | 1 | read |  |
+| `CProductionView` | `CCountryView` |  | 11 |  | 31 |  | 1 | read |  |
 | `CProjectionObject` | `C3dVisibleObject` |  |  |  |  |  |  | RTTI |  |
 | `CProvinceCollisionObject` | `C3dVisibleObject` |  | 4 |  |  |  |  | part |  |
 | `CProvinceManager` | `CLostDeviceInterface` |  |  |  | 1 |  | 1 | RTTI |  |
@@ -1263,7 +1263,7 @@ Windows, pages, sprites and the map's own drawing.
 | `CQuitDialog` | `CEU3Dialog` | 0x84 | 1 |  | 3 |  |  | part |  |
 | `CRadioButtonGroupObserver` |  |  |  |  |  |  | 1 | RTTI |  |
 | `CShareTechnologyDialog` | `CEU3Dialog` | 0x78 | 4 |  | 7 |  |  | part |  |
-| `CSingleUnitButtons` | `CUnitViewBaseEntry` |  | 4 |  | 11 |  |  | part |  |
+| `CSingleUnitButtons` | `CUnitViewBaseEntry` |  | 4 |  | 12 |  |  | part |  |
 | `CSprite` | `C2dVisibleObject` | 0x184 | 14 |  | 7 |  |  | read |  |
 | `CSpriteType` | `C2dObjectType` |  | 26 |  | 13 |  |  | read |  |
 | `CStratWarfareWindow` | `CReloadableInterface` | 0x17C | 12 |  | 19 |  | 1 | read |  |
