@@ -25,12 +25,12 @@ how many objects a census found (taken 2026-09-20).
 
 | | classes |
 | --- | --- |
-| `read` | 173 |
+| `read` | 174 |
 | `placed` | 140 |
 | `keys` | 75 |
-| `part` | 160 |
+| `part` | 161 |
 | `named` | 5 |
-| `RTTI` | 588 |
+| `RTTI` | 586 |
 | **all** | **1141** |
 
 ## What to read next
@@ -690,7 +690,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CTutorialScreen` | `CFrontEndView` |  |  |  | 2 |  |  | RTTI |  |
 | `CUnitAirStanceEntry` | `CUnitViewBaseEntry` |  |  |  |  |  |  | RTTI |  |
 | `CUnitArrow` | `C3dVisibleObject` | 0x160 | 9 |  | 6 |  |  | read |  |
-| `CUnitAttachmentEntry` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
+| `CUnitAttachmentEntry` | `CStandardlistboxItem` | 0xD0 | 5 |  | 2 |  |  | read |  |
 | `CUnitBase` |  |  |  |  | 1 |  |  | RTTI |  |
 | `CUnitBaseCarrier` | `CUnitBase` |  | 2 |  |  |  | 3,339 | part |  |
 | `CUnitBaseProvince` | `CUnitBase` `CSelectable` |  | 3 |  | 1 |  | 56,760 | part |  |
@@ -899,7 +899,7 @@ One class per effect, trigger, command and decision the event scripts can use. E
 | `CCoupEffect` | `CEffect` | 0x24 | 1 | 3/91 | 3 |  | 4 | part |  |
 | `CCreateAllianceEffect` | `CCountryTargetEffect` | 0x28 |  | 3/91 | 2 |  | 13 | RTTI |  |
 | `CCreateConvoyCommand` | `CCommand` | 0x48 | 3 | 2/2 | 3 |  | 1 | placed |  |
-| `CCreateHigherCommand` | `CCommand` | 0x58 |  |  | 4 |  | 1 | keys |  |
+| `CCreateHigherCommand` | `CCommand` | 0x58 |  |  | 5 |  | 1 | keys |  |
 | `CCreateLeaderCommand` | `CCommand` |  |  | 1/1 | 1 |  | 1 | placed |  |
 | `CCreateNewHQCommand` | `CCommand` |  |  | 2/4 | 3 |  | 1 | placed |  |
 | `CCreateRebelsEffect` | `CIntEffect` | 0x28 | 1 | 3/91 | 3 |  |  | part |  |
@@ -1263,7 +1263,7 @@ Windows, pages, sprites and the map's own drawing.
 | `CQuitDialog` | `CEU3Dialog` | 0x84 | 1 |  | 3 |  |  | part |  |
 | `CRadioButtonGroupObserver` |  |  |  |  |  |  | 1 | RTTI |  |
 | `CShareTechnologyDialog` | `CEU3Dialog` | 0x78 | 4 |  | 7 |  |  | part |  |
-| `CSingleUnitButtons` | `CUnitViewBaseEntry` |  |  |  | 8 |  |  | RTTI |  |
+| `CSingleUnitButtons` | `CUnitViewBaseEntry` |  | 4 |  | 11 |  |  | part |  |
 | `CSprite` | `C2dVisibleObject` | 0x184 | 14 |  | 7 |  |  | read |  |
 | `CSpriteType` | `C2dObjectType` |  | 26 |  | 13 |  |  | read |  |
 | `CStratWarfareWindow` | `CReloadableInterface` | 0x17C | 12 |  | 19 |  | 1 | read |  |
