@@ -25,12 +25,12 @@ how many objects a census found (taken 2026-09-20).
 
 | | classes |
 | --- | --- |
-| `read` | 162 |
+| `read` | 167 |
 | `placed` | 140 |
 | `keys` | 75 |
 | `part` | 154 |
 | `named` | 5 |
-| `RTTI` | 605 |
+| `RTTI` | 600 |
 | **all** | **1141** |
 
 ## What to read next
@@ -171,7 +171,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CCountryHistory` | `CHistoryContainer` |  |  |  | 1 | CCountryHistory.hpp | 108 | keys | **read**: `history/countries`, where a date is a key. See GameClasses/CCountryHistory.hpp |
 | `CCountryValue` | `CPersistent` | 0x14 | 2 | 1/2 | 1 |  | 9,078 | placed |  |
 | `CCountryWarTargetValue` | `CPersistent` | 0x20 | 5 | 2/5 | 1 |  | 1 | read |  |
-| `CCurrentGameState` | `CGameState` | 0xDA8 | 98 | 14/33 | 5 | CCurrentGameState.hpp | 1 | read |  |
+| `CCurrentGameState` | `CGameState` | 0xDA8 | 100 | 14/33 | 5 | CCurrentGameState.hpp | 1 | read |  |
 | `CDebtAction` | `CDiplomaticAction` |  |  | 5/6 | 8 |  | 1,759 | RTTI |  |
 | `CDeclareWarAction` | `CWarGoalBaseAction` | 0x74 | 3 |  | 7 |  | 1 | part |  |
 | `CDependency` | `CRelation` |  |  | 5/5 | 2 |  |  | RTTI |  |
@@ -308,7 +308,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CTraitGainTracker` | `CPersistent` |  | 4 |  | 6 | CTrait.hpp | 24,137 | keys |  |
 | `CTransportSuppliesOrder` | `CAirOrder` |  | 2 | 2/2 | 10 |  |  | placed |  |
 | `CUndeclaredWar` | `CPersistent` |  | 9 |  | 4 | CWar.hpp | 1 | read | **read**: the save's record of a war nobody declared |
-| `CUnit` | `PAVCSubUnit::__CList` `CSelectable` `CReferenceObject` |  | 112 + 1 lua |  | 117 | CUnit.hpp |  | read |  |
+| `CUnit` | `PAVCSubUnit::__CList` `CSelectable` `CReferenceObject` |  | 112 + 1 lua |  | 118 | CUnit.hpp |  | read |  |
 | `CUnitDeployment` | `CDeployment` |  |  | 3/4 | 6 |  | 49 | placed |  |
 | `CUnitPlan` | `CPersistent` | 0x90 | 15 | 10/16 | 14 |  | 8,827 | read | **read**: a battle plan as the save keeps it |
 | `CVariables` | `_0A::anon::PAUCVariable::__CTernary` `CPersistent` |  | 1 |  | 5 | CFlags.hpp | 216 | keys |  |
@@ -486,9 +486,9 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CConvoySettings` | `CReloadableInterface` |  |  |  | 1 |  | 1 | RTTI |  |
 | `CCounterObject` | `C3dVisibleObject` | 0x1C0 | 18 |  | 5 |  | 17,284 | read |  |
 | `CCounterStack` | `C3dVisibleObject` | 0x158 | 3 |  | 2 |  | 21,748 | part |  |
-| `CCountryEntry` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
+| `CCountryEntry` | `CStandardlistboxItem` | 0x88 | 10 |  | 6 |  |  | read |  |
 | `CCountrySelectionItem` | `CStandardlistboxItem` |  |  |  | 1 |  |  | RTTI |  |
-| `CCountryView` | `CReloadableInterface` |  | 7 |  | 12 |  |  | read |  |
+| `CCountryView` | `CReloadableInterface` |  | 8 |  | 12 |  |  | read |  |
 | `CCountrylistItem` | `CStandardlistboxItem` | 0xC0 | 7 |  | 9 |  | 152 | read |  |
 | `CCreditsScreen` | `CFrontEndView` |  |  |  |  |  |  | RTTI |  |
 | `CCurrentModelEntry` | `CStandardlistboxItem` |  |  |  |  |  | 48 | RTTI |  |
@@ -536,14 +536,14 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CGotoBox` | `CUpdateable` |  |  |  |  |  | 1 | RTTI |  |
 | `CGotoProvinceItem` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
 | `CGraphicalObject` |  |  |  |  |  |  |  | RTTI |  |
-| `CGraphicalTableLedger` | `CGuiObject` |  |  |  | 1 |  |  | RTTI |  |
+| `CGraphicalTableLedger` | `CGuiObject` | 0x150 |  |  | 4 |  |  | RTTI |  |
 | `CHardAttackComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CHoiAvatar` | `CSmallAvatarBase` | 0x154 | 8 |  | 4 |  | 8,642 | read |  |
 | `CHumanItem` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
 | `CICCostComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CIcon` | `CButton` |  |  |  | 4 |  |  | RTTI |  |
 | `CIdler` |  |  |  |  |  |  |  | RTTI |  |
-| `CInGameIdler` | `CEU3Idler` `CLostDeviceInterface` `CReloadDispatcher` |  | 119 |  | 107 | CInGameIdler.hpp | 3 | read |  |
+| `CInGameIdler` | `CEU3Idler` `CLostDeviceInterface` `CReloadDispatcher` |  | 122 |  | 107 | CInGameIdler.hpp | 3 | read |  |
 | `CIngameSettingsScreen` | `CSettingsScreen` | 0x3E0 | 1 |  | 2 |  | 1 | part |  |
 | `CLandOrdersView` | `COrdersView` | 0x198 | 10 |  | 10 |  |  | read |  |
 | `CLawEntry` | `CStandardlistboxItem` | 0x88 | 4 |  | 3 |  | 16 | part |  |
@@ -594,7 +594,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CParentUnitEntry` | `CUnitViewBaseEntry` |  |  |  | 3 |  |  | RTTI |  |
 | `CPathFind` |  |  |  |  | 5 | CPathFind.hpp |  | RTTI |  |
 | `CPersistent` |  |  | 1 |  | 2 | CPersistent.hpp |  | part |  |
-| `CPieChartLedgerGraphical` | `CGuiObject` |  |  |  |  |  |  | RTTI |  |
+| `CPieChartLedgerGraphical` | `CGuiObject` | 0xFC |  |  | 1 |  |  | RTTI |  |
 | `CPiercingAttackComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CPlannedPathFind` | `CPathFind` |  |  |  | 2 |  |  | RTTI |  |
 | `CPolicyEntry` | `CStandardlistboxItem` | 0x88 | 4 |  | 4 |  |  | part |  |
@@ -665,22 +665,22 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CStandadDiplomacyDialogue` | `CEU3Dialog` | 0x74 | 3 |  | 2 |  |  | part |  |
 | `CStandardPostConfirm` | `CEU3Dialog` |  |  |  |  |  |  | RTTI |  |
 | `CStandardlistboxItem` | `COption` `TListboxItem` |  |  |  |  |  |  | RTTI |  |
-| `CStatisticsLedger` | `TStatisticsLedger` |  |  |  |  |  |  | RTTI |  |
+| `CStatisticsLedger` | `TStatisticsLedger` | 0x2F8 | 12 |  | 14 |  |  | read |  |
 | `CStrengthComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CSubUnitEntry` | `CUnitViewBaseEntry` |  |  |  | 4 |  |  | RTTI |  |
 | `CSunkenShipEntry` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
 | `CSunkenShipsView` | `CUpdateable` |  |  |  |  |  |  | RTTI |  |
 | `CSupplyConsumptionComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CSuppressionComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
-| `CTableLedgerItem` |  |  |  |  |  |  |  | RTTI |  |
+| `CTableLedgerItem` |  | 0xB8 | 11 |  | 2 |  |  | read |  |
 | `CTechMember` | `CStandardlistboxItem` | 0x80 | 5 |  | 4 |  |  | read |  |
 | `CTechTreeEntry` |  | 0x40 | 4 |  | 4 |  |  | part |  |
 | `CTechnologyCategory` |  |  | 5 + 2 lua |  |  | CProvinceBuilding.hpp | 48 | read |  |
 | `CTechnologyFolder` |  |  | 2 lua |  |  |  | 36 | named |  |
 | `CTechnologyView` | `CCountryView` |  | 11 |  | 15 |  | 1 | read |  |
-| `CTheatreView` | `CCountryView` |  |  |  |  |  | 1 | RTTI |  |
+| `CTheatreView` | `CCountryView` |  | 7 |  | 8 |  | 1 | read |  |
 | `CTitleMember` | `COutLinerMember` |  | 1 |  | 3 |  | 220 | part |  |
-| `CTopBar` | `CReloadableInterface` | 0x384 | 26 |  | 21 |  | 1 | read |  |
+| `CTopBar` | `CReloadableInterface` | 0x384 | 26 |  | 22 |  | 1 | read |  |
 | `CToughnessComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CTradeCancelConfirm` | `CEU3Dialog` | 0xF0 | 1 |  | 3 |  |  | part |  |
 | `CTradeItem` | `CStandardlistboxItem` | 0xA8 | 7 |  | 8 |  | 58 | read |  |
@@ -1266,7 +1266,7 @@ Windows, pages, sprites and the map's own drawing.
 | `CSingleUnitButtons` | `CUnitViewBaseEntry` |  |  |  | 8 |  |  | RTTI |  |
 | `CSprite` | `C2dVisibleObject` | 0x184 | 14 |  | 7 |  |  | read |  |
 | `CSpriteType` | `C2dObjectType` |  | 26 |  | 13 |  |  | read |  |
-| `CStratWarfareWindow` | `CReloadableInterface` |  |  |  | 1 |  | 1 | RTTI |  |
+| `CStratWarfareWindow` | `CReloadableInterface` | 0x17C | 12 |  | 19 |  | 1 | read |  |
 | `CTextBlock` | `CPersistent` |  |  |  |  |  | 8 | RTTI |  |
 | `CTextBufferObserver` |  |  |  |  |  |  |  | RTTI |  |
 | `CTradeDiplomacyDialog` | `CEU3Dialog` | 0xB0 | 4 |  | 5 |  |  | part |  |

@@ -17,6 +17,24 @@ truth.
 
 ---
 
+## The top screens wave - the top bar's Theatres, Statistics and Strategic Warfare
+
+> **LANDED 2026-11-08**, three fragments merged, launched on the maintainer's word ("Commit this, then continue"), the next of the gaps in OpenHOI3's readme, *What of the interface is missing*. The write-up is
+> `findings/FINDINGS-topscreens.md`.
+
+**The question, for OpenHOI3**: the three windows the top bar's dead buttons open - every element, what fills it, and what can be done there. **What is known before reading.** The buttons' observers are in
+`FINDINGS-topbar.md` (`topbarbutton_theatre` +0x110, `topbarbutton_statistics` +0x270, `swm_open` +0x29C, disabled in a scenario); `CTopBar::OnTheatreButton` (rva `0x2CEF90`). RTTI: `CTheatreView`, `CStatisticsLedger`, `TStatisticsLedger`, `CGraphicalTableLedger`, `CPieChartLedgerGraphical`, `CTableLedgerItem`.
+Recorded: `CGraphicalTableLedger::CGraphicalTableLedger` (`0x391970`), `LedgerPage_Update` (`0x3C1ED0`), `LedgerPage_Buildings` (`0x39F500`), `BuildLedgerColumnTooltip` (`0x3C3510`); `FINDINGS-ledgericons.md`. Files: `tfh/interface/country_theatres.gui`, `interface/hoi3ledger.gui`, `tfh/interface/hoi3ledgericons.gui`, `tfh/interface/stratwarfaremanager.gui`.
+OpenHOI3 holds what these show: the theatres (`theatres.md`), the agents and their plans (`agents.md`), `CStrategicWarfare` (`politics.md`), and the save's `income_statistics`, `nation_size_statistics` and `inflation_statistics`.
+
+| reader | brief | fragment |
+| --- | --- | --- |
+| **A** | **The theatres screen**: `country_theatres` and its rows `theatre_entry` and `area_entry`, `topcolor_theatres`, `selected_theatre` - who makes it, how it opens and shuts, each list, each element, every action and what it posts, `goto_button`, `build`, a `stance`, every tooltip. | `screens-theatres.json` |
+| **B** | **Statistics**: `ledger` whole with `no_pie_data_window` and `topcolor_statistics` - how it opens, its pages and their buttons (`ledger_overview`, `ledger_economy`, `ledger_misc`, `ledger_military`, `previous_button`, `next_button`, `prev_graph_button`, `next_graph_button`, `checkbox_autosend`), every table, graph and pie chart: which figures, of whom, how they are kept (the save's three statistics), sorted, drawn and told. | `screens-ledger.json` |
+| **C** | **The strategic warfare manager**: `swm_window` and `swm_list_entry` - how it opens, its tabs (`tab_naval`, `tab_air`, `tab_land`), `listbox_countries` and each row, `select_all`, `select_present`, `select_none`, `duration_1..3`, what is drawn on the map, what is being measured, every tooltip. | `screens-swm.json` |
+
+---
+
 ## The end-of-game wave - how a game ends, and the windows that show the victory conditions
 
 > **LANDED 2026-11-08**, launched on the maintainer's word ("continue with those missing UIs"), the first of the gaps in OpenHOI3's readme, *What of the

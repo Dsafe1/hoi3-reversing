@@ -1269,20 +1269,22 @@
   {
    "rva": "0x66D50",
    "kind": "function",
-   "name": "CStratWarfareWindow::GetTabTooltip",
-   "comment": "**Slot 5** of CStratWarfareWindow (vftable 0x15BD104), and only **0x100 bytes** - 0x66D50..0x66E4F, `ret 4`. It carries none of the SWM_TOOLTIP_* keys; those are in BuildStratWarfareTooltip (rva 0x66E50), which begins at the very next byte. Recorded mainly so the boundary is on the record. See reversing/findings/FINDINGS-uinumbers.md.",
-   "confidence": "likely",
-   "source": "reversing/findings/FINDINGS-uinumbers.md",
-   "signature": "Hoi3CString* __thiscall CStratWarfareWindow::GetTabTooltip(CStratWarfareWindow* this, Hoi3CString* out)"
+   "name": "CStratWarfareWindow::Update",
+   "signature": "void __thiscall CStratWarfareWindow::Update(CStratWarfareWindow* this, bool force)",
+   "no_signature": null,
+   "comment": "Slot 5, called every frame by CTopBar::Update while the window is shown (force 0) and by Show with force 1: rebuilds the list when the game record changed (RebuildCountryList), then the listbox's slot 31; redraws (Refresh) when the hour of the day differs from the last draw, or force. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
   },
   {
    "rva": "0x66E50",
    "kind": "function",
    "name": "BuildStratWarfareTooltip",
-   "comment": "The strategic warfare numbers: SWM_TOOLTIP_TAB_LAND/_AIR/_NAVAL, SWM_TOOLTIP_LAND_IC_US and _THEM, _LAND_MAN_US and _THEM, _AIR_OUR_BOMBERS and _OUR_PROVINCE and the two THEIR forms, _NAVAL_OUR_CONVOYS/_ATTACKERS/_CARGO and the three THEIR forms. Extent 0x466E50..0x467C3F, `ret 0xC`, out at [ebp+0xC], a mode in [ebp+0x10]. **It abuts CStratWarfareWindow slot 5 (0x66D50) with no padding**, which is why the key sweep first attributed all seventeen keys to the slot - trap 2. One caller, 0x6CCBED, in CTopBar slot 5. See reversing/findings/FINDINGS-uinumbers.md.",
+   "signature": "Hoi3CString* __stdcall BuildStratWarfareTooltip(CStratWarfareWindow* window, Hoi3CString* out, CGuiObject* element)",
+   "no_signature": null,
+   "comment": "The manager's tooltips: element is the element under the mouse (CTopBar::BuildTooltip passes it). tab_naval/tab_air/tab_land give SWM_TOOLTIP_TAB_NAVAL/_AIR/_LAND; a chart of the shown tab (found by name through the sub window +0x48[tab], slot 0x44) gives its SWM_TOOLTIP_* line, 16 charts by name in three arms; any other element inside the window answers an empty tooltip, and CTopBar::BuildTooltip returns straight after this call so a shown window's elements never reach the bar's own tooltips. See reversing/findings/FINDINGS-topscreens.md, section C.",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-uinumbers.md",
-   "signature": "Hoi3CString* __stdcall BuildStratWarfareTooltip(void* unknown, Hoi3CString* out, int mode)"
+   "source": "reversing/findings/FINDINGS-topscreens.md"
   },
   {
    "rva": "0x6C2E0",
@@ -7908,10 +7910,11 @@
    "rva": "0x1BD240",
    "kind": "function",
    "name": "CUnit::UpdatePlanForceNeeds",
-   "signature": "bool __stdcall UpdatePlanForceNeeds(CUnit* unit, void* difference, void* groupDifference, void* needed, void* wanted)",
-   "comment": "Recomputes, per subunit type, what this unit's order of battle is short of against its plan. The three vector<int> arguments are always &unit->+0x5C, &unit->+0x6C and &unit->+0x7C at both call sites; all three are indexed by CSubUnitDefinition::type_index and sized to the subunit definition database's count ((db+0x20 - db+0x1C)/4), grown and zero-filled on the first call and, on later calls, with the second and third zeroed at 0x1BD40C while the first is overwritten wholesale. It then walks up higher_oob_unit_ptr to the top of the OOB and, unless that top unit has plan+0x8 (CUnit +0x204) set with oob_level 0, calls ComputePlanWantedSubUnits (0x4E1D00) to build the wanted composition out of the unit's plan (CUnit +0x1FC) and the owner's available subunit types; with the fifth argument null it fills the plan's own buffers at plan+0x18/+0x70/+0x80/+0x84, with it non-null it fills locals instead. The wanted list is the local one where 0x4E1D00 produced one and unit->+0x26C (which is plan+0x70) otherwise. CUnit::CountSubUnitsByType (0x1BD7E0) then counts what the unit actually has, and: difference[i] = wanted[i] - have[i]; groupDifference[GenericType(i)] += difference[i] for every non-zero entry, where GenericType is 0x1ADF70 folding a subunit type onto a representative one; then, over a copy of groupDifference, needed[i] = min(difference[i], groupNet) for each positive deficit, drawing that group's remaining net down as it goes - so a surplus of one type inside a group cancels a deficit of another. Returns true if any entry of needed was set. Runs once a day from CUnit::UpdateDaily for units at oob_level 0 and for HQs at level 1..3 whose +0x198 is set; the level 1..3 units with +0x198 clear have the three vectors cleared instead, and level >=4 is skipped entirely.",
+   "signature": "bool __stdcall UpdatePlanForceNeeds(CUnit* unit, void* difference, void* groupDifference, void* needed, void* provinces)",
+   "no_signature": null,
+   "comment": "**Three vectors out, per CSubUnitDefinition::type_index: what the plan is short of.** `ret 0x14`. N = the database's count; when `difference` is empty all three are grown by N zeros (**`needed` is grown whatever it holds**, so a row's vector gets longer with each call); otherwise groupDifference and needed are zeroed and difference is left for the write below.\n\n**The gate**: walk higher_oob_unit_ptr to the top; if top->plan_active (+0x204) && top->oob_level == 0, nothing is computed. Otherwise, `provinces` null: zero our_power and their_power (+0x80/+0x84 of the plan) and ComputePlanWantedSubUnits(plan, unit, &plan->ops_area, &plan->min, &our, &their, false); `provinces` set: ComputePlanWantedSubUnits(plan, unit, provinces, local vector, local, local, true) - the plan is untouched.\n\n**wanted** = the local vector if non-empty, else plan->min (so an active plan's min, even in the area arm). If wanted is non-empty: have = CUnit::CountSubUnitsByType(unit) (whole order of battle, no area filter; brigades of units in the tree only - not queue lines, not units waiting to be placed); difference[i] = wanted[i] - have[i]; groupDifference[SubUnitTypeGroup(i)] += difference[i] where non-zero. Then over a **copy** of groupDifference, for i ascending with difference[i] > 0: x = min(difference[i], copy[group(i)]); if x > 0, needed[i] = x, copy[group] -= x, answer = true. Empty wanted leaves difference as it was, group and needed zeroed, answer false.\n\nThree callers: CUnit::UpdateDaily (0x1BB326), CUnit::RefreshPlanForceNeeds (0x1BD737), both with `provinces` null, and CAreaEntry slot 8 (0x46EC0D) with two scratch vectors and the row's +0x184. So the screen's `immediate_needs` is +0x7C (filled by the null arm or by the active gate from min) and a row's `forces_needs` is the area arm, or plan->min where the top plan is active.",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-manpower.md"
+   "source": "reversing/findings/FINDINGS-topscreens.md"
   },
   {
    "rva": "0x1BD454",
@@ -7934,9 +7937,10 @@
    "kind": "function",
    "name": "CUnit::RefreshPlanForceNeeds",
    "signature": "void __stdcall RefreshPlanForceNeeds(CUnit* unit@EAX)",
-   "comment": "The out-of-line copy of the gate CUnit::UpdateDaily inlines at 0x1BB273. On a unit with oob_level >= 4 it does nothing; with oob_level 0, or with +0x198 set, it calls CUnit::UpdatePlanForceNeeds(unit, &unit->+0x5C, &unit->+0x6C, &unit->+0x7C, 0); otherwise it clears all three vectors. Called from CSetPlanForcesCommand slot 6 (twice) and CSetPlanAttributesCommand slot 6.",
+   "no_signature": null,
+   "comment": "The out-of-line copy of the gate CUnit::UpdateDaily inlines at 0x1BB273. oob_level >= 4: nothing. oob_level 0, or ai_agent (+0x198) set: CUnit::UpdatePlanForceNeeds(unit, &+0x5C, &+0x6C, &+0x7C, null). Otherwise the three vectors are cleared (emptied). Called from CSetPlanForcesCommand::Execute (both arms of its second lookup), CSetPlanAttributesCommand::Execute (stance change) and CSetPlanOpsAreaCommand::Execute.",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-manpower.md"
+   "source": "reversing/findings/FINDINGS-topscreens.md"
   },
   {
    "rva": "0x1BD740",
@@ -11335,10 +11339,11 @@
    "rva": "0x3C1ED0",
    "kind": "function",
    "name": "LedgerPage_Update",
-   "comment": "0x7C1ED0..0x7C22DB, `ret 4`. Rebuilds the statistics ledger: sets the `page_number`, `ledger_overlay`, `textbox_autosend` and `checkbox_autosend` elements off `this->+0xC`, then dispatches on `this->+4`, the page number, through a chain of `cmp [edi+4], N / jne / push edi / call`. **The whole page table reads out of it**: 0 0x395990, 1 0x396C30, 2 0x397FC0, 3 0x3990D0, 4 0x39A120, 5 0x39D0B0, 6 0x39E180, 7 0x39F500, 8 0x3A0920 (goods flow), 9 0x39B170(1,0,9), 10 0x39B170(2,9,-1), 11 0x3A1570, 12 0x3A2950, 13 0x3A3DB0 (brigades), 14 0x3A5CF0 (ships), 15 0x3A7320 (wings), 16 0x3A8950, 17 0x3AA850, 18 0x3AC640, 19 0x3AE290 (land commanders), 20 0x3AFA10 (sea), 21 0x3B1190 (air), 22 0x3B2920 (consumption, all), 23 0x3B72A0 (land), 24 0x3BC0C0 (air), 25 0x3B99D0 (naval) - note 0x19 is tested before 0x18, and that page 23 is **0x3B72A0, not the abutting 0x3B7250**, which is a helper its three sibling pages call 22 times between them (trap 2). **None of the pages reads a simulation field near its keys**: every key is followed by the same assign/GetText/Render/AddColumn(0x3BEB80) sequence, so they are column headers and chart wiring, and the rows come from a provider they only register. The receiver's class is not established; CStatisticsLedger is the likeliest by name but had no live instance to check.",
+   "signature": "void __stdcall LedgerPage_Update(CStatisticsLedger* ledger@EDI, int page@stack:4)",
+   "no_signature": null,
+   "comment": "**CStatisticsLedger::ShowPage** (name kept). `ledger` in EDI, the page on the stack (`ret 4`). Deletes the previous page's table, its view, the four pies and their data; writes the page number + 1 to `page_number`; shows `ledger_overlay`, hides `textbox_autosend` and `checkbox_autosend`; dispatches on the page to the 26 LedgerPage_* functions. **Each page reads the simulation directly** - this entry used to say none did; that was a wrong reading of a key-frequency survey. Pages 22-25 hide `ledger_overlay` themselves. See reversing/findings/FINDINGS-topscreens.md, section B.",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-uinumbers2.md",
-   "signature": "void __stdcall LedgerPage_Update(void* ledgerWindow)"
+   "source": "reversing/findings/FINDINGS-topscreens.md"
   },
   {
    "rva": "0x3C3510",
@@ -11346,9 +11351,9 @@
    "name": "BuildLedgerColumnTooltip",
    "signature": "void __stdcall BuildLedgerColumnTooltip(CGuiObject* element@ECX, GuiTooltipText* out@stack:4)",
    "no_signature": null,
-   "comment": "**Renamed 2026-10-11: the ledger's, not the builders'.** One caller, CInGameIdler_ViewTooltip, when the idler's +0x1CE0 is set; the receiver in ECX is the element under the mouse and `out` is on the stack (`ret 4`). It asks the element's slot 17 for `TableItemText` first and then for each `ledger_sort_*` name of interface/hoi3ledgericons.gui, answering BUILD_*_IRO with BUILD_*_DRO - the same keys the four builder windows' own slot 6 routines use, which is where the old name came from. The builders do not call it. Read no further; that +0x1CE0 is the ledger is inferred from the names it answers. See reversing/findings/FINDINGS-buildertooltips.md, section 4.",
-   "confidence": "inferred",
-   "source": "reversing/findings/FINDINGS-buildertooltips.md"
+   "comment": "**Confirmed the ledger's: 0x674ED0's +0x1CE0 is `CStatisticsLedger*`.** A `TableItemText` shows its own text; a column icon `ledger_sort_*`/`sort_strat_a` answers with its BUILD_*_IRO and BUILD_*_DRO pair (reversing/findings/FINDINGS-topscreens.md, section B, has the whole table). See reversing/findings/FINDINGS-buildertooltips.md, section 4.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
   },
   {
    "rva": "0x3F13A0",
@@ -13447,10 +13452,11 @@
    "rva": "0x4E1D00",
    "kind": "function",
    "name": "ComputePlanWantedSubUnits",
-   "signature": "void __stdcall ComputePlanWantedSubUnits(void* plan, CUnit* unit, void* area, std::vector<int>* wanted, int* ownStrength, int* areaStrength, bool useArea)",
-   "comment": "Builds the order of battle a plan asks for. Called only from CUnit::UpdatePlanForceNeeds (rva 0x1BD240), twice, and it is what fills CUnit::plan_subunit_wanted. In order: (1) grows `wanted` to GetNumberOfSubUnits() entries and zeroes every one of them (0x8E1DB3..0x8E1E39, the loop bound is (db+0x20 - db+0x1C)/4); (2) resolves about a dozen roles to concrete subunit types by taking the database's cached role definitions at db+0x2C, +0x34, +0x38, +0x3C, +0x40, +0x50, +0x58, +0x6C, +0x7C, +0x80 and +0x84 (those eleven and no others; 0x1ADF70 reaches six more of the same block, +0x44, +0x78, +0x98, +0xA0, +0xA8 and +0xAC) and keeping each only if the owner's availability byte array says so - `country->+0xDF8->+0x27C[definition->type_index] != 0` and then the second test at rva 0x1A3BC0 - falling back to db+0x34 otherwise (0x8E1E3F..0x8E2075); (3) collects the unit's own regiments through rva 0x1BD930 and accumulates, into *ownStrength, each one's strength (CRegiment +0x5C) over its maximum times its organisation over CSubUnit::GetMaxOrganisation, counting them by category with the 0..6 classifier at rva 0x1A8540 (0x8E20C4..0x8E22A2); (4) walks the plan's province list at [area], and for each province its 0x14-byte border records at +0xD4 ->+0x90..+0x94, skipping type 3, accumulating into *areaStrength (0x8E2387..0x8E26E0); (5) turns that frontage into counts using the plan type at plan+0xC (2, 3 and 4 each select a different global) and several defines, and finally does `wanted[definition->type_index]++` once per requested regiment for each role (0x8E2FE0, 0x8E3027, 0x8E31B6, 0x8E31E2). `useArea` switches the source of the scope: with it set the caller supplies `area` and the regiment collection is filtered by it; with it clear the unit's whole OOB is used and `area` is the plan's own province list. Returns nothing - eax is zero on every path and neither call site reads it.",
-   "confidence": "inferred",
-   "source": "reversing/findings/FINDINGS-manpower.md"
+   "signature": "void __stdcall ComputePlanWantedSubUnits(void* plan, CUnit* unit, void* provinces, std::vector<int>* wanted, int* ourPower, int* theirPower, bool useArea)",
+   "no_signature": null,
+   "comment": "**What a plan asks to be added to it, per unit type.** 0x8E1D00-0x8E3239 (`ret 0x1C`). Called from CUnit::UpdatePlanForceNeeds, nothing else, in two arms: the null arm passes (plan, unit, &plan->ops_area (+0x18), &plan->min (+0x70), &plan->our_power (+0x80), &plan->their_power (+0x84), false) after zeroing the two powers; the area arm (a row of the theatres screen) passes (plan, unit, list of a front's provinces, a local vector, a local, a local, true). `wanted` is grown to the database's count and every entry zeroed first.\n\n**Types resolved** (each kept only where TechnologyStatus->unit_available and SubUnitDefinitionIsUsableBy admit it): armour = armor_brigade -> light_armor_brigade -> mechanized_brigade -> motorized_brigade -> infantry; fast = mechanized_brigade -> motorized_brigade -> cavalry_brigade -> infantry; mountain = bergsjaeger_brigade or infantry; garrison = garrison_brigade or infantry; aircraft = tactical_bomber and interceptor, tested for nothing. An anti_tank_brigade test (db +0x80) is made and its answer dropped.\n\n**Own count**: CUnit::CollectRegiments(unit, area when useArea else null) - unit and every descendant. Land by SubUnitDefinition_GetRole: 3 armour, 4 fast, 5 garrison (police/garrison/militia), 6 mountain, 0 none, anything else infantry-like (role 1 support, 2, 7, 8); non-land counts only the two aircraft types exactly. Each brigade adds value x (strength ratio x organisation ratio) to *ourPower, with GetSubUnitDefinitionCombatValue, the ratios in thousandths truncated twice, and -1 for a zero maximum.\n\n**Garrison count** (useArea): the area's provinces whose controller is the unit's owner and whose CUnitPlan_ProvinceHoldScore >= 25. Null arm: the same over GetArea()->+0x60 of the nearest CAIUnit up the chain (slot 65 true, GetArea non-null), else 0. **Enemy**: for each province in `provinces`, for each edge not of kind 3 to a simulated land province whose controller is not IsFriend(owner, c, true), that province once (deduped by a local list): its terrain counted mountain if is_mountain and not is_plains; each unit on it not IsFriend, each brigade not a ship: land -> E++ and role 3 Ea++, role 4 Ef++; air -> Air++; every such brigade adds its raw combat value to *theirPower. Own-side: the area's mountain count M (is_mountain and not is_plains over `provinces` themselves) and max(M, enemy mountain) x 3 = the mountain target.\n\n**Scale s** (thousandths): useArea: 1000 is never kept: the test `enemy == 0 || enemy == self || (not at war with enemy && neither REB)` is always true because **the enemy variable holds the unit's own tag** (`[esp+0x34]` is written at 0x8E260D from the unit's owner, not from the foreign unit) - so s = 200 unless a threat or antagonize entry is keyed by that id (the 1 January 1936 save holds none for the country itself nor for REB, its first country block; whether any list can hold country id 0 was not settled), where it would be weight x 5 (weight / 200), and the antagonize entry may raise it. Null arm: at war 1000; at peace 200, replaced by the top threat weight x 5 if that weight is above 0, then raised to the top antagonize weight x 5 if higher. Then cap 1000, floor 100.\n\n**Stance factor** k by plan +0xC: 2 -> 1500, 3 -> 2000, 4 -> 2500, else 1000. B = trunc(E k), Ba = trunc(Ea k), Bf = trunc(Ef k); A = trunc(B x 1.5k), Aa, Af likewise (1.5k = (1500 x k)/1000; the fixed-point route is ftol(floor((float)(n + 0.0005) x 1000)) so whole numbers survive). **Base S**: useArea: trunc(count(provinces) x s x 9 / 1000); null arm: trunc(CUnit_PlanBaseBrigades(unit) x s / 1000). At peace only: S = min(S, TotalIC x m), m = 10 (faction leader), 4 (faction member) else 1, x 4 more when the ruling ideology's group is not democracy - **TotalIC is in thousandths and S is not, so this is no cap** - then S = max(S, 3).\n\n**Targets** H = max(S, A); L = max(S/2, B). Armour Ha = max(avail ? H/5 : 0, Aa), La = max(avail ? L/5 : 0, Ba). Fast Hf = max(H/4, Af), Lf = max(L/4, Bf). Infantry Hi = H - Hf - Ha, Li = L - Lf - La. Each type gets `wanted += max(0, min(low, high) - have)`, computed as a loop of (high - have) steps each adding one while low-- > have; for armour with `have`=armour count, fast the same. The infantry loop's steps are, in order: bergsjaeger while mountainTarget-- >= mountainHave (**so one step is a bergsjaeger even with no mountains**), then garrison while garrisonTarget-- >= garrisonHave, then infantry; each adds one only while infantryLow-- > infantryHave. **Aircraft**: n = 9, or 3 at oob_level 2, 0 at level 3; AA = trunc(n x s / 1000); BB = AA/2; level 0 or 1: AA >= 3, BB >= 1; level 2: AA >= 1; then both >= Air. tactical_bomber high = AA - AA/3, low = BB - BB/3; interceptor high = AA/3, low = BB/3; `wanted += max(0, min(low,high) - have)`.\n\n**So `wanted` is already net of what the unit has by role, and CUnit::UpdatePlanForceNeeds then subtracts the exact-type count again.** Returns nothing.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
   },
   {
    "rva": "0x4E33D0",
@@ -59019,10 +59025,10 @@
    "kind": "function",
    "name": "CGraphicalTableLedger::CGraphicalTableLedger",
    "signature": null,
-   "no_signature": "the object is the first STACK argument ([ebp+8], kept in EBX) and not ECX, followed by 0x44 more bytes - two 0x10-byte by-value copies made with 0x7943F0 among them - which have not been separated into parameters; ret 0x48",
-   "comment": "Constructs a 0x150-byte CGraphicalTableLedger: vftable 0x15DB474, the string GraphicalTableLedger at +0x54, the ledger window at +0x70, the column list at +0x74, two graph objects of 0x12C bytes at +0xCC and +0xD0, the slider standardlistbox_slider at +0x128, ledger_scrollbar_offset. Then walks its columns (+0x74, from +4 to +8) and for each with the byte +0x38 set calls the gui's slot 31, CEU3Gui::CreateIcon, with the column's string at +0x1C and +0x114 - which is where a column named for a building with no icon type crashes. Built by LedgerPage_Buildings (0x3A0421) among others not surveyed. See reversing/findings/FINDINGS-ledgericons.md.",
+   "no_signature": "the object is the first stack argument; followed by columns, gui, graphics, parent, ledger, UL, LR, and positions; ret 0x48",
+   "comment": "Constructs a 0x150-byte CGraphicalTableLedger: the table (+0x74), gui (+0x70), graphics (+0xC8), two 0x12C-byte C2dObject backgrounds (+0xCC, +0xD0 - the header and the body), the column rectangles (+0xD4 headers, +0xF4 cells) passed in by the page, the slider standardlistbox_slider (+0x128) placed by `ledger_scrollbar_offset`, a slider observer. Each column's header is the optional named icon at the rectangle's corner and a `TableHeaderText` after the icon's width, its width set to the rectangle's, and parked off screen when its text is empty; the header row is built here, the data rows by 0x392B70 (FillRows). Built by every table page. See reversing/findings/FINDINGS-topscreens.md, section B.10.",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-ledgericons.md"
+   "source": "reversing/findings/FINDINGS-topscreens.md"
   },
   {
    "rva": "0x67CD60",
@@ -61490,9 +61496,9 @@
    "name": "GameStrategicWarfare_SaveContents",
    "signature": null,
    "no_signature": "thiscall-shaped - the object in ECX, the writer on the stack, `ret 4` - but the object's class is not established, so no Class::Method signature can be written; it would be `void __thiscall ?::SaveContents(void* this, CSaveWriter* writer)`.",
-   "comment": "**The top-level `strategic_warfare` block**, called directly (not through a vftable) by CGameState::SaveContents on the object at [state +0xD68]: `player` (the tag string at the object's +0), `count` (how many nodes of the std::map whose header is at +0xC hold a value at node +0x10), then each such value through rva 0x626F0, which writes `<its name at +0xC> = { end=yes/no start_date=.. end_date=.. (only when ended) years=N <three sub-lists> }`. Every save of the maintainer's has `player=\"<the player>\" count=0`. The object's class and what its entries are (strategic-warfare campaigns, inferred from the key) were not read. `ret 4` at 0x4654C6. The name is ours.",
+   "comment": "**The top-level `strategic_warfare` block**, called directly (not through a vftable) by CGameState::SaveContents on the object at [state +0xD68]: `player` (the tag string at the object's +0), `count` (how many nodes of the std::map whose header is at +0xC hold a value at node +0x10), then each such value through rva 0x626F0, which writes `<its name at +0xC> = { end=yes/no start_date=.. end_date=.. (only when ended) years=N <three sub-lists> }`. Most of the maintainer's saves have `count=0`, but two do not (Germany1936_03_31_19: 8 enemies, Germany1936_09_02_21: 7), and those carry whole rings. The object and its entries were read for the strategic warfare manager: one per enemy the played country has been at war with, see reversing/findings/FINDINGS-topscreens.md, section C. `ret 4` at 0x4654C6. The name is ours.",
    "confidence": "inferred",
-   "source": "reversing/findings/FINDINGS-savegame.md"
+   "source": "reversing/findings/FINDINGS-topscreens.md"
   },
   {
    "rva": "0x47C0",
@@ -68763,6 +68769,1716 @@
    "comment": "**Alert 14's tooltip, whole.** `text` = VC_ALERT '\u00a7GVictory Conditions\u00a7W'. Then for every faction of the game state's list (+0xCE4) other than the player's, with met x 100 / VICTORY_CONDITIONS_TO_WIN >= 75 (9 of 12): `delayed` = VC_DANGER '\u00a7Y$FACTION$\u00a7W have completed \u00a7R$NUM$\u00a7W victory conditions.' with the faction's localised name and its met count. **Each overwrites the last, so the delayed half names only the last such faction in the list's order.** `ret 4` at 0x607ECC. The same 75 per cent gates the alert's showing in CAlertManager_Update. See reversing/findings/FINDINGS-endgame.md, section B.",
    "confidence": "confirmed",
    "source": "reversing/findings/FINDINGS-endgame.md"
+  },
+  {
+   "rva": "0x395990",
+   "kind": "function",
+   "name": "LedgerPage_National",
+   "signature": "void __stdcall LedgerPage_National(CStatisticsLedger* ledger)",
+   "no_signature": null,
+   "comment": "Statistics ledger page 0: `ELEDGER_NATIONAL_STATISTICS`; a row per country that owns land (and only while the player's record +0x68 byte in the country database is 0, meaning not read): Country, Faction, VP (controlled_victory_points), Offmap VP (+0x11D0), Total VP. See reversing/findings/FINDINGS-topscreens.md, section B.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x396C30",
+   "kind": "function",
+   "name": "LedgerPage_VictoryProvinces",
+   "signature": "void __stdcall LedgerPage_VictoryProvinces(CStatisticsLedger* ledger)",
+   "no_signature": null,
+   "comment": "Statistics ledger page 1: `Nation Statistics` (literal key): a row per province with VP > 0: Province, Victory Points, Controller, Neutral, one column per ideology group. See reversing/findings/FINDINGS-topscreens.md, section B.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x397FC0",
+   "kind": "function",
+   "name": "LedgerPage_AlliedArmies",
+   "signature": "void __stdcall LedgerPage_AlliedArmies(CStatisticsLedger* ledger)",
+   "no_signature": null,
+   "comment": "Statistics ledger page 2: `LEDGER_ALLARMIES_TITLE`: Country, one column per buildable land subunit, Total; rows are the player and his faction/allies/puppets with land. See reversing/findings/FINDINGS-topscreens.md, section B.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x3990D0",
+   "kind": "function",
+   "name": "LedgerPage_AlliedNavies",
+   "signature": "void __stdcall LedgerPage_AlliedNavies(CStatisticsLedger* ledger)",
+   "no_signature": null,
+   "comment": "Statistics ledger page 3: `LEDGER_ALLNAVIES_TITLE`: Country, one column per buildable ship, Total; as page 2. See reversing/findings/FINDINGS-topscreens.md, section B.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x39A120",
+   "kind": "function",
+   "name": "LedgerPage_AlliedAir",
+   "signature": "void __stdcall LedgerPage_AlliedAir(CStatisticsLedger* ledger)",
+   "no_signature": null,
+   "comment": "Statistics ledger page 4: `LEDGER_ALLAIR_TITLE`: Country, one column per buildable air subunit, Total; as page 2. See reversing/findings/FINDINGS-topscreens.md, section B.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x39D0B0",
+   "kind": "function",
+   "name": "LedgerPage_SunkShips",
+   "signature": "void __stdcall LedgerPage_SunkShips(CStatisticsLedger* ledger)",
+   "no_signature": null,
+   "comment": "Statistics ledger page 5: `LEDGER_SUNK_SHIP`: Owner, Ship, Type, Sinker Name, Sinker Type, Sinker Country; a row per entry of CCurrentGameState::sunk_ships. See reversing/findings/FINDINGS-topscreens.md, section B.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x39E180",
+   "kind": "function",
+   "name": "LedgerPage_ControlledProvinces",
+   "signature": "void __stdcall LedgerPage_ControlledProvinces(CStatisticsLedger* ledger)",
+   "no_signature": null,
+   "comment": "Statistics ledger page 6: `LEDGER_TERRITORIAL_TITLE`: Province, Energy, Metal, Rare Mat., Oil, Manpower, Leadership (each province's current_producing / manpower / leadership over 1000). See reversing/findings/FINDINGS-topscreens.md, section B.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x3A0920",
+   "kind": "function",
+   "name": "LedgerPage_ResourceFlows",
+   "signature": "void __stdcall LedgerPage_ResourceFlows(CStatisticsLedger* ledger)",
+   "no_signature": null,
+   "comment": "Statistics ledger page 8: `LEDGER_FLOW_TITLE`: Category + one column per good (GoodName 0..6); a row per ledger pool of the player's country, each through 0x3A05D0 with a pool getter. See reversing/findings/FINDINGS-topscreens.md, section B.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x3A1570",
+   "kind": "function",
+   "name": "LedgerPage_Convoys",
+   "signature": "void __stdcall LedgerPage_Convoys(CStatisticsLedger* ledger)",
+   "no_signature": null,
+   "comment": "Statistics ledger page 11: `LEDGER_CONVOYS_TITLE`: From, To, Transports, Escorts, then each convoy's daily metal, energy, crude oil, rare materials and supplies. See reversing/findings/FINDINGS-topscreens.md, section B.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x3A2950",
+   "kind": "function",
+   "name": "LedgerPage_Politicians",
+   "signature": "void __stdcall LedgerPage_Politicians(CStatisticsLedger* ledger)",
+   "no_signature": null,
+   "comment": "Statistics ledger page 12: `LEDGER_POLITICIANS_TITLE`: Name, Ideology, Possible (Yes/No: minister's ideology among his government's), Personality, Job; a row per minister and position. See reversing/findings/FINDINGS-topscreens.md, section B.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x3A3DB0",
+   "kind": "function",
+   "name": "LedgerPage_Brigades",
+   "signature": "void __stdcall LedgerPage_Brigades(CStatisticsLedger* ledger)",
+   "no_signature": null,
+   "comment": "Statistics ledger page 13: `LEDGER_BRIGADE_TITLE`: Name, Type, Str, Org, Location, Division, Corps, Army, Army Group, Theatre, Order; a row per brigade of the player's land units. See reversing/findings/FINDINGS-topscreens.md, section B.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x3A5CF0",
+   "kind": "function",
+   "name": "LedgerPage_Ships",
+   "signature": "void __stdcall LedgerPage_Ships(CStatisticsLedger* ledger)",
+   "no_signature": null,
+   "comment": "Statistics ledger page 14: `LEDGER_SHIP_TITLE`: Name, Type, Str, Org, Location, Fleet, Base, Order. See reversing/findings/FINDINGS-topscreens.md, section B.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x3A7320",
+   "kind": "function",
+   "name": "LedgerPage_Planes",
+   "signature": "void __stdcall LedgerPage_Planes(CStatisticsLedger* ledger)",
+   "no_signature": null,
+   "comment": "Statistics ledger page 15: `LEDGER_PLANE_TITLE`: Name, Type, Str, Org, Location, Wing, Base, Order. See reversing/findings/FINDINGS-topscreens.md, section B.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x3A8950",
+   "kind": "function",
+   "name": "LedgerPage_BrigadeStats",
+   "signature": "void __stdcall LedgerPage_BrigadeStats(CStatisticsLedger* ledger)",
+   "no_signature": null,
+   "comment": "Statistics ledger page 16: `LEDGER_BRIGADE_STATS`: Name, Type, Model and a column per stat (ledger_sort_* icon), Exp; the player's land brigades. See reversing/findings/FINDINGS-topscreens.md, section B.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x3AA850",
+   "kind": "function",
+   "name": "LedgerPage_ShipStats",
+   "signature": "void __stdcall LedgerPage_ShipStats(CStatisticsLedger* ledger)",
+   "no_signature": null,
+   "comment": "Statistics ledger page 17: `LEDGER_SHIP_STATS`: Name, Type, Model and a column per stat; the player's ships. See reversing/findings/FINDINGS-topscreens.md, section B.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x3AC640",
+   "kind": "function",
+   "name": "LedgerPage_PlaneStats",
+   "signature": "void __stdcall LedgerPage_PlaneStats(CStatisticsLedger* ledger)",
+   "no_signature": null,
+   "comment": "Statistics ledger page 18: `LEDGER_PLANE_STATS`: Name, Type, Model and a column per stat; the player's wings. See reversing/findings/FINDINGS-topscreens.md, section B.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x3AE290",
+   "kind": "function",
+   "name": "LedgerPage_ArmyLeaders",
+   "signature": "void __stdcall LedgerPage_ArmyLeaders(CStatisticsLedger* ledger)",
+   "no_signature": null,
+   "comment": "Statistics ledger page 19: `LEDGER_LAND_COMMMANDER`: Name, Rank, Skill, Experience, Commission, Trait 1..4; the player's active leaders of type 0. See reversing/findings/FINDINGS-topscreens.md, section B.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x3AFA10",
+   "kind": "function",
+   "name": "LedgerPage_NavalLeaders",
+   "signature": "void __stdcall LedgerPage_NavalLeaders(CStatisticsLedger* ledger)",
+   "no_signature": null,
+   "comment": "Statistics ledger page 20: `LEDGER_SEA_COMMMANDER`: as page 19, leader type 1. See reversing/findings/FINDINGS-topscreens.md, section B.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x3B1190",
+   "kind": "function",
+   "name": "LedgerPage_AirLeaders",
+   "signature": "void __stdcall LedgerPage_AirLeaders(CStatisticsLedger* ledger)",
+   "no_signature": null,
+   "comment": "Statistics ledger page 21: `LEDGER_AIR_COMMMANDER`: as page 19, leader type 2. See reversing/findings/FINDINGS-topscreens.md, section B.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x3B2920",
+   "kind": "function",
+   "name": "LedgerPage_PieAllUnits",
+   "signature": "void __stdcall LedgerPage_PieAllUnits(CStatisticsLedger* ledger)",
+   "no_signature": null,
+   "comment": "Statistics ledger page 22: `LEDGER_PIE_ALL`: four pies of the player's units - brigades by land/air/naval, supply use, fuel use, reinforcement need (LEDGER_UNIT_SPLIT, LEDGER_SUPPLY_CONSUMPTION, LEDGER_FUEL_CONSUMPTION, LEDGER_UNIT_REINFORCE_NEED). See reversing/findings/FINDINGS-topscreens.md, section B.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x3B72A0",
+   "kind": "function",
+   "name": "LedgerPage_PieLandUnits",
+   "signature": "void __stdcall LedgerPage_PieLandUnits(CStatisticsLedger* ledger)",
+   "no_signature": null,
+   "comment": "Statistics ledger page 23: `LEDGER_PIE_LAND`: four pies over the player's land brigades by unit type - count, supply, fuel, reinforcement need. See reversing/findings/FINDINGS-topscreens.md, section B.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x3BC0C0",
+   "kind": "function",
+   "name": "LedgerPage_PieAirUnits",
+   "signature": "void __stdcall LedgerPage_PieAirUnits(CStatisticsLedger* ledger)",
+   "no_signature": null,
+   "comment": "Statistics ledger page 24: `LEDGER_PIE_AIR`: as page 23, air. See reversing/findings/FINDINGS-topscreens.md, section B.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x3B99D0",
+   "kind": "function",
+   "name": "LedgerPage_PieNavalUnits",
+   "signature": "void __stdcall LedgerPage_PieNavalUnits(CStatisticsLedger* ledger)",
+   "no_signature": null,
+   "comment": "Statistics ledger page 25: `LEDGER_PIE_NAVAL`: as page 23, naval. See reversing/findings/FINDINGS-topscreens.md, section B.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x39B170",
+   "kind": "function",
+   "name": "LedgerPage_StrategicResources",
+   "signature": "void __stdcall LedgerPage_StrategicResources(CStatisticsLedger* ledger, int pageOfTwo, int firstResource, int lastResource)",
+   "no_signature": null,
+   "comment": "Ledger pages 9 and 10 (`PW_STRAT_RESOURCES`): columns are the strategic resources from `firstResource` up to `lastResource` (page 9: 0..8, page 10: 9.. to the end, -1 meaning all), each headed by an icon `ledger_<name>_icon` and its name, each (ledger_UL.x + 18) x 2 / columns wide. **Row r holds the r-th province of each column's resource**, from CCurrentGameState::strategic_resource_provinces; a cell's text is `@<holder tag> <province name>`, its tooltip 'resource controlled by <country> (<faction>) located at province <name>' (LEDGER_STRAT_RES_CONTROL_TOOLTIP_1, _2), the faction green for the player's own, red for another, white when the player has none. The rows are keyed by number and left unsorted. See reversing/findings/FINDINGS-topscreens.md, section B.10.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x3A05D0",
+   "kind": "function",
+   "name": "LedgerFlows_AddRow",
+   "signature": null,
+   "no_signature": "__cdecl-shaped, stack: label key, table, pool getter (a CCountry method returning its CGoodsPool), cells out; ret undetermined",
+   "comment": "Adds one row to the flows page: localises the key, and for the seven goods (pool +8..+0x20) takes getter(player country)'s dword over 1000 as a float cell. See reversing/findings/FINDINGS-topscreens.md, section B.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x3C0E60",
+   "kind": "function",
+   "name": "CStatisticsLedger::CStatisticsLedger",
+   "signature": null,
+   "no_signature": "ECX = the in-game idler (kept +0x1C0), EDX = its gui (+8); stack: this, graphics (+0x14), parent (+0x10), page (+4), window key string by value; ret 0x14",
+   "comment": "Builds the `ledger` window (0x2F8 bytes): binds next_button, previous_button, close_button, prev_graph_button, next_graph_button, ledger_overview, ledger_economy, ledger_misc, ledger_military; hides `graph_background` and `no_graph_data`; hides the sentence; loads the country skin (0x3C5C10); calls LedgerPage_Update on the page given. The graph buttons are bound though the graph is never shown. See reversing/findings/FINDINGS-topscreens.md, section B.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x3C28A0",
+   "kind": "function",
+   "name": "CStatisticsLedger_Destroy",
+   "signature": "void __stdcall CStatisticsLedger_Destroy(CStatisticsLedger* ledger)",
+   "no_signature": null,
+   "comment": "The destructor: hides and deletes the window's element lists, the table, its view and the pies, and clears the graphs vector. Called from CInGameIdler::Update (0x656783) when +0x1D3D (close requested) is set, then the object is freed and, unless paused_before_window (+0x1D3E) is set, the game is unpaused. See reversing/findings/FINDINGS-topscreens.md, section B.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x3C2810",
+   "kind": "function",
+   "name": "CStatisticsLedger::OnNext",
+   "signature": "void __thiscall CStatisticsLedger::OnNext(CStatisticsLedger* this)",
+   "no_signature": null,
+   "comment": "`next_button` / RIGHT: page + 1, wrapping past 25 to 0, then LedgerPage_Update and show the table and the secondary view. See reversing/findings/FINDINGS-topscreens.md, section B.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x3C2860",
+   "kind": "function",
+   "name": "CStatisticsLedger::OnPrevious",
+   "signature": "void __thiscall CStatisticsLedger::OnPrevious(CStatisticsLedger* this)",
+   "no_signature": null,
+   "comment": "`previous_button` / LEFT: page - 1, from 0 to 25, then rebuild as OnNext. See reversing/findings/FINDINGS-topscreens.md, section B.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x3C2F10",
+   "kind": "function",
+   "name": "CStatisticsLedger::OnClose",
+   "signature": "void __thiscall CStatisticsLedger::OnClose(CStatisticsLedger* this)",
+   "no_signature": null,
+   "comment": "`close_button` (ESCAPE): idler +0x1D40 = current page, idler +0x1D3D = 1, hide `bg_main_menus` (+0x1914). The window is torn down next frame by CInGameIdler::Update (0x656776), which restores the pause. See reversing/findings/FINDINGS-topscreens.md, section B.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x3C3320",
+   "kind": "function",
+   "name": "CStatisticsLedger::OnPrevGraph",
+   "signature": "void __thiscall CStatisticsLedger::OnPrevGraph(CStatisticsLedger* this)",
+   "no_signature": null,
+   "comment": "`prev_graph_button`: +0x1C4 + 1, wrapping past 3 to 0 (the graph buttons run the wrong way round), then SetGraphIndex. Dead: `graph_background` is never shown. See reversing/findings/FINDINGS-topscreens.md, section B.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x3C3350",
+   "kind": "function",
+   "name": "CStatisticsLedger::OnNextGraph",
+   "signature": "void __thiscall CStatisticsLedger::OnNextGraph(CStatisticsLedger* this)",
+   "no_signature": null,
+   "comment": "`next_graph_button`: +0x1C4 - 1, from 0 to 3, then SetGraphIndex. Dead, as OnPrevGraph. See reversing/findings/FINDINGS-topscreens.md, section B.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x3C3440",
+   "kind": "function",
+   "name": "CStatisticsLedger::OnOverview",
+   "signature": "void __thiscall CStatisticsLedger::OnOverview(CStatisticsLedger* this)",
+   "no_signature": null,
+   "comment": "`ledger_overview`: page = 0, rebuild. See reversing/findings/FINDINGS-topscreens.md, section B.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x3C3470",
+   "kind": "function",
+   "name": "CStatisticsLedger::OnEconomy",
+   "signature": "void __thiscall CStatisticsLedger::OnEconomy(CStatisticsLedger* this)",
+   "no_signature": null,
+   "comment": "`ledger_economy`: page = 6, rebuild. See reversing/findings/FINDINGS-topscreens.md, section B.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x3C34A0",
+   "kind": "function",
+   "name": "CStatisticsLedger::OnMisc",
+   "signature": "void __thiscall CStatisticsLedger::OnMisc(CStatisticsLedger* this)",
+   "no_signature": null,
+   "comment": "`ledger_misc`: page = 12, rebuild. See reversing/findings/FINDINGS-topscreens.md, section B.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x3C34D0",
+   "kind": "function",
+   "name": "CStatisticsLedger::OnMilitary",
+   "signature": "void __thiscall CStatisticsLedger::OnMilitary(CStatisticsLedger* this)",
+   "no_signature": null,
+   "comment": "`ledger_military`: page = 13, rebuild. See reversing/findings/FINDINGS-topscreens.md, section B.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x3C2620",
+   "kind": "function",
+   "name": "CStatisticsLedger::Open",
+   "signature": "void __thiscall CStatisticsLedger::Open(CStatisticsLedger* this)",
+   "no_signature": null,
+   "comment": "Called once by the opener at 0x6735B6 right after the constructor: shows the window, hides graph_background, ledger_overlay and no_graph_data as the page's content applies, LedgerPage_Update on the current page. See reversing/findings/FINDINGS-topscreens.md, section B.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x3C1D30",
+   "kind": "function",
+   "name": "CStatisticsLedger::Refresh",
+   "signature": "void __thiscall CStatisticsLedger::Refresh(CStatisticsLedger* this)",
+   "no_signature": null,
+   "comment": "Rebuilds the current page keeping the scrollbar's position and the sort column; reached through a CInGameIdler thunk (0x674ED0). See reversing/findings/FINDINGS-topscreens.md, section B.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x3C3390",
+   "kind": "function",
+   "name": "CStatisticsLedger::SetGraphIndex",
+   "signature": "void __thiscall CStatisticsLedger::SetGraphIndex(CStatisticsLedger* this, int index)",
+   "no_signature": null,
+   "comment": "Stores +0x1C4 and rebuilds the page; called only by the two dead graph buttons.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x3C5C10",
+   "kind": "function",
+   "name": "CStatisticsLedger_ApplyCountrySkin",
+   "signature": "void __stdcall CStatisticsLedger_ApplyCountrySkin(CStatisticsLedger* ledger)",
+   "no_signature": null,
+   "comment": "`gfx/interface/skins/country_bg_<TAG>.dds`, where it exists, becomes the picture of `bg_countryskin` (type GFX_country_bg): the window's background is a country's own. Constructor only.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x3C2F40",
+   "kind": "function",
+   "name": "CStatisticsLedger::OnRowClicked",
+   "signature": null,
+   "no_signature": "__thiscall-shaped with one CTableLedgerItem passed by value (0xB8 bytes), ret 0xBC",
+   "comment": "Slot 0 of CStatisticsLedger. Only on pages 19, 20 and 21 (leaders): finds the player's unit whose leader has the clicked row's name and which stands on the map, selects it (ClearSelection, Select), and closes the ledger exactly as OnClose. Other pages do nothing.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x3C3190",
+   "kind": "function",
+   "name": "LedgerYesNoString",
+   "signature": "Hoi3CString* __stdcall LedgerYesNoString(Hoi3CString* out, bool yes)",
+   "no_signature": null,
+   "comment": "`LEDGER_YES` or `LEDGER_NO` rendered into out: the Possible column of the Politicians page.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x392B70",
+   "kind": "function",
+   "name": "CGraphicalTableLedger_FillRows",
+   "signature": "void __stdcall CGraphicalTableLedger_FillRows(CGraphicalTableLedger* table)",
+   "no_signature": null,
+   "comment": "Rebuilds the on-screen rows from the current scroll position: `(int)(slider value + 0.5)` is the first row of the table's sorted row vector (+0x24), each cell a TableItemText (or an icon, or an icon with a flag `ledger_nation_flag` named after the column). **Rows step by the first cell rectangle's height (30), from its top (35), until past the area (+0x11C), which is `ledger_LR`.y: sixteen.** A row's first element gets `ledger_flags` and the row's rectangle (+0x104) so a click finds it. See reversing/findings/FINDINGS-topscreens.md, section B.10.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x392610",
+   "kind": "function",
+   "name": "CGraphicalTableLedger::Destroy",
+   "signature": "void __thiscall CGraphicalTableLedger::Destroy(CGraphicalTableLedger* this)",
+   "no_signature": null,
+   "comment": "Slot 12: deletes the header, row and flag elements and the scrollbar and detaches the slider observer.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x393D40",
+   "kind": "function",
+   "name": "CGraphicalTableLedger::OnMouseEvent",
+   "signature": "void __thiscall CGraphicalTableLedger::OnMouseEvent(CGraphicalTableLedger* this, void* evt, void* gui)",
+   "no_signature": null,
+   "comment": "Slot 1: a left click inside a header rectangle sorts by that column (LedgerTable_Sort on the column's stored name, the ascending flag kept per page in the game state, +0xCC4/+0xCD4), inside a row rectangle calls the owner's OnRowClicked (`CStatisticsLedger` slot 0); a mouse wheel moves the slider. Slot 48 (0x3942F0) sets +0x2C, the 'accepts input' byte.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x3942C0",
+   "kind": "function",
+   "name": "CGraphicalTableLedger::Update",
+   "signature": "void __thiscall CGraphicalTableLedger::Update(CGraphicalTableLedger* this, int arg)",
+   "no_signature": null,
+   "comment": "Slot 6: the frame after the slider moved (+0x50 > 0) it refills (FillRows, slot 13) and clears the flag.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x3C0260",
+   "kind": "function",
+   "name": "CPieChartLedgerGraphical::CPieChartLedgerGraphical",
+   "signature": null,
+   "no_signature": "__thiscall with the pie data vector, gui, graphics, the ledger, and two by-value ints among a long stack; not separated; ret undetermined",
+   "comment": "A 0xFC-byte pie: a C2dObject pie (0xAA3090 through FUN 0xA70220) at the pie_UL rect, its heading `pie_heading` (text set later by 0x3C0CC0) at `pie_header_offset`, and for each slice a `pie_text` at `pie_text_offset` (stepped down by its line height) and a two-vertex leader line (pie_line_offset / pie_line_offset_two) in the slice's colour; with no slices, `no_pie_data_window` instead.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x6EF490",
+   "kind": "function",
+   "name": "LedgerTable_CtorFromStrings",
+   "signature": null,
+   "no_signature": "stack: columns' labels strings; shared table class",
+   "comment": "Creates a 0x70-byte table from a vector of column label strings (no icons). The class is shared with the rest of the ledger table family; its vftable is 0x12043D0 (vs. ledger-specific RTTI this table is unnamed).",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x6EF2F0",
+   "kind": "function",
+   "name": "LedgerTable_CtorFromColumns",
+   "signature": null,
+   "no_signature": "stack: first and last of a vector of 0xBC-byte column descriptors",
+   "comment": "Creates a table from column descriptors (name +0x20, tooltip +0x84, icon flag +0x3C ...): the second table constructor, used by pages 2.. and every table with an icon column.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x6EF6B0",
+   "kind": "function",
+   "name": "LedgerTable_AddRow",
+   "signature": null,
+   "no_signature": "__thiscall, stack: row key and a by-value vector of 0xB8-byte cells",
+   "comment": "Adds a row: the key (row name) maps into the table's std::map (+0x14) of cell vectors.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x6EF940",
+   "kind": "function",
+   "name": "LedgerTable_Sort",
+   "signature": null,
+   "no_signature": "stack: column name by value and ascending byte; shared table class",
+   "comment": "Sorts the rows' pointer vector (+0x24) by column name (found by matching the header at +0, or the name at +0x1C of a 0x3C-stride column record), ascending or descending (0xAF1590 with the comparators 0xAEF7D0 / 0xAEF7A0): each row's cell in that column compares by int (+0x24), float (+0x20), then the string at +0x28 or +4 (CTableLedgerItem slots 7 and 8).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x391550",
+   "kind": "function",
+   "name": "CTableLedgerItem::Less",
+   "signature": "bool __thiscall CTableLedgerItem::Less(CTableLedgerItem* this, CTableLedgerItem* other)",
+   "no_signature": null,
+   "comment": "Slot 7, ascending compare: by the int at +0x24 where +0xB1 is set, else the float at +0x20 where +0xB2, else the string +4 where +0xB0, else +0x28.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x3915D0",
+   "kind": "function",
+   "name": "CTableLedgerItem::Greater",
+   "signature": "bool __thiscall CTableLedgerItem::Greater(CTableLedgerItem* this, CTableLedgerItem* other)",
+   "no_signature": null,
+   "comment": "Slot 8, the descending compare, the mirror of Less.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x394BB0",
+   "kind": "function",
+   "name": "CTableLedgerItem_CtorText",
+   "signature": null,
+   "no_signature": "stack: this and text by value, plus cells; ret undetermined",
+   "comment": "A text cell (text +4; +0x1F icon flag and +0x20 frame from args; sort string empty so +0xB0 stays 1).",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x394CC0",
+   "kind": "function",
+   "name": "CTableLedgerItem_CtorFaction",
+   "signature": null,
+   "no_signature": "stack: this, shown text, then two strings; ret undetermined",
+   "comment": "A text cell with a sort string (+0x28) and icon name (+0x44) - the faction cell uses it; +0xB6 is an extra flag.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x394E50",
+   "kind": "function",
+   "name": "CTableLedgerItem_CtorFloat",
+   "signature": null,
+   "no_signature": "stack: this, value float, percent byte, text; ret undetermined",
+   "comment": "A float cell: +0x20 the value; shown via FormatFloat(1) or, where the percent byte (+0xB3) is set, `itoa(value*100) + '%'`; sorted by float (+0xB2).",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x395090",
+   "kind": "function",
+   "name": "CTableLedgerItem_CtorInt",
+   "signature": null,
+   "no_signature": "stack: this, integer, text; ret undetermined",
+   "comment": "An int cell: +0x24 the value and the same number as text +4, sorted by int (+0xB1).",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x66060",
+   "kind": "function",
+   "name": "CStratWarfareWindow::CStratWarfareWindow",
+   "signature": "CStratWarfareWindow* __stdcall CStratWarfareWindow::CStratWarfareWindow(CStratWarfareWindow* this, void* gui, void* screen)",
+   "no_signature": null,
+   "comment": "The strategic warfare manager window, 0x17C bytes, one per top bar (CTopBar +0x380, made in CTopBar::Build at 0x6CC7BA). Sets every button glue, then calls slot 0 (CStratWarfareWindow::Build) once. Six glues (CButtonObserverGlue<CStratWarfareWindow>): close +0x58, tabs +0x84, select_all +0xB0, select_present +0xDC, select_none +0x108, duration buttons +0x134. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x66300",
+   "kind": "function",
+   "name": "CStratWarfareWindow::ScalarDeletingDestructor",
+   "signature": "CStratWarfareWindow* __thiscall CStratWarfareWindow::ScalarDeletingDestructor(CStratWarfareWindow* this, unsigned int flags)",
+   "no_signature": null,
+   "comment": "Slot 1. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x66330",
+   "kind": "function",
+   "name": "CStratWarfareWindow::~CStratWarfareWindow",
+   "signature": "void __stdcall CStratWarfareWindow::~CStratWarfareWindow(CStratWarfareWindow* this)",
+   "no_signature": null,
+   "comment": "Tears the window object down: destroys the gui window (+0x24, its slot 20), frees the shown-tags vector +0x160 and resets the glues. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x66720",
+   "kind": "function",
+   "name": "CStratWarfareWindow::Build",
+   "signature": "char __thiscall CStratWarfareWindow::Build(CStratWarfareWindow* this)",
+   "no_signature": null,
+   "comment": "Slot 0, run once by the constructor (and whenever the gui is rebuilt): (re)creates `swm_window`, finds tab_naval, tab_air, tab_land with sub_naval, sub_air, sub_land and tags each tab with its index through slot 0xD4; the sub windows start hidden; finds listbox_countries, select_all, select_present, select_none, close_button; finds duration_1..duration_3, tags each with its index; passes the string \"topbar\" to slot 0x78 of the gui window's interface at +0x18 (what that does was not read); sets duration 0 and all tab frames (tab selected 2, others 1; duration selected 1, others 2), and redraws. Tab starts at 0 (naval), duration at 0. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x66CD0",
+   "kind": "function",
+   "name": "CStratWarfareWindow::Show",
+   "signature": "void __thiscall CStratWarfareWindow::Show(CStratWarfareWindow* this)",
+   "no_signature": null,
+   "comment": "Slot 2. Shows the window (its slot 0x34), syncs the tab pages, and the first time ever (byte +0x178) selects the present rows; if it was hidden, slot 5 with force. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x66D20",
+   "kind": "function",
+   "name": "CStratWarfareWindow::Hide",
+   "signature": "void __thiscall CStratWarfareWindow::Hide(CStratWarfareWindow* this)",
+   "no_signature": null,
+   "comment": "Slot 3: the close button and the toggling swm_open both end here. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x66D40",
+   "kind": "function",
+   "name": "CStratWarfareWindow::IsVisible",
+   "signature": "bool __thiscall CStratWarfareWindow::IsVisible(CStratWarfareWindow* this)",
+   "no_signature": null,
+   "comment": "Slot 4: the window object is present and its +0x5B visible byte set. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x66400",
+   "kind": "function",
+   "name": "CStratWarfareWindow::OnTabClicked",
+   "signature": "void __thiscall CStratWarfareWindow::OnTabClicked(CStratWarfareWindow* this, void* button)",
+   "no_signature": null,
+   "comment": "Glue +0x84 handler: the button's stored index (slot 0x80) becomes the tab (+0x20), then SyncTabs and Refresh. A click on the tab already open still redraws. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x66430",
+   "kind": "function",
+   "name": "CStratWarfareWindow::SetDuration",
+   "signature": "void __stdcall CStratWarfareWindow::SetDuration(CStratWarfareWindow* this, int duration)",
+   "no_signature": null,
+   "comment": "Stores the duration (+0x170: 0 month, 1 year, 2 conflict), gives duration_N frame 1 for the chosen and 2 for the others, and redraws. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x66480",
+   "kind": "function",
+   "name": "CStratWarfareWindow::OnDurationClicked",
+   "signature": "void __thiscall CStratWarfareWindow::OnDurationClicked(CStratWarfareWindow* this, void* button)",
+   "no_signature": null,
+   "comment": "Glue +0x134 handler; the button's stored index passes to SetDuration. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x664A0",
+   "kind": "function",
+   "name": "CStratWarfareWindow::OnSelectAll",
+   "signature": "void __fastcall CStratWarfareWindow::OnSelectAll(CStratWarfareWindow* this@ECX)",
+   "no_signature": null,
+   "comment": "select_all: every row not selected becomes selected and its two checkboxes are ticked; then Refresh. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x66520",
+   "kind": "function",
+   "name": "CStratWarfareWindow::OnSelectPresent",
+   "signature": "void __fastcall CStratWarfareWindow::OnSelectPresent(CStratWarfareWindow* this@ECX)",
+   "no_signature": null,
+   "comment": "select_present: rows whose war is running (record +0x1C clear) are selected and ticked; rows whose war has ended are unselected and unticked; then Refresh. Also what Show runs the first time the window opens. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x66620",
+   "kind": "function",
+   "name": "CStratWarfareWindow::OnSelectNone",
+   "signature": "void __fastcall CStratWarfareWindow::OnSelectNone(CStratWarfareWindow* this@ECX)",
+   "no_signature": null,
+   "comment": "select_none: every selected row is unselected and unticked; then Refresh. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x666C0",
+   "kind": "function",
+   "name": "CStratWarfareWindow::SyncTabs",
+   "signature": "void __stdcall CStratWarfareWindow::SyncTabs(CStratWarfareWindow* this)",
+   "no_signature": null,
+   "comment": "For each tab: frame 2 for the current tab, 1 otherwise; the current sub window shown (slot 0x34), the others hidden (slot 0x38). See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x67C50",
+   "kind": "function",
+   "name": "CStratWarfareWindow::RebuildCountryList",
+   "signature": "void __stdcall CStratWarfareWindow::RebuildCountryList(CStratWarfareWindow* this)",
+   "no_signature": null,
+   "comment": "Rebuilds listbox_countries when the game state record's map (+0xD68 +8) no longer matches the +0x160 vector of ids, or the record's dirty byte +0x18 is set (which it clears). Remembers the selected rows by country id, destroys the rows, makes one CCountryEntry per record with a value (std::sort in the record map's order, the running wars first: a record sorts before another only when it is running and the other ended, ties keep map order), adds them, and reselects by id. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x687F0",
+   "kind": "function",
+   "name": "CStratWarfareWindow::Refresh",
+   "signature": "void __stdcall CStratWarfareWindow::Refresh(CStratWarfareWindow* this)",
+   "no_signature": null,
+   "comment": "Draws what the current tab and duration show from the selected rows: for each pair of charts two series vectors (GatherSeries), the larger of 0.01 and every value is the common chart maximum, each chart gets its country-coloured lines (SetChartSeries), the max text, the totals text and the comparator frame. Which series is which chart is in the write-up. The whole of the window's content. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x683F0",
+   "kind": "function",
+   "name": "CStratWarfareWindow::GatherSeries",
+   "signature": "void __stdcall CStratWarfareWindow::GatherSeries(CStratWarfareWindow* this, void* out, void* selected, int series, int category)",
+   "no_signature": null,
+   "comment": "Per selected country id: a series entry {values of series `series` of category `category` from the current duration ring, newest first, zero padded to the ring's size; the country colour}. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x680B0",
+   "kind": "function",
+   "name": "StratWarfare_SetChartSeries",
+   "signature": "void __stdcall StratWarfare_SetChartSeries(void* chart, void* series, unsigned int maxLow, unsigned int maxHigh)",
+   "no_signature": null,
+   "comment": "Turns series vectors into a line chart's points: each value v becomes point height = (v * 32768 / max) * 100 in whole percent (shifted down by 30, so the height is whole hundredths), point order reversed so the newest is last, colour the series'; with no series one three-point line of height 0 in the CColor {0x18D, 0, 1, 0, 1} (the default). See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x683B0",
+   "kind": "function",
+   "name": "StratWarfare_SetSubwindowChart",
+   "signature": "void __stdcall StratWarfare_SetSubwindowChart(void* subwindow@ECX, void* series@stack:4, void* name@stack:8, unsigned int maxLow@stack:0xC, unsigned int maxHigh@stack:0x10)",
+   "no_signature": null,
+   "comment": "Finds a chart by name in a sub window (slot 0x44) and calls StratWarfare_SetChartSeries on its drawn object at +0x88. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x685E0",
+   "kind": "function",
+   "name": "CStratWarfareWindow::SumSeriesTotal",
+   "signature": "void __stdcall CStratWarfareWindow::SumSeriesTotal(void* selected@EDI, CStratWarfareWindow* this@stack:4, __int64* out@stack:8, int series@stack:0xC)",
+   "no_signature": null,
+   "comment": "Sums series `series` of the air category over the current duration ring and every selected record, for the air tab's damage totals. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x68700",
+   "kind": "function",
+   "name": "StratWarfare_SeriesMax",
+   "signature": "void __stdcall StratWarfare_SeriesMax(void* seriesList@EAX, __int64* out@stack:4, unsigned int floorLow@stack:8, unsigned int floorHigh@stack:0xC)",
+   "no_signature": null,
+   "comment": "The largest signed 64-bit Fixed15 value in the series vectors, starting from the floor passed. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x68790",
+   "kind": "function",
+   "name": "StratWarfare_SeriesTotal",
+   "signature": "unsigned int* __fastcall StratWarfare_SeriesTotal(__int64* out@ECX, void* seriesList@EAX) @EAX",
+   "no_signature": null,
+   "comment": "The sum of every value of the series vectors. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x63350",
+   "kind": "function",
+   "name": "StrategicWarfare_ListMatchesRecords",
+   "signature": "bool __fastcall StrategicWarfare_ListMatchesRecords(void* list@ECX, void* warfare@EDX) @EAX",
+   "no_signature": null,
+   "comment": "Whether the id vector +0x160 is exactly the record map's keys with a value, in map order. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x656E0",
+   "kind": "function",
+   "name": "CCountryEntry::CCountryEntry",
+   "signature": "CCountryEntry* __stdcall CCountryEntry::CCountryEntry(void* gui@ECX, CCountryEntry* this@stack:4, void* parent@stack:8, void* record@stack:0xC, void* window@stack:0x10) @EAX",
+   "no_signature": null,
+   "comment": "A row of `listbox_countries`: window `swm_list_entry`, the record of an enemy and the owning window. background_button_present is shown for a running war and background_button_past for an ended one (never both); the row's country text is the enemy's name, country_flag is the enemy's flag, color_icon gets the enemy's country colour, date_begin and date_end via CCountryEntry::SetDates. 0x88 bytes. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x65AF0",
+   "kind": "function",
+   "name": "CCountryEntry::ScalarDeletingDestructor",
+   "signature": "CCountryEntry* __thiscall CCountryEntry::ScalarDeletingDestructor(CCountryEntry* this, unsigned int flags)",
+   "no_signature": null,
+   "comment": "Slot 0. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x65BF0",
+   "kind": "function",
+   "name": "CCountryEntry::SetDates",
+   "signature": "void __fastcall CCountryEntry::SetDates(CCountryEntry* this@ECX)",
+   "no_signature": null,
+   "comment": "date_begin: SWM_RECORDS_BEGIN_DATE with $DATE$ the record's start_tick; date_end: SWM_RECORDS_END_DATE with $DATE$ SWM_RECORDS_TODAY for a running war, the record's end_tick otherwise. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x65F50",
+   "kind": "function",
+   "name": "CCountryEntry::OnChecked",
+   "signature": "void __fastcall CCountryEntry::OnChecked(CCountryEntry* this@ECX)",
+   "no_signature": null,
+   "comment": "A tick on either background checkbox: selects the row (base slot 4) and redraws the window. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x65EF0",
+   "kind": "function",
+   "name": "CCountryEntry::OnUnchecked",
+   "signature": "void __fastcall CCountryEntry::OnUnchecked(CCountryEntry* this@ECX)",
+   "no_signature": null,
+   "comment": "Untick: unselects the row and redraws the window. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x65FA0",
+   "kind": "function",
+   "name": "CCountryEntry::SetSelected",
+   "signature": "void __thiscall CCountryEntry::SetSelected(CCountryEntry* this, bool selected)",
+   "no_signature": null,
+   "comment": "Slot 7: sets the list item byte +0x18 and the two checkbox states, and redraws the window. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x62D60",
+   "kind": "function",
+   "name": "GameStrategicWarfare_Clear",
+   "signature": "void __stdcall GameStrategicWarfare_Clear(void* warfare)",
+   "no_signature": null,
+   "comment": "Frees every record and each category's three rings, and empties the map. Named in CGameState::ResetSession's comment as 0x462D60. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x62F70",
+   "kind": "function",
+   "name": "GameStrategicWarfare_ResetIfPlayerChanged",
+   "signature": null,
+   "no_signature": "The record arrives in EDI, no parameters otherwise.",
+   "comment": "At CInGameIdler's per-frame call when the played country id differs from the record's: Clear, SetUpForNewGame with the state's player, and the dirty byte +0x18. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x63030",
+   "kind": "function",
+   "name": "GameStrategicWarfare_DailyUpdate",
+   "signature": "void __stdcall GameStrategicWarfare_DailyUpdate(void* warfare)",
+   "no_signature": null,
+   "comment": "Called first in RunDailyPass. Per record in map order: if running, AdvanceDay, and if the two countries are no longer at war (the played country's diplomacy status [enemy id]->War is null) it is marked ended (+0x1C = 1, end_tick = tick). If ended and at war again: the three categories are zeroed, start_tick = tick, running again. Then every country the player is at war with (CCountry CurrentAtWarWith) with no record gets a new one. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x63210",
+   "kind": "function",
+   "name": "GameStrategicWarfare_CreateRecord",
+   "signature": "void* __stdcall GameStrategicWarfare_CreateRecord(CCountryTag* enemy@EAX, int* tick@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "A new record (0x24 bytes) for `enemy`: start_tick = *tick, running, years = whole years from the start to the defines' end_date + 1, and its nine rings. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x620F0",
+   "kind": "function",
+   "name": "StrategicWarfareRecord_Init",
+   "signature": "void __stdcall StrategicWarfareRecord_Init(void* record, unsigned int years)",
+   "no_signature": null,
+   "comment": "Stores years and makes three categories (naval, air, land), each a ring of 30 days, 12 months and `years` years of 0x40-byte, eight-value elements; the day ring starts with offset 1. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x62260",
+   "kind": "function",
+   "name": "StrategicWarfareRecord_AdvanceDay",
+   "signature": "void __stdcall StrategicWarfareRecord_AdvanceDay(void* record)",
+   "no_signature": null,
+   "comment": "Daily, per category. Day ring: offset advanced with wrap, the slot now at `offset` zeroed. Unless the day ring has just wrapped to 0, the month element is the sum of the day ring (with the current slot) and the year element the sum of the month ring; on a wrap the month element is summed without the slot, the month ring advances; on the month ring wrapping likewise the year ring advances. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x62430",
+   "kind": "function",
+   "name": "StrategicWarfareRecord_CurrentElement",
+   "signature": "void* __fastcall StrategicWarfareRecord_CurrentElement(int category@ECX, void* record@EAX) @EAX",
+   "no_signature": null,
+   "comment": "The day ring element a tally adds to: at offset - 1 (ring order), 0 where the ring is empty. So events land in the previous slot, the slot at offset stays empty until the next day. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x62460",
+   "kind": "function",
+   "name": "StrategicWarfareRecord_GetCountryColour",
+   "signature": "void __fastcall StrategicWarfareRecord_GetCountryColour(void* record@ECX, CColor* out@ESI)",
+   "no_signature": null,
+   "comment": "The enemy country's CColor (CCountry +0xC34..+0xC48, the map colour). See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x62480",
+   "kind": "function",
+   "name": "StrategicWarfareRing_SumSeries",
+   "signature": "unsigned int* __fastcall StrategicWarfareRing_SumSeries(__int64* out@ECX, int duration@EAX, void* category@stack:4, int series@stack:8) @EAX",
+   "no_signature": null,
+   "comment": "The sum of one series over the chosen ring of a category. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x62510",
+   "kind": "function",
+   "name": "StrategicWarfareRing_CopySeries",
+   "signature": "void __stdcall StrategicWarfareRing_CopySeries(void* category@ECX, int duration@EAX, void* out@ESI, int series@stack:4)",
+   "no_signature": null,
+   "comment": "Copies a ring's values for one series into `out`, ring order from newest: not yet full, offset down to 0; full, offset-1 back to offset; the rest of `max_elements` padded with zeros. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x61590",
+   "kind": "function",
+   "name": "StrategicWarfareRing_SumInto",
+   "signature": "void __stdcall StrategicWarfareRing_SumInto(void* element@ECX, void* ring@EDI, char includeCurrent@stack:4)",
+   "no_signature": null,
+   "comment": "Writes the sum of the ring's eight columns into `element` (of the next ring up). See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x616F0",
+   "kind": "function",
+   "name": "StrategicWarfareRing_Allocate",
+   "signature": "void __fastcall StrategicWarfareRing_Allocate(unsigned int count@ECX, unsigned int* ring@EDX)",
+   "no_signature": null,
+   "comment": "Makes the ring's `count` zeroed elements of 0x40 bytes. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x61CB0",
+   "kind": "function",
+   "name": "StrategicWarfareRecord_Destruct",
+   "signature": "void __stdcall StrategicWarfareRecord_Destruct(void* record)",
+   "no_signature": null,
+   "comment": "Frees the record's three categories. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x61D40",
+   "kind": "function",
+   "name": "StrategicWarfareCategory_Zero",
+   "signature": "void __stdcall StrategicWarfareCategory_Zero(void* category)",
+   "no_signature": null,
+   "comment": "Zeroes every element of a category's three rings, when a war flares up again. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x61860",
+   "kind": "function",
+   "name": "StrategicWarfareRing_SaveContents",
+   "signature": "void __stdcall StrategicWarfareRing_SaveContents(void* ring, CSaveWriter* writer)",
+   "no_signature": null,
+   "comment": "Writes `max_elements`, `offset`, `is_full`, `data` (the elements' eight values each in Fixed15 with five decimals). See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x61DE0",
+   "kind": "function",
+   "name": "StrategicWarfareCategory_SaveContents",
+   "signature": "void __stdcall StrategicWarfareCategory_SaveContents(void* category, CSaveWriter* writer)",
+   "no_signature": null,
+   "comment": "Three `container` blocks, day, month and year. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x626F0",
+   "kind": "function",
+   "name": "StrategicWarfareRecord::SaveContents",
+   "signature": "void __thiscall StrategicWarfareRecord::SaveContents(StrategicWarfareRecord* this, CSaveWriter* writer)",
+   "no_signature": null,
+   "comment": "The enemy's tag = { end=, start_date=, end_date= (ended), years=, then the three categories }. As the comment on GameStrategicWarfare_SaveContents says, called for each record. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x632E0",
+   "kind": "function",
+   "name": "GameStrategicWarfare_HasRecord",
+   "signature": "bool __fastcall GameStrategicWarfare_HasRecord(void* warfare@ECX, CCountryTag* enemy@EAX) @EAX",
+   "no_signature": null,
+   "comment": "Whether a record exists for that country. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x64030",
+   "kind": "function",
+   "name": "GameStrategicWarfare_RecordBombingEnd",
+   "signature": "void __stdcall GameStrategicWarfare_RecordBombingEnd(void* warfare, void* combatant)",
+   "no_signature": null,
+   "comment": "From CBomberCombatant::ReportBombingEnd, for a bombing the played country is a side of: whether the player bombed or was bombed decides the argument order to TallyBombing. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x640E0",
+   "kind": "function",
+   "name": "GameStrategicWarfare_TallyBombing",
+   "signature": "int __stdcall GameStrategicWarfare_TallyBombing(void* warfare, void* combatant, void* bomberTag, void* targetTag)",
+   "no_signature": null,
+   "comment": "Air category's four columns of an ended bombing, added to the day element of the enemy's record: slot 0/4 the bombers' lost value (the bomber IC of `CalculateUnitDamageIC`), 1/5 the IC cost of the damaged buildings and the destroyed goods (goods at RESOURCE_TO_IC_COST), 2/6 the bomber strength lost, 3/7 the buildings' raw damage. Slots 4-7 where the played country is the bomber. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x63EC0",
+   "kind": "function",
+   "name": "GameStrategicWarfare_TallyConvoyRaid",
+   "signature": null,
+   "no_signature": "Register-convention: EAX, ECX and EDX all carry state from the call site at 0x5D2670 and seven stack words.",
+   "comment": "From ResolveConvoyRaid: for the played country as raider or victim, adds to the naval category's day element the raid's three figures: 0/3 convoy IC lost (StratWarfare_ConvoyLossIC), 1/4 cargo tons lost (StratWarfare_CargoTonsSunk), 2/5 the raiding navy's damage value (StratWarfare_UnitDamageIC of the raider, flags navy). See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x635B0",
+   "kind": "function",
+   "name": "StratWarfare_ConvoyLossIC",
+   "signature": null,
+   "no_signature": "cdecl arguments plus register inputs EAX (tag) and ESI (out).",
+   "comment": "Convoy IC lost: (escort build time * build cost) / CONVOY_CONSTRUCTION_SIZE times ships lost, plus for transports the transport build-cost term; Fixed15. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x633E0",
+   "kind": "function",
+   "name": "StratWarfare_CargoTonsSunk",
+   "signature": "unsigned int* __cdecl StratWarfare_CargoTonsSunk(unsigned int* out, unsigned int shipsLost, unsigned int ships, int convoy)",
+   "no_signature": null,
+   "comment": "Sum of the convoy's seven goods (convoy +8..+0x20) x the defines' CARGO_TONS_SUNK_SCALE x the fraction of the convoy lost. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x63730",
+   "kind": "function",
+   "name": "StratWarfare_UnitDamageIC",
+   "signature": null,
+   "no_signature": "cdecl-shaped with register inputs: EDI an out pointer (the 8 byte result).",
+   "comment": "The value of a unit's losses in Fixed15: walks every sub-unit type with the flags (ships/regiments/bombers) asked for; strength lost (0..1000) x the type's full build cost for a sub-unit fully lost, or the reinforcement fraction for damage. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x63AF0",
+   "kind": "function",
+   "name": "StratWarfare_SubUnitPartialCost",
+   "signature": null,
+   "no_signature": "Register input EAX (the country), EDX (out) and cdecl stack.",
+   "comment": "The IC (and manpower) of a part of a sub-unit: reinforcement cost for strength lost: IC term (sub-unit Fixed15 lost / base) * build_cost * build time scale, manpower term likewise. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x64660",
+   "kind": "function",
+   "name": "GameStrategicWarfare_AddToSeriesZeroOrFour",
+   "signature": null,
+   "no_signature": "Called with ECX=record, EAX/EDX=side, three stack words.",
+   "comment": "Adds an amount to slot 0 of the record (or 4 for the player's own bombers) in the air category. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x646E0",
+   "kind": "function",
+   "name": "GameStrategicWarfare_RecordBomberLosses",
+   "signature": null,
+   "no_signature": "ECX record, EAX the combat, one stack word.",
+   "comment": "Air combat end: a tally of the bombers each side lost (raw strength) added through GameStrategicWarfare_AddToSeriesZeroOrFour; for the side the played country is on. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x647F0",
+   "kind": "function",
+   "name": "GameStrategicWarfare_TallyLandDamage",
+   "signature": null,
+   "no_signature": "Receiver in this ecx plus EAX; see the call at 0x464977.",
+   "comment": "Land category columns 0/2 (the player's units) or 1/3 (the enemy's) with the IC and manpower cost of damage (StratWarfare_LandDamageCost) for a unit's settled combat damage. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x64940",
+   "kind": "function",
+   "name": "GameStrategicWarfare_OnSettleCombatDamage",
+   "signature": null,
+   "no_signature": "Receiver in EDI.",
+   "comment": "From CUnit::SettleCombatDamage: where a unit took combat damage under GetTotal damage, the attackers' side walked through GameStrategicWarfare_TallyLandDamage. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x649C0",
+   "kind": "function",
+   "name": "GameStrategicWarfare_TallyUnitDestroyed",
+   "signature": null,
+   "no_signature": "ECX record, EAX enemy tag, one stack word.",
+   "comment": "A land unit lost whole (from CUnit::RetreatFromCombat and CUnit::AdvanceMovement, CUnit::CheckOrderAndCombat): full build IC (0/1) and manpower (2/3) of every brigade, by whether the unit is the played country's. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x64B60",
+   "kind": "function",
+   "name": "StratWarfare_LandDamageCost",
+   "signature": null,
+   "no_signature": "Out pointers EDI and ESI.",
+   "comment": "The IC and manpower of a brigade's strength lost: full GetTotalBuildCost when the whole sub-unit is lost, else a proportional StratWarfare_SubUnitPartialCost. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x64C80",
+   "kind": "function",
+   "name": "StratWarfare_CombatSideLandLoss",
+   "signature": null,
+   "no_signature": "Combat side in EAX, three stack words.",
+   "comment": "A land side's hour of combat losses: every unit of the side of the given country, each brigade's strength lost through StratWarfare_LandDamageCost. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x64D40",
+   "kind": "function",
+   "name": "GameStrategicWarfare_TallyLandCombatSide",
+   "signature": null,
+   "no_signature": "Receiver in stack frame as `warfare, sideA, sideB`.",
+   "comment": "Per enemy on the other side: columns 0 (ours' IC), 1 (theirs' IC), 2 (ours' manpower), 3 (theirs' manpower) of the enemy's land category. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x64E50",
+   "kind": "function",
+   "name": "GameStrategicWarfare_OnCombatTick",
+   "signature": null,
+   "no_signature": "Combat in EAX, one stack word.",
+   "comment": "From CCombat::Tick at 0x56F1A5: a land combat side with the played country or an enemy of it updates the land category through GameStrategicWarfare_TallyLandCombatSide. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x64EE0",
+   "kind": "function",
+   "name": "GameStrategicWarfare_OnNavalCombatEnd",
+   "signature": null,
+   "no_signature": "Combat in EAX, one stack word.",
+   "comment": "From CNavalCombat::End (not for a convoy battle): the battle counted against the record when either side's ships have damage through GameStrategicWarfare_TallyNavalEnd. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x64F90",
+   "kind": "function",
+   "name": "GameStrategicWarfare_TallyNavalEnd",
+   "signature": null,
+   "no_signature": "Receiver in stack frame as `warfare, sideA, sideB`.",
+   "comment": "A naval combat that is a convoy raid's (the first unit's order token 0x6E9) ends: the damage the player's navy took counts in column 2 of the enemy's naval row, and the raiding side's in 5 of the player's convoy records. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x65140",
+   "kind": "function",
+   "name": "GameStrategicWarfare_TallyAttrition",
+   "signature": null,
+   "no_signature": "ECX record, EAX the unit, one stack word.",
+   "comment": "From ApplyAttrition: a land unit on land the enemy of its owner controls: the brigade's strength lost as IC and manpower, columns 0/2 or 1/3 of the land category of that enemy's record. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x6B29F0",
+   "kind": "function",
+   "name": "LineChart_SetLines",
+   "signature": "void __stdcall LineChart_SetLines(void* chart, void* lines)",
+   "no_signature": null,
+   "comment": "Copies one line per series into the chart: each point's stored colour and a height float = stored value (percent x 1000) x 1000 / floor((max + 0.0005) x 1000), so height = percent / 100 when the chart's max (+0x178) is 100. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x7256F0",
+   "kind": "function",
+   "name": "LineChart_RenderLine",
+   "signature": "void __cdecl LineChart_RenderLine(void* graphics, void* chart, void* points)",
+   "no_signature": null,
+   "comment": "Draws one line with gfx\\FX\\linechart.fx: vColorHeight from the 40 entries at most, bIsOutline from type +0x85, vScreenPosWidthHeight, vHalfLineWidthScale = (type +0x80 [linewidth / 2], width / pointCount), a strip of 2 x (points - 1) triangles. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x725A30",
+   "kind": "function",
+   "name": "LineChart_Render",
+   "signature": "void __cdecl LineChart_Render(void* graphics, void* chart)",
+   "no_signature": null,
+   "comment": "The drawn object's render: one pass per line of chart +0x160 list (+0x58 begin/+0x59), a single empty-input line drawn through LineChart_RenderLine. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x725170",
+   "kind": "function",
+   "name": "LineChartType::LineChartType",
+   "signature": "LineChartType* __thiscall LineChartType::LineChartType(LineChartType* this, void* storage)",
+   "no_signature": null,
+   "comment": "Keyword LineChartType (token 400): 0x88 bytes, effect file `gfx\\FX\\linechart.fx`, linewidth default 1 and the two bytes +0x84, +0x85 default 1, 0. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x7252C0",
+   "kind": "function",
+   "name": "LineChartType::LoadKey",
+   "signature": "void __thiscall LineChartType::LoadKey(LineChartType* this, void* parse, int key)",
+   "no_signature": null,
+   "comment": "Keys: token 0x191 `linewidth` (value/1000 * 0.5 at +0x80), 0x166 and 0x1BA two yes/no at +0x84 and +0x85 (the latter is bIsOutline, the file's `outline`), 0x59 the effect path, 0x2E size through the base. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x2CBB70",
+   "kind": "function",
+   "name": "CTopBar::OnStrategicWarfareButton",
+   "signature": "void __thiscall CTopBar::OnStrategicWarfareButton(CTopBar* this)",
+   "no_signature": null,
+   "comment": "swm_open's handler: toggles the window: visible -> Hide (slot 3); hidden -> Show (slot 2) then slot 6 (forward to the gui window, its slot 0x2C). See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x6FA00",
+   "kind": "function",
+   "name": "CTheatreView::CTheatreView",
+   "signature": "CTheatreView* __stdcall CTheatreView::CTheatreView(CTheatreView* this@stack:4, CInGameIdler* idler@stack:8) @EAX",
+   "no_signature": null,
+   "comment": "The theatres screen's constructor, called once from CInGameIdler_BuildViews (0x259760), the sixth view (index 5 of +0xD00). Base CCountryView with `country_theatres`, `topcolor_theatres` and **view_index 4** - the same index the espionage view passes. Sets +0xC0 = 1, +0xB8/+0xBC = 0 and sizes the vector at +0xC4 to the sub-unit database's count (zeros). Hangs observers on `selected_theatre`'s `build` (the glue at +0xD8, handler CTheatreView::OnBuild, 0x72030) and `goto_button` (+0x104, handler CTheatreView::OnGoto, 0x73320). Size not read.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x6FD70",
+   "kind": "function",
+   "name": "CTheatreView::ScalarDeletingDestructor",
+   "signature": "void* __thiscall CTheatreView::ScalarDeletingDestructor(CTheatreView* this, int flags)",
+   "no_signature": null,
+   "comment": "Slot 1, the ordinary scalar deleting destructor: runs 0x6FDA0 and frees when the flag's low bit is set.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x6FE00",
+   "kind": "function",
+   "name": "CTheatreView_RefillLists",
+   "signature": "void __stdcall CTheatreView_RefillLists(CTheatreView* view@ESI)",
+   "no_signature": null,
+   "comment": "**Empties `my_theatres` and `allied_theatres` and makes their rows again.** Looks in the idler's selection (+0x1304, only when its count +0x130C > 0) for the first entry with slot 1 == 0 (a land unit) and oob_level (+0x1F4) == 0 - a selected theatre headquarters. Then, for each CTheatre of the **played** country's own AI strategy (area_theatre, country +0x570) in list order whose headquarters exists (id pair +0x74/+0x78, FindPersistentByIdPair), a CTheatreEntry in `my_theatres`, and the theatre becomes selected (+0xB8/+0xBC = its id pair, +0xC0 = 1) if its headquarters is the selected one **or** nothing is selected yet. Then every country on the player's Allies list (+0xF88), in list order, and each of **their** theatres likewise into `allied_theatres`, chosen only if nothing is selected yet. No sort. A theatre with no headquarters makes no row.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x701D0",
+   "kind": "function",
+   "name": "CTheatreView::Show",
+   "signature": "void __thiscall CTheatreView::Show(CTheatreView* this)",
+   "no_signature": null,
+   "comment": "Slot 2: CTheatreView_RefillLists; +0xC0 = 1; slot 6 (Update) once; shows `topcolor_theatres` (+0xAC) then `country_theatres` (+0xA8); tail-jumps slot 11 (UpdateAutomationLine), which does nothing on this screen because the file declares no `automation_setting`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x70220",
+   "kind": "function",
+   "name": "CTheatreView_ShowImmediateNeeds",
+   "signature": "void __stdcall CTheatreView_ShowImmediateNeeds(CTheatreView* view@stack:4, void* window@stack:8, CUnit* hq@stack:0xC)",
+   "no_signature": null,
+   "comment": "**`immediate_needs` and the `build` button.** The HQ's `plan_subunit_needed` (+0x7C, one int per unit type) is copied into the view's vector at +0xC4 only when its length is the database's; each line of the **played** country's own queue that is a military line (slot 17 true) and aimed at this HQ (target +0x90/+0x94 = HQ +0x10/+0x14) takes `Size` off the entry of every brigade type it holds. If any entry is above nought the text is `<n> \u00a3<type key>, ` over all such types in database order, the trailing `, ` taken off (`\u00a3` is the counter-in-text escape), and `build` is enabled when the HQ's owner (+0x128) is the played country (slot 46), disabled otherwise (slot 47). Otherwise `immediate_needs` says NO_NEEDS_FOR_BUILDS and `build` is disabled. Text box `immediate_needs`, button `build`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x70D50",
+   "kind": "function",
+   "name": "CTheatreView_ShowForces",
+   "signature": "void __stdcall CTheatreView_ShowForces(void* window@stack:4, CUnit* hq@stack:8)",
+   "no_signature": null,
+   "comment": "**`forces`.** Counts, per unit type, every brigade of every unit on the HQ owner's unit list (+0xBAC) whose CUnit_FindTheatre answers the same theatre as the HQ's; the text is `<n> \u00a3<key>, ` over the types with a count above nought, in database order, the trailing `, ` taken off; empty when none.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x711C0",
+   "kind": "function",
+   "name": "CTheatreView_FillAreas",
+   "signature": "void __fastcall CTheatreView_FillAreas(void* window@ECX, CTheatreView* view@stack:4, CUnit* hq@stack:8)",
+   "no_signature": null,
+   "comment": "**`areas`, emptied and refilled**: for each front (CAreaBorder, CTheatre +0x50, list order) of the HQ's theatre that has **at least two provinces** (byte length of +0x8..+0xC above 4) and whose enemy (+0x1C/+0x20) is **not** a friend of the played country (CCountry::IsFriend(player, enemy, true)), a CAreaEntry row, 0x1A0 bytes.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x71410",
+   "kind": "function",
+   "name": "CTheatreView_ShowObjectives",
+   "signature": "void __stdcall CTheatreView_ShowObjectives(void* window@stack:4, CUnit* hq@stack:8)",
+   "no_signature": null,
+   "comment": "**`objective` and `current_operation`.** `objective` = CUnit_ObjectivesSummaryText (0x1B5B50) of the HQ, or the text of NO_OBJECTIVES when that is empty. `current_operation` = for each AI agent of the HQ owner's CEU3AI (agents list at ai +0x50) whose slot 60 gives a non-empty land force: the first land unit whose top HQ's theatre is the HQ's own theatre, and then, where the agent's +0x84 and +0x88 are both set, THEATRE_INVASION with $TARGET$ = province +0x84's name and $STAGE$ = +0x88's. Several agents append with no separator. NO_INVASION_PLAN when nothing matched.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x71AD0",
+   "kind": "function",
+   "name": "CTheatreView::Update",
+   "signature": "void __thiscall CTheatreView::Update(CTheatreView* this)",
+   "no_signature": null,
+   "comment": "Slot 6. Finds the selected theatre by its id pair (+0xB8/+0xBC). While the screen is open (slot 7): where no theatre was found it takes the first row of `my_theatres`, if any. Only when the theatre is found **and** the dirty byte +0xC0 is set does it clear the byte and fill `selected_theatre`: `title` = the HQ's name (slot 7), `country_icon` shield = the HQ's owner, `land_stance`/`air_stance`/`naval_stance` = PlanStanceName / PlanAirStanceName / PlanNavalStanceName of plan_stance +0x208 / +0x20C / +0x210, then ShowImmediateNeeds, ShowForces, ShowObjectives, FillAreas. Every frame after that it calls every `areas` row's slot 8 (Update) - and only those, the theatre lists' rows are not touched.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x72010",
+   "kind": "function",
+   "name": "CTheatreView::Rebuild",
+   "signature": "bool __thiscall CTheatreView::Rebuild(CTheatreView* this)",
+   "no_signature": null,
+   "comment": "Slot 0: slot 4 (Hide), CCountryView::Rebuild; on success CTheatreView_RefillLists.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x72030",
+   "kind": "function",
+   "name": "CTheatreView::OnBuild",
+   "signature": "void __thiscall CTheatreView::OnBuild(CTheatreView* this)",
+   "no_signature": null,
+   "comment": "`selected_theatre`'s `build` (glue at +0xD8): +0xD4 = the played country's Manpower, then CTheatreView::BuildStep until it answers false. Nothing refreshes the text afterwards; the needs shown are stale until the screen is reselected or reopened.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x72120",
+   "kind": "function",
+   "name": "CTheatreView::BuildStep",
+   "signature": "bool __thiscall CTheatreView::BuildStep(CTheatreView* this) @AL",
+   "no_signature": null,
+   "comment": "**One round of the Build button of the selected theatre**, the twin of _A0x8295b6bf::CAreaEntry::BuildStep (rva 0x6D790), which is the same shape on a row's needs and a manpower local. Over the view's +0xC4 needs: air = sum over is_air types, land = over is_land, ship = over is_ship. If air > land/4: the air type with the highest score of need*5000 + (r % (need*10 + 1))*1000, r from a stack MT19937 whose state is never seeded (need > 0, is_buildable, CountMaxUnitsStillBuildable >= 1; strict, first wins); a series size root = integer square root of the need (Newton from need/2, at least 1); lines = need/root; each line drops root until 2..root is affordable, charges the manpower, posts a CConstructUnitCommand (brigade list [type], province = country +0xE24, amount = the series size, target the HQ) and takes the size off the need. Else land > 2: one division - in database order, first types with priority > 4, then types with priority < 5, needs decremented as they go, up to (BRIGADES_IN_DIVISION + division_size)/1000 brigades (one fewer in the first pass); CanBuildDivision(list, country, 1) true: charge it, post one CConstructUnitCommand, true; false: fall to the single pick below. Else land > 0: the land type picked by the same score, built as air is. Else ships, the same. Answers false when manpower goes below nought or nothing is pickable, true otherwise. The command's owner is the played country, the builder `---`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x73320",
+   "kind": "function",
+   "name": "CTheatreView::OnGoto",
+   "signature": "void __thiscall CTheatreView::OnGoto(CTheatreView* this)",
+   "no_signature": null,
+   "comment": "`selected_theatre`'s `goto_button` (glue at +0x104). Finds the selected theatre and its HQ; **if the HQ is the player's** (slot 2): deselects it first if already selected (slot 45), ClearSelection (46), slot 93, Select(hq) (38), CentreOnProvinceId of the HQ's province (+0x130 province id, slot 47). Then, in every case, closes: if +0xB4 is 0 and a view is open, OpenCountryView(the open view) - the toggle.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x6C380",
+   "kind": "function",
+   "name": "_A0x8295b6bf::CTheatreEntry::CTheatreEntry",
+   "signature": "_A0x8295b6bf::CTheatreEntry* __stdcall _A0x8295b6bf::CTheatreEntry::CTheatreEntry(_A0x8295b6bf::CTheatreEntry* this@stack:4, CTheatreView* view@stack:8, CTheatre* theatre@stack:0xC, CInGameIdler* idler@ECX) @EAX",
+   "no_signature": null,
+   "comment": "One row of `my_theatres`/`allied_theatres`, 0x90 bytes, window `theatre_entry`. Keeps the theatre's id pair (+0x80/+0x84), the view (+0x88); calls Refresh and hangs its glue (+0x30, handler OnSelect) on `background_button`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x6C500",
+   "kind": "function",
+   "name": "_A0x8295b6bf::CTheatreEntry::Refresh",
+   "signature": "void __stdcall _A0x8295b6bf::CTheatreEntry::Refresh(_A0x8295b6bf::CTheatreEntry* this@stack:4)",
+   "no_signature": null,
+   "comment": "`title` = the HQ's name (slot 7), `country_icon` shield = the HQ's owner (+0x128), then Update (slot 8) once. Nothing further when the theatre or HQ is gone. Called only from the constructor.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x6C6A0",
+   "kind": "function",
+   "name": "_A0x8295b6bf::CTheatreEntry::OnSelect",
+   "signature": "void __thiscall _A0x8295b6bf::CTheatreEntry::OnSelect(_A0x8295b6bf::CTheatreEntry* this)",
+   "no_signature": null,
+   "comment": "`background_button`'s handler: where the row's theatre still exists, the view's selection (+0xB8/+0xBC) becomes that theatre's id pair and +0xC0 = 1. Bare ret; nothing else.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x6C6F0",
+   "kind": "function",
+   "name": "_A0x8295b6bf::CTheatreEntry::Update",
+   "signature": "void __thiscall _A0x8295b6bf::CTheatreEntry::Update(_A0x8295b6bf::CTheatreEntry* this)",
+   "no_signature": null,
+   "comment": "Slot 8. `theatre_plupp` (three frames) by CUnitPlan::GetPowerRatio of the theatre HQ's plan (+0x1FC) as a float: frame 1 above 0.75, frame 2 above 0.5, else frame 3 (the ratio is -1 when their_power is exactly 0, so frame 3). Called only from Refresh.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x6C840",
+   "kind": "function",
+   "name": "_A0x8295b6bf::CAreaEntry::CAreaEntry",
+   "signature": "_A0x8295b6bf::CAreaEntry* __stdcall _A0x8295b6bf::CAreaEntry::CAreaEntry(_A0x8295b6bf::CAreaEntry* this@stack:4, CTheatreView* view@stack:8, CTheatre* theatre@stack:0xC, CAreaBorder* front@stack:0x10, CInGameIdler* idler@ECX) @EAX",
+   "no_signature": null,
+   "comment": "One row of `areas`, 0x1A0 bytes, window `area_entry`. Four observer glues: +0x30 (goto, OnGoto), +0x80 (build, OnBuild), +0xD0 (the stub 0xABF890, **never attached to anything**), +0x120 (stance, OnStance). Keeps the theatre id pair (+0x170/+0x174), view (+0x178), front (+0x17C), +0x180 = 0, +0x184 vector sized to the type count, +0x198 = 1. Then Setup (0x6CF20).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x6CB00",
+   "kind": "function",
+   "name": "_A0x8295b6bf::CAreaEntry::~CAreaEntry",
+   "signature": "void __stdcall _A0x8295b6bf::CAreaEntry::~CAreaEntry(_A0x8295b6bf::CAreaEntry* this@stack:4)",
+   "no_signature": null,
+   "comment": "The destructor: frees the needs vector, resets the four glues and the base. Called by the scalar deleting destructor at 0x6F9D0.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x6CBD0",
+   "kind": "function",
+   "name": "_A0x8295b6bf::CAreaEntry::ChooseProvince",
+   "signature": "CMapProvince* __stdcall _A0x8295b6bf::CAreaEntry::ChooseProvince(_A0x8295b6bf::CAreaEntry* this@EAX) @EAX",
+   "no_signature": null,
+   "comment": "**Which province names a front's row.** The front's provinces (+0x8) in list order, n of them, half = n / 2: the score of index i is 4 * (1 - |i - half| / half) + the province's +0x5C (MaxInfrastructure) / 1000, as a float, the highest strictly above 0.0 winning, first of equals. Null when no province scores above nought. Written out with a four-at-a-time unrolling of the loop.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x6CF20",
+   "kind": "function",
+   "name": "_A0x8295b6bf::CAreaEntry::Setup",
+   "signature": "void __stdcall _A0x8295b6bf::CAreaEntry::Setup(_A0x8295b6bf::CAreaEntry* this@EDI)",
+   "no_signature": null,
+   "comment": "With the theatre and HQ found and a province chosen (+0x180 = ChooseProvince): sets the icon `theatres_continent` to the first sprite that exists of `GFX_theatres_<province id>`, then each of the province's regions in the map's order `GFX_theatres_<region name>`, then - only where the province's continent is the front enemy's acting capital's continent - `GFX_theatres_<enemy tag>`, then `GFX_theatres_continent_<continent name>`; none found leaves the file's `GFX_theatres_continent_europe`. `title` = FRONT_TITLE with $FROM$ the province's name and $TO$ the enemy's name. Attaches `goto_button` (+0x30), `build` (+0x80), `stance` (+0x120). Stores the HQ's stance (+0x208) in +0x194. Update (slot 8) once. Nothing at all when no province was chosen.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x6D5A0",
+   "kind": "function",
+   "name": "_A0x8295b6bf::CAreaEntry::OnGoto",
+   "signature": "void __thiscall _A0x8295b6bf::CAreaEntry::OnGoto(_A0x8295b6bf::CAreaEntry* this)",
+   "no_signature": null,
+   "comment": "`goto_button`: CentreOnProvinceId(chosen province's id), then closes the view as OnGoto of the view does. Selects nothing.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x6D6A0",
+   "kind": "function",
+   "name": "_A0x8295b6bf::CAreaEntry::OnBuild",
+   "signature": "void __thiscall _A0x8295b6bf::CAreaEntry::OnBuild(_A0x8295b6bf::CAreaEntry* this)",
+   "no_signature": null,
+   "comment": "`build`: a local = the played country's Manpower, BuildStep until false, then ShowNeeds so the row's needs and button refresh.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x6D790",
+   "kind": "function",
+   "name": "_A0x8295b6bf::CAreaEntry::BuildStep",
+   "signature": "bool __stdcall _A0x8295b6bf::CAreaEntry::BuildStep(_A0x8295b6bf::CAreaEntry* this@stack:4, int* manpower@stack:8) @AL",
+   "no_signature": null,
+   "comment": "One round of an area row's Build: the same order and arithmetic as CTheatreView::BuildStep (0x72120, see there), over the row's needs vector (+0x184) and the manpower local. The province of every command is the played country's +0xE24; the target is the theatre HQ's id pair.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x6E9A0",
+   "kind": "function",
+   "name": "_A0x8295b6bf::CAreaEntry::OnStance",
+   "signature": "void __thiscall _A0x8295b6bf::CAreaEntry::OnStance(_A0x8295b6bf::CAreaEntry* this)",
+   "no_signature": null,
+   "comment": "**`stance` on an area row is a label and posts nothing.** +0x194 + 1, wrapped to 0 at 5; +0x198 = 1. Nothing but this and the label reads +0x194: the row's Update reads the plan's stance, not this, so the odds do not change.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x6E9C0",
+   "kind": "function",
+   "name": "_A0x8295b6bf::CAreaEntry::SetStanceLabel",
+   "signature": "void __stdcall _A0x8295b6bf::CAreaEntry::SetStanceLabel(_A0x8295b6bf::CAreaEntry* this@stack:4, int stance@stack:8)",
+   "no_signature": null,
+   "comment": "The `stance` button's text = PlanStanceName(stance), through its slot 51.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x6EA80",
+   "kind": "function",
+   "name": "_A0x8295b6bf::CAreaEntry::Update",
+   "signature": "void __thiscall _A0x8295b6bf::CAreaEntry::Update(_A0x8295b6bf::CAreaEntry* this)",
+   "no_signature": null,
+   "comment": "Slot 8, every frame but acting only when +0x198 is set. SetStanceLabel(+0x194); builds a CList of the front's provinces and calls CUnit::UpdatePlanForceNeeds(hq, ?, ?, needs +0x184, that list); where it answers true, takes each brigade of each military line of the played country's own queue aimed at the HQ off +0x184 and ShowNeeds; otherwise `forces_needs` = NO_NEEDS_FOR_BUILDS and `build` disabled. ShowOdds(the **plan's** stance, row, the plan's power ratio); +0x198 = 0; and `current_odds` frames 1/2/3 as the theatre row. The odds are the one figure of the theatre's plan: every row of a theatre shows the same.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x6F090",
+   "kind": "function",
+   "name": "_A0x8295b6bf::CAreaEntry::ShowNeeds",
+   "signature": "void __stdcall _A0x8295b6bf::CAreaEntry::ShowNeeds(_A0x8295b6bf::CAreaEntry* this@stack:4)",
+   "no_signature": null,
+   "comment": "`forces_needs` = `<n> \u00a3<key>, ` over row needs above nought (database order, trailing comma off), NO_NEEDS_FOR_BUILDS when none. `build` enabled when the HQ's owner is the played country and there are needs; else disabled.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x6F7E0",
+   "kind": "function",
+   "name": "_A0x8295b6bf::CAreaEntry::ShowOdds",
+   "signature": "void __stdcall _A0x8295b6bf::CAreaEntry::ShowOdds(int stance@ECX, _A0x8295b6bf::CAreaEntry* this@stack:4, int ratio@stack:8)",
+   "no_signature": null,
+   "comment": "`odds_description` = ODDS_ + DEFEND_ for stances 0-2 or ATTACK_ for 3-4 + GOOD when ratio > 750, AVERAGE when > 500, BAD otherwise.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x6F9D0",
+   "kind": "function",
+   "name": "_A0x8295b6bf::CAreaEntry::ScalarDeletingDestructor",
+   "signature": "void* __thiscall _A0x8295b6bf::CAreaEntry::ScalarDeletingDestructor(_A0x8295b6bf::CAreaEntry* this, int flags)",
+   "no_signature": null,
+   "comment": "Slot 0 of CAreaEntry's table at offset 0.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0xE1600",
+   "kind": "function",
+   "name": "CCountry_GetBrigadesManpowerCost",
+   "signature": "CFixedPoint* __stdcall CCountry_GetBrigadesManpowerCost(CCountry* country@stack:4, CFixedPoint* out@stack:8, void* brigades@stack:0xC, int amount@stack:0x10) @EAX",
+   "no_signature": null,
+   "comment": "The manpower of a list of brigades built `amount` times over: for each CSubUnitDefinition of the CList, a throwaway regiment/wing/ship with the country's technology levels applied, its definition's BuildCostMP scaled by (country's per-type figure at technology status +0x25C + 1000)/1000, floored at g_OneTwentieth, summed; the result is sum * amount (through a float floor of (amount + 0.0005) * 1000 / 1000). Called from the build steps here and others not read.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x1B5B50",
+   "kind": "function",
+   "name": "CUnit_ObjectivesSummaryText",
+   "signature": "Hoi3CString* __stdcall CUnit_ObjectivesSummaryText(CUnit* unit@stack:4, Hoi3CString* out@stack:8) @EAX",
+   "no_signature": null,
+   "comment": "The plan's objectives as text, empty where the plan is inactive (+0x204) or has none. Up to three: their names joined with `, ` and ` & ` before the last. Four or more: the one with the highest score - victory points * 20000 + province modifier 0xF + 1000 if it has an air base, 1000 if a naval base, 10000 if the holder's capital - as OBJ_AND_MORE with $NAME$.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x1BD930",
+   "kind": "function",
+   "name": "CUnit::CollectRegiments",
+   "signature": "void __thiscall CUnit::CollectRegiments(CUnit* this, void* out, void* area)",
+   "no_signature": null,
+   "comment": "Appends the unit's brigades to the CList `out`, recursing through CUnit::children (+0x1E4). Where `area` is non-null and the unit answers slot 15 true (CArmy only: 0xA92590 true, base false), only if the unit's destination - the last province of its path (movement_order_last_current_province_ptr, +0x13C, when the path count +0x140 is above 0), else its current province (+0x130) - is on the area list; navies and air units are always taken. `area` null: every brigade. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x4E10E0",
+   "kind": "function",
+   "name": "CUnit_PlanBaseBrigades",
+   "signature": "int __cdecl CUnit_PlanBaseBrigades(CUnit* unit)",
+   "no_signature": null,
+   "comment": "The null arm's base size. By oob_level: 4 -> 3, 3 -> 9, 2 -> 27, 1 -> 81; 0 -> the sum over its direct children (recursing), at least 9 (9 with no children); any other level (navy 5, air 6, other) -> 0. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x4E1CB0",
+   "kind": "function",
+   "name": "CUnitPlan_CountHoldProvinces",
+   "signature": "int __stdcall CUnitPlan_CountHoldProvinces(void* provinces@EAX, CUnit* unit@EDI, void* plan@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "Of the provinces on the list in EAX: the count whose controller id (+0x338) is the unit's owner id and whose CUnitPlan_ProvinceHoldScore(plan, unit, province) is 25 or more. `ret 4`, the list and the unit in registers. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x4E1160",
+   "kind": "function",
+   "name": "CUnitPlan_ProvinceHoldScore",
+   "signature": "int __stdcall CUnitPlan_ProvinceHoldScore(void* plan, CUnit* unit, CMapProvince* province)",
+   "no_signature": null,
+   "comment": "**How much a province wants a garrison** (the sibling of CAIUnit_ProvinceHoldValue, 0x4B9710, with a plan instead of a flag). Truncated to int (`ret 0xC`). C = unit's owner. 0 if MaxInfrastructure (+0x5C) < 0.2 (g_TwoTenths). Over the province's edges not of kind 3 to a simulated land province N: if province VP (+0x34) is 0 and its supply_depot_id (+0x48) is not its own id and IsWarCandidate(C, N.controller): **return 0**. FRA facing BEL or LUX (or BEL facing LUX), the controller not C's subject and GER holding land, not in C's faction and not IsEnemy(GER, N.controller, N): sum += 4000, count++ (and past the rest for that edge). Else N's controller not IsFriend(C, true): t = GetThreat(C, controller) + (GetAntagonism when C is at peace and the nearest agent's enabled byte (+0x3C) is set); t >= 100: sum += t, count++. count > 0: v = sum / count / 20 + count. Then, unless MaxInfrastructure < 0.2 again: the first such edge whose controller is unfriendly and (threat >= 100 or IsFrontWorthyEnemy): v += 3 x land_fort level (`modifiers +0x50 / 1000`), stop. coastal_fort level cf > 0: v += 5 x (cf + 1). w = air base level (+0x304 +0x20 / 1000); naval level n (+0x300 +0x20 / 1000) > 0: for GER/ITA x = (5n + 15) x 2, above 100 becoming (x - 100)/5 + 90, others x = n; w += x. Province not in its controller's acting capital area and its area under 15 provinces: w *= 2. v += w. VP > 0 owned by C: v += max(VP x 100 / (victory_points_owned/1000), 2VP + 10), or (controlled by C, owner not in exile) 2VP + 10 alone. C's acting capital +100; real strategic resource (+0x18, slot 14) +60; v += (IC modifier id 15 / 1000) x max(effective revolt, max(minimum revolt, 0)) / 1000; its own supply depot +100; naval level > 0 and a naval station: v += 30 + 2 x (ships of naval units there). Finally + 0.25 x the plan's objective priority on this province (plan +0x38 list), and, if the nearest agent's +0x3C is set, + the controller's strategy defend_prov entry for the province.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x4E260D",
+   "kind": "instruction",
+   "name": "ComputePlanWanted_EnemyHoldsOwnTag",
+   "signature": null,
+   "no_signature": null,
+   "comment": "**The line that makes the area arm's threat lookup dead.** Inside the loop over a foreign unit's brigades the code stores `[esp+0x30]/[esp+0x34] = unit->owner` - `eax` here came from `[ebp+0xC]`, the plan's own unit - so the id tested at 0x8E2708 against 0, our id and a war is always 0 (no foreign unit met) or our own id, never the enemy's. Reads as a slip for `other->owner`; built as read.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x171528C",
+   "kind": "global",
+   "name": "g_TwoTenths",
+   "signature": null,
+   "no_signature": null,
+   "comment": "200 thousandths: `(int)floorf(200.5f)`, .CRT$XCU at 0xD11FC0, float at 0x160A64C. A province under it has no hold score, and it is the plan's default scale at peace (ComputePlanWantedSubUnits). Exe-hardcoded.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x17152A8",
+   "kind": "global",
+   "name": "g_OneTenth",
+   "signature": null,
+   "no_signature": null,
+   "comment": "100 thousandths: `(int)floorf(100.5f)`, .CRT$XCU at 0xD11F30, float at 0x160A684. Floor of ComputePlanWantedSubUnits' scale. Exe-hardcoded.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x17152F0",
+   "kind": "global",
+   "name": "g_OneAndAHalf",
+   "signature": null,
+   "no_signature": null,
+   "comment": "1500 thousandths: `(int)floorf(1500.5f)`, .CRT$XCU at 0xD123B0, float at 0x160A818. ComputePlanWantedSubUnits' stance factor at stance 2 and its high-side multiplier. Exe-hardcoded.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x17152D0",
+   "kind": "global",
+   "name": "g_TwoAndAHalf",
+   "signature": null,
+   "no_signature": null,
+   "comment": "2500 thousandths: `(int)floorf(2500.5f)`, .CRT$XCU at 0xD12440, float at 0x160AB20. ComputePlanWantedSubUnits' stance factor at stance 4. Exe-hardcoded.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
+  },
+  {
+   "rva": "0x3954F0",
+   "kind": "function",
+   "name": "LedgerPage_NamedColumnRects",
+   "signature": null,
+   "no_signature": "this (the vector of rectangles) in ECX and the page's short name by value on the stack; not given a class, the vector being a plain std::vector",
+   "comment": "The column rectangles of a ledger page that takes its widths from the interface files: `ledger_<name>0` or `ledger_default_title_col` for the first, `ledger_<name><i>` or `ledger_default_normal_col` for the rest, each from the last one's right, y 0..30. **Only LedgerPage_National calls it, with `nat_stat`**; every other page has its rectangles in its own code. See reversing/findings/FINDINGS-topscreens.md, section B.10.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md"
   }
  ],
  "structs": [
@@ -70921,6 +72637,20 @@
    "size": "0xDA8",
    "fields": [
     {
+     "offset": "0xCD4",
+     "name": "ledger_sort_ascending",
+     "type": "int*",
+     "comment": "Beside +0xCC4, 1 = ascending, 0 = descending, per page. See reversing/findings/FINDINGS-topscreens.md, section B.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0xCC4",
+     "name": "ledger_sort_columns",
+     "type": "void*",
+     "comment": "A vector of 0x1C-byte std::strings: the sort column name of each page. Set by clicking a header (0x686B40), read when a page opens (0x795300 through 0x686BD0). See reversing/findings/FINDINGS-topscreens.md, section B.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
      "offset": "0xC0",
      "name": "controllers_changed",
      "type": "bool",
@@ -71674,6 +73404,27 @@
   {
    "name": "CInGameIdler",
    "fields": [
+    {
+     "offset": "0x1D40",
+     "name": "ledger_last_page",
+     "type": "int",
+     "comment": "The page the ledger was on when closed; the next open starts there (0x67354E, stored at 0x7C2F20). See reversing/findings/FINDINGS-topscreens.md, section B.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x1D3D",
+     "name": "ledger_close_requested",
+     "type": "uint8_t",
+     "comment": "Set by the ledger's close and by several other screens' close paths; tested each frame at 0x65676F, where the ledger is destroyed and the pause restored. See reversing/findings/FINDINGS-topscreens.md, section B.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x1CE0",
+     "name": "statistics_ledger",
+     "type": "CStatisticsLedger*",
+     "comment": "The open ledger or null. Written at 0x67357A by the opener and cleared by CInGameIdler::Update at 0x656798. See reversing/findings/FINDINGS-topscreens.md, section B.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
     {
      "offset": "0x12E1",
      "name": "victory_dialog_shown",
@@ -75950,8 +77701,8 @@
      "offset": "0x7C",
      "name": "plan_subunit_needed",
      "type": "std::vector<int>",
-     "comment": "Per subunit type, the part of the deficit that the group as a whole is still short of - min(difference[i], whatever is left of that group's net difference), taken in index order. This is the list the plan machinery asks for.",
-     "source": "reversing/findings/FINDINGS-manpower.md"
+     "comment": "Per subunit type, the part of the deficit that the group as a whole is still short of - min(difference[i], whatever is left of that group's net difference), taken in index order; only positive entries are set. What CTheatreView's `immediate_needs` reads (a length other than the database's count is treated as empty). Not saved. An active plan at the top of the order of battle reads plan->min (the AI's aircraft wants), an inactive one the wanted vector ComputePlanWantedSubUnits has just rebuilt.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
     },
     {
      "offset": "0x95",
@@ -76342,8 +78093,8 @@
      "offset": "0x26C",
      "name": "plan_subunit_wanted",
      "type": "std::vector<int>",
-     "comment": "The composition the plan asks for, per subunit type - the array 0x4E1D00 fills from the plan and the owner's available subunit types. Sits inside CUnit::plan at plan+0x70.",
-     "source": "reversing/findings/FINDINGS-manpower.md"
+     "comment": "The composition the plan asks for, per subunit type: CUnitPlan +0x70, the save's `min` (written only for an active plan). Where the top of the order of battle has an active plan at oob_level 0 it is written only by CUnitPlan::SetMinForces (CSetPlanForcesCommand, and for an AI theatre the six aircraft wants of CAIUnit_ComputePlanForces); otherwise CUnit::UpdatePlanForceNeeds' null arm rebuilds it each time through ComputePlanWantedSubUnits - and there it holds what is to be **added**, net of the unit's brigades by role.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
     },
     {
      "offset": "0x270",
@@ -93511,6 +95262,13 @@
    "source": "reversing/findings/FINDINGS-countryviews.md",
    "fields": [
     {
+     "offset": "0xB4",
+     "name": "close_blocked",
+     "type": "bool",
+     "comment": "Zeroed by the constructor (0x6EB14C); while non-zero the close button and both goto handlers leave the view open. No writer but that zeroing was found in the view's own code, so it may never be set - inferred.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
      "offset": "0x7C",
      "name": "close_observer",
      "type": "void*",
@@ -108319,6 +110077,697 @@
      "source": "reversing/findings/FINDINGS-endgame.md"
     }
    ]
+  },
+  {
+   "name": "CStatisticsLedger",
+   "vftable_rva": "0x11DC714",
+   "size": "0x2F8",
+   "comment": "The statistics ledger window's controller; created and destroyed around CInGameIdler +0x1CE0.",
+   "source": "reversing/findings/FINDINGS-topscreens.md",
+   "fields": [
+    {
+     "offset": "0x2C8",
+     "name": "building_mode",
+     "type": "int",
+     "comment": "0, 1 or 2 by three handlers (0x3BFFC0, 0x3C0000, 0x3C0040) of an unused building page; not reached by any bound button in this build. See reversing/findings/FINDINGS-topscreens.md, section B.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x1C4",
+     "name": "graph_index",
+     "type": "int",
+     "comment": "0..3, moved only by the two dead graph buttons. See reversing/findings/FINDINGS-topscreens.md, section B.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x1C0",
+     "name": "idler",
+     "type": "CInGameIdler*",
+     "comment": "The in-game idler: +0x1D3D and +0x1D40 are set on close. See reversing/findings/FINDINGS-topscreens.md, section B.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x40",
+     "name": "pie_data",
+     "type": "void*",
+     "comment": "The first of the four slice vectors (+0x40..+0x4C). See reversing/findings/FINDINGS-topscreens.md, section B.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x30",
+     "name": "pies",
+     "type": "void*",
+     "comment": "The first of the four pies on a pie page (pages 22-25; +0x30..+0x3C). See reversing/findings/FINDINGS-topscreens.md, section B.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x1C",
+     "name": "table",
+     "type": "void*",
+     "comment": "The current page's table data (0x70 bytes, built by LedgerTable_Ctor*); null on pie pages. See reversing/findings/FINDINGS-topscreens.md, section B.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x18",
+     "name": "table_view",
+     "type": "CGraphicalTableLedger*",
+     "comment": "The table on the current page, null on pie pages. See reversing/findings/FINDINGS-topscreens.md, section B.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x14",
+     "name": "graphics",
+     "type": "void*",
+     "comment": "The CEU3Graphics (+0x6B9BC/+0x6B9C0 are the screen size). See reversing/findings/FINDINGS-topscreens.md, section B.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x10",
+     "name": "parent",
+     "type": "void*",
+     "comment": "The window it is added under (the idler's +0x1794). See reversing/findings/FINDINGS-topscreens.md, section B.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0xC",
+     "name": "window",
+     "type": "void*",
+     "comment": "The `ledger` window. See reversing/findings/FINDINGS-topscreens.md, section B.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x8",
+     "name": "gui",
+     "type": "void*",
+     "comment": "The CEU3Gui. See reversing/findings/FINDINGS-topscreens.md, section B.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x4",
+     "name": "page",
+     "type": "int",
+     "comment": "Current ledger page, 0..25. Written by the constructor and every button. See reversing/findings/FINDINGS-topscreens.md, section B.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    }
+   ]
+  },
+  {
+   "name": "CGraphicalTableLedger",
+   "vftable_rva": "0x11DB474",
+   "size": "0x150",
+   "comment": "A table on a ledger page: headers, rows, a scrollbar.",
+   "source": "reversing/findings/FINDINGS-topscreens.md",
+   "fields": [
+   ]
+  },
+  {
+   "name": "CPieChartLedgerGraphical",
+   "vftable_rva": "0x11DC12C",
+   "size": "0xFC",
+   "comment": "One pie of a ledger pie page.",
+   "source": "reversing/findings/FINDINGS-topscreens.md",
+   "fields": [
+   ]
+  },
+  {
+   "name": "CTableLedgerItem",
+   "vftable_rva": "0x11DB2C4",
+   "size": "0xB8",
+   "comment": "A cell of a ledger table.",
+   "source": "reversing/findings/FINDINGS-topscreens.md",
+   "fields": [
+    {
+     "offset": "0xB3",
+     "name": "show_percent",
+     "type": "uint8_t",
+     "comment": "A float cell shown as a percentage. See reversing/findings/FINDINGS-topscreens.md, section B.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0xB2",
+     "name": "sort_as_float",
+     "type": "uint8_t",
+     "comment": "Sorted by the float at +0x20. See reversing/findings/FINDINGS-topscreens.md, section B.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0xB1",
+     "name": "sort_as_int",
+     "type": "uint8_t",
+     "comment": "Sorted by the int at +0x24. See reversing/findings/FINDINGS-topscreens.md, section B.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0xB0",
+     "name": "sort_as_text",
+     "type": "uint8_t",
+     "comment": "Sorted by its shown text. See reversing/findings/FINDINGS-topscreens.md, section B.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0xA0",
+     "name": "flag_tags",
+     "type": "void*",
+     "comment": "A vector of country tags: a cell shows one flag each (ledger_nation_flag). See reversing/findings/FINDINGS-topscreens.md, section B.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x84",
+     "name": "tooltip",
+     "type": "Hoi3CString",
+     "comment": "The cell's tooltip (slots 10, 11). See reversing/findings/FINDINGS-topscreens.md, section B.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x80",
+     "name": "icon_frame",
+     "type": "int",
+     "comment": "-1 for none, else the frame of the cell's icon. See reversing/findings/FINDINGS-topscreens.md, section B.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x28",
+     "name": "sort_text",
+     "type": "Hoi3CString",
+     "comment": "The string a text cell sorts by where it differs from its text. See reversing/findings/FINDINGS-topscreens.md, section B.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x24",
+     "name": "int_value",
+     "type": "int",
+     "comment": "Sort value of an int cell. See reversing/findings/FINDINGS-topscreens.md, section B.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x20",
+     "name": "float_value",
+     "type": "float",
+     "comment": "Sort value of a float cell. See reversing/findings/FINDINGS-topscreens.md, section B.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x4",
+     "name": "text",
+     "type": "Hoi3CString",
+     "comment": "The cell's shown text. See reversing/findings/FINDINGS-topscreens.md, section B.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    }
+   ]
+  },
+  {
+   "name": "CStratWarfareWindow",
+   "vftable_rva": "0x11BD104",
+   "size": "0x17C",
+   "comment": "The strategic warfare manager window. Slots: 0 Build, 1 scalar deleting destructor, 2 Show, 3 Hide, 4 IsVisible, 5 Update. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "source": "reversing/findings/FINDINGS-topscreens.md",
+   "fields": [
+    {
+     "offset": "0x178",
+     "name": "first_show_done",
+     "type": "bool",
+     "comment": "Set the first time Show runs.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x174",
+     "name": "last_refresh_tick",
+     "type": "int",
+     "comment": "The tick of the last refresh, for Update's hour test.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x170",
+     "name": "duration",
+     "type": "int",
+     "comment": "0 last month (30 daily points), 1 last year (12 monthly), 2 entire conflict (yearly).",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x160",
+     "name": "shown_ids",
+     "type": "int[3]",
+     "comment": "begin, end, capacity of the record map's ids as listed.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x54",
+     "name": "listbox",
+     "type": "void*",
+     "comment": "listbox_countries.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x48",
+     "name": "subs",
+     "type": "void*[3]",
+     "comment": "sub_naval, sub_air, sub_land.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x3C",
+     "name": "durations",
+     "type": "void*[3]",
+     "comment": "duration_1, duration_2, duration_3.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x30",
+     "name": "tabs",
+     "type": "void*[3]",
+     "comment": "tab_naval, tab_air, tab_land.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x2C",
+     "name": "screen",
+     "type": "void*",
+     "comment": "The owning screen handle.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x28",
+     "name": "gui",
+     "type": "void*",
+     "comment": "The gui system the constructor gets.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x24",
+     "name": "window",
+     "type": "void*",
+     "comment": "The gui window swm_window.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x20",
+     "name": "tab",
+     "type": "int",
+     "comment": "The shown tab: 0 naval, 1 air, 2 land.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    }
+   ]
+  },
+  {
+   "name": "CCountryEntry",
+   "size": "0x88",
+   "comment": "A row of the manager's `listbox_countries`. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "source": "reversing/findings/FINDINGS-topscreens.md",
+   "fields": [
+    {
+     "offset": "0x84",
+     "name": "color_icon",
+     "type": "void*",
+     "comment": "color_icon.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x80",
+     "name": "owner",
+     "type": "CStratWarfareWindow*",
+     "comment": "The window, for redraw.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x44",
+     "name": "date_end",
+     "type": "void*",
+     "comment": "date_end.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x40",
+     "name": "date_begin",
+     "type": "void*",
+     "comment": "date_begin.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x3C",
+     "name": "text_country",
+     "type": "void*",
+     "comment": "country.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x38",
+     "name": "button_past",
+     "type": "void*",
+     "comment": "background_button_past.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x34",
+     "name": "button_present",
+     "type": "void*",
+     "comment": "background_button_present.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x30",
+     "name": "gui",
+     "type": "void*",
+     "comment": "The gui system.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x2C",
+     "name": "country_id",
+     "type": "int",
+     "comment": "The enemy's country id, copied.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x28",
+     "name": "record",
+     "type": "StrategicWarfareRecord*",
+     "comment": "The enemy record this row is.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    }
+   ]
+  },
+  {
+   "name": "StrategicWarfareRecord",
+   "size": "0x24",
+   "comment": "One enemy the played country has been at war with: three categories (naval, air, land), each three rings. The game state's strategic_warfare keeps one per enemy. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "source": "reversing/findings/FINDINGS-topscreens.md",
+   "fields": [
+    {
+     "offset": "0x20",
+     "name": "years",
+     "type": "int",
+     "comment": "Number of yearly slots; the save's `years`.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x1C",
+     "name": "ended",
+     "type": "bool",
+     "comment": "The war is over.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x18",
+     "name": "end_tick",
+     "type": "int",
+     "comment": "Tick the war ended; valid when ended.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x14",
+     "name": "start_tick",
+     "type": "int",
+     "comment": "Tick the war began (the record was made).",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0xC",
+     "name": "enemy",
+     "type": "CCountryTag",
+     "comment": "The enemy's tag; id at +0x10.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x0",
+     "name": "categories",
+     "type": "void*[3]",
+     "comment": "Naval, air, land: each a block of three ring pointers (30 days, 12 months, N years).",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    }
+   ]
+  },
+  {
+   "name": "StrategicWarfareRing",
+   "size": "0x20",
+   "comment": "A ring of 0x40-byte, eight-column Fixed15 elements: the save's `container` blocks. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "source": "reversing/findings/FINDINGS-topscreens.md",
+   "fields": [
+    {
+     "offset": "0x1C",
+     "name": "current",
+     "type": "__int64*",
+     "comment": "The element at offset, for fast writes.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x18",
+     "name": "is_full",
+     "type": "bool",
+     "comment": "Has wrapped at least once.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x14",
+     "name": "offset",
+     "type": "int",
+     "comment": "Next slot index (the current day/month/year slot).",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x10",
+     "name": "max_elements",
+     "type": "int",
+     "comment": "Ring size (30, 12, or years).",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x0",
+     "name": "elements",
+     "type": "void**",
+     "comment": "Vector begin of element pointers.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    }
+   ]
+  },
+  {
+   "name": "GameStrategicWarfare",
+   "comment": "The game state's strategic warfare record (+0xD68): the played country's tag and a std::map of enemy records. See reversing/findings/FINDINGS-topscreens.md, section C.",
+   "source": "reversing/findings/FINDINGS-topscreens.md",
+   "fields": [
+    {
+     "offset": "0x18",
+     "name": "list_dirty",
+     "type": "bool",
+     "comment": "Set when the player changes; RebuildCountryList consumes it.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x8",
+     "name": "records",
+     "type": "std::map<int, StrategicWarfareRecord*>",
+     "comment": "Keyed by enemy country id; header at +0xC, size at +0x10.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x0",
+     "name": "player",
+     "type": "CCountryTag",
+     "comment": "The played country (name at +0, id at +4).",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    }
+   ]
+  },
+  {
+   "name": "CTheatreView",
+   "vftable_rva": "0x11BD424",
+   "inherits": "CCountryView",
+   "comment": "The theatres screen, the sixth of the country views. Fifteen slots, four its own (0 Rebuild, 1 ScalarDeletingDestructor, 2 Show, 6 Update). See reversing/findings/FINDINGS-topscreens.md, section A.",
+   "source": "reversing/findings/FINDINGS-topscreens.md",
+   "fields": [
+    {
+     "offset": "0x104",
+     "name": "goto_observer",
+     "type": "void*",
+     "comment": "Button glue on `selected_theatre`'s `goto_button`, handler OnGoto.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0xD8",
+     "name": "build_observer",
+     "type": "void*",
+     "comment": "Button glue on `selected_theatre`'s `build`, handler OnBuild.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0xD4",
+     "name": "build_manpower",
+     "type": "CFixedPoint",
+     "comment": "The manpower the Build button is spending; reset to the country's by OnBuild.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0xC4",
+     "name": "needs",
+     "type": "std::vector<int>",
+     "comment": "Per unit type, what `immediate_needs` shows after the queue is taken off (begin; end at +0xC8, capacity at +0xCC) - what the Build button draws down.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0xC0",
+     "name": "needs_refresh",
+     "type": "bool",
+     "comment": "Set when the selection changes or the screen shows; Update refills `selected_theatre` when it finds it set and clears it.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0xBC",
+     "name": "selected_theatre_id",
+     "type": "int",
+     "comment": "The selected theatre's id. Starts at 0 and survives closing the screen.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0xB8",
+     "name": "selected_theatre_type",
+     "type": "int",
+     "comment": "Type half of the selected theatre's id.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    }
+   ]
+  },
+  {
+   "name": "_A0x8295b6bf::CTheatreEntry",
+   "vftable_rva": "0x11BD524",
+   "size": "0x90",
+   "comment": "A row of the theatres screen's two lists, window `theatre_entry`.",
+   "source": "reversing/findings/FINDINGS-topscreens.md",
+   "fields": [
+    {
+     "offset": "0x88",
+     "name": "view",
+     "type": "CTheatreView*",
+     "comment": "The screen that made the row.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x84",
+     "name": "theatre_id",
+     "type": "int",
+     "comment": "The row's theatre id.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x80",
+     "name": "theatre_id_type",
+     "type": "int",
+     "comment": "Type half of the row's theatre id.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x30",
+     "name": "background_observer",
+     "type": "void*",
+     "comment": "Button glue on `background_button`, handler OnSelect.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x20",
+     "name": "window",
+     "type": "void*",
+     "comment": "The row's `theatre_entry` window.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    }
+   ]
+  },
+  {
+   "name": "_A0x8295b6bf::CAreaEntry",
+   "vftable_rva": "0x11BD490",
+   "size": "0x1A0",
+   "comment": "A front's row of the theatres screen's `areas`, window `area_entry`.",
+   "source": "reversing/findings/FINDINGS-topscreens.md",
+   "fields": [
+    {
+     "offset": "0x198",
+     "name": "dirty",
+     "type": "bool",
+     "comment": "Update does its work only when this is set: set by the constructor and by OnStance.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x194",
+     "name": "stance",
+     "type": "int",
+     "comment": "What the row's `stance` button shows, starting at the HQ's stance. Read only by the button's own label; the click changes nothing else.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x184",
+     "name": "needs",
+     "type": "std::vector<int>",
+     "comment": "Per unit type, what the front needs after the queue is taken off (begin; end at +0x188, capacity at +0x18C).",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x180",
+     "name": "province",
+     "type": "CMapProvince*",
+     "comment": "The province ChooseProvince named the front after; null keeps the row blank.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x17C",
+     "name": "front",
+     "type": "CAreaBorder*",
+     "comment": "The front the row is about.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x178",
+     "name": "view",
+     "type": "CTheatreView*",
+     "comment": "The screen.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x174",
+     "name": "theatre_id",
+     "type": "int",
+     "comment": "The theatre's id.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x170",
+     "name": "theatre_id_type",
+     "type": "int",
+     "comment": "Type half of the theatre's id.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x120",
+     "name": "stance_observer",
+     "type": "void*",
+     "comment": "Button glue on `stance`, handler OnStance.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0xD0",
+     "name": "unused_observer",
+     "type": "void*",
+     "comment": "A fourth button glue, handler the empty stub 0xABF890; attached to nothing.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x80",
+     "name": "build_observer",
+     "type": "void*",
+     "comment": "Button glue on `build`, handler OnBuild.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x30",
+     "name": "goto_observer",
+     "type": "void*",
+     "comment": "Button glue on `goto_button`, handler OnGoto.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    },
+    {
+     "offset": "0x20",
+     "name": "window",
+     "type": "void*",
+     "comment": "The row's `area_entry` window.",
+     "source": "reversing/findings/FINDINGS-topscreens.md"
+    }
+   ]
   }
  ],
  "equates": [
@@ -108359,6 +110808,32 @@
   }
  ],
  "vftable_slots": {
+  "_A0x8295b6bf::CTheatreEntry": {
+   "8": "Update"
+  },
+  "_A0x8295b6bf::CAreaEntry": {
+   "0": "ScalarDeletingDestructor",
+   "8": "Update"
+  },
+  "CCountryEntry": {
+   "0": "ScalarDeletingDestructor",
+   "7": "SetSelected"
+  },
+  "CStratWarfareWindow": {
+   "0": "Build",
+   "1": "ScalarDeletingDestructor",
+   "2": "Show",
+   "3": "Hide",
+   "4": "IsVisible",
+   "5": "Update"
+  },
+  "CTableLedgerItem": {
+   "7": "Less",
+   "8": "Greater"
+  },
+  "CStatisticsLedger": {
+   "0": "OnRowClicked"
+  },
   "CSelectVictoryConditionsView": {
    "0": "Build"
   },
@@ -108471,6 +110946,9 @@
    "0": "CGuiObject::OnPointerOver"
   },
   "CGraphicalTableLedger": {
+   "1": "OnMouseEvent",
+   "6": "Update",
+   "12": "Destroy",
    "0": "CGuiObject::OnPointerOver"
   },
   "CEU3DialogGui@0x18": {
@@ -110776,6 +113254,10 @@
    "0": {"name": "BuildTooltip", "signature": "GuiTooltipText* __thiscall BuildTooltip(CTechTreeEntry* this, GuiTooltipText* out, CGuiObject* element) @EAX"}
   },
   "CTheatreView": {
+   "0": "Rebuild",
+   "1": "ScalarDeletingDestructor",
+   "2": "Show",
+   "6": "Update",
    "4": "Hide",
    "12": "NextAutomationSetting",
    "13": "PreviousAutomationSetting",

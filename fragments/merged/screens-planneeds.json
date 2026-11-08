@@ -1,0 +1,124 @@
+{
+ "agent": "reader D, follow-up to the top screens wave",
+ "question": "ComputePlanWantedSubUnits whole, CUnit::UpdatePlanForceNeeds whole, who runs them and when, for the theatres screen's needs",
+ "source": "reversing/findings/FINDINGS-topscreens.md",
+ "addresses": [
+  {
+   "rva": "0x4E1D00", "kind": "function", "name": "ComputePlanWantedSubUnits",
+   "signature": "void __stdcall ComputePlanWantedSubUnits(void* plan, CUnit* unit, void* provinces, std::vector<int>* wanted, int* ourPower, int* theirPower, bool useArea)",
+   "no_signature": null,
+   "comment": "**What a plan asks to be added to it, per unit type.** 0x8E1D00-0x8E3239 (`ret 0x1C`). Called from CUnit::UpdatePlanForceNeeds, nothing else, in two arms: the null arm passes (plan, unit, &plan->ops_area (+0x18), &plan->min (+0x70), &plan->our_power (+0x80), &plan->their_power (+0x84), false) after zeroing the two powers; the area arm (a row of the theatres screen) passes (plan, unit, list of a front's provinces, a local vector, a local, a local, true). `wanted` is grown to the database's count and every entry zeroed first.\n\n**Types resolved** (each kept only where TechnologyStatus->unit_available and SubUnitDefinitionIsUsableBy admit it): armour = armor_brigade -> light_armor_brigade -> mechanized_brigade -> motorized_brigade -> infantry; fast = mechanized_brigade -> motorized_brigade -> cavalry_brigade -> infantry; mountain = bergsjaeger_brigade or infantry; garrison = garrison_brigade or infantry; aircraft = tactical_bomber and interceptor, tested for nothing. An anti_tank_brigade test (db +0x80) is made and its answer dropped.\n\n**Own count**: CUnit::CollectRegiments(unit, area when useArea else null) - unit and every descendant. Land by SubUnitDefinition_GetRole: 3 armour, 4 fast, 5 garrison (police/garrison/militia), 6 mountain, 0 none, anything else infantry-like (role 1 support, 2, 7, 8); non-land counts only the two aircraft types exactly. Each brigade adds value x (strength ratio x organisation ratio) to *ourPower, with GetSubUnitDefinitionCombatValue, the ratios in thousandths truncated twice, and -1 for a zero maximum.\n\n**Garrison count** (useArea): the area's provinces whose controller is the unit's owner and whose CUnitPlan_ProvinceHoldScore >= 25. Null arm: the same over GetArea()->+0x60 of the nearest CAIUnit up the chain (slot 65 true, GetArea non-null), else 0. **Enemy**: for each province in `provinces`, for each edge not of kind 3 to a simulated land province whose controller is not IsFriend(owner, c, true), that province once (deduped by a local list): its terrain counted mountain if is_mountain and not is_plains; each unit on it not IsFriend, each brigade not a ship: land -> E++ and role 3 Ea++, role 4 Ef++; air -> Air++; every such brigade adds its raw combat value to *theirPower. Own-side: the area's mountain count M (is_mountain and not is_plains over `provinces` themselves) and max(M, enemy mountain) x 3 = the mountain target.\n\n**Scale s** (thousandths): useArea: 1000 is never kept: the test `enemy == 0 || enemy == self || (not at war with enemy && neither REB)` is always true because **the enemy variable holds the unit's own tag** (`[esp+0x34]` is written at 0x8E260D from the unit's owner, not from the foreign unit) - so s = 200 unless a threat or antagonize entry is keyed by that id (the 1 January 1936 save holds none for the country itself nor for REB, its first country block; whether any list can hold country id 0 was not settled), where it would be weight x 5 (weight / 200), and the antagonize entry may raise it. Null arm: at war 1000; at peace 200, replaced by the top threat weight x 5 if that weight is above 0, then raised to the top antagonize weight x 5 if higher. Then cap 1000, floor 100.\n\n**Stance factor** k by plan +0xC: 2 -> 1500, 3 -> 2000, 4 -> 2500, else 1000. B = trunc(E k), Ba = trunc(Ea k), Bf = trunc(Ef k); A = trunc(B x 1.5k), Aa, Af likewise (1.5k = (1500 x k)/1000; the fixed-point route is ftol(floor((float)(n + 0.0005) x 1000)) so whole numbers survive). **Base S**: useArea: trunc(count(provinces) x s x 9 / 1000); null arm: trunc(CUnit_PlanBaseBrigades(unit) x s / 1000). At peace only: S = min(S, TotalIC x m), m = 10 (faction leader), 4 (faction member) else 1, x 4 more when the ruling ideology's group is not democracy - **TotalIC is in thousandths and S is not, so this is no cap** - then S = max(S, 3).\n\n**Targets** H = max(S, A); L = max(S/2, B). Armour Ha = max(avail ? H/5 : 0, Aa), La = max(avail ? L/5 : 0, Ba). Fast Hf = max(H/4, Af), Lf = max(L/4, Bf). Infantry Hi = H - Hf - Ha, Li = L - Lf - La. Each type gets `wanted += max(0, min(low, high) - have)`, computed as a loop of (high - have) steps each adding one while low-- > have; for armour with `have`=armour count, fast the same. The infantry loop's steps are, in order: bergsjaeger while mountainTarget-- >= mountainHave (**so one step is a bergsjaeger even with no mountains**), then garrison while garrisonTarget-- >= garrisonHave, then infantry; each adds one only while infantryLow-- > infantryHave. **Aircraft**: n = 9, or 3 at oob_level 2, 0 at level 3; AA = trunc(n x s / 1000); BB = AA/2; level 0 or 1: AA >= 3, BB >= 1; level 2: AA >= 1; then both >= Air. tactical_bomber high = AA - AA/3, low = BB - BB/3; interceptor high = AA/3, low = BB/3; `wanted += max(0, min(low,high) - have)`.\n\n**So `wanted` is already net of what the unit has by role, and CUnit::UpdatePlanForceNeeds then subtracts the exact-type count again.** Returns nothing.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md",
+   "revises": "the whole account, the area and power parameters' meaning and names, confidence confirmed; the old record's plan type at plan+0xC is the stance factor, and it never said the enemy variable holds the unit's own tag or that the two arms differ",
+   "evidence": "Read whole in Ghidra against the listing 0x8E20C4-0x8E2360, 0x8E25E2-0x8E26E0, 0x8E2702-0x8E2960 and 0x8E2960-0x8E3239 (the three loops and the aircraft); the constants by their .CRT$XCU initialisers and floats 200.5 at 0x160A64C, 100.5 at 0x160A684, 1500.5 at 0x160A818, 2500.5 at 0x160AB20, 9000.5 at 0x160A9F0. Would be shown wrong by a save where a theatre's plan is inactive yet its min is land-typed - inactive plans are not saved (CUnit::SaveContents writes `plan` only where plan_active), so no save can test the arm; in Germany1936_01_04_12.hoi3 Germany's two theatres have no plan block and all 106 others are active with min holding only aircraft, as the gate predicts."
+  },
+  {
+   "rva": "0x1BD240", "kind": "function", "name": "CUnit::UpdatePlanForceNeeds",
+   "signature": "bool __stdcall UpdatePlanForceNeeds(CUnit* unit, void* difference, void* groupDifference, void* needed, void* provinces)",
+   "no_signature": null,
+   "comment": "**Three vectors out, per CSubUnitDefinition::type_index: what the plan is short of.** `ret 0x14`. N = the database's count; when `difference` is empty all three are grown by N zeros (**`needed` is grown whatever it holds**, so a row's vector gets longer with each call); otherwise groupDifference and needed are zeroed and difference is left for the write below.\n\n**The gate**: walk higher_oob_unit_ptr to the top; if top->plan_active (+0x204) && top->oob_level == 0, nothing is computed. Otherwise, `provinces` null: zero our_power and their_power (+0x80/+0x84 of the plan) and ComputePlanWantedSubUnits(plan, unit, &plan->ops_area, &plan->min, &our, &their, false); `provinces` set: ComputePlanWantedSubUnits(plan, unit, provinces, local vector, local, local, true) - the plan is untouched.\n\n**wanted** = the local vector if non-empty, else plan->min (so an active plan's min, even in the area arm). If wanted is non-empty: have = CUnit::CountSubUnitsByType(unit) (whole order of battle, no area filter; brigades of units in the tree only - not queue lines, not units waiting to be placed); difference[i] = wanted[i] - have[i]; groupDifference[SubUnitTypeGroup(i)] += difference[i] where non-zero. Then over a **copy** of groupDifference, for i ascending with difference[i] > 0: x = min(difference[i], copy[group(i)]); if x > 0, needed[i] = x, copy[group] -= x, answer = true. Empty wanted leaves difference as it was, group and needed zeroed, answer false.\n\nThree callers: CUnit::UpdateDaily (0x1BB326), CUnit::RefreshPlanForceNeeds (0x1BD737), both with `provinces` null, and CAreaEntry slot 8 (0x46EC0D) with two scratch vectors and the row's +0x184. So the screen's `immediate_needs` is +0x7C (filled by the null arm or by the active gate from min) and a row's `forces_needs` is the area arm, or plan->min where the top plan is active.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md",
+   "revises": "comment rewritten against the gate and both arms; fifth parameter renamed from wanted to provinces (it is a list of provinces, or null)",
+   "evidence": "Decompiled and read against the listing 0x5BD240-0x5BD6F0. findRefs --callers 0x5BD240 gives exactly the three call sites. Would be shown wrong by a call site passing something other than a CList of provinces or null as the fifth argument."
+  },
+  {
+   "rva": "0x1BD6F0", "kind": "function", "name": "CUnit::RefreshPlanForceNeeds",
+   "signature": "void __stdcall RefreshPlanForceNeeds(CUnit* unit@EAX)",
+   "no_signature": null,
+   "comment": "The out-of-line copy of the gate CUnit::UpdateDaily inlines at 0x1BB273. oob_level >= 4: nothing. oob_level 0, or ai_agent (+0x198) set: CUnit::UpdatePlanForceNeeds(unit, &+0x5C, &+0x6C, &+0x7C, null). Otherwise the three vectors are cleared (emptied). Called from CSetPlanForcesCommand::Execute (both arms of its second lookup), CSetPlanAttributesCommand::Execute (stance change) and CSetPlanOpsAreaCommand::Execute.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md",
+   "revises": "comment: +0x198 is ai_agent, and the third caller",
+   "evidence": "Decompiled 0x5BD6F0, and the inlined copy at 0x5BB273-0x5BB326 read on the listing."
+  },
+  {
+   "rva": "0x1BD930", "kind": "function", "name": "CUnit::CollectRegiments",
+   "signature": "void __thiscall CUnit::CollectRegiments(CUnit* this, void* out, void* area)",
+   "no_signature": null,
+   "comment": "Appends the unit's brigades to the CList `out`, recursing through CUnit::children (+0x1E4). Where `area` is non-null and the unit answers slot 15 true (CArmy only: 0xA92590 true, base false), only if the unit's destination - the last province of its path (movement_order_last_current_province_ptr, +0x13C, when the path count +0x140 is above 0), else its current province (+0x130) - is on the area list; navies and air units are always taken. `area` null: every brigade. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md",
+   "evidence": "Decompiled 0x5BD930 against the listing; slot 15 bodies read. Would be shown wrong by a slot-15 holder other than CArmy answering true."
+  },
+  {
+   "rva": "0x4E10E0", "kind": "function", "name": "CUnit_PlanBaseBrigades",
+   "signature": "int __cdecl CUnit_PlanBaseBrigades(CUnit* unit)",
+   "no_signature": null,
+   "comment": "The null arm's base size. By oob_level: 4 -> 3, 3 -> 9, 2 -> 27, 1 -> 81; 0 -> the sum over its direct children (recursing), at least 9 (9 with no children); any other level (navy 5, air 6, other) -> 0. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md",
+   "evidence": "Listing 0x8E10E0-0x8E115F read whole; bare ret and the call at 0x8E2CC9 pushes one argument."
+  },
+  {
+   "rva": "0x4E1CB0", "kind": "function", "name": "CUnitPlan_CountHoldProvinces",
+   "signature": "int __stdcall CUnitPlan_CountHoldProvinces(void* provinces@EAX, CUnit* unit@EDI, void* plan@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "Of the provinces on the list in EAX: the count whose controller id (+0x338) is the unit's owner id and whose CUnitPlan_ProvinceHoldScore(plan, unit, province) is 25 or more. `ret 4`, the list and the unit in registers. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md",
+   "evidence": "Listing 0x8E1CB0-0x8E1CEE read whole."
+  },
+  {
+   "rva": "0x4E1160", "kind": "function", "name": "CUnitPlan_ProvinceHoldScore",
+   "signature": "int __stdcall CUnitPlan_ProvinceHoldScore(void* plan, CUnit* unit, CMapProvince* province)",
+   "no_signature": null,
+   "comment": "**How much a province wants a garrison** (the sibling of CAIUnit_ProvinceHoldValue, 0x4B9710, with a plan instead of a flag). Truncated to int (`ret 0xC`). C = unit's owner. 0 if MaxInfrastructure (+0x5C) < 0.2 (g_TwoTenths). Over the province's edges not of kind 3 to a simulated land province N: if province VP (+0x34) is 0 and its supply_depot_id (+0x48) is not its own id and IsWarCandidate(C, N.controller): **return 0**. FRA facing BEL or LUX (or BEL facing LUX), the controller not C's subject and GER holding land, not in C's faction and not IsEnemy(GER, N.controller, N): sum += 4000, count++ (and past the rest for that edge). Else N's controller not IsFriend(C, true): t = GetThreat(C, controller) + (GetAntagonism when C is at peace and the nearest agent's enabled byte (+0x3C) is set); t >= 100: sum += t, count++. count > 0: v = sum / count / 20 + count. Then, unless MaxInfrastructure < 0.2 again: the first such edge whose controller is unfriendly and (threat >= 100 or IsFrontWorthyEnemy): v += 3 x land_fort level (`modifiers +0x50 / 1000`), stop. coastal_fort level cf > 0: v += 5 x (cf + 1). w = air base level (+0x304 +0x20 / 1000); naval level n (+0x300 +0x20 / 1000) > 0: for GER/ITA x = (5n + 15) x 2, above 100 becoming (x - 100)/5 + 90, others x = n; w += x. Province not in its controller's acting capital area and its area under 15 provinces: w *= 2. v += w. VP > 0 owned by C: v += max(VP x 100 / (victory_points_owned/1000), 2VP + 10), or (controlled by C, owner not in exile) 2VP + 10 alone. C's acting capital +100; real strategic resource (+0x18, slot 14) +60; v += (IC modifier id 15 / 1000) x max(effective revolt, max(minimum revolt, 0)) / 1000; its own supply depot +100; naval level > 0 and a naval station: v += 30 + 2 x (ships of naval units there). Finally + 0.25 x the plan's objective priority on this province (plan +0x38 list), and, if the nearest agent's +0x3C is set, + the controller's strategy defend_prov entry for the province.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md",
+   "evidence": "Decompiled 0x8E1160-0x8E1C90 and read the first loop on the listing 0x8E1220-0x8E15B8, constants 4000/100/20/2/60/30 at the addresses in the listing. Two callers (0x8E1CD9, 0x8E2319). `(2VP + 10)` read at 0x8E19EB as lea eax,[esi+esi+0xa]."
+  },
+  {
+   "rva": "0x4E260D", "kind": "instruction", "name": "ComputePlanWanted_EnemyHoldsOwnTag",
+   "signature": null, "no_signature": null,
+   "comment": "**The line that makes the area arm's threat lookup dead.** Inside the loop over a foreign unit's brigades the code stores `[esp+0x30]/[esp+0x34] = unit->owner` - `eax` here came from `[ebp+0xC]`, the plan's own unit - so the id tested at 0x8E2708 against 0, our id and a war is always 0 (no foreign unit met) or our own id, never the enemy's. Reads as a slip for `other->owner`; built as read.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-topscreens.md",
+   "evidence": "Listing 0x8E25FA-0x8E260D and the test at 0x8E2708-0x8E275D; the 0x8E26EB load of ebx from [esp+0x34] is the value tested."
+  },
+  {
+   "rva": "0x171528C", "kind": "global", "name": "g_TwoTenths", "signature": null, "no_signature": null,
+   "comment": "200 thousandths: `(int)floorf(200.5f)`, .CRT$XCU at 0xD11FC0, float at 0x160A64C. A province under it has no hold score, and it is the plan's default scale at peace (ComputePlanWantedSubUnits). Exe-hardcoded.",
+   "confidence": "confirmed", "source": "reversing/findings/FINDINGS-topscreens.md",
+   "evidence": "Initialiser read at 0xD11FC0, the float read from the image; 5 references."
+  },
+  {
+   "rva": "0x17152A8", "kind": "global", "name": "g_OneTenth", "signature": null, "no_signature": null,
+   "comment": "100 thousandths: `(int)floorf(100.5f)`, .CRT$XCU at 0xD11F30, float at 0x160A684. Floor of ComputePlanWantedSubUnits' scale. Exe-hardcoded.",
+   "confidence": "confirmed", "source": "reversing/findings/FINDINGS-topscreens.md",
+   "evidence": "Initialiser read at 0xD11F30; 2 references."
+  },
+  {
+   "rva": "0x17152F0", "kind": "global", "name": "g_OneAndAHalf", "signature": null, "no_signature": null,
+   "comment": "1500 thousandths: `(int)floorf(1500.5f)`, .CRT$XCU at 0xD123B0, float at 0x160A818. ComputePlanWantedSubUnits' stance factor at stance 2 and its high-side multiplier. Exe-hardcoded.",
+   "confidence": "confirmed", "source": "reversing/findings/FINDINGS-topscreens.md",
+   "evidence": "Initialiser read at 0xD123B0; 3 references."
+  },
+  {
+   "rva": "0x17152D0", "kind": "global", "name": "g_TwoAndAHalf", "signature": null, "no_signature": null,
+   "comment": "2500 thousandths: `(int)floorf(2500.5f)`, .CRT$XCU at 0xD12440, float at 0x160AB20. ComputePlanWantedSubUnits' stance factor at stance 4. Exe-hardcoded.",
+   "confidence": "confirmed", "source": "reversing/findings/FINDINGS-topscreens.md",
+   "evidence": "Initialiser read at 0xD12440; 2 references."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CUnit", "offset": "0x7C", "name": "plan_subunit_needed", "type": "std::vector<int>",
+   "comment": "Per subunit type, the part of the deficit that the group as a whole is still short of - min(difference[i], whatever is left of that group's net difference), taken in index order; only positive entries are set. What CTheatreView's `immediate_needs` reads (a length other than the database's count is treated as empty). Not saved. An active plan at the top of the order of battle reads plan->min (the AI's aircraft wants), an inactive one the wanted vector ComputePlanWantedSubUnits has just rebuilt.",
+   "source": "reversing/findings/FINDINGS-topscreens.md",
+   "revises": "comment: what fills it in each case and who reads it; name and type unchanged",
+   "evidence": "CTheatreView at 0x470297-0x47029D compares [+0x80] - [+0x7C] with the database's count; CUnit::UpdatePlanForceNeeds read whole."
+  },
+  {
+   "struct": "CUnit", "offset": "0x26C", "name": "plan_subunit_wanted", "type": "std::vector<int>",
+   "comment": "The composition the plan asks for, per subunit type: CUnitPlan +0x70, the save's `min` (written only for an active plan). Where the top of the order of battle has an active plan at oob_level 0 it is written only by CUnitPlan::SetMinForces (CSetPlanForcesCommand, and for an AI theatre the six aircraft wants of CAIUnit_ComputePlanForces); otherwise CUnit::UpdatePlanForceNeeds' null arm rebuilds it each time through ComputePlanWantedSubUnits - and there it holds what is to be **added**, net of the unit's brigades by role.",
+   "source": "reversing/findings/FINDINGS-topscreens.md",
+   "revises": "comment: two writers, and what its numbers mean under each; name and type unchanged",
+   "evidence": "CUnit::UpdatePlanForceNeeds and ComputePlanWantedSubUnits read whole; saves as in the entry for ComputePlanWantedSubUnits."
+  }
+ ],
+ "vftable_slots": {},
+ "frontier": [],
+ "slots_noted": "No virtuals are named here. CUnit slot 15 and CAIUnit slot 65 are recorded in the prose only."
+}
