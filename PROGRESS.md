@@ -25,12 +25,12 @@ how many objects a census found (taken 2026-09-20).
 
 | | classes |
 | --- | --- |
-| `read` | 176 |
+| `read` | 177 |
 | `placed` | 140 |
 | `keys` | 75 |
-| `part` | 165 |
+| `part` | 166 |
 | `named` | 5 |
-| `RTTI` | 580 |
+| `RTTI` | 578 |
 | **all** | **1141** |
 
 ## What to read next
@@ -635,7 +635,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CScenarioEntry` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
 | `CScrollbarObserver` |  |  |  |  |  |  | 26 | RTTI |  |
 | `CSelectUpgradeAllEntry` | `CStandardlistboxItem` |  | 2 |  | 2 |  |  | part |  |
-| `CSelectUpgradeEntry` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
+| `CSelectUpgradeEntry` | `CStandardlistboxItem` | 0x80 | 2 |  | 2 |  |  | part |  |
 | `CSelectVictoryConditionItem` | `CStandardlistboxItem` | 0x38 | 5 |  | 1 |  |  | read |  |
 | `CSelectVictoryConditionsView` | `CReloadableInterface` | 0xA4 | 4 |  | 6 |  |  | part |  |
 | `CSelectable` |  |  |  |  |  |  | 243 | RTTI |  |
@@ -667,7 +667,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CStandardlistboxItem` | `COption` `TListboxItem` |  |  |  |  |  |  | RTTI |  |
 | `CStatisticsLedger` | `TStatisticsLedger` | 0x2F8 | 12 |  | 14 |  |  | read |  |
 | `CStrengthComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
-| `CSubUnitEntry` | `CUnitViewBaseEntry` |  |  |  | 4 |  |  | RTTI |  |
+| `CSubUnitEntry` | `CUnitViewBaseEntry` | 0x128 | 5 |  | 6 |  |  | read |  |
 | `CSunkenShipEntry` | `CStandardlistboxItem` | 0x28 | 1 |  | 1 |  |  | part |  |
 | `CSunkenShipsView` | `CUpdateable` | 0x60 | 6 |  | 4 |  |  | read |  |
 | `CSupplyConsumptionComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
@@ -1218,7 +1218,7 @@ One class per effect, trigger, command and decision the event scripts can use. E
 | `CUnloadArmyCommand` | `CCommand` |  |  | 1/1 | 5 |  | 1 | RTTI |  |
 | `CUnloadFromPlaneCommand` | `CCommand` | 0x64 | 3 | 1/1 | 4 |  | 1 | part |  |
 | `CUpdateTheatreCommand` | `CCommand` |  |  |  | 1 |  | 1 | keys |  |
-| `CUpgradeRegimentCommand` | `CCommand` |  |  | 1/2 | 1 |  | 1 | placed |  |
+| `CUpgradeRegimentCommand` | `CCommand` |  |  | 1/2 | 4 |  | 1 | placed |  |
 | `CUserSelectionOption` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
 | `CValueEffect` | `CEffect` |  | 1 |  | 2 |  |  | part |  |
 | `CValueTrigger` | `CTrigger` | 0x44 | 1 |  | 1 |  |  | part |  |

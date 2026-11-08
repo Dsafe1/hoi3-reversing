@@ -1636,9 +1636,9 @@
    "name": "CMilitaryConstruction::RecalculateCost",
    "signature": "void __thiscall CMilitaryConstruction::RecalculateCost(CMilitaryConstruction* this)",
    "no_signature": null,
-   "comment": "**Slot 14: sets a queue item's cost and duration.** It ends with exactly three stores - duration into +0x34, cost into +0x30 and a practical factor into +0xA0 - and a bare `ret`.\n\nTwo arms. Where brigades_count (+0x84) is positive and the first brigade definition has +0x38 set, the line is an upgrade of a brigade in the field: it takes the difference between the new cost and the old (floored at 0) and applies the military defines UNIT_UPGRADE_COST (+0x234), UNIT_UPGRADE_TIME (+0x238) and UNIT_UPGRADE_PRACTICAL_MOD (+0x23C).\n\n**Otherwise, for each brigade definition**: a brigade is built on the stack and CBrigadeConstructionDefinition::MakeDefinition gives its own definition and the sum of its model's levels; `days = GetBuildTime(country, definition, levels) * 1000`; `daily = GetBuildCostIC(country, definition, levels, is_reserve)`; with more than one brigade `daily` becomes `daily * days / 1000`; the costs are added and the longest `days` kept. With more than one brigade the total is then divided by that duration. So **a unit of several brigades takes as long as its slowest and costs a day what pays for all of them over that time**, and practical_factor is 1000.\n\n**It runs at six places, not two**: when a line is queued (CConstructUnitCommand::Execute 0x546166 and the single-unit command); on every remaining line when anything in the queue is finished (CDistributeProduction::Distribute 0x51A253); on a line going on to the next of a series (CMilitaryConstruction::Deliver 0x4851FD); on every line of a new game (CInGameIdler::Enter 0x65B76D, which then sets progress to the new duration less the old); on every line in ApplyCustomGameSettings (0x41E1E4); and **on every line of a country when any of its laws changes** (CChangeLawCommand::Execute 0x54F844). It does not run daily, so what a practical's decay does to a cost reaches a line only at one of those. See reversing/findings/FINDINGS-buildqueue.md, section 2.",
+   "comment": "**Slot 14: sets a queue item's cost and duration.** It ends with exactly three stores - duration into +0x34, cost into +0x30 and a practical factor into +0xA0 - and a bare `ret`.\n\nTwo arms. Where brigades_count (+0x84) is positive and the first brigade definition has +0x38 set, the line is an upgrade of a brigade in the field: it takes the difference between the new cost and the old (floored at 0) and applies the military defines UNIT_UPGRADE_COST (+0x234), UNIT_UPGRADE_TIME (+0x238) and UNIT_UPGRADE_PRACTICAL_MOD (+0x23C).\n\n**Otherwise, for each brigade definition**: a brigade is built on the stack and CBrigadeConstructionDefinition::MakeDefinition gives its own definition and the sum of its model's levels; `days = GetBuildTime(country, definition, levels) * 1000`; `daily = GetBuildCostIC(country, definition, levels, is_reserve)`; with more than one brigade `daily` becomes `daily * days / 1000`; the costs are added and the longest `days` kept. With more than one brigade the total is then divided by that duration. So **a unit of several brigades takes as long as its slowest and costs a day what pays for all of them over that time**, and practical_factor is 1000.\n\n**It runs at six places, not two**: when a line is queued (CConstructUnitCommand::Execute 0x546166 and the single-unit command); on every remaining line when anything in the queue is finished (CDistributeProduction::Distribute 0x51A253); on a line going on to the next of a series (CMilitaryConstruction::Deliver 0x4851FD); on every line of a new game (CInGameIdler::Enter 0x65B76D, which then sets progress to the new duration less the old); on every line in ApplyCustomGameSettings (0x41E1E4); and **on every line of a country when any of its laws changes** (CChangeLawCommand::Execute 0x54F844). It does not run daily, so what a practical's decay does to a cost reaches a line only at one of those. See reversing/findings/FINDINGS-buildqueue.md, section 2.\n\n**The upgrade arm, read 2026-11-08.** MakeDefinition gives the new type's built definition and levels. icNew = GetBuildCostIC(country, it, levels, is_reserve); icOld = GetBuildCostIC(country, upgrading_from (the database's plain old type), levels, is_reserve); credit = trunc(trunc(UNIT_UPGRADE_COST * upgrading_from_strength / 1000) * icOld / 1000); cost = icNew - credit, 0 if below 1. practical_factor = 1000, or where icNew is not 0, trunc(trunc(cost * 1000 / icNew) * UNIT_UPGRADE_PRACTICAL_MOD / 1000). duration = GetBuildTime(country, new, levels) * 1000 - trunc(GetBuildTime(country, old, levels) * 1000 * UNIT_UPGRADE_TIME / 1000), 0 if below 1. The old type's cost and time are taken with the **new** type's levels. See reversing/findings/FINDINGS-upgrades.md.",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-production.md"
+   "source": "reversing/findings/FINDINGS-upgrades.md"
   },
   {
    "rva": "0x85980",
@@ -24438,9 +24438,9 @@
    "name": "CMilitaryConstruction::Deliver",
    "signature": "bool __thiscall CMilitaryConstruction::Deliver(CMilitaryConstruction* this)",
    "no_signature": null,
-   "comment": "**Slot 9: makes the unit a line has finished.** Bare `ret`; CDistributeProduction::Distribute calls it when progress >= duration and removes the line when it answers 1.\n\nAnswers 1 and does nothing for a country that is not REB and owns no province (owned_province_count, CCountry +0xCF8, <= 0), and for a line with no brigades. Otherwise: where accumulated_progress (+0xA8) is under 1000, adds the missing share of GetStartExperienceRate to accumulated_experience. Makes a CNavy, a CAir or a CArmy by the first brigade's type, with the line's unit id. Per brigade definition: a CShip, CWing or CRegiment with the definition's id and name; SetType; is_reserve; **experience = the greater of the definition's and accumulated_experience, capped at 100000**; the practical - the type's completion_size (+0xE4), times reserves_factor for reserves, times practical_factor (+0xA0) - through CCountry::GainTechAbility; the definition's id is incremented; the model's levels go onto the brigade's technologies by position; ApplyTechnologies; strength = max_strength * reserves_factor / 1000, no more than slot 12 allows; **organisation = GetMaxOrganisation(brigade, 1, 1), worked out before AddRegimentToUnit**, so with no officer ratio and no reserve share. Then the two accumulators are zeroed; a CUnitDeployment with id (unit type, unit id + 1) is appended to the country's deployments (+0x688) holding the unit; the line's unit id goes up by 2; a line with a target unit is joined to it. Last: `progress -= min(duration, progress)`, `size -= 1`, and where size is still above 0 slot 14 and a fresh reserves_factor. Answers `size <= 0`. See reversing/findings/FINDINGS-buildqueue.md, section 4.",
+   "comment": "**Slot 9: makes the unit a line has finished.** Bare `ret`; CDistributeProduction::Distribute calls it when progress >= duration and removes the line when it answers 1.\n\nAnswers 1 and does nothing for a country that is not REB and owns no province (owned_province_count, CCountry +0xCF8, <= 0), and for a line with no brigades. Otherwise: where accumulated_progress (+0xA8) is under 1000, adds the missing share of GetStartExperienceRate to accumulated_experience. Makes a CNavy, a CAir or a CArmy by the first brigade's type, with the line's unit id. Per brigade definition: a CShip, CWing or CRegiment with the definition's id and name; SetType; is_reserve; **experience = the greater of the definition's and accumulated_experience, capped at 100000**; the practical - the type's completion_size (+0xE4), times reserves_factor for reserves, times practical_factor (+0xA0) - through CCountry::GainTechAbility; the definition's id is incremented; the model's levels go onto the brigade's technologies by position; ApplyTechnologies; strength = max_strength * reserves_factor / 1000, no more than slot 12 allows; **organisation = GetMaxOrganisation(brigade, 1, 1), worked out before AddRegimentToUnit**, so with no officer ratio and no reserve share. Then the two accumulators are zeroed; a CUnitDeployment with id (unit type, unit id + 1) is appended to the country's deployments (+0x688) holding the unit; the line's unit id goes up by 2; a line with a target unit is joined to it. Last: `progress -= min(duration, progress)`, `size -= 1`, and where size is still above 0 slot 14 and a fresh reserves_factor. Answers `size <= 0`. See reversing/findings/FINDINGS-buildqueue.md, section 4.\n\n**An upgrade line**, read 2026-11-08: the new brigade keeps nothing of the old beyond what Execute put on the item - the item's name (the old brigade's), experience = max(item experience, accumulated_experience) capped at 100000, is_reserve, and the model of the owner's levels at order time. Strength is the type's full default strength (times reserves_factor for a reserve) capped at GetMaxStrength, organisation GetMaxOrganisation(1, 1); it is not a pride (no such byte is set); no history is copied. Its id is the item's, minted at the order. **Joining the target** is as for any line with a target, from the listing at 0x4850A0: CUnit_CanTakeSubUnit(target, country, the new brigade, sameProvince false), or where that fails and the target is a theatre (oob_level 0), CUnit_MayTakeSubordinate(target, new unit, 0); either -> CUnitDeployment::JoinUnit(country, target, true). A target that is gone, in a battle, full or otherwise unable leaves a one-brigade unit waiting among the deployments. The last call on a finished line is the ordinary one: a name for the type's next brigade (MakeSubUnitName, registered), though the line is ending. See reversing/findings/FINDINGS-upgrades.md.",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-buildqueue.md"
+   "source": "reversing/findings/FINDINGS-upgrades.md"
   },
   {
    "rva": "0x847C0",
@@ -26338,9 +26338,9 @@
    "name": "CSubUnitEntry::CSubUnitEntry",
    "signature": null,
    "no_signature": "a constructor: the object, the unit and the screen arrive in a mix of ECX, another register and the stack that was read only at its one call site, in CSingleUnitPanel::Rebuild",
-   "comment": "One brigade's row: the window `subunit_entry`. Sets `counter_type` to the sprite `GFX_counter_` + the type's name, `counter_size` to frame 1, `unit_pride_star` to frame 3 for a pride, and shows `upgrade_button` where 0x74A220 allows. A second constructor at rva 0x3489F0 makes the row of an upgrade in progress and was not read. See reversing/findings/FINDINGS-unitpanel.md, section 7.",
+   "comment": "One brigade's row: the window `subunit_entry`. Sets `counter_type` to the sprite `GFX_counter_` + the type's name, `counter_size` to frame 1, `unit_pride_star` to frame 3 for a pride, and shows `upgrade_button` where 0x74A220 allows. The row of an upgrade in progress is the second constructor, CSubUnitEntry::CSubUnitEntryForUpgrade (rva 0x3489F0). See reversing/findings/FINDINGS-unitpanel.md, section 7. See reversing/findings/FINDINGS-unitpanel.md, section 7; FINDINGS-upgrades.md.",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-unitpanel.md"
+   "source": "reversing/findings/FINDINGS-upgrades.md"
   },
   {
    "rva": "0x34A410",
@@ -54118,9 +54118,9 @@
    "name": "CInGameIdler_UpgradeSelectionTo",
    "signature": "void __stdcall CInGameIdler_UpgradeSelectionTo(CInGameIdler* idler, int targetType)",
    "no_signature": null,
-   "comment": "An upgrades_window row's click. Where the player's country may still build the target type (CountMaxUnitsStillBuildable >= 1): for every selected unit (kind 0-2), every brigade that CSubUnit_MayUpgradeWhereItStands passes and whose type's upgrade list holds the target gets a **CUpgradeRegimentCommand(brigade, target)**, posted; where any was posted and the game is not a mode-2 custom game, +0xD30 (reshow_open_view) is set. See reversing/findings/FINDINGS-selection.md, section B.3.",
-   "confidence": "inferred",
-   "source": "reversing/findings/FINDINGS-selection.md"
+   "comment": "An upgrades_window row's click. Where the player's country may still build the target type (CountMaxUnitsStillBuildable >= 1): for every selected unit (kind 0-2), every brigade that CSubUnit_MayUpgradeWhereItStands passes and whose type's upgrade list holds the target gets a **CUpgradeRegimentCommand(brigade, target)**, posted; where any was posted and the game is not a mode-2 custom game, +0xD30 (reshow_open_view) is set. See reversing/findings/FINDINGS-selection.md, section B.3.\n\n**Confirmed 2026-11-08 off the bytes**: as the comment says, one command per brigade that passes and lists the target; the target's own CountMaxUnitsStillBuildable test once at the top, per the player's country; every selected unit of kind 0-2, every brigade in order. See reversing/findings/FINDINGS-upgrades.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-upgrades.md"
   },
   {
    "rva": "0x26B510",
@@ -54128,9 +54128,9 @@
    "name": "CInGameIdler::OnUpgradeAll",
    "signature": "void __thiscall CInGameIdler::OnUpgradeAll(CInGameIdler* this)",
    "no_signature": null,
-   "comment": "**`upgrade_all`'s click** (glue +0x1738). With upgrades_window (+0x1924) up, it is closed (CInGameIdler_CloseUpgradesWindow) - the button toggles. Otherwise CInGameIdler_CountUpgradeableBrigades with a vector of target types: none, closed; else its list `list` is emptied and given one CSelectUpgradeAllEntry per target type in the order found, then one with -1 (UPGRADE_CANCEL), the window shown and upgrade_all set to frame 2. See reversing/findings/FINDINGS-selection.md, section B.3.",
-   "confidence": "inferred",
-   "source": "reversing/findings/FINDINGS-selection.md"
+   "comment": "**`upgrade_all`'s click** (glue +0x1738). With upgrades_window (+0x1924) up, it is closed (CInGameIdler_CloseUpgradesWindow) - the button toggles. Otherwise CInGameIdler_CountUpgradeableBrigades with a vector of target types: none, closed; else its list `list` is emptied and given one CSelectUpgradeAllEntry per target type in the order found, then one with -1 (UPGRADE_CANCEL), the window shown and upgrade_all set to frame 2. See reversing/findings/FINDINGS-selection.md, section B.3.\n\n**Confirmed 2026-11-08 off the bytes.** See reversing/findings/FINDINGS-upgrades.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-upgrades.md"
   },
   {
    "rva": "0x26B7B0",
@@ -54378,9 +54378,9 @@
    "name": "CSubUnit_MayUpgradeWhereItStands",
    "signature": "bool __fastcall CSubUnit_MayUpgradeWhereItStands(CSubUnit* brigade@EAX) @AL",
    "no_signature": null,
-   "comment": "Whether a brigade may take an upgrade to another type where its unit is: its unit (+0xB0) exists, is in no battle, is not on loan, is not retreating; a fleet only in a province with a built naval base (+0x300, level +0x20 >= 1), an air unit with an air base (+0x304); and the province's area (+0x2B4) is the area of the owner's acting capital. Asked by the multi-unit upgrade_all count and click. See reversing/findings/FINDINGS-selection.md, section B.3.",
-   "confidence": "inferred",
-   "source": "reversing/findings/FINDINGS-selection.md"
+   "comment": "Whether a brigade may take an upgrade to another type where its unit is: its unit (+0xB0) exists, is in no battle, is not on loan, is not retreating; a fleet only in a province with a built naval base (+0x300, level +0x20 >= 1), an air unit with an air base (+0x304); and the province's area (+0x2B4) is the area of the owner's acting capital. Asked by the multi-unit upgrade_all count and click. See reversing/findings/FINDINGS-selection.md, section B.3.\n\n**Confirmed 2026-11-08 off the bytes.** Land unit: nothing but the area test. The building tested is level_max (+0x20 of the province's CProvinceBuilding), so a damaged port still counts. See reversing/findings/FINDINGS-upgrades.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-upgrades.md"
   },
   {
    "rva": "0x244260",
@@ -65898,9 +65898,9 @@
    "name": "CMilitaryConstruction::~CMilitaryConstruction",
    "signature": "void __thiscall CMilitaryConstruction::~CMilitaryConstruction(CMilitaryConstruction* this)",
    "no_signature": null,
-   "comment": "The destructor body (slot 0, 0x483EF0, calls it): restores the CMilitaryConstruction vftable, and where a brigade item upgrades from another type takes the line off its target unit (CUnit_RemoveUpgradeLine) - so an upgrade line finished or cancelled clears the unit's orange mark - then frees the item list. Only its head was read. Bare `ret` at 0x48402A. See reversing/findings/FINDINGS-counters.md, section 10.",
-   "confidence": "inferred",
-   "source": "reversing/findings/FINDINGS-counters.md"
+   "comment": "The destructor body (slot 0, 0x483EF0, calls it): restores the CMilitaryConstruction vftable, and where a brigade item upgrades from another type takes the line off its target unit (CUnit_RemoveUpgradeLine) - so an upgrade line finished or cancelled clears the unit's orange mark - then frees the item list. Only its head was read. Bare `ret` at 0x48402A. See reversing/findings/FINDINGS-counters.md, section 10.\n\n**Read whole 2026-11-08.** Restores the vftable, walks the brigade items for one with upgrading_from (+0x38) set and if so CUnit_RemoveUpgradeLine(target unit, this) (the target at +0x90/+0x94 through FindPersistentByIdPair), then frees the list. Bare `ret`. See reversing/findings/FINDINGS-upgrades.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-upgrades.md"
   },
   {
    "rva": "0x16857E4",
@@ -73601,6 +73601,146 @@
    "comment": "**Slot 79: the Goto of INVADEDUS and PARATROOPEDUS.** Centres on the message's province (+0x44), else the first country's acting capital, else the second's, and answers true; false where there is no province at all. See reversing/findings/FINDINGS-messagegoto.md.",
    "confidence": "confirmed",
    "source": "reversing/findings/FINDINGS-messagegoto.md"
+  },
+  {
+   "rva": "0x1da7c0",
+   "kind": "function",
+   "name": "CUpgradeRegimentCommand::Execute",
+   "signature": "void __thiscall CUpgradeRegimentCommand::Execute(CUpgradeRegimentCommand* this)",
+   "no_signature": null,
+   "comment": "**Slot 6: a brigade is taken out of its unit at once and a line goes in the queue to bring its replacement.** Resolves the brigade (id +0x40/+0x44, kept at +0x3C); nothing if it is gone or has no unit (+0xB0). It tests nothing else - the condition is slot 14. New CMilitaryConstruction (0xAC bytes): line id from the counter, unit id the next number, counter moved on 3; country the brigade's owner; Size 1; target (+0x90/+0x94) the unit's id; is_reserve the brigade's (+0xA4). Strength share = min(trunc(strength * 1000 / DefaultStrength of the brigade's definition (+0x58)), 1000), or -1 where DefaultStrength is 0. A new CBrigadeConstructionDefinition (0x54 bytes) of the target type (this+0x64): id fresh from the counter (0xA9D6B0); its model is the owner's current level of each technology of the target type, in the type's own order (technologies list +0x44..+0x48 of the target definition; levels from CTechnologyStatus.level_by_technology); name the old brigade's name (slot 8), the old brigade's name released and the new one registered; experience (+0x40) = max(brigade experience (+0x3C), 0) + PRIDE_BONUS_EXP where the brigade is a pride (+0xA5); upgrading_from (+0x38) = the type looked up by the brigade definition's name in the database (0x482C80), so the database's plain type and not the brigade's technology-laden copy; upgrading_from_strength (+0x3C) = the strength share. Then manpower: menBack = trunc(GetBuildCostManpower(owner, brigade definition (+0x58), is_reserve) * share / 1000) added to Manpower (+0xBCC), floored at 0; menNew = GetBuildCostManpower(owner, the new type's built definition from MakeDefinition, is_reserve) stored in the line's manpower (+0x98) and taken off Manpower, floored at 0 - **never refused for want of men** - then CCountry::UpdateManpowerAfterMobilising. builder = owner; location = the acting capital province (EnqueueConstruction zeroes it again); SetReservesFactor; RecalculateCost; EnqueueConstruction; UpdateNeeded of the production share; CUnit_AddUpgradeLine(unit, line) (0x5D3DD0); **RemoveRegimentFromUnit and CGameState::DisposeSubUnit - the old brigade ceases to exist now, not when the line ends**; for the player's own unit the interface is told (0x739BC0). Raises no message. See reversing/findings/FINDINGS-upgrades.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-upgrades.md"
+  },
+  {
+   "rva": "0x1db250",
+   "kind": "function",
+   "name": "CUpgradeRegimentCommand::IsValid",
+   "signature": "bool __thiscall CUpgradeRegimentCommand::IsValid(CUpgradeRegimentCommand* this)",
+   "no_signature": null,
+   "comment": "Slot 14: the gate before Execute (the convention of every command's slot 14, FINDINGS-commands.md). True where the brigade (id at +0x40/+0x44, kept at +0x3C) exists, CSubUnit_MayUpgradeWhereItStands passes, and CCountry::CountMaxUnitsStillBuildable(the unit's owner, the target type at +0x64) is at least 1. **It does not ask whether the target is in the brigade type's upgrade list**, nor whether men or IC are to hand - the upgrade list is only the interface's filter. See reversing/findings/FINDINGS-upgrades.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-upgrades.md"
+  },
+  {
+   "rva": "0x1da710",
+   "kind": "function",
+   "name": "CUpgradeRegimentCommand::CUpgradeRegimentCommand",
+   "signature": null,
+   "no_signature": "`this` and two stack arguments; no ordinary signature was checked against its ret, so none is claimed.",
+   "comment": "**The constructor taking a brigade and a target type**, 0x68 bytes: the CCommand fields, the brigade's reference at +0x3C (0x7C9530 - +0x3C the cached pointer, +0x40/+0x44 its id, a name after them) and the target type index at +0x64. Three callers: the two interface clicks (CInGameIdler_UpgradeSelectionTo, CSelectUpgradeEntry::OnClick) and the Lua binding (0x9891E7). The AI's scripts name no such command (grep of the install's and the mod's .lua). A second constructor at 0x1DA610 makes a default one and a third at 0x1DB1D0 copies. See reversing/findings/FINDINGS-upgrades.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-upgrades.md"
+  },
+  {
+   "rva": "0x1b06a0",
+   "kind": "function",
+   "name": "CSubUnitDataBase_CloseUpgradeTargets",
+   "signature": "void __stdcall CSubUnitDataBase_CloseUpgradeTargets(CSubUnitDataBase* database)",
+   "no_signature": null,
+   "comment": "**Makes the upgrade table transitive, once, after the whole of common/unit_upgrades.txt is read.** Repeats passes until one adds nothing. A pass walks the types in index order; for each type's list (its length taken before the walk, so an entry added during this pass is not walked in it) and each target j, every entry t of j's list (j's length taken at that moment, so a list only changes through later appends it does not see in this inner walk) is appended to the type's own list unless already present. **Order**: first the file's own order of that type's `upgrade` blocks, then what the passes append - which depends on the index order of the types, since a lower-indexed j was already extended earlier in the same pass and a higher one not. A cycle puts a type on its own list. No filter of the file's duplicates (the file's push_back is unconditional). See reversing/findings/FINDINGS-upgrades.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-upgrades.md"
+  },
+  {
+   "rva": "0x82c80",
+   "kind": "function",
+   "name": "CBrigadeConstructionDefinition_SetUpgradingFrom",
+   "signature": "void __stdcall CBrigadeConstructionDefinition_SetUpgradingFrom(CBrigadeConstructionDefinition* item, CSubUnitDefinition* oldType)",
+   "no_signature": null,
+   "comment": "item->upgrading_from (+0x38) = the definition the database's by-name hash finds for oldType's name (+8). So it is always the database's plain type, whatever technology-applied copy the caller holds. Callers: CUpgradeRegimentCommand::Execute. See reversing/findings/FINDINGS-upgrades.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-upgrades.md"
+  },
+  {
+   "rva": "0x3489f0",
+   "kind": "function",
+   "name": "CSubUnitEntry::CSubUnitEntryForUpgrade",
+   "signature": null,
+   "no_signature": "`this` passed on the stack with three more; the calling convention was not settled against every call.",
+   "comment": "**The second constructor of a row of a unit panel: the row of a brigade being upgraded (line in the queue, not a brigade).** Same window `subunit_entry`, marked is_upgrade_row (+0x120) = 1, the line's reference at +0xF0 (cached), the two brigade fields empty; `counter_type` = GFX_counter_ + the first brigade item's new type's key (item +0x34, string at +8) where such a sprite exists; `counter_size` frame 1; `select` wired to the same glue as a brigade's row (+0x28); `upgrade_button` hidden. Added by CWindowForSubUnitsEntry::Fill for each record of the unit's upgrade_lines whose line still resolves, **before the brigades**. CSubUnitEntry::Update then sets `subunit_name` to UNIT_UPG_PROGRESS with PROG = the percentage to one decimal place (progress * 1000 / duration, truncated, is the ratio in thousandths; times the floored 100000.5 at 0x160A718, over 1000; 0 where duration is not positive), hides subunit_level, subunit_amount, unit_cw_strip, unit_experience, org_bar, str_bar and unitstatus_reserve, and sets `subunit_type` to the empty string. Tooltip: CSubUnitEntry::BuildTooltip's second arm. See reversing/findings/FINDINGS-upgrades.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-upgrades.md"
+  },
+  {
+   "rva": "0x34a220",
+   "kind": "function",
+   "name": "CSubUnitEntry_MayShowUpgradeButton",
+   "signature": "bool __stdcall CSubUnitEntry_MayShowUpgradeButton(CSubUnitEntry* row)",
+   "no_signature": null,
+   "comment": "**Whether a brigade row shows its `upgrade_button`.** The row is a brigade's (+0x120 clear); the game state's `scenario` is null and the game is not a mode-2 custom game; the brigade resolves; CSubUnit_MayUpgradeWhereItStands; and the brigade type's list (CSubUnitDataBase +0xB0) has at least one target with CountMaxUnitsStillBuildable >= 1 **for the player's country**. Asked by the constructor and every frame by CSubUnitEntry::Update (called twice there). See reversing/findings/FINDINGS-upgrades.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-upgrades.md"
+  },
+  {
+   "rva": "0x34a0c0",
+   "kind": "function",
+   "name": "CSubUnitEntry::OnUpgradeButton",
+   "signature": "void __thiscall CSubUnitEntry::OnUpgradeButton(CSubUnitEntry* this)",
+   "no_signature": null,
+   "comment": "**`upgrade_button`'s click** (the row's second glue, +0x78). Nothing for an upgrade row. Sets the button to frame 2 and hands the row to CSingleUnitPanel_ShowUpgradeList (the panel at +0x11C). See reversing/findings/FINDINGS-upgrades.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-upgrades.md"
+  },
+  {
+   "rva": "0x34a170",
+   "kind": "function",
+   "name": "CSubUnitEntry_CloseUpgradeList",
+   "signature": null,
+   "no_signature": "The row arrives in EDI, no stack argument.",
+   "comment": "**Closes the upgrade list a row opened.** Sets the row's `upgrade_button` to frame 1 and, where it is the row the panel holds (+0x11C -> +0x48), hides the window and forgets the row (CSingleUnitPanel_HideUpgradeList). Called from the row's slot-4 click (CSelectUpgradeEntry::OnClick, last thing, on any row), from opening another row's list, and from the CSubUnitEntry destructor (0x7491B1), so a list refilled under it goes. See reversing/findings/FINDINGS-upgrades.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-upgrades.md"
+  },
+  {
+   "rva": "0x3620a0",
+   "kind": "function",
+   "name": "CSingleUnitPanel_ShowUpgradeList",
+   "signature": "void __stdcall CSingleUnitPanel_ShowUpgradeList(CSingleUnitPanel* panel, CSubUnitEntry* row)",
+   "no_signature": null,
+   "comment": "**Fills and shows `select_upgrade_window`.** Closes any previous row's list; panel+0x48 = row. Resolves the brigade; empties the window's `list`; adds one CSelectUpgradeEntry per target of the brigade type in CSubUnitDataBase +0xB0's order, **only those with CountMaxUnitsStillBuildable >= 1 for the player**; then one more with -1, UPGRADE_CANCEL; shows the list and the window and calls the placing routine (0x361EF0). See reversing/findings/FINDINGS-upgrades.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-upgrades.md"
+  },
+  {
+   "rva": "0x361ef0",
+   "kind": "function",
+   "name": "CSingleUnitPanel_PlaceUpgradeList",
+   "signature": null,
+   "no_signature": "`__fastcall` with the panel in ECX per the decompiler; not checked against every caller.",
+   "comment": "**Where the list of targets goes.** With a row held and `select_upgrade_window` shown: its `list` is moved to x = upgrade_button.x + panel home x (+0x50, the panel window's x at construction) + (row screen x - panel screen x), y = upgrade_button.y + (row screen y - panel screen y), where the row's and the panel's come from their slot 26 (+0x68) and the button's from its slot 15 (+0x3C). Which of those two slots are parent-relative is inferred from `+0x50`'s use; the window itself stays at the file's {254, 0}. Called when it opens and from four places in CInGameIdler (0x256553 and others), so it follows a scrolled panel. See reversing/findings/FINDINGS-upgrades.md. **Measured 2026-11-08 on a screenshot of the maintainer's: the sum is a place on the screen, not inside select_upgrade_window (254, 0) or the panel (0, 108)**, one pixel lower than the sum gives. +0x50 is the panel window's x, 0 as shipped.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-upgrades.md"
+  },
+  {
+   "rva": "0x362440",
+   "kind": "function",
+   "name": "CSingleUnitPanel_HideUpgradeList",
+   "signature": null,
+   "no_signature": "Register-only: the panel in ESI, no stack argument.",
+   "comment": "Hides `select_upgrade_window` and zeroes panel+0x48. The panel arrives in ESI. See reversing/findings/FINDINGS-upgrades.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-upgrades.md"
+  },
+  {
+   "rva": "0x347c10",
+   "kind": "function",
+   "name": "CSelectUpgradeEntry::CSelectUpgradeEntry",
+   "signature": "CSelectUpgradeEntry* __thiscall CSelectUpgradeEntry::CSelectUpgradeEntry(void* screen, CSelectUpgradeEntry* storage, int targetType, CSubUnitEntry* row)",
+   "no_signature": null,
+   "comment": "**A row of a single unit's `select_upgrade_window`**: the window `select_upgrade_entry`, the row at +0x78, the target at +0x7C (-1 for Cancel); its button `target` shows the type's name (definition slot 6) or, for -1, UPGRADE_CANCEL. Same arrangement as CSelectUpgradeAllEntry. See reversing/findings/FINDINGS-upgrades.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-upgrades.md"
+  },
+  {
+   "rva": "0x347f00",
+   "kind": "function",
+   "name": "CSelectUpgradeEntry::OnClick",
+   "signature": "void __thiscall CSelectUpgradeEntry::OnClick(CSelectUpgradeEntry* this)",
+   "no_signature": null,
+   "comment": "Slot 4, a click on a row of the single-unit list. For a real target (+0x7C >= 0) with its brigade still there: where the target is in the brigade type's upgrade list and CountMaxUnitsStillBuildable(the player, target) >= 1, a CUpgradeRegimentCommand(brigade, target) is posted through the session channel (+0x38, slot 6); reshow_open_view (+0xD30) is set unless the game is a mode-2 custom game. Then the list closes either way (CSubUnitEntry_CloseUpgradeList) - **Cancel is only this**. See reversing/findings/FINDINGS-upgrades.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-upgrades.md"
   }
  ],
  "structs": [
@@ -90186,8 +90326,8 @@
      "offset": "0x3C",
      "name": "upgrading_from_strength",
      "type": "int",
-     "comment": "Thousandths, saved as `upgrading_from_subunit_str` beside `upgrading_from_subunit` (+0x38) - written only where not 0 and read back with TokenToFixedPoint. Presumably the strength of the brigade being upgraded; what uses it was not read.",
-     "source": "reversing/findings/FINDINGS-savegame.md"
+     "comment": "The brigade's strength over its type's default strength at the order, thousandths, capped at 1000 (-1 where the default is 0); saved as `upgrading_from_subunit_str`. CMilitaryConstruction::RecalculateCost's upgrade arm reads it: the old type's IC is credited by this share times UNIT_UPGRADE_COST, and CUpgradeRegimentCommand::Execute gives back that share of the old type's men. See reversing/findings/FINDINGS-upgrades.md.",
+     "source": "reversing/findings/FINDINGS-upgrades.md"
     },
     {
      "offset": "0x38",
@@ -115738,6 +115878,101 @@
      "source": "reversing/findings/FINDINGS-smallbatch.md"
     }
    ]
+  },
+  {
+   "name": "CSubUnitEntry",
+   "vftable_rva": "0x11D88CC",
+   "size": "0x128",
+   "comment": "A row of the sub-units list of a unit panel: a brigade's, or one upgrading (the second constructor).",
+   "source": "reversing/findings/FINDINGS-upgrades.md",
+   "fields": [
+    {
+     "offset": "0x120",
+     "name": "is_upgrade_row",
+     "type": "bool",
+     "comment": "Set by the second constructor; every handler and tooltip tests it first.",
+     "source": "reversing/findings/FINDINGS-upgrades.md"
+    },
+    {
+     "offset": "0x11C",
+     "name": "panel",
+     "type": "CSingleUnitPanel*",
+     "comment": "Handed to the list opened by the row's upgrade button.",
+     "source": "reversing/findings/FINDINGS-upgrades.md"
+    },
+    {
+     "offset": "0x118",
+     "name": "owner_entry",
+     "type": "void*",
+     "comment": "The CWindowForSubUnitsEntry the row belongs to.",
+     "source": "reversing/findings/FINDINGS-upgrades.md"
+    },
+    {
+     "offset": "0xF0",
+     "name": "line_ref",
+     "type": "void*",
+     "comment": "The same kind of reference for the CMilitaryConstruction of an upgrade row: the id at +0xF4/+0xF8. Clear on a brigade row.",
+     "source": "reversing/findings/FINDINGS-upgrades.md"
+    },
+    {
+     "offset": "0xC8",
+     "name": "brigade_ref",
+     "type": "void*",
+     "comment": "A 0x28-byte reference made by 0x7C9530: +0 the cached CSubUnit*, +4/+8 its id, +0xC a name. Clear on an upgrade row.",
+     "source": "reversing/findings/FINDINGS-upgrades.md"
+    }
+   ]
+  },
+  {
+   "name": "CSelectUpgradeEntry",
+   "vftable_rva": "0x11D9C9C",
+   "size": "0x80",
+   "comment": "A row of a single unit's select_upgrade_window.",
+   "source": "reversing/findings/FINDINGS-upgrades.md",
+   "fields": [
+    {
+     "offset": "0x7C",
+     "name": "target_type",
+     "type": "int",
+     "comment": "The target type index, or -1 for the Cancel row.",
+     "source": "reversing/findings/FINDINGS-upgrades.md"
+    },
+    {
+     "offset": "0x78",
+     "name": "row",
+     "type": "CSubUnitEntry*",
+     "comment": "The brigade row whose list this is.",
+     "source": "reversing/findings/FINDINGS-upgrades.md"
+    }
+   ]
+  },
+  {
+   "name": "CSingleUnitPanel",
+   "comment": "The panel of one selected unit (window single_unitpanel). Size not settled.",
+   "source": "reversing/findings/FINDINGS-upgrades.md",
+   "fields": [
+    {
+     "offset": "0x50",
+     "name": "home_x",
+     "type": "int",
+     "comment": "The panel window's position x at construction, kept here and at +0x4C; added into the list's x when placed. Other writers were not searched.",
+     "source": "reversing/findings/FINDINGS-upgrades.md"
+    },
+    {
+     "offset": "0x48",
+     "name": "upgrade_row",
+     "type": "CSubUnitEntry*",
+     "comment": "The row whose list of targets is open, or null.",
+     "source": "reversing/findings/FINDINGS-upgrades.md"
+    },
+    {
+     "offset": "0x4",
+     "name": "window",
+     "type": "void*",
+     "comment": "The window `single_unitpanel`.",
+     "source": "reversing/findings/FINDINGS-upgrades.md"
+    }
+   ]
   }
  ],
  "equates": [
@@ -115778,6 +116013,13 @@
   }
  ],
  "vftable_slots": {
+  "CSelectUpgradeEntry": {
+   "4": "OnClick"
+  },
+  "CUpgradeRegimentCommand": {
+   "6": "Execute",
+   "14": "IsValid"
+  },
   "_A0xbb459920::CAINeedEntry": {
    "8": "Refresh"
   },
