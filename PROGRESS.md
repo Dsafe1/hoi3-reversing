@@ -25,12 +25,12 @@ how many objects a census found (taken 2026-09-20).
 
 | | classes |
 | --- | --- |
-| `read` | 158 |
+| `read` | 162 |
 | `placed` | 140 |
 | `keys` | 75 |
-| `part` | 153 |
+| `part` | 154 |
 | `named` | 5 |
-| `RTTI` | 610 |
+| `RTTI` | 605 |
 | **all** | **1141** |
 
 ## What to read next
@@ -446,7 +446,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CAskOfferMilitaryAccess` | `CDiplomacyDialog` |  |  |  | 1 |  |  | RTTI |  |
 | `CAskPeace` | `CDiplomacyDialog` |  |  |  | 1 |  |  | RTTI |  |
 | `CAskTrade` | `CDiplomacyDialog` |  |  |  | 2 |  |  | RTTI |  |
-| `CBackEndIdler` | `CEU3Idler` |  |  |  | 1 |  |  | RTTI |  |
+| `CBackEndIdler` | `CEU3Idler` | 0x600 | 9 |  | 7 |  |  | read |  |
 | `CBattlePlanEntry` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
 | `CBattlePlanManager` | `CReloadableInterface` |  |  |  |  |  | 1 | RTTI |  |
 | `CBeachManager` | `CLostDeviceInterface` | 0x40 | 15 |  | 1 |  | 1 | read |  |
@@ -543,7 +543,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CICCostComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CIcon` | `CButton` |  |  |  | 4 |  |  | RTTI |  |
 | `CIdler` |  |  |  |  |  |  |  | RTTI |  |
-| `CInGameIdler` | `CEU3Idler` `CLostDeviceInterface` `CReloadDispatcher` |  | 118 |  | 107 | CInGameIdler.hpp | 3 | read |  |
+| `CInGameIdler` | `CEU3Idler` `CLostDeviceInterface` `CReloadDispatcher` |  | 119 |  | 107 | CInGameIdler.hpp | 3 | read |  |
 | `CIngameSettingsScreen` | `CSettingsScreen` | 0x3E0 | 1 |  | 2 |  | 1 | part |  |
 | `CLandOrdersView` | `COrdersView` | 0x198 | 10 |  | 10 |  |  | read |  |
 | `CLawEntry` | `CStandardlistboxItem` | 0x88 | 4 |  | 3 |  | 16 | part |  |
@@ -636,8 +636,8 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CScrollbarObserver` |  |  |  |  |  |  | 26 | RTTI |  |
 | `CSelectUpgradeAllEntry` | `CStandardlistboxItem` |  | 2 |  | 2 |  |  | part |  |
 | `CSelectUpgradeEntry` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
-| `CSelectVictoryConditionItem` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
-| `CSelectVictoryConditionsView` | `CReloadableInterface` |  |  |  | 1 |  |  | RTTI |  |
+| `CSelectVictoryConditionItem` | `CStandardlistboxItem` | 0x38 | 5 |  | 1 |  |  | read |  |
+| `CSelectVictoryConditionsView` | `CReloadableInterface` | 0xA4 | 4 |  | 6 |  |  | part |  |
 | `CSelectable` |  |  |  |  |  |  | 243 | RTTI |  |
 | `CSelectedBrigadeEntry` | `CStandardlistboxItem` |  |  |  | 1 |  |  | RTTI |  |
 | `CSelectedShipEntry` | `CStandardlistboxItem` |  |  |  | 1 |  | 2 | RTTI |  |
@@ -703,8 +703,8 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CUnitViewBaseEntry` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
 | `CUpdateable` |  |  |  |  |  |  | 1 | RTTI |  |
 | `CVerySafePathFind` | `CPathFind` |  |  |  | 1 |  |  | RTTI |  |
-| `CVictoryConditionItem` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
-| `CVictoryConditionsView` | `CReloadableInterface` |  |  |  |  |  | 1 | RTTI |  |
+| `CVictoryConditionItem` | `CStandardlistboxItem` | 0x38 | 5 |  | 2 |  |  | read |  |
+| `CVictoryConditionsView` | `CReloadableInterface` | 0x7C | 5 |  | 4 |  | 1 | read |  |
 | `CViewsTextureManager` | `CLostDeviceInterface` | 0x4C | 11 |  | 3 |  | 1 | read |  |
 | `CWindowForChildUnitsEntry` | `CUnitViewBaseEntry` |  |  |  | 4 |  |  | RTTI |  |
 | `CWindowForLoadedUnitsEntry` | `CUnitViewBaseEntry` |  |  |  | 6 |  |  | RTTI |  |

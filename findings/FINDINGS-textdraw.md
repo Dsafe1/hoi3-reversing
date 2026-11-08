@@ -79,8 +79,9 @@ is not used.**
 For orientation 1, `UPPER_RIGHT`, at `0xAFCB1C`, `x0 = areaWidth/2 + x + borderX` - the
 border is in the origin - and then the same three, so left and centre have the border
 twice and right has it once. Orientations 2 and 3 (`0xAFCBA5`, `0xAFCBED`) place left
-and centre and treat right as left. 4 and 5 (`0xAFCC16`, `0xAFCC77`) have terms of their
-own that were not worked through. Of the 1118 text boxes in the base game and Their
+and centre and treat right as left. **CENTER, 4 (`0xAFCC16`, read 2026-11-08)**: x is from the middle of the area and `lineY = -(y + borderY)`; left and right both start at `x + borderX`, and
+centre at `x + borderX - widest/2 + maxWidth/2 - lineWidth/2`, `widest` being the block's widest line (the register the switch inherits, `cmovg` at `0xAFCA3B`). So **a single line ends at the middle of
+the box and is not centred in it**: "0 of 15 Victory Conditions" in `backend.gui` falls inside its column by this and off it otherwise. 5, CENTER_UP (`0xAFCC77`), has terms of its own not worked through. Of the 1118 text boxes in the base game and Their
 Finest Hour, 1077 are `UPPER_LEFT`.
 
 **Every corner of every glyph has half a pixel added to x and to y.** In the quad loop
@@ -130,7 +131,7 @@ table the other fonts fall back to was not read.
 
 - **Why the pictures sit half a pixel the other way.** Section 3 measures it; the sprite
   side's vertex arithmetic was not read.
-- **Orientations 4 and 5** of the switch, and what 2 and 3 do with text set right.
+- **Orientation 5** of the switch, and what 2 and 3 do with text set right.
 - **The line breaking loop**: when a line breaks, the `0x140` it uses for a box with no
   width, the two characters it treats specially (`$` at `0xAFC256`, `0xA4` adding 16 to
   the width at `0xAFC5E1`, `@` in the quad loop at `0xAFCE0F`).

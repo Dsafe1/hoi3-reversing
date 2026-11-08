@@ -17,6 +17,33 @@ truth.
 
 ---
 
+## The end-of-game wave - how a game ends, and the windows that show the victory conditions
+
+> **LANDED 2026-11-08**, launched on the maintainer's word ("continue with those missing UIs"), the first of the gaps in OpenHOI3's readme, *What of the
+> interface is missing*: a game there has no ending. Two fragments merged (27 address entries new, 6 revised; 5 structs declared, 31 struct fields); the write-up is
+> `findings/FINDINGS-endgame.md`, indexed in `CANDIDATES.md`. **Corrected**: the "goals window" is `vc_window`; the dialog's faction and its tie rule; the back end recalculates
+> its tiers and reads no winner. Left open: the shield's icon slot, the back end's camera, and multiplayer's repeated pause past the end date.
+
+**The question, for OpenHOI3**: everything between a game's last hour and the main menu, and the windows that say how near it is. Their rules are read
+(`FINDINGS-factionplay.md`, C: the day's test, 12 to win, what counts as met, the alert), their screens are not.
+
+**What is known before reading.** `CInGameIdler::ShowVictoryConfirmDialog` (rva `0x271A10`) makes the `VCConfirm` dialog (`0x270C20`, from VA `0x670C20`), which
+`FINDINGS-factionplay.md` C.8 and C.11 leave open: how it picks Victory or Defeat and which faction it names, and what `CInGameIdler` slots 27 and 95 do.
+`CConfirmVictoryConditionResign::OnAgree` (`0x271320`), `CInGameIdler::RequestGameOver` (`0x24C010`), `ProcessSessionEndRequests` (`0x2542B0`), which builds a
+`CBackEndIdler` (RTTI: 110 slots, 16 introduced; `CBackEndIdler::OnExitButton` `0x20BAF0`). `interface/backend.gui`: `back_end` with `Exit`, per-faction `*_members`
+and `*_goals`, `factions`; rows `backend_faction_member_entry` and `end_vc_entry`. `interface/vc_interface.gui`: `vc_window`, `vc_list`, rows `vc_entry` (update at
+VA `0x6D2990`, the list not read; opened from where is not known). `interface/victory_conditions.gui`: the lobby's `victory_conditions_window`, `conditions_list`, rows
+`condition_entry`, `accept_button`, `cancel_button` (`CSelectVictoryConditionsView::OnAccept` `0x31B9E0`, `CGameSetup::OnVictoryConditionsButton` `0x31AA30`,
+`CVictoryConditionItem`, `CVictoryConditionsView`). `menubar_goals_button` calls `CInGameIdler::ToggleGoals` (`0x249F70`), of a window not identified. Alert 14,
+`alert_victory_conditions`.
+
+| reader | brief | fragment |
+| --- | --- | --- |
+| **A** | **The end**: `VCConfirm` whole - victory or defeat, the faction, its two buttons, what Continue leaves the game doing - slots 27 and 95, the end date's gates in `CInGameIdler::Update`, `CConfirmVictoryConditionResign`, and `CBackEndIdler` whole: what it does on entry, every element of `back_end` and its two rows, what each list shows and in what order, the tooltips, the music or pictures, Exit. | `endgame-backend.json` |
+| **B** | **The windows**: `vc_window` whole - who opens it, every element, each row of `vc_list`, in what order, its tooltips, the day's update; the lobby's `victory_conditions_window` - who may open it, the rows, a click, Accept and Cancel; alert 14's tooltip; and the goals window behind `menubar_goals_button`: which window it is, or that it is nothing. | `endgame-vc.json` |
+
+---
+
 ## The map cache wave - how the original builds `map/cache` out of the map files
 
 > **LANDED 2026-11-08**, launched on the maintainer's word ("continue with the map cache") for OpenHOI3, which draws the
