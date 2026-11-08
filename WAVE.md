@@ -17,6 +17,20 @@ truth.
 
 ---
 
+## The convoy windows wave - making and managing convoys by hand, and the go-to box
+
+> **LANDED 2026-11-08**, two fragments merged, launched on the maintainer's word ("Ok go ahead"), the next of the gaps in OpenHOI3's readme, *What of the interface is missing*. The write-up is
+> `findings/FINDINGS-convoywindows.md`.
+
+**The question, for OpenHOI3**: how a player makes, inspects, changes and cancels a convoy, and the box that jumps the map to a province. **What is known before reading.** `CProductionView::OnConvoyButton` (rva `0x4023F0`), `CConvoySettings::Update` (rva `0x3E3310`), `CCountry::CreateConvoy` (rva `0xFD2E0`), the commands' `LoadKey`s (`CCreateConvoyCommand`, `CCancelConvoyCommand`, `CChangeEscortsInConvoyCommand`, `CChangeResourcesInConvoyCommand`). Files: `interface/convoys.gui`, `tfh/interface/convoys.gui`, `interface/goto.gui`; `FINDINGS-convoys.md`, `FINDINGS-convoylines.md`.
+
+| reader | brief | fragment |
+| --- | --- | --- |
+| **A** | **The convoy windows**: `convoy_creation_window`, `convoy_details`, `convoy_settings`, the production screen's `convoy_queue` rows and `convoy_button`, the map while a route is being picked, and the commands they post. | `convoywindows.json` |
+| the collecting session | **The go-to box**: `goto_box`, `button_goto`. | `gotobox.json` |
+
+---
+
 ## The top screens wave - the top bar's Theatres, Statistics and Strategic Warfare
 
 > **LANDED 2026-11-08**, three fragments merged, launched on the maintainer's word ("Commit this, then continue"), the next of the gaps in OpenHOI3's readme, *What of the interface is missing*. The write-up is

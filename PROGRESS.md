@@ -25,12 +25,12 @@ how many objects a census found (taken 2026-09-20).
 
 | | classes |
 | --- | --- |
-| `read` | 167 |
+| `read` | 169 |
 | `placed` | 140 |
 | `keys` | 75 |
-| `part` | 154 |
+| `part` | 157 |
 | `named` | 5 |
-| `RTTI` | 600 |
+| `RTTI` | 595 |
 | **all** | **1141** |
 
 ## What to read next
@@ -162,7 +162,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CCombatManager` | `CPersistent` |  | 3 | 1/7 | 9 | CCombatManager.hpp | 1 | placed |  |
 | `CCombatant` | `CPersistent` |  | 23 | 4/6 | 21 | CCombat.hpp |  | read |  |
 | `CConstruction` | `CReferenceObject` |  | 13 + 2 lua |  | 6 | CConstruction.hpp |  | read |  |
-| `CConvoy` | `CReferenceObject` |  | 22 + 3 lua | 6/13 | 18 | CConvoy.hpp | 839 | read |  |
+| `CConvoy` | `CReferenceObject` |  | 22 + 3 lua | 6/13 | 19 | CConvoy.hpp | 839 | read |  |
 | `CConvoyConstruction` | `CConstruction` |  | 1 | 1/1 | 6 | CConstruction.hpp | 40 | placed |  |
 | `CConvoyEscortOrder` | `CNavalOrder` |  |  | 1/3 | 8 |  |  | placed |  |
 | `CConvoyRaid` | `CNavalOrder` |  |  | 1/1 | 7 |  | 62 | placed |  |
@@ -481,9 +481,9 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CConfirmSave` | `CEU3Dialog` | 0x88 | 2 |  | 3 |  |  | part |  |
 | `CConfirmSavePlan` | `CEU3Dialog` |  |  |  |  |  |  | RTTI |  |
 | `CConfirmVictoryConditionResign` | `CEU3Dialog` | 0x6C | 1 |  | 1 |  |  | part |  |
-| `CConvoyDetails` | `CReloadableInterface` |  |  |  |  |  | 1 | RTTI |  |
-| `CConvoyProvinceEntry` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
-| `CConvoySettings` | `CReloadableInterface` |  |  |  | 1 |  | 1 | RTTI |  |
+| `CConvoyDetails` | `CReloadableInterface` | 0x198 | 6 |  | 16 |  | 1 | read |  |
+| `CConvoyProvinceEntry` | `CStandardlistboxItem` | 0x80 | 2 |  | 2 |  |  | part |  |
+| `CConvoySettings` | `CReloadableInterface` | 0x12C | 3 |  | 13 |  | 1 | part |  |
 | `CCounterObject` | `C3dVisibleObject` | 0x1C0 | 18 |  | 5 |  | 17,284 | read |  |
 | `CCounterStack` | `C3dVisibleObject` | 0x158 | 3 |  | 2 |  | 21,748 | part |  |
 | `CCountryEntry` | `CStandardlistboxItem` | 0x88 | 10 |  | 6 |  |  | read |  |
@@ -533,7 +533,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CFuelConsumptionComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CGameNameMember` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
 | `CGoalEntry` | `CStandardlistboxItem` |  |  |  | 1 |  |  | RTTI |  |
-| `CGotoBox` | `CUpdateable` |  |  |  |  |  | 1 | RTTI |  |
+| `CGotoBox` | `CUpdateable` |  |  |  | 1 |  | 1 | RTTI |  |
 | `CGotoProvinceItem` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
 | `CGraphicalObject` |  |  |  |  |  |  |  | RTTI |  |
 | `CGraphicalTableLedger` | `CGuiObject` | 0x150 |  |  | 4 |  |  | RTTI |  |
@@ -609,7 +609,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CPossibleSingleBrigadeEntry` | `CStandardlistboxItem` |  |  |  | 1 |  |  | RTTI |  |
 | `CPowerRatioEntry` | `CUnitViewBaseEntry` |  |  |  |  |  |  | RTTI |  |
 | `CPrioComparator` | `CBrigadeSortInterface` |  |  |  | 1 |  | 2 | RTTI |  |
-| `CProductionView` | `CCountryView` |  | 9 |  | 28 |  | 1 | read |  |
+| `CProductionView` | `CCountryView` |  | 11 |  | 30 |  | 1 | read |  |
 | `CProjectionObject` | `C3dVisibleObject` |  |  |  |  |  |  | RTTI |  |
 | `CProvinceCollisionObject` | `C3dVisibleObject` |  | 4 |  |  |  |  | part |  |
 | `CProvinceManager` | `CLostDeviceInterface` |  |  |  | 1 |  | 1 | RTTI |  |
@@ -818,7 +818,7 @@ One class per effect, trigger, command and decision the event scripts can use. E
 | `CCGMTemplate` | `CPersistent` |  |  |  | 1 |  |  | keys |  |
 | `CCGMUnitCostMult` | `CPersistent` |  |  |  | 1 |  | 1 | keys |  |
 | `CCanCreateVassalsTrigger` | `CBoolTrigger` | 0x44 |  | 2/153 | 2 |  |  | RTTI |  |
-| `CCancelConvoyCommand` | `CCommand` |  |  | 1/1 | 1 |  | 1 | placed |  |
+| `CCancelConvoyCommand` | `CCommand` | 0x64 |  | 1/1 | 3 |  | 1 | placed |  |
 | `CCancelMissionCommand` | `CCommand` |  |  | 1/1 |  |  | 1 | RTTI |  |
 | `CCancelMovementCommand` | `CCommand` |  |  | 1/1 | 2 |  | 1 | RTTI |  |
 | `CCancelUnitConstructionCommand` | `CCommand` |  |  | 1/2 | 2 |  | 1 | placed |  |
@@ -847,7 +847,7 @@ One class per effect, trigger, command and decision the event scripts can use. E
 | `CCgmTechResearchSetProgressCommand` | `CCommand` |  |  | 2/2 | 1 |  | 1 | placed |  |
 | `CCgmTeleportUnitCommand` | `CCommand` |  |  | 1/1 | 1 |  | 1 | placed |  |
 | `CChangeControllerEffect` | `CCountryTargetEffect` | 0x28 |  | 3/91 | 2 |  | 183 | RTTI |  |
-| `CChangeEscortsInConvoyCommand` | `CCommand` |  |  | 1/2 | 1 |  | 1 | placed |  |
+| `CChangeEscortsInConvoyCommand` | `CCommand` | 0x68 | 1 | 1/2 | 4 |  | 1 | placed |  |
 | `CChangeInvestmentCommand` | `CCommand` | 0x54 | 4 | 1/2 | 7 |  | 144 | placed |  |
 | `CChangeLawCommand` | `CCommand` | 0x50 | 6 | 3/3 | 7 |  | 2 | read |  |
 | `CChangeLeadershipCommand` | `CCommand` | 0x54 | 5 | 1/2 | 3 |  | 162 | read |  |
@@ -857,10 +857,10 @@ One class per effect, trigger, command and decision the event scripts can use. E
 | `CChangeOccupationPolicyCommand` | `CCommand` | 0x50 | 3 | 3/3 | 7 |  | 1 | placed |  |
 | `CChangePriorityCommand` | `CCommand` |  |  | 2/3 | 3 |  | 1 | placed |  |
 | `CChangeProvinceNameCommand` | `CCommand` |  |  | 2/2 | 2 |  | 1 | placed |  |
-| `CChangeResourcesInConvoyCommand` | `CCommand` |  |  | 1/2 | 1 |  | 1 | placed |  |
+| `CChangeResourcesInConvoyCommand` | `CCommand` | 0x74 | 1 | 1/2 | 3 |  | 1 | placed |  |
 | `CChangeTechPriorityCommand` | `CCommand` |  |  | 3/3 | 1 |  | 1 | placed |  |
 | `CChangeTemplateCommand` | `CCommand` |  |  | 2/2 | 1 |  | 1 | placed |  |
-| `CChangeTransportsInConvoyCommand` | `CCommand` |  |  | 1/2 |  |  | 1 | RTTI |  |
+| `CChangeTransportsInConvoyCommand` | `CCommand` | 0x68 | 1 | 1/2 | 3 |  | 1 | part |  |
 | `CChangeVariableEffect` | `CVariableEffect` |  |  | 2/2 | 1 |  | 1,546 | RTTI |  |
 | `CChannelSelectionOption` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
 | `CChooseVictoryConditionsCommand` | `CCommand` | 0x50 | 2 | 1/2 | 4 |  | 1 | placed |  |
@@ -898,7 +898,7 @@ One class per effect, trigger, command and decision the event scripts can use. E
 | `CCountryUnitsInProvinceTrigger` | `CTagTrigger` |  |  | 2/153 | 2 |  | 52 | RTTI |  |
 | `CCoupEffect` | `CEffect` | 0x24 | 1 | 3/91 | 3 |  | 4 | part |  |
 | `CCreateAllianceEffect` | `CCountryTargetEffect` | 0x28 |  | 3/91 | 2 |  | 13 | RTTI |  |
-| `CCreateConvoyCommand` | `CCommand` |  |  | 2/2 | 1 |  | 1 | placed |  |
+| `CCreateConvoyCommand` | `CCommand` | 0x48 | 3 | 2/2 | 3 |  | 1 | placed |  |
 | `CCreateHigherCommand` | `CCommand` | 0x58 |  |  | 4 |  | 1 | keys |  |
 | `CCreateLeaderCommand` | `CCommand` |  |  | 1/1 | 1 |  | 1 | placed |  |
 | `CCreateNewHQCommand` | `CCommand` |  |  | 2/4 | 3 |  | 1 | placed |  |
@@ -1181,9 +1181,9 @@ One class per effect, trigger, command and decision the event scripts can use. E
 | `CThreatEffect` | `CEffect` | 0x30 | 3 | 3/3 | 3 |  | 387 | placed |  |
 | `CThreatTrigger` | `CTagTrigger` | 0x4C | 1 | 1/2 | 3 |  |  | placed |  |
 | `CToggleAutoAssignLeadersCommand` | `CCommand` |  |  | 1/1 | 1 |  | 1 | RTTI |  |
-| `CToggleAutoMaintainConvoysCommand` | `CCommand` |  |  | 1/1 |  |  | 1 | RTTI |  |
-| `CToggleAutoResourceConvoysCommand` | `CCommand` |  |  | 1/1 |  |  | 1 | RTTI |  |
-| `CToggleAutoSupplyConvoysCommand` | `CCommand` |  |  | 1/1 |  |  | 1 | RTTI |  |
+| `CToggleAutoMaintainConvoysCommand` | `CCommand` |  |  | 1/1 | 2 |  | 1 | RTTI |  |
+| `CToggleAutoResourceConvoysCommand` | `CCommand` |  |  | 1/1 | 2 |  | 1 | RTTI |  |
+| `CToggleAutoSupplyConvoysCommand` | `CCommand` |  |  | 1/1 | 2 |  | 1 | RTTI |  |
 | `CToggleMobilizationCommand` | `CCommand` |  |  | 1/2 | 3 |  | 1 | placed |  |
 | `CTogglePlanObjectiveCommand` | `CCommand` |  |  | 1/2 | 2 |  | 1 | placed |  |
 | `CTogglePrioritizeCommand` | `CCommand` |  |  | 1/1 | 1 |  | 1 | RTTI |  |
@@ -1246,7 +1246,7 @@ Windows, pages, sprites and the map's own drawing.
 | `CButton` | `TButton` |  |  |  | 1 |  |  | RTTI |  |
 | `CButtonObservable` | `VCButtonClassObservable::anon::VCButtonObserver::__CObservable` |  |  |  |  |  |  | RTTI |  |
 | `CButtonObserver` |  |  |  |  |  |  | 2,540 | RTTI |  |
-| `CConvoyCreationWindow` | `CStandardlistboxItem` |  |  |  |  |  | 2 | RTTI |  |
+| `CConvoyCreationWindow` | `CStandardlistboxItem` | 0x90 | 8 |  | 5 |  | 2 | read |  |
 | `CDiplomacyDialog` | `CEU3Dialog` | 0x70 | 2 |  | 5 |  |  | part |  |
 | `CEU3Dialog` | `CUpdateable` |  | 3 |  | 8 |  |  | part |  |
 | `CEventWindow` | `CUpdateable` | 0xA0 | 12 |  | 4 |  |  | read |  |
