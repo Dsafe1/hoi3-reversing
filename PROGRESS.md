@@ -25,12 +25,12 @@ how many objects a census found (taken 2026-09-20).
 
 | | classes |
 | --- | --- |
-| `read` | 174 |
+| `read` | 176 |
 | `placed` | 140 |
 | `keys` | 75 |
-| `part` | 161 |
+| `part` | 164 |
 | `named` | 5 |
-| `RTTI` | 586 |
+| `RTTI` | 581 |
 | **all** | **1141** |
 
 ## What to read next
@@ -447,8 +447,8 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CAskPeace` | `CDiplomacyDialog` |  |  |  | 1 |  |  | RTTI |  |
 | `CAskTrade` | `CDiplomacyDialog` |  |  |  | 2 |  |  | RTTI |  |
 | `CBackEndIdler` | `CEU3Idler` | 0x600 | 9 |  | 7 |  |  | read |  |
-| `CBattlePlanEntry` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
-| `CBattlePlanManager` | `CReloadableInterface` |  |  |  |  |  | 1 | RTTI |  |
+| `CBattlePlanEntry` | `CStandardlistboxItem` | 0x128 | 9 |  | 4 |  |  | read |  |
+| `CBattlePlanManager` | `CReloadableInterface` | 0x3C0 | 27 |  | 19 |  | 1 | read |  |
 | `CBeachManager` | `CLostDeviceInterface` | 0x40 | 15 |  | 1 |  | 1 | read |  |
 | `CBombCombatMember` | `COutLinerMember` |  | 4 |  | 6 |  |  | part |  |
 | `CBookmarkEntry` | `CStandardlistboxItem` | 0x88 | 4 |  | 3 |  |  | part |  |
@@ -473,13 +473,13 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CCombatWidthComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CConfigMember` | `CStandardlistboxItem` |  |  |  | 4 |  | 18 | RTTI |  |
 | `CConfirmBuild` | `CReloadableInterface` | 0x14C | 9 |  | 11 |  |  | read |  |
-| `CConfirmDeletePlan` | `CEU3Dialog` |  |  |  |  |  |  | RTTI |  |
+| `CConfirmDeletePlan` | `CEU3Dialog` | 0x78 | 1 |  | 2 |  |  | part |  |
 | `CConfirmDisband` | `CEU3Dialog` |  |  |  |  |  |  | RTTI |  |
 | `CConfirmDisbandAll` | `CEU3Dialog` |  | 2 |  | 3 |  |  | part |  |
 | `CConfirmMakePride` | `CEU3Dialog` | 0x94 | 4 |  | 3 |  |  | part |  |
 | `CConfirmRemoveAll` | `CEU3Dialog` |  |  |  | 2 |  |  | RTTI |  |
 | `CConfirmSave` | `CEU3Dialog` | 0x88 | 2 |  | 3 |  |  | part |  |
-| `CConfirmSavePlan` | `CEU3Dialog` |  |  |  |  |  |  | RTTI |  |
+| `CConfirmSavePlan` | `CEU3Dialog` | 0x8C | 1 |  | 2 |  |  | part |  |
 | `CConfirmVictoryConditionResign` | `CEU3Dialog` | 0x6C | 1 |  | 1 |  |  | part |  |
 | `CConvoyDetails` | `CReloadableInterface` | 0x198 | 6 |  | 16 |  | 1 | read |  |
 | `CConvoyProvinceEntry` | `CStandardlistboxItem` | 0x80 | 2 |  | 2 |  |  | part |  |
@@ -543,7 +543,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CICCostComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CIcon` | `CButton` |  |  |  | 4 |  |  | RTTI |  |
 | `CIdler` |  |  |  |  |  |  |  | RTTI |  |
-| `CInGameIdler` | `CEU3Idler` `CLostDeviceInterface` `CReloadDispatcher` |  | 125 |  | 108 | CInGameIdler.hpp | 3 | read |  |
+| `CInGameIdler` | `CEU3Idler` `CLostDeviceInterface` `CReloadDispatcher` |  | 125 |  | 110 | CInGameIdler.hpp | 3 | read |  |
 | `CIngameSettingsScreen` | `CSettingsScreen` | 0x3E0 | 1 |  | 2 |  | 1 | part |  |
 | `CLandOrdersView` | `COrdersView` | 0x198 | 10 |  | 10 |  |  | read |  |
 | `CLawEntry` | `CStandardlistboxItem` | 0x88 | 4 |  | 3 |  | 16 | part |  |
@@ -799,13 +799,13 @@ One class per effect, trigger, command and decision the event scripts can use. E
 | `CAtWarTrigger` | `CBoolTrigger` | 0x44 |  | 2/153 | 2 |  | 723 | RTTI |  |
 | `CAttachUnitCommand` | `CCommand` | 0x8C |  | 2/2 | 4 |  | 1 | placed |  |
 | `CBaseNeutralityTrigger` | `CValueTrigger` | 0x44 |  | 2/153 | 1 |  |  | RTTI |  |
-| `CBattlePlanDeleteCommand` | `CCommand` |  |  | 1/2 | 1 |  | 1 | placed |  |
-| `CBattlePlanSendCommand` | `CCommand` |  |  | 1/2 | 1 |  | 1 | placed |  |
+| `CBattlePlanDeleteCommand` | `CCommand` | 0x48 | 2 | 1/2 | 4 |  | 1 | placed |  |
+| `CBattlePlanSendCommand` | `CCommand` | 0x44 | 2 | 1/2 | 5 |  | 1 | placed |  |
 | `CBattlePlanToolArrowOption` | `CBattlePlanToolOption` |  |  |  | 1 |  | 10 | keys |  |
 | `CBattlePlanToolBorderOption` | `CBattlePlanToolOption` |  |  |  |  |  | 8 | RTTI |  |
 | `CBattlePlanToolColorOption` | `CBattlePlanToolOption` |  |  | 2/4 | 1 |  | 15 | placed |  |
 | `CBattlePlanToolIconsOption` | `CBattlePlanToolOption` |  |  |  |  |  | 34 | RTTI |  |
-| `CBattlePlanToolOption` | `CPersistent` |  |  |  |  |  |  | RTTI |  |
+| `CBattlePlanToolOption` | `CPersistent` |  | 2 |  |  |  |  | part |  |
 | `CBlockadeTrigger` | `CValueTrigger` | 0x44 |  | 2/153 | 2 |  |  | RTTI |  |
 | `CBoolEffect` | `CEffect` |  | 1 |  | 2 |  |  | part |  |
 | `CBoolTrigger` | `CTrigger` | 0x44 | 1 |  | 1 |  |  | part |  |

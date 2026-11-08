@@ -17,14 +17,15 @@ truth.
 
 ---
 
-## The attach wave - attaching, detaching and making a headquarters from the unit panel
+## The battle plans wave - the window of plans and drawing them on the map
 
-> **LANDED 2026-11-08**, one fragment merged, launched on the maintainer's word: "One thing still missing from the unit card that I would do before: Detach, attach, create HQ". The write-up is `findings/FINDINGS-attachbuttons.md`.
+> **LANDED 2026-11-08**, three fragments merged, launched on the maintainer's word: "Commit and continue with the battle plans". The write-ups are `findings/FINDINGS-battleplans.md` and `findings/FINDINGS-battleplandraw.md`. The next of the gaps in OpenHOI3's readme, *What of the interface is missing*.
 
-**The question, for OpenHOI3**: what the single unit panel's `attach_button`, `detach_button` and four `create_*` buttons do when pressed, the window `attachment_selection_panel` with its rows (`CUnitAttachmentEntry`), and the multi-unit panel's `detach_multiunit` and `highercomm_multiunit`. **Known before reading**: `CAttachUnitCommand`, `CDetachUnitCommand::Execute`, `CCreateHigherCommand::Execute` and its one-unit constructor, `CInGameIdler::OnDetachMultiUnit` and `CInGameIdler::OnHigherCommandMultiUnit`, and when each button is shown and enabled (`CSingleUnitButtons::Update`).
+**The question, for OpenHOI3**: everything `battleplans_window` does, what a plan is and where it is kept, and how a player draws one on the map. **Known before reading**: `BattlePlan_Serialize` (0x47C0), the `LoadKey`s of `CBattlePlanSendCommand`, `CBattlePlanDeleteCommand` and the tool options; RTTI names `CBattlePlanManager`, `CBattlePlanEntry`, `CBattlePlanToolOption` and its three children, `CConfirmDeletePlan`, `CConfirmSavePlan`. Files: `tfh/interface/battleplansinterface.gui`, `.gfx`, `tfh/interface/menubar.gui`, `battleplans/bp_settings.txt`.
 
 | reader | brief | fragment |
 | --- | --- | --- |
-| **A** | The click handlers of the buttons, the attachment window and its rows, the multi-unit command's constructor. | `attachbuttons.json` |
+| **A** | **The window and the plans**: the manager, the data, the three tabs, every action, saved files, sharing with allies, the saved game. | `battleplans.json` |
+| **B** | **Drawing**: each tool, the mouse on the map, what a drawing holds, and how arrows, borders, icons and texts are drawn. | `battleplandraw.json` |
 
-The write-up will be `findings/FINDINGS-attachbuttons.md`.
+The write-ups will be `findings/FINDINGS-battleplans.md` and `findings/FINDINGS-battleplandraw.md`.
