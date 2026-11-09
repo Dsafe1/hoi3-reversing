@@ -693,7 +693,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CUnitAttachmentEntry` | `CStandardlistboxItem` | 0xD0 | 5 |  | 2 |  |  | read |  |
 | `CUnitBase` |  |  |  |  | 1 |  |  | RTTI |  |
 | `CUnitBaseCarrier` | `CUnitBase` |  | 2 |  |  |  | 3,339 | part |  |
-| `CUnitBaseProvince` | `CUnitBase` `CSelectable` |  | 3 |  | 1 |  | 56,760 | part |  |
+| `CUnitBaseProvince` | `CUnitBase` `CSelectable` |  | 3 |  | 2 |  | 56,760 | part |  |
 | `CUnitDeploymentCallback` |  |  |  |  |  |  |  | RTTI |  |
 | `CUnitList` | `PAVCUnit::__CList` |  |  |  | 9 |  |  | RTTI |  |
 | `CUnitNavalStanceEntry` | `CUnitViewBaseEntry` |  |  |  |  |  |  | RTTI |  |

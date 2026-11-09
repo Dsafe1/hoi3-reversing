@@ -484,8 +484,16 @@ itself out of the selection again, and then
 **Each click on a port picks the next of the player's fleets in it.** The air base's
 (`0x5D56D0`, slot 4 of the `CSelectable` at `+0x18`) is the same turn of the list, and selects
 only where the unit that comes up is the player's. `CPort`'s slot 3 (`0x4940C0`) is its
-tooltip - `PORT`, the first unit's own, and the ships there against the base's capacity - and
-its slot 7 answers the name `port`.
+tooltip and its slot 7 answers the name `port`.
+
+**A base's tooltip**, read whole 2026-11-08, `confirmed`. `CPort::GetTooltip`: `PORT` and a line break; **with any unit in the port the
+first unit's `CUnit::BuildTooltip` replaces that**, so `PORT` is seen only over an empty port; then, for a province with a naval base
+object, `"\n"` and `UNITBASEPROVINCE_INFO` ("There are $AMOUNT$ units based here, and this base can repair $DAILY$ units each day
+efficiently") with AMOUNT the ships of every unit there (to no places) and DAILY `NavalBaseCapacity` (two). The air base's
+(`CUnitBaseProvince`, rva `0x1D5960`, slot 3 of the `CSelectable` at `+0x18`, the table at VA `0x15BEBD4`): the first unit's
+`CUnit::BuildTooltip` and `"\n"` where the list has one, then the same line, AMOUNT the wings of every unit on the list, DAILY the air
+base's `level_current`. `CInGameIdler::GetTooltip` asks these as any hovered selectable's slot 3, so they are what stands over the
+picture. Hardcoded: the shape. Mod-able: both keys.
 
 ## 7. Checked against savegames
 

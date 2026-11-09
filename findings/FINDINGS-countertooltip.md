@@ -20,7 +20,7 @@ land, naval and air units build the same text, and differ only in which list of 
 - **Convention**: `GuiTooltipText* __thiscall CUnit::BuildTooltip(CUnit* this, GuiTooltipText* out, CMapProvince*
   province)`, result in EAX. The callee cleans 8 bytes and returns `out`.
 - **`province` is never read** - [ebp+0xC] has no use in the body. Both callers pass one: CInGameIdler::GetTooltip at
-  0x662B41, and CPort::GetTooltip at 0x4942A4, where the port asks the first fleet in its list and appends that fleet's
+  0x662B41, and CPort::GetTooltip at 0x4942A4, where the port asks the first fleet in its list and puts that fleet's
   text after `PORT` (`FINDINGS-seaair.md` section 6). The shape matches ProvinceTooltip_Build's `(out, province)`.
   *confirmed*
 - **The output record**: the GuiTooltipText is constructed in place - `text`, `delayed` and `delayed_extra` emptied
