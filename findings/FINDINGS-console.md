@@ -201,6 +201,16 @@ N ` more provinces are under our control`; `changeowner` and `changecontroller` 
 and rebel type.`, `Unknown rebel type`, `Revolt created.`; `copyprov` `Invalid arguments`, `Select some provinces first.`, N ` provinces copied to clipboard.`; `printtech` `===== ` tag
 ` Technology Levels =====`, name ` = ` level, `See game.log for result.`; `helplog` `== HELP LOG ==\n`, `See game.log for full help details.`; `cpaint` `Invalid arguments count`, `Now painting continent. Shift-click to painting the map.`, `Painting disabled`.
 
+## What the medium commands needed, read 2026-11-09 for OpenHOI3
+
+- **`teleport`**: slot 15 is `IsLand`, slot 9 `AsArmy`; the refusal is *no unit selected, or a land unit whose `carried_by` is set*. A fleet or an air unit goes. A province id of 0 or less leaves the reply empty.
+- **`debug render`** alone: a rule of 34 dashes and `\n`, `Render options:\n`, then `\t\tTrees:\t` and `yes\n` or `no\n` for each of the ten layers by bit order, then the rule again. `(mask +0xF0 of the map mode) AND (+0xEC of the console)` is what it reports. `debug render <LAYER>` answers nothing.
+- **`debug minzoom`**: `Please specify zoomlevel value.`; the reply is `Zoom limit set to ` and the figure as `%.3f`, whether or not it was above nought.
+- **`debug color`**: exactly five words or `4 more arguments needed: country tag, red, green, blue`; `Invalid country Tag`; `Color applied to ` and the country's name. 0x4CCD00 copies the colour to the country.
+- **`aipause`**: the list is `AI is paused for:\n`, each tag and `, `, a line break after every sixth, `None` where there are none.
+- **`reloadinterface`**: any argument, `Invalid arguments count`.
+- **`detailedlog`**: 0x68C650 writes the counters `rebel`, `convoy`, `theatre`, `unit`, the rebel factions, a walk of records, `sunk_ships`, `weather`, `combat`, and the three lists of wars: a savegame's shape without its head (*inferred* from the keys; the walks were not read one by one).
+
 ## D. Looking for more, and the controls
 
 - **One table**: findValue finds 0x170AF88 and 0x170BF44 once each in .text, both in ConsoleCommands_Fill.
@@ -225,11 +235,10 @@ and rebel type.`, `Unknown rebel type`, `Revolt created.`; `copyprov` `Invalid a
 
 ## Not established
 
-- **0x68C650**, what `detailedlog` writes: only its first SaveWriteKey/Value calls were seen.
+- **0x68C650**, the walks between `detailedlog`'s keys, read as far as the keys alone.
 - **The first byte of GetCustomGameSettings**, which makes `tag` refuse.
-- **A unit's slot 15**, which `teleport` tests.
 - **The in-game screen's slot 33** (`nextsong`) and **slot 90** (`tutorial`).
-- **0xA61730** (`reloadtexture`), **0xA755C0** (`fullscreen`), **0x4CCD00 and 0x4F5730** (`debug color` and `save`),
+- **0xA61730** (`reloadtexture`), **0xA755C0** (`fullscreen`), **0x4F5730** (`debug save`),
   **0xA618F0 and 0xA769E0** (`debug textures`).
 - **The reader of `g_AssertsEnabled`** at 0xA5A104, whose function entry was not found.
 - **The readers of GameSettings +0xEC bits 0x2000000, 0x800000 and 0x400000** (`debug info`, `profile`, `log_profile`).
