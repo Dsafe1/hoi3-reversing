@@ -1,0 +1,128 @@
+{
+ "agent": "scriptgaps",
+ "question": "The script and AI-Lua pieces the reimplementation still lacks: num_of_ports, surrender_inherit, create_alliance's ACCEPT arm, what an undeclared war does in play, CEU3AI::CanDeclareWar and the Lua answers, and load_oob in a running game.",
+ "source": "reversing/findings/FINDINGS-scriptgaps.md",
+ "addresses": [
+  {
+   "rva": "0x49B110",
+   "kind": "function",
+   "name": "CEU3AI::CanDeclareWar",
+   "signature": "bool __thiscall CEU3AI::CanDeclareWar(CEU3AI* this, CCountryTag actor, CCountryTag target)",
+   "no_signature": null,
+   "comment": "**Lua `ai:CanDeclareWar(actor, target)`: can the actor declare war on the target now.** False where the target owns no province (`countries[target]->OwnedProvinces.count < 1`). Otherwise a CDeclareWarAction is built on the stack (CDeclareWarAction_ConstructInPlace, rva 0x611F90: date = the current tick twice, actor, recipient, type 0, value 1, an empty war goal) and the answer is its **slot 14, CDeclareWarAction::IsSelectable** (rva 0x615E50) - the player's own row test; slot 13 IsValid is not asked and the action is never applied. Read by the scripts' `CalculateWarDesirability` (ai_diplomacy.lua: 'can we even declare war?'; false answers 0). See reversing/findings/FINDINGS-scriptgaps.md, section 5.1.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled whole on the applied project: the owned-count test on arg2, the construction through FUN_00A11F90 with the tick, then CDeclareWarAction::IsSelectable and the two string destructors. Wrong if 0xA11F90 is not CDeclareWarAction's in-place construction - its body writes CDeclareWarAction::vftable and CWarGoal::vftable at +0x28.",
+   "revises": "Body read for the first time; the comment said 'Body not read'."
+  },
+  {
+   "rva": "0x611F90",
+   "kind": "function",
+   "name": "CDeclareWarAction_ConstructInPlace",
+   "signature": "void __stdcall CDeclareWarAction_ConstructInPlace(CDeclareWarAction* this@EAX, int date@stack:4, char actorTag[4]@stack:8, int actorId@stack:12, char recipientTag[4]@stack:16, int recipientId@stack:20)",
+   "no_signature": null,
+   "comment": "Builds a CDeclareWarAction in place, the object in EAX: actor +8/+0xC, recipient +0x10/+0x14, type (+0x18) 0, value (+0x24) 1, the date in +0x1C and +0x20, the empty CWarGoal at +0x28 with its `---` tags, the vftable written last. 0xA11F90 to `ret 0x14` at 0xA1202C. Used by CEU3AI::CanDeclareWar for a throwaway action to ask slot 14 of. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled on the applied project: writes CWarGoal::vftable at index 10 (+0x28) and CDeclareWarAction::vftable at index 0, `ret 0x14` on the listing (0xA1202C). The field meanings are from the record's existing CDeclareWarAction layout."
+  },
+  {
+   "rva": "0x760F0",
+   "kind": "function",
+   "name": "CUndeclaredWar::RemoveAttacker",
+   "signature": "void __stdcall CUndeclaredWar::RemoveAttacker(CUndeclaredWar* war, char tag[4], int countryId)",
+   "no_signature": null,
+   "comment": "The mirror of CUndeclaredWar::AddAttacker: finds the id in the attacker vector (+8/+0xC, stride 8), erases it, walks the defenders (+0x18/+0x1C) zeroing each pair's CDiplomacyStatus +0x24 both ways round, then CCountry::UpdateUndeclaredWars on both. `ret 0xC`. **One caller, CGameState::ResetSession (0x67C51B)** - so a war is taken apart this way only as a session is torn down, never in play. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Off the listing 0x4760F0-0x4761AF: vector search at 0x47610C-0x47611A, the erase call 0xB4A260, the walk from [edi+0x18] with the two `mov [edx+0x24], ecx` (ecx cleared at 0x47615F), and findRefs --callers (one, 0x67C51B). Wrong if the erase at 0xB4A260 is not a vector erase."
+  },
+  {
+   "rva": "0x76270",
+   "kind": "function",
+   "name": "CUndeclaredWar::RemoveDefender",
+   "signature": "void __stdcall CUndeclaredWar::RemoveDefender(CUndeclaredWar* war, char tag[4], int countryId)",
+   "no_signature": null,
+   "comment": "The mirror of CUndeclaredWar::AddDefender: the defender erased from +0x18/+0x1C, each attacker's pair zeroed both ways, CCountry::UpdateUndeclaredWars on both. `ret 0xC`. One caller, CGameState::ResetSession (0x67C54B). The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "The same shape as 0x4760F0 instruction for instruction, the writes `mov [edx+0x24], ecx` at 0x4762E1/0x4762F9 and the ret 0xC at 0x47632F; findRefs --callers gives one caller."
+  },
+  {
+   "rva": "0x763A0",
+   "kind": "function",
+   "name": "UndeclaredWarCoversProvince",
+   "signature": "bool __fastcall UndeclaredWarCoversProvince(CUndeclaredWar* war@EAX, CProvince* province@ECX)",
+   "no_signature": null,
+   "comment": "Body 0x4763A0-0x4763EB, bare ret, both arguments in registers. For each element of the vector at war->+0x28/+0x2C (the war's regions) it walks province->+0x358 (the province's region list, next at +8) and answers true on the first element the province also holds. **29 direct callers, and seven inlined copies** - ComputePlanForces (0x8B5B84, two in the airborne half at 0x8B72E1/0x8B768E), RebuildFrontAndApproaches (0x8BC6E4), PlanParadrops (0x8CD4B0), ManageLandUnits (0x8D72B3), slot 76 (0x8DB8B6) - all the tail of a hostility test of the shape `at war, or REB, or (an undeclared war covers this province)`. Reached from the province-taking IsEnemy (CCountry::IsEnemy, 0x2F210, 101 calls, only one with no province) and the combat and raid checks; the Lua-registered IsEnemy (0x2F1B0) has no province and never sees an undeclared war. The class is from locality plus the loader: 0x4763A0 sits inside the undeclared_war.cpp translation unit and CUndeclaredWar::LoadKey has a `region` key. See reversing/findings/FINDINGS-scriptgaps.md, section 4, lists every consumer.",
+   "confidence": "confirmed",
+   "evidence": "findRefs --callers gives 29 calls; the seven inlined copies came from a sweep for province +0x358 within 14 instructions of a +0x2C read, each read in place. The chain sweep for `+0xE28 ... +0x24` (window 25 instructions) gives the same set; the positive control is the +0xE28 ... +0x20 war test, 215 sites. A site reaching the status some other way (through a helper) would be missed by the sweep but not by the call list.",
+   "revises": "Confidence raised to confirmed (the body was read); adds the seven inlined copies and the IsEnemy split."
+  },
+  {
+   "rva": "0x75A60",
+   "kind": "function",
+   "name": "CUndeclaredWar::LoadKey",
+   "signature": "void __thiscall CUndeclaredWar::LoadKey(CUndeclaredWar* this, CParseContext* parse, SaveToken key)",
+   "no_signature": null,
+   "comment": "The save's record of a war nobody declared. **Three keys**, one per vector: `attacker` and `defender` (a tag through CCountryDataBase::GetTag; an unknown one logs and is dropped, undeclared_war.cpp, and a known one goes through AddAttacker/AddDefender, so the pair's statuses are hooked as it loads) and `region` (a name, through UndeclaredWar_AddRegion, rva 0x76340). The switch-reading scripts/definitions.py saw `defender` and `region`; `attacker` is tested directly at the head.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled: `if (key == attacker)` at the top of the body, then `key == defender`, then the region case. Wrong if a key the save writes is not in this list - SaveContents (0x75E70) writes attacker, defender and region.",
+   "revises": "Was 'keys its switch names, 2 of them'; there are three."
+  },
+  {
+   "rva": "0x5AD7D0",
+   "kind": "function",
+   "name": "CCreateAllianceEffect::Execute",
+   "signature": "void __thiscall CCreateAllianceEffect::Execute(CCreateAllianceEffect* this, CEventScope* scope, int unused)",
+   "no_signature": null,
+   "comment": "`create_alliance = TAG`: **an accepted alliance offer from the scope country to TAG, run through the ordinary diplomatic action.** Slot 11, one holder (vftable 0x15F4EF4), 0x9AD7D0 to the single `ret 8` at 0x9AD919. `operator new(0x28)` builds a CAllianceAction in place (vftable 0x15FB514): token 0x18D, `actor (+8)` = the scope country, `recipient (+0x10)` = TAG (Effect_ResolveCountryTarget), `type (+0x18)` = 0 then **2 = ACCEPT**, both dates the current tick, `value (+0x24)` = 1. It then calls the action's slot 7 (CAllianceAction::Apply, rva 0x618D70) and deletes it through slot 0. **The ACCEPT arm (0xA194DE) has no test of its own either**: an alliance already there is overwritten in both statuses by Activate and the old object stays on the relation list; a pact is made with an enemy or with TAG == the scope. The arm costs nothing, adds ALLIANCE_RELATION_CHANGE to the relation, posts the diplomaticsuccess messages (MILALLACCEPT to the actor's player, MILALLWEACCEPT to the recipient's, MILLALLINVACCEPTOTHER to every other) and rebuilds both countries' neighbours. Allies are not pulled into wars. See reversing/findings/FINDINGS-scriptgaps.md, section 3.",
+   "confidence": "confirmed",
+   "evidence": "The Apply arm decompiled in full (0xA194DE to 0xA19A64 is the ACCEPT path, `new(0x24)` CAlliance, vf_10 Activate, ChangeRelation(diplomacy[0x10]), MILALL* message keys, two RebuildNeighbours calls) with no comparison against an existing +0x14 between the `value` and `type` tests and the `new`. Wrong if a guard lies in slot 10 Activate; its record (0x646A40) says it only writes the two status pointers.",
+   "revises": "The comment said the arm was not read; it is read now and the effect's guards settled."
+  },
+  {
+   "rva": "0xFFED0",
+   "kind": "function",
+   "name": "CCountry::LoadOobFile",
+   "signature": "void __stdcall CCountry::LoadOobFile(CCountry* country)",
+   "no_signature": null,
+   "comment": "**Reads the order of battle named at `CCountry::oob_file`** and puts it in the country. **Nothing happens where the name is empty, or where the country owns no province and is not `REB`.** It builds `<base>/units/<path>` - the base chosen by `[0x1685558 + 0x50]`, which has three values - and tries it with FileExists; then allocates a CParseContext (0x360 bytes) and a Tokenizer (0x114) over the file and calls **the country's own slot 3, `CPersistent::Load`**, with that context, before deleting it. A file that is not found loads nothing, silently.\n\nSo **an order of battle is read as a piece of a country's save block**: Load pulls keys and hands each to `CCountry::LoadKey` (`0xCCDA0`), the same one a savegame goes through, and every keyword in the file is a SaveToken. **`CCountry::AfterLoad` then runs (when the parse context holds no message)**, which a load_oob in a running game inherits as well as a new game. This is where the units are made. See reversing/findings/FINDINGS-scriptgaps.md, section 6. The name is BiceLib's.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled: the length test, the owned-provinces/REB gate (0x4FFF07-0x4FFF28 on the listing), the three path forms through FileExists, the Tokenizer and slot 3. CPersistent::Load's record says it calls slot 5 when the context has no messages.",
+   "revises": "Adds the two early gates and that CCountry::AfterLoad runs afterwards."
+  },
+  {
+   "rva": "0x5BBD00",
+   "kind": "function",
+   "name": "CLoadOOBEffect::Execute",
+   "signature": "void __thiscall CLoadOOBEffect::Execute(CLoadOOBEffect* this, CEventScope* scope, int unused)",
+   "no_signature": null,
+   "comment": "Loads the order of battle the effect names: `CStringEffect::text` is written onto the country by CCountry::SetOobFile, and CCountry::LoadOobFile is called on it. The country is the scope's, by the id at `scope + 0x14`. **Then, only where the game state has a scenario (+0xD0C, set only in a game not loaded from a save) and the country is the player's, CEU3AI_SortUnitsIntoTheatres(its ai, 1)** - the new units are put under the theatres' headquarters; nothing else follows. No RecountUnitTotals, no officers, no start experience, no leader assignment, no supply or modifier rebuild beyond what CCountry::AfterLoad does. **Nothing about the file is in memory before this**, which is why a tooltip about it has to read the file itself. The second stack argument is read by nothing. The name is BiceLib's.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled whole on the applied project: SetOobFile, LoadOobFile, then the two conditions and the sort. The absence of the rest is read off this 60-line body.",
+   "revises": "Adds the theatre sort and what does not run."
+  },
+  {
+   "rva": "0xD2500",
+   "kind": "function",
+   "name": "CCountry::AfterLoad",
+   "signature": "void __thiscall CCountry::AfterLoad(CCountry* this)",
+   "no_signature": null,
+   "comment": "Slot 5 of CPersistent for a country: run at the close of the country's block - a save's, and **every order-of-battle file's, load_oob's in a running game included**. In order: a country with no graphical culture (+0xF20) is given `Generic` and logged; **CTechnologyStatus::ReapplyAllTechnologies**; where the ruling party (+0x1140) is null or fails slot 17, it becomes the ideology of Ministers[1]; **CIdeologyData_NormaliseToHundred** on the two party figures; **CCountry_AllotCabinetSeats**; then every queue line (Constructions +0xF40) whose slot 17 answers true - CMilitaryConstruction's only - has slot 18 called and CMilitaryConstruction_RegisterUpgradeTarget run.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled whole on the applied project; the callers' addresses 0x4D26B1 (ReapplyAllTechnologies), 0x4D26E3/0x4D26EE (NormaliseToHundred) and 0x4D2720 (RegisterUpgradeTarget) are the record's own for those callees. Wrong if a queue class besides CMilitaryConstruction answers slot 17 true: CBuildingConstruction and CConvoyConstruction hold ReturnFalse there.",
+   "revises": "The comment described only the Generic fallback."
+  },
+  {
+   "rva": "0x1B80D0",
+   "kind": "function",
+   "name": "CUnit::AfterLoad",
+   "signature": "void __thiscall CUnit::AfterLoad(CUnit* this)",
+   "no_signature": null,
+   "comment": "**CPersistent slot 5, and where a unit's id comes from.** If the block carried an id (either half of the pair at +8 non-zero) it keeps it and then pushes the global generator at 0x170AF78 past it, so a later runtime id cannot collide with it. If it carried none, it takes `counter++` and stamps id type **0x29 (41)**. That is why an OOB file need not carry ids at all. **Then, where the unit has a province (+0x130): CUnit::RebuildDefinition(unit, 1), `loading` (+0x48) cleared, CUnit::RebuildAvatar, CUnit::EnterProvince(its own province again), and slot 18** - nothing for a CArmy (the empty stub), CNavy::CheckBase for a fleet, CAir::CheckBase for an air unit. `this` is the CPersistent subobject, CUnit + 8.",
+   "confidence": "confirmed",
+   "evidence": "Off the listing 0x5B812E-0x5B8163: `cmp [esi+0x128],0` (+0x130 in CUnit), RebuildDefinition(edi,1) at 0x5B813D, `mov byte ptr [esi+0x40],0` (CUnit +0x48, the record's `loading`), RebuildAvatar, EnterProvince and `[edx+0x48]`; gaps_vt read slot 18 of CArmy/CNavy/CAir off the tables.",
+   "revises": "Adds what the tail does (the comment said only that it fixes up the rest)."
+  }
+ ],
+ "struct_fields": [],
+ "frontier": [],
+ "slots_noted": "None added. CUnit slot 18 reads the empty stub on CArmy and CheckBase on CNavy/CAir as already recorded."
+}
