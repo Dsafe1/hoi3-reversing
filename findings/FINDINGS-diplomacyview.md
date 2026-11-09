@@ -536,3 +536,17 @@ What the game state's victory conditions are and which of the two counts behind 
 strategic resource's slot 6 text is (its localised name, inferred); the order of the game state's
 faction list (the file's, inferred); the name `BuildWidgets` gives a faction box (the faction's tag,
 inferred from `UpdateFactionBoxes` finding it by that); how `Progress` is worked out.
+
+## The picture under the decisions: a custom game's
+
+`country_diplomacy.gui` lays an icon `cgm_diplo_bg` (`GFX_cgm_diplo_bg`, Their Finest Hour's
+`cgm.gfx`) at (53, 526), under `trade_automate_checkbox` and `decisions_listbox`. The art is a
+tan panel with dark blocks marked out on it: the layout of a custom game's own controls.
+
+`CDiplomacyView_UpdateCustomGamePanel` (`0x38EC90`), the last step of `CDiplomacyView::Update`,
+looks it up by name each frame. Where the first byte of `GetCustomGameSettings` is 0, a normal
+game, it hides it if it is shown and stops; in a custom game it updates the custom-game widgets
+and shows it. `confirmed` from the decompilation, the show and hide being slots 13 and 14
+(`FINDINGS-gui.md`). **So in a normal game the picture is never on screen**, and a reader of the
+`.gui` file alone would draw it: the file gives no sign.
+

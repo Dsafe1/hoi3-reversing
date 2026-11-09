@@ -111,8 +111,7 @@ it is about, 0 and the country (`FINDINGS-techtooltip.md` section 3). In order:
    the text of its key + `_short`) + `": "` + that + `"\n"`.
 4. The country-wide block, section 7.
 
-`confirmed`. A filter (`unitFilter` not 0) writes each figure on its own line instead; nothing here
-passes one.
+`confirmed`. A filter (`unitFilter` not 0) writes each figure on its own line instead. **The ship builder passes one** (`CPossibleModelEntry`, the ship's own definition - corrected 2026-11-09, `confirmed`), and its levels are the row's level, so level 0 writes the short name and nothing.
 
 ## 6. A unit type's figures: `CSubUnitDefinition::BuildStatsTooltip` (`0x5A55C0`)
 

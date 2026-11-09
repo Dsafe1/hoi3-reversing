@@ -134,7 +134,7 @@ CProvince and CInGameIdler; called from each dialog's constructor where `popup_k
    selection cleared, that battle selected, the map centred on its province, and true answered, **so the
    popup stays up**; no such battle, false, and the popup closes.
 9. **A right click** on its background, AgreeButton, DeclineButton or CenterOK opens **the settings
-   window of its type** (`MessageDialog_OpenSettingWindow`), near the mouse (which event: `inferred`
+   window of its type** (`MessageDialog_OpenSettingWindow`), at the mouse's x and 150 above its y, moved back only by what it passes the screen's right and bottom by (`confirmed` 2026-11-09; which event: `inferred`
    from the observer's slot 9, which the maintainer confirmed a right click in the leader window).
 10. **Shields**: LeftShield the message's first country (+0x34), RightShield its second (+0x3C); with
     one of them, both show it; with neither, the file's stays.
