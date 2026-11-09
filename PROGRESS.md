@@ -166,7 +166,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CConvoyConstruction` | `CConstruction` |  | 1 | 1/1 | 6 | CConstruction.hpp | 40 | placed |  |
 | `CConvoyEscortOrder` | `CNavalOrder` |  |  | 1/3 | 8 |  |  | placed |  |
 | `CConvoyRaid` | `CNavalOrder` |  |  | 1/1 | 7 |  | 62 | placed |  |
-| `CCountry` | `CPersistent` |  | 279 + 71 lua | 69/126 | 169 | CCountry.hpp | 108 | read |  |
+| `CCountry` | `CPersistent` |  | 279 + 71 lua | 69/126 | 171 | CCountry.hpp | 108 | read |  |
 | `CCountryDate` | `CPersistent` |  |  | 1/2 | 1 |  |  | placed |  |
 | `CCountryHistory` | `CHistoryContainer` |  |  |  | 1 | CCountryHistory.hpp | 108 | keys | **read**: `history/countries`, where a date is a key. See GameClasses/CCountryHistory.hpp |
 | `CCountryValue` | `CPersistent` | 0x14 | 2 | 1/2 | 1 |  | 9,078 | placed |  |
@@ -247,7 +247,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CNavalTargetCombatant` | `CBombTargetCombatant` |  |  | 4/6 | 1 |  | 2 | RTTI |  |
 | `CNavalTransportOrder` | `CNavalOrder` |  |  |  | 3 |  | 3 | RTTI |  |
 | `CNavy` | `CUnit` |  | 3 |  | 16 |  | 1,738 | keys |  |
-| `CNukeMission` | `CAirOrder` |  |  |  | 4 |  |  | keys |  |
+| `CNukeMission` | `CAirOrder` | 0x84 | 1 |  | 11 |  |  | keys |  |
 | `CObjectType` | `CPersistent` |  | 5 |  | 1 |  |  | read |  |
 | `CObjective` | `CPersistent` |  | 8 | 1/4 | 1 |  | 9,637 | read |  |
 | `COfferLendLeaseAction` | `CDiplomaticAction` |  |  | 5/6 | 8 |  | 1 | RTTI |  |
@@ -1043,7 +1043,7 @@ One class per effect, trigger, command and decision the event scripts can use. E
 | `CNeutralityTrigger` | `CValueTrigger` | 0x44 |  | 2/153 | 1 |  | 16 | RTTI |  |
 | `CNonAgggressionPactTrigger` | `CTagTrigger` | 0x48 |  | 2/153 | 2 |  | 14 | RTTI |  |
 | `CNotTrigger` | `CTrigger` | 0x40 |  | 2/153 | 5 |  | 28,006 | RTTI |  |
-| `CNukeChange` | `CCountryHistoryEntry` |  |  |  |  |  |  | RTTI |  |
+| `CNukeChange` | `CCountryHistoryEntry` |  |  |  | 1 |  |  | RTTI |  |
 | `CNumInFactionTrigger` | `CIntTrigger` | 0x44 |  | 2/153 | 2 |  |  | RTTI |  |
 | `CNumOfAlliesTrigger` | `CIntTrigger` | 0x44 |  | 2/153 | 2 |  |  | RTTI |  |
 | `CNumOfCitiesTrigger` | `CIntTrigger` | 0x44 |  | 2/153 | 2 |  | 3 | RTTI |  |

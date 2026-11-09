@@ -26758,9 +26758,9 @@
    "name": "CAirOrdersView::BuildOrders",
    "signature": "void __stdcall CAirOrdersView::BuildOrders(CAirOrdersView* view, CUnit* unit, int keepToken)",
    "no_signature": null,
-   "comment": "Makes the window's list of orders, keeping a type: the order being made's, else the unit's own order's where 0x18D is given, else the one given. A row of that type that may be given is noted. Ticked: rebase_air where the unit may stand in the province, its controller is not at war with the unit's country, it has an air base built and the rebase may be given; otherwise the noted row, and with none the ladder. **The ladder**: fighters outnumbering each kind of bomber - air_superiority over an enemy's province, else air_intercept; then, **whatever is ticked**, a sea attack - port_strike at an owned province with a port and a naval base built, else naval_strike at sea; then, only where nothing is ticked, more strategic bombers than tactical over a province at war - runway_cratering where it has an air base built, else installation_strike where it has a radar station, nuclear reactor or rocket test site, else strategic_bomb where it has IC; then, only where nothing is ticked, a soft or hard attack - ground_attack, else interdiction. Each only where it may be given. See reversing/findings/FINDINGS-airorders.md, section 3.",
+   "comment": "Makes the window's list of orders, keeping a type: the order being made's, else the unit's own order's where 0x18D is given, else the one given. A row of that type that may be given is noted. Ticked: rebase_air where the unit may stand in the province, its controller is not at war with the unit's country, it has an air base built and the rebase may be given; otherwise the noted row, and with none the ladder. **The ladder**: fighters outnumbering each kind of bomber - air_superiority over an enemy's province, else air_intercept; then, **whatever is ticked**, a sea attack - port_strike at an owned province with a port and a naval base built, else naval_strike at sea; then, only where nothing is ticked, more strategic bombers than tactical over a province at war - runway_cratering where it has an air base built, else installation_strike where it has a radar station, nuclear reactor or rocket test site, else strategic_bomb where it has IC; then, only where nothing is ticked, a soft or hard attack - ground_attack, else interdiction. Each only where it may be given. See reversing/findings/FINDINGS-airorders.md, section 3. **The nuke row** (reversing/findings/FINDINGS-nukes.md): made only where the selection's count x 1000 is no more than the country's nukes (+0x90), the unit's definition (+0xC8) has strategic_attack (+0x17C) above nought and the province is land; greyed by AddOrder (range, then slot 11 MayBeGiven). Unlike any other row, **where the kept order is not a usable nuke row it is ticked at once by name through the radio group (0xAD53E0), whether or not AddOrder let it be given** - so the ladder below then finds something ticked and does not run, unless the rebase_air arm ticks over it.",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-airorders.md"
+   "source": "reversing/findings/FINDINGS-nukes.md"
   },
   {
    "rva": "0x342C60",
@@ -37658,9 +37658,9 @@
    "name": "CNukeMission::IsActive",
    "signature": "bool __thiscall CNukeMission::IsActive(CNukeMission* this)",
    "no_signature": null,
-   "comment": "Slot 14 of CNukeMission, the hourly 'is this order still going' (COrder/CAirOrder slot 14) - **where a nuclear bomb is dropped**. Only where the unit (+0x8) has a base (CUnit +0x98) and the order's +0x80 is non-zero, the target province's controller is an enemy of the unit's owner, the unit is in no combat (`combats_count` +0x11C < 1, `current_combat` +0x110 null), has no move left (+0x140 < 1) and stands in the target province (+0x130 == order +0xC): the controller loses national unity (NUKE_UNITY_IMPACT, times more where the province holds something and doubled at its acting capital), every building is hit, the units there (but the bomber, and an air unit only at its own base) take strength and organisation damage, messages NUKE_ON_US / WE_NUKE / NUKE_ON_OTHER, and then **on_nuke_dropped** through FireOnAction (VA 0x594A91) in a scope of seed 0: country = the bomber's owner (CUnit +0x124/+0x128), FROM = the province's controller (+0x334/+0x338), province = the target (+0xD0), no combatant. Then +0x80 = 0. Two bare `ret`s, 0x594AC7 and 0x594AE5. The damage block was read for its shape only. See reversing/findings/FINDINGS-onactions.md.",
+   "comment": "Slot 14 of CNukeMission, the hourly 'is this order still going' (COrder/CAirOrder slot 14): **where a nuclear bomb is dropped**, and the whole of the order's hour. It does not call CAirOrder::IsActive, so no date, fuel or range is asked again.\n\n    unit (+8) has no base (+0x98), or nukes (+0x80) is 0      -> done\n    target's controller not an enemy of the unit's owner     -> done\n    unit in a battle or bombing (+0x11C >= 1 or +0x110 set), or still has a path (+0x140 >= 1)\n                                                              -> still going\n    unit not in the target province (+0x130 != order +0xC)    -> CNukeMission_FlyToTarget, still going\n    otherwise: drop it, and the order is done.\n\n**The drop, in order, every figure hard-coded but NUKE_UNITY_IMPACT:**\n1. factor = 1000; where the province is a core of its controller (CProvince_IsCoreOf) factor = 1000 + province modifier 15 (IC, CMapProvince +0x114 +0x78), and at the controller's acting capital factor x 2000 / 1000 (that test sits inside the core arm). amount = NUKE_UNITY_IMPACT x factor / 1000 (truncated); CCountry::ChangeNationalUnity(controller, -amount), so scaled by national_unity_effect and clamped 1..100. amount is the $IMPACT$ of the messages, unscaled.\n2. Every building of the province (each CBuilding of the database, through CMapProvince +0x310[building index]) gets CProvinceBuilding_Damage(10000000): current level to nought, the maximum left as it is. Province modifiers are **not** rebuilt here.\n3. CGoodsPool_Clear on the province's `pool` (+0x15C) and `current_producing` (+0x268): every good zeroed - in a capital that pool is the national stockpile.\n4. For each unit of the province's list (+0x2B8), any owner, fleets in port included: skip the bomber itself; skip an air unit not at its own base (CUnit_IsAtOwnBase). A land unit: one R = RandomThousandths() (0..999), strength damage D = (floor(670.5) + R x 1000 / 3000) x GetTotalMaxStrength / 1000, CUnit::TakeDamage(unit, D, 10000000) - strength shared by each brigade's max, organisation in equal parts. A fleet or an air unit: per sub unit, its own R, D = (670 + R x 1000 / 3000) x GetMaxStrength(0,0) / 1000, added directly to pending_strength_damage (+0xA8), and 10000000 to pending_organisation_damage (+0xAC). Then CUnit::SettleCombatDamage(unit, ..., 0) - which divides both pendings by 100 for a brigade or a wing (CSubUnit::SettleDamage), so a brigade or wing loses about 0.7% to 1% of its maximum strength and an air unit's wing all its organisation while a ship takes the figures whole.\n5. CUnitList::RemoveSpentSubUnits(province units, false).\n6. Messages for the local player only: NUKE_ON_US when the player is the controller (tags: province owner, bomber's owner), else WE_NUKE when the player is the bomber's owner, else NUKE_ON_OTHER (tags: province owner, controller). Variables PROV, IMPACT (amount, one decimal), EVIL, TARGET, TITLE.\n7. **on_nuke_dropped** through FireOnAction (VA 0x594A91) in a scope of seed 0: country = the bomber's owner (CUnit +0x124/+0x128), FROM = the province's controller (+0x334/+0x338), province = the target's id (+0xD0), no combatant. Then order +0x80 = 0 and answers false (the destructor then gives nothing back).\n\nPopulation, manpower, leadership, resources other than the pools and revolt risk are not touched. See reversing/findings/FINDINGS-nukes.md.",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-onactions.md"
+   "source": "reversing/findings/FINDINGS-nukes.md"
   },
   {
    "rva": "0x5F1710",
@@ -74841,6 +74841,136 @@
    "comment": "**The one routine that shows `bg_main_menus` (+0x1914).** The picture's scale is max(screen width / picture width, screen height / picture height), applied through the element's slot 0xFC (CIcon slot 63 at 0xAA2650) only where above 1.0 (the constant at 0x171DBAC); then the `menubar` window's (+0x134C) slot 11, the raise; the picture's slot 0x124 (CIcon slot 73 at 0xAA27E0, its sprite taken out of the render list and put back: likely the same raise for an icon, so the picture covers the menu bar); `chat_list` (+0x1354, its +4 subobject) slot 0x6C; and the picture's Show (slot 13). Two callers: CInGameIdler::OpenCountryView at 0x665809 and the opening of the Statistics at 0x67350E. 0x678610 to the bare `ret` at 0x678725. See reversing/findings/FINDINGS-minimap.md, *The picture behind the country screens*.",
    "confidence": "confirmed",
    "source": "reversing/findings/FINDINGS-minimap.md"
+  },
+  {
+   "rva": "0x193AE0",
+   "kind": "function",
+   "name": "CNukeMission::CNukeMission",
+   "signature": "CNukeMission* __fastcall CNukeMission::CNukeMission(CNukeMission* this@ESI, CUnit* unit@EAX, CMapProvince* province@ECX) @EAX",
+   "no_signature": null,
+   "comment": "The constructor CreateOrder reaches for the order type 0x579 (one caller, 0x583E04): CAirOrder::CAirOrder(this, unit, province), the vftable 0x15C673C, +0x80 (nukes) = 0, returns this.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-nukes.md"
+  },
+  {
+   "rva": "0x193B00",
+   "kind": "function",
+   "name": "CNukeMission::~CNukeMission",
+   "signature": "CNukeMission* __thiscall CNukeMission::~CNukeMission(CNukeMission* this, unsigned int flags)",
+   "no_signature": null,
+   "comment": "Slot 0, the deleting destructor. **Gives a bomb back**: the unit's owner's nukes (+0x90) += order +0x80 x 1000 (so a whole bomb if the order was carrying one), through the country looked up by CUnit +0x128 at 0x593B48, whatever deleted the order: CUnit::SetOrder replacing it, CUnit::CheckOrderAndCombat finishing it, or the unit's destructor. Then CAirOrder::~CAirOrder and, with flags & 1, free. A dropped bomb gives nothing back because the drop zeroes +0x80 first.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-nukes.md"
+  },
+  {
+   "rva": "0x188B30",
+   "kind": "function",
+   "name": "CNukeMission::IsCarryingNuke",
+   "signature": "bool __thiscall CNukeMission::IsCarryingNuke(CNukeMission* this)",
+   "no_signature": null,
+   "comment": "Slot 9: `0 < +0x80`, whether this order still carries a bomb. What the unit panel's `unitstatus_nuke` icon asks of the order (reversing/findings/FINDINGS-unitpanel.md).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-nukes.md"
+  },
+  {
+   "rva": "0x193B70",
+   "kind": "function",
+   "name": "CNukeMission::MayBeGiven",
+   "signature": "bool __thiscall CNukeMission::MayBeGiven(CNukeMission* this)",
+   "no_signature": null,
+   "comment": "Slot 11, what AddOrder and the command ask: the order's province's controller is an enemy of the unit's owner (CCountry::IsEnemy with the province), and the unit's definition (+0xC8) has strategic_attack (+0x17C) above nought. It does not look at the country's stock of bombs, the range or anything of the unit's location.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-nukes.md"
+  },
+  {
+   "rva": "0x193BD0",
+   "kind": "function",
+   "name": "CNukeMission::Start",
+   "signature": "void __thiscall CNukeMission::Start(CNukeMission* this)",
+   "no_signature": null,
+   "comment": "Slot 13, called by CUnit::SetOrder as the order is installed (after the old order, and any bomb it held, has been destroyed). **Takes the bomb**: where the owner's nukes (+0x90) are at least 1000, +0x80 = 1, nukes -= 1000 (0x593C10) and CNukeMission_FlyToTarget. Where it is under 1000 nothing happens, +0x80 stays 0 and the next hour's IsActive ends the order.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-nukes.md"
+  },
+  {
+   "rva": "0x194FF0",
+   "kind": "function",
+   "name": "CNukeMission::GetDescription",
+   "signature": "Hoi3CString* __thiscall CNukeMission::GetDescription(CNukeMission* this, Hoi3CString* out)",
+   "no_signature": null,
+   "comment": "Slot 7: the localised text NUKE_MISSION_DESC, in the default colours, written through out.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-nukes.md"
+  },
+  {
+   "rva": "0x194AF0",
+   "kind": "function",
+   "name": "CNukeMission::GetStatusText",
+   "signature": "Hoi3CString* __thiscall CNukeMission::GetStatusText(CNukeMission* this, Hoi3CString* out)",
+   "no_signature": null,
+   "comment": "Slot 15, the short line for the panel: NUKE_MISSION_SHORT_DESC with $TYPE$ = STRAT_BOMB_RETURNING when return_to_base (+0x18) is set, else STRAT_BOMB_WAITING where the unit stands in its base's province, else PARA_FLYING when in no battle (+0x11C < 1, +0x110 null), else CAG_FIGHTING. The string table is shared with the strike orders; nothing here says \"nuke\".",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-nukes.md"
+  },
+  {
+   "rva": "0x1950D0",
+   "kind": "function",
+   "name": "CNukeMission_FlyToTarget",
+   "signature": "void __fastcall CNukeMission_FlyToTarget(CNukeMission* this@ECX)",
+   "no_signature": null,
+   "comment": "Sends the bomber at the order's province; two callers, CNukeMission::Start (0x593C1A) and CNukeMission::IsActive (0x594ACA). With fuel_received_percentage (+0x100) nought: COrder::OrderReturnToBase and nothing else. Otherwise CPathFind::Find from the unit's province to the order's, and where found SetUnitPath(unit, path, clear). Then the time of day against the arrival: where time (+0x30) is 0 (day) and IsNightAtTick(province, NextArrivalHour) answers night, or 1 (night) and it answers day - at its base with a path, CUnit::CancelMovement; away from its base, OrderReturnToBase (the unit tries again on a later IsActive). The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-nukes.md"
+  },
+  {
+   "rva": "0x1F1580",
+   "kind": "function",
+   "name": "CNukeChange::Apply",
+   "signature": "void __thiscall CNukeChange::Apply(CNukeChange* this, bool forward)",
+   "no_signature": null,
+   "comment": "Slot 7, the history change's Apply: forward, previous (+0x14) = the country's nukes (CCountry::GetNukes) and CCountry::SetNukes(+0x10, the entry's amount, absolute); backward, SetNukes(previous). A history `nukes = N` (CCountryHistory::LoadEntry, token 0x577). No file of the install's history/countries holds that key (a positive control: 100 of those files hold `capital`).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-nukes.md"
+  },
+  {
+   "rva": "0x188BA0",
+   "kind": "function",
+   "name": "CCountry::SetNukes",
+   "signature": "void __thiscall CCountry::SetNukes(CCountry* this, int value)",
+   "no_signature": null,
+   "comment": "`mov [ecx+0x90], arg`, `ret 4`. Called only by CNukeChange::Apply, twice, on its country (CCountryHistoryEntry +0xC). The class is the caller's; no other holder in the virtual tables.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-nukes.md"
+  },
+  {
+   "rva": "0x188BB0",
+   "kind": "function",
+   "name": "CCountry::GetNukes",
+   "signature": "int* __fastcall CCountry::GetNukes(CCountry* this@ECX, int* out@EAX) @EAX",
+   "no_signature": null,
+   "comment": "`mov edx, [ecx+0x90]; mov [eax], edx; ret`: the country's nukes (thousandths), through an out pointer in EAX. One caller, CNukeChange::Apply (0x5F15A0).",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-nukes.md"
+  },
+  {
+   "rva": "0xA4020",
+   "kind": "function",
+   "name": "CProvince_IsCoreOf",
+   "signature": "bool __fastcall CProvince_IsCoreOf(CCountryTag* tag@ECX, CMapProvince* province@EAX) @AL",
+   "no_signature": null,
+   "comment": "Whether the province holds a core of the tag's country: a walk of cores (+0x344, node {+4 country id, +0xC next}) against tag +4 (the country id). `province` is in EAX, the tag in ECX. Bare `ret`. Five callers: CNukeMission::IsActive (0x593D1C) and four at 0x9D6866-0x9D68E2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-nukes.md"
+  },
+  {
+   "rva": "0x1237F0",
+   "kind": "function",
+   "name": "CGoodsPool_Clear",
+   "signature": "void __stdcall CGoodsPool_Clear(CGoodsPool* pool@EAX)",
+   "no_signature": null,
+   "comment": "Sets the pool's seven goods (+0x8..+0x20) to the global zero fixed point (0x1687818). The pool in EAX, `ret`. Called by the nuke on a province's `pool` and `current_producing` at 0x593DFA and 0x593E07.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-nukes.md"
   }
  ],
  "structs": [
@@ -75802,8 +75932,8 @@
      "offset": "0x90",
      "name": "nukes",
      "type": "int",
-     "comment": "The country's stock of nuclear bombs, x1000. The `nukes` key, save token 0x577, per findings/FINDINGS-fieldmap.md's map of CCountry::LoadKey - **that is where it was settled; this is corroboration from the consumer side, not a first reading.**\n\nCAIUnit_ManageAirUnits phase 4 reads it twice, both `>= 1000` i.e. 'at least one bomb': at 0x4CFE07 it adds a filter to the strategic-target survey so that only a province its own controller cores is kept, and at 0x4CFF8E it swaps the order token from `strategic_bomb (0x6F9)` to `nuke_mission (0x579)`. The second is per country and per pass, so one bomb in stock turns the whole strategic bomber force onto nuke missions.",
-     "source": "reversing/findings/FINDINGS-airnaval4.md"
+     "comment": "The country's stock of nuclear bombs, x1000. The `nukes` key, save token 0x577, per findings/FINDINGS-fieldmap.md's map of CCountry::LoadKey - **that is where it was settled; this is corroboration from the consumer side, not a first reading.**\n\nCAIUnit_ManageAirUnits phase 4 reads it twice, both `>= 1000` i.e. 'at least one bomb': at 0x4CFE07 it adds a filter to the strategic-target survey so that only a province its own controller cores is kept, and at 0x4CFF8E it swaps the order token from `strategic_bomb (0x6F9)` to `nuke_mission (0x579)`. The second is per country and per pass, so one bomb in stock turns the whole strategic bomber force onto nuke missions.\n\n**Its writers, all of them** (a store scan of [reg+0x90] over .text, 227 non-stack sites read by hand, reversing/findings/FINDINGS-nukes.md): CCountry::CCountry (0, 0x4C8B09), CCountry_Reset (0x4D2ED8), the save's `nukes` key in CCountry::LoadKey, CNukeChange through CCountry::SetNukes (a history `nukes` entry, absolute, none in the install's history files), **CCountry::UpdateMonthly (+= technology_status->nuclear_production (+0xDF8, +0xBC), 0x4DCB3D, a month, not a day)**, ConsoleCmd_Nukes (0x43D948), **CNukeMission::Start (-1000 when at least 1000, 0x593C10)** and **~CNukeMission (order +0x80 x 1000 given back, 0x593B48)**. Nothing floors it but Start's own test.",
+     "source": "reversing/findings/FINDINGS-nukes.md"
     },
     {
      "offset": "0x8",
@@ -117903,6 +118033,23 @@
      "source": "reversing/findings/FINDINGS-alerts.md"
     }
    ]
+  },
+  {
+   "name": "CNukeMission",
+   "vftable_rva": "0x11C673C",
+   "size": "0x84",
+   "inherits": "CAirOrder",
+   "comment": "The nuclear bomb order (0x579). CAirOrder plus one int at +0x80, `nukes`, 0 or 1: whether it still carries a bomb.",
+   "source": "reversing/findings/FINDINGS-nukes.md",
+   "fields": [
+    {
+     "offset": "0x80",
+     "name": "nukes",
+     "type": "int",
+     "comment": "0 or 1 in the saved key `nukes`: whether this order holds a bomb taken from the country. Set to 1 by CNukeMission::Start with the country's stock paying 1000; cleared at the drop before the on_action returns; added back x 1000 by the destructor while it is non-zero. Tested by slot 9 (IsCarryingNuke) and at the head of IsActive. See reversing/findings/FINDINGS-nukes.md.",
+     "source": "reversing/findings/FINDINGS-nukes.md"
+    }
+   ]
   }
  ],
  "equates": [
@@ -117943,6 +118090,9 @@
   }
  ],
  "vftable_slots": {
+  "CNukeChange": {
+   "7": "Apply"
+  },
   "CLiberateCreationDialogDialogue": {
    "5": {"name": "OnAgree", "signature": "void __thiscall OnAgree(CLiberateCreationDialogDialogue* this)"},
    "7": {"name": "StaysOpen", "signature": "bool __thiscall StaysOpen(CLiberateCreationDialogDialogue* this)"}
@@ -119327,6 +119477,12 @@
    "8": {"name": "GetText", "signature": "Hoi3CString* __thiscall GetText(CHasHostileSpyMissionTrigger* this, Hoi3CString* out, CEventScope* scope, bool redWhen, int depth)"}
   },
   "CNukeMission": {
+   "0": "~CNukeMission",
+   "7": "GetDescription",
+   "9": "IsCarryingNuke",
+   "11": "MayBeGiven",
+   "13": "Start",
+   "15": "GetStatusText",
    "2": "SaveContents",
    "14": "IsActive"
   },
