@@ -25,12 +25,12 @@ how many objects a census found (taken 2026-09-20).
 
 | | classes |
 | --- | --- |
-| `read` | 177 |
+| `read` | 180 |
 | `placed` | 140 |
 | `keys` | 75 |
-| `part` | 166 |
+| `part` | 179 |
 | `named` | 5 |
-| `RTTI` | 578 |
+| `RTTI` | 562 |
 | **all** | **1141** |
 
 ## What to read next
@@ -308,7 +308,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CTraitGainTracker` | `CPersistent` |  | 4 |  | 6 | CTrait.hpp | 24,137 | keys |  |
 | `CTransportSuppliesOrder` | `CAirOrder` |  | 2 | 2/2 | 10 |  |  | placed |  |
 | `CUndeclaredWar` | `CPersistent` |  | 9 |  | 4 | CWar.hpp | 1 | read | **read**: the save's record of a war nobody declared |
-| `CUnit` | `PAVCSubUnit::__CList` `CSelectable` `CReferenceObject` |  | 112 + 1 lua |  | 118 | CUnit.hpp |  | read |  |
+| `CUnit` | `PAVCSubUnit::__CList` `CSelectable` `CReferenceObject` |  | 113 + 1 lua |  | 119 | CUnit.hpp |  | read |  |
 | `CUnitDeployment` | `CDeployment` |  |  | 3/4 | 6 |  | 49 | placed |  |
 | `CUnitPlan` | `CPersistent` | 0x90 | 15 | 10/16 | 14 |  | 8,827 | read | **read**: a battle plan as the save keeps it |
 | `CVariables` | `_0A::anon::PAUCVariable::__CTernary` `CPersistent` |  | 1 |  | 5 | CFlags.hpp | 216 | keys |  |
@@ -426,7 +426,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CAirMember` | `COutLinerMember` | 0x120 | 7 |  | 7 |  |  | read |  |
 | `CAirOrdersView` | `COrdersView` | 0x37C | 21 |  | 24 |  |  | read |  |
 | `CAirSortInterface` |  |  |  |  |  |  |  | RTTI |  |
-| `CAirStanceChangeEntry` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
+| `CAirStanceChangeEntry` | `CStandardlistboxItem` | 0x80 | 2 |  | 2 |  |  | part |  |
 | `CAlliedItem` | `CStandardlistboxItem` | 0x70 | 3 |  | 4 |  |  | part |  |
 | `CAlliedObjectiveMember` | `COutLinerMember` |  | 3 |  | 6 |  |  | part |  |
 | `CApplicationObservable` | `VCApplicationClassObservable::anon::VCApplicationObserver::__CObservable` |  |  |  |  |  |  | RTTI |  |
@@ -458,7 +458,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CBrigadeSortInterface` |  |  |  |  |  |  |  | RTTI |  |
 | `CBrigadeStatsEntry` | `CStandardlistboxItem` | 0x28 | 1 |  | 1 |  |  | part |  |
 | `CBrigadeView` | `CUpdateable` | 0xBC | 9 |  | 6 |  |  | read |  |
-| `CBrowserItem` | `CStandardlistboxItem` |  |  |  | 1 |  |  | RTTI |  |
+| `CBrowserItem` | `CStandardlistboxItem` |  | 4 |  | 3 |  |  | part |  |
 | `CBuildTimeComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CBuildingMember` | `CStandardlistboxItem` |  | 5 |  | 4 |  | 102 | read |  |
 | `CBuyConfirm` | `CEU3Dialog` |  |  |  |  |  |  | RTTI |  |
@@ -498,7 +498,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CDeploymentEntry` | `CStandardlistboxItem` |  |  |  | 2 |  | 1 | RTTI |  |
 | `CDeploymentMenuMouseObserver` | `CSideMenuMouseObserver` |  |  |  | 1 |  | 2 | RTTI |  |
 | `CDeploymentTargetEntry` | `CStandardlistboxItem` |  |  |  | 2 |  |  | RTTI |  |
-| `CDesiredAssetsEntry` | `CUnitViewBaseEntry` |  |  |  |  |  |  | RTTI |  |
+| `CDesiredAssetsEntry` | `CUnitViewBaseEntry` | 0x2C | 1 |  | 3 |  |  | part |  |
 | `CDiplomacyView` | `CCountryView` | 0x560 | 40 |  | 48 |  | 1 | read |  |
 | `CDiplomaticActionItem` | `CStandardlistboxItem` | 0x88 | 4 |  | 3 |  | 26 | part |  |
 | `CDirectSound` | `CSound` |  |  |  |  |  |  | RTTI |  |
@@ -543,15 +543,15 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CICCostComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CIcon` | `CButton` |  |  |  | 4 |  |  | RTTI |  |
 | `CIdler` |  |  |  |  |  |  |  | RTTI |  |
-| `CInGameIdler` | `CEU3Idler` `CLostDeviceInterface` `CReloadDispatcher` |  | 125 |  | 113 | CInGameIdler.hpp | 3 | read |  |
+| `CInGameIdler` | `CEU3Idler` `CLostDeviceInterface` `CReloadDispatcher` |  | 126 |  | 113 | CInGameIdler.hpp | 3 | read |  |
 | `CIngameSettingsScreen` | `CSettingsScreen` | 0x3E0 | 1 |  | 2 |  | 1 | part |  |
 | `CLandOrdersView` | `COrdersView` | 0x198 | 10 |  | 10 |  |  | read |  |
 | `CLawEntry` | `CStandardlistboxItem` | 0x88 | 4 |  | 3 |  | 16 | part |  |
 | `CLeaderAssignmentEntry` | `CStandardlistboxItem` |  |  |  | 6 |  |  | RTTI |  |
 | `CLendLeaseDistribution` | `CReloadableInterface` | 0xA4 | 4 |  | 9 |  | 1 | part |  |
 | `CLendLeaseItem` | `CStandardlistboxItem` | 0x30 | 2 |  | 1 |  |  | part |  |
-| `CLiberateCreationDialogDialogue` | `CEU3Dialog` |  |  |  |  |  | 1 | RTTI |  |
-| `CLiberateEntry` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
+| `CLiberateCreationDialogDialogue` | `CEU3Dialog` | 0x80 | 4 |  | 3 |  | 1 | part |  |
+| `CLiberateEntry` | `CStandardlistboxItem` | 0x98 | 5 |  | 2 |  |  | read |  |
 | `CLoadedUnitEntry` | `CUnitViewBaseEntry` |  |  |  | 2 |  |  | RTTI |  |
 | `CLobbyHumanItem` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
 | `CLoginObservable` | `VCLoginClassObservable::anon::VCLoginObserver::__CObservable` |  |  |  |  |  |  | RTTI |  |
@@ -578,12 +578,12 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CMusic` |  |  |  |  |  |  |  | RTTI |  |
 | `CNavalCombatMember` | `COutLinerMember` |  | 6 |  | 6 |  |  | read |  |
 | `CNavalOrdersView` | `COrdersView` |  |  |  | 6 |  |  | RTTI |  |
-| `CNavalStanceChangeEntry` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
+| `CNavalStanceChangeEntry` | `CStandardlistboxItem` | 0x80 | 2 |  | 2 |  |  | part |  |
 | `CNavyMember` | `COutLinerMember` | 0x120 | 7 |  | 7 |  |  | read |  |
 | `CNudgeIdler` | `CEU3Idler` `CReloadableInterface` |  |  |  |  |  | 1 | RTTI |  |
 | `COOBBrowser` | `CReloadableInterface` | 0x304 | 23 |  | 26 |  | 1 | read |  |
 | `COOBUnitEntry` | `CStandardlistboxItem` | 0x168 | 11 |  | 7 |  |  | read |  |
-| `CObjectivesEntry` | `CUnitViewBaseEntry` |  |  |  | 3 |  |  | RTTI |  |
+| `CObjectivesEntry` | `CUnitViewBaseEntry` |  |  |  | 6 |  |  | RTTI |  |
 | `COfficersComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `COptionObservable` | `VCOptionClassObservable::anon::VCOptionObserver::__CObservable` |  |  |  |  |  |  | RTTI |  |
 | `COrdersView` |  |  |  |  |  |  |  | RTTI |  |
@@ -607,7 +607,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CPossiblePolicyEntry` | `CStandardlistboxItem` | 0x90 | 5 |  | 3 |  |  | read |  |
 | `CPossibleShipEntry` | `CStandardlistboxItem` |  |  |  | 1 |  | 4 | RTTI |  |
 | `CPossibleSingleBrigadeEntry` | `CStandardlistboxItem` |  |  |  | 1 |  |  | RTTI |  |
-| `CPowerRatioEntry` | `CUnitViewBaseEntry` |  |  |  |  |  |  | RTTI |  |
+| `CPowerRatioEntry` | `CUnitViewBaseEntry` | 0x2C | 1 |  | 3 |  |  | part |  |
 | `CPrioComparator` | `CBrigadeSortInterface` |  |  |  | 1 |  | 2 | RTTI |  |
 | `CProductionView` | `CCountryView` |  | 11 |  | 31 |  | 1 | read |  |
 | `CProjectionObject` | `C3dVisibleObject` |  |  |  |  |  |  | RTTI |  |
@@ -616,8 +616,8 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CProvinceObject` | `CProvinceCollisionObject` | 0x160 |  |  | 1 |  | 10,642 | RTTI |  |
 | `CProvinceView` | `CReloadableInterface` | 0x1A4 | 14 |  | 8 |  | 1 | read |  |
 | `CProvinceWaterObject` | `CProvinceCollisionObject` |  |  |  | 1 |  | 3,547 | RTTI |  |
-| `CPuppetCreationDialogDialogue` | `CEU3Dialog` |  |  |  |  |  |  | RTTI |  |
-| `CPuppetEntry` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
+| `CPuppetCreationDialogDialogue` | `CEU3Dialog` | 0x80 | 4 |  | 3 |  |  | part |  |
+| `CPuppetEntry` | `CStandardlistboxItem` | 0x98 | 5 |  | 2 |  |  | read |  |
 | `CRegionSelectionItem` | `CStandardlistboxItem` |  |  |  | 1 |  |  | RTTI |  |
 | `CRelationEntry` | `CStandardlistboxItem` | 0x38 | 2 |  | 3 |  |  | part |  |
 | `CReloadDispatcher` |  |  |  |  |  |  |  | RTTI |  |
@@ -661,7 +661,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CSound` |  |  |  |  |  |  |  | RTTI |  |
 | `CSpeedComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CSpyMissionEntry` | `CStandardlistboxItem` | 0x90 | 5 |  | 4 |  | 22 | read |  |
-| `CStanceChangeEntry` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
+| `CStanceChangeEntry` | `CStandardlistboxItem` | 0x80 | 2 |  | 2 |  |  | part |  |
 | `CStandadDiplomacyDialogue` | `CEU3Dialog` | 0x74 | 3 |  | 2 |  |  | part |  |
 | `CStandardPostConfirm` | `CEU3Dialog` |  |  |  |  |  |  | RTTI |  |
 | `CStandardlistboxItem` | `COption` `TListboxItem` |  |  |  |  |  |  | RTTI |  |
@@ -688,7 +688,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CTraitFilterEntry` | `CStandardlistboxItem` |  |  |  | 5 |  |  | RTTI |  |
 | `CTutorial` | `CReloadableInterface` |  |  |  |  |  |  | RTTI |  |
 | `CTutorialScreen` | `CFrontEndView` |  |  |  | 2 |  |  | RTTI |  |
-| `CUnitAirStanceEntry` | `CUnitViewBaseEntry` |  |  |  |  |  |  | RTTI |  |
+| `CUnitAirStanceEntry` | `CUnitViewBaseEntry` | 0x88 | 3 |  | 4 |  |  | part |  |
 | `CUnitArrow` | `C3dVisibleObject` | 0x160 | 9 |  | 6 |  |  | read |  |
 | `CUnitAttachmentEntry` | `CStandardlistboxItem` | 0xD0 | 5 |  | 2 |  |  | read |  |
 | `CUnitBase` |  |  |  |  | 1 |  |  | RTTI |  |
@@ -696,8 +696,8 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CUnitBaseProvince` | `CUnitBase` `CSelectable` |  | 3 |  | 2 |  | 56,760 | part |  |
 | `CUnitDeploymentCallback` |  |  |  |  |  |  |  | RTTI |  |
 | `CUnitList` | `PAVCUnit::__CList` |  |  |  | 9 |  |  | RTTI |  |
-| `CUnitNavalStanceEntry` | `CUnitViewBaseEntry` |  |  |  |  |  |  | RTTI |  |
-| `CUnitStanceEntry` | `CUnitViewBaseEntry` |  |  |  |  |  |  | RTTI |  |
+| `CUnitNavalStanceEntry` | `CUnitViewBaseEntry` | 0x88 | 3 |  | 4 |  |  | part |  |
+| `CUnitStanceEntry` | `CUnitViewBaseEntry` | 0x88 | 3 |  | 4 |  |  | part |  |
 | `CUnitStatusEntry` | `CUnitViewBaseEntry` |  |  |  | 4 |  |  | RTTI |  |
 | `CUnitView` | `CUnitViewBaseEntry` |  | 7 |  | 7 |  |  | read |  |
 | `CUnitViewBaseEntry` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
@@ -905,7 +905,7 @@ One class per effect, trigger, command and decision the event scripts can use. E
 | `CCreateRebelsEffect` | `CIntEffect` | 0x28 | 1 | 3/91 | 3 |  |  | part |  |
 | `CCreateRevoltEffect` | `CIntEffect` |  |  | 3/91 | 2 |  | 528 | RTTI |  |
 | `CCreateUnitCommand` | `CCommand` | 0x5C | 8 | 5/7 | 3 |  | 1 | read |  |
-| `CCreateVassalCommand` | `CCommand` |  |  | 2/2 | 1 |  | 1 | RTTI |  |
+| `CCreateVassalCommand` | `CCommand` | 0x4C | 2 | 2/2 | 6 |  | 1 | part |  |
 | `CCreateVassalEffect` | `CCountryTargetEffect` | 0x28 |  | 3/91 | 2 |  | 21 | RTTI |  |
 | `CCrudeOilTrigger` | `CValueTrigger` | 0x44 |  | 2/153 | 2 |  | 4 | RTTI |  |
 | `CDateTrigger` | `CTrigger` | 0x44 | 1 | 2/153 | 3 |  | 3,733 | part |  |
@@ -1007,7 +1007,7 @@ One class per effect, trigger, command and decision the event scripts can use. E
 | `CLeadershipTrigger` | `CValueTrigger` | 0x44 |  | 2/153 | 2 |  | 18 | RTTI |  |
 | `CLeaveAllianceEffect` | `CCountryTargetEffect` | 0x28 |  | 3/91 | 2 |  | 39 | RTTI |  |
 | `CLeaveFactionEffect` | `CEffect` | 0x24 | 1 | 3/91 | 3 |  | 41 | part |  |
-| `CLiberateCountryCommand` | `CCommand` |  |  | 2/2 | 2 |  | 1 | RTTI |  |
+| `CLiberateCountryCommand` | `CCommand` | 0x4C | 2 | 2/2 | 6 |  | 1 | part |  |
 | `CLoadArmyCommand` | `CCommand` |  |  | 1/1 | 7 |  | 1 | placed |  |
 | `CLoadOOBEffect` | `CStringEffect` |  |  | 3/91 | 2 |  | 4,828 | RTTI |  |
 | `CLoadOnPlaneCommand` | `CCommand` | 0x8C | 6 | 2/2 | 5 |  | 1 | read |  |
@@ -1250,7 +1250,7 @@ Windows, pages, sprites and the map's own drawing.
 | `CDiplomacyDialog` | `CEU3Dialog` | 0x70 | 2 |  | 5 |  |  | part |  |
 | `CEU3Dialog` | `CUpdateable` |  | 3 |  | 8 |  |  | part |  |
 | `CEventWindow` | `CUpdateable` | 0xA0 | 12 |  | 4 |  |  | read |  |
-| `CExpeditionaryForceDialog` | `CEU3Dialog` |  |  |  |  |  |  | RTTI |  |
+| `CExpeditionaryForceDialog` | `CEU3Dialog` |  | 5 |  | 11 |  |  | read |  |
 | `CFixedWindow` | `TWindow` |  | 32 |  | 20 |  |  | read |  |
 | `CFont` | `CPersistent` |  |  |  |  |  |  | RTTI |  |
 | `CGui` | `TGui` `CPersistent` `CFactory` |  | 11 |  | 2 |  |  | read |  |

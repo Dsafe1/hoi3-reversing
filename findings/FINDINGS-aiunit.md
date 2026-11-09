@@ -112,7 +112,7 @@ Four creation paths:
 | `CEU3AI::CreateAgentsForPlannedUnits` `0x88BEF0` | stack | `ProcessAI` at `0x8897D5` | **worker** |
 | `CEU3AI::CreateAgentsForTheatres` `0x88AA80` | stack | `ProcessAI` at `0x889A61` | **worker** |
 | `CEU3AI::EnsureAgentForArea` `0x88A880` | stack | `0x8ABAEF`, `0x8ABC38`, `0x8ABE8F`, `0x8ABFAE` | **tick** |
-| `CEU3AI::CreateUnitAgent` `0x89A1B0` | EDI | `0x74FB7B`, in `CObjectivesEntry` slot 22 | interface |
+| `CEU3AI::CreateUnitAgent` `0x89A1B0` | EDI | `0x74FB7B`, in the automate checkbox's handler `0x74F9D0` (not slot 22, `FINDINGS-hqrows.md`) | interface |
 
 **All four `EnsureAgentForArea` callers reach it from `RunCountryHourlyPass`, so it is on the tick thread** (theatre survey, 2026-10-01; this row said "not traced"). That makes **three of `CAIUnit`'s four construction paths tick-thread**, not one: this, `CreateUnitAgent` from `CObjectivesEntry` slot 22, and the observer slots. Only the hourly *ticking* of an agent is on a worker. See `FINDINGS-aitheatre.md`.
 
@@ -282,8 +282,7 @@ slots can run off the AI pass entirely**, driven by whatever raises the event.
 
 So there are two ways into this code on the tick thread rather than a worker:
 
-1. `CEU3AI::CreateUnitAgent` (`0x89A1B0`), and slot 76 through it, from `CObjectivesEntry`
-   slot 22 - the battle-plan objectives panel.
+1. `CEU3AI::CreateUnitAgent` (`0x89A1B0`), and slot 76 through it, from the unit panel's automate checkbox (`0x74F9D0`, `FINDINGS-hqrows.md`).
 2. Any of the observer slots, whenever its channel is notified.
 
 **Which dispatcher calls which slot is not established.** `slotcalls.py 20` returns 2325 sites in

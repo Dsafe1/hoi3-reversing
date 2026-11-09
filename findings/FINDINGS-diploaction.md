@@ -1561,7 +1561,7 @@ empty, 12 `int3`, then slot 11. Three parts.
    still zero - `unit->+0x28C`/`+0x290` saved from the other country's `+0x124`/`+0x128`, which is how
    the brigade knows where to go home to; then `0xE0860`, `0xE0830` and `0xE06F0` move it between the
    two countries' unit lists, and `0x1D3840` runs when `unit->+0x1EC` is set. ACCEPT with `value`
-   clear (`0x63A519`) is the return leg, keyed `OUREXPDEC` and `EXPOTHER`.
+   clear (`0x63A519`) only sets the unit's `expeditionary_date`; `OUREXPDEC` and `EXPOTHER` belong to the offer's news (corrected in `FINDINGS-expedition.md`, section 3).
 
 So the honest answer to "pick a unit, no-op, or fault?" is **none of the three, because it is
 unreachable** - and if it were reached with a null ref it would fault at `0x639DE8`, since

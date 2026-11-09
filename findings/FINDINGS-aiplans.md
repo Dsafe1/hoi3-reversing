@@ -306,7 +306,7 @@ Slot 77 has six call sites. The AI's is **`0x8912D0`–`0x892185`** (`ret 8`, `(
 
 ## Thread safety — no new tick-thread route found
 
-Nothing in slot 76, slot 78, slot 84, `0x8980E0`, `0x8912D0` or `0x8DCA70` is reachable from the tick thread other than by the two routes `FINDINGS-aiunit.md` already names: `CEU3AI::CreateUnitAgent` (`0x89A1B0`) from `CObjectivesEntry` slot 22, which calls slot 76 at `0x74FB8C`, and the observer slots. `0x8980E0` and `0x8912D0` have exactly one caller each and both are inside `ProcessAI`.
+Nothing in slot 76, slot 78, slot 84, `0x8980E0`, `0x8912D0` or `0x8DCA70` is reachable from the tick thread other than by the two routes `FINDINGS-aiunit.md` already names: `CEU3AI::CreateUnitAgent` (`0x89A1B0`) from the automate checkbox's handler `0x74F9D0` (`FINDINGS-hqrows.md`), recorded here as `CObjectivesEntry` slot 22, which calls slot 76 at `0x74FB8C`, and the observer slots. `0x8980E0` and `0x8912D0` have exactly one caller each and both are inside `ProcessAI`.
 
 **One thing a hook author must know:** slot 76 and slot 84 both post commands, and the post goes `gamestate->+0xBE8` (the `CInGameIdler`) → slot 18 (the session) → `+0x38` (the channel) → slot 6. That chain is walked **on the worker thread**, ten times inside slot 76 alone, with the `CCurrentGameState` singleton's lazy construction inlined at every one of them (`if (!g_CCurrentGameState) new CCurrentGameState`). So the command channel is already being written from worker threads by the stock game — useful, because it means a BiceLib hook on `CCommand::Execute` or on the post sees AI decisions without having to be thread-safe about *where they were made*.
 
