@@ -1159,7 +1159,8 @@ At `id % 24` once `unit_pass_done` is set - from the country's second AI pass.
    max_speed >= 2000 (garrisons, at speed 1, are out); not on the agent's target-area provinces (`+0x1CC`); and not in an
    area whose have <= keep with keep > 0.
 3. **Picking.** maxD = the greatest distance from a candidate's province to the receiving theatre's fronts
-   (`DistanceToTheatreFronts`), 0.1 where that is 0. While fewer than n are picked, each unpicked candidate is tested and
+   (`DistanceToTheatreFronts`, **capped at 1000**, its first best being set against the square: `FINDINGS-balancing.md`),
+   0.1 where that is 0. While fewer than n are picked, each unpicked candidate is tested and
    scored: it needs k >= 1, k being 1000, or beside a war-candidate border the other idle divisions in its province
    (`0x4BF0E0`); a donor that is a war candidate (without `fastOnly`) never gives a division holding a mobile brigade;
    score = (1 - d / maxD) x (15 where its parent has given one already, else 10); x 0.25 unless its area is one of the
@@ -1206,7 +1207,7 @@ the *taker's* (`CAIUnit_SealiftWeightToEnemyDebark`, `0x4BDCC0`). Score = 10 - m
 
 ### F.6 Against the saves
 
-Consistent with every rule above and checkable figure for figure by none, `divisions_needed` not being saved (F.9).
+Consistent with every rule above once the distance's cap is taken in (`findings/FINDINGS-balancing.md`, measured in the running game), which is what holds Britain and France back; `divisions_needed` is not saved (F.9).
 **The Soviet Union**, `_01_01_00` to `_01_04_12`: 24 divisions changed theatre - Arkhangelsk HQ 7 to 14, Leningrad HQ 8
 to 17, Brjansk HQ 11 to 15, Kyiv HQ 18 to 13, Odessa HQ 34 to 19, STAVKA 13 to 13. Arkhangelsk took 11 and gave 4 to
 Leningrad in the same days; 11 corps moved whole, every corps whose divisions all moved; the mechanised corps went to

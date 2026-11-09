@@ -833,7 +833,7 @@ sealift. Its corrections are listed at the head of the write-up. What it left:
    moved one division each from the Army of India (need 6, 13 divisions) to the Far East and East Africa, where
    `FINDINGS-agents.md` F.1's ratios ask for seven to Home Command alone. Something in F.1-F.2 - the pick's candidates
    (`UnitMayLeave`, the `+0x1CC` target provinces, `CountIdleDivisionsBesideWarCandidate`'s k), the takers' gate or when
-   the first balancing runs - holds the original back.
+   the first balancing runs - holds the original back. **Settled 2026-11-09 in the running game** (`findings/FINDINGS-balancing.md`): `DistanceToTheatreFronts` caps at 1000 because its seed is set against the square, so a candidate further off scores 0. Needs and n were right, Home's 31 among them.
 2. **The record sort and its key** (`0x4DDFF0`, `0x4DE0E0`, `0x4DE890`, `0x4DE770`, `0x4DE840`, the byte at VA
    `0x1B15244`): the order the line's supply cut hands out spare want (A).
 3. **`RebuildHoldProvinces` (slot 80, `0x4B3A50`, `inferred`)** whole - its scores pick the garrison targets (A.3); its
@@ -1406,7 +1406,7 @@ of it.
 
 ## What has already been read
 
-220 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
+221 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
 header lives. This replaces the `Done` archive: the archive restated each file's headline and named
 only 40 of the 67 there were then, so it was both longer and less useful than a complete list.
 
@@ -1671,6 +1671,7 @@ the six it was missing were wave 15's.
 | `findings/FINDINGS-starttech.md` | **the start technology wave (2026-11-02)**: what a new game does to every country's laws and technology before the first screen - `SetUpCountryLawsAndTechnologyForNewGame` (`0xD59D0`), once per country from `CInGameIdler::Enter`'s new-game block, the player's too, never on a load: each law moved to the latest of its group whose `allow` holds, then technology levels bought with a budget of core-province leadership (held to 5) x 3650 x 1.917, cheapest due level first, not-yet-due levels at double, theories never, `notech` a candidate - reproducing all 476 levels the start save holds above the history in all 86 countries; with every writer of a technology level, `CTechnologyChange` and the history's route |
 | `findings/FINDINGS-recomp.md` | **a census of the image for static recompilation (2026-11-05)**: 23,686 functions of code and 2.44 million instructions under Ghidra's 73,884 (49,384 are `Unwind@` funclets); what lies outside the bodies - exception state handlers and catch continuations; computed calls and jumps, every scaled jump table resolved; 4,374 `FuncInfo`, 805 try blocks and what is thrown and caught; SSE in 2,433 functions and x87 in 847; 27 `lock` instructions; every import DLL by sites; no code made at run time. With **`WinThread`** read whole: a thread class with no RTTI, seven slots, whose destructor calls `ExitThread` on the calling thread when its wait times out |
 | `findings/FINDINGS-bicelibsites.md` | **BiceLib's oldest patch sites, read off the bytes (2026-11-07)**: 26 records that cited only the DLL's own source, each set against an untouched copy of the exe - **the installed exe was patched on disk** in 17 bytes (the tech decay and war exhaustion patches), so `image.py` showed those sites patched until the vanilla exe was put back; the leader list hook read the caller's EDI where the leader is `[ebp+0x14]`; the attachment limit read ECX after a virtual call where EDI holds the unit; `0xDE3ED` is in `RebuildStaticModifiers`, not the decay effect; one war exhaustion byte was a no-op; `IsBuildingAllowed`'s six refusals, five of which the placement hook skips |
+| `findings/FINDINGS-balancing.md` | What holds the balancing of divisions back: `DistanceToTheatreFronts`' cap at 1000, seen in the running game through Cheat Engine, with Britain's needs and picks day by day |
 | `findings/FINDINGS-scriptgaps.md` | The script and AI-Lua gaps: the port counts, `surrender_inherit`, `create_alliance`, what an undeclared war does, the Lua answers and `load_oob` in a running game |
 | `findings/FINDINGS-nukes.md` | The nuclear bomb: where bombs come from, the order hour by hour, what a drop does, and how `province_event` fires |
 | `findings/FINDINGS-alerts.md` | The sixteen alerts: the three-second pass, each condition, tooltip and click, and how the row of icons closes up |
