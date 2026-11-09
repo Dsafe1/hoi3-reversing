@@ -266,3 +266,12 @@ minimap.
 
 Frontier: 0x4E4490, 0x23D350, 0x465930, 0x4660E0, 0x4674E0, 0x465290, 0x267AE0, 0x66FCA0, 0x6B2770,
 0x46AA70
+
+## The picture behind the country screens
+
+*Read 2026-11-09, off the listing.* `bg_main_menus` is held at `CInGameIdler +0x1914`. Of the 18 code references to that offset, fourteen hide it or make it hidden; **the only one that shows it is `CInGameIdler_ShowMenuBackground` (`0x678610`, the idler in ESI, a bare `ret`)**, which has two callers: `CInGameIdler::OpenCountryView` (`0x665809`) and the routine that opens the Statistics (`0x67350E`).
+
+It takes the picture's size from its sprite (element `+0x88`, slot `0xD8`, two shorts) and the screen's from the idler's slot `0x58` (`+8` width, `+0xC` height), and works out `max(screen width / picture width, screen height / picture height)` in doubles cast to single. Where that is above 1.0 (the constant at `0x171DBAC`) it calls the element's slot `0xFC` with it, which is the scale (`CIcon` slot 63 at `0xAA2650` stores it at `+0xB8` and hands it to the sprite). Then the `menubar` window's (`+0x134C`) slot 11, the raise; the picture's slot `0x124` (`CIcon` slot 73 at `0xAA27E0`, which takes its sprite out of the render list and puts it back, `likely` the same raise for an icon); `chat_list` (`+0x1354`, its `+4` subobject) slot `0x6C` (not read); and the picture's Show (slot 13).
+
+`OpenCountryView` hides the minimap, `minimap_bg` and `minimap_overlay` (`+0x1920`, `+0x1918`, `+0x191C`) before calling it; the Statistics do not. **So the picture covers the menu bar**, raised after it, and only the chat is raised over it. The maintainer confirmed it against the running original on 2026-11-09: behind a country screen neither the log, nor the map modes' buttons, nor the bar's opaque `minimap_bg_shadow` is seen.
+
