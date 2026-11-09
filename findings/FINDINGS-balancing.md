@@ -97,8 +97,9 @@ The pace follows too. A division in India is given only once it stands within 10
 The save was loaded in the running game and in OpenHOI3, and each run forward with the picks logged, 57 of them in the running game across seven countries. This is where OpenHOI3 still differs.
 
 - **Vichy France agrees on all 10.** The USA's theatres agree in need and count.
-- **Needs at war are not right everywhere.** On each country's first pass, 20 of the 24 theatres that can be compared agree in need and count. The four that do not: Britain's Middle East 27 live against 26, India 18 against 17, the Soviet theatre 67 with **75 against 64**, and Germany's theatre 6 counting 119 divisions against 118.
-- **The Soviet need decides picks.** With theatre 67 at 75 the running game asks for 48, 9 and 21 where OpenHOI3 asks for 37, 7 and 19, and theatre 1350 gives 12 of 15 to theatre 61 where OpenHOI3 gives 10. Britain's picks mostly differ in the donor order of section *With the cap*.
+- **Needs at war.** On each country's first pass 20 of the 24 theatres that could be compared first agreed in need and count. The four that did not were Britain's Middle East (27 live against 26), India (18 against 17), the Soviet theatre 67 (**75 against 64**) and Germany's theatre 6.
+- **What was wrong.** A probe of `EstimateAreaNeed`, per front province and per area, found every front province scoring the same on both sides. The difference was the focus recursion: theatre 67's 75 is 62 for its home area, 10 for Mongolia (a focus area in its region group) and the rest. OpenHOI3 had no focus areas at all, because its supply network, built while a load read the theatres and before the pacts, was never made again, so no puppet stood with its master. Made again once the save is read, and with the AI asking the region group (`FINDINGS-supplynetwork.md` section 8) rather than the supply group, **23 of 24 agree**, the Soviet Union's 75 and all of Britain's among them. Germany's theatre 6 is 73 and 118 against 72 and 119.
+- **Picks.** Theatre 1350 gives 12 of 15 to theatre 61 where OpenHOI3 gives 10, and Britain's donors come in another order (the reach test of section *With the cap*). Not settled.
 - **A loaded game's first hour.** Italy and Portugal, whose pass falls on the first hour after the load (08:00), balance then in the running game and a day later in OpenHOI3. Setting `unit_pass_done` on a load changed nothing, so the cause there is something else, most likely agents not yet bound. Not read.
 
 Which term of `EstimateAreaNeed` differs at war was not established.
@@ -124,7 +125,7 @@ An earlier draft of this file, written before the game was run, fitted the saves
 
 ## Not established
 
-- Japan's one need of 34 against 55, and the wartime needs above.
+- Japan's one need of 34 against 55, and Germany's theatre 6 at war.
 - Why a loaded game's first hour balances in the original and not in OpenHOI3.
 - Why `CanUnitReach` refuses the Middle East's headquarters Port Harcourt; its two flags were not read.
 - Why the 42nd Corps has four divisions and not five on 2 January.
