@@ -54,7 +54,9 @@ After the head, for every province:
 2. where the owner's id is not 0 (id 0 is the empty tag, not `REB`), **`" (" + the owner's name
    + ")"`** - the name out of a table of country names by id (`0x518730`, `0x518620`);
 3. with the tooltip debug on - the byte `0x1A85598`, which a console command flips with "Tooltip
-   debug ENABLED" (`0x4436EF`) - a block of the country's tag, its id and the province's id;
+   debug ENABLED" (`0x4436EF`) - a block, read 2026-11-09 (`0x4980E7`..`0x49836E`):
+   `"\n§YCountry tag:§! [§G"` + the owner's tag + `"§!] §Yindex:§! [§G"` + the owner's id + `"§!]"` and
+   `"\n§YProvince id:§! [§G"` + the province's id + `"§!]"`, with no space before the mode's part;
 4. **where the template's `simulated` byte (`+0x13D`) is clear, the whole tooltip is emptied**
    (`0x40C400`, which clears a `GuiTooltipText` in EAX) and returned - unless the debug is on. In a
    campaign every province is simulated;
@@ -152,7 +154,6 @@ height off `y` (`0xAFD127`), so the `y` handed in is the line's top. Slot 26 (`0
 ## Not established
 
 - The flag atlas's texture, and so how a flag is shrunk into its cell.
-- The debug block's text beyond its literals.
 - The objectives' lines (section 7, 3) beyond their keys.
 - The weather part (infrastructure, VP and resources: `FINDINGS-mapmodesfigures.md`; region and naval:
   `FINDINGS-mapmodesrest.md`; diplomatic, intel and theatre: `FINDINGS-mapmodescountries.md`).

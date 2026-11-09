@@ -183,6 +183,24 @@ specify some arguments."; an unknown word answers nothing.
 **Multiplayer**: no command is for it - all 53 are shut by `No cheats in MP`; `tag` and `morehumans` are the two whose
 subject is players.
 
+## The table's order, and the replies, read 2026-11-09 for OpenHOI3
+
+Row order (what `help` lists): detailedlog, alwayspartisants, nextsong, morehumans, window, randomlog, reload, reloadinterface, reloadfx, reloadtexture, event, election,
+tag, paint, rpaint, cpaint, ipaint, noneutrality, addofficers, addmanpower, nukes, weather, revolt, date, money, supplies, crudeoil, fuel, metal, energy, rarematerials,
+givemeall, setnationalunity, teleportselectionto, reorg, instantconstruction, instantresearch, fullscreen, surrender, tutorial, changeowner, changecontroller, copyprov,
+debug, spawnactor, conquerall, tooltipdebug, aipause, guarantee, printtech, crash, helplog, help.
+
+**The words of the answers**, the literals in each handler (*confirmed* as literals; how they are joined is *inferred* from their order where more than one stands in a
+reply): an amount, `Please specify the amount.`, then `Added ` N ` money.` (or ` supplies.`, ` crude oil.`, ` fuel.`, ` metal.`, ` energy.`, ` rare materials.`, ` of everything.`,
+` manpower.`, ` officers.`); `noneutrality` and `election` `Invalid arguments count.`, `No longer neutral`, `Election started`; `setnationalunity` `Please specify the country tag
+and new national unity.`, `Please specify the new national unity.`, `Invalid country tag.`, `National Unity of ` X ` changed to ` N; `reorg` `Please specify the province id.`, N
+` friendly subunits reorganized.`, `No friendly subunits found in province`; `surrender` `Please specify 2 country tags.`, `Unknown country `, `Country ` X ` annexed ` Y;
+`guarantee` the same and `Unknown country tag`, X ` is now guaranteeing ` Y, ` is no longer guaranteeing `; `conquerall` `Please specify enemy country tag.`, `Unknown country tag`,
+N ` more provinces are under our control`; `changeowner` and `changecontroller` `Please specify country tag and province id`, `Unknown country.`, `Invalid province specified`, X
+` now belongs to ` Y, ` is now controlled by `; `event` `Please specify event id`, `There is no event with ID #`, `Target tag is invalid.`, `Executed #`; `revolt` `Please specify province id
+and rebel type.`, `Unknown rebel type`, `Revolt created.`; `copyprov` `Invalid arguments`, `Select some provinces first.`, N ` provinces copied to clipboard.`; `printtech` `===== ` tag
+` Technology Levels =====`, name ` = ` level, `See game.log for result.`; `helplog` `== HELP LOG ==\n`, `See game.log for full help details.`; `cpaint` `Invalid arguments count`, `Now painting continent. Shift-click to painting the map.`, `Painting disabled`.
+
 ## D. Looking for more, and the controls
 
 - **One table**: findValue finds 0x170AF88 and 0x170BF44 once each in .text, both in ConsoleCommands_Fill.
