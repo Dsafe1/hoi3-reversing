@@ -99,7 +99,14 @@ The save was loaded in the running game and in OpenHOI3, and each run forward wi
 - **Vichy France agrees on all 10.** The USA's theatres agree in need and count.
 - **Needs at war.** On each country's first pass 20 of the 24 theatres that could be compared first agreed in need and count. The four that did not were Britain's Middle East (27 live against 26), India (18 against 17), the Soviet theatre 67 (**75 against 64**) and Germany's theatre 6.
 - **What was wrong.** A probe of `EstimateAreaNeed`, per front province and per area, found every front province scoring the same on both sides. The difference was the focus recursion: theatre 67's 75 is 62 for its home area, 10 for Mongolia (a focus area in its region group) and the rest. OpenHOI3 had no focus areas at all, because its supply network, built while a load read the theatres and before the pacts, was never made again, so no puppet stood with its master. Made again once the save is read, and with the AI asking the region group (`FINDINGS-supplynetwork.md` section 8) rather than the supply group, **23 of 24 agree**, the Soviet Union's 75 and all of Britain's among them. Germany's theatre 6 is 73 and 118 against 72 and 119.
-- **Picks.** Theatre 1350 gives 12 of 15 to theatre 61 where OpenHOI3 gives 10, and Britain's donors come in another order (the reach test of section *With the cap*). Not settled.
+- **Picks.** Of 57, 43 are the same in place since the reach test below. Theatre 1350 gives 12 of 15 to theatre 61 where OpenHOI3 gives 10: the pick ranks by where divisions stand, and 21 hours of two AIs moving on their own stand between that and the save (inference, the positions then were not compared).
+- **Which division is in which theatre.** On each country's first pass, 490 of the 491 divisions compared are in the same theatre on both sides, by name. The one that is not is Germany's 214. Infanterie-Division, which waits to be placed in the save (`it_deployment`), stands in province 1626 by 02:00 next day in the running game and is unplaced in OpenHOI3 then. When the original places a finished unit was not read.
+
+## The land reach test
+
+`CMapProvince::CanUnitReach` was recorded as ending in a path search, its flags not understood, and `FINDINGS-moving.md` A.4c had the line asking the safe finder. Read whole 2026-11-09: **a land unit (slot 15) asks no path.** After the enemy-in-the-province and failed-order refusals it calls `CMapProvince_LandReachByArea` (`0x5CE350`): one owner area; or a land edge to the goal; or, the unit trespassing or having a neighbour it may enter, an area beside its own or `CCountry_ProvincesConnectedByArea`. Only a fleet takes a finder. And the area path refuses more than enemies: `OwnerAreaCost_NoEnemy` also refuses a controller the country may not enter (`0xEFA50`), which is a neutral.
+
+Built so for the balancing's "connected", **Britain's picks of 1936 come out in the running game's order, all 46, and France's stay all 44** once neutrals are refused: 101 of 102 in all, the one left being the Soviet 42nd Corps. Tried in OpenHOI3's line-filling as well, it changed neither check, so the line keeps the safe finder there.
 - **A loaded game's first hour.** Italy and Portugal, whose pass falls on the first hour after the load (08:00), balance then in the running game and a day later in OpenHOI3. Setting `unit_pass_done` on a load changed nothing, so the cause there is something else, most likely agents not yet bound. Not read.
 
 Which term of `EstimateAreaNeed` differs at war was not established.
@@ -127,6 +134,5 @@ An earlier draft of this file, written before the game was run, fitted the saves
 
 - Japan's one need of 34 against 55, and Germany's theatre 6 at war.
 - Why a loaded game's first hour balances in the original and not in OpenHOI3.
-- Why `CanUnitReach` refuses the Middle East's headquarters Port Harcourt; its two flags were not read.
 - Why the 42nd Corps has four divisions and not five on 2 January.
 - What the other attach sites are.

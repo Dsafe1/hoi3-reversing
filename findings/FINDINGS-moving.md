@@ -183,7 +183,8 @@ the base's tests and short of the goal, a land unit (slots 16 and 17 both false)
 controller is at war with it (`CCountry::IsEnemyTag`, REB counted) nor one with a **land** battle in it
 (`CMapProvince::HasCombatOfKind` with kind 1, which `CreateCombat`'s jump table makes `CLandCombat`). And
 `CMapProvince::CanUnitReach` with its second argument set - as the line's three reach tests pass it - builds a
-`CSafePathFind` (VA `0x5C7914`), so the line chooses among positions it can reach the safe way. OpenHOI3 had taken the
+`CSafePathFind` (VA `0x5C7914`), so the line chooses among positions it can reach the safe way. *Corrected 2026-11-09
+(`FINDINGS-balancing.md`): that is the fleet's branch; a land unit's reach seeks no path, it asks whether areas join.* OpenHOI3 had taken the
 plain way for both, and a line position reached only through enemy land was chosen, marched for, cut by
 `CAIUnit_CheckLandMarches` at the first hostile province and chosen again the next pass.
 
