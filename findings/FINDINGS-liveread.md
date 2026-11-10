@@ -299,3 +299,17 @@ Read on 2026-11-10 on the running game after a load of `Ireland1941_07_16_07`, f
 - With these, on that save: entering 136 of the original's 173 land ways the same; six hours after, 53 of 73 against 54 of 69 between two runs of the original; 48 hours, 147 of 299.
 
 **Not shown**: why OpenHOI3 still gives 178 orders over 48 hours that the original does not. Germany's and the Soviet Union's are the most, about two dozen each.
+
+## 24. Falling back from a losing defence (confirmed)
+
+Read on 2026-11-10 on the listing of `CAIUnit_FallBackFromLosingDefences`, with the moves logged with their return address after a fresh load of `Ireland1941_07_16_07`.
+
+- **It ran at the second hour** in the logged run: Soviet 129, 112 and 108 out of 2390, to 2333, 2509 and 2449. The battle's share was 0.774. In the run whose saves the comparison uses it did not, so the comparison counted it as OpenHOI3's alone.
+- **The defenders are sent from the back of the side's list.** They are gathered front to back and popped from the end, one to each scored neighbour in turn.
+- **A river is a crossing as well as a river edge**, and only across one is a neighbour's holder asked whether it is at war with the country.
+- **What keeps the defenders in is a friendly land unit standing beside the province and bound for it**, any country the agent's may operate in. `FINDINGS-moving.md`'s "nobody bound into the province" read as anyone anywhere.
+- **A neighbour is scored only where the country may operate in it**: its own side, or a co-belligerent not at war with it.
+- **The defenders are not filtered by owner**: an ally's division on the side is sent too. *Not built in OpenHOI3*, which sends only its own.
+- The reserve's outnumbered test counts the idle divisions of any country it may operate in, not only its own.
+
+With them OpenHOI3 sends the same three divisions to the same three provinces. Set against the other run's saves, 48 hours give 147 of 299 the same.
