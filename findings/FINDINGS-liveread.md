@@ -177,3 +177,19 @@ Read on 2026-11-10, on the game standing paused after a load of `Ireland1941_07_
 Set against the original's first pass on that save, with the order and the garrison step as read: of the 167 land units the original gave a way, 57 the same way in OpenHOI3 where it was 35; 77 ways the original did not give where it was 140.
 
 **Not shown**: the rest of the 110 the original gave and OpenHOI3 does not match, most of them the Soviet Union's and Germany's; the allies' half of the count, which OpenHOI3 does not make.
+
+## 14. The line's numbers and where headquarters go (confirmed unless marked)
+
+Set beside OpenHOI3's first pass on `Ireland1941_07_16_07`, with the positions of the Soviet agents read from memory.
+
+**`CAIUnit +0x13C` is the committed divisions before the reserve.** Smolensk's held 133, of which 110 are `+0x12C` and 23 `+0x15C`. The split of garrison and line, the allied-soil budget and the garrison vector are all made from it, so the reserve still counts: 133 less 31 garrisons is the 102 the line's wants add up to. With that, all 25 of Smolensk's wants agree.
+
+**A region's `+0x6D` is `ai_prio` in `map/region.txt`** (inferred; the writer was not found). Each province of a marked region scores 100 more, by the province's scale. Mod-able. With it all 11 of Moskva's scores and wants agree.
+
+**`army_combat_value`** counts a country's own units and what it has lent, and not what is lent to it. Manchukuo holds 94096 where counting every unit it has gives 2003691, Japanese units being on loan to it. The record already said so; OpenHOI3 did not.
+
+**The area sum of the split** adds an area's size once per front-worthy front province. The list of areas the routine builds goes unread.
+
+**`CAIUnit_PickProvinceAmongSubordinates`**, against the listing, as the record has it: a child's neighbours are candidates whether or not the child's own province could be reached, and where any child is no garrison the garrisons are left out of the mean. The sum and mean are in single precision. Corps then armies are walked, so each sees where the one below it has just been sent.
+
+**Not shown**: the Far East agent's hold list, 21 where OpenHOI3 has 27.
