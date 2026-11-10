@@ -323,3 +323,13 @@ Read on 2026-11-10 on the running game after a load of `Ireland1941_07_16_07`: O
 - With both: 7 fleet orders on entering that the original did not give, down from 24; over 48 hours 111 of the original's 159 fleet orders the same and 140 of OpenHOI3's own, down from 176; land 149 of 299 and 162 of its own, down from 190.
 
 **Not shown**: the patrol's centre is drawn with the C runtime's `rand()` of whichever thread runs the AI, which OpenHOI3 does not repeat, so which fleet patrols where cannot be set beside the original's.
+
+## 26. The air rebase on entering (confirmed)
+
+Read on 2026-11-10 on the running game after a load of `Ireland1941_07_16_07`: OpenHOI3 rebased 18 air groups on entering that the original left where they were.
+
+- **The rebase runs on entering**, with the pass forced. Brazil's three air bases are on all three of its lists at 10000 each, nothing to measure against, as OpenHOI3 has them.
+- **What decides is the crowding.** A candidate's wings are those of every air unit on the list of its air base object, and the original's lists hold air groups nested under a headquarters as well as at the top. OpenHOI3 counted only top-level units, so a full base looked empty. Brazil's 7848, with four wings, looked like room for three more.
+- With the count mended: on entering, the original's 5 air orders all the same and 4 of OpenHOI3's own, down from 18.
+
+**Not shown**: why OpenHOI3 still sends three British groups and an Omani one a long way on entering, the RAF's strategic bomber command among them.
