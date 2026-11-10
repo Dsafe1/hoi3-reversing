@@ -233,3 +233,10 @@ On the save of July 1941, entering: of the 167 land units the original gave a wa
 - `CAIUnit_SendReservesToPosition` sends the nearest fit division, one at a time while the position is short.
 
 On the save of July 1941, entering: of the 167 land units the original gave a way, OpenHOI3 gives 107 the same.
+
+## 18. The fronts on entering, and a division's role (confirmed unless marked)
+
+- **Every theatre's fronts are made again as a loaded game is entered.** Set beside the save it was loaded from, the save written after entering has the same provinces in other orders of fronts and of provinces in them. The agent's area is walked from the fronts, so positions of one score come in that order. Which routine does it was not read. OpenHOI3 remaking its fronts alone puts all 17 of Germany's Ob.kdo positions and their wants at the running game's; running the whole refresh instead moved divisions between theatres and was worse.
+- **`CArmy::ClassifyRole` averages the brigade's own softness and speed**, technology in them, and not the type's base figures: 1,324 of 1,327 divisions agree with the running game that way, against 1,289.
+
+**Not shown**: why the reserve of the two largest agents differs by four and two divisions, the rest of their committed lists being the running game's in order.
