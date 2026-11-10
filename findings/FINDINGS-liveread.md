@@ -207,3 +207,16 @@ Every agent's hold list read from memory on the game standing paused after a loa
 - **Military access is in a save's pair block**, `military_access=yes`, after `threat`. The Soviet Union's status towards Sinkiang holds it, so Sinkiang is a friend and adds nothing to the threat its neighbouring provinces are scored by. OpenHOI3 dropped the key. With it the Soviet Far East's 21 agree, and 87 of the 96 lists.
 
 **Not shown**: the other nine lists.
+
+## 16. The reserve (confirmed)
+
+`CAIUnit::ManageSubordinates` on the listing, and the three counts of the Soviet Union's and Germany's agents set beside OpenHOI3's: all agree.
+
+- **A division held back by the test goes on `+0x13C` too.** The held-back branch joins the push and goes on to the second push, so `+0x13C` is every division that passed through.
+- **At war a division already held back stays held back.** The branch at `0x8B27BA` takes it before any figure is read; the bar for its return further down is dead code.
+- **The detach's frontier test was recorded the wrong way round.** Bound for a frontier province a division is passed over where a land battle is on there, or where **fewer than** two land units of more than one brigade stand: `jl` at `0x8B3017`. `FINDINGS-power.md` said `>= 2`, and corrected there.
+- A plan's power ratio of nought for them is -1, the lowest bar but one; a negative one is 1.
+
+On the save of July 1941, entering: of the 167 land units the original gave a way, OpenHOI3 gives 88 the same.
+
+**The line's carry** leaves out a position scoring under 1.0 where the scores come to 1.0 or more, as the share does (`0x8C9480`). The Soviet Far East's wants agree with it.

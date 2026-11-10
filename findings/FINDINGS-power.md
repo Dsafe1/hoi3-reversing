@@ -568,7 +568,7 @@ for (u in this->+0x12C) {
     if (neighbourWeMayUse) continue
     if (onFrontier) {
         for (su in dest->+0x2EC) if (su->vf[11]() == 1) goto next
-        if (0x5D5C20(&dest->units) >= 2) goto next
+        if (0x5D5C20(&dest->units) < 2) goto next   ; corrected 2026-11-10: `jl`, and it counts land units of more than one brigade (FINDINGS-liveread.md, section 16)
     }
     GetUnitAverageStrengthAndOrganisation(u, &strength, &organisation)
     score = ((1 - organisation) + (1 - strength)) * 5
