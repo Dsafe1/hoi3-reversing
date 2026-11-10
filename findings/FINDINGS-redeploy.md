@@ -155,7 +155,9 @@ Unverified, in the order worth checking:
    If neither moved, the route comes from somewhere these two sites do not reach.
 2. **Is slot 0 the cost that decides the route?** Its shape says so; its effect did not
    show. It could be a heuristic, or one term among several.
-3. **Is the route decided by a finder at all?** Strategic redeployment moves by rail and
+3. ***Answered 2026-11-10 (`FINDINGS-liveread.md`, section 32): yes, the very safe finder, and it keeps to the railways
+   because a land unit may not stand in land with one level of infrastructure or none - the owner-area test in
+   `CArmy::MayStandIn`, not a cost. So changing the cost could not have moved it.*** **Is the route decided by a finder at all?** Strategic redeployment moves by rail and
    road, and may be routed by a mechanism of its own.
 
 ## Still useful elsewhere

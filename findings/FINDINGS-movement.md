@@ -805,7 +805,9 @@ string Render looks up (it must be, since the game draws arrows); ZWRITEENABLE t
   for neither.
 - **order type `0x6E7`** in `CMoveCommand::Execute`, and the reader of the failed-order record
   at `CUnit +0x8C/+0x90`.
-- **the owner area's slot 0**, which `CArmy::MayStandIn` asks of every land province.
+- ~~**the owner area's slot 0**, which `CArmy::MayStandIn` asks of every land province~~: whether the province is in an
+  area at all - `ReturnTrue` for a `COwnerArea`, `ReturnFalse` for the null one - so no land unit stands in land with one
+  level of infrastructure or none; seen in the running game, `FINDINGS-liveread.md` section 32.
 - **`0x5C2F20` and slot 33** in step 3 of the hour were read only as far as said there.
 - ~~the naval distances~~: read since, and checked against `navaldist.bin` cell for cell -
   `FINDINGS-seaair.md`, section 4.
