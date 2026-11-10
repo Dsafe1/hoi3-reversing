@@ -60,7 +60,9 @@ literal, and no define reaches any of it.
 (`GetDefines()+8` stored at `0x4A33E8`). A saved strategy is `initialized`, so the after-load pass leaves it alone, and
 it is kept until **the first daily pass ten whole days or more after the start date** - in any save of 11 January 1936
 or later, the first midnight after the load - which rebuilds it. *Not read*: whether anything between the constructor
-and the load writes `+0x10` - a new game's rebuilds would, in a session that played one before loading.
+and the load writes `+0x10` - a new game's rebuilds would, in a session that played one before loading. **Corrected
+2026-11-10 by measuring the running game**: entering a loaded game rebuilds every country at the save's own tick, so the
+ten days run from there and the first midnight rebuilds nobody who owns land (`FINDINGS-liveread.md`, section 22).
 
 **The 1936 saves bear the schedule out.** Between `Germany1936_01_01_00` and `Germany1936_04_20_03`, 68 countries' lists
 differ and 33 are the same - the threat lists move with every regiment built - and Britain's `antagonize` is the same in

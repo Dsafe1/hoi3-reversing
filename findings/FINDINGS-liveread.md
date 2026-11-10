@@ -274,3 +274,16 @@ Read on 2026-11-10 on the game standing paused after a load of `Ireland1941_07_1
 **Not shown**: why twelve long Soviet redeployments out of the north take a road 3% longer than OpenHOI3's. Each differs from its first step, the two roads being all Soviet land with no battle on either. Refusing any one province of OpenHOI3's road does not give the original's. Seventy-seven other redeployments on that save agree step for step.
 
 **Not built and not settled**: the test of `CAIUnit_SplitGarrisonAndLine` on CEU3AI `+0x2C`, which read 1 on the Soviet Union, so the walk it guards did not run there.
+
+## 22. Hour by hour after entering, and the strategies (confirmed unless marked)
+
+Read on 2026-11-10 by loading `Ireland1941_07_16_07` hands off, writing a save each hour for 48 hours, and logging the running game.
+
+- **Every country's strategy is made again as a saved game is entered.** `CAIStrategy::Rebuild` is called 100 times at the save's own tick, every country but `---` and REB. `FINDINGS-aistrategy.md` had a loaded strategy kept until the first midnight, and is corrected there. At that midnight only countries owning no province reach the function, and each bails. No agent's `SetArea` runs at it either.
+- **Each agent's `SetArea` runs twice on entering**: 192 calls for 96 agents, all at the save's tick.
+- **Two runs of the original from one save differ.** After entering they agree on 294 of 298 ways. Over the next six hours, of the 69 land orders one run gave, the other gave 54 the same, and it gave 13 of its own. Nothing was changed between the runs but the breakpoints. In one run Germany attacked province 1750 in the first hour, at stance 2; in the other it did not, though the logged decision for 1750 in the run that did not was odds 1.395 on entering and 1.889 at each of the next two hours, against a bar of 3.0.
+- **The attack set beside the running game's.** Germany's theatre goes to stance 3 at the fourteenth hour in both, and its attacks that hour are 1750, 2102 and 1577 in both, with 1395 too in the original: nine divisions in the original, ten in OpenHOI3, eight of them the same. The weights of the 20 target provinces agree in order, and within 1.1 in value.
+
+So on a save of OpenHOI3's own loading the yardstick for hours after entering is the original against itself, not an exact match. Six hours: OpenHOI3 gives 44 of the 73 land orders the same and 20 of its own, against 54 of 69 and 13 between two runs of the original.
+
+**Not shown**: what gave Germany's attack on 1750 in the first hour of that one run, it not being the attack decision logged in the other. And why OpenHOI3 gives 164 orders over 48 hours that the original does not, at least some of which follow a province changing hands at another hour.
