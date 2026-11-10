@@ -109,3 +109,15 @@ dated 1938.8.3.16 and complete.
 
 That save's `seed` is -1514471307 and its `count` 885. `seed` in a save is **the first word of the generator's state array** (`0x1310F80`), which the paused game
 held at the same value with its draws at 885, and not the figure the generator was made from (`0x134DA94`).
+
+## 9. A land bombing's hour, against OpenHOI3 (confirmed)
+
+The hour after the save of section 8, `CCombat::Tick` dumping the generator for each battle, `CBomberCombatant::FireUnit` and `CSubUnit::BombProvince` logged. Three
+land bombings both games had going: at 5639, 5596 and 7514, seven wings in all. With two things mended in OpenHOI3 every wing's products and list of targets, every
+draw up to the next battle, each wing's and each bombed unit's strength and organisation after the hour, and the province's goods and buildings are the same.
+
+- **Mission efficiency**, modifier 7 on each wing (+200 here): OpenHOI3 had no name for the bombing orders, so a country's efficiency at them was never added.
+- **An air group that has flown off its carrier**: section 4 of `FINDINGS-organisation.md` is right that room is then the air base of the province the carrier is in. Two
+  carrier groups over China got their organisation back at a quarter, because the carrier was at sea with no air base; OpenHOI3 treated any group of a carrier as uncrowded.
+
+A fourth bombing, at 5637, began only in the original: an order only its AI gave.
