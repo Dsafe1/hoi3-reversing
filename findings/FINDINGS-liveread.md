@@ -240,3 +240,13 @@ On the save of July 1941, entering: of the 167 land units the original gave a wa
 - **`CArmy::ClassifyRole` averages the brigade's own softness and speed**, technology in them, and not the type's base figures: 1,324 of 1,327 divisions agree with the running game that way, against 1,289.
 
 **Not shown**: why the reserve of the two largest agents differs by four and two divisions, the rest of their committed lists being the running game's in order.
+
+## 19. Which divisions are held back (confirmed)
+
+`CAIUnit::ManageSubordinates`' detach, on the listing, the committed and held-back lists of all 96 agents read from memory and set beside OpenHOI3's: 95 the same in order.
+
+- **The counter is keyed by where a division stands.** It is read for the province a candidate is bound for and subtracted on a frontier; each division held back by the test or detached adds one to the province it stands in. `FINDINGS-power.md` had it per destination.
+- **Below stance 3 the first brigade is not looked at.** The militia +2 and mountain -2 sit behind the stance-3 branch; the other branch jumps past them.
+- Many candidates tie, at 2.005 for a whole Panzer division in the line, so the counter is what decides among them.
+
+**Not shown**: the Soviet Smolensk agent's one division that differs.

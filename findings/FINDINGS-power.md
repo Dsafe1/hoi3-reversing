@@ -581,7 +581,7 @@ for (u in this->+0x12C) {
         if (def->type_index == g_CSubUnitDataBase->+0x54->type_index) score += 2.0
         else if (def->type_index == g_CSubUnitDataBase->+0x40->type_index) score -= 2.0
     }
-    if (onFrontier) score -= perProvinceCounter(dest)
+    if (onFrontier) score -= perProvinceCounter(dest)   ; the counter is keyed by where a unit STANDS, and the test's held-back are in it (FINDINGS-liveread.md, section 19)
     if (score > bestScore) { best = u; bestScore = score }
 }
 erase best from +0x12C;  best->+0x2C8 = 1;  push onto +0x15C; bump the counter
