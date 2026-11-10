@@ -250,3 +250,27 @@ On the save of July 1941, entering: of the 167 land units the original gave a wa
 - Many candidates tie, at 2.005 for a whole Panzer division in the line, so the counter is what decides among them.
 
 **Not shown**: the Soviet Smolensk agent's one division that differs.
+
+## 20. Calling off (confirmed)
+
+Phase 3 of `CAIUnit_ManageLandUnits`, on the listing.
+
+- **A land battle always answers that it may be left.** So a defender falling back is called off a losing defence as one that is not.
+- **A support attack is stood down when every attacker of its battle has an order that is neither a plain move nor none.** Slot 24 of the order is the test; `FINDINGS-moving.md` had "a blocking order".
+
+**Not shown**: the attack itself, set beside the running game's over hours.
+
+## 21. Who counts at a position, and who is a garrison (confirmed)
+
+Read on 2026-11-10 on the game standing paused after a load of `Ireland1941_07_16_07`, with every key of Germany's line and all 96 agents' garrison marks read from memory.
+
+- **`CAIUnit::CountUnitsAtPositions` counts allies.** For the line, with focus areas and the frontier at war, each other country on `non_hostile_countries` that controls the first province of a focus area has its whole unit list counted the same way. Germany's first position differed by these. With them, all 86 keys the send works out for `Ob.kdo. des Heeres` agree with OpenHOI3's.
+- **The garrison targets are kept in descending score.** Both rounds insert through `CList_InsertByDescendingScore`, so a province let in by the second round stands in its place by score, not at the end. Of equals the earlier stays first.
+- **A division is taken for a garrison by the agent's frontier, not the country's war.** Soviet tank and motorised divisions are garrisons in Moskva's agent, which borders no fighting.
+- **It belongs to a block by where it stands or where it is bound**, and the neighbours looked at for a prepared war are its destination's, or where it stands with none.
+- **The garrison step's distance is from where the candidate is bound**, as its other tests are.
+- With these, 92 of the 96 agents mark the same divisions as the running game, and on that save OpenHOI3 gives 133 of the original's 167 land ways the same, where it gave 111, and 14 more go to the same province by another road.
+
+**Not shown**: why twelve long Soviet redeployments out of the north take a road 3% longer than OpenHOI3's. Each differs from its first step, the two roads being all Soviet land with no battle on either. Refusing any one province of OpenHOI3's road does not give the original's. Seventy-seven other redeployments on that save agree step for step.
+
+**Not built and not settled**: the test of `CAIUnit_SplitGarrisonAndLine` on CEU3AI `+0x2C`, which read 1 on the Soviet Union, so the walk it guards did not run there.
