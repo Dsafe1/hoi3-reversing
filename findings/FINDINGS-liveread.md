@@ -143,3 +143,17 @@ a saved `current_distance` of 12 came up as 122 and two ships out of reach shot 
 by hand; experience because the roll for it comes before the battles, on draws not restored here.
 
 **Not shown**: a battle's first hour, and breaking off.
+
+## 12. A save started with nobody at the machine, and what a load runs before its first hour (confirmed)
+
+Read and tried in the running game on 2026-11-10, the window behind everything else. `probes/hoi.lua`, `probes/hoiseries.lua` and `probes/game.ps1` are the working copy.
+
+**A front-end button is its handler called on the main thread.** Input cannot be fed in: the DirectInput read (`CDirectInputMouse::Poll`, `0x74E780`) is not called at all with the window in the background, and a posted window message is ignored. A breakpoint at the top of `CFrontEnd::Update` (`0x2EDD60`) sets EIP to a small stub (`pushad`, `pushfd`, the arguments, `mov ecx, this`, the call, `popfd`, `popad`, `jmp` back to the top of `Update`). The view is `views[n]` from the frame's own ECX. In order: `CFrontEndState::OnSinglePlayerButton` on view 0, `CGameSetup::OnSavedGamesTab` on view 3, `CSavegameItem::OnClicked` on the row, wait for `load_pending` clear and `save_loaded` set, `CGameSetup::OnPlay` on view 3. A row is found by the table its `OnClicked` sits in and carries its file name at `+0x28`. From the main menu to a game standing paused at its hour took under 30 seconds on a save of 1941. `game_speed` (`+0xBEC`) written from outside is honoured at once: index 0 advances no hour, 2 about one a second, 4 about fifty.
+
+**A breakpoint callback that returns 1 must continue the thread itself**, or the game stands frozen at the breakpoint. Cheat Engine's Lua state outlives the game, so what points into the old process has to be made again after a relaunch.
+
+**Two AI passes before the first hour.** Counted on `Ireland1941_07_16_07` from before Play until the game stood paused: `ProcessAI` 204 times for 102 countries, every one at the save's own tick, two a country; `CAIUnit::Tick` 192 times for 96 agents, so each agent ticks in both; `CAIUnit_ManageLandUnits` 96 times, once an agent. **Every agent exists when the first pass begins.** `unit_pass_done` reads 0 and `theatres_changed` 1 at the first pass and 1 and 0 at the second, as the record's step 5 of `ProcessAI` says for a loaded game. Which pass runs the land block was not logged; that a new agent's full pass falls in the first is inferred from the agent's rule.
+
+So a save written after entering already holds those passes' orders: set beside the save it was loaded from, the same units carry 167 new ways, by unit name, none of them walked. **The units' numbers change on a load**, so two saves either side of one are matched by country, name and level.
+
+**Not shown**: where the agents are made before the first pass; a new game's count, only a load's was taken.

@@ -1,0 +1,54 @@
+{
+ "agent": "running game, hands-off control and entering a load, 2026-11-10",
+ "question": "what can start a saved game with nobody at the machine, and what the AI runs between a load and its first hour",
+ "source": "reversing/findings/FINDINGS-liveread.md",
+ "addresses": [
+  {
+   "rva": "0x74E780",
+   "name": "CDirectInputMouse::Poll",
+   "kind": "function",
+   "signature": "bool __thiscall CDirectInputMouse::Poll(CDirectInputMouse* this)",
+   "no_signature": null,
+   "confidence": "inferred",
+   "comment": "**The frame's read of the mouse through DirectInput** (the name is ours; the class was not identified, the routine sits at slot 23 counting from 0x1208494 in a table whose start was not settled). Returns al = 0 where the device (+0xC4) is null. Otherwise IDirectInputDevice8::GetDeviceState (the device's slot 9, read on the listing) with cbData 16, a DIMOUSESTATE on the stack, and on failure tries Acquire and returns 0. Writes the position at +0x88/+0x8C, the deltas at +0x7C/+0x80, the wheel at +0x84, accumulators at +0xC8/+0xCC and held buttons at +0x94..+0x96; mouse speed is read from +0xA4. **It is not called at all with the game's window behind others** (a breakpoint at its entry had no hit in three seconds while the game ran its frames, 2026-11-10), so input cannot be fed in here for a game in the background. See reversing/findings/FINDINGS-liveread.md, section 12.",
+   "source": "reversing/findings/FINDINGS-liveread.md",
+   "evidence": "Listing read in the running game: push 10 / push eax / call [ecx+24] on the object at +0xC4. Field meanings are from the listing and from what the routine stores; would be shown wrong by a caller reading those offsets as something else."
+  },
+  {
+   "rva": "0x690F90",
+   "name": "CEU3Application::Run",
+   "kind": "function",
+   "signature": "void __fastcall CEU3Application::Run(CEU3Application* this@EDI, int unknown1@stack:4, int unknown2@stack:8)",
+   "no_signature": null,
+   "confidence": "inferred",
+   "comment": "The run loop main.cpp:601 calls. Takes the application in EDI and never writes edi - trap 11 again. Pins the process to one CPU through GetProcessAffinityMask/SetThreadAffinityMask, calls vftable slot 7 (which for CEU3Application is the shared empty stub 0xABF890, so nothing), then loops 0xA910A1..0xA9142D until this->+0xF8 == 0x12. Per frame it calls slot 1 of the current screen at 0xA9138D; the pending-screen swap at 0xA913A0 runs only when this->+0x88 is set, and that block calls the incoming screen's slot 2, then SLOT 3 at 0xA9140C, then slot 5. That is how CFrontEnd slot 3 (0x6EEF00) is reached, and it is why slot 3 is a one-shot activation hook rather than per-frame work. Signature corrected 2026-10-02 by the signature audit (reversing/findings/FINDINGS-sigaudit.md). **Each frame it also applies the settings' sound** (read 2026-11-04, through this->+0xEC, the settings): effects at master_volume / 100 x sound_fx_volume / 100 to the sound object (the singleton at VA 0x1B167C4, a CNullSound until a device replaces it; its slot 20) and music at master_volume / 100 x music_volume / 100 to the music object (VA 0x1B16808, a CNullMusic until replaced; its slot 7), each only when it differs from the last value sent (VA 0x174C4B8, 0x174C4B4); and mouse_speed as (int)(mouse_speed / 100 x 4 + 1) to this->+0xE4's slot 9. So a volume moved in the settings window is heard the frame after. ambient_volume and camera_rotation_speed are not read here. See reversing/findings/FINDINGS-settingswindow.md, section C.1. **Each pass of the loop, before the message pump, Sleep(100) where the graphics object (global at VA 0x1A857CC, a CEU3Graphics) exists and its byte +0x6BCA0 is clear, and Sleep(0) where it is null or the byte is set** (read on the listing and the imports named in the running game, 2026-11-10). What the byte means was not settled: it read 1 with the window behind others. The pump is PeekMessageA, TranslateMessage and DispatchMessageA. See reversing/findings/FINDINGS-liveread.md, section 12.",
+   "source": "reversing/findings/FINDINGS-settingswindow.md",
+   "evidence": "Disassembled from the running game, 2026-11-10; the import slots resolved to KERNEL32.Sleep, USER32.PeekMessageA, TranslateMessage and DispatchMessageA by the loader.",
+   "revises": "the frame sleep and the message pump added"
+  },
+  {
+   "rva": "0x4894E0",
+   "name": "ProcessAI",
+   "kind": "function",
+   "signature": "void __stdcall ProcessAI(CEU3AI* ai)",
+   "no_signature": null,
+   "confidence": "confirmed",
+   "comment": "**One country's whole AI pass**, read whole on the listing (rva 0x4894E0 to the `ret 4` at 0x489BB5; two earlier `ret 4` exits at 0x489618 and 0x48986A with the body continuing past them - trap 3). In order: (1) nothing while `ai +0x128` (ai_paused, the console's AI pause) or the country's theatres_dirty (CCountry +0x580) is set; (2) the played country (`ai->id == gamestate->player`) has runs_units (+0x2C) cleared; (3) CEU3AI_RefreshUnitDestinations (0x49A800), AI_ManageUndergrounds (0x489E10); (4) a country owning no province and not in exile: CEU3AI_SendLandlessUnitsOnExpedition (0x499A10) and return; (5) firstPass = unit_pass_done (+0xA5) clear - but in a game loaded from a save (gamestate +0xD9C) firstPass is false and theatres_changed (+0xA6) is cleared; (6) every enabled minister on +0x74 is ticked (slot 9) and the foreign minister answers its offers (0x49E010); (7) the played country with automation[6] == 1: DeployFinishedUnits (0x48B300), every hour; (8) the played country of a loaded game with runs_units clear and no unit agent yet: CreateAgentsForPlannedUnits (0x48BEF0); (9) CEU3AI_DisbandTheatrelessHQs (0x489BD0) - a true answer ends the pass; (10) while theatres_changed is set, the strategy's theatres (CCountry +0x570, which is CAIStrategy +0xE4) are walked: the first whose `unit` does not resolve sends the pass on to (11); when every one resolves, CEU3AI_SortUnitsIntoTheatres(ai, isPlayer) - every unit put under the headquarters of the theatre it stands in, by posted detach and attach commands (FINDINGS-agents.md G) - theatres_changed cleared and **return**, so that hour ticks no agent; (11) every unit agent (+0x40) and every invasion agent (+0x50) is ticked through slot 9. Then with hour = (tick - 43800000) % 24 and the country id: (12) at hour 1 of the 1st of a month the failed-invasion areas (+0x94) are freed; at hour id%24 CEU3AI_AssignSeaTargetsToAgents (0x48C140); always CEU3AI_PruneInvasions (0x491BE0) into a local list; (13) a country whose runs_units is clear (the played one): on even hours, for each unit agent CEU3AI_RankInvasionAreas (0x495530) and CEU3AI::PlanAmphibiousInvasion (0x492190) with that agent - and nothing more; (14) every other country: CEU3AI_RecallStrandedLandUnits (0x498870) on the first pass or at hour (id+16)%24; CEU3AI::CreateAgentsForTheatres (0x48AA80); CEU3AI_BindAgentsAndAttachOrphans (0x48DCF0, whose answer is always false); at hour id%24 CEU3AI_ChoosePride (0x499C80), CEU3AI_BalanceDivisionsBetweenTheatres (0x48E490) where unit_pass_done is set, CEU3AI::RebuildPriorityProvinces (0x4976E0), RankInvasionAreas(ai, null), CEU3AI_RebuildWeakEnemyPorts (0x4972E0), CEU3AI::GenerateUnitObjectives (0x4980E0), PlanAmphibiousInvasion(ai, list, null); else at hour (id+8)%24 CEU3AI_GatherTransportsForTheatres (0x490DB0), DeployFinishedUnits, AI_ReassignLeaders (0x498EF0); else at hour (id+16)%24 every unit agent's per-type tally (CAIUnit +0x23C) zeroed, CEU3AI_DistributeFleetsToTheatres (0x48FBB0), CEU3AI_DistributeAirToTheatres (0x48F2B0), and CEU3AI_PromoteLeadersForCommands (0x499280); then CEU3AI::UpdateUnitStances(ai, hour == (id+16)%24) and unit_pass_done = 1. Callers: RunAIPass's tbb parallel_for, once a game hour from the frame after the hour turns; CInGameIdler::Enter for a game loaded from a save; a once-per-process multiplayer kick; idler slot 67 (FINDINGS-ai.md). **A single-player new game runs none of it during its two days and first hour.** See reversing/findings/FINDINGS-agents.md, section A. **A game just loaded runs two passes for every country at its own hour, before its first hour** (counted in the running game on a save of July 1941, 2026-11-10: 204 passes for 102 countries, all at the save's tick, agent ticks 192 for 96 agents, land blocks 96). Every agent is already there when the first pass begins; unit_pass_done reads 0 and theatres_changed 1 on the first pass and 1 and 0 on the second. Which of the two runs the land block was not logged. See reversing/findings/FINDINGS-liveread.md, section 12.",
+   "source": "reversing/findings/FINDINGS-agents.md",
+   "evidence": "Breakpoints on ProcessAI, CAIUnit::Tick and CAIUnit_ManageLandUnits from before Play until the game stood paused, counting and logging each hit.",
+   "revises": "what a load runs before its first hour"
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CCurrentGameState",
+   "offset": "0xBEC",
+   "name": "game_speed",
+   "type": "int",
+   "comment": "the speed setting, used as an index into five float thresholds that CCurrentGameState::AdvanceClock loads onto the stack from 0x160A2EC, 0x1718064, 0x171DBAC, 0x15AB304 and 0x160A740 - so speed is a table lookup, not arithmetic on one constant. Which index is pause, and the five values, have not been read Written from outside in the running game on 2026-11-10 and honoured at once: index 0 advanced no hour in four seconds, index 2 about an hour a second and index 4 about fifty.",
+   "source": "reversing/findings/FINDINGS-liveread.md",
+   "evidence": "Tick counted over four seconds at each index, unpaused.",
+   "revises": "written from outside and measured"
+  }
+ ]
+}
