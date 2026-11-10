@@ -434,6 +434,13 @@ So **the units' `air_attack` counts whether or not they are in the bombing** - a
 a province whose industry is bombed fires through this and through nothing else - and a
 province with neither guns nor units fires nothing.
 
+***Corrected 2026-11-10 (`FINDINGS-liveread.md`, section 30), read live:*** the friend test is
+`CCountry::IsFriend(owner, controller, 1)`, **military access counted**; and **in a province
+nobody holds - a sea zone, whose controller is the null tag - every unit of a country with no
+overlord counts**, because `IsFriend` asks whether the asker's overlord is the other by id, and
+both are 0. The bombers' own side and the bombers themselves fire at the bombers at sea. A
+carrier's air group is on the list with its carrier.
+
 **A fleet in port is counted twice.** `CMapProvince::AddUnit` (`FINDINGS-seaair.md`) puts a
 fleet that enters a land province on the province's list of units *and* on its `CPort`, and
 this sums both lists. That is two readings put together and not one instruction - `inferred` -
