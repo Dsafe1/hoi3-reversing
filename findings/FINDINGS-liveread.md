@@ -220,3 +220,16 @@ Every agent's hold list read from memory on the game standing paused after a loa
 On the save of July 1941, entering: of the 167 land units the original gave a way, OpenHOI3 gives 88 the same.
 
 **The line's carry** leaves out a position scoring under 1.0 where the scores come to 1.0 or more, as the share does (`0x8C9480`). The Soviet Far East's wants agree with it.
+
+## 17. Which division goes where (confirmed)
+
+`CAIUnit_FillLinePositions`, the send and the pull, on the listing.
+
+- **The send walks the positions in list order.** A position with a want and under its cap, where the division stands, is taken at once. A division bound for a target province away from the hostile routes looks only at positions beside one.
+- **The key** is have/want x 100, with the excess over 1 counted again; at war the distance from where the division is **bound** x (have/want + 0.1), x 0.66 for a land battle; less 50 x the terrain figure; then x 0.66 at a depot and beside a hostile route. The order matters: the terrain comes between the multiplications. All single precision.
+- **There is no test of have against want** in the send, only have against cap.
+- **The pull's fill of the short position is worked out once**, so pulling a division to it does not raise the bar for the next.
+- A candidate bound for its own depot under a blocking order is passed over, and the allied-soil budget applies to the pull too.
+- `CAIUnit_SendReservesToPosition` sends the nearest fit division, one at a time while the position is short.
+
+On the save of July 1941, entering: of the 167 land units the original gave a way, OpenHOI3 gives 107 the same.
