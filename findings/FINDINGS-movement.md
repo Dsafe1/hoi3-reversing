@@ -151,6 +151,32 @@ country itself, its overlord or puppet, a faction or alliance partner, a co-bell
 one it has military access to. So ground can be entered when it is one's own or a friend's,
 when it belongs to nobody, or when one is at war with whoever owns or holds it.
 
+### 3.2 An undeclared war is not a war here
+
+*Read 2026-11-10, on the listing, after the maintainer put western Poland under an
+`undeclared_war` of Germany's against Poland and found nothing could be attacked there.*
+
+Every "at war" in `MayEnterProvince` is the **declared** war, `CDiplomacyStatus +0x20`:
+`cmp dword [edx+0x20],0` at `0x4EFA9C` for the owner (`+0x330`), at `0x4EFAB5` for the controller
+(`+0x338`), and at `0x4EFB15` for the owner against the controller. The undeclared war (`+0x24`)
+is never read, and `UndeclaredWarCoversProvince` (`0x4763A0`) is not called from the body. So an
+undeclared war over a **land** region lets neither side step onto the other's ground - no order
+into it is legal, so no battle starts and nothing is taken. At sea nobody owns the water, which
+is why the three Atlantic regions of Their Finest Hour work.
+
+What happens **once a unit stands there** does see it. A land unit may stand in a covered province
+by military access, which makes the ground a friend's (`IsFriendly` with `true`), and then:
+
+- `CCombatManager::CheckForCombat` and `CUnit::CanEngage` fight the other side's units there
+  (`FINDINGS-landbattle.md`);
+- `CMapProvince::TakeControl`'s step 3 asks `CCountry::IsEnemy(controller, by, province)` - the
+  province form, `call 0x42F210` at `0x4A1E8C` with the province in EDI - which answers yes for
+  a covered province, so the walker takes it rather than leaving it to its controller.
+
+So **undeclared war plus military access** should give fighting and capture inside the region and
+nowhere else. That is a prediction from the reading; the maintainer's test of it was pending
+when this was written.
+
 ## 4. Setting off: `SetUnitPath`
 
 `0x5C9AC0`, `(unit, path, clear)`:

@@ -120,7 +120,7 @@ Already recorded (`CNumOfPortsTrigger::Evaluate` 0x5D84D0, `CTotalNumOfPortsTrig
 1. In a covered region (TFH: the three Atlantic regions, USA as attacker against GER), the two sides' fleets and air fight as if at war (`CheckForCombat`, `CanEngage`, `AllHostileTo`), with no diplomatic state, row or casus belli.
 2. Convoys are raided by the other side in covered water only (`ResolveConvoyRaid` tests the raider's province).
 3. The naval map mode paints those regions orange.
-4. Blockades and land movement treat covered provinces as enemy (`UpdateProvinceBlockaded`, `CanMoveTo`), which matters only if a mod lists land.
+4. Blockades and land movement treat covered provinces as enemy (`UpdateProvinceBlockaded`, `CanMoveTo`), which matters only if a mod lists land. **Corrected 2026-11-10: not for entering one.** `CanMoveTo` begins with `MayStandIn`, whose rule of whose ground may be walked on, `CCountry::MayEnterProvince`, reads only the declared war (`+0x20`), so neither side may step onto the other's covered land at all; the province-form `IsEnemy` sites inside `CanMoveTo` decide only what follows (shatter, supply). Tried in play by the maintainer the same day: nothing could be attacked. Military access lets a unit in, and then the battle and the capture do see the war (`FINDINGS-movement.md`, section 3.2).
 5. The AI treats the opponent as a target there and runs its war-time air and naval blocks.
 
 Formally declaring ends it silently; nothing else does. `undeclared_war` (mod-able) has no cost, message or relation effect of its own.
