@@ -121,3 +121,13 @@ draw up to the next battle, each wing's and each bombed unit's strength and orga
   carrier groups over China got their organisation back at a quarter, because the carrier was at sea with no air base; OpenHOI3 treated any group of a carrier as uncrowded.
 
 A fourth bombing, at 5637, began only in the original: an order only its AI gave.
+
+## 10. A battle in the air, against OpenHOI3 (confirmed)
+
+No save held a battle in the air with both sides still in it, so the game was run on from `Ireland1936_02_02_04.hoi3` and stopped by itself on the first one, over
+province 4475, and saved. Logged for the hour after: the generator at `CCombat::Tick`, each side at `CAirCombatant::Attack` (`0x16D750`) and each `CAirCombatant::PickTarget`
+(`0x16D620`). **Every product, every draw of both sides, and every wing's strength and organisation after the hour are the same**, with no change to OpenHOI3's rules.
+
+**The first attempt differed, and the difference is a load's.** A wing's remembered target (`CSubUnit +0xB8`/`+0xBC`, with `+0xC0`) is not in a save, so a game going on keeps
+it and OpenHOI3 after a load picks again, spending two draws a wing. Carried across by hand for the test, it matches. That the original's own load also forgets it is
+*inferred* from the save having no key for it; a reload was not watched.
