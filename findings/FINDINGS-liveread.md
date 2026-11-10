@@ -313,3 +313,13 @@ Read on 2026-11-10 on the listing of `CAIUnit_FallBackFromLosingDefences`, with 
 - The reserve's outnumbered test counts the idle divisions of any country it may operate in, not only its own.
 
 With them OpenHOI3 sends the same three divisions to the same three provinces. Set against the other run's saves, 48 hours give 147 of 299 the same.
+
+## 25. The fleets after entering (confirmed)
+
+Read on 2026-11-10 on the running game after a load of `Ireland1941_07_16_07`: OpenHOI3 gave 24 fleet orders on entering that the original did not, 14 of them American, 7 British.
+
+- **A war nobody declared counts as a war.** `CCountry +0xACD`, the undeclared-war flag, reads 1 for the United States and Germany. `CAIUnit_ManageNavalUnits` keeps a patrol, an escort and a raid when the country is at war or in an undeclared war. So the original keeps the American Pacific patrols at peace for 48 hours, where OpenHOI3 sent every one home. `CAIUnit::Tick`'s land pass every third hour also asks both, as its record already said.
+- **The later naval phases run only on a forced pass.** After the split and merge, a pass that is not forced ends: the survey of enemy fleets, the per-fleet raids and rebases, the patrols and the intercepts wait for the agent's full pass or a replan of its fleets, at war as at peace. The British naval body was seen reaching the merge every hour and nothing after it. OpenHOI3 ran them every hour at war, sending British fleets out of port on patrol.
+- With both: 7 fleet orders on entering that the original did not give, down from 24; over 48 hours 111 of the original's 159 fleet orders the same and 140 of OpenHOI3's own, down from 176; land 149 of 299 and 162 of its own, down from 190.
+
+**Not shown**: the patrol's centre is drawn with the C runtime's `rand()` of whichever thread runs the AI, which OpenHOI3 does not repeat, so which fleet patrols where cannot be set beside the original's.
