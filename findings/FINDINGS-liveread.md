@@ -157,3 +157,23 @@ Read and tried in the running game on 2026-11-10, the window behind everything e
 So a save written after entering already holds those passes' orders: set beside the save it was loaded from, the same units carry 167 new ways, by unit name, none of them walked. **The units' numbers change on a load**, so two saves either side of one are matched by country, name and level.
 
 **Not shown**: where the agents are made before the first pass; a new game's count, only a load's was taken.
+
+## 13. The order a load leaves the units in, and the garrison step (confirmed)
+
+Read on 2026-11-10, on the game standing paused after a load of `Ireland1941_07_16_07`, and set beside OpenHOI3's first pass on the same save.
+
+**A country's unit list after a load is the save's tree walked children first.** `CCountry +0xBAC`, read whole for every country, against the save: 65 of 71 countries the same, and the other six the same but for the units waiting to be placed, which the save lists at the end. So divisions come before their corps, a corps before its army. Everything built on the list follows it: `CAIUnit +0x11C` (land units) and `+0x12C` (committed divisions) are that order. In Chile the same positions are filled by the units taken in this order, so a different order gives every division a different province. That a unit made in play goes on the end is inferred: none was made between the load and the read.
+
+**`CAIUnit_FillGarrisons`' candidate test**, on the listing:
+
+- Each target wants the number of garrison divisions over the targets, the first remainder ones one more; that number is the vector's size, not the split's count.
+- A candidate is judged by where it is **bound** - its destination, or where it stands with none. That province must be in the target's area (or the target's area be a focus area), not be the target, not be held by an enemy, the rebels or under an undeclared war, and not be threatened.
+- Unless the target is threatened, where that province is itself a target of the list and scores above nought, the candidate is passed over when `have(target) + (1, none at a depot) >= standing(there) - (1, none where the target scores more or is a depot)`.
+- Least squared distance x 16, in single precision, doubled for a role 5 army leaving a higher-scored target; a tie goes to the earlier unit; only one that can reach the target.
+- The pick takes one off `have` where it was bound for a target, or off `have` and `standing` where it stood in one with no destination, and counts as sent whatever `MoveUnit` answers.
+
+**`CountUnitsAtPositions`' callers**: the line passes every committed division, garrisons included; the garrison step its garrison divisions and any land unit; the reserve its held-back divisions and any land unit. A unit standing in a record and bound for a province no enemy holds is counted nowhere.
+
+Set against the original's first pass on that save, with the order and the garrison step as read: of the 167 land units the original gave a way, 57 the same way in OpenHOI3 where it was 35; 77 ways the original did not give where it was 140.
+
+**Not shown**: the rest of the 110 the original gave and OpenHOI3 does not match, most of them the Soviet Union's and Germany's; the allies' half of the count, which OpenHOI3 does not make.
