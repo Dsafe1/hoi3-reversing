@@ -26,6 +26,34 @@ store to, so a loader is never the thing worth reading. What is missing nearly e
 **runtime behaviour** and **what a field means** - which is why the queue is now mostly live tests
 and AI bodies.
 
+## Live probes queued - 2026-11-09 `[both]`
+
+Surveyed 2026-11-09 for what reading the running game through Cheat Engine could settle (`findings/FINDINGS-balancing.md` shows the
+method). Addresses here are **rvas**; live VA = rva + the load base, which was `0x310000` in every session so far, so always use
+`hoi3_tfh.exe+rva`. Four hardware breakpoints at a time. Every loop in a handler capped, and memory walks only while paused.
+
+**Session 1 done 2026-11-10** (`findings/FINDINGS-liveread.md`): the generator is not re-seeded in play, the AI runs after every
+pass of the hour, and the rows for it are gone from this table. One dump of the generator's state therefore makes a battle hour replayable.
+
+| session | question | what to log (rva) |
+| --- | --- | --- |
+| later | Whose officer ratio holds a lent unit | `CCountry::UpdateOfficerRatio` 0x17C80; `CSubUnit::GetMaxOrganisationWithBonus` 0x1AB7C0 at `ret`; `GetMaxOrganisation` 0x1AB700 |
+| later | The Soviet Union's attack odds stand about 4% high against OpenHOI3 | `CAIUnit::EstimateAttackOdds` 0x4D93B0: the two sides' four accumulators |
+| 2 | The land battle | dump the state at rva 0x1310F80, index 0x1311940, at `CCombatManager::Tick` 0x2FB70; then by fours `SetUpFrontLine` 0x16C470, `UpdateFrontLine` 0x16BE40, `PickReinforcement` 0x16B7D0, `ApplyCombatModifiers` 0x169B50, `FireUnit` 0x16ADC0, `SettleCombatDamage` 0x1C3820, `PickTactics` 0x16E9B0. Saves: `Ireland1938_08_03_14`, `Ireland1940_05_23_15` to `_20` |
+| 3 | Air battle, cost of flying | `CAirCombatant::Attack` 0x16D750, `PickTarget` 0x16D620, `ApplyCombatModifiers` 0x16C6F0. Save `Ireland1936_02_02_04` |
+| 3 | Bombing | `CBomberCombatant::Attack` 0x1615C0, `FireUnit` 0x160B90, `ApplyCombatModifiers` 0x161680. Saves `Ireland1938_08_03_14`, `Germany1936_09_02_21` |
+| 3 | Sea battle | `CNavalCombatant::Attack` 0x167930, `UpdatePositioning` 0x166E70, `PickBestTarget` 0x167510, `ApplyCombatModifiers` 0x166480. Saves `Ireland1937_11_02_21`, `Ireland1937_07_05_02` |
+| later | Spain, surrender progress | `CCountry::GetSurrenderProgress` 0xFCB80 at `ret`, `CCountry_Surrender` 0xE8E80 |
+| later | Land movement | `RebuildHoldProvinces` 0x4B3A50, `CAIUnit_ScoreHoldProvince` 0x4B4200, `CAIUnit::PositionLandUnits` 0x4CC450 |
+| later | New-game set-up: what repeats `Laws()`, the minister pool, consumer goods | `SetUpCountryForNewGame` 0xD6230, `SetUpCountryLawsAndTechnologyForNewGame` 0xD59D0, `PrepareLuaCall_Laws` 0x110120, `CDistributeConsumerGoods::GetNeeded` 0x119030 |
+| later | Placing a finished unit (province 1626 against ours 1861) | `CEU3AI::DeployFinishedUnits` 0x48B300 |
+| later | AI Lua scores at 24 bits? | `GetDiploScoreFromLua` 0x60DC70 at `ret` |
+| later | Daily revolt roll | `RunDailyRevoltRoll` 0xC07C0 |
+| later | Does war set `CRegion +0x6D`? | paused read of the regions in a 1941 save |
+| later | Moscow's network, a fleet's refused patrol, resource levels lowered, a new building's first days, spy catches | `RunSupplyAndConvoyIterations` 0x278AB0; `CUnit::CanMoveTo` 0x1C2BA0; `CCountry +0x678`; `CSpyPresence::CatchSpies` 0x12E3A0 |
+
+Notes reported stale by the survey and not yet corrected: the claim in OpenHOI3's `CLAUDE.md` that no save has a battle (several since 2026-11-05 do).
+
 ## The queue
 
 ### Who each open item is for
@@ -1406,7 +1434,7 @@ of it.
 
 ## What has already been read
 
-221 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
+222 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
 header lives. This replaces the `Done` archive: the archive restated each file's headline and named
 only 40 of the 67 there were then, so it was both longer and less useful than a complete list.
 
@@ -1671,6 +1699,7 @@ the six it was missing were wave 15's.
 | `findings/FINDINGS-starttech.md` | **the start technology wave (2026-11-02)**: what a new game does to every country's laws and technology before the first screen - `SetUpCountryLawsAndTechnologyForNewGame` (`0xD59D0`), once per country from `CInGameIdler::Enter`'s new-game block, the player's too, never on a load: each law moved to the latest of its group whose `allow` holds, then technology levels bought with a budget of core-province leadership (held to 5) x 3650 x 1.917, cheapest due level first, not-yet-due levels at double, theories never, `notech` a candidate - reproducing all 476 levels the start save holds above the history in all 86 countries; with every writer of a technology level, `CTechnologyChange` and the history's route |
 | `findings/FINDINGS-recomp.md` | **a census of the image for static recompilation (2026-11-05)**: 23,686 functions of code and 2.44 million instructions under Ghidra's 73,884 (49,384 are `Unwind@` funclets); what lies outside the bodies - exception state handlers and catch continuations; computed calls and jumps, every scaled jump table resolved; 4,374 `FuncInfo`, 805 try blocks and what is thrown and caught; SSE in 2,433 functions and x87 in 847; 27 `lock` instructions; every import DLL by sites; no code made at run time. With **`WinThread`** read whole: a thread class with no RTTI, seven slots, whose destructor calls `ExitThread` on the calling thread when its wait times out |
 | `findings/FINDINGS-bicelibsites.md` | **BiceLib's oldest patch sites, read off the bytes (2026-11-07)**: 26 records that cited only the DLL's own source, each set against an untouched copy of the exe - **the installed exe was patched on disk** in 17 bytes (the tech decay and war exhaustion patches), so `image.py` showed those sites patched until the vanilla exe was put back; the leader list hook read the caller's EDI where the leader is `[ebp+0x14]`; the attachment limit read ECX after a virtual call where EDI holds the unit; `0xDE3ED` is in `RebuildStaticModifiers`, not the decay effect; one war exhaustion byte was a no-op; `IsBuildingAllowed`'s six refusals, five of which the placement hook skips |
+| `findings/FINDINGS-liveread.md` | Short reads of the running game: the generator is not re-seeded in play, the order of the hour, a unit's figures, the list orders, Italy's organisation, the attack odds |
 | `findings/FINDINGS-balancing.md` | What holds the balancing of divisions back: `DistanceToTheatreFronts`' cap at 1000, seen in the running game through Cheat Engine, with Britain's needs and picks day by day |
 | `findings/FINDINGS-scriptgaps.md` | The script and AI-Lua gaps: the port counts, `surrender_inherit`, `create_alliance`, what an undeclared war does, the Lua answers and `load_oob` in a running game |
 | `findings/FINDINGS-nukes.md` | The nuclear bomb: where bombs come from, the order hour by hour, what a drop does, and how `province_event` fires |

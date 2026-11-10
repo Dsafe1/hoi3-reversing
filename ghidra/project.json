@@ -10332,9 +10332,10 @@
    "kind": "function",
    "name": "SnapshotRandomState",
    "signature": "void __fastcall SnapshotRandomState(void* random_snapshot_vector@ECX)",
-   "comment": "Run **every hour** from RunHourlyTick at 0x28207A, on the game state's +0xC58, and ends 0x28250A with a bare `ret`. Clears the vector, then pushes two dwords into it through 0x221F0: g_random_draws (0x174DA8C) and the contents of **0x174DA94, which is not identified** - it is not the seed, since that is the state array at 0x1310F80. Along the way it lazily allocates a 4-byte object with vftable 0x15FDF60 into 0x174DA90. The same +0xC58 is handed to CHourlyTickCommand::Construct. Named for what it does; no class. See reversing/findings/FINDINGS-tick.md.",
+   "no_signature": null,
+   "comment": "Run **every hour** from RunHourlyTick at 0x28207A, on the game state's +0xC58, and ends 0x28250A with a bare `ret`. Clears the vector, then pushes two dwords into it through 0x221F0: g_random_draws (0x174DA8C) and the contents of **0x174DA94**, g_random_init_seed, the figure the generator was made from (reversing/findings/FINDINGS-liveread.md, section 1). Along the way it lazily allocates a 4-byte object with vftable 0x15FDF60 into 0x174DA90. The same +0xC58 is handed to CHourlyTickCommand::Construct. Named for what it does; no class. See reversing/findings/FINDINGS-tick.md.",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-tick.md"
+   "source": "reversing/findings/FINDINGS-liveread.md"
   },
   {
    "rva": "0x282510",
@@ -10395,10 +10396,11 @@
    "rva": "0x283080",
    "kind": "function",
    "name": "CGameState::RunAIPass",
-   "comment": "**The gate that makes the AI hourly.** `ret 4`, one caller: CInGameIdler::Update at 0x656278, so it is offered every frame. Returns at once when `state[+0xC68]` is set; otherwise sets the global byte 0x1A857BF, launches the ProcessAI parallel_for (0x28E430) over `state[+0x114..+0x118]` with grain `max(1, count / ([0x170ABB0] == 1 ? 1 : 16))`, restores the global and sets `state[+0xC68] = 1`. **RunHourlyPass clears +0xC68 at its end (0x682B1D)**, and a byte-exact sweep finds no other clear, so the AI runs exactly once per game hour. See reversing/findings/FINDINGS-ai.md.",
+   "signature": "void __stdcall CGameState::RunAIPass(CGameState* state)",
+   "no_signature": null,
+   "comment": "**The gate that makes the AI hourly.** `ret 4`, one caller: CInGameIdler::Update at 0x656278, so it is offered every frame. Returns at once when `state[+0xC68]` is set; otherwise sets the global byte 0x1A857BF, launches the ProcessAI parallel_for (0x28E430) over `state[+0x114..+0x118]` with grain `max(1, count / ([0x170ABB0] == 1 ? 1 : 16))`, restores the global and sets `state[+0xC68] = 1`. **RunHourlyPass clears +0xC68 at its end (0x682B1D)**, and a byte-exact sweep finds no other clear, so the AI runs exactly once per game hour. See reversing/findings/FINDINGS-ai.md. **So the AI runs after every pass of the hour, the daily pass included**, and its 102 countries in a different order each hour on the workers; what they post runs after all of them, before the next tick (seen in the running game, 2026-11-10; reversing/findings/FINDINGS-liveread.md, section 2).",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-ai.md",
-   "signature": "void __stdcall CGameState::RunAIPass(CGameState* state)"
+   "source": "reversing/findings/FINDINGS-liveread.md"
   },
   {
    "rva": "0x283140",
@@ -15990,11 +15992,11 @@
    "rva": "0x6A2ED0",
    "kind": "function",
    "name": "ReseedGlobalRandom",
-   "signature": null,
-   "no_signature": "not read to its convention; it takes nothing on the stack at its one call site read",
-   "comment": "Re-initialises the global generator from the seed at 0x174DA94 through 0xAA2BF0 with g_random_seed in ecx, zeroes the index, and then **runs the generator forward by g_random_draws draws** - so a generator can be put back where a save left it. Two callers: RunHourlyTick at 0x681C79 and 0x6D7BF2. **RunHourlyTick stores the seed first, from the dword at +4 of the hour's tick payload (0x681C6B..0x681C6E), and zeroes g_random_draws**: every hour starts a fresh stream from a figure the tick carries, which is how every machine in a game rolls alike. 0xAA2BF0 itself was not read. See reversing/findings/FINDINGS-landbattle.md, section 3, and reversing/findings/FINDINGS-revolt.md, section 1.2.",
+   "signature": "void __cdecl ReseedGlobalRandom(void)",
+   "no_signature": null,
+   "comment": "Re-initialises the global generator from the seed at 0x174DA94 through 0xAA2BF0 with g_random_seed in ecx, zeroes the index, and then **runs the generator forward by g_random_draws draws** - so a generator can be put back where a save left it. Two callers: RunHourlyTick at 0x681C79 and 0x6D7BF2. **It is not run in single-player play**: no hit in 36 hours of a new game, and g_random_draws (0x134DA8C) ran on from 7,771 to 25,530 (read in the running game, 2026-11-10). RunHourlyTick's store of the seed from its payload and its zeroing of the draws (0x681C6B..0x681C79) is a path single-player does not reach; that it is multiplayer's resynchronisation is a reader's and not checked. SnapshotRandomState puts the draws and 0x174DA94 into each hour's payload for it. See reversing/findings/FINDINGS-liveread.md, section 1, and reversing/findings/FINDINGS-landbattle.md, section 3.",
    "confidence": "inferred",
-   "source": "reversing/findings/FINDINGS-landbattle.md"
+   "source": "reversing/findings/FINDINGS-liveread.md"
   },
   {
    "rva": "0x6A2F80",
@@ -18107,9 +18109,10 @@
    "kind": "global",
    "name": "g_random_draws",
    "signature": null,
-   "comment": "how much has been drawn from the generator, saved as `count` right after `seed` - the pair is what makes a save replay the same way",
+   "no_signature": null,
+   "comment": "how much has been drawn from the generator, saved as `count` right after `seed` - the pair is what makes a save replay the same way. **A load does not put it back**: 2 as a save of 1938 stands loaded and paused, with 0x134DA94 at 0 (read in the running game, 2026-11-10, reversing/findings/FINDINGS-liveread.md, section 2).",
    "confidence": "confirmed",
-   "source": "BiceLib/GameClasses/CCurrentGameState.hpp:82"
+   "source": "reversing/findings/FINDINGS-liveread.md"
   },
   {
    "rva": "0x134DA90",
@@ -75028,6 +75031,16 @@
    "comment": "What CMapProvince::CanUnitReach asks for a land unit. True where the two provinces are in one owner area (+0x2B4). Over from's edges not of kind 3 to land, simulated provinces: true where one is the destination; one the owner may enter (CCountry::MayEnterProvince, canals not asked) counts. With none, and the unit not trespassing, false. Otherwise true where to's area is a neighbour (+0x34) of from's real area, else CCountry_ProvincesConnectedByArea(owner, from, to, avoidEnemy). The name is ours. See reversing/findings/FINDINGS-balancing.md.",
    "confidence": "confirmed",
    "source": "reversing/findings/FINDINGS-balancing.md"
+  },
+  {
+   "rva": "0x134DA94",
+   "kind": "global",
+   "name": "g_random_init_seed",
+   "signature": null,
+   "no_signature": null,
+   "comment": "The figure the game's generator was made from: ReseedGlobalRandom passes it to the initialiser (0xAA2BF0) with the state array at 0x1310F80 in ecx. 86 throughout a new game in the running game. SnapshotRandomState puts it into each hour's tick payload beside g_random_draws.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-liveread.md"
   }
  ],
  "structs": [
@@ -75730,8 +75743,8 @@
      "offset": "0xD80",
      "name": "NavalBases",
      "type": "CList<CProvince*>",
-     "comment": "The game's own name for it, out of the Lua API. `CCountry::GetNavalBases` (rva 0x946A0) is `lea eax, [ecx + 0xd80]; ret` - the whole function, so the function *is* the offset.",
-     "source": "reversing/findings/FINDINGS-factbase.md"
+     "comment": "The game's own name for it, out of the Lua API. `CCountry::GetNavalBases` (rva 0x946A0) is `lea eax, [ecx + 0xd80]; ret` - the whole function, so the function *is* the offset. In province-number order on a new game (read in the running game, 2026-11-10).",
+     "source": "reversing/findings/FINDINGS-liveread.md"
     },
     {
      "offset": "0xD70",
@@ -75744,8 +75757,8 @@
      "offset": "0xCF0",
      "name": "OwnedProvinces",
      "type": "CList<int>",
-     "comment": "The game's own name for it, out of the Lua API. `CCountry::GetOwnedProvinces` (rva 0x3A660) is `lea eax, [ecx + 0xcf0]; ret` - the whole function, so the function *is* the offset. The first of the three province CLists - owned at +0xCF0, controlled at +0xD00, core at +0xD10, each 0x10 bytes with its count at +8. CAnyOwnedProvinceTrigger::Evaluate walks this one.",
-     "source": "reversing/findings/FINDINGS-factbase.md"
+     "comment": "The game's own name for it, out of the Lua API. `CCountry::GetOwnedProvinces` (rva 0x3A660) is `lea eax, [ecx + 0xcf0]; ret` - the whole function, so the function *is* the offset. The first of the three province CLists - owned at +0xCF0, controlled at +0xD00, core at +0xD10, each 0x10 bytes with its count at +8. CAnyOwnedProvinceTrigger::Evaluate walks this one. In province-number order on a new game (read in the running game, 2026-11-10).",
+     "source": "reversing/findings/FINDINGS-liveread.md"
     },
     {
      "offset": "0xBD8",
@@ -76766,15 +76779,15 @@
      "offset": "0xD00",
      "name": "ControlledProvinces",
      "type": "CList<int>",
-     "comment": "the head of a list of `{ province id, ?, next }` nodes - CCountry::UpdateIC walks it and looks each id up in CCurrentGameState +0xB8C to sum the country's IC. **It is the controlled provinces**, settled by the game's own Lua accessor `CCountry::GetControlledProvinces` (VA 0x417AE0 = `lea eax,[ecx+0xD00]; ret`), with `NumberOfControlledProvinces` the CList's own count member at +0xD08 (`CCountry::GetNumberOfControlledProvinces`, VA 0x5010C0). The pair for the owned provinces is +0xCF0 / +0xCF8, which CAnyOwnedProvinceTrigger::Evaluate walks and CCountry::RebuildNeighbours's first province walk uses. The earlier inference from the +0x610 test was right.\n\n**Renamed from `province_ids` and retyped 2026-10-05.** The comment already said the game's own accessor settles it; the name and type now say so too. `lea eax,[ecx+0xD00]` at rva 0x17AE0 is registered as `CList<int> const& CCountry::GetControlledProvinces()`, so the field is the whole embedded CList - `first` at +0xD00, `last` at +0xD04, `count` at +0xD08 (which is what `CCountry::GetNumberOfControlledProvinces`, rva 0x1010C0, returns) and the node byte at +0xD0C.",
-     "source": "reversing/findings/FINDINGS-scopetriggers.md"
+     "comment": "the head of a list of `{ province id, ?, next }` nodes - CCountry::UpdateIC walks it and looks each id up in CCurrentGameState +0xB8C to sum the country's IC. **It is the controlled provinces**, settled by the game's own Lua accessor `CCountry::GetControlledProvinces` (VA 0x417AE0 = `lea eax,[ecx+0xD00]; ret`), with `NumberOfControlledProvinces` the CList's own count member at +0xD08 (`CCountry::GetNumberOfControlledProvinces`, VA 0x5010C0). The pair for the owned provinces is +0xCF0 / +0xCF8, which CAnyOwnedProvinceTrigger::Evaluate walks and CCountry::RebuildNeighbours's first province walk uses. The earlier inference from the +0x610 test was right.\n\n**Renamed from `province_ids` and retyped 2026-10-05.** The comment already said the game's own accessor settles it; the name and type now say so too. `lea eax,[ecx+0xD00]` at rva 0x17AE0 is registered as `CList<int> const& CCountry::GetControlledProvinces()`, so the field is the whole embedded CList - `first` at +0xD00, `last` at +0xD04, `count` at +0xD08 (which is what `CCountry::GetNumberOfControlledProvinces`, rva 0x1010C0, returns) and the node byte at +0xD0C. In province-number order on a new game (read in the running game, 2026-11-10).",
+     "source": "reversing/findings/FINDINGS-liveread.md"
     },
     {
      "offset": "0xD10",
      "name": "CoreProvinces",
      "type": "CList<int>",
-     "comment": "The head of a linked list of province ids the country claims, each node's next at +0x8. The alignment revanchism term walks it and counts the provinces whose current owner belongs to the faction being scored. **The game's own name for it is `CoreProvinces`**, from the Lua accessor `CCountry::GetCoreProvinces` (VA 0x4C3040 = `lea eax,[ecx+0xD10]; ret`, registered returning `CList<int>&`) - so these are HoI3's core provinces, the country side of the per-province `cores` list at `CProvince +0x344` that the event language's `is_core` and `any_core` triggers walk.\n\n**Renamed from `claims` and retyped 2026-10-05**, on the authority the comment already cited: `lea eax,[ecx+0xD10]` at rva 0xC3040, registered as `CList<int> const& CCountry::GetCoreProvinces()`. `claims` is EU3's word; HoI3 calls these core provinces, and conflating the two is a real risk because HoI3 also has claims in the peace machinery.",
-     "source": "reversing/findings/FINDINGS-scopetriggers.md"
+     "comment": "The head of a linked list of province ids the country claims, each node's next at +0x8. The alignment revanchism term walks it and counts the provinces whose current owner belongs to the faction being scored. **The game's own name for it is `CoreProvinces`**, from the Lua accessor `CCountry::GetCoreProvinces` (VA 0x4C3040 = `lea eax,[ecx+0xD10]; ret`, registered returning `CList<int>&`) - so these are HoI3's core provinces, the country side of the per-province `cores` list at `CProvince +0x344` that the event language's `is_core` and `any_core` triggers walk.\n\n**Renamed from `claims` and retyped 2026-10-05**, on the authority the comment already cited: `lea eax,[ecx+0xD10]` at rva 0xC3040, registered as `CList<int> const& CCountry::GetCoreProvinces()`. `claims` is EU3's word; HoI3 calls these core provinces, and conflating the two is a real risk because HoI3 also has claims in the peace machinery. In province-number order on a new game (read in the running game, 2026-11-10).",
+     "source": "reversing/findings/FINDINGS-liveread.md"
     },
     {
      "offset": "0xD30",
@@ -78188,8 +78201,8 @@
      "offset": "0x12D8",
      "name": "paused",
      "type": "bool",
-     "comment": "Whether the game is paused (likely): slot 95 (IsPaused) answers it, TogglePause (slot 27) sets it or calls Unpause (slot 71), which clears it outside a custom game; Enter sets it at 0x65C737 and 0x6606E8 - a game comes up paused. See reversing/findings/FINDINGS-ingamemenu.md, section A.2.",
-     "source": "reversing/findings/FINDINGS-ingamemenu.md"
+     "comment": "Whether the game is paused (confirmed in the running game, 2026-11-10: the store alone stops and starts the clock): slot 95 (IsPaused) answers it, TogglePause (slot 27) sets it or calls Unpause (slot 71), which clears it outside a custom game; Enter sets it at 0x65C737 and 0x6606E8 - a game comes up paused. See reversing/findings/FINDINGS-ingamemenu.md, section A.2.",
+     "source": "reversing/findings/FINDINGS-liveread.md"
     },
     {
      "offset": "0x1D3E",
@@ -78748,8 +78761,8 @@
      "offset": "0xAB0",
      "name": "autosave_requested",
      "type": "uint8_t",
-     "comment": "an autosave is wanted",
-     "source": "BiceLib/GameClasses/CInGameIdler.hpp:57"
+     "comment": "an autosave is wanted. Set by hand in the running game on 2026-11-10 while paused, the save was written within seconds, under the name autosave.hoi3: the request is honoured whether or not the clock runs.",
+     "source": "reversing/findings/FINDINGS-liveread.md"
     },
     {
      "offset": "0xAB1",
@@ -79885,8 +79898,8 @@
      "offset": "0x2B8",
      "name": "units",
      "type": "CUnitList",
-     "comment": "the units in the province, what CProvince::GetUnits answers",
-     "source": "BiceLib/GameClasses/CMapProvince.hpp:214"
+     "comment": "the units in the province, what CProvince::GetUnits answers **In order of arrival** (read in the running game, 2026-11-10): a unit made or coming there goes on the end.",
+     "source": "reversing/findings/FINDINGS-liveread.md"
     },
     {
      "offset": "0x2C0",
@@ -82348,8 +82361,8 @@
      "offset": "0xC8",
      "name": "CSubUnitDefinitionPtr",
      "type": "CSubUnitDefinition*",
-     "comment": "sub unit definition",
-     "source": "BiceLib/GameClasses/CUnit.hpp:28"
+     "comment": "sub unit definition **Read in the running game, 2026-11-10, 80 units:** soft, hard and air attack, defensiveness, air defence, width, strength, supply, fuel and officers are its brigades' sum; toughness is twice the sum; piercing the best brigade's; softness the mean, truncated.",
+     "source": "reversing/findings/FINDINGS-liveread.md"
     },
     {
      "offset": "0xD0",

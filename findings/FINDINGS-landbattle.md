@@ -385,12 +385,12 @@ side's own generator**, and `CLandCombatant::FireUnit` for each front unit in or
   game's generator** per shot: `Random() % 100` against the fraction of the defence figure,
   then `Random() % 100` against the chance to avoid.
 
-  **The game's generator is seeded afresh every hour.** `RunHourlyTick` stores the dword at
+  ***Corrected 2026-11-10 (`FINDINGS-liveread.md`, section 1): the generator is not re-seeded in single-player play; the path below
+  was not reached in 36 hours and the draws ran on.*** `RunHourlyTick` stores the dword at
   `+4` of the hour's tick payload as the seed (`0x681C6B`..`0x681C6E`, into `0x174DA94`),
   zeroes the count of draws, and calls `ReseedGlobalRandom` (`0xAA2ED0`) - which, besides
   initialising the state through `0xAA2BF0` (not read), runs the generator forward by the
-  count of draws, so a generator can be put back where a save left it. An hour's rolls
-  therefore depend on that figure and on the order of the hour's draws. **The battles are
+  count of draws, so a generator can be put back where a save left it. **The battles are
   not first in that order**: `CCombatManager::Tick` is the last step of the hourly pass,
   after every unit's own hour and the AI's, and `StartAttackDelay` and the reserves draw
   too. Making an hour of a savegame's battle again would need every draw before it.
