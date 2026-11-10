@@ -333,3 +333,11 @@ Read on 2026-11-10 on the running game after a load of `Ireland1941_07_16_07`: O
 - With the count mended: on entering, the original's 5 air orders all the same and 4 of OpenHOI3's own, down from 18.
 
 **Not shown**: why OpenHOI3 still sends three British groups and an Omani one a long way on entering, the RAF's strategic bomber command among them.
+
+## 27. The air base lists and the air triage (confirmed)
+
+Read on 2026-11-10 on the running game after a load of `Ireland1941_07_16_07`, for the four air groups OpenHOI3 still sent on entering: the RAF's strategic and Far East commands, its 11th Air wing, and an Omani dive bomber group.
+
+- **Only the country's own air bases are held to the agent's theatre.** Its overlord's and its puppets' go on the lists wherever they lie. The United Kingdom's Home and Far East lists both carry Singapore (Iraq's) and an Omani base, and Oman's carries every British air base in the world. On the Far East list Singapore, the Far East groups' own base, scores best, so they stay; OpenHOI3's list lacked it and sent them to China.
+- **The triage has two pairs of thresholds, each used for strength and organisation alike.** At air stance 2 a wing under 0.5 of either is unfit, and one under 0.75 of either damaged or tired; otherwise 0.7 and 0.85; halved for a carrier's or interceptor group. A group with any wing damaged or tired, idle at its own base, rests, so it is not a candidate for the rebase. `FINDINGS-reorganise.md` read the pair as strength and organisation, and is corrected there. The RAF's strategic bomber command has a wing at 0.53 strength, so it rests; OpenHOI3 sent it to the Shetlands.
+- With both: on entering, the original's 5 air orders all the same and none of OpenHOI3's own; over 48 hours, 15 of the original's 24 the same and 11 of OpenHOI3's own, down from 20.

@@ -259,8 +259,10 @@ notThreatened:
 ```
 
 **The four fitness thresholds are selected by the plan's `air_stance` and halved for a carrier
-or interceptor group.** At stance 2 a wing needs 50% strength and 75% organisation (25%/37.5%
-for CAG/interceptor groups); at any other stance 70% and 85%. Every constant is a compiled-in
+or interceptor group.** At stance 2 a wing is unfit under 50% of strength or of organisation, and wants rest under
+75% of either (halved for CAG/interceptor groups); at any other stance 70% and 85%. *Corrected 2026-11-10
+(`FINDINGS-liveread.md`, section 27): this read the pair as strength and organisation; the pseudo-code above has it
+right, a low pair and a high pair, each used for both.* Every constant is a compiled-in
 `float` literal — `0.5f` at `0x15AB304`, `0.75f` at `0x17179A8`, `0.7f` at `0x160A2E8`, `0.85f`
 at `0x160A834`, and the halving factor `0.5` (a double) at `0x160A308`. None is a define.
 
