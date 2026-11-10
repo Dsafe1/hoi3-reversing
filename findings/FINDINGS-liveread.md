@@ -193,3 +193,17 @@ Set beside OpenHOI3's first pass on `Ireland1941_07_16_07`, with the positions o
 **`CAIUnit_PickProvinceAmongSubordinates`**, against the listing, as the record has it: a child's neighbours are candidates whether or not the child's own province could be reached, and where any child is no garrison the garrisons are left out of the mean. The sum and mean are in single precision. Corps then armies are walked, so each sees where the one below it has just been sent.
 
 **Not shown**: the Far East agent's hold list, 21 where OpenHOI3 has 27.
+
+## 15. The hold list (confirmed)
+
+Every agent's hold list read from memory on the game standing paused after a load of `Ireland1941_07_16_07`, 96 agents, set beside OpenHOI3's: 87 the same, province, score and order, from 54.
+
+- **A subject skips only its puppets' focus areas.** `isSubject` jumps past that block to the theatre's provinces, not past both. Bhutan and Iraq, both vassals, have lists; OpenHOI3 had none.
+- **A province can come twice.** The set the objectives and focus provinces go into is asked of the puppets' and the theatre's provinces and not added to. Nanning HQ holds five provinces twice.
+- **A rounded score** is `fistp`, so a half goes to the even.
+- **The ships in a port's score** are those of the fleets based there, at sea or not.
+- **A loaded theatre's `+0x60`** is its own provinces and then its fronts', though a save writes the fronts first. Two positions of one score keep that order.
+
+- **Military access is in a save's pair block**, `military_access=yes`, after `threat`. The Soviet Union's status towards Sinkiang holds it, so Sinkiang is a friend and adds nothing to the threat its neighbouring provinces are scored by. OpenHOI3 dropped the key. With it the Soviet Far East's 21 agree, and 87 of the 96 lists.
+
+**Not shown**: the other nine lists.
