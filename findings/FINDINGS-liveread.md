@@ -287,3 +287,15 @@ Read on 2026-11-10 by loading `Ireland1941_07_16_07` hands off, writing a save e
 So on a save of OpenHOI3's own loading the yardstick for hours after entering is the original against itself, not an exact match. Six hours: OpenHOI3 gives 44 of the 73 land orders the same and 20 of its own, against 54 of 69 and 13 between two runs of the original.
 
 **Not shown**: what gave Germany's attack on 1750 in the first hour of that one run, it not being the attack decision logged in the other. And why OpenHOI3 gives 164 orders over 48 hours that the original does not, at least some of which follow a province changing hands at another hour.
+
+## 23. The reserve's ring and the garrison step's records (confirmed)
+
+Read on 2026-11-10 on the running game after a load of `Ireland1941_07_16_07`, from the orders the original gave Italy's Libyan divisions and OpenHOI3 did not: 108 of them in 45 hours, seven divisions sent between 9422 and 5626 every three hours.
+
+- **The moves are the reserve's.** `CEU3AI::MoveUnit` logged with its return address: every one returns into `CAIUnit_PlaceReserves`.
+- **The second ring holds only provinces in a real area.** `CAIUnit::RebuildAreaNeighbourProvinces` asks each province's owner area its slot 0 before anything else. Read from memory after entering: Italy's Libyan ring is 9422 and 5626, where five desert provinces out of every supply network would otherwise join it. With them, OpenHOI3 sent the reserve into the desert.
+- **The ring's counts are `CountUnitsAtPositions`'**, so a division standing in one ring province and bound for another counts in neither. The busy test is the order's slot 24 alone, so a division on its way is looked at, and it is never sent where it is already bound. Over its room, it goes to the other province, and back again the next pass.
+- **The garrison step keeps one record a target.** The hold list names 5484 twice, so the targets do too, and the second record wants a garrison while the first has one. The original sends the Friuli division to it on entering, and that move is why the reserve does not run then. A province is looked up as its last record.
+- With these, on that save: entering 136 of the original's 173 land ways the same; six hours after, 53 of 73 against 54 of 69 between two runs of the original; 48 hours, 147 of 299.
+
+**Not shown**: why OpenHOI3 still gives 178 orders over 48 hours that the original does not. Germany's and the Soviet Union's are the most, about two dozen each.
