@@ -129,5 +129,17 @@ province 4475, and saved. Logged for the hour after: the generator at `CCombat::
 (`0x16D620`). **Every product, every draw of both sides, and every wing's strength and organisation after the hour are the same**, with no change to OpenHOI3's rules.
 
 **The first attempt differed, and the difference is a load's.** A wing's remembered target (`CSubUnit +0xB8`/`+0xBC`, with `+0xC0`) is not in a save, so a game going on keeps
-it and OpenHOI3 after a load picks again, spending two draws a wing. Carried across by hand for the test, it matches. That the original's own load also forgets it is
-*inferred* from the save having no key for it; a reload was not watched.
+it and a game loaded picks again, spending two draws a wing, as the original's load does by `FINDINGS-savedbattle.md`, A.6. Carried across by hand for the test, it
+matches.
+
+## 11. A battle at sea, against OpenHOI3 (confirmed)
+
+The game was run on from `Ireland1937_11_02_21.hoi3` to the first battle with ships on both sides, six Japanese against one Chinese in sea zone 11927, and saved. Logged for
+the hour after, its third: the generator at `CCombat::Tick`, each side at `CNavalCombatant::Attack` (`0x167930`) with every ship's products, strength, organisation
+and distance (`CSubUnit +0xC8`), and each `CSubUnit::PickTarget` (`0x1675D0`). **Every figure and every draw is the same**, and every ship after the hour, with no change to OpenHOI3's rules.
+
+**The hour before differed for reasons of a load, not of a rule.** A load draws every ship up afresh about 100 out (`FINDINGS-savedbattle.md`, A.6, in the original and in OpenHOI3), so
+a saved `current_distance` of 12 came up as 122 and two ships out of reach shot nothing. For the test each ship's target, distance and experience were carried across
+by hand; experience because the roll for it comes before the battles, on draws not restored here.
+
+**Not shown**: a battle's first hour, and breaking off.
