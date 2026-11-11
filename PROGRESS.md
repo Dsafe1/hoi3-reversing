@@ -177,7 +177,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CDependency` | `CRelation` |  |  | 5/5 | 2 |  |  | RTTI |  |
 | `CDeployment` | `CReferenceObject` |  |  |  |  |  |  | RTTI |  |
 | `CDiplomacy` | `CPersistent` |  |  | 1/9 | 2 |  | 1 | placed | **read**: the save's diplomacy block, one key per kind of agreement |
-| `CDiplomacyStatus` | `CPersistent` |  | 28 + 8 lua | 8/10 | 18 |  | 11,664 | read |  |
+| `CDiplomacyStatus` | `CPersistent` |  | 28 + 8 lua | 8/10 | 19 |  | 11,664 | read |  |
 | `CDiplomaticAction` | `CPersistent` |  | 7 + 2 lua | 5/6 | 6 |  | 22,113 | read |  |
 | `CDiplomaticHistory` | `CHistoryContainer` |  |  |  | 1 |  | 2 | keys |  |
 | `CDiplomaticHistoryEntry` | `CHistoryEntry` |  |  |  | 1 |  |  | RTTI |  |
