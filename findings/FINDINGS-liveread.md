@@ -416,3 +416,11 @@ Read on 2026-11-11 on the listing, for Japan's garrisons on entering the save of
 - With both, Japan's four garrisons from 5315 go where the original sends them, and on entering the three saves the land orders are the same 155 of 167 (153 before), 96 of 110 (95) and 67 of 73 (63). Over the 48 hours after entering, 158 of the original's 299 (155).
 
 **Not shown**: Bulgaria's garrisons on the same save go to other targets - 4368 in the original, 4123, 4870, 5107 and 5077 in OpenHOI3 - which is the target list, made from the hold list, and not the order.
+
+## 36. A province named twice on the hold list is two garrison targets (confirmed on the listing)
+
+Read on 2026-11-11 on the listing, for Bulgaria's garrisons on entering the save of 16 July 1941: OpenHOI3 sent a second garrison to 4123, which already had one, where the original sent one to 4368 and two to 4555.
+
+- **The top-up skips a record, not a province.** Round two of `CAIUnit_SplitGarrisonAndLine` (0x4C8190 to 0x4C82F8) walks the hold list +0x17C while the targets number fewer than the garrisons; each node's data is a pointer to a hold record, kept at [ebp+0C]. Where CEU3AI +0x2C is set it goes straight to 0x4C82D9, which walks the targets list comparing each node's data with that pointer (`cmp [eax],ecx` at 0x4C82E5) and calls `CList_InsertByDescendingScore` (0x4C82F8) only where none matches. So a record already taken is passed over, and a second record of the same province is not.
+- Bulgaria's hold list names 4368, 4555 and 4870 twice. With both records of each taken, the 17 garrisons have 17 targets and each wants one: 4123 wants no second, 4368's second record takes the 9-ta Plevenska, and 4555's two take the 11-va zapasna and the 1-va Sofiiska - as the original does. OpenHOI3 had skipped a province already listed and made 15 targets, so the first two wanted two each.
+- On entering the three saves the land orders are the same 160 of 167 (155 before), 96 of 110 and 67 of 73.
