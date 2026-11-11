@@ -406,3 +406,13 @@ Read on 2026-11-11 on the running game. A breakpoint in `CAIUnit_SplitGarrisonAn
 - OpenHOI3 had used the organisation share, after this write-up's prose. Changed, on entering the three saves the original's land orders are given the same 153 of 167 (150 before), 95 of 110 (97) and 63 of 73 (65).
 
 **Not shown**: why Japan's garrisons on the save of 16 July 1941 still go out in another order. OpenHOI3 marks the three Rikusentai and three infantry divisions at 5315 and sends 60 Nippon and the infantry first, as its committed list orders them; the original sends 60 Nippon and the three Rikusentai. Either the original's list of garrisons is ordered otherwise or it marks other divisions; its list on entering was not read.
+
+## 35. The order the garrisons go out in (confirmed on the listing)
+
+Read on 2026-11-11 on the listing, for Japan's garrisons on entering the save of 16 July 1941: OpenHOI3 marked the right divisions at 5315 - the three Rikusentai, then 60 Nippon - but sent two infantry divisions out where the original sent the Rikusentai.
+
+- **The fill goes through a vector the split hands it, in the split's order.** `CAIUnit_FillGarrisons` copies its second argument and walks that, a tie in distance to the earlier. `CAIUnit_SplitGarrisonAndLine` fills it in two parts: walking the committed vector, each division with a garrison brigade (marked, at 0x4C7BE2) and each still marked from before and still in land the country holds (0x4C7BD2), in committed order; then, per region group, each one dropped is erased from it (0x4C89AE, `0x4ECDA0`) and each new pick appended as it is made (0x4C8E20). OpenHOI3 had walked the committed list for the marked divisions, which puts the new picks in committed order instead of the order they were picked in.
+- **The pick compares in single and double precision.** `RateUnitAsGarrison`'s fill is each brigade's strength over its most as a single; the score is `(float)(rating x 10 + (float)(mean10 / 5))`, x 0.75 on a front, x (1.5 - share / 1000), compared as doubles, strictly. Japan's 7 and 10 Rikusentai are 29.995 and 29.973 strong: in thousandths of a share they tie and the earlier wins; as the original computes it the weaker rates higher, and goes first.
+- With both, Japan's four garrisons from 5315 go where the original sends them, and on entering the three saves the land orders are the same 155 of 167 (153 before), 96 of 110 (95) and 67 of 73 (63). Over the 48 hours after entering, 158 of the original's 299 (155).
+
+**Not shown**: Bulgaria's garrisons on the same save go to other targets - 4368 in the original, 4123, 4870, 5107 and 5077 in OpenHOI3 - which is the target list, made from the hold list, and not the order.
