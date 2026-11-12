@@ -1,0 +1,63 @@
+{
+  "agent": "main session",
+  "question": "Why two corps of April 1936 moved in OpenHOI3 and not in the original on entering.",
+  "source": "reversing/findings/FINDINGS-liveread.md",
+  "structs": [],
+  "addresses": [
+    {
+      "rva": "0x4DA660",
+      "kind": "function",
+      "name": "CAIUnit_PickProvinceAmongSubordinates",
+      "signature": "CMapProvince* __stdcall CAIUnit_PickProvinceAmongSubordinates(CAIUnit* agent, CUnit* unit)",
+      "no_signature": null,
+      "confidence": "confirmed",
+      "comment": "**Where a headquarters should stand among its subordinates.** 0x4DA660 to `ret 8`. start = the unit's destination, or its province; a unit trespassing (`+0x1A8`) and on the move answers its destination at once. Nothing where start is not in a real owner area.\n\nCandidates, from each land child C in order: C's destination or province Q (land, in a real area) where it is reachable from start through owner areas held by no enemy (CCountry_ProvincesConnectedByArea, 0xEFB40, with the flag), then - whether or not it was - every land, simulated neighbour of Q (edges not of kind 3) in Q's owner area. For each candidate K: the mean CMap distance from K to each land child's destination or province (only children with `+0x2C9` clear, where any has it clear); K skipped where the mean is 0. Score = mean, - 6 where K is start, + 1000 where K borders another holder's land, + 100000 where K's `ai_front_value` (+0x5C) is under 200. The least wins, under 100000.0 and strictly; the default is the unit's own province.\n\nA child's destination is CUnit::GetMovementDestinationProvince (CUnit +0x2CC), which CEU3AI::MoveUnit sets in the same pass, so children the land block has just sent count at their new goals. **Confirmed live 2026-11-11**: 72 choices made on the same children (places, goals and +0x2C9) all the original's in OpenHOI3, every differing choice having differing children (reversing/findings/FINDINGS-liveread.md, section 33). Callers: CAIUnit_PullHeadquartersIn and CAIUnit_PickCommandProvince. Exe-hardcoded: 6, 1000, 100000, 200. **The trespassing arm confirmed live 2026-11-11** (FINDINGS-liveread.md, section 47): Guangxi's 2nd Corps in Chinese-held 5836, trespassing 1, answered its destination 5802 entering Germany1936_04_20_03.",
+      "evidence": "Logged after the return at 0x4CC3F9 on the running game, 2026-11-11: unit, +0x1A8, the answer and EBX. Shown wrong by a trespassing unit on the move answered anything but its destination.",
+      "source": "reversing/findings/FINDINGS-liveread.md",
+      "revises": "comment"
+    },
+    {
+      "rva": "0x4CC320",
+      "kind": "function",
+      "name": "CAIUnit_PullHeadquartersIn",
+      "signature": "bool __stdcall CAIUnit_PullHeadquartersIn(void* agent@stack:4) @AL",
+      "no_signature": null,
+      "confidence": "confirmed",
+      "comment": "**Moves the agent's headquarters to stand among their subordinates.** 0x4CC320 to `ret 4`, called by CAIUnit::Tick at hour `(id + 6) % 24` or while `+0x84` is set. Over the agent's non-division units (`+0x14C`), skipping its own unit, one retreating (+0x158), and one in a battle (+0x11C) it may not leave (CUnit::MayLeaveCombats, 0x1C0000): **a unit on the move is always looked at**; one standing still only where some child is reached by less than its full command (CUnit::CommandReachFrom under 1000), or it is trespassing (+0x1A8), or it stands on a front province (IsFrontProvince(false)) while the agent's `+0x364` is set. target = CAIUnit_PickProvinceAmongSubordinates(agent, unit) (0x4DA660); where it is not null, not where the unit is going (or standing), and CMapProvince::CanUnitReach(target, unit, 1, 1): CEU3AI::MoveUnit(owner, unit, target, 0, 1, 1, null). Answers whether it moved one. On the listing (FINDINGS-liveread.md, section 47): 'where the unit is going (or standing)' is EBX - 0x7AAF00's destination for a moving unit (0x4CC38E), else +0x130 after the standing tests (0x4CC3E9) - compared at 0x4CC3FF. **Live 2026-11-11** (section 48): a land unit slot 78 let slot 86 claim is not on +0x14C at all, so is never looked at - Italy's III Corpo d'Armata dell'A.O.I. entering April 1936, Britain's 7th Army entering July 1941.",
+      "evidence": "The loop logged at 0x4CC367 and the pick at 0x4CC3F9 on the running game, 2026-11-11; the tests before the pick disassembled from 0x4CC320.",
+      "source": "reversing/findings/FINDINGS-liveread.md",
+      "revises": "comment"
+    },
+    {
+      "rva": "0x4B1D10",
+      "kind": "function",
+      "name": "CAIUnit::ManageSubordinates",
+      "signature": "void __thiscall CAIUnit::ManageSubordinates(CAIUnit* this)",
+      "no_signature": null,
+      "confidence": "confirmed",
+      "comment": "**Slot 78: sorts every unit the agent commands into its per-pass containers and decides which divisions are committed and which held back.** 0x4B1D10 to the bare `ret` at 0x4B32AC; the `bad_alloc` throw tail runs to 0x4B32DF and slot 79 starts at 0x4B32E0. Called from CAIUnit::Tick at 0x4B0A1D when +0x86 replan_subordinates is set, or the hour is (id+9) % 24, or the tick's daily flag is set (hour (id+6) % 24 or +0x84).\n\n(1) Empties the vectors +0x13C, +0x12C, +0x14C, +0x15C, +0x16C, +0x11C, the air list +0xFC (head/tail/count +0xFC/+0x100/+0x104), the vectors +0x10C, +0xDC, +0xEC and +0x1AC, and zeroes +0x348; first it notes whether +0x10C (air transports) was non-empty. (2) The commitment factor from CUnitPlan::GetPowerRatio of the agent's unit: 0.7 above 2.0, 0.6 above 1.5, 0.2 below 0.25, 0.3 below 0.5, 0.4 below 0.75, else 0.5 - all literals. (3) **Walks the whole of the country's unit list (CCountry +0xBAC), not a subtree.** Per unit: clears CUnit +0x2CA; a naval unit under an `invasion` order (0x3A5) has its order's province pushed on +0x1AC whoever owns it; then the unit belongs to this agent when the nearest ai_agent up its parent chain is this one - or it is an air unit whose first brigade is a CAG based on a carrier (home base slot 1) whose fleet's agent is this one. Air: inserted into +0xFC by InsertUnitByRange, and onto +0x10C when its definition's transport_capability is at least 1000. Naval: onto +0xDC, and onto +0xEC when transport_capability >= 1000 and (it carries something, CNavy +0x2EC > 0, or CUnit_FleetNeedsPort answers false). Land: one on `support_attack` (0x4E5) that is neither holding ground nor retreating is stopped (0x49AAB0); onto +0x11C; onto +0x16C when CArmy +0x2FC is 8, and then a CArmy +0x2E4 province whose air base is below level 1 is cleared and CSetAIParamCommand(unit, +0x2E8, 0) posted (0x4B24CB); then, unless slot 86 claims the unit (held_back cleared), a division (oob_level 4) is committed (+0x12C and +0x13C) or held back (+0x15C, CUnit +0x2C8 set) - see FINDINGS-power.md for the strength/organisation bars - and anything else goes on +0x14C. A role-8 division is skipped when air transports existed, and is held back whenever the test runs. With frontier_at_war (+0x364) clear - a frontier at peace, or for a theatre agent's division outside the theatre's largest area, the test is skipped: a held-back division stays held back, any other is committed. A committed division whose destination lies in an area sharing a region group with the capital's area, and on a friendly foreign country's ground (or on enemy ground while it stands on such ground), bumps +0x348 (the arms at 0x4B28B4-0x4B29E9). (4) The reserve size by stance, the recall loop and the detach-to-reserve loop, as FINDINGS-power.md section 'The middle of slot 78'. (5) Clears +0x86. **The one command it posts is CSetAIParamCommand; it detaches nothing and sends no expedition** - those are slot 79's. **On the listing, 2026-11-10.** A division held back by the test still goes on +0x13C, so +0x13C is every division that passed through. At war a division already held back stays held back without a further test: the bar for its return at 0x8B282B lies behind the branch at 0x8B27BA that a held-back division has already taken, and is dead. On the detach, a division bound for a frontier province is passed over where a land battle is on there or where **fewer than** two land units of more than one brigade stand (`jl`, 0x8B3017). See reversing/findings/FINDINGS-liveread.md, section 16. **The detach, on the listing, 2026-11-10.** The per-province counter it subtracts on a frontier is looked up by where the division is bound and is incremented by where a division **stands**: at 0x8B296B for every division the test holds back, then at 0x8B3261 for each one detached. The first brigade's militia +2 and mountain -2 are read only at stance 3 or more: below it the branch for the role jumps past them. See reversing/findings/FINDINGS-liveread.md, section 19. **Step 5's order on the listing** (FINDINGS-liveread.md, section 48): the push onto +0x11C at 0x4B230E is unconditional and comes before slot 86 at 0x4B2705, so a claimed unit - a headquarters as much as a division - is on +0x11C and on nothing after it, +0x2C8 cleared at 0x4B2714. Confirmed live 2026-11-11 by the lists +0x14C held.",
+      "evidence": "Stores to +0x11C/+0x120/+0x14C/+0x150/+0x16C/+0x2C8 and the slot-86 call located by disassembling 0x4B1D10-0x4B32E0 on the running game; the lists read at 0x4CC367. Shown wrong by a claimed headquarters on +0x14C.",
+      "source": "reversing/findings/FINDINGS-liveread.md",
+      "revises": "comment"
+    },
+    {
+      "rva": "0x4B3A50",
+      "kind": "function",
+      "name": "CAIUnit::RebuildHoldProvinces",
+      "signature": "void __thiscall CAIUnit::RebuildHoldProvinces(CAIUnit* this)",
+      "no_signature": null,
+      "confidence": "inferred",
+      "comment": "**Slot 80**, 0x4B3A50 to the bare `ret` at 0x4B41F0. CAIUnit::Tick calls it through [vftable+0x140] at 0x4B0A99 (Ghidra's `vf_80`) - so the tick's two calls after slot 78 are slot 79 ManageExpeditions at 0x4B0A36 and slot 80 this. It clears the CList at +0x17C and refills it, kept in descending score order (CList_InsertByDescendingScore) with 0x1C-byte records {province, 0, score}: (1) every objective of the agent's unit's plan (CUnit +0x234) whose province's controller is on our side (IsSameSide) or a co-belligerent that is not an enemy, scored 0x4B4200(this, province) **plus the objective's priority (CObjective +0xC, read at 0x4B3C64)**; (2) every focus province of the owner AI (CEU3AI +0x118) that we control, or whose controller we are not at war with (neither REB, and no undeclared war covering it), scored 0x4B4200 plus 200.0; then sets +0x82. For a theatre agent (or no unit) of a country that is not a subject: the provinces of each focus owner area (+0x338) belonging to a puppet of ours where none of that puppet's land units stands or is heading, and the provinces of the theatre's +0x60 list, each kept when 0x4B4200 reaches 0.1, the score rounded to a whole number. Last, the list is cut from the tail to max(land units +0x11C minus non-division units +0x14C, the objective and focus count). Read by slot 86 (0x4C7CA7). The name is ours and only the shape is read; 0x4B4200's score is not. **On the listing, 2026-11-10: a subject (CCountry +0xF34) skips only the puppets' focus areas, and goes on to the theatre's +0x60 provinces.** The set the objectives and focus provinces went into is asked of the puppets' and the theatre's provinces and not added to, so a province in both comes twice. The score is rounded by fistp, so a half to the even. See reversing/findings/FINDINGS-liveread.md, section 15. **Read live 2026-11-11** (FINDINGS-liveread.md, section 48): the list is a CList - head +0x17C, tail +0x180, count +0x184, nodes {record, prev, next} - of records {province, 0, score (float), 0, flag, flag}; the two flags were 0 for a province the country holds and another owns (10004) and for a foreign one (Yemen's 9768), 1 for the rest. Britain's East Africa Command entering July 1941 held 8, Yemen's 9768 among them at 33.",
+      "evidence": "The agent found through CUnit +0x198 of its headquarters and the list walked on the running game, 2026-11-11, after entering Ireland1941_07_16_07.",
+      "source": "reversing/findings/FINDINGS-liveread.md",
+      "revises": "comment"
+    }
+  ],
+  "struct_fields": [],
+  "vftable_slots": {},
+  "frontier": [],
+  "slots_noted": {
+    "0x4B1D10": "Already recorded as CAIUnit slot 78; this revises the comment only.",
+    "0x4B3A50": "Already recorded as CAIUnit slot 80; this revises the comment only."
+  }
+}

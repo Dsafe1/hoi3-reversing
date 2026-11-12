@@ -1,0 +1,77 @@
+{
+  "agent": "main session",
+  "question": "Why the original's attack odds on entering a loaded game differ from run to run, and go negative.",
+  "source": "reversing/findings/FINDINGS-liveread.md",
+  "structs": [],
+  "addresses": [
+    {
+      "rva": "0x4D93B0",
+      "kind": "function",
+      "name": "CAIUnit::EstimateAttackOdds",
+      "signature": "float __thiscall CAIUnit::EstimateAttackOdds(CAIUnit* this, CUnitList* ourUnits, void* theirCache, CMapProvince* target, CMapProvince* excludeProvince, int followCombats)",
+      "no_signature": null,
+      "confidence": "inferred",
+      "comment": "**Body read end to end 2026-10-02** (this entry previously said it was unread). 0x4D93B0-0x4D9E2A, 2682 bytes, 705 instructions, `ret 0x14`, answer in ST0. Two `ret 0x14`: the cold block at 0x4D9E0F past the one at 0x4D9E0C is the `their damage <= 0 -> return 50.0f` arm, reached by the `jbe` at 0x4D9D7E and reusing the same frame - trap 3 in form, and the recorded extent was already right.\n\n**It returns our side's estimated damage output divided by theirs** - a damage ratio, which is what the name means and why it is compared against the 3.0/1.5/1.1 attack bars and 0.8 abort bar. Three constant exits: ourUnits->count < 1 -> 0.0f; theirCache->list->count < 1 -> 100.0f [0x1717BFC]; their damage <= 0 -> 50.0f [0x15C0548].\n\nPer unit u of a side, the weight is `GetAverageStrength(u)/100000 * GetAverageOrganisation(u)/100000 * (engagement + helper(u))` - CUnit virtual slots 21 and 20, each answering the plain mean of the regiments' +0x5C/+0x60 (slot 21 sums +0x5C and divides by regiments_count, slot 20 the same over +0x60; the `* 1000` and `/ 1000` inside them cancel). The caller turns that into a 0..1 fraction in two steps - an overflow-guarded integer `v * 1000 / 100000` and then a further `/ 1000.0` in floats - so strength and organisation are held as percent-in-thousandths, 100000 being 100%. Our side does the integer step with the `imul`/magic-multiply fast path and __allmul/__alldiv for the out-of-range case (0x4D95DB-0x4D9615, 0x4D9662-0x4D969C); the defending side does the same division entirely in doubles, `/1000.0` then `/100.0` (0x4D9A74/0x4D9A84, 0x4D9AD6/0x4D9B08). Same value, different rounding. The four sums are then\n\n    A = sum (1 + owner->modifiers[MODIFIER_SOFT_ATTACK]/1000) * def->soft_attack/1000  * weight\n    B = sum (1 + owner->modifiers[MODIFIER_HARD_ATTACK]/1000) * def->hard_attack/1000  * weight\n    C = mean over the units of  def->softness/1000\n    D = mean over the units of (def->toughness/1000 * u->combat_defend_modifier_b * u->combat_defend_product / 1e6)\n\nwith `def = u->CSubUnitDefinitionPtr (+0xC8)` and `owner->modifiers = CCountry +0xDA8`, 8 bytes an entry (trap 5), ids 94/95. A and B are plain sums over the side's units; C and D are divided by the side's unit count (0x4D98D3-0x4D98E6 for ours, 0x4D9CE2-0x4D9CE6 for theirs). The defending side computes the same four with **defensiveness (+0x11C)** in place of toughness - which is the game's own meaning of the two keys, the attacker using toughness and the defender defensiveness. Then\n\n    theirDamage = (1 - D_ours/100)  * (A_theirs * C_ours  + B_theirs * (1 - C_ours))\n    ourDamage   = (1 - D_theirs/100)* (A_ours   * C_theirs + B_ours   * (1 - C_theirs))\n    return ourDamage / theirDamage\n\nso soft attack is weighted by the enemy's softness and hard attack by one minus it, and the enemy's defensiveness (or our toughness) is a straight percentage off the other side's output.\n\n**`engagement` is where the two sides differ, and it is the interesting half.** For one of ours it starts at 1.0 and, for every combat in u->combats (+0x114) in which u is in `combat->defender->units`, is multiplied by `(1 - CCombat::GetAttackerStrengthShare()/1000)`, squared again when that factor is below 0.5 - a unit pinned defending contributes almost nothing. For one of theirs it starts at 1.0 and is **replaced** by `min(odds, 4.0) * 0.25` (0 becomes 0.01) for the **first** combat in which that unit is in `combat->attacker->units`, where `odds` is this function called recursively on that combat - so an enemy defender committed to an attack elsewhere is discounted by how badly that attack is going.\n\n**The recursion is one level deep and cannot be more.** The self-call at 0x4D99CE passes `followCombats = 0`, and the combat walks that are the only route to it are inside `if (followCombats)`. It swaps the roles - arg1 becomes `&combat->attacker->units` and the cache's list `&combat->defender->units` - so the sub-question is \"how is that unit's own attack going\". `excludeProvince` is passed the current target there and is **dead in this build**: its only test (0x4D999A) sits inside the `followCombats` block, the top-level callers pass 0, and the province has already been tested non-null, so the comparison is always true at depth 0 and never reached at depth 1.\n\n**arg2 is not a unit list, it is a 0x20-byte cache** the caller keeps on its frame at [ebp-0x110] (both call sites) and does not reset between the trials of one target: +0x00 `CUnitList*` of the defenders, +0x04 B (their hard-attack sum), +0x08 A (their soft), +0x0C C (their mean softness), +0x10 D (their mean defensiveness term), +0x14 their total brigade count, +0x18 the number of **distinct** provinces our units stand in, +0x1C the valid byte. Only +0x00 and +0x1C are initialised by the caller. The whole defending side is recomputed only when +0x18 changes, which is exactly right: the defenders' figures depend on our side only through `theirBrigades - 3 * ourProvinceCount` (the second argument of 0x4D8590) and through nothing else.\n\n**The receiver is never dereferenced** - ecx is stored at 0x4D93CC and read back once, at 0x4D99C2, only to be forwarded to the recursive call - so `CAIUnit::EstimateAttackOdds` would be the more honest spelling but the body would read the same either way.\n\nTwo terms are **not** established: the helpers 0x4D8C50 (ours; `this` in ECX, args target province, our brigade total, our distinct-province count) and 0x4D8590 (theirs; `this` in **EAX**, args `theirBrigades - 3*ourProvinces`, clamped to at most 100 at 0x4D8A93, our distinct-province count). Both are large, both go through GetDefines()+0xAC, CUnit::CommandEffect, GetDifficultyCombatModifier, CUnit::LeaderHasRankForCommand, CProvinceTemplate::IsIsolatedLand and the encirclement helper 0xA6850, and both cache into CUnit (+0x2DC/+0x2E0 and +0x2D4/+0x2D8). Reading them is the next thing in this area.\n\n**Correction to the caller's write-up**: the figure is *not* monotone in our committed strength. Adding a unit raises A and B but also moves C and D, which are means, and changing the number of distinct attacker provinces lowers `theirBrigades - 3*ourProvinces`. Monotonicity is enforced by CAIUnit_ManageLandUnits, which backs the unit out when the new figure is lower (0x4D78F2), not by this function.\n\n**Confidence.** Every arithmetic statement above is decoded instruction by instruction and a machine could check it; `inferred` is for three things only - that the two helper terms at 0x4D8C50/0x4D8590 are what they are called here, that the ratio is fairly described as \"odds\", and the order of magnitude the helpers contribute, which decides whether the four sums above dominate the answer or garnish it. `likely` would be the word for that and the merge takes only two. **Two runs of one save differ here** (FINDINGS-liveread.md, section 40, live 2026-11-11): entering Ireland1941_07_16_07, 1750's odds reached 1.890 in one run and 1.395 in another; whether the candidate units or a draw differ was not read. **The likely cause** (section 46): the two model helpers' caches are never initialised, so a loaded unit's first estimate counts its real cached half or nought by what memory held - which also makes the odds negative where the per-target half alone is below -1, as Japan's on 9381 entering August 1938 (-1.358562).",
+      "evidence": "Both sides' four sums logged at 0x4D9D7B and the helper returns at 0x4D95A6, entering Ireland1938_08_03_14, 2026-11-11; the ratio reproduced to the sixth place.",
+      "source": "reversing/findings/FINDINGS-liveread.md",
+      "revises": "comment"
+    },
+    {
+      "rva": "0x1B5010",
+      "kind": "function",
+      "name": "CUnit::CUnit",
+      "signature": null,
+      "no_signature": "the body was not read to its return, so neither the arguments nor the cleanup is known",
+      "confidence": "inferred",
+      "comment": "**CUnit's constructor.** Not read through; recorded for what a unit starts with, which three readings depend on. At 0x5B5410 it writes the word 0x0100 to +0xA4 and the byte 1 to +0xA6: **priority off, upgrades on, reinforcement on**. At 0x5B52A1 it writes 1000 to both supply_received_percentage (+0xFC) and fuel_received_percentage (+0x100), having zeroed them at 0x5B5154, so a unit that has never drawn counts as fully supplied - which is what the first day's troop rotation sees. See reversing/findings/FINDINGS-unitdaily.md, section 8. It writes none of +0x2D4..+0x2E0, the AI model caches and their dirty bytes, which are therefore uninitialised (FINDINGS-liveread.md, section 46).",
+      "evidence": "Disassembled from 0x1B5010 to its ret 4 at 0x1B54E2 (278 instructions) on the running game, 2026-11-11: no store to those offsets and no memset or stos.",
+      "source": "reversing/findings/FINDINGS-liveread.md",
+      "revises": "comment"
+    }
+  ],
+  "struct_fields": [
+    {
+      "struct": "CUnit",
+      "offset": "0x2D4",
+      "name": "ai_combat_estimate_defence",
+      "type": "float",
+      "comment": "The cached half of AICombatEstimateDefenceValue (rva 0x4D8590), written at 0x4D8A88 with the dirty byte +0x2D8 cleared one instruction earlier and returned unchanged when that byte is zero. It holds a **sum of combat-modifier fractions** - 1.0 means +100% - covering the modifiers that depend on the unit alone: the fort_defence trait, combined arms, experience, the leader bonus, dig-in, the terrain defence adjuster, dissent, lack of supplies, the difficulty modifier and the encirclement penalty. The stacking and envelopment penalties are **not** in it, because they depend on the attackers; the helper subtracts those on every call. 'Defence' is now from the body, not just from which side uses it. CUnit::CheckOrderAndCombat (slot 31, rva 0x1BA2F0) sets this byte and the attack pair's at 0x1BA313/0x1BA31A and is still the only invalidation found, so how often the value is refreshed is how often slot 31 runs - which that entry records as not established. **Never initialised** (FINDINGS-liveread.md, section 46, live 2026-11-11): CUnit::CUnit does not write it and no load does, so after a load it holds whatever the allocator left - a junk byte or junk float in most units, zero in some - until the unit's first hour.",
+      "evidence": "Logged at 0x4D8C92 on the running game entering Ireland1941_07_16_07: 36 units junk, 17 zero, the split different between runs; CheckOrderAndCombat not called during the load; CUnit::CUnit disassembled to its ret with no store to +0x2D4..+0x2E0; the image scanned for byte, dword, SIB and vector stores to the four offsets. Shown wrong by a store to these fields on the load path.",
+      "source": "reversing/findings/FINDINGS-liveread.md",
+      "revises": "comment"
+    },
+    {
+      "struct": "CUnit",
+      "offset": "0x2D8",
+      "name": "ai_combat_estimate_defence_dirty",
+      "type": "uint8_t",
+      "comment": "The dirty byte for +0x2D4. Non-zero means the AI's defensive combat-value helper (rva 0x4D8590) recomputes; the helper writes zero here at 0x4D8A81 as it stores the new value. Set to 1, together with +0x2E0, at the top of CUnit::CheckOrderAndCombat (rva 0x1BA313). **Never initialised** (FINDINGS-liveread.md, section 46, live 2026-11-11): CUnit::CUnit does not write it and no load does, so after a load it holds whatever the allocator left - a junk byte or junk float in most units, zero in some - until the unit's first hour.",
+      "evidence": "Logged at 0x4D8C92 on the running game entering Ireland1941_07_16_07: 36 units junk, 17 zero, the split different between runs; CheckOrderAndCombat not called during the load; CUnit::CUnit disassembled to its ret with no store to +0x2D4..+0x2E0; the image scanned for byte, dword, SIB and vector stores to the four offsets. Shown wrong by a store to these fields on the load path.",
+      "source": "reversing/findings/FINDINGS-liveread.md",
+      "revises": "comment"
+    },
+    {
+      "struct": "CUnit",
+      "offset": "0x2DC",
+      "name": "ai_combat_estimate_attack",
+      "type": "float",
+      "comment": "The cached half of AICombatEstimateAttackValue (rva 0x4D8C50), written at 0x4D8FC2 with the dirty byte +0x2E0 cleared at 0x4D8FBB and returned unchanged when that byte is zero. A **sum of combat-modifier fractions** - 1.0 means +100% - over the modifiers that depend on the unit alone: combined arms, experience, the leader bonus, dissent, lack of supplies and the difficulty modifier. The stacking penalty, the weather, the river or amphibious crossing penalty, the terrain attack adjuster and the fort penalty are **not** in it, because they depend on the target province and the two counts, and are recomputed on every call. 'Attack' is now from the body. Set dirty with +0x2D8 at the top of CUnit::CheckOrderAndCombat (rva 0x1BA31A), still the only invalidation found. **Never initialised** (FINDINGS-liveread.md, section 46, live 2026-11-11): CUnit::CUnit does not write it and no load does, so after a load it holds whatever the allocator left - a junk byte or junk float in most units, zero in some - until the unit's first hour.",
+      "evidence": "Logged at 0x4D8C92 on the running game entering Ireland1941_07_16_07: 36 units junk, 17 zero, the split different between runs; CheckOrderAndCombat not called during the load; CUnit::CUnit disassembled to its ret with no store to +0x2D4..+0x2E0; the image scanned for byte, dword, SIB and vector stores to the four offsets. Shown wrong by a store to these fields on the load path.",
+      "source": "reversing/findings/FINDINGS-liveread.md",
+      "revises": "comment"
+    },
+    {
+      "struct": "CUnit",
+      "offset": "0x2E0",
+      "name": "ai_combat_estimate_attack_dirty",
+      "type": "uint8_t",
+      "comment": "The dirty byte for +0x2DC, in the same shape as +0x2D8: `cmp byte ptr [esi+0x2E0], 0` gates the recompute at 0x4D8C92, the helper clears it at 0x4D8FBB, and CUnit::CheckOrderAndCombat sets it at 0x1BA31A. **Never initialised** (FINDINGS-liveread.md, section 46, live 2026-11-11): CUnit::CUnit does not write it and no load does, so after a load it holds whatever the allocator left - a junk byte or junk float in most units, zero in some - until the unit's first hour.",
+      "evidence": "Logged at 0x4D8C92 on the running game entering Ireland1941_07_16_07: 36 units junk, 17 zero, the split different between runs; CheckOrderAndCombat not called during the load; CUnit::CUnit disassembled to its ret with no store to +0x2D4..+0x2E0; the image scanned for byte, dword, SIB and vector stores to the four offsets. Shown wrong by a store to these fields on the load path.",
+      "source": "reversing/findings/FINDINGS-liveread.md",
+      "revises": "comment"
+    }
+  ],
+  "vftable_slots": {},
+  "frontier": [],
+  "slots_noted": {}
+}
