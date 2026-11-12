@@ -338,9 +338,11 @@ which confirms the record's "unit slot 15 is the land predicate" from the vftabl
 ```
 d = CUnit_GetPendingDestinationProvince(u)                   ; 0x89B010
 if (d == p)  alreadyComing += u
-if (d && IsEnemy(country, d->controller))        skip u      ; committed elsewhere
-if (u->+0x2C9 != 0)                              skip u
-if (topmost agent above u != agent)              skip u      ; walk +0x1E0 for +0x198
+if (d) {                                         ; FINDINGS-liveread.md, section 58: all three only with d
+    if (IsEnemy(country, d->controller))         skip u      ; committed elsewhere
+    if (u->+0x2C9 != 0)                          skip u
+    if (nearest agent above u != agent)          skip u      ; walk +0x1E0 for +0x198
+}
 if (!mayAttack)                                  skip u
 if (u is in an attacking combat /* 0x5C0160 */ && (d || sharedBoundary < 2
       || u->current_province not in agent->+0x1CC))  skip u
@@ -364,7 +366,7 @@ if (topmost agent above u != agent)      score /= 10.0         [0x160A340]
 else if (UnitHasBlockingOrder(u))        score /= 5.0          [0x160A508 = 5]
 u->+0x2B8 = score            (float)                           ; 0x8D714A
 u->+0x2BC = (float)uncovered                                   ; 0x8D715A
-insert u into the candidate list, descending by +0x2B8          ; 0x549CE0 CList_InsertBefore
+insert u into the candidate list, ascending by +0x2B8 (before the first greater; section 58)  ; 0x549CE0 CList_InsertBefore
 ```
 
 **`CUnit +0x2B8` and `+0x2BC` are two floats this function writes and nothing in the record
