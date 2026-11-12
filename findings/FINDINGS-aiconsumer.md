@@ -408,7 +408,7 @@ for (u in candidates, best first) {                            ; 0x8D7404
         if (org < LandUnitOrganisationThresholdForStance(effStance)) skip  ; 0x8C0520: 0.75/0.6/0.5
     }
     mustStay = true
-    if (u->+0x2BC > 0 && u's province has a supply depot) {
+    if (u->+0x2BC > 0 && u's province draws on a supply depot (+0x48 != 0)) {   ; FINDINGS-liveread.md, section 54
         mustStay = some other friendly land unit w in u's province can take over
                    (not in combat, not already committed, w->slot9()->+0x2FC != 0,
                     CUnit_GetPendingDestinationProvince(w) == 0, !agent->slot86(w))
