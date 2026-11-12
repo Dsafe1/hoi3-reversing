@@ -199,7 +199,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CGameState` | `CPersistent` |  | 74 | 14/33 | 15 |  |  | read |  |
 | `CGoodsPool` | `CPersistent` |  | 8 | 7/7 | 6 | CGoodsPool.hpp | 132,054 | read |  |
 | `CGraphStatistics` | `CPersistent` |  |  |  | 2 |  | 3 | keys |  |
-| `CGraphics` | `CFactory` `CPersistent` |  | 18 |  | 3 |  |  | read |  |
+| `CGraphics` | `CFactory` `CPersistent` |  | 29 |  | 4 |  |  | read |  |
 | `CGroundAttackOrder` | `CAirOrder` |  |  |  | 6 |  | 6 | RTTI |  |
 | `CGroundBombing` | `CBombing` |  |  | 4/6 | 3 |  |  | RTTI |  |
 | `CGroundTargetCombatant` | `CBombTargetCombatant` |  |  | 4/6 | 1 |  | 1 | RTTI |  |
@@ -352,7 +352,7 @@ Definitions out of `common/` and the rest of the mod. Their `LoadKey` is the gra
 | `CEU3Application` | `CApplication` |  | 4 |  | 8 |  | 2 | keys | plumbing: the settings file |
 | `CEU3BitmapFont` | `CBitmapFont` |  | 2 | 1/6 | 10 |  | 126 | placed |  |
 | `CEU3DialogGuiType` | `CWindowType` |  |  | 1/1 | 1 |  | 30 | placed |  |
-| `CEU3Graphics` | `CGraphics` |  |  |  | 3 |  | 2 | keys |  |
+| `CEU3Graphics` | `CGraphics` |  |  |  | 5 |  | 2 | keys |  |
 | `CEU3Gui` | `CGui` |  |  |  | 2 |  | 3 | RTTI |  |
 | `CEU3SoundConfigurator` | `CSoundConfigurator` |  |  |  | 1 |  |  | keys | plumbing |
 | `CFactionModifier` | `CModifier` |  |  | 1/2 |  |  | 4 | RTTI |  |
@@ -393,7 +393,7 @@ Definitions out of `common/` and the rest of the mod. Their `LoadKey` is the gra
 | `CScenario` | `CPersistent` |  |  | 12/21 | 1 |  |  | placed | **read**: a scenario - selectable countries, camera, victory conditions |
 | `CSelectionGroupReader` | `CPersistent` |  |  |  | 1 |  |  | keys | plumbing |
 | `CSessionConfiguration` | `CPersistent` |  |  | 5/7 | 1 |  | 3 | placed |  |
-| `CSong` | `CPersistent` |  |  |  | 1 |  | 91 | keys |  |
+| `CSong` | `CPersistent` | 0x40 | 2 |  | 1 |  | 91 | keys |  |
 | `CStaticModifier` | `CModifier` | 0x48 | 1 | 1/2 | 2 |  | 31,318 | part |  |
 | `CStrategicResource` | `CModifier` | 0x50 | 3 | 1/2 |  |  | 337 | part |  |
 | `CSubUnitAmphibiousMult` | `CPersistent` |  |  |  | 1 |  | 60,489 | keys |  |
@@ -526,7 +526,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CEspionageView` | `CCountryView` | 0x37C | 27 |  | 55 |  | 1 | read |  |
 | `CFactory` |  |  |  |  |  |  |  | RTTI |  |
 | `CForeignMinisterItem` | `CStandardlistboxItem` | 0x38 | 4 |  | 1 |  |  | part |  |
-| `CFrontEnd` | `CEU3Idler` `CReloadDispatcher` |  | 21 |  | 18 |  |  | read |  |
+| `CFrontEnd` | `CEU3Idler` `CReloadDispatcher` |  | 22 |  | 18 |  |  | read |  |
 | `CFrontEndState` | `CFrontEndView` | 0x274 | 1 |  | 14 |  |  | part |  |
 | `CFrontEndView` |  |  | 1 |  | 2 |  | 2 | part |  |
 | `CFrontendSettingsScreen` | `CSettingsScreen` `CFrontEndView` | 0x3E8 | 1 |  | 3 |  |  | part |  |
@@ -543,7 +543,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CICCostComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CIcon` | `CButton` |  |  |  | 4 |  |  | RTTI |  |
 | `CIdler` |  |  |  |  |  |  |  | RTTI |  |
-| `CInGameIdler` | `CEU3Idler` `CLostDeviceInterface` `CReloadDispatcher` |  | 127 |  | 113 | CInGameIdler.hpp | 3 | read |  |
+| `CInGameIdler` | `CEU3Idler` `CLostDeviceInterface` `CReloadDispatcher` |  | 129 |  | 115 | CInGameIdler.hpp | 3 | read |  |
 | `CIngameSettingsScreen` | `CSettingsScreen` | 0x3E0 | 1 |  | 2 |  | 1 | part |  |
 | `CLandOrdersView` | `COrdersView` | 0x198 | 10 |  | 10 |  |  | read |  |
 | `CLawEntry` | `CStandardlistboxItem` | 0x88 | 4 |  | 3 |  | 16 | part |  |

@@ -1,0 +1,212 @@
+{
+ "agent": "loading-screen reader (subagent, 2026-11-11)",
+ "question": "How the original's loading screen looks and when it shows: which picture, where the progress text goes and in what font, which keys are shown in which order at startup and on entering a game, and what else is drawn.",
+ "source": "reversing/findings/FINDINGS-loadingscreen.md",
+ "addresses": [
+  {
+   "rva": "0x440E90",
+   "kind": "function",
+   "name": "CGraphics::DrawLoadingText",
+   "signature": "void __thiscall CGraphics::DrawLoadingText(CGraphics* this, Hoi3CString* text, bool fullFrame, bool nextPicture)",
+   "no_signature": null,
+   "revises": "the two flags and the drawing are now read: flag1 is whether a whole loading frame is drawn and presented, flag2 whether the slideshow advances; confidence raised to confirmed",
+   "comment": "**The loading screen, and the one routine every progress line goes through.** Does nothing unless CGraphics::IsDeviceReady answers true and the text background (+0x6BDC4, gfx/load_textbg.dds) loaded. Logs `Load text  <text>` (eu3graphics.cpp:250) on every call. Finds the font `Loading_Font` once - the `fonts` registry (+0x88) first, then `bitmapfonts` (+0x94) - and keeps it at +0x6BDA0. **fullFrame false**: only draws `text` with the font's slot 8 (format 2 centre, orientation 4 CENTER, every box figure 0), which a TrueType font turns into a box of the whole screen centred both ways - the in-game AUTOSAVING / SCREENSHOT_TAKEN / MAP_SAVED lines and the front end's SCREENSHOT_TAKEN, drawn into a frame the caller is rendering. **fullFrame true**: where nextPicture, the picture index (+0x6BDC8) goes up by one, **clamped** at the last picture (no wrap), and +0x6BDCC is zeroed (written, never read). World and view identity, projection D3DXMatrixOrthoLH(width, height, 0, 1); BeginScene; Clear(target, z, stencil) to **opaque black 0xFF000000**. If any picture loaded: the index is moved forward past null slots, **wrapping to 0**, at most one pass; that texture is drawn as a triangle fan with linear magnification over **a square centred on the screen whose half side is screen_width / 2 in both x and y** (two function statics, 0x1BEBBC4 and 0x1BEBBC0, both made from +0x6B9BC on the first call and never again), u 0..1 left to right, v 0 at the top, z 0.5 - so on a landscape screen the picture fills the width and is cut equally top and bottom. Then projection D3DXMatrixOrthoOffCenterLH(0, width, 0, height, 0, 1) - pixels, y up from the bottom edge - alpha blending on (SRCALPHA, INVSRCALPHA), colour and alpha MODULATE, and gfx/load_textbg.dds drawn over **x from width/2 - 300 to width/2 + 300, y from 4 to 108 above the bottom edge** (600 x 104, the file's own size). Colour op set to SELECTARG2. Then the text through the font's slot 8: (text, format 2, orientation 4, x 0, y height - 108, maxWidth width, maxHeight 100, border 0, 0, area {1, 1}) - for the TrueType Loading_Font a box from (0, height - 108) to (width, height - 8) in top-down pixels, drawn DT_CENTER | DT_VCENTER | DT_WORDBREAK | DT_NOCLIP. EndScene; +0x6BC8C counts the frame; Present(0,0,0,0) where device_ready (+0x6BCA0), and D3DERR_DEVICELOST (0x88760868) from it clears device_ready. **Each call is one whole synchronous frame: a line replaces the last, nothing animates between calls, and there is no bar or percentage.** `ret 0xC`; in no virtual table. The name is ours. See reversing/findings/FINDINGS-loadingscreen.md.",
+   "confidence": "confirmed",
+   "evidence": "Decoded 0x840E90..0x841723 whole. 0x840EB7 call 0xA759D0, test al, je 0x841723; 0x840EC6 cmp [esi+0x6BDC4],ebx, je. 0x840F19 push 'Load text  ', 0x840EF8 push 0xFA (line 250), push 3. 0x840FA3 'Loading_Font', 0x840FC6 lea eax,[esi+0x88] call 0xA77F90, then [esi+0x94]; 0x840FFB mov [esi+0x6BDA0],eax. 0x841014 cmp [ebp+0xC],bl je 0x8416D1 (fullFrame); 0x84101D cmp [ebp+0x10],bl je (nextPicture): inc [esi+0x6BDC8], mov [esi+0x6BDCC],ebx, clamp to (end-begin)/4-1 at 0x841045. SetTransform (slot 0xB0) 0x100 and 2 with the identity built at esp+0x38 (zeros, 1.0 = [0x171DBAC] on the diagonal), D3DXMatrixOrthoLH (import 0xD2B420) with [esi+0x6B9BC], [esi+0x6B9C0], 0, 1.0, SetTransform 3; BeginScene (slot 0xA4); Clear (slot 0xAC) push 0, 1.0, 0xFF000000, 7, 0, 0. 0x841190 and 0x8411C2: **both** statics read [esi+0x6B9BC], sar 1, cvtsi2ss, guarded by bits 1 and 2 of 0x1BEBBC8. Vertices at esp+0xC8 stride 0x14: (-hx,-hy,0.5,0,1) (+hx,-hy,0.5,1,1) (+hx,+hy,0.5,1,0) (-hx,+hy,0.5,0,0); 0x8412D6 test eax,0xFFFFFFFC skips the picture when no texture slot; skip loop 0x841310..0x84135F (null test, inc, wrap to 0 at 0x841337); SetTexture (0x104) stage 0, SetSamplerState (0x114) 0,5,2; SetFVF (0x164) 0x102; DrawPrimitiveUP (0x14C) 6, 2, verts, 0x14. 0x841411 D3DXMatrixOrthoOffCenterLH (0xD2B430) args 0, w, 0, h, 0, 1.0. 0x84142F: c = w/2 (cdq/sub/sar), c - 300.0 and c + 300.0 (double 0x160A7E8 = 300.0), y 4.0 ([0x171DF34]) and 108.0 ([0x160A8C0]), z 0.5 ([0x15AB304]), uv (0,1)(1,1)(1,0)(0,0). SetRenderState (0xE4) 0x1B,1 / 0x13,5 / 0x14,6; SetTextureStageState (0x10C) 0,1,4 and 0,4,4; texture [esi+0x6BDC4]; draw; TSS 0,1,3 and 0,4,4. 0x841607: [esp+0x10] = h - 0x6C, 0x64, area {1,1} at esp+0x28, rect (0, h-108, w, 100), push 4, push 2, push text, call [[font]+0x20]. EndScene (0xA8), inc [esi+0x6BC8C], cmp [esi+0x6BCA0],0, Present (0x44) with four zeros, cmp eax,0x88760868, mov [esi+0x6BCA0],0. Else arm 0x8416D1: all-zero box and area, push 4, push 2, text. Would be wrong if the D3D9 slot numbers were misassigned: 0x44/4 = 17 Present, 0xA4 BeginScene, 0xA8 EndScene, 0xAC Clear, 0xB0 SetTransform, 0xE4 SetRenderState, 0x104 SetTexture, 0x10C SetTextureStageState, 0x114 SetSamplerState, 0x14C DrawPrimitiveUP, 0x164 SetFVF - the standard IDirect3DDevice9 order."
+  },
+  {
+   "rva": "0x440C70",
+   "kind": "function",
+   "name": "CEU3Graphics::LoadLoadingScreens",
+   "signature": "void __stdcall CEU3Graphics::LoadLoadingScreens(CEU3Graphics* graphics)",
+   "no_signature": null,
+   "comment": "**Loads the loading screen's pictures and its text background, once, as the graphics are made** - one caller, the last act of CEU3Graphics::CEU3Graphics (0x840744). ListFilesWithExtensionSorted(graphics +0x6BDA4, \"gfx/loadingscreens\", \"dds\", newestFirst false): every file of that folder ending `dds` over the whole PhysFS search path, **in the listing's own order and not sorted by date** - so the install's gfx/, tfh/gfx/ and a mod's folders together, a name in two of them once (PhysFS semantics, not read here). The texture vector (+0x6BDB4) is resized to the count with nulls, then each `gfx/loadingscreens/<name>` is loaded with LoadTextureFromFile on the device (+0x64) and **stored only when it loaded, packed from slot 0** - a failure leaves a null at the end, not a gap. Last, gfx/load_textbg.dds into +0x6BDC4; without it CGraphics::DrawLoadingText draws nothing at all. **No random choice anywhere**: the constructor zeroes the picture index (+0x6BDC8) just before this call. `ret 4`. The name is ours. See reversing/findings/FINDINGS-loadingscreen.md.",
+   "confidence": "confirmed",
+   "evidence": "0x840CAC push 'dds' len 3, 0x840CD7 push 'gfx/loadingscreens' len 0x12, lea edi,[esi+0x6BDA4], push 0 (newestFirst), call 0x63AA10 (ListFilesWithExtensionSorted); (end-begin)/0x1C by the 0x92492493 multiply, push, add esi,0x6BDB4, call 0x84AFB0; loop 0x840D23..0x840DB8 stride 0x1C: 'gfx/loadingscreens/' + name (0xA5B150), call 0x63AB50 with ecx = c_str and push [graphics+0x64]; test esi,esi je; mov [eax+ecx],esi at a running offset +4 (0x840DAB). 0x840DC4 mov ecx,'gfx/load_textbg.dds', call 0x63AB50, mov [esi+0x6BDC4],eax; ret 4 at 0x840DE8. Constructor 0x84072C mov [esi+0x6BDC8],eax with eax zeroed at 0x8406A7; 0x840744 the only call (findRefs --callers: one). Would be wrong if ListFilesWithExtension sorted or randomised its output - it is PHYSFS_enumerateFiles filtered (record entry 0x66BCB0)."
+  },
+  {
+   "rva": "0x440DF0",
+   "kind": "function",
+   "name": "CEU3Graphics::ReleaseLoadingScreensButFirst",
+   "signature": "void __fastcall CEU3Graphics::ReleaseLoadingScreensButFirst(CEU3Graphics* this@ESI)",
+   "no_signature": null,
+   "comment": "**Throws away every loading picture but the first.** For slots 1 to count-1 of the texture vector (+0x6BDB4): Release (slot 2) where not null, and null the slot; slot 0 is kept. One caller, CFrontEnd::Enter at 0x6EFFD7 - after InitialiseGraphicalMap - with ESI = the graphics off CFrontEnd +0x20C, so it runs on every entry to the front end. **Nothing ever loads them again** (LoadLoadingScreens has one caller, the graphics constructor), so after the first main menu every loading screen - entering a game, returning to the menu - shows slot 0, the folder listing's first file, load_1.dds in the install: DrawLoadingText's skip-null walk wraps to it. Bare `ret`. The name is ours. See reversing/findings/FINDINGS-loadingscreen.md.",
+   "confidence": "confirmed",
+   "evidence": "0x840DF0..0x840E6B: count from [esi+0x6BDA8]-[esi+0x6BDA4] / 0x1C (multiply 0x92492493, sar 4), edi = 1, loop: [ecx+edi*4] null test, call [[eax]+8], mov [ecx+edi*4],0; bare ret. findRefs --callers: one, 0x6EFFD7, preceded by `mov esi,[edi+0x20C]` at 0x6EFFD1; CFrontEnd +0x20C is the graphics (DrawLoadingText's call at 0x6EF13F takes ecx from the same field). LoadLoadingScreens: one caller (findRefs). Would be wrong if another writer of +0x6BDB4's elements existed: displacement scan for 0x6BDB4 finds only the constructor, the destructor (0x8407D5, 0x8407E8, the unwind at 0xC3C748), LoadLoadingScreens, this, and DrawLoadingText."
+  },
+  {
+   "rva": "0x6759D0",
+   "kind": "function",
+   "name": "CGraphics::IsDeviceReady",
+   "signature": "bool __stdcall CGraphics::IsDeviceReady(CGraphics* graphics)",
+   "no_signature": null,
+   "comment": "**Whether the Direct3D device may be drawn to now.** TestCooperativeLevel (device slot 3): D3D_OK sets device_ready (+0x6BCA0) to 1 and answers it. Otherwise, where device_ready was set: Sleep(1000), clear it and answer false. D3DERR_DEVICENOTRESET (0x88760869) logs `Used video memory before alt tab: ` (graphics.cpp:3435) and goes on to reset the device (not read). CGraphics::DrawLoadingText asks it before drawing anything. Likely - the reset arm was not read. `ret 4`. The name is ours. See reversing/findings/FINDINGS-loadingscreen.md.",
+   "confidence": "inferred",
+   "evidence": "0xA759F2 mov eax,[ebx+0x64], call [[eax]+0xC] (slot 3), test; 0xA75A05 mov byte [ebx+0x6BCA0],1; 0xA75A0C mov al,[ebx+0x6BCA0]; ret 4 at 0xA75A22. 0xA75A25 cmp byte [ebx+0x6BCA0],0, push 0x3E8, call [0xD2B0FC] (Sleep), clear. 0xA75A42 cmp eax,0x88760869, 0xA75A92 'Used video memory before alt tab: ', push 0xD6B (line 3435). DrawLoadingText's push esi; call 0xA759D0 at 0x840EB6. Would be wrong if slot 3 of the device were not TestCooperativeLevel (it is, in the IDirect3DDevice9 order)."
+  },
+  {
+   "rva": "0x23AB50",
+   "kind": "function",
+   "name": "LoadTextureFromFile",
+   "signature": "void* __cdecl LoadTextureFromFile(char* path@ECX, void* device@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "Opens `path` through the game's virtual file (VirtualFile_Open, so over the PhysFS search path), reads it whole (PHYSFS_fileLength, 0xA6C880) and hands the bytes to D3DXCreateTextureFromFileInMemory on `device` - default size, mips and format, so a 1024 x 1024 DDS stays 1024 x 1024. On failure logs the D3DX error text (eu3application.cpp) and answers null; a missing or empty file answers null. Callers: CEU3Graphics::LoadLoadingScreens (each picture and gfx/load_textbg.dds). The caller drops the device argument (`add esp,4`). The name is ours. See reversing/findings/FINDINGS-loadingscreen.md.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled: strlen of ECX, VirtualFile_Open, PHYSFS_fileLength, read 0xA6C880, PHYSFS_close, D3DXCreateTextureFromFileInMemory, `iVar4 < 0` logs the error string; bare ret at 0x63ADBF. Call sites 0x840D5F (mov ecx,eax; push [graphics+0x64]; call; add esp,4) and 0x840DC9 (mov ecx,'gfx/load_textbg.dds'). Would be wrong if the function took more stack arguments: both callers clean exactly 4 bytes."
+  },
+  {
+   "rva": "0x456AB0",
+   "kind": "function",
+   "name": "CProvinceManager_CreateProvinceObjects",
+   "signature": "void __stdcall CProvinceManager_CreateProvinceObjects(WaterObject* mgr)",
+   "no_signature": null,
+   "comment": "**The CREATING_PROVINCE stage**: shows CREATING_PROVINCE (\"Creating Province #\") **once**, through DrawLoadingText(text, true, false) - nothing is appended or replaced, so the `#` stays on screen as written - and then, for every province id from 1 below the map's count (map +0x21FC), sets the province template's stack points and makes its pick object: a CProvinceObject for a land province with a non-zero bounding box, a CProvinceWaterObject for a sea one, each shown, and a ProvinceGraphics for it appended to the manager's vector (+0x2C/+0x30). One caller, CProvinceManager_CreateWorld at 0x85363D, between its 'Creating province collision data.' and 'Finished creating province collision data.' log lines - after the beach manager and **before** CREATING_BORDERS. `ret 4`. The name is ours. See reversing/findings/FINDINGS-loadingscreen.md.",
+   "confidence": "confirmed",
+   "evidence": "0x856AD8 push 'CREATING_PROVINCE', GetText, GetGameSettings, CInternationalizedText::Render, then 0x856B78 push ebx (ebx zeroed at 0x856AD6), push 1, call 0x840E90 at 0x856B90 - once, before the loop. Loop counter from 1 to [[mgr+0x40]+0x21FC]; CProvinceTemplate::SetStackPoints, is_land test, CProvinceObject::CProvinceObject / CProvinceWaterObject::CProvinceWaterObject, ProvinceGraphics_Construct. ret 4 at 0x856DDE. findRefs --callers: one, 0x85363D. Would be wrong if a second DrawLoadingText call sat inside the loop: the function's only call to 0x840E90 is 0x856B90 (the 30-caller list)."
+  },
+  {
+   "rva": "0x71D620",
+   "kind": "function",
+   "name": "TrueTypeFont_DrawText",
+   "signature": "void __fastcall TrueTypeFont_DrawText(void* font@ECX, Hoi3CString* text@stack:4, int format@stack:8, int orientation@stack:0xC, int x@stack:0x10, int y@stack:0x14, int maxWidth@stack:0x18, int maxHeight@stack:0x1C, int borderX@stack:0x20, int borderY@stack:0x24, int* areaSize@stack:0x28)",
+   "no_signature": null,
+   "comment": "**Slot 8 of the font a `font = { }` block of a .gfx makes** (table VA 0x1606118, no RTTI) - the same argument list as CEU3BitmapFont::DrawText, drawn instead with D3DX. Where areaSize is {0, 0} it becomes the screen's size. x and y are moved by the world transform's translation (GetTransform(WORLD)). Where maxWidth is 0 the box is the whole of (0, 0, screen width, area height); otherwise by orientation: 0 (UPPER_LEFT) left = x + borderX, right = x + maxWidth - borderX, top = y + borderY, bottom = y + maxHeight - borderY; 2 the same from area height + y; 4 (CENTER) the same plus half the area's width and height (integer division). Format 0 is DT_WORDBREAK | DT_NOCLIP (0x110), 1 adds DT_RIGHT (0x112), 2 adds DT_CENTER (0x111) and, with orientation 4, DT_VCENTER too (0x115). Drawn as ID3DXFont::DrawTextA (slot 14 of the font at +0x30) between Begin(ALPHABLEND | SORT_TEXTURE) and End of the shared sprite 0x1A858AC, in the colour at +0x70. CGraphics::DrawLoadingText's Loading_Font is one. **No colour escapes** - those are the bitmap font's. `ret 0x28`. The name is ours. See reversing/findings/FINDINGS-loadingscreen.md.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled 0xB1D620: area {0,0} replaced from [[this+0x2C]+0x6B9BC/0x6B9C0]; GetTransform (device slot 0xB4) 0x100; maxWidth == 0 arm; orientation 0/2/4 arms; format table 0x110/0x112/0x111/0x115; [0x1A858AC] slot 0x20 (Begin) with 0x30, [[font+0x30]]+0x38 (DrawTextA) with (sprite, text, length, rect, flags, [font+0x70]), sprite slot 0x2C (End). First ret at 0xB1D832 is `ret 0x28`. Slot 8 of the table 0x1606118 written by TrueTypeFont_Construct. Would be wrong if the fonts registry held another class: CGraphics' object factory (0xA70550) makes token 29 `font` by TrueTypeFont_Construct (jump table 0xA70A5C index 0 -> 0xA7072C)."
+  },
+  {
+   "rva": "0x71B660",
+   "kind": "function",
+   "name": "TrueTypeFont_CreateDeviceFont",
+   "signature": "void __fastcall TrueTypeFont_CreateDeviceFont(void* font@ECX)",
+   "no_signature": null,
+   "comment": "Slot 5 of the TrueType font's table (VA 0x1606118): D3DXCreateFontIndirectA on the font's device (+0x28) into +0x30 with **Height = the `height` key (+0x50), Width 0, Weight 500, no italics, OutputPrecision 7 (OUT_TT_ONLY_PRECIS), Quality 4 (ANTIALIASED_QUALITY), face = the `fontname` key (+0x34)**, and the character set **EASTEUROPE (0xEE) where the game language (GameSettings +0x6C) is 4, l_polish, ANSI (0) otherwise** - whether the file's `charset` key is read anywhere was not checked. Makes the shared sprite 0x1A858AC with D3DXCreateSprite on first use. Bare `ret`. The name is ours. See reversing/findings/FINDINGS-loadingscreen.md.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled: memset 0x38, desc.Height = [ecx+0x50], Weight 500, word 0x407 at desc+0x15, FaceName copied from the string at +0x34; `local_2c = (lang != 4) - 1 & 0xEE` with lang = [[[0x174DAA8]+0xEC]+0x6C], read at 0xB1B6E6 `cmp [esp+8],4`; D3DXCreateFontIndirectA(+0x28, &desc, +0x30); D3DXCreateSprite into 0x1A858AC when null. First ret 0xB1B737, bare. Slot 5 of table 0x1606118 (read from .rdata). Would be wrong if +0x50 were not the height: core.gfx's Loading_Font says height = 32 and the key-to-offset mapping was not read (inferred from the D3DX field it is copied into)."
+  },
+  {
+   "rva": "0x71B360",
+   "kind": "function",
+   "name": "TrueTypeFont_Construct",
+   "signature": "void* __stdcall TrueTypeFont_Construct(void* this@EAX, CGraphics* graphics@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "**Makes the object a `font = { }` block of a .gfx file becomes** - 0xB8 bytes, newed by CGraphics' object factory (0xA70550) for token 29 `font` and filed in the graphics' `fonts` registry (+0x88). Writes the table VA 0x1606118 (no RTTI: neither CFont nor any subclass but CEU3BitmapFont has a table in the export), the graphics at +0x2C, empty strings, colour +0x70 = 0xFFFFFFFF, and four floats of 1.0 at +0x7C..+0x88. `ret 4`. The name is ours. See reversing/findings/FINDINGS-loadingscreen.md.",
+   "confidence": "confirmed",
+   "evidence": "0xB1B386 mov [eax],0x1606118; 0xB1B390 mov [eax+0x2C],edi with edi = [ebp+8]; 0xB1B3A8 mov [eax+0x70],-1; first ret 0xB1B432 `ret 4`. Called at 0xA70742 after push 0xB8; operator new at 0xA7072C, the jump-table target for token 29 (0x1D - 0x1D = index 0 in the byte table 0xA70A9C, target 0xA7072C in 0xA70A5C); saveTokens.json token 29 is `font`. CEU3Graphics' factory slot 2 (0x8408E0) sends unknown tokens to 0xA70550 at 0x840B2B. Would be wrong if 0x1606118 had an RTTI locator: the dword before it is 0."
+  },
+  {
+   "rva": "0x6563E0",
+   "kind": "function",
+   "name": "RunBinkMovie",
+   "signature": "void __cdecl RunBinkMovie(char* commandLine)",
+   "no_signature": null,
+   "comment": "**Plays an intro movie by running the external player and waiting for it**: CreateProcessA(\"movies/binkplay.exe\", commandLine, ...) and then GetExitCodeProcess every 2000 ms (Sleep) while it answers STILL_ACTIVE (0x103). Called twice in a row at the start of the game, after the user folder is mounted - `movies\\binkplay.exe movies\\paradox.bik /C /I2 /R /D508 /B2` (0xA5733B) and `movies\\binkplay.exe movies\\game_intro.bik /C /I2 /R /D509 /B2` (0xA57345) - in the function that holds main's log sites, before the application is made. **Not part of the loading screen**: the game's own window draws nothing until these have exited. Whether anything can skip them was not looked for. Bare `ret`. The name is ours. See reversing/findings/FINDINGS-loadingscreen.md.",
+   "confidence": "confirmed",
+   "evidence": "0xA56414 push 'movies/binkplay.exe', call [0xD2B25C] (CreateProcessA, from the import table); loop 0xA56440: call edi = [0xD2B130] (GetExitCodeProcess), cmp [ebp-4],0x103, push 0x7D0, call esi = [0xD2B0FC] (Sleep); bare ret 0xA56465. Callers 0xA5733B and 0xA57345 push the two command lines; nothing between 0xA57336 and 0xA57345 branches. Would be wrong if an earlier branch skipped 0xA57336: not traced beyond 0xA572B1."
+  },
+  {
+   "rva": "0x17EBBC4",
+   "kind": "global",
+   "name": "g_LoadingPictureHalfWidth",
+   "signature": null,
+   "no_signature": null,
+   "comment": "A function static of CGraphics::DrawLoadingText: half the side of the square the loading picture is drawn on, along x - (float)(screen_width / 2), made on the first call (guard bit 1 of 0x1BEBBC8) and never again. Its sibling 0x1BEBBC0 (guard bit 2) is the half side along y and is made from **the width as well**, which is what makes the picture a square cut top and bottom on a landscape screen. See reversing/findings/FINDINGS-loadingscreen.md.",
+   "confidence": "confirmed",
+   "evidence": "0x841185 mov ecx,[0x1BEBBC8]; test cl,1; mov eax,[esi+0x6B9BC]; cdq; sub; sar 1; cvtsi2ss; or ecx,1; movss [0x1BEBBC4]. Would be wrong if +0x6B9BC were the height: D3DXMatrixOrthoLH at 0x841127 takes [esi+0x6B9BC] as its width argument and the record has it as screen_width, confirmed live at 1920."
+  },
+  {
+   "rva": "0x17EBBC0",
+   "kind": "global",
+   "name": "g_LoadingPictureHalfHeight",
+   "signature": null,
+   "no_signature": null,
+   "comment": "A function static of CGraphics::DrawLoadingText: the loading picture's half extent along y - **made from screen_width / 2, not the height** (guard bit 2 of 0x1BEBBC8), on the first call only. So the picture is a width x width square centred on the screen. See reversing/findings/FINDINGS-loadingscreen.md.",
+   "confidence": "confirmed",
+   "evidence": "0x8411BD test cl,2; 0x8411C2 mov eax,[esi+0x6B9BC] (the same displacement as for the x half), cdq; sub; sar 1; cvtsi2ss; or ecx,2; movss [0x1BEBBC0]. Would be wrong if the second read were +0x6B9C0: the bytes are `8b 86 bc b9 06 00` at both 0x841190 and 0x8411C2."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CGraphics",
+   "offset": "0x6BCA0",
+   "name": "device_ready",
+   "type": "bool",
+   "comment": "Set to 1 by CGraphics::IsDeviceReady when TestCooperativeLevel answers D3D_OK, cleared when the device is lost (there, and when a Present answers D3DERR_DEVICELOST - CGraphics::DrawLoadingText, the frame Present at VA 0xA73B80). A Present is made only while it is set. Read by 25 sites across the screens.",
+   "evidence": "Writers 0xA75A05/0xA7599F/0xA75C3A (1), 0xA75A39, 0x8416B3, 0xA73BAD, 0x608E42, 0x69EC84 (0); 0x841688 cmp before Present at 0x8416A6. Would be wrong if it guarded something other than presenting: every read site seen is next to a Present or a draw."
+  },
+  {
+   "struct": "CGraphics",
+   "offset": "0x6BC8C",
+   "name": "frames_presented",
+   "type": "int",
+   "comment": "Counts presented frames: incremented by the frame Present (VA 0xA73B80), by CGraphics::DrawLoadingText after its EndScene, and at 0x608E1A and 0x69EC57; zeroed by the CGraphics constructor (0xA6DE74). Likely - the reader at 0xB049A5 was not read.",
+   "evidence": "Displacement scan 0x6BC8C: inc at 0x608E1A, 0x69EC57, 0x841682, 0xA73B80; mov 0 at 0xA6DE74; read at 0xB049A5. Would be wrong if one of the inc sites did not present."
+  },
+  {
+   "struct": "CGraphics",
+   "offset": "0x6BDA0",
+   "name": "loading_font",
+   "type": "void*",
+   "comment": "The `Loading_Font` font, found by CGraphics::DrawLoadingText on its first call - in `fonts` (+0x88), else `bitmapfonts` (+0x94) - and kept. Zeroed by CEU3Graphics::CEU3Graphics. In the install a TrueType `font` (interface/core.gfx: Arial, height 32, colour 0xffffffff).",
+   "evidence": "0x840F99 cmp [esi+0x6BDA0],ebx jne; 0x840FFB mov [esi+0x6BDA0],eax after the two StringHashFind calls; 0x841654 and 0x8416D1 read it for the slot-8 call. Constructor 0x8406FD. Would be wrong if anything else wrote it: four other hits, all reads, in the displacement scan."
+  },
+  {
+   "struct": "CGraphics",
+   "offset": "0x6BDA4",
+   "name": "loading_screen_names",
+   "type": "Hoi3CString*",
+   "comment": "Begin of the vector of gfx/loadingscreens file names (0x1C each, end at +0x6BDA8, capacity end at +0x6BDAC), as ListFilesWithExtensionSorted gave them. Its count is what DrawLoadingText's skip-null walk and ReleaseLoadingScreensButFirst iterate by.",
+   "evidence": "0x840CB1 lea edi,[esi+0x6BDA4] handed to 0x63AA10 as `out`; (end-begin)/0x1C at 0x840CF2, 0x840DF6, 0x8412E7. Would be wrong if the element were not a 0x1C Hoi3CString: the loop at 0x840DB5 steps 0x1C and passes each to string concatenation."
+  },
+  {
+   "struct": "CGraphics",
+   "offset": "0x6BDA8",
+   "name": "loading_screen_names_end",
+   "type": "Hoi3CString*",
+   "comment": "End of loading_screen_names (+0x6BDA4).",
+   "evidence": "0x840DF0 mov ecx,[esi+0x6BDA8]; sub ecx,[esi+0x6BDA4]; the 0x92492493 division by 0x1C. Would be wrong if it were the capacity: the loop bound in LoadLoadingScreens (0x840D2B cmp ebx,[edi+4]) uses it as the end."
+  },
+  {
+   "struct": "CGraphics",
+   "offset": "0x6BDB4",
+   "name": "loading_screen_textures",
+   "type": "void**",
+   "comment": "Begin of the vector of loading picture textures (IDirect3DTexture9*; end at +0x6BDB8), one slot per file name, filled from slot 0 with those that loaded. ReleaseLoadingScreensButFirst nulls all but slot 0 on every front-end entry.",
+   "evidence": "Resized at 0x840D14 (call 0x84AFB0 on esi+0x6BDB4), written 0x840DAB, read 0x841316/0x84136D for SetTexture, released 0x840E37. Would be wrong if it held something other than textures: its element goes straight to SetTexture (device slot 0x104) at 0x84137E."
+  },
+  {
+   "struct": "CGraphics",
+   "offset": "0x6BDB8",
+   "name": "loading_screen_textures_end",
+   "type": "void**",
+   "comment": "End of loading_screen_textures (+0x6BDB4); (end - begin) / 4 is the picture count DrawLoadingText clamps and wraps by.",
+   "evidence": "0x84102E mov eax,[esi+0x6BDB8]; sub eax,[esi+0x6BDB4]; sar 2. Would be wrong if it were the capacity: the clamp at 0x841045 makes the index count - 1."
+  },
+  {
+   "struct": "CGraphics",
+   "offset": "0x6BDC4",
+   "name": "loading_text_background",
+   "type": "void*",
+   "comment": "The texture of gfx/load_textbg.dds, loaded by CEU3Graphics::LoadLoadingScreens. Drawn 600 x 104 under the progress line; **without it CGraphics::DrawLoadingText draws nothing**, overlay lines included.",
+   "evidence": "0x840DD6 mov [esi+0x6BDC4],eax after LoadTextureFromFile('gfx/load_textbg.dds'); 0x840EC6 cmp [esi+0x6BDC4],ebx je 0x841723 (the function's exit); 0x84158C SetTexture. Would be wrong if another writer existed: the constructor (0x84073E, zero) is the only other."
+  },
+  {
+   "struct": "CGraphics",
+   "offset": "0x6BDC8",
+   "name": "loading_screen_index",
+   "type": "int",
+   "comment": "Which loading picture is shown: 0 from the constructor, +1 (clamped at the last) for each DrawLoadingText call with nextPicture, then moved past null slots with a wrap to 0.",
+   "evidence": "Eight hits, all in the constructor (0x84072C, zero) and DrawLoadingText (0x841022 inc, 0x841046 clamp, 0x841322/0x841337 walk and wrap, 0x841361 read). Would be wrong if any other code moved it: the displacement scan finds no other."
+  },
+  {
+   "struct": "CGraphics",
+   "offset": "0x6BDCC",
+   "name": "loading_screen_unused",
+   "type": "int",
+   "comment": "Zeroed by the constructor and by every advance of the loading picture, and **read nowhere** - the displacement has two hits, both writes. Perhaps a per-picture counter that was never finished.",
+   "evidence": "0x840732 and 0x841028, both `mov [esi+0x6BDCC], reg`; no other instruction in .text carries 0x6BDCC as a displacement (raw value scan). Would be wrong if it were reached through a pointer to +0x6BDC8 plus 4: no such access was seen, but that shape is not something a displacement scan can see."
+  }
+ ],
+ "frontier": ["0x44AFB0", "0x6B8CD0", "0x4417E0", "0x670D80", "0x670C50", "0x30D3E0", "0x240600", "0x656470"],
+ "slots_noted": "TrueTypeFont_DrawText and TrueTypeFont_CreateDeviceFont are slots 8 and 5 of the table at VA 0x1606118, which has no RTTI locator and so no class to record vftable_slots under."
+}

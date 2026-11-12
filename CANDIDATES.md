@@ -1434,7 +1434,7 @@ of it.
 
 ## What has already been read
 
-222 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
+224 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
 header lives. This replaces the `Done` archive: the archive restated each file's headline and named
 only 40 of the 67 there were then, so it was both longer and less useful than a complete list.
 
@@ -1704,6 +1704,8 @@ the six it was missing were wave 15's.
 | `findings/FINDINGS-scriptgaps.md` | The script and AI-Lua gaps: the port counts, `surrender_inherit`, `create_alliance`, what an undeclared war does, the Lua answers and `load_oob` in a running game |
 | `findings/FINDINGS-nukes.md` | The nuclear bomb: where bombs come from, the order hour by hour, what a drop does, and how `province_event` fires |
 | `findings/FINDINGS-alerts.md` | The sixteen alerts: the three-second pass, each condition, tooltip and click, and how the row of icons closes up |
+| `findings/FINDINGS-music.md` | **the music (2026-11-11)**: a song changes only when a track ends; the pick is argmax of each song's `chance` - a mean time to happen in the played country's scope - times an unsynced roll of 5 to 9, the six last excluded; the title theme, the end-of-game tracks, `nextsong`, and the DirectShow player with its volume curve |
+| `findings/FINDINGS-loadingscreen.md` | **the loading screen (2026-11-11)**: one routine draws it - black, a picture on a square of the screen's width, `load_textbg.dds` 600 by 104 near the bottom, the line in `Loading_Font`; no random picture, seven lines step it, only `load_1` after the first menu; every line's key in order at startup and on entering a game, none on loading a save |
 
 ## A method worth reusing
 
