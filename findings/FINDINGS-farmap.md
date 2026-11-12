@@ -314,8 +314,8 @@ map style, the zoom and a scenario.
 
 ### B.5 Province names, near, for contrast
 
-Below camera height 100 [exe], in every map mode, every province - land and sea zones alike - at its `text_position` [mod: map/positions.txt], or the
-centre of its bounding box where it has none, shows its `PROV<id>` localisation in its own case, in `tahoma_60` [mod: interface/core.gfx], black in TFH
+Below camera height 100 [exe], in every map mode, every province - land and sea zones alike - at its `text_position` [mod: map/positions.txt], or 2
+map pixels south of the centre of its bounding box where it has none (`FINDINGS-provincenamepoint.md`), shows its `PROV<id>` localisation in its own case, in `tahoma_60` [mod: interface/core.gfx], black in TFH
 [mod: the atlas], standing on text_position, turned by text_rotation radians, at text_scale × 0.5, wrapped at 320 font
 pixels, fading in over 1.5 s [exe] whenever its tile comes into view. **Between heights 100 and 500 neither kind of name is
 drawn.** Section B.7 has all of it.
@@ -335,7 +335,7 @@ Frontier: 0x43F3E0, 0x43F530, 0x43F650, 0x43F6E0, 0x298D10, 0x240600, 0x46B620, 
 
 **In one line.** Below camera height 100, in every map mode and whatever the settings, every province - land and sea alike - shows its `PROV<id>` localisation [mod: localisation] in its
 own case, in the font called `tahoma_60` [mod: interface/core.gfx] at text_scale × 0.5, turned by text_rotation radians
-anticlockwise, standing on its text_position (the bounding box's centre where positions.txt gives none [mod]), wrapped at 320 font pixels [exe], fading in over 1.5 s [exe] each time its
+anticlockwise, standing on its text_position (the bounding box's centre less 2.0 in y, two map pixels south, where positions.txt gives none [mod; the 2.0 exe] - `FINDINGS-provincenamepoint.md`, 2026-11-12), wrapped at 320 font pixels [exe], fading in over 1.5 s [exe] each time its
 tile comes into view.
 
 **Corrections.** B.5's "the clock's unit not read": seconds. B.1's upper-casing is the country-name builder's, not the font's
@@ -369,8 +369,11 @@ sea zones too.
 
 **Defaults.** The template's constructor (CProvinceTemplate::CProvinceTemplate, 0xA92F8..0xA932A) starts text_position
 at (0, 0), text_rotation at 0 and text_scale at **1.0** (VA 0x171DBAC), and CMap::LoadPositionsFile reads text_rotation
-and text_scale with `%f` into +0x54/+0x58 - **but a province with no text_position has its name at the centre of its
-bounding box**, not at (0, 0): `FINDINGS-movement.md` has the text position fall back to the centre (its terrain is
+and text_scale with `%f` into +0x54/+0x58 - **but a province with no text_position has its name near the centre of its
+bounding box**, not at (0, 0). **Corrected 2026-11-12** (`FINDINGS-provincenamepoint.md`): CMap::ComputeProvinceGeometry
+(0x917A0), run before positions.txt is read, writes (centre x, centre y − 2.0) into +0x3C/+0x40, so the name stands **2.0
+map pixels south** of the centre - the maintainer's screenshot set beside OpenHOI3 measured 1.9 on seven such provinces.
+What follows was the evidence for the centre, which could not show a 2-pixel offset: `FINDINGS-movement.md` has the text position fall back to the centre (its terrain is
 counted around that point, and the rule reproduces every province's terrain), `FINDINGS-mapbuild.md` reads the template's
 neighbouring points filled with the centre as floats where the file gives none, and the maintainer's screenshot of the
 original (2026-11-07) names Stolp (1684), Belgard (1744) and Falkenburg (1803) - three provinces positions.txt gives no

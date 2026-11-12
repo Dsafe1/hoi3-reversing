@@ -1,0 +1,134 @@
+{
+ "agent": "camera zoom reader, 2026-11-12",
+ "question": "How the original's map camera zooms: what a wheel notch does to the height, whether and how it eases, towards the pointer or the centre, the limits, the keys, and what of it a file can change.",
+ "source": "reversing/findings/FINDINGS-camerazoom.md",
+ "addresses": [
+  {
+   "rva": "0x23C520",
+   "kind": "function",
+   "name": "UpdateMapCamera",
+   "signature": "void __stdcall UpdateMapCamera(MapCamera* camera@ESI, void* input@EDI, void* keyboard@stack:4, int mapWidth@stack:8, void* events@stack:0xC, float seconds@stack:0x10)",
+   "no_signature": null,
+   "comment": "**Moves the map camera, once a frame**, 0x23C520 to the `ret 0x10` at 0x23D344 (read whole 2026-11-12; there is an early `ret 0x10` at 0x23C561 where the graphics' device-ready byte +0x6BCA0 is clear). ESI the MapCamera (CInGameIdler +0x1938, CFrontEnd +0x3A8), EDI the mouse (CEU3Idler +0x64: slot 13 the middle button held, slot 19 the position, slot 21 the wheel), and on the stack: the keyboard (+0x1C), **the map's width** (the map graphics' +0x60D4, 5616, used only to wrap x), **the frame's input event list** (+0x1CB0; the arrow keys are acted on per key event and mark it handled) and the time since the last frame (CInGameIdler +0xA8C, the frame timer's difference; seconds inferred), capped at 0.2. Callers: CInGameIdler::Update (0x2566AE, only while the byte at (the global at VA 0x174DAA8)+0xF2 is set and +0x1CE0 is 0), 0x29D259, CFrontEnd::Update (0x2EE8E3).\n\nIn order: (1) where the settings' always_counters (+0xF9) differs from the camera's copy +0x365, the copy is updated and **height_wanted += float(float(wanted / 20) * 20) * 0.2**, held at or below the highest - the ZoomOut button's step; (2) the arrow-held byte +0x363; (3) **MapCamera_SetAim every frame**, so the lowest height is float +0x35C cut to an int each frame; (4) **zoom step s = float(height / 60 x 0.8) x zoom_speed / 100** (current height +0x348, settings +0x98) and **scroll step = min(seconds, 0.2) x scroll_speed / 100 x 12 x height / 40**; (5) **the wheel**, only where +0x354 is set (CInGameIdler_HandleInput sets it for a wheel event the interface did not handle) and +0x355 is clear: the sign of the mouse's slot 21 alone decides - its size is never used, so one step a frame however far the wheel turned. Positive (towards the map): **height_wanted -= s x 20 x 0.75**, held at or above the lowest (+0x34C). Negative: **height_wanted += s x 20 x 1.5**, held at or below the highest (+0x350). At zoom_speed 50 that is -10% and +20% of the current height. (6) With use_legacy_camera (settings +0x188) clear, where the wanted height after the clamp is still strictly inside the limit it moved toward and the pointer is more than 6 pixels inside all four edges (+0x324..+0x330): the ground point under the pointer m (CMap 0x92850, from the current camera; with +0x365 clear its z is lowered by (1 - (height - lowest) / (highest - lowest)) x CMap map_height (+0x2A78) x 0.02), f = clamp(1 - s x 20 / height, 0, 1), and **the look target (+0x334, +0x338) = (target - m) x f + m** - it moves toward m by s x 20 / height = (4/15) x zoom_speed / 100 of the distance, 0.133 at 50, **on a turn out as well as in**; that frame then skips the drag, the arrow keys, the edge scroll and the target's y clamp. +0x354 is cleared. (7) the middle-button drag (unless frozen, +0x356), the arrow keys (6 scroll steps), the four edge tests (12 scroll steps, rva 0x23CE97) and the target y held to [+0x320, +0x314]. (8) **Position ease**: where the eased pair (+0x33C, +0x340) differs from the target, with use_legacy_camera set it is copied at once; otherwise **eased += (target - eased) x 0.197** (the double at 0x120AA40), then x wrapped by the map width (target and eased, and the drag anchor +0x368 where a drag is on). (9) **Height ease**: where height (+0x348) != height_wanted (+0x344) - an exact float compare - with use_legacy_camera set height = wanted; otherwise **height += (wanted - height) x 0.197**, computed in double and stored as float; then the eye (+0x2E8) = (0, height, 0). **Neither ease reads the frame time**: the rate is per frame. (10) +0x360 (moved) to +0x364 and +0x361, camera slots 96 (aim) and 95 (eye).\n\n**There is no rotation**: the only calls are GetGameSettings, the lazy game-state construction, MapCamera_SetAim, the two CMap ground-point routines and fmod, and camera_rotation_speed (+0x94) is not read. See reversing/findings/FINDINGS-camerazoom.md; the settings it reads, reversing/findings/FINDINGS-settingswindow.md, section C.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-camerazoom.md",
+   "revises": "signature placed in full where there was none - the two unidentified stack arguments are the map width (wrap) and the input event list (arrow keys); comment rewritten: corrects the pull toward the pointer, which the old text gave as '1 - zoomstep x 20 / height of the distance' - that is the fraction left, the fraction moved is zoomstep x 20 / height (0.133 at zoom_speed 50) - and adds that it pulls on a turn out too, that only the wheel's sign counts, that the always_counters change zooms out a fifth, that SetAim runs every frame, that neither ease reads the frame time, and that there is no rotation",
+   "evidence": "Decoded VA 0x63C520..0x63D344 whole from the entry (one ret 0x10 early exit at 0x63C561, the final ret 0x10 at 0x63D344, then nine int3 before 0x63D350). Wheel: VA 0x63C7C3 cmp [esi+0x354]; 0x63C7DB/0x63C7EC/0x63C851 call [edi]+0x54 and test only eax>0 / eax<0; constants read from the image: 20 at 0x160A318, 0.75 at 0x160A638, 1.5 at 0x160A6B8, 60 at 0x160A4A8, 0.8 at 0x160A3E0, 100 at 0x160A358. Pull: 0x63CA93..0x63CB3B, x = (x - mx) * f + mx with f clamped [0,1] at 0x63CABE..0x63CAD0. Ease: 0x63D0B6 and 0x63D2B5 mulsd by the double 0.197 at 0x160AA40; the only time input, [ebp+0x14], is read at 0x63C74D for the scroll step and nowhere in the ease. Arguments from the in-game call site VA 0x656685..0x6566AE: push [idler+0xA8C], lea idler+0x1CB0, push graphics+0x60D4, push idler+0x1C; edi = idler+0x64, esi = idler+0x1938. Would be wrong if a second writer of +0x344/+0x348 inside this body were missed: the listing has +0x344 stored at 0x63C5C5/0x63C5E7 (always_counters), 0x63C82D/0x63C849 (in), 0x63C892/0x63C8AE (out) only."
+  },
+  {
+   "rva": "0x23D350",
+   "kind": "function",
+   "name": "MapCamera_SetHeight",
+   "signature": "void __stdcall MapCamera_SetHeight(MapCamera* camera@ESI, float height@XMM0)",
+   "no_signature": null,
+   "comment": "**Puts the map camera at a height at once**: height_wanted (+0x344) and height (+0x348) both = the float in XMM0, the eye (+0x2E8) = (0, height, 0), MapCamera_SetAim, the camera's slot 96 with the aim (+0x2F4) and slot 95 with the eye, and where the global at VA 0x1A855FC is set its +0x5F38 zeroed. **No clamp** to the lowest or highest height. Bare `ret`. Four callers: CInGameIdler::DoTutorialAction's `zoom` (float(number), 0x24B90C - tutorial pages give `zoom = 200`), the CFrontEnd constructor (900, the float at 0x120A530, 0x2EDABB, after which it sets +0x355 so the front end's wheel never zooms), CFrontEnd::SelectBookmark (900, 0x2F1CE8) and 0x2F1D50 (the int at +0xE8 of what it is given, after setting the target and eased position - inferred a scenario's camera_center and camera_height, not followed). The name is ours. See reversing/findings/FINDINGS-camerazoom.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-camerazoom.md",
+   "evidence": "Decoded VA 0x63D350..0x63D3BA (bare ret, five int3 after it, MapCamera_JumpTo at 0x63D3C0). XMM0 is stored before anything writes it, so it is the argument; ESI is read as the camera without being set. findRefs --callers 0x63D350 gives exactly the four call sites, each loading XMM0 just before the call (cvtdq2ps of [ebp+0x14] at 0x64B909; movss from 0x160A530 = 900.0f at 0x6EDAB4 and 0x6F1CDA; cvtdq2ps of [edi+0xE8] at 0x6F1E86) and ESI to a camera (lea esi,[edi+0x1938] at 0x64B903; add esi,0x3A8 at 0x6F1CE2). Wrong if a caller passes the height on the stack - none pushes anything before the call."
+  },
+  {
+   "rva": "0x74EA80",
+   "kind": "function",
+   "name": "Mouse_GetWheel",
+   "signature": "int __fastcall Mouse_GetWheel(void* mouse@ECX) @EAX",
+   "no_signature": null,
+   "comment": "**The mouse wheel's turn this frame**: `mov eax,[ecx+0xA8]; imul eax,[ecx+0x84]; ret` - the wheel figure (+0x84) times a scale (+0xA8). Slot 21 of both mouse tables (VA 0x16084D0, the DirectInput mouse, built by 0x74E560, scale 100; VA 0x1608570, the windowed mouse, built by 0x74EB70, scale 1; slot 10, 0x74EAD0, sets the scale). The DirectInput mouse's +0x84 is DIMOUSESTATE.lZ of the last poll (CDirectInputMouse::Poll), so one notch is normally 120 x 100; the windowed mouse's is WM_MOUSEWHEEL's delta / 100 truncated (0x74EEA7..0x74EEC4), one notch 1, and it is zeroed at its next poll. UpdateMapCamera and the list boxes' wheel code ask it; the camera uses only its sign. No RTTI on either table, so the name is class-free and ours. See reversing/findings/FINDINGS-camerazoom.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-camerazoom.md",
+   "evidence": "Bytes at VA 0xB4EA80: 8B 81 A8 00 00 00 0F AF 81 84 00 00 00 C3. Read [0x16084D0 + 0x54] and [0x1608570 + 0x54], both 0xB4EA80; the two constructors write those tables at +0 (VA 0xB4E58E, 0xB4EBC0) and +0xA8 = 0x64 (0xB4E5E3) and 1 (0xB4EBEE). The platform factory's slot 3 (VA 0xB08850) makes one or the other by the global at 0x1A857E0. Wrong if +0x84 were not the wheel: Poll stores the DIMOUSESTATE's third dword (lZ) there at 0xB4E81B."
+  },
+  {
+   "rva": "0x74E780",
+   "kind": "function",
+   "name": "CDirectInputMouse::Poll",
+   "signature": "bool __thiscall CDirectInputMouse::Poll(CDirectInputMouse* this)",
+   "no_signature": null,
+   "comment": "**The frame's read of the mouse through DirectInput** (the name is ours; no RTTI). **Slot 8 of the DirectInput mouse's table VA 0x16084D0**, which its constructor (0x74E560) writes at +0 - the table VA 0x1608494 this used to count from is the keyboard's, and it ends where the mouse's begins. Returns al = 0 where the device (+0xC4) is null. Otherwise IDirectInputDevice8::GetDeviceState (the device's slot 9, read on the listing) with cbData 16, a DIMOUSESTATE on the stack, and on failure tries Acquire and returns 0. Writes the position at +0x88/+0x8C, the deltas at +0x7C/+0x80, **the wheel at +0x84 - the poll's lZ as it stands, not summed - adding it to +0x90 as well**, accumulators at +0xC8/+0xCC and held buttons at +0x94..+0x96; mouse speed is read from +0xA4. **Only where the new lZ differs from the last poll's** does it notify the observers of its sub-object at +0x60 (0x6881E0) and set +0xD0 - inferred to be what puts a wheel event on the frame's list, so a frame whose lZ equals the frame before's would raise none. **It is not called at all with the game's window behind others** (a breakpoint at its entry had no hit in three seconds while the game ran its frames, 2026-11-10), so input cannot be fed in here for a game in the background. See reversing/findings/FINDINGS-liveread.md, section 12, and reversing/findings/FINDINGS-camerazoom.md.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-camerazoom.md",
+   "revises": "comment: the table is VA 0x16084D0 and Poll is its slot 8 (the old text counted 23 slots from the keyboard's table 0x1608494); adds that +0x84 is the poll's lZ unsummed, the +0x90 running sum, and the observer notification only on a changed lZ",
+   "evidence": "The constructor VA 0xB4E560 writes [esi] = 0x16084D0 at 0xB4E58E; [0x16084D0 + 0x20] = 0xB4E780; [0x1608494 + 0x5C] is the same cell, 0x1608494 + 0x3C = 0x16084D0. In Poll: 0xB4E808 mov edi,[esi+0x84]; 0xB4E81B mov [esi+0x84],eax (eax = [esp+0x28], the DIMOUSESTATE's lZ); 0xB4E821 cmp edi,eax; je over the call 0xA881E0 with eax = esi+0x60 and the store +0xD0 = 1; 0xB4E8AB add [esi+0x90],ebx. Wrong if the GetDeviceState buffer were not a DIMOUSESTATE - cbData is 0x10, which is that structure's size. What the observers do with the notification was not read, hence inferred."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "MapCamera",
+   "offset": "0x354",
+   "name": "wheel_turned",
+   "type": "bool",
+   "comment": "**A wheel event reached the map this frame.** Set by CInGameIdler_HandleInput (rva 0x25384A) and CFrontEnd::Update (0x2EE889) for an input event that is a mouse event (+8 == 0) of kind 4 (+0x14, the wheel) not already handled by the interface (+0x18 == 0), only where +0x355 is clear; UpdateMapCamera zooms only where it is set and clears it each frame (0x23CB43). So the wheel over a window that takes it does not zoom. See reversing/findings/FINDINGS-camerazoom.md.",
+   "source": "reversing/findings/FINDINGS-camerazoom.md",
+   "evidence": "Byte-pattern search for C6 8r 54 03 00 00 imm over .text gives exactly three stores: VA 0x63CB43 (=0, in UpdateMapCamera), 0x65384A and 0x6EE889 (=1), each preceded by cmp [eax+0x355],0 / jne and the event tests [esi+0x18], [esi+8], [esi+0x14] == 4, with eax from the screen's slot 28 (GetMapCamera). Positive control: the same search for 0x355 finds the front end's known store."
+  },
+  {
+   "struct": "MapCamera",
+   "offset": "0x355",
+   "name": "wheel_locked",
+   "type": "bool",
+   "comment": "**The wheel does not zoom this camera.** Its one writer is the CFrontEnd constructor (rva 0x2EDAC7, = 1, right after MapCamera_SetHeight(900)); the two wheel_turned setters and UpdateMapCamera's wheel block test it. So the front end's map never zooms; the in-game camera's is never set. See reversing/findings/FINDINGS-camerazoom.md.",
+   "source": "reversing/findings/FINDINGS-camerazoom.md",
+   "evidence": "Byte-pattern search for C6 8r 55 03 00 00 imm over .text: one store, VA 0x6EDAC7 (mov byte ptr [esi+0x355],1), in CFrontEnd::CFrontEnd. Readers: cmp at 0x63C7CF (jne past the wheel), 0x653841 and 0x6EE880. A word-sized store covering it was not searched for, which is the way this could be missed."
+  },
+  {
+   "struct": "MapCamera",
+   "offset": "0x344",
+   "name": "height_wanted",
+   "type": "float",
+   "comment": "**The height the camera is going to**, 330 at the start. Written by: a wheel notch in UpdateMapCamera (-15 x step toward the map, +30 x step away, step = float(height / 60 x 0.8) x zoom_speed / 100 of the current height - so -10% / +20% at zoom_speed 50 - held to [+0x34C, +0x350]); CInGameIdler::ZoomIn / ZoomOut (map_zoom_in / map_zoom_out, PAGE_DOWN / PAGE_UP) and a change of always_counters, -/+ float(float(wanted / 20) x 20) x 0.2, held the same way; and MapCamera_SetHeight, unclamped, which sets the height with it. The height follows it by 0.197 of the gap a frame. See reversing/findings/FINDINGS-camerazoom.md.",
+   "source": "reversing/findings/FINDINGS-camerazoom.md",
+   "revises": "comment only: names every writer, the step of each and which are clamped",
+   "evidence": "Stores to +0x344 in UpdateMapCamera at VA 0x63C5C5/0x63C5E7/0x63C82D/0x63C849/0x63C892/0x63C8AE; in ZoomIn at 0x6693DF/0x6693FB (as idler +0x1C7C); in MapCamera_SetHeight at 0x63D35C. A store through another base (e.g. the idler's +0x1C7C elsewhere) was not swept for, beyond the buttons already recorded."
+  },
+  {
+   "struct": "MapCamera",
+   "offset": "0x348",
+   "name": "height",
+   "type": "float",
+   "comment": "**How high the camera is.** Each frame UpdateMapCamera, where it differs from height_wanted by an exact float compare, sets it to height + (wanted - height) x 0.197 (in double, stored as float) - **per frame, not scaled by the frame time** - or to wanted at once where the settings' use_legacy_camera (+0x188) is set; it has no clamp of its own. MapCamera_SetHeight sets it with wanted. Being rounded to float, the ease stops changing it a unit or two in the last place short of wanted, by the arithmetic. From 500 up the map is in its far view: nothing on it answers a click and the hierarchy lines are not drawn. Under the settings' counter_distance, 100, units are seen from near - as figures unless always_counters. See reversing/findings/FINDINGS-camera.md, 'How high it is, and what that decides', and reversing/findings/FINDINGS-camerazoom.md.",
+   "source": "reversing/findings/FINDINGS-camerazoom.md",
+   "revises": "comment only: the ease is per frame and ignores the frame time, compares exactly, has no clamp, and stalls just short by float rounding (inferred from the arithmetic)",
+   "evidence": "VA 0x63D25C..0x63D2C5: ucomisd wanted, height; lahf/test ah,0x44/jnp skips only on equal; legacy copies with fld/fstp; else subsd, mulsd [0x160AA40] (0.197), addsd, cvtpd2ps. No read of [ebp+0x14] between 0x63D016 and the ret. The stall is arithmetic, not observed: with a gap of k units in the last place the step rounds to round(0.197 k), which is 0 for k <= 2."
+  },
+  {
+   "struct": "MapCamera",
+   "offset": "0x334",
+   "name": "x",
+   "type": "float",
+   "comment": "**Where the camera is going to look**, in map coordinates - the target. Every kind of scrolling adds to it, the wheel pulls it toward the ground point under the pointer (UpdateMapCamera: (x - m) x f + m, f = 1 - zoom step x 20 / height), CentreOnProvince and MapCamera_JumpTo set it, and it is wrapped by the map width. The camera is drawn from x_settled, which eases toward it. See reversing/findings/FINDINGS-camerazoom.md.",
+   "source": "reversing/findings/FINDINGS-camerazoom.md",
+   "revises": "comment only: it is the target the eased pair follows, and the wheel's pull toward the pointer writes it",
+   "evidence": "VA 0x63CB0C stores the pulled x; 0x63D0B2 eases +0x33C toward it; MapGraphics_Update reads +0x33C/+0x340 (VA 0x85C7B2, 0x85C7BA, 0x85D8AD, 0x85D8B9) and no +0x334, by a displacement search over VA 0x840000..0x880000."
+  },
+  {
+   "struct": "MapCamera",
+   "offset": "0x338",
+   "name": "y",
+   "type": "float",
+   "comment": "the same as x, north to south: the target. Held to [+0x320, +0x314] by UpdateMapCamera except on a frame the wheel pulled it. See reversing/findings/FINDINGS-camerazoom.md.",
+   "source": "reversing/findings/FINDINGS-camerazoom.md",
+   "revises": "comment only: the target, and the clamp it is held to",
+   "evidence": "VA 0x63CB3B stores the pulled y; the clamp at 0x63CFB5..0x63D00E is jumped over (0x63CB4C jne 0x63D016) on a pull frame."
+  },
+  {
+   "struct": "MapCamera",
+   "offset": "0x33C",
+   "name": "x_settled",
+   "type": "float",
+   "comment": "**Where the camera looks now** - the eased copy of x, and what is drawn: MapGraphics_Update and the country names read this pair and not x/y. UpdateMapCamera moves it 0.197 of the way to x each frame (at once with use_legacy_camera), not scaled by the frame time; CentreOnProvince, MapCamera_JumpTo and the camera's setup write both pairs, which is what makes those moves immediate. See reversing/findings/FINDINGS-camerazoom.md.",
+   "source": "reversing/findings/FINDINGS-camerazoom.md",
+   "revises": "comment only: settles that the renderer reads this pair, and gives the ease",
+   "evidence": "VA 0x63D08C..0x63D111: eased = eased + (target - eased) * 0.197 from 0x160AA40. Readers: MapGraphics_Update at VA 0x85C7BA and 0x85D8AD; MapGraphics_DrawScene hands +0x33C/+0x340 to CountryMapNames_Draw (recorded). No read of +0x334 in MapGraphics_Update's range - the positive control in the same search is its reads of +0x348."
+  },
+  {
+   "struct": "MapCamera",
+   "offset": "0x340",
+   "name": "y_settled",
+   "type": "float",
+   "comment": "the same as x_settled, north to south: the eased, drawn copy of y. See reversing/findings/FINDINGS-camerazoom.md.",
+   "source": "reversing/findings/FINDINGS-camerazoom.md",
+   "revises": "comment only: the eased, drawn copy",
+   "evidence": "VA 0x63D0C5..0x63D0ED eases it the same way; MapGraphics_Update reads it at 0x85C7B2 and 0x85D8B9."
+  }
+ ],
+ "frontier": ["0x92850", "0x92B80", "0x2F1D50", "0x6881E0"]
+}

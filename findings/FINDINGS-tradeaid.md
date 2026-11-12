@@ -622,7 +622,11 @@ Then the route: **2**, LEND_LEASE_ALLOWED_NEIGHBOUR - the two are neighbours, or
 
 **Weights:** `CChangeLendLeaseDistributionCommand::Execute` (rva `0x155580`) sets each weight as given, not normalised. The AI's `BalanceLendLeaseSliders` (Lua) sets each receiver's weight to its TotalIC; it is called from the daily pass's cold block. A sum of 0 gives every receiver a share of 0; the `-1` arm after it is dead code, the global it compares against being 0.
 
-**The cap.** `GetMaxLendLeaseFraction` (rva `0x108A90`) = `LOW + (HIGH - LOW) x (1 - min(1, EffectiveNeutrality / LIMIT))`; in TFH from 0.90 at neutrality 0 to 0.05 at neutrality 60 and above. `GetMaxLendLease` = TotalIC x that. **Nothing in the engine enforces it.** It drives only the slider's `limit` marker (GetLimit), the top-bar tooltip (LEND_LEASE_MAX_VALUE) and the AI script's target; a player can set the slider past it. TotalIC already includes lend-lease received.
+**The cap.** `GetMaxLendLeaseFraction` (rva `0x108A90`) = `LOW + (HIGH - LOW) x (1 - min(1, EffectiveNeutrality / LIMIT))`; in TFH from 0.90 at neutrality 0 to 0.05 at neutrality 60 and above. `GetMaxLendLease` = TotalIC x that. **The simulation does not enforce it** - but, **corrected 2026-11-12**
+(`FINDINGS-lendleaseslider.md`), the open production screen does: each frame it puts the slider down to GetLimit's figure
+(nought with no receiver) and shares the rest among the free sliders, so a player cannot set it past the cap while the
+screen is open; a locked slider is exempt. It also drives the slider's `limit` marker (GetLimit), the top-bar tooltip
+(LEND_LEASE_MAX_VALUE) and the AI script's target. TotalIC already includes lend-lease received.
 
 **Lend-lease texts:**
 - **Request:** slot 11 - cancel shows LEND_LEASE_CANCEL_DESC if the recipient gives, else nothing; asking shows LEND_LEASE_DESC "\n" + the route line only on success, otherwise ENROUTE or the refusal reason alone. Slot 12: LEND_LEASE_DESCRIPTION / LEND_LEASE_BREAK_DESCRIPTION, no cost line although asking costs influence. Slot 13 (shared body): the countries differ and the recipient owns a province. Slot 14: the gate (asking) or "the recipient gives" (cancelling). Slot 18: `value`.

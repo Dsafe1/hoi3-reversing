@@ -100,7 +100,8 @@ or leadership, and the `minValue = 0`, `maxValue = 100` of the `.gui` file are r
 - **`value`** = the setting's slot 2 for that share - a colour escape, §3 - followed by
   `v` to two decimals (`0xA5AEC0` with `push 2`). `0x7F05DA`..`0x7F06D1`.
 - **`need`** = the setting's slot 1 for that share - §3. `0x7F074C`..`0x7F0828`.
-- **`limit`**: when the window has one and the setting's slot 11 answers nought or more,
+- **`limit`**: when the window has one and the setting's slot 11 answers above nought (`ja`; "nought or more" here
+  until 2026-11-12, which is the clamp's test and `AddToSlider`'s, not the icon's - `FINDINGS-lendleaseslider.md`),
   the icon is shown and moved along the slider to that value; hidden otherwise.
   `0x7F0880`..`0x7F0BB3`. Slot 11 is `-1.0` (`0x170AC0C`) for nine of the ten settings.
 

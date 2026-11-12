@@ -146,8 +146,10 @@ The same arithmetic places the maintainer's screenshot of a near counter
 
 ## What is still open
 
-The zoom and rotation arithmetic in the same function, and the two unidentified stack
-arguments it takes. Neither matters to the scrolling. Of the height: what draws or hides a
+~~The zoom and rotation arithmetic in the same function, and the two unidentified stack
+arguments it takes.~~ Settled 2026-11-12 in `FINDINGS-camerazoom.md`: there is no rotation, the two arguments are the map
+width and the input event list, and the look point's pull on a notch is `zoomstep×20/height` of the distance (0.133 at the
+default zoom_speed), where the record had the fraction left. Of the height: what draws or hides a
 counter and a building's picture by it, who tells a unit's avatar it is seen from far
 (`FINDINGS-counters.md`), what `0x6418B0` draws, and the two `large_` pictures a province
 keeps for its bases, which `ProvinceGraphics_HitTest` asks at any height.
