@@ -144,6 +144,11 @@ insert helpers refuses once the text **already** holds 250 bytes or more. So:
 
 No `.gui` key moves it.
 
+**The fit to the box's lines** (*confirmed*, 2026-11-12, `FINDINGS-unitrename.md` section 5): `CTextLayout::InsertText`
+ends by backspacing while the wrapped text has more lines than the box's height holds, or than its max lines where those are
+set - a loop the record had "not in an edit box", but every edit box's constructor clears the layout's +0x9A that would skip
+it (`0xA8F528`). So a box holds what fits its own height, and the unit panel's `unitname`, max lines 1, a single line.
+
 ## 5. Editing keys
 
 `CTextLayout::HandleKey` (`0xACC2E0`, rva `0x6CC2E0`), *confirmed*. The first column is what reaches it through a box.

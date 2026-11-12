@@ -437,8 +437,10 @@ kept in selection order.
   `0x5C08A5`.
 - `CUnit::OnDeselected` (slot 5) calls slot 35, `CInGameIdler::RemoveUnitRow` (`0x664210`, rva `0x264210`), at
   `0x5C0BC1`.
-- Both calls are skipped where the global byte `0x1A855F6` is set. It has four readers, all in these CUnit slots, and
-  **no writer in `.text`**, so it is zero in a normal game (`inferred`).
+- Both calls are skipped where the global byte `0x1A855F6` is set. ~~It has four readers, all in these CUnit slots, and
+  no writer in `.text`~~ - corrected 2026-11-12 (`FINDINGS-unitrename.md`, section 4): two readers, these, and two writers,
+  both in `CUnit_SetName`, which sets it around its own Deselect and Select of a selected unit, so a rename leaves the panel
+  as it is.
 - No province, port or battle gets a row: only CUnit's slots call 34 and 35.
 
 **AddUnitRow**, in order:
@@ -765,7 +767,7 @@ control: the same search finds `disband_multiunit`'s four, among them the toolti
 - **The slider's size call** `0xA9EDB0(-1, 40 * fit)`: whether -1 means "keep the width" was not read.
 - **What `+0x1360` is** (answers `theatre_forces_button`) and what `0x7395E0` does beyond hiding three of its children.
 - **Unidentified fields and globals:** checkbox `+0xD8` (it also stops a ticked box being cleared by a click) and
-  `+0x100`; `CInGameIdler +0xD2C` writers; `0x1A855F6`, which has no writer in `.text`.
+  `+0x100`; `CInGameIdler +0xD2C` writers; `0x1A855F6`, whose writers are `CUnit_SetName`'s two (`FINDINGS-unitrename.md`).
 - **Other unread pieces:** what each row's `+0x1C` slot 12 does in DisbandSelection before the selection is cleared;
   the reorganise window (`0x764960` fill, `0x7646D0` its keep-open test); the custom-game tests `0x4208B0` and
   `0x420EB0`, and highercomm's custom-game delayed text (`0x4210E0`).

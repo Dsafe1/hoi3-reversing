@@ -1434,7 +1434,7 @@ of it.
 
 ## What has already been read
 
-227 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
+229 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
 header lives. This replaces the `Done` archive: the archive restated each file's headline and named
 only 40 of the 67 there were then, so it was both longer and less useful than a complete list.
 
@@ -1709,6 +1709,8 @@ the six it was missing were wave 15's.
 | `findings/FINDINGS-camerazoom.md` | **the map camera's zoom (2026-11-12)**: a wheel notch sets a target height of the current height × (1 − 0.2·zoom_speed/100) in, × (1 + 0.4·zoom_speed/100) out, and pulls the look target (4/15)·zoom_speed/100 of the way to the point under the pointer either way; height and position close 0.197 of the gap every frame, not by frame time; the buttons a fifth of the target; no rotation |
 | `findings/FINDINGS-lendleaseslider.md` | **the lend-lease share with nobody to give to (2026-11-12)**: the simulation keeps the share and wastes its IC; the production screen clamps every slider above its slot-11 limit every frame, lend-lease's 0 with no receiver, and shares what it frees equally among the free sliders; corrects GetLimit's "marker only" |
 | `findings/FINDINGS-provincenamepoint.md` | **a province name's point without a text_position (2026-11-12)**: CMap::ComputeProvinceGeometry writes the bounding box's centre less 2.0 in y - two map pixels south - before positions.txt is read; corrects FINDINGS-farmap.md B.7.1's centre |
+| `findings/FINDINGS-unitrename.md` | **renaming a unit (2026-11-12)**: the unit panel's `unitname` box filled once and sent only as its header is destroyed, trimmed, changed and not empty, as a CRenameUnitCommand that tests nothing, the unit renamed locally too; the per-country names-in-use set, duplicates kept and every copy unregistered; the one-line cap of every edit box's fit loop |
+| `findings/FINDINGS-soundeffects.md` | **the sound effects (2026-11-12)**: interface/sound.sfx's five keys, names case-insensitive, 64 voices or `single`; "unless already playing"; the effects volume linear in dB; a button's click on release and a checkbox's on press with their fallbacks to `click`; every effect the game's own events play, and the battle window's chain |
 
 ## A method worth reusing
 
