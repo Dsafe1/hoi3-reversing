@@ -257,7 +257,7 @@ if (listA.count != 1) skip the rule
 if (p->area->provinces_count <= 5) skip
 e = listA.first                                     ; the single operable neighbour
 if (e->area->provinces_count <= 3) skip
-listC = the land neighbours of e we may operate in  ; plus a sea-edge count via p->tmpl->+0xA0
+listC = the land neighbours of e we may operate in  ; plus the sea neighbours of e that p touches too, where p->tmpl->+0xA0 (section 59 of FINDINGS-liveread.md)
 if (listC.count >= 3 || seaEdges >= 1) skip
 redundant = some OTHER enemy front province f in the same area as p has an operable land
             neighbour that p does not have                   ; 0x8D6290-0x8D6393
