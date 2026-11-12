@@ -143,6 +143,19 @@ function hoiListSaves()
   return hoiRows
 end
 
+-- From the main menu to a new game of the lobby's default bookmark (The Road to War, 1 January 1936), played as the owner of
+-- the province given (1861, Berlin, for Germany): Single Player, CGameSetup::OnProvinceClicked with the province, Play.
+-- Returns when Play has been pressed; the game loads paused at the bookmark's hour, its two days run.
+function hoiNewGame(provinceId)
+  hoiFindFrontEnd()
+  if hoiCurrentView() ~= 3 then hoiCall(b + 0x2FCA40, hoiView(0)); pump(1500) end
+  local prov = readInteger(readInteger(hoiState() + 0xB8C) + provinceId * 4)
+  hoiCall(b + 0x30C0B0, hoiView(3), { prov }); pump(1000)
+  local player = readInteger(hoiState() + 0xC34)
+  hoiCall(b + 0x30E5B0, hoiView(3))
+  return 'play pressed, player id ' .. player
+end
+
 -- From the main menu to a game of the named save. Returns when Play has been pressed.
 function hoiLoadSave(name)
   hoiFindFrontEnd()
