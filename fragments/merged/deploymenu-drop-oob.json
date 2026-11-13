@@ -1,0 +1,273 @@
+{
+ "agent": "deploy menu drop onto the order of battle browser, 2026-11-13",
+ "question": "Can a deploy menu line be dragged onto a row of the order of battle browser, and what does the drop do? (FINDINGS-deploymenu.md section 6 had it only as inferred, and placed the drag on the map.)",
+ "source": "reversing/findings/FINDINGS-deploymenu.md",
+ "structs": [
+  {
+   "name": "CDeploymentMenuMouseObserver",
+   "size": "0x1C",
+   "vftable_rva": "0x11E02E4",
+   "comment": "The deploy menu's mouse observer (base CSideMenuMouseObserver), polled each frame by CSideMenuDeploy::Update through its slot 1. **It does not watch the map**: it hands a deployment line held down by the player to the order of battle browser as a drag, once the pointer is inside the browser's window. Made inline by CSideMenuDeploy::CSideMenuDeploy (operator new 0x1C) and owned by the menu (CSideMenu +0x28). See reversing/findings/FINDINGS-deploymenu.md, section 6.",
+   "evidence": "operator new(0x1C) and the field stores at 0x8277C1-0x8277F5 (+4 = [0x174DAA8]+0xE4, +8 = the menu, +0xC = the constructor's second argument, +0x10/+0x14/+0x18 = 0), vftable 0x15E02E4 written at 0x8277E9 (VA; rva 0x11E02E4) and confirmed by RTTI (CDeploymentMenuMouseObserver, 2 slots). Would be wrong if the RTTI export put the table elsewhere."
+  },
+  {
+   "name": "CDropAndAssignUnitDeploymentCallback",
+   "size": "0xC",
+   "vftable_rva": "0x11E02DC",
+   "comment": "What the browser calls with the row's unit when a deployment line is dropped on a row: posts the CDeployUnitCommand. One slot (Call). Made only by CDeploymentMenuMouseObserver::OnMouse and owned by the observer (+0x14), which frees the previous one each time it starts a drag and in its destructor. See reversing/findings/FINDINGS-deploymenu.md, section 6.",
+   "evidence": "operator new(0xC) at 0x828D0F, stores at 0x828D34-0x828D3D (+0 vftable 0x15E02DC, +4 the deployment from 0x8274D0, +8 the observer's +0xC); the vftable is referenced exactly once in .text (findRefs --address 0x15e02dc: 0x828D39). RTTI gives the class 1 slot, base CUnitDeploymentCallback."
+  },
+  {
+   "name": "CDeploymentEntry",
+   "comment": "A line of the deploy menu's plain list (window `deployment_entry`), base CStandardlistboxItem. Its `select` button has two handlers: the click (glue's first, through the slot-4 thunk 0x67A310: CDeploymentEntry::OnSelect, run when the left button is let go over the pressed button) and the press (glue's third: CDeploymentEntry::OnDragStart, run when the left button goes down on it). See reversing/findings/FINDINGS-deploymenu.md, sections 3 and 6.",
+   "evidence": "The constructor 0x826F40: the CRef built at +0x78 from the deployment argument (0x82703A, the reference builder 0x7C9530), +0xA0 = the in-game screen and +0xA4 = the menu (0x82704B, 0x827059); the glue at +0x28 built by 0x828E10 with 0x67A310 first and 0x827600 third (0x826FF5-0x827029)."
+  },
+  {
+   "name": "CUnitDeployment",
+   "comment": "A finished unit waiting to be placed (save token unit_deployment, GetType 0x4B4). Only the unit it holds is declared here. See reversing/findings/FINDINGS-deploymenu.md.",
+   "evidence": "0x8274BF and 0x82762C read +0x38 after the type test against 0x4B4 and hand it on as the unit (to BeginDragUnit / BeginDragSubUnit's choice by +0x40, regiments_count); CUnitDeployment::DeployAt's record already says it puts +0x38 on the map."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CDeploymentMenuMouseObserver",
+   "offset": "0x4",
+   "name": "input",
+   "type": "void*",
+   "comment": "The gui's input object ([0x174DAA8]+0xE4); its slot 19 gives the pointer's position.",
+   "evidence": "Stored at 0x8277E0; read at 0x828C90/0x828C9F with slot 19 (0x4C) whose answer is used as x at [eax] and y at [eax+4] against the browser window's rectangle."
+  },
+  {
+   "struct": "CDeploymentMenuMouseObserver",
+   "offset": "0x8",
+   "name": "menu",
+   "type": "CSideMenuDeploy*",
+   "comment": "The deploy menu; its slot 4 (IsShown) and its +0x20 in-game screen are read by OnMouse.",
+   "evidence": "Stored at 0x8277E3 from the constructor's `this`; OnMouse reads [+8]+0x20 then slot 105, and calls [+8]'s slot 4 (0x828C42)."
+  },
+  {
+   "struct": "CDeploymentMenuMouseObserver",
+   "offset": "0xC",
+   "name": "in_game_screen",
+   "type": "CInGameIdler*",
+   "comment": "Copied into each callback's +8, where its slot 23 (GetPlayer) and slot 18 (the command channel) are used.",
+   "evidence": "Stored at 0x8277E6 from the constructor's second argument; copied to the callback's +8 at 0x828D3D; the callback calls its slot 23 (0x5C) for the country pair and slot 18 (0x48) to post (0x8261A8, 0x8261D3)."
+  },
+  {
+   "struct": "CDeploymentMenuMouseObserver",
+   "offset": "0x10",
+   "name": "pressed_entry",
+   "type": "CDeploymentEntry*",
+   "comment": "The deployment line last pressed (left button down on its `select`), written by CDeploymentEntry::OnDragStart; 0 for none, or where the line's deployment is not a unit deployment holding a unit.",
+   "evidence": "Written by 0x827643 (the entry, or 0 where its deployment is not a unit deployment with a unit), cleared by OnSelect (0x8276C0), the entry's destructor (0x827415) and OnMouse (0x828D5F/0x828D74); OnMouse passes it in EAX to CDeploymentEntry_GetUnit and in ESI to CDeploymentEntry_ResolveDeployment."
+  },
+  {
+   "struct": "CDeploymentMenuMouseObserver",
+   "offset": "0x14",
+   "name": "callback",
+   "type": "CDropAndAssignUnitDeploymentCallback*",
+   "comment": "The callback of the last drag it started, owned: freed before a new one is made and by the destructor.",
+   "evidence": "free([+0x14]) at 0x828D05 then the new object stored at 0x828D48; the destructor 0x828BE0 frees it."
+  },
+  {
+   "struct": "CDeploymentMenuMouseObserver",
+   "offset": "0x18",
+   "name": "press_pending",
+   "type": "int",
+   "comment": "1 from the press on a unit deployment's line until the drag is handed to the browser, the line is clicked (OnSelect), the line is destroyed, or a frame finds the menu hidden or the browser shut; 0 otherwise.",
+   "evidence": "Written as a dword 0/1 at 0x827646 (setne of the unit test), compared with 1 at 0x828C62, cleared with +0x10 at every exit that starts a drag or finds the menu hidden or the browser shut."
+  },
+  {
+   "struct": "CDropAndAssignUnitDeploymentCallback",
+   "offset": "0x4",
+   "name": "deployment",
+   "type": "CUnitDeployment*",
+   "comment": "The deployment to place; its id goes into the command, and the browser asks its slot 10 (CanDeployIn) on a single-brigade drop.",
+   "evidence": "Stored at 0x828D34 from 0x8274D0; Call reads +4's +8/+0xC as the deployment's id pair (0x826180-0x826191); UnitRows_HandleDrop calls slot 10 of [callback+4] with the row unit's province (0x73AAE0-0x73AAF6)."
+  },
+  {
+   "struct": "CDropAndAssignUnitDeploymentCallback",
+   "offset": "0x8",
+   "name": "in_game_screen",
+   "type": "CInGameIdler*",
+   "comment": "Slot 23 gives the player for the command's country, slot 18 the channel it is posted to.",
+   "evidence": "0x8261A3-0x8261B4 (slot 23) and 0x8261CE-0x8261E1 (slot 18, then +0x38's slot 6, the post)."
+  },
+  {
+   "struct": "CDeploymentEntry",
+   "offset": "0x78",
+   "name": "deployment",
+   "type": "CRef",
+   "comment": "The deployment the line stands for, as a persistent reference (pointer cache +0x78, id pair +0x7C/+0x80).",
+   "evidence": "Built by 0x7C9530 at 0x82703A; OnSelect and 0x8274D0 resolve +0x7C/+0x80 through FindPersistentById and store the answer at +0x78; 0x8274A0 and 0x827600 resolve it in place (ResolvePersistentIdInPlace on +0x78). 0x28 bytes to +0xA0, the size of CRef elsewhere (COOBBrowser +0x20 to +0x48)."
+  },
+  {
+   "struct": "CDeploymentEntry",
+   "offset": "0xA0",
+   "name": "in_game_screen",
+   "type": "CInGameIdler*",
+   "comment": "Told by OnSelect which deployment is being placed (slot 30).",
+   "evidence": "Stored at 0x827059 from the constructor's second argument; OnSelect calls its slot 30 (0x78) with the deployment (0x8276C6-0x8276D2), CInGameIdler::SetDeploymentBeingPlaced by the record's slot table."
+  },
+  {
+   "struct": "CDeploymentEntry",
+   "offset": "0xA4",
+   "name": "menu",
+   "type": "CSideMenuDeploy*",
+   "comment": "The deploy menu; its +0x28 is the mouse observer the line writes to.",
+   "evidence": "Stored at 0x82704B from the third argument; 0x827605 and 0x8276B7 read [+0xA4]+0x28 and write the observer's +0x10/+0x18; OnSelect passes it to CSideMenuDeploy_ChooseDeployment."
+  },
+  {
+   "struct": "CUnitDeployment",
+   "offset": "0x38",
+   "name": "unit",
+   "type": "CUnit*",
+   "comment": "The finished unit the deployment holds, not yet on the map.",
+   "evidence": "0x8274BF and 0x82762C read it after GetType answers 0x4B4; OnMouse then reads its +0x40 (regiments_count) and +0x38 (regiments) as a CUnit's (0x828D4B, 0x828D52)."
+  }
+ ],
+ "addresses": [
+  {
+   "rva": "0x428C20",
+   "kind": "function",
+   "name": "CDeploymentMenuMouseObserver::OnMouse",
+   "signature": "void __thiscall CDeploymentMenuMouseObserver::OnMouse(CDeploymentMenuMouseObserver* this)",
+   "no_signature": null,
+   "comment": "**Slot 1, polled every frame by CSideMenuDeploy::Update: hands a pressed deployment line to the order of battle browser as a drag.** It does not watch the map. Where the menu is not shown (its slot 4) or the browser (the in-game screen's slot 105, COOBBrowser) is not open (+0xF4), it clears pressed_entry and press_pending and stops. Where press_pending is 1 and the pointer (input slot 19) lies inside the browser's main window (+0xD0: its +0x18 slot 15 for the corner, its slot 24 for the size; both edges inclusive), it takes the unit the pressed line's deployment holds (CDeploymentEntry_GetUnit; none, nothing), frees its previous callback, makes a CDropAndAssignUnitDeploymentCallback (deployment, in-game screen), and starts the browser's drag with it: **the unit's only brigade by COOBBrowser::BeginDragSubUnit where the unit has exactly one (+0x40 == 1), else the unit by COOBBrowser::BeginDragUnit**; then clears pressed_entry and press_pending. Bare `ret`. See reversing/findings/FINDINGS-deploymenu.md, section 6.",
+   "confidence": "confirmed",
+   "revises": true,
+   "evidence": "Decoded whole, 0x828C20-0x828D80 (two bare `ret`s, the body bounded by 15 int3 at 0x828D81 and the next function at 0x828D90). The rectangle compared at 0x828CB3-0x828CE5 is built from [[menu+0x20] slot 105]+0xD0, i.e. COOBBrowser's window (record: COOBBrowser +0xD0 window), not from anything of the map; the old comment's 'map's rectangle' and 'left click' are refuted (no button test at all in the body). 0x8274A0 resolves the observer's +0x10 (the CDeploymentEntry, written by 0x827600) and returns its deployment's +0x38. Would be wrong if slot 105 of CInGameIdler were not the browser - FINDINGS-oobbrowser.md section 2 has it so."
+  },
+  {
+   "rva": "0x426130",
+   "kind": "function",
+   "name": "CDropAndAssignUnitDeploymentCallback::Call",
+   "signature": "void __thiscall CDropAndAssignUnitDeploymentCallback::Call(CDropAndAssignUnitDeploymentCallback* this, CUnit* unit)",
+   "no_signature": null,
+   "comment": "Slot 0: posts CDeployUnitCommand(province = the unit's current province's id (+0x130, then +0xD0), country = the in-game screen's GetPlayer (slot 23), deployment = the id of the one held (+4), target = the unit) through the in-game screen's channel (slot 18, +0x38, slot 6). **Called by UnitRows_HandleDrop with the row's unit when a deployment line is dropped on a row of the order of battle browser** - not by anything on the map. It checks nothing itself. See reversing/findings/FINDINGS-deploymenu.md, section 6.",
+   "confidence": "confirmed",
+   "revises": true,
+   "evidence": "Decoded whole 0x826130-0x8261F4 (`ret 4`). Its only callers are indirect calls through the vftable 0x15E02DC slot 0 in UnitRows_HandleDrop (0x73A8D9 unit path, 0x73AB1D sub-unit path); the vftable is written only at 0x828D37 in OnMouse, which hands the object to BeginDragUnit/BeginDragSubUnit. The old comment's 'dropped on a unit on the map' has no code behind it."
+  },
+  {
+   "rva": "0x33A7C0",
+   "kind": "function",
+   "name": "UnitRows_HandleDrop",
+   "signature": "bool __stdcall UnitRows_HandleDrop(void* drag, void* rows, CUnit* unit, CSubUnit* subUnit, CLeader* leader, int x, int y)",
+   "no_signature": null,
+   "comment": "**A unit, a brigade or a leader dropped on a list of the order of battle browser** (drag = the COOBBrowser; rows = its list or split list) - also the second way a CTransferSubUnitCommand is posted from the interface (0x33AB6C). `ret 0x1C`. Walks the rows (the list's +0x148); for each row whose element (+0x20) holds (x, y) strictly inside, by the element's slots 26 and 24, and whose unit (the reference at +0x28) is not the thing dropped's own: a **unit** - CUnit_MayTakeSubordinate(row's unit, unit, 0); allowed, **a deployment callback the browser holds (+0x98) is called with the row's unit (posting the CDeployUnitCommand) and cleared, and then a CAttachUnitCommand(unit, row's unit) is posted all the same**, and +0xF8/+0x120 keep the row's and the dropped unit's references; **no province test on this path**; a **sub-unit** whose unit is not the row's - CUnit_CanTakeSubUnit(row's unit, the country of the row unit's owner, subUnit, sameProvince = no deployment callback pending); refused, the callback is cleared and nothing is posted; allowed with a callback, the callback's deployment is asked CUnitDeployment::CanDeployIn(the row unit's current province, +0x130) - false, the callback is cleared and nothing is posted; true, the callback is called with the row's unit and cleared, and then CTransferSubUnitCommand(row's unit, subUnit) is posted; allowed with none, the transfer alone; a **leader** - CUnit::MayTakeLeader(row's unit, leader) and, where the row's unit has a real leader (slot 8), MayTakeLeader(the dropped leader's unit, +0x40, that leader); then CAssignLeaderCommand(row's unit, leader, 0) and, in the second case, CAssignLeaderCommand(the dropped leader's unit, the row's old leader, 0) - a swap. Answers true where the point was over a row, posted or not. Called twice by COOBBrowser::Update on release at drag state 3 (0x339F67 the main list, 0x339F89 the split list where the main answered false). The name is ours. See reversing/findings/FINDINGS-reorgwindow.md, section B, and reversing/findings/FINDINGS-deploymenu.md, section 6.",
+   "confidence": "confirmed",
+   "revises": true,
+   "source": "reversing/findings/FINDINGS-reorgwindow.md",
+   "evidence": "Decoded whole 0x73A7C0-0x73AE70 (one `ret 0x1C` exit). Unit path 0x73A882-0x73AA1B: MayTakeSubordinate at 0x73A8BA, the callback's slot 0 at 0x73A8D9 with the row's unit, then CAttachUnitCommand::CAttachUnitCommand at 0x73A906 and the post through g_CCurrentGameState+0xBE8 slot 18 / +0x38 slot 6 at 0x73A9BE, unconditionally after the callback. Sub-unit path 0x73AA20-0x73AC28: sameProvince = sete([drag+0x98]==0) at 0x73AAB8; slot 10 of [callback+4] with [rowUnit+0x130] at 0x73AAF6 (CUnitDeployment slot 10 = CanDeployIn in the record's slot table); the callback at 0x73AB1D; CTransferSubUnitCommand at 0x73AB6C. The callers were read in COOBBrowser::Update: both run only after the drag state reached 3 and the button (input slot 12) reads released. This revises only the comment's account of the deployment paths and the callers, and raises the confidence, which rested on a partial reading."
+  },
+  {
+   "rva": "0x4277A0",
+   "kind": "function",
+   "name": "CSideMenuDeploy::CSideMenuDeploy",
+   "signature": "CSideMenuDeploy* __stdcall CSideMenuDeploy::CSideMenuDeploy(CSideMenuDeploy* this, void* inGameScreen)",
+   "no_signature": null,
+   "comment": "Makes the deploy menu: a CDeploymentMenuMouseObserver (0x1C bytes, built inline: input, the menu, the in-game screen) - which hands a pressed deployment line to the order of battle browser as a drag, and does not watch the map - CSideMenu's constructor with the window name `sidebar_deploy`, and its own button observer on `close`. See reversing/findings/FINDINGS-deploymenu.md, sections 2 and 6.",
+   "confidence": "confirmed",
+   "revises": true,
+   "evidence": "Unchanged reading of 0x8277A0-0x8278BE; only the comment's 'for the map' is corrected, by the reading of CDeploymentMenuMouseObserver::OnMouse (0x828C20), whose only rectangle is the browser's window."
+  },
+  {
+   "rva": "0x427600",
+   "kind": "function",
+   "name": "CDeploymentEntry::OnDragStart",
+   "signature": "void __thiscall CDeploymentEntry::OnDragStart(CDeploymentEntry* this)",
+   "no_signature": null,
+   "comment": "**The `select` button's press handler** (the glue's third, the place COOBUnitEntry::OnDragStart has in its row; GuiButton_HandleMouse reaches it through observer slot 4 when the left button goes down on the button). Where the line's deployment (+0x78) is a unit deployment (slot 8 answers 0x4B4) holding a unit (+0x38): the menu's observer gets pressed_entry = this line and press_pending = 1; otherwise both 0. Nothing else: no drag yet, no selection, no custom-game gate (COOBUnitEntry::OnDragStart has one). A building deployment's line cannot be dragged. Bare `ret`. The name is ours, after the browser row's. See reversing/findings/FINDINGS-deploymenu.md, section 6.",
+   "confidence": "confirmed",
+   "evidence": "Decoded whole 0x827600-0x82764A. Its only reference is the push at 0x827006 in CDeploymentEntry::CDeploymentEntry, third handler of the glue built by 0x828E10 - the slot COOBUnitEntry's constructor gives COOBUnitEntry::OnDragStart (0x735EB4) while giving the click handler first (0x735EBD), as this one gives the slot-4 thunk 0x67A310 (OnSelect) first. In no virtual table (vtable.py --holding). The event that reaches it: GuiButton_HandleMouse (0x6CFBE0) calls 0x6CFEE0 (every observer's slot 4) at 0xACFC4D on event sub-kind 3 with button 1 - the left button down - and the deployment entry's glue table 0x15E0408 has slot 4 = 0x6B6BC0, which jumps to the handler at glue +0x10, the third constructor argument."
+  },
+  {
+   "rva": "0x4274A0",
+   "kind": "function",
+   "name": "CDeploymentEntry_GetUnit",
+   "signature": "CUnit* __stdcall CDeploymentEntry_GetUnit(CDeploymentEntry* entry@EAX) @EAX",
+   "no_signature": null,
+   "comment": "The unit a deployment line's deployment holds: the line's +0x78 resolved in place; a unit deployment (slot 8 answers 0x4B4) answers its +0x38, anything else (or none) 0. Bare `ret`. Called by CDeploymentMenuMouseObserver::OnMouse. The name is ours. See reversing/findings/FINDINGS-deploymenu.md, section 6.",
+   "confidence": "confirmed",
+   "evidence": "Decoded whole 0x8274A0-0x8274C7: lea esi,[eax+0x78]; ResolvePersistentIdInPlace; slot 8 (0x20) compared with 0x4B4 (CUnitDeployment::GetType's constant in the record); mov eax,[esi+0x38]. Called from 0x828CEE with EAX = the observer's +0x10."
+  },
+  {
+   "rva": "0x4274D0",
+   "kind": "function",
+   "name": "CDeploymentEntry_ResolveDeployment",
+   "signature": "void* __stdcall CDeploymentEntry_ResolveDeployment(CDeploymentEntry* entry@ESI) @EAX",
+   "no_signature": null,
+   "comment": "Looks a deployment line's deployment up again by its id pair (+0x7C/+0x80, the high or low persistent table by the type id against 0x1268), stores the answer in the cache (+0x78) and returns it, or 0. Bare `ret`. Called by CDeploymentMenuMouseObserver::OnMouse for the callback's deployment. The name is ours. See reversing/findings/FINDINGS-deploymenu.md, section 6.",
+   "confidence": "confirmed",
+   "evidence": "Decoded whole 0x8274D0-0x827519: reads [esi+0x7C]/[esi+0x80], FindPersistentById on g_PersistentIdTable_HighTypes or LowTypes, mov [esi+0x78],eax on both exits. Called from 0x828D27 with ESI = the observer's +0x10."
+  },
+  {
+   "rva": "0x428BE0",
+   "kind": "function",
+   "name": "CDeploymentMenuMouseObserver::ScalarDeletingDestructor",
+   "signature": "CDeploymentMenuMouseObserver* __thiscall CDeploymentMenuMouseObserver::ScalarDeletingDestructor(CDeploymentMenuMouseObserver* this, unsigned int flags)",
+   "no_signature": null,
+   "comment": "Slot 0: frees the callback it owns (+0x14), puts CSideMenuMouseObserver's table back, and frees itself where bit 0 of the flags is set. `ret 4`. Called by CSideMenu's destructor through slot 0. See reversing/findings/FINDINGS-deploymenu.md, section 6.",
+   "confidence": "confirmed",
+   "evidence": "Decoded whole 0x828BE0-0x828C15 (`ret 4`); writes 0x15E02E4 then 0x15DFE64 (CSideMenuMouseObserver_vftable); held at slot 0 of CDeploymentMenuMouseObserver's table only (vtable.py --holding 0x828BE0)."
+  },
+  {
+   "rva": "0x6CFB00",
+   "kind": "function",
+   "name": "GuiButton_PollMouse",
+   "signature": "void __stdcall GuiButton_PollMouse(void* button@ECX, void* input@stack:4)",
+   "no_signature": null,
+   "comment": "Slot 67 of the ordinary button (GuiObject_guiButtonType): a button's observers told from the input's state rather than from an event (GuiButton_HandleMouse, slot 1, is the event path). The state is +0x64; 3 (disabled) does nothing but slot 69. On a button not shown (+0x2C clear): every observer's slot 5, state 0. Shown: the left button (input slot 12) up with state 1 - state 2 and every observer's slot 2 (GuiButton_NotifyClick); down - state 1 and every observer's slot 4 (GuiButton_NotifyPress), on every call it stays down; with none of input slots 12, 13 and 11 down, state 2. Then slot 69 (GuiButton_ShowState) with the input. `ret 4`. **Who calls slot 67, and how often, was not read.** The name is ours: the class has no RTTI name.",
+   "confidence": "inferred",
+   "evidence": "Inferred. Decoded whole 0x6CFB00-0x6CFBD8 (two `ret 4`); slot 67 of the table at VA 0x1607698 (rva 0x1207698), in no RTTI table (vtable.py --holding). +0x2C as 'shown' follows GuiButton_HandleMouse's record; input slot 12 as the left button follows COOBBrowser::Update. Its callers were not searched, so whether it runs for a list row's button at all is open - nothing in the deploy-menu reading depends on it."
+  },
+  {
+   "rva": "0x6CFEA0",
+   "kind": "function",
+   "name": "GuiButton_NotifyClick",
+   "signature": "void __stdcall GuiButton_NotifyClick(void* observers@EAX)",
+   "no_signature": null,
+   "comment": "Calls slot 2 of every CButtonObserver on a button's list (EAX = the button's +0x48, the head at its +4, the next node at +8): **the click** - GuiButton_HandleMouse calls it when the left button comes up over a button in state 1 (pressed), first of the click's notifications (then 0x6CFEC0, the global hook, 0x6CFF00, slot 68), and on a keyboard shortcut; GuiButton_PollMouse too. A glue maps slot 2 to its first handler. The name is ours. See reversing/findings/FINDINGS-deploymenu.md, section 6.",
+   "confidence": "confirmed",
+   "evidence": "Decoded whole 0x6CFEA0-0x6CFEB9: the loop with call [edx+8]. Called at 0xACFC73 (sub-kind 4, button 1, state 1 -> 2), 0xACFD63 (the shortcut branch) and 0xACFB40."
+  },
+  {
+   "rva": "0x6CFEE0",
+   "kind": "function",
+   "name": "GuiButton_NotifyPress",
+   "signature": "void __stdcall GuiButton_NotifyPress(void* observers@EAX)",
+   "no_signature": null,
+   "comment": "Calls slot 4 of every CButtonObserver on a button's list (EAX = the button's +0x48, the head at its +4, the next node at +8): **the press** - GuiButton_HandleMouse calls it when the left button goes down on a shown button that takes the mouse, and sets the state to 1. A glue maps slot 4 to its third handler, which is where the order of battle browser's rows and the deploy menu's lines start a drag (COOBUnitEntry::OnDragStart, CDeploymentEntry::OnDragStart). Also called by GuiButton_PollMouse. The name is ours. See reversing/findings/FINDINGS-deploymenu.md, section 6.",
+   "confidence": "confirmed",
+   "evidence": "Decoded whole 0x6CFEE0-0x6CFEF9: mov esi,[eax+4]; loop mov ecx,[esi]; mov edx,[ecx]; call [edx+0x10]; mov esi,[esi+8]. Called at 0xACFC4D in GuiButton_HandleMouse on event +0x10 == 3 and +0x14 == 1, right after state = 1, and at 0xACFB5E in slot 67."
+  },
+  {
+   "rva": "0x6CFBE0",
+   "kind": "function",
+   "name": "GuiButton_HandleMouse",
+   "signature": "void __fastcall GuiButton_HandleMouse(void* button@ECX, void* event@stack:4, int unused@stack:8)",
+   "no_signature": null,
+   "comment": "**The button widget's mouse handler**, slot 1 of the four button tables; `ret 8`. Read as far as its gates: a button whose state (+0x64) is 3 - disabled, slot 47's - takes the separate path at 0xACFD72; otherwise, for an event of kind 0 (event +8) on a shown button (+0x2C), **nothing at all where byte +0x84 is nought** (slot 38, GuiButton_SetTakesMouse); then event +0x10 == 3 with +0x14 == 1 (the left button down) sets state 1 and **tells every observer's slot 4 (GuiButton_NotifyPress) - the press, a glue's third handler, where the order of battle browser's rows and the deploy menu's lines start a drag**; 4 (up) over a held button state 2 and the press is run (GuiButton_NotifyClick - observer slot 2, a glue's first handler - then 0xACFEC0, the global hook at rva 0x1685878, 0xACFF00, slot 68); 5 sets state 0 (0xACFF20, 0xACFF40); the right button's down and up at +0x70 (0xACFF60 on the up); kind 1 (a shortcut, by its +0x74/+0x78 key pair against the event's) the same +0x84 gate, then 0xACFEA0 and 0xACFEC0. Event +0x18 = 1 marks it handled. The event's layout is inferred from these uses; the second argument is not read in what was read.",
+   "confidence": "inferred",
+   "revises": true,
+   "source": "reversing/findings/FINDINGS-frontend.md",
+   "evidence": "Decoded whole 0xACFBE0-0xACFDA5 (VA; one `ret 8`). Adds only what the left-button-down branch calls - 0xACFEE0 at 0xACFC4D, whose loop calls [vft+0x10], observer slot 4 - and the helpers on the other branches; the rest of the comment is the existing reading, unchanged, and the confidence stays inferred because the event layout is still read only from its uses."
+  }
+ ],
+ "vftable_slots": {
+  "CDeploymentMenuMouseObserver": {
+   "0": "ScalarDeletingDestructor",
+   "1": "OnMouse"
+  },
+  "CDropAndAssignUnitDeploymentCallback": {
+   "0": "Call"
+  }
+ },
+ "frontier": [
+  "0x6CFEC0",
+  "0x6CFF00",
+  "0x427520"
+ ],
+ "notes": "0x6CFEC0 (observer slot 1, with the button) and 0x6CFF00 (observer slot 5) are the click's other two notifiers, not named. 0x427520 is a CDeploymentEntry routine that enables or disables `select` by the custom-game flag (0x4208B0), with no direct reference in .text; not followed. The double command on a deployment drop (CDeployUnitCommand then CAttachUnitCommand or CTransferSubUnitCommand) is recorded on UnitRows_HandleDrop; what the second command does once the first has run was not traced."
+}

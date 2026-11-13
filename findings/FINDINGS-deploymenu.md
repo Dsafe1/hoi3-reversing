@@ -47,7 +47,8 @@ deployed."
 ## 2. The menu: `CSideMenuDeploy`
 
 Constructor `0x8277A0`: the window `sidebar_deploy` of `interface/sidebar.gui`, a
-`CDeploymentMenuMouseObserver` for the map, and its `close` button.
+`CDeploymentMenuMouseObserver` for the drag into the order of battle browser (section 6; it was
+"for the map" here until 2026-11-13), and its `close` button.
 
 | offset | | |
 | --- | --- | --- |
@@ -166,20 +167,157 @@ those are in the AI's address range and were not read.
 **So a ship ordered alone joins a fleet, a wing an air unit and a brigade a division by the
 same three lines**, and a division or anything larger is put under a headquarters.
 
-## 6. The map
+## 6. Dragging a line onto the order of battle browser
 
-`CDeploymentMenuMouseObserver` (constructor inline in the menu's; its slot 1 at `0x828C20`)
-watches the mouse while the menu is up. On a left click over a **unit's deployment line being
-dragged** onto the map it finds the unit there (`0x8274A0`) and opens the routine that lets a
-unit be dropped on another (`0x73AE80`, or `0x73B280` for a single brigade), whose answer
-comes back through `CDropAndAssignUnitDeploymentCallback` (`0x826130`): a
-`CDeployUnitCommand` with the answering unit as target and its province as the place.
-`inferred`: only the callback was read end to end.
+*Read statically 2026-11-13, for OpenHOI3; nothing watched running. Addresses VAs unless marked
+rva.* **In one line:** a line of the plain list can be pressed and dragged into the order of
+battle browser and dropped on a row, and the unit is then deployed under that row's unit. **The
+drag never goes to the map**: placing on the map is still choosing the line and clicking a
+province, or choosing a unit from the target list (sections 3 and 4).
+
+*Corrected 2026-11-13: this section said the observer reacts to "a left click ... over the map"
+and was `inferred`. It tests only the browser's main window and no mouse button; and a drop posts
+two commands, not one.*
+
+### 6.1 The rules
+
+1. **Only from the plain list, and only a unit's line.** `confirmed`
+   - Pressing the left button on a line's `select` button marks that line as pending in the menu's
+     mouse observer - only where its deployment is a unit deployment holding a unit. A building's
+     line marks nothing; the target list's lines have a click handler only. Neither can be dragged.
+   - The press does nothing visible: it does not choose the line, select anything or set the in-game
+     screen's "deployment being placed".
+2. **The press becomes a drag once the pointer is inside the browser's window.** `confirmed`
+   - The observer runs every frame the menu is shown; with the browser closed it forgets a pending
+     press. Otherwise a pending press and a pointer inside the browser's main window (`oobbrowser`,
+     both edges inside) hand the drag to the browser, and the mark is cleared.
+   - No mouse button is tested here; rule 4 makes that harmless.
+   - The browser is open only while exactly one unit is selected (`FINDINGS-oobbrowser.md`, section
+     2): select one unit, open the browser from the unit panel, open the deploy menu, press a line and
+     drag it into the browser beside the menu.
+3. **What is dragged depends on the unit's size.** `confirmed` A unit of exactly one brigade (ship,
+   wing): that brigade, as a brigade dragged from the unit panel. Any other: the unit, as a unit row
+   dragged. Either way the drag carries a deployment callback holding the deployment and the in-game
+   screen.
+4. **The browser's own drag rules apply unchanged.** `confirmed` The drag goes live once the pointer
+   has moved more than 2 pixels either way from where the browser first saw it; letting go before
+   cancels it and posts nothing. A press whose button was already up on reaching the browser is
+   cancelled within one frame, so a stale press can never drop anything.
+5. **Feedback while dragging** (`confirmed`): the browser's floating `oob_unit_entry` follows the
+   pointer, filled with the deployment's unit or brigade; each row shows frame 2 where it accepts and
+   is under the pointer, frame 1 and disabled where it refuses; a closed row hovered 1.0 s opens; the
+   list scrolls at its edges. What a row shows is the drop's test **minus rule 7's province check**,
+   so a row can light up for a one-brigade unit and still refuse it. No cursor change or tooltip was
+   found here (`inferred`; only these functions were searched).
+6. **A unit of several brigades dropped on a row** (`confirmed`): accepted where the row's unit may
+   take it as a subordinate (section 2's rule) - its level strictly higher in command; a land unit
+   under anything but a theatre needs the row to hold at most 4 land units already; a fleet or air
+   unit needs the row at level 3 or above. Nothing else: not the province, loan, combat or theatre.
+   The browser lists only the player's own units. So a division goes under a corps, army, army group
+   or theatre, never a division; a fleet or air group under a land headquarters of level 3 or above;
+   a fleet never under a fleet, an air group never under a fleet.
+7. **A unit of one brigade dropped on a row** (`confirmed`): the row's unit must accept the brigade
+   under the eleven tests of `CUnit_CanTakeSubUnit` **with the same-province test off** (same service,
+   not fighting, not on loan, a land row not full of brigades, the carrier air group rules), and **the
+   deployment must be placeable in the row unit's province** (`CanDeployIn`): a ship the province's
+   naval base, a wing its air base, and in an ordinary game the province in the same area as the
+   acting capital. So a fleet at sea refuses a single ship, a division outside the capital's area
+   refuses a single brigade though its row is lit, and a headquarters row accepts a land brigade into
+   the headquarters unit itself (`likely`, from JoinUnit's merge rule).
+8. **What a drop posts, in this order** (`confirmed`, both through the in-game screen's command
+   channel): (1) `CDeployUnitCommand` - province the row unit's, country the player, deployment the one
+   dragged, target the row's unit; (2) for a unit of several brigades **`CAttachUnitCommand(the
+   deployment's unit, the row's unit)`**, for a single brigade **`CTransferSubUnitCommand(the row's
+   unit, the brigade)`**. They run in the order posted (`likely`: one channel drained in order,
+   `FINDINGS-commands.md`).
+9. **What the deploy command does** is section 5's `JoinUnit` with no swap flag (`confirmed` by the
+   record): the place is the row unit's province or, where the unit may not be deployed there, the
+   nearest province of the capital's area where it may; then a single brigade of the same service is
+   moved into the row's unit (`TRANSFEREDSUBUNIT`) and the emptied unit removed; any other unit is put
+   under the row's unit. So for several brigades the province is never refused at the drop.
+10. **What the second command does** after the deploy command has run was not traced: the attach
+    repeats what is done, a no-op that re-appends the unit last (`inferred`); the transfer is refused
+    or moves the brigade from the row's unit to itself, perhaps raising `TRANSFEREDSUBUNIT` twice
+    (`inferred`). Where `JoinUnit` finds no province and does nothing, the attach would still hang the
+    undeployed unit under the row's unit, `CAttachUnitCommand::IsValid` asking only that both exist and
+    the levels fit (`inferred`, not traced).
+11. **Afterwards** (`confirmed`): the browser clears its drag; for a unit drop it remembers the row's
+    and the dropped unit's references (+0xF8, +0x120, unread elsewhere); the commands' notifications
+    redraw the tree; the deploy menu sees the country's count of deployments changed and builds its
+    list again, closing when empty (section 2).
+12. **A drop off every row does nothing**: nothing posted, the line stays, the callback freed at the
+    next drag or with the observer. `confirmed`
+13. **Neither reverse exists.** Nothing hands a deployment drag to the map - the observer's only target
+    is the browser, and the callback class is made in one place (`confirmed`). A browser row dropped on
+    the deploy menu does nothing: the browser's release looks only at its own two lists and the menu
+    has no drop handling (`likely`).
 
 **The plain case - choose a line, click a province - was not found in this class.** The
 in-game screen is told which deployment is being placed (slot 30) and the click must be
 handled there with the rest of the map's clicks; it posts the same command with no target,
 by `FINDINGS-buildqueue.md`'s account of `Execute`. `inferred`.
+
+### 6.2 Evidence
+
+- **The press.** `CDeploymentEntry::CDeploymentEntry` (0x826F40) builds the `select` button's glue
+  (0x828E10) with the slot-4 thunk 0x67A310 (OnSelect) first and **0x827600 third**, as
+  `COOBUnitEntry`'s constructor puts the click first and its `OnDragStart` third (0x735EB4, 0x735EBD).
+  The glue's table (0x15E0408) sends observer slot 2 to the first handler (+8) and slot 4 to the third
+  (+0x10). `GuiButton_HandleMouse` (rva 0x6CFBE0) calls `GuiButton_NotifyPress` (rva 0x6CFEE0,
+  observer slot 4) at 0xACFC4D on left-button-down, setting the button's state to 1, and
+  `GuiButton_NotifyClick` (rva 0x6CFEA0, slot 2) at 0xACFC73 when the button comes up pressed.
+  0x827600 (`CDeploymentEntry::OnDragStart`) resolves the deployment; where `GetType` is 0x4B4 and +0x38
+  is non-null it writes observer (menu +0x28) +0x10 = the line and +0x18 = 1 (0x827643, 0x827646), else
+  0 to both. `OnSelect` (0x8276C0), the line's destructor (0x827415) and the observer clear both.
+- **The hand-over.** `CSideMenuDeploy::Update` calls the observer's slot 1 first (0x827AA3).
+  `CDeploymentMenuMouseObserver::OnMouse` (0x828C20-0x828D80, read whole): the menu's slot 4 (IsShown)
+  and `[in-game screen slot 105]+0xF4` (the browser open), failing either clear and return (0x828C4F,
+  0x828C5C); press_pending == 1 (0x828C62); the pointer from input slot 19 inside the rectangle of
+  `COOBBrowser +0xD0` (corner from its +0x18 slot 15, size from slot 24; 0x828C6C-0x828CE5);
+  `CDeploymentEntry_GetUnit` (0x8274A0); the old callback freed (0x828D05); the new
+  `CDropAndAssignUnitDeploymentCallback` (vftable 0x15E02DC, +4 from
+  `CDeploymentEntry_ResolveDeployment` 0x8274D0, +8 the in-game screen); `cmp [unit+0x40],1` -
+  `BeginDragSubUnit` with the first regiment (0x828D58), else `BeginDragUnit` (0x828D6D). No mouse-button
+  test in the body.
+- **The browser.** `COOBBrowser::Update` (0x739CA0): state 1 records the pointer (0x739DE8); state 2
+  becomes 3 on a move of more than 2 (0x739E05-0x739E2D); references resolved only at state 3
+  (0x739E44); on release (input slot 12 false) `UnitRows_HandleDrop` on the main list (0x739F67), then
+  the split list (0x739F89), then `ClearDrag` (0x739FA3); a release before state 3 reaches `ClearDrag`
+  with nothing resolved (0x739F4C); the rows' update is passed the callback (+0x98) as `anyProvince`
+  (0x73A2EA), which switches the same-province test off in the hover. The hovers call only
+  `CUnit_MayTakeSubordinate` (0x7363BF) or `CUnit_CanTakeSubUnit` (0x736596), never `CanDeployIn`.
+- **The drop.** `UnitRows_HandleDrop` (0x73A7C0-0x73AE70, read whole). Unit path:
+  `CUnit_MayTakeSubordinate(row, unit, 0)` (0x73A8BA); the callback's slot 0 with the row's unit
+  (0x73A8D9), +0x98 cleared; then, unconditionally, `CAttachUnitCommand` (0x73A906), posted at
+  0x73A9BE; +0xF8 and +0x120 written. Sub-unit path: sameProvince = `sete([+0x98]==0)` (0x73AAB8) into
+  `CUnit_CanTakeSubUnit` (0x73AAC4); the deployment's slot 10, `CanDeployIn`, with the row unit's
+  +0x130 (0x73AAF6); only if true, the callback (0x73AB1D); the callback cleared either way, nothing
+  posted on false; then `CTransferSubUnitCommand` (0x73AB6C).
+- **The command.** `CDropAndAssignUnitDeploymentCallback::Call` (0x826130, read whole) builds
+  `CDeployUnitCommand` (0x548FF0): province the unit's +0x130, then +0xD0; country the in-game screen's
+  slot 23 (GetPlayer); deployment the callback's +4 id pair; target the unit's id pair; posted through
+  the in-game screen's slot 18, the object `HandleDrop` posts through (`g_CCurrentGameState +0xBE8`).
+- **Exclusivity.** The callback's vftable has one reference in .text (0x828D39). `BeginDragUnit` has
+  five callers and `BeginDragSubUnit` two; only the observer's pass a callback. The callback's `Call` is
+  reached only through `HandleDrop`.
+
+*Checked by the collecting session the same day off the bytes: `0x828C55 cmp [ebx+0xF4],0`, `0x828C62
+cmp [edi+0x18],1` and `0x828C6C mov esi,[ebx+0xD0]` with no button test between; and `0x73A8D9` the
+callback followed at `0x73A906` by the attach command's constructor with no branch around it.*
+
+### 6.3 What is not established
+
+- What the second command does after the deploy command has run, and whether the player sees
+  `TRANSFEREDSUBUNIT` twice for a one-brigade drop.
+- What becomes of a unit attached while its deployment could not be placed (rule 10).
+- Whether a unit on loan is offered as a row target on the several-brigade path:
+  `MayTakeSubordinate` does not test loan, while the menu's own target list excludes such units.
+- Cursor and tooltip behaviour beyond the floating row and the rows' frames.
+- The plain placing click; the record's `CDeployUnitCommand` constructor names the in-game input
+  handler's placing click (0x65393B) as a poster with no target, not read here.
+- Button slot 67 (`GuiButton_PollMouse`): who calls it.
+- 0x827520, a `CDeploymentEntry` routine that greys `select` by the custom-game flag, with no direct
+  reference; the press handler has no custom-game gate, unlike `COOBUnitEntry::OnDragStart`.
 
 ## What was not read
 

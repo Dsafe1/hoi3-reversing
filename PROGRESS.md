@@ -25,12 +25,12 @@ how many objects a census found (taken 2026-09-20).
 
 | | classes |
 | --- | --- |
-| `read` | 180 |
+| `read` | 182 |
 | `placed` | 140 |
-| `keys` | 76 |
-| `part` | 179 |
+| `keys` | 75 |
+| `part` | 181 |
 | `named` | 5 |
-| `RTTI` | 561 |
+| `RTTI` | 558 |
 | **all** | **1141** |
 
 ## What to read next
@@ -59,7 +59,7 @@ only that, because where a loader abuts the next function the count runs into it
 | `0x60D5C0` | 1164 | `CDiplomacy` | a save block |  |  | **read**: the save's diplomacy block, one key per kind of agreement |
 | `0x5C4BF0` | 885 | `CMeanTimeToHappen` | a file |  | 3 | **read**: the MTTH grammar every event and decision is timed by |
 | `0x601D0` | 849 | `CSettings` | a save block |  |  |  |
-| `0x17E080` | 818 | `CUnitDeployment` | a save block |  |  |  |
+| `0x17E080` | 818 | `CUnitDeployment` | a save block |  | 1 |  |
 | `0x1E3F20` | 817 | `CLoadArmyCommand` | event script |  |  |  |
 | `0x153ED0` | 722 | `CSetAlliedObjectiveCommand` | event script |  | 4 |  |
 | `0x19E640` | 721 | `CNavalSortieOrder` | a save block |  |  |  |
@@ -309,7 +309,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CTransportSuppliesOrder` | `CAirOrder` |  | 2 | 2/2 | 10 |  |  | placed |  |
 | `CUndeclaredWar` | `CPersistent` |  | 9 |  | 6 | CWar.hpp | 1 | read | **read**: the save's record of a war nobody declared |
 | `CUnit` | `PAVCSubUnit::__CList` `CSelectable` `CReferenceObject` |  | 113 + 1 lua |  | 120 | CUnit.hpp |  | read |  |
-| `CUnitDeployment` | `CDeployment` |  |  | 3/4 | 6 |  | 49 | placed |  |
+| `CUnitDeployment` | `CDeployment` |  | 1 | 3/4 | 6 |  | 49 | placed |  |
 | `CUnitPlan` | `CPersistent` | 0x90 | 15 | 10/16 | 14 |  | 8,827 | read | **read**: a battle plan as the save keeps it |
 | `CVariables` | `_0A::anon::PAUCVariable::__CTernary` `CPersistent` |  | 1 |  | 5 | CFlags.hpp | 216 | keys |  |
 | `CVassal` | `CDependency` |  |  | 5/5 |  |  | 24 | RTTI |  |
@@ -493,10 +493,10 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CCreditsScreen` | `CFrontEndView` |  |  |  |  |  |  | RTTI |  |
 | `CCurrentModelEntry` | `CStandardlistboxItem` |  |  |  |  |  | 48 | RTTI |  |
 | `CCurrentOrdersEntry` | `CUnitViewBaseEntry` |  |  |  | 4 |  |  | RTTI |  |
-| `CCurrentResearchEntry` | `CStandardlistboxItem` |  | 3 |  | 3 |  | 1 | part |  |
+| `CCurrentResearchEntry` | `CStandardlistboxItem` |  | 4 |  | 4 |  | 1 | part |  |
 | `CDefensivenessComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
-| `CDeploymentEntry` | `CStandardlistboxItem` |  |  |  | 2 |  | 1 | RTTI |  |
-| `CDeploymentMenuMouseObserver` | `CSideMenuMouseObserver` |  |  |  | 1 |  | 2 | RTTI |  |
+| `CDeploymentEntry` | `CStandardlistboxItem` |  | 3 |  | 3 |  | 1 | part |  |
+| `CDeploymentMenuMouseObserver` | `CSideMenuMouseObserver` | 0x1C | 6 |  | 2 |  | 2 | read |  |
 | `CDeploymentTargetEntry` | `CStandardlistboxItem` |  |  |  | 2 |  |  | RTTI |  |
 | `CDesiredAssetsEntry` | `CUnitViewBaseEntry` | 0x2C | 1 |  | 3 |  |  | part |  |
 | `CDiplomacyView` | `CCountryView` | 0x560 | 40 |  | 48 |  | 1 | read |  |
@@ -515,7 +515,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CDistributionSetting` |  | 0x28 | 4 + 1 lua |  | 3 | CCountry.hpp |  | part |  |
 | `CDivisionDesigner` | `CReloadableInterface` |  | 13 |  | 15 |  | 1 | read |  |
 | `CDriftItem` | `CStandardlistboxItem` | 0x88 | 3 |  | 2 |  |  | part |  |
-| `CDropAndAssignUnitDeploymentCallback` | `CUnitDeploymentCallback` |  |  |  | 1 |  | 1 | RTTI |  |
+| `CDropAndAssignUnitDeploymentCallback` | `CUnitDeploymentCallback` | 0xC | 2 |  | 1 |  | 1 | part |  |
 | `CEU3AI` | `CReloadableInterface` |  | 30 + 5 lua |  | 32 |  | 108 | read |  |
 | `CEU3DialogGui` | `CFixedWindow` |  |  |  | 2 |  |  | RTTI |  |
 | `CEU3DirectSound` | `CDirectSound` |  |  |  | 17 |  | 1 | RTTI |  |
@@ -543,7 +543,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CICCostComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CIcon` | `CButton` |  |  |  | 4 |  |  | RTTI |  |
 | `CIdler` |  |  |  |  |  |  |  | RTTI |  |
-| `CInGameIdler` | `CEU3Idler` `CLostDeviceInterface` `CReloadDispatcher` |  | 129 |  | 117 | CInGameIdler.hpp | 3 | read |  |
+| `CInGameIdler` | `CEU3Idler` `CLostDeviceInterface` `CReloadDispatcher` |  | 135 |  | 119 | CInGameIdler.hpp | 3 | read |  |
 | `CIngameSettingsScreen` | `CSettingsScreen` | 0x3E0 | 1 |  | 2 |  | 1 | part |  |
 | `CLandOrdersView` | `COrdersView` | 0x198 | 10 |  | 10 |  |  | read |  |
 | `CLawEntry` | `CStandardlistboxItem` | 0x88 | 4 |  | 3 |  | 16 | part |  |
@@ -674,10 +674,10 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CSuppressionComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CTableLedgerItem` |  | 0xB8 | 11 |  | 2 |  |  | read |  |
 | `CTechMember` | `CStandardlistboxItem` | 0x80 | 5 |  | 4 |  |  | read |  |
-| `CTechTreeEntry` |  | 0x40 | 4 |  | 4 |  |  | part |  |
+| `CTechTreeEntry` |  | 0x40 | 4 |  | 5 |  |  | part |  |
 | `CTechnologyCategory` |  |  | 5 + 2 lua |  |  | CProvinceBuilding.hpp | 48 | read |  |
 | `CTechnologyFolder` |  |  | 2 lua |  |  |  | 36 | named |  |
-| `CTechnologyView` | `CCountryView` |  | 11 |  | 15 |  | 1 | read |  |
+| `CTechnologyView` | `CCountryView` |  | 12 |  | 16 |  | 1 | read |  |
 | `CTheatreView` | `CCountryView` |  | 7 |  | 8 |  | 1 | read |  |
 | `CTitleMember` | `COutLinerMember` |  | 1 |  | 3 |  | 220 | part |  |
 | `CTopBar` | `CReloadableInterface` | 0x384 | 26 |  | 22 |  | 1 | read |  |
@@ -1217,7 +1217,7 @@ One class per effect, trigger, command and decision the event scripts can use. E
 | `CUnitsInProvinceTrigger` | `CIntTrigger` | 0x44 |  | 2/153 | 2 |  | 94 | RTTI |  |
 | `CUnloadArmyCommand` | `CCommand` |  |  | 1/1 | 5 |  | 1 | RTTI |  |
 | `CUnloadFromPlaneCommand` | `CCommand` | 0x64 | 3 | 1/1 | 4 |  | 1 | part |  |
-| `CUpdateTheatreCommand` | `CCommand` |  |  |  | 1 |  | 1 | keys |  |
+| `CUpdateTheatreCommand` | `CCommand` | 0x54 | 5 |  | 8 |  | 1 | read |  |
 | `CUpgradeRegimentCommand` | `CCommand` |  |  | 1/2 | 4 |  | 1 | placed |  |
 | `CUserSelectionOption` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
 | `CValueEffect` | `CEffect` |  | 1 |  | 2 |  |  | part |  |
@@ -1263,7 +1263,7 @@ Windows, pages, sprites and the map's own drawing.
 | `CQuitDialog` | `CEU3Dialog` | 0x84 | 1 |  | 3 |  |  | part |  |
 | `CRadioButtonGroupObserver` |  |  |  |  |  |  | 1 | RTTI |  |
 | `CShareTechnologyDialog` | `CEU3Dialog` | 0x78 | 4 |  | 7 |  |  | part |  |
-| `CSingleUnitButtons` | `CUnitViewBaseEntry` |  | 4 |  | 12 |  |  | part |  |
+| `CSingleUnitButtons` | `CUnitViewBaseEntry` |  | 4 |  | 13 |  |  | part |  |
 | `CSprite` | `C2dVisibleObject` | 0x184 | 14 |  | 8 |  |  | read |  |
 | `CSpriteType` | `C2dObjectType` |  | 26 |  | 13 |  |  | read |  |
 | `CStratWarfareWindow` | `CReloadableInterface` | 0x17C | 12 |  | 19 |  | 1 | read |  |

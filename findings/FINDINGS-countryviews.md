@@ -354,8 +354,152 @@ Hides `tech_categories`, shows `tech_details`, and for the technology chosen:
 - `tech_status_finnished` for a finished technology that is not `multi`;
   `tech_status_researching` when it is on the queue.
 - **`desc`** = `0x5342E0`, which reads the key technology key + `'_desc'`.
-- **`effects`**: `CTechStatistics::BuildEffectsText` split into lines, each a
-  `detail_entry` window with its `text` set.
+- **`effects`**: section 5.5.
+
+### 5.5 The detail panel's `effects` list
+
+*Read 2026-11-13 from the listing, for OpenHOI3: `CTechnologyView::ShowDetails` (`0x81D400`) whole
+from `0x81E812` to `0x81EF8A`. Static only; addresses virtual.* Rules first; nothing in them is
+build-specific.
+
+**The text** is `BuildEffectsText(technology, levels, no unit filter, the played country)`, the
+"what a level does" text of `FINDINGS-techtext.md` section 5 - the same call, at the same level, a
+tree entry's tooltip makes for its effects block (`FINDINGS-techtooltip.md` section 3). So the
+panel's rows and the tooltip's effects lines are one text. `confirmed`
+
+**The level.** One value serves `year`, `desc` and the effects:
+
+    levels = the played country's level of the technology + 1
+    if the technology has no additional_offset:  levels = 1
+
+- No cap: a multi-level technology at its `max_level` is described one level past it.
+- A one-level technology is always described at level 1, finished or not, so a finished one shows
+  what it showed before, `ENABLE_UNIT_TECH`/`ENABLE_BUILDING_TECH` lines included.
+- A multi-level technology shows the enable lines only while the country has level 0 of it:
+  `BuildEffectsText` writes them only for a count of exactly one level.
+- Every figure is the per-level figure times `levels` - the total at that level, not the step to it.
+
+`confirmed`
+
+**Wrapping** comes before cutting:
+- The text is laid out by a text layout in the font of the row's `text` box (`Arial12` in the
+  shipped `country_technology.gui`, base and TFH alike), at that box's `maxWidth` (330), taken
+  whole, and a height of 2000.
+- A line wraps when its width plus the width of one `O` exceeds 330; colour escapes measure nothing
+  where the font handles them, as `GetStringWidth` measures.
+- Where the line's first word fits, it breaks at the last space that fits; that space is dropped
+  and becomes the newline. Where the first word does not fit, or there is no space, it breaks after
+  the most characters that fit, and a newline is inserted. A newline in the text ends its line.
+- The layout's line-count trim does not run (the freshly made layout has the flag that disables
+  it), so nothing is cut off at the bottom.
+
+The line-break rule rests on `CTextLayout::BuildLines` as recorded (`likely`); the two kinds of
+break were read in their line builders here (`confirmed`).
+
+**Cutting into rows.**
+1. The wrapped text is split at `\n`, every piece kept - empty ones between two newlines and an
+   empty tail after a final newline. `confirmed`
+2. One row is made first, its text empty, and added to the list.
+3. For each piece in order:
+   - **a piece shorter than 2 bytes is skipped** - bytes, not characters: `§W` alone counts 2;
+   - otherwise the current row's `text` is set to the piece **unchanged** - no trim, so a wrapped
+     continuation starts with whatever followed the dropped space, and **no colour is carried over**
+     from the row before (the diplomacy status list carries one; this list does not). The row is
+     resized to **180** wide and as tall as its text box reports;
+   - **only if another piece follows**, a new empty row is made and added, and becomes current.
+4. The list is shown again.
+
+`confirmed`, but that a row with no escape draws in the default colour is `inferred` (the panel
+provably does not alter the line; the box's drawing was not read), and the list's hide, empty and
+show slots carry their meanings from earlier readings.
+
+What follows:
+- **Blank lines vanish**: the empty line `BuildEffectsTooltip` puts before the decay block is
+  dropped, and so is any one-character line.
+- **There is always one empty row at the bottom.** Every line of the effects text ends in `\n`
+  (`FINDINGS-techtext.md` sections 5 and 7), so the split ends with an empty piece; the row made
+  after the last real line is never filled. It keeps the `detail_entry` window's declared size
+  (1024 x 16) and sits below the last line by the list's `spacing` (2).
+- **A technology with no effects shows one empty row**, the one made first.
+- A colour run broken by a wrap loses its colour on the continuation row.
+
+**When it is refilled.** Only `ShowDetails` touches `effects` or makes a `detail_entry`; the two
+names are referenced nowhere else, and the view's update does not call it. Four callers:
+1. **A tree entry pressed** (`CTechTreeEntry::OpenDetails`, `0x818160`): the panel for its
+   technology. Which button event reaches it was not traced.
+2. **A queue line pressed** (`CCurrentResearchEntry::OpenDetails`, `0x8178E0`): the tree is first
+   switched to the technology's folder and laid out again, then the panel is made.
+3. **The view's `Show`**, only where the view's keep-details byte (`+0xB8`) was set, by its slot 3
+   (`0x81D130`, `mov byte [ecx+0xB8],1; ret`); `Show` clears it. Set and a technology kept: the
+   panel is made again for it. Clear: the panel's shown flag is cleared and the skills shown. A
+   re-show through the in-game screen's re-show flag runs the view's slots 5, 4 and 2, not 3, so it
+   closes the panel unless something else set the byte.
+4. **The in-game screen's slot 102** (`CInGameIdler::RefreshTechnologyDetails`, `0x6781D0`), which
+   only six custom-game research commands call, from their `Execute` while the technology view is
+   open and visible: it remakes the panel for the kept technology without asking whether it was up.
+
+So in ordinary play a level finished, or a law or minister changed, leaves the open panel showing
+the old level's text, name and year until the player presses something. `confirmed` from the four
+callers and the references; nothing was seen running.
+
+**Hardcoded or mod-able.** Mod-able: the wrap width (the row's `text` box `maxWidth`), the font, the
+row window's declared size (which the trailing empty row shows) and the list's `spacing`, in
+`interface/country_technology.gui`; the text from the technology files and localisation.
+Hardcoded: the 2-byte threshold, the 180 row width, the layout height 2000, splitting at `\n`.
+
+#### Evidence
+
+- **The level.** `0x81D92A`..`0x81D94C`: `edi = country->technology_status(+0xDF8)->
+  level_by_technology(+0x218)[technology->Index(+0x244)] + 1`, stored to the level local
+  (`[esp+0x38]` at base depth). `0x81E717`..`0x81E71F`: set to 1 when `additional_offset (+0x2C0)`
+  is 0. The same local is read for `year` (`0x81E599`), `desc` (`0x81E76C`, `0x5342E0`) and the
+  effects (`0x81E82F`).
+- **The call.** `0x81E846`: `call 0x5359A0` with technology, out, levels, 0, and the tag pair from
+  the in-game screen's slot 23.
+- **The list.** `0x81E85A` 'effects'; the list's slots 21 and 23 at `0x81E8BF`/`0x81E8C8`. The first
+  row at `0x81E8CA`..`0x81EAF5`: a 0x28-byte item, `detail_entry` via `0xA8BBD0`, its `text` set to the
+  empty literal `0x15B4945`, added with list slot 4.
+- **The layout.** Font name at text box `+0x54`, looked up by `0xA77F90` in graphics `+0x88`, then
+  `+0x94` (`0x81EB05`..`0x81EB27`); `CTextLayout::CTextLayout` at `0x81EB52`; `[textbox+0x8C]` low word
+  to layout `+0x48` and `0x7D0` to `+0x4A` (`0x81EB77`..`0x81EBA9`); `SetText` at `0x81EBB1`,
+  `GetLaidOutText` at `0x81EBC5`, assigned back over the text.
+- **The line builders.** `0xACE050` keeps a piece as is; `0xACE150` drops the piece's last byte (the
+  space) and appends `\n`; `0xACE090` appends `\n` after a mid-word cut and marks the line;
+  `0xACD050` concatenates the lines.
+- **The split.** `0xA5B520` with `0xA` at `0x81EC14`: `substr(start, hit)` for every hit and
+  `substr(start, size)` for the tail, with no length test.
+- **The loop.** `0x81EC49`..`0x81EF3F`: `cmp [esp+0x110], 2; jge` at `0x81ECA4` (the piece's length);
+  the row's `text` set at `0x81ED0C`..`0x81ED33`; the text box's slot 47 gives the height and the row
+  window is resized by slot 25 to `{0xB4, height}` (`0x81ED8B`..`0x81EDC1`); the new row made only
+  while the iterator is inside the vector (`0x81EDDF`..`0x81EDF7`) and added (`0x81EF0C`..`0x81EF17`);
+  list slot 20 at `0x81EF4A`. Nothing in the loop reads the piece's bytes - contrast `0x788F70`'s `§`
+  carry-over for `diplostatus_list`.
+- **The references.** `effects` (`0x15DFB2C`) is pushed once in the image, at `0x81E85B`;
+  `detail_entry` (`0x15DFB34`) twice, at `0x81E8EE` and `0x81EE21`, both inside `0x81D400`.
+- **The callers.** `findRefs --callers 0x81D400`: `0x678215` (in `0x6781D0`, `CInGameIdler` slot 102,
+  table `0x15CEB54`), `0x817913` (in `0x8178E0`, installed by the queue line's constructor at
+  `0x8153FA`), `0x818168` (in `0x818160`, installed by the tree entry's constructor at `0x817958`),
+  `0x81CD48` (in `CTechnologyView::Show`: `0x81CC4B`, `0x81CC62` clear `+0xB8`, `0x81CC69` tests
+  `+0xD0`, `0x81CD3C` tests `+0xD4` non-null, then the call). The base `CCountryView`'s slot 3 is the
+  empty stub `0xABF890`. Slot 102's callers, found by a scan for `[reg+0x198]` calls: slot 6 of
+  `CCgmSetStageCommand`, `CCgmTechResearchChangeCommand`, `CCgmTechResearchResetCommand`,
+  `CCgmTechResearchClearAllCommand`, `CCgmTechResearchExecuteStackedCommand` and
+  `CCgmTechResearchSetProgressCommand`, each through the in-game screen (`[[0x1A89790]+0xBE8]`).
+
+*Checked by the collecting session the same day off the bytes: `0x81E717` the level set to 1, the
+level local pushed into the call at `0x81E83C`, and `0x81ECA4 cmp [esp+0x110],2`.*
+
+#### Not established
+
+- **Who calls the view's slot 3**, the keep-details request, so when reopening the screen keeps the
+  panel. `CProductionView`'s slot 3 sets its own `+0xCC` the same way.
+- **Whether `+0xB8` is a `CCountryView` byte**; `CDiplomacyView` uses the offset as a rebuild flag.
+- **Whether emptying the list resets its scroll.**
+- **Clipping.** The wrap allows lines up to 330 less one `O`, the list box is 310 wide and each row
+  is resized to 180; how a row wider than its list or its window is clipped was not read.
+- **Which button event of a tree entry or queue line reaches its handler**; the tree entry's second
+  handler (`0x818170`) was not read.
+- **The six CCgm commands' `Execute` bodies** beyond their call to slot 102.
 
 ---
 

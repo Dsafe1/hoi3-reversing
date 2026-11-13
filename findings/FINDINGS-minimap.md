@@ -209,8 +209,9 @@ and a pop:
 - **17, the theatre editor**: **`CInGameIdler::SetTheatreEditing`** (slot 110, `0x666680`). Given a
   theatre headquarters it pushes and enters 17 (style 2, mask 0xFFBE, its own colouring
   `0x865290`), with no ShowButton. Given null it pops and posts the edited provinces for the
-  headquarters' theatre. CInGameIdler_HandleInput calls it on Alt or Ctrl+R with one theatre
-  headquarters selected.
+  headquarters' theatre. CInGameIdler_HandleInput calls it on a typed Ctrl+R with one theatre
+  headquarters selected - dead, the editor lasting one frame (`FINDINGS-attachbuttons.md`, section 9;
+  corrected 2026-11-13 from "Alt or Ctrl+R"); the unit panel's `edit_theatre` is the working way in.
 
 None of 14, 15 and 17 calls ShowButton, so **the last button pressed stays down under them**.
 `confirmed`.

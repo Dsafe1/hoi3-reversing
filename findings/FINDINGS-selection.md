@@ -210,7 +210,7 @@ On release without a drag:
   CUnit::OnSelected, and only when `alwaysCounters` is off.
 
 **At release:**
-1. **Map mode 17** (*inferred* the theatre mode): the box assigns the player's controlled provinces whose label point is
+1. **Map mode 17** (the theatre editor, *confirmed* 2026-11-13, `FINDINGS-attachbuttons.md` section 9): the box assigns the player's controlled provinces whose label point is
    inside it (+-2) to the selected theatre. They are coloured as the drag goes and posted as a `CUpdateTheatreCommand`
    at release. No unit is selected.
 2. **Alt (slot 11) held: nothing** - no clear, no selection. *Inferred* unreachable, A.1.

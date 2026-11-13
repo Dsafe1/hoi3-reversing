@@ -333,8 +333,10 @@ at one - the lists under brigade types name divisions. Then `n = 1, 2, 3 ...` wi
 replacements, until one is free. A name that comes out as the key itself, or empty, is
 returned as it is.
 
-**`0x4CB450 / 0xCB450`** puts a name in the set of names in use. "In use" is one set for
-the whole game (`0xA86F70` asks it), not one a country.
+**`0x4CB450 / 0xCB450`** puts a name in the set of names in use. ~~"In use" is one set for
+the whole game (`0xA86F70` asks it), not one a country.~~ *Corrected 2026-11-13: one set a
+country, at `CCountry +0x84` (`FINDINGS-theatres.md` section K; `FINDINGS-unitstart.md` section
+6a); `0xA86F70` is the set's find.*
 
 `Execute` names the unit only when the command lists **more than one brigade**, and names
 every brigade. A unit of one - any ship, any wing, a brigade ordered alone - has no name of

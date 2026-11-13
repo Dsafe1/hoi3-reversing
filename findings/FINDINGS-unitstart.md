@@ -190,7 +190,7 @@ file's.
 Still inside `CInGameIdler::Enter`, the loop over a country's units at `0x65B7F0`. For a
 session loaded from a save it only puts each unit back in its province. For a new game:
 
-- a unit with no name is given one (`0x4CB580`, not read);
+- a unit with no name is given one (section 6a);
 - for each brigade whose **experience is below nought** - the constructor's "not given":
 
       experience = unit_start_experience                              a regular
@@ -208,6 +208,117 @@ Measured: the lines with a figure come out as that figure (181 regiments and 3 w
 them 108 reserves at 45). The lines without come out as 0, 10 or 15 - `minimal_training`
 gives no modifier, `basic_training` 10, `advanced_training` 15 - and the reserves among them
 as 2.5, 3.75, 5, 7.5 and 11.25.
+
+## 6a. The names a nameless air group and its wings are given
+
+*Read 2026-11-13 against the start save `Germany1936_01_01_00.hoi3`, for OpenHOI3. Static only;
+addresses virtual.*
+
+**The rules**
+
+1. **A wing the file leaves unnamed is named while the file is read**, as its `wing` block closes.
+   `confirmed`; *hardcoded*.
+   - The name is `SUBUNIT_NAME` with NUM = n, ORDER = the ordinal suffix, and TYPE = the text of the
+     wing type's key + `_short`; n is the first number from 1 up whose text the country has not used.
+   - Before that, the country's `unit_names` list for the wing's type is tried, once round from where
+     it left off - for a non-land type only. No Their Finest Hour country has a `cag` list (*mod-able*:
+     a country file's `unit_names = { cag = { ... } }`).
+   - English: "1st CAG" (`SUBUNIT_NAME` = `$NUM$$ORDER$ $TYPE$`, `cag_short` = `CAG`; *mod-able*,
+     `localisation/units.csv`).
+2. **The air group is named later, once the country's whole order of battle has been read**, in the
+   walk over the country's units as a new game is entered (section 6), and only where its name is
+   exactly empty. `confirmed`; *hardcoded*.
+   - An air group is level 6, so the text is `AIR_NAME` with the same NUM, ORDER and TYPE, TYPE from
+     its first wing; n again the first free number in the country.
+   - **No names list is ever tried for a fleet or an air unit**; only a division looks at one.
+     `confirmed`
+   - English: "1st Air wing" (`AIR_NAME` = `$NUM$$ORDER$ Air wing`; *mod-able*). BlackICE's `AIR_NAME`
+     is `$NUM$$ORDER$ $TYPE$ Air wing`, which gives "1st CAG Air wing".
+3. **"Air wing" against "CAG" is not a choice**: "Air wing" is the group's template (its level), "CAG"
+   the wing's (`SUBUNIT_NAME` with `cag_short`). The carrier has no bearing on either. `confirmed`
+4. **The ordinal.** ORDER is the text of `TH`, `ST`, `ND` or `RD` by `n % 10` from `TH ST ND RD TH TH
+   TH TH TH TH`; only 11, 12 and 13 are sent to `TH`, so 111 comes out "111st". `confirmed`. The table
+   is *hardcoded*; the four texts *mod-able* (`st`/`nd`/`rd`/`th` in English, `.` in German).
+5. **There is no counter.** "First free" is the smallest n >= 1 whose finished text is not in **the
+   country's** set of names in use - every name a unit, brigade, ship or wing of that country has been
+   given: file and save names registered as they are read, generated ones when set. So the set is
+   shared across levels and kinds, and two countries count apart. Nothing of a count is saved; on a
+   load the set is rebuilt from the names. The search starts at 1. `confirmed`
+6. **Wing number and group number are two searches over two texts.** They agree where each group holds
+   one wing and nothing named "Nth CAG" or "Nth Air wing" comes first. `confirmed`
+   - Both run in file order: wings while the file is read, groups in unit-list order; a country's
+     carrier groups join its unit list as their `air` blocks close, which is file order (`confirmed` for
+     carrier groups). Unnamed air groups elsewhere in the file are numbered in the same walk and keep
+     file order too (*inferred*: the top-level `air` case's append was not read).
+   - A group of two wings would make wings "1st CAG" and "2nd CAG" and the group "1st Air wing", and the
+     next group's wing "3rd CAG".
+7. **The timing has two consequences:**
+   - a file name met **later** in the file still blocks a group's number, groups being named after the
+     whole file is read; it cannot block a wing's, wings being named on the spot;
+   - a loaded game never takes the group-naming arm, and the `load_oob` effect reaches none of the
+     naming functions, so an unnamed air group it brings in during play stays nameless (*likely*: the
+     effect's tail was not read, but none of the 11 callers of `CUnit_MakeName` nor 5 of
+     `MakeUnitName` is in it).
+
+**Evidence**
+
+- **The wing:** `CUnit::LoadKey`'s `wing` case at `0x5B797E` makes a CWing (`push 0xd8`,
+  `CSubUnit::CSubUnit`, vftable `0x15BDDC4`), copies the unit's owner and sets the wing's unit (+0xB0)
+  before the block is read, then `AddRegimentToUnit`. It asks the name through CSubUnit slot 8; where
+  empty (`cmp [eax+0x10],0; sete` at `0x5B7A00`) it calls `CCountry::MakeSubUnitName(country, out,
+  definition +0x58, 0, 0)` at `0x5B7A50` and `CSubUnit_SetName` at `0x5B7A63`, which registers the
+  name. The `ship` case at `0x5B7523` has the same shape, its naming call at `0x5B75F0`.
+- **The carrier's group:** `CShip::LoadKey`'s one case, `air` (token 0x440), at `0x5ADC3B`: a CAir
+  (`0x2F4`; its constructor writes oob_level 6 at `0x5D048E`), `CUnit_SetOwner`, `CUnit_AttachToParent`
+  (under the fleet), `CUnit::SetBase` (the carrier's base object, +0xD8), the block's Load, and
+  `CCountry::AddUnit` at `0x5ADCE8`, which appends. No name. A ship with no unit reads the block and
+  deletes the air unit (`0x5ADD01`).
+- **The group's name:** `CInGameIdler::Enter`'s walk from `0x65B7F0`: the +0xD9C test at `0x65B8B7`
+  sends a new game to `0x65B8F2`: CUnit slot 7 (GetName); `cmp [eax+0x10],0; sete`;
+  `CUnit_MakeName(unit@EAX, out@ESI, country, 0)` at `0x65B95F`; `CUnit_SetName` at `0x65B970` - the
+  only call of `CUnit_MakeName` in that function. `CUnit_MakeName` (`0x4CB580`) passes the first
+  brigade's definition and the unit's level to `MakeUnitName`.
+- **The texts and the search:** `CCountry::MakeUnitName` (`0x4CB5F0`, `ret 0x14`): `cmp [ebp+0x14],4;
+  jne` around the list walk; a jump table over levels 0-6 pushes `THEATRE_`, `ARMYGROUP_`, `ARMY_`,
+  `CORPS_`, `DIVISION_`, `NAVY_` and `AIR_NAME`; the suffix pointers at `0x15C0AF4` read `TH ST ND RD`;
+  `n % 10` by `imul 0x66666667`, and `lea eax,[n-0xb]; cmp eax,2` sends 11-13 to TH; then `_short` and
+  `TYPE`. The loop's end calls `StringHashSet_Find` (`0xA86F70`) on country +0x84 and on a hit does
+  `inc n` and goes round. `MakeSubUnitName` (`0x4CBFD0`, `ret 0x14`) has the same loop; its `is_land`
+  byte (+0x2D) chooses `REGIMENT_NAME` or `SUBUNIT_NAME` and skips the list for land types.
+- **Texts** (`tfh/localisation/units.csv`): `AIR_NAME;$NUM$$ORDER$ Air wing`, `SUBUNIT_NAME;$NUM$$ORDER$
+  $TYPE$`, `cag_short;CAG`, `ST;st`, `ND;nd`, `RD;rd`, `TH;th`.
+
+**Against the start save: 24 of 24.** Every air group aboard a carrier is "Nth Air wing" and its one
+wing "Nth CAG", N the position of the group's `air` block among that country's carrier `air` blocks in
+its 1936 file:
+
+| country | carriers in file order | names |
+| --- | --- | --- |
+| ENG | Furious x2, Argus, Courageous x2, Glorious x2, Eagle, Hermes | 1st-9th |
+| USA | Lexington x2, Saratoga x2, Ranger x2 | 1st-6th |
+| JAP | Zuiho, Akagi x2, Kaga x2, Ryujo x2 | 1st-7th |
+| FRA | Béarn x2 | 1st-2nd |
+
+- The save writes Hermes' group ("9th") fourth: its Reserve Fleet sits last in `ENG_1936.txt` and the
+  save writes the tree after the AI rearranged it, so the save's order is not the naming order; the
+  file's is.
+- The ids agree with "named as the blocks close": wing below group below carrier (HMS Furious: wings
+  453 and 455, groups 454 and 456, ship 457), and each country's group ids rise with N.
+- None of the four files names any unit "...Air wing" or "...CAG".
+- With this rule, section 9's "a unit of that number, name and kind" goes from 1555 of 1579 to 1579
+  (*inferred*: the other 24 misses are exactly these).
+
+*Checked by the collecting session the same day: `MakeUnitName` at `0x4CB5F0` opens a frame as read.*
+
+**Not established**
+
+- `0x4BC3B0`, the test `MakeSubUnitName` uses in place of the country's set when its fifth argument is
+  non-null; rebels (`CreateRebelsForFaction`) and `ReleaseProvinces` pass one, nothing on the order of
+  battle's path does.
+- How the top-level `air` case appends to the unit list; assumed to keep file order.
+- The tail of `CLoadOOBEffect::Execute`.
+- A carrier built in play comes with no CAG; a CAG built alone is the build queue's naming
+  (`FINDINGS-builders.md` section 3; `FINDINGS-buildqueue.md` section 4), not this rule.
 
 ## 7. The officers a country starts with
 
@@ -341,7 +452,7 @@ What that settles beyond the sections above:
     education law within two days.
 - **The 24 units that do not match by name** are the air groups aboard carriers, which the
   files leave unnamed: the save has them as `1st Air wing`, `2nd Air wing`, counted through
-  the country, and their wings as `1st CAG`, `2nd CAG`.
+  the country, and their wings as `1st CAG`, `2nd CAG` - section 6a, 24 of 24.
 - **The 34 that do not match by commander** are units the files nest and the save has under
   one of the theatres below.
 - **Organisation two days in**: 958 brigades are where section 4 put them, 2745 below and 3
@@ -363,9 +474,10 @@ What that settles beyond the sections above:
   strength, ids above every id a file's unit got, and every top-level unit of the files
   moved under one. `FINDINGS-aitheatre.md` has the AI issuing `CCreateHigherCommand`; that
   this is what made them was not checked.
-- **A wing's or a ship's default name.** The `wing` case names an unnamed wing through a
+- ~~**A wing's or a ship's default name.** The `wing` case names an unnamed wing through a
   call that takes the country and the type (`0x5B7A20` on), not read. 24 of the base game's
-  136 starting wings have no name in the files.
+  136 starting wings have no name in the files.~~ **Read 2026-11-13**: section 6a; the `ship`
+  case is the same shape, at `0x5B75F0`.
 - **`0x4D59D0`**, run just before the order of battle is read, and **`0x5CD5B0`**, run on
   each unit just after. `0x4D59D0` was looked at only as far as what it calls -
   `CTechnology::CheckResearchAllowed`, `CTechnologyStatus::GetResearchCost`,

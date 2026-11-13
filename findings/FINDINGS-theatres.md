@@ -227,7 +227,8 @@ the theatre whose headquarters is the root of a land unit of the country's stand
 its neighbours (edges not of kind 3, simulated, the country's) are stamped with - **the first of equals in the order of
 the theatres' addresses**; else the theatre whose `+0x60` has the nearest province (`CMap::DistanceBetweenProvinces`).
 Then each theatre's provinces the country no longer holds are dropped (`0xAFA70`: off its fronts, `+0x30`, `+0x40`,
-`+0x60`). Then every theatre: stamps (H), areas and ports (G), and **its fronts made again** (`CTheatre_RebuildFronts`,
+`+0x60`) - **this drop sits behind the same flag as the placing**: with the flag false, the theatre editor's call
+(`FINDINGS-attachbuttons.md` section 9), neither happens (*clarified 2026-11-13*). Then every theatre: stamps (H), areas and ports (G), and **its fronts made again** (`CTheatre_RebuildFronts`,
 `0xB1790`): not hot, fronts freed, and for each of its areas the country's fronts of it (C), each keeping only the
 provinces stamped with this theatre (taken off `+0x60` to be put back), given to it with `AddFront(…, true)`, the theatre
 hot if one is. A theatre left with no provinces has its agent told to go. Then `MaintainTheatres(strategy, true)`.

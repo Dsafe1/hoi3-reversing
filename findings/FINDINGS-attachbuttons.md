@@ -131,6 +131,145 @@ For the player, `Execute`'s step 7 also tells the interface; with `+0x54` clear,
 
 What the theatre layer does with an empty `CTheatre` afterwards belongs to `FINDINGS-theatres.md` and was not re-read.
 
+## 9. `edit_theatre`: the theatre editor
+
+*Read 2026-11-13, for OpenHOI3. The button paints provinces into a theatre on the map; it opens no window.*
+
+### 9.1 Rules (mechanics, build-independent)
+
+1. **Shown** for a unit of oob_level 0 (a theatre headquarters) and no other level. **Never greyed** - not by the
+   custom-game lock, a parent, manpower or an AI agent on the unit. Only the player's own units can be selected, so in
+   practice it appears on any of the player's theatre headquarters, automated ones included. `confirmed`
+2. **Tooltip**: `UW_EDIT_THEATRE` "Edit Theatre", with the delayed half `UW_EDIT_THEATRE_DRO` "Select provinces that
+   should belong to this theatre." (`SemperFi.csv`), and the generic shortcut line, the `.gui` giving the button
+   `shortcut = "t"` [mod: `single_unitpanel.gui`]; unchanged with the button's state. `confirmed`
+   (`FINDINGS-unitpaneltooltips.md`, section 9). How a shortcut key presses a button is not read.
+3. **A press is a toggle on the button's own picture.** `GFX_edit_theatre` has two frames [mod: `unitpanel.gfx`]. Up
+   (frame 1): the editor is switched **on** for the selected unit and the button set down (frame 2). Down: switched
+   **off** and set up again. Under a custom game's lock a press does nothing. No command is posted by the press.
+   `confirmed`; that the getter is slot 19 is `likely`.
+4. **On** (map mode 17): the current map mode is pushed onto the mode stack; the map turns to the editor's colouring;
+   **no minimap mode button changes**, so the last one pressed stays down; the province objects are hidden as for other
+   colour modes. `confirmed`
+5. **The editor's colouring** [exe-hardcoded], made on entry: every simulated province grey - 0.5 where the player's
+   knowledge of it is 2 or more, 0.25 below; an unsimulated one black; then each of the player's theatres in the
+   country's list order, the i-th in **region i's colour** (the i-th region of `map/region.txt` [mod]) at full or half
+   brightness by the same knowledge test, or plain grey where i is not below the number of regions; the selected
+   theatre's provinces in progress in its colour. `confirmed`
+6. **Painting is a left-button drag, and only a drag** - a press and a move of 2.0 map units or more
+   (`FINDINGS-selection.md`).
+   - While dragging, the box outline is the selected theatre's colour brightened by 1.1; (0.8, 0, 0) only where the
+     theatre's index is not below the number of regions.
+   - The box is gathered again whenever the pointer's ground point has moved **more than 2** (whole units, x or z).
+   - A province **joins the edit list** where it is controlled by the player, not already in the selected theatre, in a
+     real area, and its label point (the bounding-box centre kept in the province template) lies inside the box grown
+     by 2 on every side; joining appends it and paints it in the theatre's colour.
+   - A province that **leaves the box** while dragging is taken back out and repainted in its old theatre's colour, or
+     grey past the regions. So the list is what is under the box at release, in the order the provinces entered it.
+   `confirmed`
+7. **Release**: where a unit is selected and the list is not empty, the selected unit's theatre is looked up - the
+   theatre whose headquarters is the root of the unit's chain - and where it exists **one `CUpdateTheatreCommand(theatre,
+   list)` is posted**; the list is then emptied. Nothing is selected or deselected and the unit panels are not laid out
+   again. `confirmed`
+8. **A plain click (no drag) is the ordinary click**: it clears the selection and selects what is under the pointer,
+   usually the province, which ends the editor (rule 10). A right click is the ordinary right click - **the selected
+   headquarters is ordered to march to that province** - nothing on that path testing mode 17. `confirmed` for the click;
+   the right click `inferred` from the absence of a mode test (HandleInput tests mode 17 in exactly three places: the drag
+   release, the panel layout after a drag, and the key).
+9. **Off** (the button again): the mode stack is popped, restoring the mode before; any list left over is posted for the
+   theatre of the headquarters the editor was opened for - normally none, each release posting its own; the edit state
+   is cleared. `confirmed`
+10. **The editor also ends by itself**, on the frame after the selection stops being exactly one level-0 unit - a click on
+    anything else, Escape (which clears the selection), or selecting more than one thing; the frame after because the
+    map refresh runs before input in a frame. Ending so also posts a leftover list. `confirmed`. The button is not reset
+    by this path; the panel is rebuilt with the new selection (`inferred`).
+11. **The key path is dead.** A typed **Ctrl+R** (the character 0x12) enters the editor where exactly one level-0 unit of
+    the player's is selected and the mode is not already 17, marking the entry as by key; on every later frame the
+    editor then ends unless "Alt is held", a test that reads key codes Windows never sends (VK_LMENU / VK_RMENU), so it
+    always answers no and the editor lasts one frame. Alt cannot enter: the test sits in the character branch, and Alt
+    arrives as a key-down (0x104), never a character. The design was evidently hold-Alt-to-paint, broken. `confirmed`
+    for the key and the test; "never answers" `inferred` (the record's `Keyboard_IsAltDown`).
+12. **The command** (`CUpdateTheatreCommand`, type 0x73C) carries the theatre's id pair and the province ids in order,
+    saved as `theatre = { type id } area = { ids }`.
+    - **IsValid**: the list is not empty. Nothing else.
+    - **Execute**, on every peer, reading nothing local: if the theatre no longer exists, nothing; for each province in
+      order, if its stamp names an existing theatre it is removed from that theatre's fronts, provinces, key provinces and
+      added provinces, then appended to this theatre's provinces and added provinces and stamped with it; last, the
+      owner's theatres are refreshed **without placing** - no unstamped province placed, no unheld province dropped;
+      every theatre's stamps, areas, ports and fronts rebuilt; a theatre left with no provinces has its agent told to go;
+      the hourly theatre maintenance run once.
+    - It checks **nothing about the sender, the owner, the controller or the theatre's country**; the province filter is
+      the interface's alone (rule 6). `confirmed`
+13. **What it is for.** `create_theatre` (section 8) makes a theatre with no provinces, and for a played country in a
+    running game the theatre layer only places provinces that have no theatre (`FINDINGS-theatres.md` A, I); this editor
+    is how a player gives a new theatre ground or moves ground between theatres. An edit **persists**: the stamps and
+    lists are what `area_theatre` saves, and the played country's later refreshes do not undo them (`inferred` from
+    `FINDINGS-theatres.md` A and I).
+14. Emptying a theatre with the editor unlocks `disbandbutton` on its headquarters: Update forbids disbanding a level-0
+    unit whose theatre's added-province count is above nought (`FINDINGS-smallbatch.md`). `inferred`, a combination of
+    two confirmed rules.
+
+**Mod-able or exe-hardcoded.** Mod-able: the button's place, picture and shortcut (`single_unitpanel.gui`,
+`unitpanel.gfx`), its texts (`SemperFi.csv`), and the colours (the regions' order and colours in `map/region.txt`).
+Hardcoded: the rest - the level-0 rule, the toggle, the 2-unit drag and sampling, the label-point test, the knowledge
+thresholds and greys, the 0.8 red, the command's behaviour.
+
+### 9.2 Evidence
+
+- **Binding.** The constructor (`0x75CED0`) builds the glue `+0x3B8` with handler `0x75DC00` at `0x75D23A` and
+  registers it on `edit_theatre` at `0x75D6E6`; frame 1 at `0x75D73A` (slot 18). The string `edit_theatre`
+  (`0x15D7F10`) has six references: `0x75D6A5`, `0x75D700` (constructor), `0x75DC48` (handler), `0x75EDEC` (Update's
+  hide), `0x75F285` (Update's show, the `oob_level == 0` arm), `0x7615E9` (BuildTooltip); none enables or disables it.
+- **Handler** `0x75DC00`-`0x75DDD3`, `ret 4`: the lock test (`0x41C4E0`, `0x4208B0`); the element's slot 19 against 1;
+  `[0x1A89790]+0xBE8` slot 106 with 1 and SetFrame(2) at `0x75DD1C`-`0x75DD30`, or with 0 and SetFrame(1) at
+  `0x75DDA7`-`0x75DDC1`.
+- **Slot 106** `0x666640`: `SetTheatreEditing(GetSelectedUnit())` or `(0)`. From `slotcalls.py`: slot 106's caller is the
+  handler only; slot 110's are slot 106, HandleInput `0x6537BE` and RefreshMap `0x6516CF` and `0x6516F8`.
+- **SetTheatreEditing** `0x666680`. On: `0x6667D3`-`0x6668A1`. Off: `0x6666B0`-`0x6667CE`, the post at
+  `0x6667A0`-`0x6667B6` and `CList_FreeAndClear(+0x6C)` at `0x6667C2`.
+- **RefreshMap** `0x6516A0`-`0x65171C`: the mode-17 block (rules 10 and 11).
+- **HandleInput**: the character branch `0x653606`; the 0x12 test `0x65376F`-`0x6537D0`; the window procedure's key
+  switch `0xA918B0` handles 0x102 and 0x104 only, so no `WM_SYSCHAR`; `Keyboard_IsAltDown` `0xB4E140` reads
+  `+0xE4`/`+0xE5`, which `Keyboard_OnKeyMessage` (`0xB4E0D0`) never writes, storing by the message's own key code; the
+  drag release `0x652C89`-`0x652DCA`.
+- **DrawSelectionBox**: colour `0x64DBC0`-`0x64DC8E` - the index walk of `CCountry +0x570` from 0, against the length of
+  `CMap +0x2A40`, `0x174C564` = 0.8f; gathering `0x64DD0D`-`0x64E13B` - the more-than-2 sample at `0x64DD1A`, the walk of
+  `CCountry +0xD00`, the stamp skip `0x64DECF`, area slot 0 `0x64DEE9`, label `+0x5C`/`+0x60` +-2, `CList_Contains`
+  `0x44EE90`, append `0x64DF8A`, `CList_RemoveNode` `0x5D49D0`, default 0.5 grey `0x15AB304`.
+- **Colouring** `0x865290`-`0x865920` (`ret 4`): constants 0.5f, 1.0f, 0.5 (double), 0.999; intel `+0x370` against 2;
+  template `+0x13D`. Callers `0x641DD6` (in `0x641DC0`, which RefreshMap calls at `0x651791`) and `0x666870`.
+- **Command**: constructor `0x5EA010` (callers `0x652D00`, `0x66670A` only); Execute `0x5EA0E0` - `CTheatre_DropProvince`
+  `0x8AFA70`, `CTheatre::AddProvince` `0x8AF950`, then `0x8ABC90` with 0, whose flag test at `0x8ABCAB` jumps to
+  `0x8ABE1C`, past both the place loop and the unheld-drop loop (`0x8ABDA9`-`0x8ABE1A`); IsValid `0x5EA400`;
+  SaveContents `0x5EA280` (tokens 1125 `theatre`, 1608 `area`); vftable `0x15C955C`, 15 slots.
+
+*Checked by the collecting session the same day off the bytes: `0x65376F cmp dword ptr [edx],0x12` in the character
+branch, and `0x6667B8`-`0x6667C2` clearing `+0x7C` and freeing the list at `+0x6C`.*
+
+### 9.3 Corrections made with this reading
+
+- `CInGameIdler_HandleInput`'s record said "the code 0x12 - Alt pressed, or Ctrl+R typed": the typed Ctrl+R only, and
+  self-cancelling (rule 11). `FINDINGS-minimap.md` section 5 is corrected to match.
+- `CInGameIdler::SetTheatreEditing`'s record named `+0x74` the province list: the list is `+0x6C`, `+0x74` its count.
+- `CInGameIdler_DrawSelectionBox`'s record gave (0.8,0,0) for a theatre not in the country's list: it is for an index
+  not below the number of regions; a missing theatre counts as the list's length and gets a region's colour.
+- `FINDINGS-selection.md` A, "Map mode 17 (*inferred* the theatre mode)": now confirmed.
+- `FINDINGS-theatres.md` section I: the drop of unheld provinces sits behind the flag as the placing does; with the flag
+  false - this command's call - neither happens.
+
+### 9.4 Not established
+
+- Whether `CButton` slot 19 is the frame getter: `likely` from slot 18 = SetFrame and the toggle's shape.
+- That the button's frame is reset when the editor ends by a change of selection (`inferred`).
+- Pressing `edit_theatre` while mode 17 is already on, after the selection moved to another theatre headquarters,
+  would push 17 onto the mode stack, and leaving would pop to mode 17's table entry, the theatre map mode (8).
+  `inferred`; not exercised.
+- How a `.gui` `shortcut` presses a button (also open in `FINDINGS-editbox.md`).
+- `+0x12E8`: whether anything resets it at a press, and whether it has readers besides the mode-17 gathering.
+- Whether an automated theatre's AI agent re-plans at once after an edit, beyond what MaintainTheatres does.
+- No savegame bears on the interface half; the command would show as changed `area_theatre` provinces in saves taken
+  before and after an edit, not tried.
+
 ## What is not established
 
 - That the top row of `list` is the first one added: `inferred` from other lists.

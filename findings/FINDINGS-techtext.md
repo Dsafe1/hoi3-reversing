@@ -211,8 +211,9 @@ Then four lists:
 
 ## Not established
 
-- The technology panel's `effects` list (`0x81E846`) is made from this text, with its own level
-  argument, and cut into rows; neither was read.
+- ~~The technology panel's `effects` list (`0x81E846`) is made from this text, with its own level
+  argument, and cut into rows; neither was read.~~ Read 2026-11-13: `FINDINGS-countryviews.md`,
+  section 5.5.
 - The text of every other trigger a mod's `allow` may use; and which trigger a category's name
   makes as a condition.
 - The name of province 0.
