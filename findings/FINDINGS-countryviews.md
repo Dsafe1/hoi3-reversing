@@ -501,6 +501,175 @@ level local pushed into the call at `0x81E83C`, and `0x81ECA4 cmp [esp+0x110],2`
   handler (`0x818170`) was not read.
 - **The six CCgm commands' `Execute` bodies** beyond their call to slot 102.
 
+## 6. The slider lock: where it is kept, what sets it, what keeps it
+
+*Read 2026-11-13, for OpenHOI3. Static only; nothing watched running; the savegame the oracle for
+whether it is saved. Addresses VA, rva where an entry is cited.*
+
+*Corrected with it: `CCountry +0x1090` was recorded as `distribution_locked` and is renamed to the
+save's own key, `slider_locks`; nothing used the old name.*
+
+### 6.1 The rules (build-independent)
+
+1. **The lock is the slider knob's state, not a stored value.** Each slider is a scrollbar whose knob is
+   a button; a locked slider is a knob in the *disabled* state, which is what greys it (section 2). Each
+   slider has its own knob. `confirmed`
+2. **The country keeps a mirror of the production screen's locks**: six integers, one an IC share, in the
+   production screen's slider list's order - upgrade, reinforcement, supply, production, consumer goods,
+   lend-lease; 1 locked, 0 not. `confirmed`
+3. **A right click on the knob toggles the lock**, where the scrollbar's `.gui` entry says `lockable =
+   yes` (default no; the production and technology files say yes, and so do the lend-lease window's and
+   `orders.gui`'s sliders) and its `drag` is on (default yes; without it the knob takes neither a drag nor
+   a lock). Nothing happens while the knob is dragged; a scrollbar code switched off itself is locked
+   again rather than unlocked; **a right click unlocks a locked knob** - the knob's handler deals with the
+   right button before it tests the disabled state, an ordinary button ignoring every event while
+   disabled. `confirmed`. Input sub-kind 5 runs the same toggle; that it is the double click is
+   `inferred` (`FINDINGS-soundeffects.md`).
+4. **The need button sets the slider to its need plus half a step and locks it**; on a locked slider it
+   moves it to its need and leaves it locked. On these two screens it never unlocks: the "enable again"
+   path needs the disabled-by-code latch, which nothing sets on these sliders. The value is set before the
+   state is looked at. `confirmed`
+5. **The production screen writes the mirror**: in every balancing round of every frame the screen is
+   open, each list place's entry is set to whether that slider's knob is disabled. `confirmed`
+6. **The mirror is read back whenever the sliders are made** - the screen built or rebuilt, and the played
+   country changed: a slider whose entry is above 0 starts locked. `confirmed`
+7. **The technology screen has no list of its own; it reads entries 0-3 of the production list by its own
+   list places** (research, espionage, diplomacy, officers) and never writes any. `confirmed`. So
+   (`inferred` from the absence of a writer): research comes up locked where upgrade was last locked on
+   the production screen or in the save loaded, espionage follows reinforcement, diplomacy supply,
+   officers production; and a lock set on the technology screen lasts only as long as that screen's
+   slider objects, never mirrored or saved. A fault of the original, by the look of it.
+8. **The balancing does not read the mirror**: the round that shares out what is left asks each knob
+   whether it is disabled (`CEconomySlider::IsDisabled`) and skips locked sliders; the mirror only carries
+   the lock across a rebuild. `confirmed`. A locked slider is still set from its share when the screen is
+   reset from the country's settings, SetValue not looking at the lock (`likely`).
+9. **What clears or replaces it**: making a country and a session reset set every entry to 0, the same
+   reset setting the six shares equal (`confirmed`); loading empties the list and reads the saved one
+   (`confirmed`); nothing reads or writes it when the country is handed to the AI, nor in the AI's
+   production minister, slider automation, Lua or any command - a negative with a positive control, below
+   (`confirmed`). Under automation the screen's window takes no mouse, so the knobs cannot be clicked
+   (`inferred` from the base view's slot 14).
+10. **The savegame**: the country block's `slider_locks = { ... }` is written **only for the country the
+    local player plays**, one a save; it is read for whatever block carries it. `confirmed`
+11. **It is local to one client**: no command carries it - both share commands are a tag, an id and a list
+    of shares - and the production screen writes the mirror straight into the country. In multiplayer
+    each machine's copy of its own country holds its own locks, harmless since the simulation never reads
+    it; a host's save carries only the host's country's. `confirmed` for the write path; the command
+    layouts rest on the record's two 0x54-byte structs.
+12. **How long a lock lasts.** The screens are made again every time a game is entered, new or loaded,
+    and on an interface reload; sliders also in a screen's rebuild and, on the production screen, when the
+    played country changes; a remade slider has a fresh, unlocked knob. So a production lock lasts the
+    session through the mirror and across save and load through `slider_locks`; a technology lock until
+    that screen's next rebuild, after which it takes production's entries. `confirmed` for the callers; how
+    often the technology screen's rebuild (its slot 0) runs was not established.
+
+### 6.2 Evidence
+
+- **The toggle**, `CScrollbar_ToggleLock`, `0xA9FF60` (rva `0x69FF60`):
+
+      if !scrollbar+0x250 (lockable): return
+      s = knob(+0xA0).slot44()                 ; state, [ecx+0x64]
+      if s == 4: return
+      if s == 3 && !scrollbar+0x253: knob.slot45(0)   ; unlock
+      else:                          knob.slot45(3)   ; lock
+
+  `CScrollbar_Construct` builds the knob's observer at `+0xF8` (`0xA9DBFC`..`0xA9DC34`);
+  `CButtonObserver_Init` stores argument k at `+8+4(k-1)` (`0xA9A743`..`0xA9A7B5`). The toggle is the
+  11th argument (`+0x30`, glue slot 8, `0x6B6DE0`); `0xA9FFD0` (`call 0xA9FF60; ret 4`) the 15th (`+0x40`,
+  glue slot 9, `0x6C35C0`); the press `0xA9FF10` at `+8`, the release `0xA9FFE0` at `+0x18` (clears
+  `+0x68`). The observer is attached to the knob only when `+0x251` (`drag`) is set (`0xA9E3CB`).
+- **Slot 9 is the right click.** `0xACFF60` runs every listener's `[vtbl+0x24]` with the button; its two
+  callers, `0xACFD1E` in `GuiButton_HandleMouse` and `0xAA155B` in `GuiSliderButton_HandleMouse`, reach
+  it on event `+0x10 == 4`, `+0x14 == 2` after `+0x70` was set by `+0x10 == 3`, `+0x14 == 2`.
+- **Why a disabled knob still unlocks.** `GuiSliderButton_HandleMouse` (`0xAA14C0`, slot 1 of
+  `0x15FFB38`, its only reference `0x15FFB3C`) tests kind 0, shown (`+0x2C`) and takes-mouse (`+0x84`),
+  handles sub-kind 5 (listener slots 8 then 7) and the right button's down and up, and only then, at
+  `0xAA157A`, tests `[edi+0x64] == 3`. Positive control: `GuiButton_HandleMouse` (`0xACFBE0`) tests state 3
+  at `0xACFC0C` before any arm and runs no listener on that path (`0xACFD72`).
+- **The knob is that class.** `CScrollbar_Construct` calls `0xB29450` at `0xA9DFE1` and stores the result
+  at `+0xA0` (`0xA9DFE6`); `0xB29450` finds the guiButtonType named by `slider` and calls `0xB2C420`
+  (`0xB29514`), which allocates 0xB8 bytes and calls `0xAA0FE0` (`0xB2C48D`), which writes `0x15FFB38`
+  (`0xAA1018`) - raising `FINDINGS-guilive.md`'s count-and-name match for `0x15FFB38` to confirmed. Slots
+  44-47 of `0x15FFB38`, `0x1607698` and `0x15FFA10` are the same four bodies: 44 `0x8AF4D0` `mov
+  eax,[ecx+0x64]`; 45 `0xACFF80` `mov [ecx+0x64],arg`; 46 `0xACFF90` 3 -> 0; 47 `0xACFFA0`
+  `[ecx+0x64]=3`, then slot 69.
+- **The two keys.** In `GuiType_scrollbarType_LoadKey` (`0xB28C30`, slot 4 of `0x1606958`): token
+  `0x144` writes type `+0x198` (`0xB28F14`); `0x145`, through the second jump table, `+0x199`
+  (`0xB28F53`); both through `0xA7B410`. `saveTokens.json`: 324 = `lockable`, 325 = `drag`; `0x144`
+  registered against `"lockable"` at `0xCF86B5`. The type's constructor sets the pair as the word `0x100`
+  (`0xB282E6`); the create `0xB284C0` passes both (`0xB284FB`, `0xB28502`) and `CScrollbar_Construct`
+  stores them at `+0x250`/`+0x251` (`0xA9DDBE`, `0xA9DDC4`). TFH's `country_production.gui` line 985 and
+  `country_technology.gui` line 1235 put `lockable = yes` on `actual_slider`.
+- **Disabled by code**, `+0x253`: set to 1 at `0x42E1DA` (the virtual `0x42E1D0`), `0x6FA371`,
+  `0x6FA390`, `0x6FA3AF` (`CSettingsScreen_Refresh`) and `0x74F793` (`CObjectivesEntry::Update`); read at
+  `0x42E18B`, `0x7F0038` (`ResetFromSetting`), `0x7F01EB` (`OnNeedButton`), `0xA9E680` and `0xA9FF96`.
+  None of the setters is in the production screen, the technology screen or `CEconomySlider`.
+- **The need button**, `0x7F0080`: SetValue at `0x7F013C`; knob slot 44 (`0x7F018F`); locked: slot 46 only
+  if `+0x253`, then the byte cleared (`0x7F01EB`..`0x7F0203`); unlocked: slot 47 and `+0x3E = 1`
+  (`0x7F0252`..`0x7F0274`).
+- **The mirror.** Every `+0x1090`/`+0x1094`/`+0x1098` site in `.text`, swept chunk by chunk (2,755,661
+  instructions, 0x8CC002 of 0x92A000 bytes, the last at `0xD2AFFE`): `CCountry::CCountry` three zero dwords
+  (`0x4C99EB`..`0x4C99F7`) and a push_back of 0 for each ProductionDistribution (`0x4C9FEA`..`0x4CA037`);
+  the destructor (`0x4CA740`, `0x4CA9F9`..`0x4CAA18`) frees it; `CCountry::LoadKey` `0x4CE88E` empties
+  (`0x4A8590`) and reads (`0x45F450`); `CCountry::SaveContents` `0x4D19AF` `SaveWriteIntVector`, token
+  `0x696`; `CCountry_Reset` `0x4D4796` `[vec][i] = 0` for i < count, no bound test;
+  `CProductionView::BuildSliders` `0x7FC557`..`0x7FC578` index count-1-i, kept inside the vector, `> 0`,
+  knob slot 47; `CProductionView_Update_BalanceSliders` `0x7FE1D1`..`0x7FE1F9` `[vec][i] =
+  IsDisabled(slider i)`, list order, bounded; `CTechnologyView::Build` `0x81A649`..`0x81A666` index 3-i,
+  knob slot 47; unwind funclets `0xC24537`, `0xC9C9FD` free it. No `lea eax,[ecx+0x1090]; ret` accessor
+  (no Lua), no site in AI, command or `CTechnologyView` update code. **Positive control:** the same sweep
+  finds `+0x108C`'s recorded writer `CCountry::RecountUnitTotals` (`0x4E2323`), its three `inc` sites
+  (`0x50058F`, `0x5006AA`, `0x500767`), and both recorded production readers of `+0x1090`.
+- **The indices.** On the production screen `[esp+0x14]` starts at count-1 (`0x7FC4B2`) and is decremented
+  each pass (`0x7FC6CD`) while the distributions are walked 0..5, each slider put at the front of the
+  list, so distribution i gets entry 5-i, its list place; the balancing walks the list from its head with
+  the index counting up (`0x7FE224`). On the technology screen `[esp+0x20]` starts at 3 (`0x81A586`) and
+  is decremented each pass (`0x81A7BD`):
+
+  | entry | production slider | technology slider |
+  | --- | --- | --- |
+  | 0 | upgrade | research |
+  | 1 | reinforcement | espionage |
+  | 2 | supply | diplomacy |
+  | 3 | production | officers |
+  | 4 | consumer goods | - |
+  | 5 | lend-lease | - |
+
+- **Which country.** BuildSliders (`0x7FC472`..`0x7FC49C`) and Update (`0x7FD6B1`..`0x7FD6E9`) both take
+  `g_CCountryDataBase[+0x16C][id]`, the id from the in-game screen's slot 23, GetPlayer. SaveContents
+  writes the key only when `[esi+0xF1C]`'s slot 23 tag id equals the country's `+0xCA8`
+  (`0x4D1992`..`0x4D19AD`).
+- **The save oracle.** Over the save folders under `Documents\Paradox Interactive\Hearts of Iron III`:
+  the base game's 42 of 43 saves, BlackICE 15.1's 7 of 7 and BlackICE GitHub's 11 of 11 have
+  `slider_locks`, every block `0 0 0 0 0 0`, one a save, in the `player=` country's block (`IRE=` at line
+  520305 of `Ireland1938_08_03_14.hoi3`; `GER=` in `Germany1936_04_20_03.hoi3`). Six entries confirm the
+  vector is sized by the production shares. The exception, the base folder's `olderautosave.hoi3` of
+  2026-11-12 with `human=yes` and no block, is *inferred* to be OpenHOI3's own autosave, not checked.
+- **Building the views.** `CInGameIdler_BuildViews` (rva `0x259760`) deletes and remakes every country
+  view; it is called from `CInGameIdler::Enter` and `ConsoleCmd_ReloadInterface`. The production
+  constructor (`0x7FB1A0`, one caller `0x659976`) reaches `BuildSliders` through `AttachButtons`
+  (`0x7FC337`), which slot 0 (`0x7FBE00`) also calls; `CProductionView::Update` calls BuildSliders when the
+  played country is not the one at `+0x334` (`0x7FD449`); `CTechnologyView::Build` is called by the
+  constructor (`0x81A492`) and slot 0 (`0x81D122`).
+- **No command.** `CChangeInvestmentCommand` and `CChangeLeadershipCommand` are both 0x54 bytes in the
+  record: CCommand to `+0x3C`, then tag, id and the shares vector to `+0x4C`. No room for a lock.
+
+*Checked by the collecting session the same day: `slider_locks = { 0 0 0 0 0 0 }` at line 355342 of
+`Germany1936_04_20_03.hoi3`, and 42 saves of the base folder with the key; `0x81A586 dec eax` and the
+bounded read of `+0x1090` at `0x81A649`..`0x81A666`.*
+
+### 6.3 What is not established
+
+- **Whether sub-kind 5 is the double click**, and so whether a double click toggles the lock.
+- **Who calls a view's slot 0** (the rebuild), and so how often a technology-screen lock is replaced.
+- **The other lockable sliders**: the lend-lease window carries its locks across its own rebuild by
+  collecting locked receivers (`FINDINGS-tradeui.md`); `orders.gui`'s lockable sliders were not read.
+- **`+0x253`'s setters** past their stores; the virtual `0x42E1D0` (held at `0x15B6478`) belongs to a class
+  not identified.
+- **`0xA9FF10`/`0xA9FFE0`/`0xA9FC20`**, the knob's drag handlers, past their stores.
+- **Nothing was watched running**; that a right click unlocks a locked knob rests on reading its handler.
+  A live check: lock and unlock on both screens, watching `CCountry +0x1090` and the knob's `+0x64`.
+
 ---
 
 ## What is not established
@@ -526,7 +695,8 @@ level local pushed into the call at `0x81E83C`, and `0x81ECA4 cmp [esp+0x110],2`
   once-a-second gate.
 - **The scrollbar itself.** Its fields at `+0x22C`, `+0x230` and `+0x234` are read as
   minimum, maximum and step in thousandths from how the slider uses them, not from the
-  scrollbar's own code; what locks one - `SLIDER_LOCKED_TOOLTIP` exists - was not found.
+  scrollbar's own code; ~~what locks one - `SLIDER_LOCKED_TOOLTIP` exists - was not found~~ - what locks
+  one is section 6 (2026-11-13).
 - **List boxes**: how entries are stacked, clipped and scrolled was not read.
 - **The production screen's four list entries**, the trade list and the convoy list.
 - **`0xA5AEC0` and `0xA5AD70`** are taken to print a float and a 48.15 fixed point to the
