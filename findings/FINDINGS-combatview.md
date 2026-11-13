@@ -169,7 +169,7 @@ its side is the attacker (`+0x54`).
 
 | element | what it is given |
 | --- | --- |
-| `counter_type` | the sprite `GFX_counter_` + the type of the unit's first brigade, for a unit at division level or below (`oob_level >= 3`) that has one; any other takes the default the image keeps at `0x170D858`. Set only where a sprite of that name exists |
+| `counter_type` | the sprite `GFX_counter_` + the type of the unit's first brigade, for a unit the player knows at intel level 3 or more (`CUnit +0x1F8`, section 15) that has a brigade with a type; any other takes `GFX_counter_unknown` - the default key at `0x170D858` is `unknown`. Set only where a sprite of that name exists. *Corrected 2026-11-13: this said "at division level or below (`oob_level >= 3`)"; `+0x1F8` is the intel level* |
 | `unit_cw_strip` | a frame by the unit's width (its summed definition's `+0xE8`): 1 under 2, 2 under 4, 3 under 6, 4 under 8, 5 from 8 |
 | `combat_unit_bg` | a progress bar: 100, full |
 | `name` | the unit's name |
@@ -602,6 +602,96 @@ player's". The byte it tests is the player's diplomacy status with the defender,
 `co_belligerent`, not anything of the defender's own. The rest of the mode - its colours, its
 tooltip, the circles of `0x86AD60`, the large air base and anti-aircraft pictures, and how long an
 entry stays on the list (a week) - was read that day: `FINDINGS-airmap.md`.*
+
+## 15. What the window hides of a unit the player knows little of
+
+*Read 2026-11-13 from the listing, for OpenHOI3, after a screenshot of the original showed question
+marks on an enemy's entries. Static only; addresses virtual, the record holds rvas.*
+
+**The rules**
+
+1. **The player's knowledge of a unit is `CUnit +0x1F8`, `intel_level`** - the figure the map's
+   counters use (`FINDINGS-counters.md`, section 5): 9 for the player's own units, his faction's and
+   his allies' (`CUnit_IsSeenAsOwnBy`), otherwise the player's intelligence on **the province the unit
+   stands in**, rewritten when it enters a province and every hour. A defender's units stand in the
+   battle's province; an attacker's in the provinces they attack from, which is what their `location`
+   shows, so the attacker's side is judged by those (*inferred* from where an attacker stands,
+   `FINDINGS-landbattle.md`). `confirmed` for the field.
+2. **One element changes, at one threshold.** A land unit's entry (`division_option`) takes the type
+   picture `GFX_counter_` + its first brigade's type's key only where `intel_level` is **3 or more** and
+   it has a brigade with a type; otherwise **`GFX_counter_unknown`** - Their Finest Hour's
+   `interface/counters.gfx` points it at `gfx/mapitems/counters/unknown.dds`, a counter box with a "?".
+   Signed, `< 3`; **the 3 is an immediate, not a define**. The picture is moddable; where a mod
+   declares no sprite of the computed name, the file's `GFX_temp_unit_icon` stays. `confirmed`
+3. **Nothing else in the entry is masked.** `name`, `str_bar`, `org_bar`, `location`, `unit_cw_strip`
+   and `combat_unit_bg` are written whatever the intel level. **No element of the battle window writes
+   `???` or `?`**; the map counter's other gates (under 2 not drawn, under 5 the name `???`, under 7 the
+   figures `?`) have no counterpart here. `confirmed`, with the caveat below.
+4. **The picture is fixed when the entry is made.** Only the constructor sets it; `CUnitOption::Update`
+   never touches it, so it changes only when the list is rebuilt (section 4) or the window opened again.
+   `confirmed`
+5. **Both sides alike, and anyone not a friend**: the constructor does not ask whether its side attacks;
+   own, faction and allied units are at 9; a co-belligerent who is no ally is judged by its province.
+   `confirmed` for the code.
+6. **Land battles only.** A ship's entry takes `GFX_navalcombat_` + side + its definition's key and a
+   wing's `GFX_counter_` + its definition's key, neither testing the intel level: sea, air and bombing
+   windows show every ship and wing as it is. `confirmed`
+7. **The tooltip is not changed** - over any element of an entry, the "?" picture included, it is the
+   full one of `FINDINGS-battletooltips.md`; the ship, wing and reserve tooltips likewise. `confirmed`,
+   with the same caveat.
+8. **A battle's row in a unit's panel does the same**: its tooltip's `@TAG £key name` takes the key
+   `unknown` for a land unit under 3 or with no brigade with a type, so the inline counter is the "?"
+   box; the tag and name are still written; ships and wings are not gated. `confirmed`
+9. **The default key is the string `unknown`**: a static std::string, empty in the file and set at
+   start-up by a CRT initialiser. Every "first brigade's type, else the default" fallback in the image
+   uses it, so the map's `GFX_small_counter_unknown` and `GFX_map_counter_unknown`
+   (`FINDINGS-counters.md`, section 4, "run-time value not read") are what an unknown unit's map
+   counters show. `confirmed`
+
+**Evidence**
+
+- `CUnitOption::CUnitOption` (`0x729570`, rva `0x329570`): the unit is the second stack argument (`mov
+  esi,[ebp+0xC]` at `0x729611`). `0x729668 cmp dword ptr [esi+0x1F8],3; jl 0x72968B`; `cmp [esi+0x40],0;
+  jle` (brigade count); the first node `[esi+0x38]`, its data, `[data+0x58]` (the type), `+8` (its key);
+  else `0x72968B mov eax,0x170D858`. Joined to `GFX_counter_` (`0x729647`), looked up in the sprite
+  database (`0x729749 call 0x9C7D60`), given to `counter_type` only where found (`0x729750 je`). Byte for
+  byte the shape of `CUnit_GetCounterTypeKey` (`0x5BDB60`), inlined: nothing in the combat view calls it.
+  `name` (`0x7298AD..0x7298E5`) is the unit's slot 7, `0x5C47A0`, a plain copy of `+0x16C`.
+- `CUnitOption::Update` (`0x7299B0`): a cfg walk of 317 instructions to `0x729D32` finds no operand with
+  displacement `0x1F8`; its indirect calls are the unit's slots 23 and 20 (`0x5C6520`, `0x5C6580`,
+  neither reading `0x1F8`), the province's name slot and window slots `+0x44`/`+0x48`.
+- **The sweep.** A cfg walk of every combat-view entry routine and its direct callees - the constructor,
+  `Update`, `CCombatView::BuildUnitTooltip` (`0x729D40`), the reserve, ship and wing tooltips
+  (`0x72BD70`, `0x727CD0`, `0x72D100`), `CShipOption` (`0x7273C0`, `0x7277B0`) and `CWingOption`
+  (`0x72C160`, `0x72C950`), `CCombatView::FillUnitList`, `UpdateSide` and `BuildTooltip` (`0x732440`,
+  `0x7325E0`, `0x731120`) - found **one** read of `0x1F8`, the one above, and no call to the intel-gated
+  helpers `0x5BDB60`, `0x5BE500` (the `???` name), `0x84AD10`/`0x84AEB0` or `0x5D37D0`
+  (`IsSeenAsOwnBy`). **Positive control:** the walk of `FillUnitList` finds the known read through its
+  callee; a linear disassembly of `0x727000..0x735000` found it and one other, at `0x734B64`, in the order
+  of battle browser's neighbourhood. No `???` or `?` literal is pushed anywhere in that range.
+- `CombatSide_UnitNames` (`0x56F690`): `0x56F7D7 cmp dword ptr [edi+0x1F8],3; jl 0x56F7FA` ... `mov
+  ecx,0x170D858`, pushed in place of the type key at `0x56F808`. No second read to `0x5703DC`, so the
+  fleet and air arm is ungated.
+- **The default key.** `0xCC4510`: `push 7; push 0x15C80A8; mov ecx,0x170D858; call 0x40A160; push
+  0xD22A60; call 0xB95F84; ret` - `unknown\0`, the std::string assign, atexit and the destructor; its
+  address appears once in `.rdata`, at `0xD4022C`, in the CRT initialiser table; the file bytes at
+  `0x170D858` are an empty SSO string. Of 22 references to `0x170D858` in `.text`, one is that store, two
+  the destructor and 19 fallbacks of the same shape; three were read.
+- The install: `tfh/interface/counters.gfx` and the base game's declare `GFX_counter_unknown`,
+  `GFX_map_counter_unknown` and `GFX_small_counter_unknown`, BlackICE's too; its `combat.gui` keeps
+  `counter_type` at (-12,-12) beside `name` at (38,5).
+
+*Checked by the collecting session the same day off the bytes: `0x729668 cmp [esi+0x1F8],3; jl
+0x72968B` ... `0x72968B mov eax,0x170D858`, `0x56F7D7` the same, and `0xCC4510` pushing `'unknown'`.*
+
+**Not established**
+
+- Virtual calls were spot-checked, not all followed; an intel test reached only through one would be
+  missed. The cheap check is a running game: an enemy unit under 3 in a battle should show the "?" box
+  with its real name beside it.
+- How often a province an attacker stands in or a defender holds is under 3 for the player.
+- The other 16 users of `g_UnknownCounterKey`; each presumably a counter or text icon under the same rule.
+- Whether a co-belligerent that is no ally is in practice ever shown as unknown.
 
 ## What was not read, and what is not established
 

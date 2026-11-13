@@ -195,9 +195,10 @@ set - and a wing passes both set. `confirmed`
 **A side** (`0x5703E0`; `(out, units, named)`, `ret 0xC`): nothing for a side with no units.
 Named, first **its units' names** (`0x56F690` with a limit of 999999):
 
-    for each unit: "@" + its country's tag + " £" + its first brigade's type's key - none for a
-          unit whose +0x1F8 is under 3, has no brigades, or whose first has no type - + " "
-          + its name;
+    for each unit: "@" + its country's tag + " £" + its first brigade's type's key - `unknown`,
+          the unknown counter's picture, for a land unit whose intel level (+0x1F8) is under 3,
+          has no brigades, or whose first has no type - + " " + its name;
+          (corrected 2026-11-13: this said "none" for those; FINDINGS-combatview.md, section 15)
           after each, ", " where more than one remains, " " + AND + " " before the last,
           nothing after it
     a fleet or an air unit: the same for each of its ships or wings - the ship's country and
