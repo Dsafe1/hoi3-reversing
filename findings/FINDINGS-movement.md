@@ -508,6 +508,11 @@ A sea province's terrain is whatever is painted at its unit point.
 This is not "the terrain covering most of the province". It is the terrain around where the
 province's name is written.
 
+**Corrected 2026-11-13** (`FINDINGS-liveread.md`, section 74): the addresses above are virtual; the block is rva
+0x8A94D-0x8AE11. And "the text position" is the template's `+0x3C`/`+0x40`, which **where the file gives none is the
+bounding-box centre with y less 2.0**, not the centre: read so, the rule gives every province's terrain as the running
+game holds it.
+
 ## 9. Where a moving unit stands
 
 `CProvinceTemplate +0xCC` was recorded as five points of three floats with no reader named.
