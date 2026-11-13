@@ -473,6 +473,30 @@ word at `+0xEC`/`+0xF0`, `0x800` and `0x20`, switch the two kinds) a building pi
 the `CPort` for a naval base, the air base's selectable for an air base, and the building
 itself for any other.
 
+**Which wins where a counter covers a building picture** (read off the bytes on 2026-11-13, for OpenHOI3's question of an
+air unit at its base under a land stack). Every picture is asked through its 3D object's slot 20, which answers a score
+for a ray built from the mouse through the camera's projection, and the walk keeps a picture only where its score is
+**strictly above the best so far** (`fld best; fld score; fcomip; jbe` - the `jbe` at `0x64109F` for the large air base,
+against nought, `0x64111B` for the large naval base and `0x6412FA` in the walk), the best starting at nought. The large air base picture is asked first, then the large naval base picture, then each 3D object
+of the province in its list. The scores, `confirmed`:
+
+| object | slot 20 | on a hit | on a miss |
+| --- | --- | --- | --- |
+| a building picture, a large base picture (`CBillboardObject`) | `0xAB6ED0` | `fld1`: **1.0** | -1.0 (the float at `0x170AC0C`) |
+| a counter (`CCounterObject`) | `0x839620` | **`(order + 1) * 0.1 + 1`** (`+0x1A8` the order; the doubles at `0x160A3C0` = 0.1 and `0x160A248` = 1.0) | -1.0 |
+| a unit (`CHoiAvatar`) | `0x84A2F0` | its counter's answer, passed on by a tail call through the counter's slot 20 (the far view's read; the near view's counter is asked the same way, `inferred`) | |
+
+So **a counter over a building picture always takes the click**, whatever order the two are walked in: its least is 1.1,
+the picture's 1.0, and a picture walked after the counter does not pass the strict test. The same holds for the large air
+and naval base pictures, asked first with 1.0 and beaten by any counter hit in the walk. And of several counters the one
+highest in its stack wins, the order being the stack's. **A building picture is not looked at at all while exactly one
+unit is selected**: the building branch (`0x641479`) begins `cmp [ebp-0x18], 0; jne` past it, `[ebp-0x18]` being the one
+selected unit of kind 0, 1 or 2 found at the top (`0x641176`). So with one unit selected a click on an airfield's picture
+does not reach the air base; a click elsewhere, or with nothing or several selected, does.
+
+Not read: whether a land counter is drawn - and so hit - in the air map mode, which decides whether the large air base
+picture there is ever under one; and how `+0x1A8` is set.
+
 **`CPort::OnSelected`** (slot 4, `0x493E80`, `(this, selection)`, `ret 4`): the port takes
 itself out of the selection again, and then
 
