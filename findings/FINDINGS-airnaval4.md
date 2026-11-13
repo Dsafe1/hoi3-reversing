@@ -429,7 +429,7 @@ the whole mission.
 
 ### Rebase, `0x8D2D8B`-`0x8D3141`
 
-Skipped for any fleet holding a submarine (`0x8D2E3A`), and skipped when the current port is not
+**Corrected by section 64 of `FINDINGS-liveread.md`**: a fleet whose base lies outside the agent's theatre is rebased whatever it holds, and a fleet with no submarine whose base lies in another area than its commander's whatever the crowding. Otherwise skipped for any fleet holding a submarine (`0x8D2E3A`), and skipped when the current port is not
 overcrowded:
 
 ```
