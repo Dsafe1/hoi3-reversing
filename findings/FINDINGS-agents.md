@@ -221,7 +221,7 @@ pass)** = hour A6, or `full_pass_pending` (`+0x84`).
 | 10 | always | `CAIUnit_UpdateThreatenedProvinces` `0x4B1820` | the third piece |
 | 11 | F | slot 79 `ManageExpeditions` | C |
 | 12 | F, or `air_target_lists_built` (`+0x83`) clear | `BuildAirTargetProvinceLists` | the third piece |
-| 13 | `hold_provinces_built` (`+0x82`) clear, or `+0x1E4` > 0, or F and (day of month % 7 == 0 or `runs_units` clear) | slot 80 `RebuildHoldProvinces` | C |
+| 13 | `hold_provinces_built` (`+0x82`) clear, or `+0x1E4` > 0, or F and (day of month **from 0** (`Date_DayOfMonth`) % 7 == 0 - the 1st, 8th, 15th, 22nd, 29th; FINDINGS-liveread.md, section 68 - or `runs_units` clear) | slot 80 `RebuildHoldProvinces` | C |
 | 14 | F, the unit at level 0, an area id set | the played country `ComputePlanForcesAndPower` `0x4B60F0`, any other `ComputePlanForces` `0x4B5210` | D, E |
 | 15 | F, or (at war, in an undeclared war or with provinces in revolt, and hour % 3 == 0) | `0x4CC450`, `0x4D7F80`, `0x4CC690` (with the vector at `+0x10C` non-empty), `0x4CC020` | the third piece |
 | 16 | F | `CAIUnit_PullHeadquartersIn` | B |
