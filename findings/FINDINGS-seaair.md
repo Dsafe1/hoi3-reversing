@@ -491,8 +491,28 @@ the picture's 1.0, and a picture walked after the counter does not pass the stri
 and naval base pictures, asked first with 1.0 and beaten by any counter hit in the walk. And of several counters the one
 highest in its stack wins, the order being the stack's. **A building picture is not looked at at all while exactly one
 unit is selected**: the building branch (`0x641479`) begins `cmp [ebp-0x18], 0; jne` past it, `[ebp-0x18]` being the one
-selected unit of kind 0, 1 or 2 found at the top (`0x641176`). So with one unit selected a click on an airfield's picture
-does not reach the air base; a click elsewhere, or with nothing or several selected, does.
+selected unit of kind 0, 1 or 2 found at the top (`0x641176`).
+
+**What sel is, and what a click answers with it** (the same day, `confirmed` off the bytes). Sel is kept where its own avatar
+(`+0x164`) is under the mouse - **or where it has no avatar at all** (`0x64117F`, `je` past the test with `[ebp-0x18]`
+still set), which is a fleet lying in port and an air unit at its own base, whose counters are off the map. With sel the
+walk over the hit province's units (from its cursor, round) gathers each unit the player knows at 2 or more whose province
+(`+0x130`) and owner (`+0x128`) are sel's and which is not at its own base (`0x5CDC30`), into a list (`0x6434C0`), keeping
+the last one whose object is shown at `[ebp-0x34]` (`0x64144B`), and then stops. At the end (`0x64157C`) sel is looked for
+in that list: found at `i`, the answer is the entry `(i + 1) mod count`; **not found, it is `[ebp-0x34]` - the last unit
+gathered, or nothing.**
+
+So a selected unit that has a counter cycles through its province's units when its counter is clicked again (the
+selection reading's account). But **a selected unit with no counter - a fleet in port, an air unit at its base - is never
+in the list**, and with it selected a click finds no building picture, and a counter only of the same owner's units in its
+own province; anything else answers nothing, and `MapGraphics_PickUnderPointer` falls to the province itself. **So with a
+docked fleet or a based air unit selected, a click on a port, an airfield, or a unit elsewhere selects the province
+first**, and the click after it what was aimed at; clicks on a port alternate between its next fleet and the province.
+
+**Seen in the running game by the maintainer, 2026-11-13**: clicking a port with fleets in it goes *fleet, nothing changes,
+fleet* - the click between selects the next fleet nowhere and leaves the screen as it was, which fits the hit test answering
+nothing there. Why the caller's fall to the province shows no change was not read. OpenHOI3 departs from it by his word the
+same day and picks the next fleet every click (its `docs/compatibility.md`).
 
 Not read: whether a land counter is drawn - and so hit - in the air map mode, which decides whether the large air base
 picture there is ever under one; and how `+0x1A8` is set.
