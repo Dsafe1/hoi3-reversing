@@ -487,6 +487,82 @@ transports worth more than 0.3 of a ship counts as one. The 300 is the fixed poi
 **Who calls it.** Three places: `0x5998EF`, `CAirConvoyRaid`; **`0x59C66B`, `CPatrolOrder`'s
 slot 14**; and `0x5A02CD`, `CConvoyRaid`'s.
 
+## 9a. The raid's messages, and the raid from the air
+
+*Read 2026-11-14 by the `raid` agent on a private copy of `Hoi3_v12.1.2`, for OpenHOI3's `navalmissions.md`, sections
+8.1 to 8.3.*
+
+**A convoy too strong** (`ResolveConvoyRaid`, `0x5D1250`). After the find loop `a` is the plain sum (`local_140`); for
+an air raider (IsAir) `a = __allmul(a, 5000) / 1000`. Where `GetDefence(convoy) <= a` the battle follows. Otherwise,
+and only where the player's id is the raider's owner's:
+
+- vars = `CCountry::BuildMessageVariables` of the raider's country;
+- `PROV` and `LOCATION` = the raider's province's name;
+- `CONVOY` = name(`provinces[convoy+0xC0]`) + `" - "` + name(`provinces[convoy+0xC4]`) - the `+0xC4` name is fetched
+  first into a local, but `operatorPlus`, left in ECX, joins `+0xC0` first (listing `0x5D1955`..`0x5D19EF`); `+0xC0` is
+  the save's `start`;
+- `EVIL` = `CountryNameOfTag(convoy->owner)`; `UNIT` = the raider's `GetName()`;
+- `CMessage(FindType("CONVOY_TOO_STRONG"), vars, the raider's province, "", 0, raider->owner, convoy->owner, 0, 0)`,
+  posted with `CMessageHandler::GotoProvinceForMessage`.
+
+Then `AddConvoyImpact` as recorded. **The x5 is at the test only**: the find loop prefers a convoy whose defence is at
+or under the *plain* attack.
+
+**Ships lost** (`CConvoy::LoseShips`, `0x4C5940`). After the clamps, the lend-lease efficiency, the take-off and the
+threat it builds a variable list of its own, with no `BuildMessageVariables`: `PROV` = `where->GetName()`;
+`TRANSPORTS` and `ESCORTS` = `_itoa` of the counts after the min clamps; `CONVOY` = `"<start> - <end>"`, joined the same
+way (`0x4C6041`..`0x4C6109`); `EVIL` = `CountryNameOfTag(attacker)`; `TITLE` = `CCountry_GetRulerTitle` of the
+**player's** country. Then, where the player's id is the convoy owner's: the sound `convoys_1` unless already playing,
+and `CONVOY_ATTACK_ON_US`; else where it is the attacker's: the sound `convoys_2` and `WE_ATTACK_CONVOY`. Both are
+`CMessage(.., where, "", 0, convoy->owner, attacker, 0, 0)` with `GotoProvinceForMessage` - the convoy's owner first in
+both, and neither carries `COUNTRY`, `MONARCHTITLE` or the ministers. Their Finest Hour's `messagetypes.txt` gives all
+three log, onmap, popup and option yes, category `cat_combat`; the texts are `localisation/messages.csv`.
+
+**The raid from the air is `CAirConvoyRaid` (mission index 11), and alive.** The air window lists
+`ORDER_AIR_CONVOY_RAID` for a unit with `sea_attack` over the sea. Its slots against the naval strike's: 7 `0x599F40`
+GetDescription, `AIR_CONVOY_DESC`; 11 `0x5924F0` (shared), the province is not land; 13 `0x592510`, the strike's start;
+14 `0x5998C0` IsActive; 15 `0x599910` Describe; 17 `0x598DB0` (`xor al,al; ret 4`) - **bombs nowhere**; 26 to 29 and 33
+`0x592360`, no; 30 to 32 `0x598DB0`, no; 35 and 37 `0xB129A0` (`mov al,1; ret 4`) - **any province may be listed**; 39
+`0x59A020` PickProvince. Slots 2 and 4, save and load, are `CAirOrder`'s, so **nothing of its own is saved**. The
+constructor (`0x599870`) calls `CAirOrder::CAirOrder`, sets the vftable and `+0x80 = 0`.
+
+- **IsActive**: no base, false. `+0x80 -= 1` wherever the unit is. In the strike province (`+0x68`) with `+0x80 < 1`,
+  `ResolveConvoyRaid`, then `+0x80 = 12`. Then `UpdateStrike`, then `CAirOrder::IsActive`. `UpdateStrike` finds the
+  unit in its strike province with no bombing and picks again; slot 39 never answers the unit's own province, so the
+  unit leaves the hour it arrives - for another province of the list, else home - and from its base flies out again.
+  **An air raider flies out twice for every try.**
+- **PickProvince**: over the list at `+0x44` in order, skipping `+0x130` and anything slot 37 refuses (nothing);
+  score = 1000 + 1000 x transports (`+0x98`) of every convoy in the province's `+0x38` list whose owner is not the
+  unit's and is at war with it, or either side is REB, or an undeclared war covers the province; `score > best` (best
+  starting at 0) takes it, so the first province stands until another has more, and one with no convoy scores 1000.
+- **Describe**: `AIR_CONVOY_SHORT_DESC` with `$UNIT$` = `STRAT_BOMB_RETURNING` where `+0x18` (return to base) is set;
+  otherwise, away from its base's province or where slot 25 says yes, `STRAT_BOMB_ATTACKING` with `$PROV$` = `+0x68`,
+  or `STRAT_BOMB_WAITING` with no strike province; otherwise `STRAT_BOMB_WAITING`.
+
+**The try with an air raider**: attack = each wing's `sea_attack` (`+0x168`) x strength/100 x organisation/100,
+detection the best `surface_detection`. The battle is `CNavalBombing::CNavalBombing` (where IsNaval is false) with
+`+0x2B` set: slot 6 makes a `CBomberCombatant` and a `CNavalTargetCombatant`, each side's slot 12 adds its unit, Begin
+(slot 13) sets begun and stops on the convoy byte, every regiment is put at distance 1.000, and the battle goes on the
+raider's list of combats. Five times: experience before the first three, then slot 15 (`CAirCombat::Tick` ->
+`CCombat::Tick`). Inside those hours (`FINDINGS-bombing.md`, sections 6 and 7): `CollectBombTargets` takes a fleet
+"under slot 27 or a convoy raid's order (0x592)", and the per-ship roll applies under any other order, so this takes
+every ship with strength left; `FireUnit` fires `sea_attack x (1000 + CommandEffect 17)`; `BombProvince` draws its
+dice and takes nothing; `StaticAntiAirTerm` counts, in a sea zone, every unit with no overlord - the throwaway fleet,
+which entered the province, and the raider itself; Tick's "from the fourth hour" block is skipped on `+0x2B`. The
+raider's `+0x110` is saved and put back around the rounds; nothing sets it, so `GrantCombatExperience` counts the
+battle once. The count is section 9's: **a ship removed under 0.1 strength by Tick's step 10 is not walked, so counts
+nothing.** The throwaway fleet then goes through `CCountry::AddUnit` and `CGameState::RemoveUnit(.., 1, 1)`.
+
+**`CCombat::Tick`'s first hour** (day == -1, `0x56EBE0`): for kind 2 with `+0x2B` set (`cmp eax,2; jne; cmp byte
+[esi+0x2B],0; je`, `0x56EC69`..`0x56EC75`) it walks the defender for order `0x6E9` or `0x42E` and gives
+`STRAT_RAIDER_FOUGHT_IMPACT` to the attacker's first country. A convoy battle's defender is the throwaway fleet with no
+such order, so **this is dead**. For kind 3, one walk sets flags for `0x6F9` and `0x592`: the bomber's impact as
+recorded, and independently `SumSubUnitCounts(attacker) x STRAT_AIR_RAIDER_FOUGHT_IMPACT / 5` through
+`AddConvoyImpact`. `FINDINGS-government.md` C.5's "naval convoy battle's first hour" row is right.
+
+**Not read**: `PATROLTRACK`'s values; whether the original's AI ever gives `0x592`; why `+0x110` is saved, no store to
+it having been found inside the rounds.
+
 ## 10. Mission efficiency, and the penalty nothing reads
 
 A technology file gives a mission its figures in a block named after it:
@@ -520,6 +596,10 @@ fleet's wait. So **`reduction_modifier` does nothing in this build.**
 - **`CUnit +0x95`** was unnamed. It is set and cleared by a patrol's shadowing alone.
 - **`FINDINGS-convoys.md`**: "which of `+0x88` and `+0xA8` is the convoy definition" - neither
   is a definition of its own: they are `transport_ship` and `destroyer`.
+- **`CAirConvoyRaid::PickProvince`** (2026-11-14) was `inferred`; read whole, section 9a - the unit's own province
+  skipped, the enemy test, the floor of 1000 and the first of equals winning.
+- **`STRAT_RAIDER_FOUGHT_IMPACT`** (2026-11-14) is given only in a raid's own battle, whose defender never has the order
+  it asks for: dead (section 9a).
 
 ## What was not read
 
@@ -529,7 +609,7 @@ fleet's wait. So **`reduction_modifier` does nothing in this build.**
 - **`CUnit +0x94`**, the byte that keeps a fleet out of the reserve's exchange.
 - **`CProvinceTemplate`'s `simulated`** beyond its name.
 - **`CCountry`'s list of naval bases**: what puts a province on it and in what order.
-- **The messages**: `PATROLTRACK`, `CONVOY_TOO_STRONG`, and those of `CConvoy::LoseShips`.
+- **The message `PATROLTRACK`** (`CPatrolOrder::UpdateShadow`); the other three are section 9a.
 - **`0x463EC0`** and **`0x530600`**, the two statistics calls of the raid.
 - **Whether an interceptor really lies idle after its first return.** Read three ways - the
   listing of slot 14, the scan for a write that clears the byte, the air order's code that does

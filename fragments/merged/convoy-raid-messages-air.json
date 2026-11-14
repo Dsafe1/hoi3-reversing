@@ -1,0 +1,95 @@
+{
+ "agent": "raid",
+ "question": "Every message the original raises about a raid on a convoy, and what a raid from the air is: the order, its pick of a province, its hour, what it fires and what it sinks.",
+ "source": "reversing/findings/FINDINGS-navalmissions.md",
+ "addresses": [
+  {
+   "rva": "0x1D1250",
+   "kind": "function",
+   "name": "ResolveConvoyRaid",
+   "signature": "char __stdcall ResolveConvoyRaid(CUnit* raider)",
+   "no_signature": null,
+   "comment": "**The convoy raid, end to end.** One body from 0x5D1250 with an early `ret 4` at 0x5D201C and the success path continuing at 0x5D201F in the same frame (trap 3). Three callers: 0x1998EF (CAirConvoyRaid), **0x19C66B (CPatrolOrder::IsActive)** and 0x1A02CD (CConvoyRaid::IsActive). **1. The raider's attack**, over its ships or wings: `convoy_attack` for a fleet, `sea_attack` for an air unit, times strength/100 and organisation/100; `detect` is the best `surface_detection`. **2. A convoy**, over those registered in the raider's province (CMapProvince +0x38): not its own, at war (or REB, or an undeclared war covering the province), with a transport, and `Random() % 50 < detect / 1000`; one whose CConvoy::GetDefence is no more than the attack is preferred, else the first. **3. The test**: an air raid's attack is multiplied by 5; a defence above it fails with CONVOY_TOO_STRONG and a tenth of STRAT_CONVOY_DAMAGE / the victim's convoys off its series. **4. The battle.** A throwaway CNavy (byte +0x48 set) of the convoy's owner is filled with `(escorts + transports) / scale` ships, scale = a fifth of the path's length and 1 at least, each count raised to 1 where it was above nothing: the first escorts/scale of them `destroyer`s (CSubUnitDataBase +0xA8), the rest `transport_ship`s (+0x88); the destroyers get the owner's technology levels and the transports none, the loop's bounds being the destroyer's list for both. It enters the raider's province; a CNavalCombat (a CNavalBombing for an air raider) is made with **byte +0x2B set**, the raider attacking; every ship of both is put at distance 1.000; and **five rounds are fought at once** (slot 15 five times, GrantCombatExperience before the first three). **5. The count**: strength lost by the destroyers and by the transports, each `* 2 / 100`, the transports' raised to one ship where above 0.3 of one (the fixed point at 0x1A88748, which a startup initialiser fills with the float 300.5 at 0x160AAB4, floored); with either at one or more, CConvoy::LoseShips with both rounded, and the victim's series. **6.** The province's last_convoy_attack is the hour, the battle goes to the history, and the throwaway fleet is removed. See reversing/findings/FINDINGS-navalmissions.md, section 9. **The battle is never ended**: after the rounds it is taken off the raider's combats by hand (CList_RemoveNode, 0x5D2476), recorded (CCombatHistory::RecordCombat, 0x5D2904) and destroyed through its slot 0 with a zero flag (0x5D2910) - no CCombat::End and no CCombatant::DetachAllUnits - so CTraitGainTracker::Update does not run for the raider against it (inferred: the destructor's virtual calls were not followed). See reversing/findings/FINDINGS-battlegains.md, section 4. **Read 2026-11-14 for the messages and the raid from the air** (reversing/findings/FINDINGS-navalmissions.md): the find loop prefers a convoy whose defence is at or below the **plain** attack, and only the test multiplies an air raider's attack by 5 (`__allmul(attack, 5000) / 1000`). A convoy too strong raises **CONVOY_TOO_STRONG** only where the game state's player is the raider's owner: CCountry::BuildMessageVariables of the raider's country, then PROV and LOCATION (both the raider's province's name), CONVOY (`<start> - <end>`, the provinces at CConvoy +0xC0 and +0xC4 joined by std::string::operatorPlus, left in ECX), EVIL (CountryNameOfTag of the convoy's owner) and UNIT (the raider's name, CUnit slot GetName); CMessage with the raider's province, first country the raider's owner, second the convoy's owner; posted with CMessageHandler::GotoProvinceForMessage. Then the strategic warfare impact as recorded. Around the rounds the raider's current_combat (+0x110) is saved and put back, and the battle is put on the raider's combats list only - nothing here sets +0x110 for it. After the count the throwaway fleet is given to its owner (CCountry::AddUnit) and at once removed (CGameState::RemoveUnit, flags 1, 1).",
+   "confidence": "confirmed",
+   "revises": "comment only: adds the CONVOY_TOO_STRONG message and its values, that the x5 is at the test alone, and +0x110",
+   "evidence": "Decompiled and listed 2026-11-14 (VA 0x5D1250, listing 0x5D1250-0x5D2950): the string pushes 'PROV', 'LOCATION', 'CONVOY', 'EVIL', 'UNIT', 'CONVOY_TOO_STRONG' in that order inside `if (player.id == raider->owner.id)`; the two operatorPlus calls at 0x5D19D4 and 0x5D19EF with ECX = name(+0xC0) then the ' - ' result and the +0xC4 name pushed. The x5 block (`IsAir` then `*5000/1000`) sits after the loop that compares GetDefence against local_140, the plain sum. Shown wrong by a second message raise in the body, or a store to +0x110 between 0x5D2368 and 0x5D2910."
+  },
+  {
+   "rva": "0xC5940",
+   "kind": "function",
+   "name": "CConvoy::LoseShips",
+   "signature": "void __stdcall CConvoy::LoseShips(CConvoy* convoy, int transportsLost, int escortsLost, CMapProvince* where, int attackerTagLetters, int attackerCountryId)",
+   "no_signature": null,
+   "comment": "**What a sunk convoy costs.** `ret 0x18`, six stack arguments, 0xFF0 bytes of which most is message text. One caller, ResolveConvoyRaid at 0x1D26CC.\n\n    transportsLost = min(transportsLost, convoy->transports (+0x98))\n    escortsLost    = min(escortsLost,    convoy->escorts (+0x9C))\n    if (convoy->is_lend_lease (+0xA1) && transportsLost > 0 && transports > 0)\n        f = transportsLost * 1000 / transports                        ; the share sunk, thousandths\n        convoy->ll_efficiency (+0xAC) -= LL_CONVOY_EFF_IMPACT (economy +0x4C) * f / 1000\n        convoy->ll_efficiency = max(convoy->ll_efficiency, 0)\n    convoy->escorts    -= escortsLost\n    convoy->transports -= transportsLost\n    threat = THREAT_FROM_CONVOYS_MODIFIER (economy +0x30) * (transportsLost + escortsLost)\n    0x4F4E80(countries[attackerCountryId], &threat, ...)              ; the threat the raider earns\n    variables, a list of its own (no BuildMessageVariables): PROV the province handed in; TRANSPORTS and\n        ESCORTS the two counts after the clamps, by _itoa; CONVOY `<start (+0xC0)> - <end (+0xC4)>`;\n        EVIL CountryNameOfTag(attacker); TITLE CCountry_GetRulerTitle of the PLAYER's country\n    player == convoy owner: sound convoys_1 unless playing; CONVOY_ATTACK_ON_US\n    else player == attacker: sound convoys_2 unless playing; WE_ATTACK_CONVOY\n        both CMessage(province = where, first = the convoy's owner, second = the attacker),\n        posted with CMessageHandler::GotoProvinceForMessage\n    convoy->last_attack (+0xCC) = gameState->tick (+0xBDC)            ; at 0x4C6903\n\n**There is no direct IC, resource or supply penalty.** The whole cost is the transports and escorts themselves - fewer transports means a lower CConvoy::GetEfficiency, which scales every good the route carries that day, and the ships have to be rebuilt at CONVOY_BUILD_COST / ESCORT_BUILD_COST. The only extra levers are LL_CONVOY_EFF_IMPACT on a lend-lease route and THREAT_FROM_CONVOYS_MODIFIER on the raider's threat. The messages read 2026-11-14 (reversing/findings/FINDINGS-navalmissions.md).",
+   "confidence": "confirmed",
+   "revises": "comment only: the elided message part is read - its six values, who is told and with which type",
+   "evidence": "Decompiled and listed 2026-11-14 (VA 0x4C5940-0x4C6930): string pushes 'PROV', 'TRANSPORTS', 'ESCORTS', 'CONVOY' (0x4C6041), ' - ' (0x4C60A3), 'EVIL' (0x4C62BB), 'TITLE', 'convoys_1', 'CONVOY_ATTACK_ON_US', 'convoys_2', 'WE_ATTACK_CONVOY' (0x4C67FA); the `player.id == convoy->owner.id` test before the first and `else if player.id == attackerCountryId` before the second; CMessage's arguments 7,8 the convoy owner's tag and id, 9,10 the attacker's. Shown wrong by a third raise, or by the counts being itoa'd before the min clamps (they are after)."
+  },
+  {
+   "rva": "0x19A020",
+   "kind": "function",
+   "name": "CAirConvoyRaid::PickProvince",
+   "signature": "CMapProvince* __thiscall CAirConvoyRaid::PickProvince(CAirConvoyRaid* this)",
+   "no_signature": null,
+   "comment": "Slot 39 of the convoy raid from the air: over the mission's provinces (+0x44 list) in order, skipping the one the unit is in (CUnit +0x130) and any slot 37 refuses (CAirConvoyRaid's slot 37 is the shared `mov al,1; ret 4`, so none): a score of 1000 plus 1000 for each transport (CConvoy +0x98) of every convoy registered in the province (+0x38..+0x3C) whose owner is not the unit's and is at war with it, or either side REB, or an undeclared war covering the province (UndeclaredWarCoversProvince). The first strictly higher than the best so far (starting at 0) wins - so the first province always stands until another has more, and a province with no convoy still scores 1000. See reversing/findings/FINDINGS-navalmissions.md.",
+   "confidence": "confirmed",
+   "revises": "comment and confidence: read whole, inferred -> confirmed; adds the skip of slot 37, the enemy test, the 1000 floor and the tie rule",
+   "evidence": "Decompiled 2026-11-14 (VA 0x59A020): `province != unit->+0x130 && (*vft+0x94)(province)`, iStack_30 = 1000, `+= convoy->+0x98 * 1000` under the war/REB/undeclared cascade, `if (local_20 < iStack_30)` with local_20 = 0. Shown wrong by a second loop or a range test in the body."
+  },
+  {
+   "rva": "0x16EBE0",
+   "kind": "function",
+   "name": "CCombat::Tick",
+   "signature": "bool __thiscall CCombat::Tick(CCombat* this, int unused)",
+   "no_signature": null,
+   "comment": "**One hour of a combat, and the answer is whether it is over.** CCombat slot 15; the naval and air ticks call it first. In order: CCombat::StampWars; CCombat::PickTactics where a side has none or TACTIC_SWAP_FREQUENCEY divides the duration; `duration` incremented; on the first hour two dice and +0x1C set to 0; **two dice every hour** (`Random() % 10` into each side's +0x50, attacker first); slot 19 (ApplyCombatModifiers) for the attacker and then the defender; slot 15 (Attack) for the attacker and then the defender; a strategic warfare tally; CCombatant::ApplyLosses for each; ships under 0.1 strength removed; and **from the fourth hour**, unless +0x2B is set, `attacker->HasLost()` (slot 16) then `defender->HasLost()` - a loser has CCombat::Conclude and every one of its units CUnit::RetreatFromCombat, and the answer is 1. Otherwise +0x1C is incremented and the answer is 0. The stack argument is never read. The refresh of the status window comes last, in the same block as the two tests of who has lost - so **not before the fourth hour** and never for a convoy battle - and only where slot 8 says the battle is no bombing, its kind is neither 3 nor 2, and the player is among the defender's countries or the attacker's: **the marker on the map is a land battle's alone.** See reversing/findings/FINDINGS-landbattle.md, section 3. **The first hour's strategic warfare, read 2026-11-14** (reversing/findings/FINDINGS-navalmissions.md): where `day` is still -1, a kind 2 battle **with +0x2B set** whose defending units include one under convoy_raid (0x6E9) or patrol (0x42E) gives STRAT_RAIDER_FOUGHT_IMPACT to the attacker's first country's convoy list - which cannot happen, the defender of a convoy battle being the throwaway fleet under no such order; and a kind 3 battle gives, where a defender is under strategic_bomb (0x6F9), the bombing impact as recorded, and **independently**, where one is under the air convoy raid (0x592), the attacker's sub unit count x STRAT_AIR_RAIDER_FOUGHT_IMPACT x 1000 / 5000 to the attacker's first country's convoy list (CStrategicWarfare::AddConvoyImpact).",
+   "confidence": "confirmed",
+   "revises": "comment only: adds the first hour's two raider impacts and that the naval one asks +0x2B",
+   "evidence": "Listed 2026-11-14 at VA 0x56EC60-0x56ECE9: `call [vft+0x2C]; cmp eax,2; jne 0x56ED77; cmp byte [esi+0x2B],bl; je 0x56F08E` before the defender walk comparing slot 16 against 0x6E9 and 0x42E; the decompilation of the kind 3 arm sets two flags for 0x6F9 and 0x592 and tests them one after the other. Shown wrong by a write of +0x2B anywhere but ResolveConvoyRaid, or a convoy battle whose defender has an order."
+  },
+  {
+   "rva": "0x199870",
+   "kind": "function",
+   "name": "CAirConvoyRaid::CAirConvoyRaid",
+   "signature": "CAirConvoyRaid* __stdcall CAirConvoyRaid::CAirConvoyRaid(CAirConvoyRaid* this@ESI, CUnit* unit@EAX, CMapProvince* province@ECX) @EAX",
+   "no_signature": null,
+   "comment": "The convoy raid from the air's constructor: CAirOrder::CAirOrder(this, unit, province), the vftable 0x15C6B2C, and its hours to the next try (+0x80) set to 0 - so the first try comes the first hour it stands in its strike province, and an order loaded from a save starts at 0 too, the order's save and load being CAirOrder's (slots 2 and 4). See reversing/findings/FINDINGS-navalmissions.md.",
+   "confidence": "confirmed",
+   "evidence": "Seven instructions read 2026-11-14: `push eax; push esi; call 0x588D40; mov [esi],0x15C6B2C; mov dword [esi+0x80],0; mov eax,esi; ret`, int3 before and after; findRefs --vftable CAirConvoyRaid gives this store and the destructor's. Shown wrong by another store of the vftable."
+  },
+  {
+   "rva": "0x199F40",
+   "kind": "function",
+   "name": "CAirConvoyRaid::GetDescription",
+   "signature": "Hoi3CString* __thiscall CAirConvoyRaid::GetDescription(CAirConvoyRaid* this, Hoi3CString* out)",
+   "no_signature": null,
+   "comment": "Slot 7: the localised AIR_CONVOY_DESC, rendered into out - the order's tooltip. See reversing/findings/FINDINGS-navalmissions.md.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled 2026-11-14: the one string 'AIR_CONVOY_DESC', GetText, CInternationalizedText::Render into the argument, `ret 4` at 0x59A01B. Slot 7 of the table at 0x15C6B2C (vtable.py)."
+  },
+  {
+   "rva": "0x199910",
+   "kind": "function",
+   "name": "CAirConvoyRaid::Describe",
+   "signature": "Hoi3CString* __thiscall CAirConvoyRaid::Describe(CAirConvoyRaid* this, Hoi3CString* out)",
+   "no_signature": null,
+   "comment": "Slot 15, what a unit's panel says of the order: AIR_CONVOY_SHORT_DESC with $UNIT$ = STRAT_BOMB_RETURNING where return_to_base (+0x18) is set; else, where the unit is not in its base's province or slot 25 (fit to fly) says yes, STRAT_BOMB_ATTACKING with $PROV$ the strike province (+0x68) - or STRAT_BOMB_WAITING with none; and STRAT_BOMB_WAITING for a unit at its base and unfit. See reversing/findings/FINDINGS-navalmissions.md.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled 2026-11-14 (VA 0x599910): the strings 'AIR_CONVOY_SHORT_DESC', 'STRAT_BOMB_RETURNING', 'STRAT_BOMB_ATTACKING', 'PROV', 'STRAT_BOMB_WAITING', 'UNIT'; `this[0x18]`, `unit+0x130 != base`, `(*vft+100)()`, `this+0x68 == 0`; `ret 4` at 0x599F35."
+  }
+ ],
+ "vftable_slots": {
+  "CAirConvoyRaid": {
+   "7": {
+    "name": "GetDescription",
+    "signature": "Hoi3CString* __thiscall GetDescription(CAirConvoyRaid* this, Hoi3CString* out)"
+   },
+   "15": {
+    "name": "Describe",
+    "signature": "Hoi3CString* __thiscall Describe(CAirConvoyRaid* this, Hoi3CString* out)"
+   }
+  }
+ },
+ "frontier": [],
+ "slots_noted": "CCombat::Tick (CCombat and CLandCombat slot 15) is revised in its comment only; its slot is CCombat's own, already recorded by name on the address, and nothing about the slot changes."
+}

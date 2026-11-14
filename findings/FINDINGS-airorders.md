@@ -295,13 +295,28 @@ at the hour of the day and the month of the start date**. Its tooltip is
 **`0x867DB0`** (the order, and the map's colours in EDI, `+0x1DC4` of the screen's map object)
 gives every province two colours, a fill and a stripe, the same:
 
-    not in the unit's range (the order's slot 38)    nothing: (0, 0, 0, 0)
+    not in the unit's range (the order's slot 38)    nothing: (0, 0, 0, 0), packed 0
     sea, or land the unit's country controls         (0.4, 0.7, 0.4) + 0.2 each - green
     land of a country at war with the unit's         (0.7, 0.4, 0.4) + 0.2 each - red
     other land                                       (0.4, 0.4, 0.4) + 0.2 each - grey
-    and then every province on the order's list     (0.5, 0.8, 0.8)            - pale cyan
+    and then every province on the order's list:
+      in the unit's range                            (0.5, 0.8, 0.8)            - pale cyan
+      out of it                                      (1, 0, 0)                  - red
 
-All with alpha 1 but the first. It is called by the constructor, with the map's refresh
+All with alpha 1 but the first. **Corrected 2026-11-14**: this gave every listed province pale cyan. The list loop at
+`0x8681D3`..`0x86825D` asks slot 38 again and writes, for one out of range, the colour at `0x1BEB734` - r = a =
+`[0x171DBAC]` = 1.0f, g = b = 0, filled at `0x867FFE`..`0x868041`. A list can hold a province out of range: slot 37 asks
+no range for strategic bombing, installation strike and interdiction (section 6). And "nothing" is written, not skipped:
+the colour is zeroed at `0x8680B1`..`0x8680C3` and the packed 0 stored in both dwords.
+
+**What the map makes of "nothing"**: mode 15 draws with style 16, whose lookups take the colour as written (mapdraw
+B.2). `TerrainShader_General` gives `1.5 * (0.7 * grey + 0.3 * (tex - 0.7))`, which for nothing is `1.05 * grey -
+0.315` - the ground greyed and darkened - and the sea's `WaterNear/FarColor` lays the colour 0.8 over the water, leaving
+a fifth of it: near black. The shader's alpha is `tex.a - 0.7`, below nought here, so whether the land is dropped hangs
+on the alpha test at the land's draw, which mapdraw C.2 leaves open. It is *inferred* off: the land passes set no test,
+the last write before the scene is the unit layers' `ALPHATESTENABLE 0`, and the air and naval modes' colours carry
+alpha 0.5, so under the test their land would be dropped whole, which the original does not do. Not watched in the
+running game. It is called by the constructor, with the map's refresh
 (`0x880D90`, false), and by `0x743B10`, which `Update` calls where the sliders moved and every
 shape button and right click call, with the refresh true. It has no other caller: **the colours
 are the window's own, not a map mode's**. The window does put the map in a mode of its own: the constructor pushes the current mode and
@@ -323,7 +338,8 @@ while it is not (`0x60EE00`, `0x60E9F0`). **"Continuous" is ticked when the wind
 a mission is given with the dates it opened with unless the box is cleared first.
 
 `0x745520`, from `Update` and from accept: for a paradrop (type `0x570`), the start is moved
-on to the hour now and `PARADROP_MIN_TIME` / 1000 hours where it is earlier.
+on to the hour now and `PARADROP_MIN_TIME` / 1000 hours where it is earlier. `Update` runs every frame, so while the
+paradrop's row is ticked the start is held every frame, and follows the clock in a window left open (2026-11-14).
 
 ## 10. Accept
 
@@ -367,5 +383,6 @@ Slot 6 (`0x7456C0`): a row of `orders_list` gives the order's description
   the hour now twice for the view's unit where its order says yes to slot 24: what calls it.
 - Slot 5 (`0x745630`), which asks the two date windows, the start widget and the window itself
   their slot 37 - taken to be "is the pointer over it".
-- How the original's map shader draws a colour with no alpha.
+- ~~How the original's map shader draws a colour with no alpha.~~ Read 2026-11-14, section 8.
+- Whether the land is drawn under the alpha test (section 8: inferred off).
 - Which unit the window's range factor reads when several are selected: the view's unit's.

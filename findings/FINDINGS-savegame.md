@@ -666,6 +666,16 @@ duration, level) triples }]. **`is_reserve` is read but never written at unit le
 the disengage pair after both. In every save where a unit has all four - 14 fleets in four saves of 1936 to 1941, found
 by OpenHOI3's writer setting its output beside them - the pair stands **between** the two dates.
 
+**`country_intel`'s first number is the granted country's place plus one** - *measured*, 2026-11-14, not read in the
+bytes. Read against the order of the save's country blocks (which is `common/countries.txt`'s, REB first at place 0),
+the 22 triples of `Germany1936_01_07_22.hoi3` name, as place plus one, England, the United States, Holland,
+Czechoslovakia, Sinkiang, Siam and the like spying on their neighbours; read as the place itself they would have the
+Soviet Union granted its own units twice and Croatia - not a country in 1936 - granted the Soviet Union's. Lend-lease
+numbers its countries the same way (`lendlease_targets`, `lend_lease_from`). The second number is the days left and the
+third the level, 2 to 9. OpenHOI3 reads and writes them so since 2026-11-14 and the save's 22 come back as they were read
+(`OpenHOI3.SaveCheck write`). Whether the unit's 12-byte entries store this number or the place, with the writer adding
+one, is not established.
+
 Each level's own tail: **CArmy** [`target` above 0], [`staging_province` above 0], [`parent` {id type} - only when
 carried by a fleet or by air]; **CNavy** each carried unit under its level key, then `at_sea` (the after-battle wait),
 always last; **CAir** each carried land unit - none in any save.

@@ -117,7 +117,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CAir` | `CUnit` |  |  |  | 13 |  | 2,052 | keys |  |
 | `CAirCombat` | `CCombat` |  |  | 4/6 | 5 |  | 4 | RTTI |  |
 | `CAirCombatant` | `CCombatant` | 0x10B4 | 2 |  | 8 |  | 28 | keys |  |
-| `CAirConvoyRaid` | `CAirOrder` |  |  |  | 3 |  |  | RTTI |  |
+| `CAirConvoyRaid` | `CAirOrder` |  |  |  | 6 |  |  | RTTI |  |
 | `CAirInterceptOrder` | `CAirOrder` |  |  |  | 11 |  | 208 | RTTI |  |
 | `CAirInterdictionOrder` | `CAirOrder` |  |  |  | 4 |  |  | RTTI |  |
 | `CAirOrder` | `COrder` |  | 12 |  | 20 | COrder.hpp | 2,493 | read |  |

@@ -90,6 +90,26 @@ Finest Hour, 1077 are `UPPER_LEFT`.
 0.5` (`0xAFD215`), bottom. In a space with y upwards that is half a pixel right and half
 a pixel **up**.
 
+### 2.1 The line breaking (read 2026-11-14, from a full decompile of `0xAFC070`)
+
+The limit is `maxWidth`, or `0x140` (320) where it is 0. **`maxHeight` takes part only in the cache's hash**: a text is
+never cut to its box's height.
+
+- **At a space** - a glyph of no height - the line and the word with its space, plus `2 * borderX`, are set against the
+  limit (`0xAFC693`..`0xAFC6AB`). Wider: a `\n` goes before the word, the broken line keeps its trailing space in its
+  width (`L - w`), and the new line starts at `L = w`. Otherwise the word is appended.
+- **A long word**: at a visible glyph, with output already made, the limit `<= 2 * borderX + L` and the word over 50
+  wide, the word is broken there (`0xAFC78C`..`0xAFC7AC`).
+- **`\n` or `\r`** ends a line with no test.
+- **After 55 lines** (`cmp 0x37` at `0xAFC714`) the rest of the text is dropped.
+- **At the end of the text**: where the limit `<` w, the word is appended with no break and the line's width becomes w;
+  else where the limit `<` `L + 2 * borderX`, a break; otherwise appended.
+- **Drawing**: the loop at `0xAFD0ED`..`0xAFD144` steps each line down by `+0x494`, and each centred line is placed at
+  `border + maxWidth/2 - its own width/2` (`x0 + borderX` stored at `0xAFCB0E`).
+
+Two consequences: a first word wider than the box, followed by a space, leaves the first line empty; and a word broken by
+the long-word rule is tested again at the end from where it was broken.
+
 ## 3. What that comes to on screen
 
 `measured`, on the maintainer's screenshot of the running game. In the panel for one
@@ -132,9 +152,8 @@ table the other fonts fall back to was not read.
 - **Why the pictures sit half a pixel the other way.** Section 3 measures it; the sprite
   side's vertex arithmetic was not read.
 - **Orientation 5** of the switch, and what 2 and 3 do with text set right.
-- **The line breaking loop**: when a line breaks, the `0x140` it uses for a box with no
-  width, the two characters it treats specially (`$` at `0xAFC256`, `0xA4` adding 16 to
-  the width at `0xAFC5E1`, `@` in the quad loop at `0xAFCE0F`).
+- ~~**The line breaking loop**~~ - read 2026-11-14, section 2.1. Left of it: what `$` (`0xAFC256`) is used for in a
+  text, `0xA4` adding 16 to the width at `0xAFC5E1`, and `@` in the quad loop at `0xAFCE0F`.
 - **`textBoxType`**, the other kind of text box: assumed to reach the same slot 8 through
   the layout `GuiObject_textBoxType::SetText` asks for, not traced.
 - **The global colour table** at `0x1B211A8`: who fills it and with what.

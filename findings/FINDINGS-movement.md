@@ -110,7 +110,7 @@ there (intel 2 or more) - as recorded.
    **military access**: if the owner has access to the country controlling `from`, that country
    is not at war with the one controlling `to`, and the owner **is** at war with the one
    controlling `to` - no. A country cannot be attacked out of a neutral that merely lets you
-   through.
+   through. Read on the listing 2026-11-14: section 12.1.
 
 ### 3.1 Slot 34: may this unit stand in that province
 
@@ -792,6 +792,98 @@ the path's distance.
 `0x6434C0` inside the draw-list rebuild; the texture loader `0xA60F30`, and whether its name index is keyed by the exact
 string Render looks up (it must be, since the game draws arrows); ZWRITEENABLE traced through the whole frame. Frontier
 (rvas): 0x1CB980, 0x2682E0, 0x2764F0, 0x660F30, 0x1C2E80, 0x4E7DD0, 0x2434C0.
+
+## 12. Too weak, out of a neutral, and the arrival message
+
+*Read 2026-11-14 on the decompiled C and the listing, for OpenHOI3's `movement.md`, sections 1, 3 and 6. Nothing here
+was watched in a running game. The collecting session checked 12.1 off the listing.*
+
+### 12.1 The end of `CPathFind::MayStep` (`0x5A2700`)
+
+After the edge kind, `from == to`, the goal's flag `+0x13D`, `IsCrossingBlocked` and the fleet's port rule, in this
+order:
+
+    0x5A27C2  unit slot 34 (MayStandIn) with `to`                     no -> refuse
+    0x5A27D3  unit slot 15 (IsLand)                                   no -> allow (fleet, air: done)
+    0x5A27E4  to.controller id (+0x338) == unit owner id (+0x128)     -> allow
+    -- a land unit stepping into ground its own country does not hold --
+    0x5A282D  IsEnemyTag(country[to.controller], &owner) (0x42F1B0, REB counted)
+              and strength x 1000 / GetTotalStrengthCeiling (slot 24) < ShatterThreshold (0x5C3140) -> refuse
+              (ceiling 0 gives -1: always refused)
+    0x5A28F1  IsEnemyTag and supply_received (+0xFC) == 0 and SupplyConsumption (0x5BB560) > 0     -> refuse
+    0x5A292F  FuelConsumption (0x5BB7A0) > 0 and IsEnemyTag and fuel_received (+0x100) == 0         -> refuse
+    0x5A29A6  owner.diplomacy[from.controller].hasMilitaryAccess (+0x4C)
+              and not IsEnemyTag(country[from.controller], &to.controller)
+              and owner.diplomacy[to.controller].war (+0x20) != 0                                   -> refuse
+    0x5A29E4  allow
+
+`edi` is the unit, `ebx` is `to`, `[ebp+0x10]` is `from`; the diplomacy array is the owner country's `+0xE28`.
+
+- The record's earlier comment (from `FINDINGS-redeploy.md`, `inferred`) left out the stand-in and shatter tests, and
+  left `+0x4C`/`+0x20` unnamed.
+- Each of the three hostile-ground tests asks slot 15 again: they are a land unit's only, and only where the province's
+  controller is not the owner.
+- The too-weak test is `CanMoveTo`'s word for word, and uses the threshold a unit shatters below (`FINDINGS-shatter.md`).
+  Every finder calling the base asks it, so it binds player and AI alike; `CPlannedPathFind::MayStep` does not call the
+  base.
+- The first three tests use `IsEnemyTag` (REB on either side counts). The fourth reads the owner's own pair record's
+  war, so it never counts the rebels.
+
+### 12.2 `CUnit::CanMoveTo` (`0x5C2BA0`, slot 35; CUnit, CArmy and CNavy share the body), whole
+
+    no unless slot 34 says yes
+    no where a land unit at sea is sent to land with no edge to its province (HasEdgeTo)
+    no where it has battles and CanRetreatToProvince refuses
+    -- land unit --
+    no where CCountry::IsEnemy(country[province.controller], &owner, province) (0x42F210, province form:
+        an undeclared war covering it counts) and it is under ShatterThreshold
+    no where not carried by a fleet (CArmy +0x300 == 0), IsEnemy(..., province), supply_received 0, SupplyConsumption > 0
+    no where FuelConsumption > 0, IsEnemy(..., province), fuel_received 0
+    -- every unit --
+    no where it has a path, battles, and a battle in the next province of its path
+    yes for anything but a fleet; a fleet yes where SeaConnected to its own sea and one ship has +0x140 > 0
+
+It is the click's test (`CUnit::OrderToProvince`), not `CMoveCommand::Execute`'s. Its two land differences from 12.1
+(the province form of "at war", and the carried unit let off the supply test) mean an order the click passes can still
+find no way.
+
+### 12.3 `CUnit::AnnounceArrival` (`0x5C0D50`)
+
+`void __stdcall (CUnit*)`, `ret 4`. It raises nothing unless all three hold:
+- the owner id (`+0x128`) is the game state's player id;
+- the unit is land (slot 15) or a fleet (slot 16), **or an air unit whose home base object (its slot 0) answers its
+  current province**;
+- it has no order, or the order's type id is none of `0x42E` patrol, `0x6E9` convoy raid, `0x6E8` convoy escort.
+
+The message: type `UNITARRIVED_LAND` / `_NAVAL` / `_AIR` by kind; variables `BuildMessageVariables` of the player's
+country, then `MESSENGER` = the text of `MESSAGE_HEAD_MARS`, `NAME` = the unit's GetName, `PROV` = the current
+province's name, `TYPE` = rendered `ARMY` / `NAVY` / `EXP_SQUADRON`; the `CMessage` has the current province, an empty
+head string, the player's tag and id as both countries, and the unit's type and id last; posted through
+`PostMessage_CMessageHandler` with `CMessageHandler::GotoUnitForMessage`.
+
+### 12.4 Where `CUnit::AdvanceMovement` (`0x5CA430`) calls it
+
+Both calls are in the arrival branch, after the first node is popped (`dec [unit+0x140]` at `0x5CABE4`).
+
+1. **`0x5CAD61`, on boarding.** A land unit whose next province is sea takes the first fleet there for which
+   `CNavy::CanCarry` holds. Where the path's last node (`+0x13C`, read after the pop) is that sea, it announces while
+   still on the shore; then `AddCarried`, `previous = current`, `EnterProvince(sea)`, the path freed, on to the tail.
+   With no fleet: `CancelMovement(unit, true)` and out, with no message.
+2. **`0x5CB13E`, the common tail.** With `combats.count < 1` and `remaining_provinces_count < 1` it announces; then the
+   avatar's `idle`, the standing point, the counter's stack, and the arrow freed. The tail is reached after an ordinary
+   entry, after boarding, and from the arm where slot 34 no longer allows the province - `CancelMovement` empties the
+   path there, so **a unit halted on arrival is told it arrived**, naming where it was halted.
+
+A land unit boarding at its way's end is told once, in the sea. One whose path ran on and back to the same sea is told
+twice, the first time naming the shore.
+
+### 12.5 Checked
+
+OpenHOI3 built all of it 2026-11-14. `march` (7 Jan 22:00 to 8 Jan 02:00, 1936) gave 301 of 301 before and after;
+`agents` (1 to 4 Jan 1936) the same figures line for line. On screen, the popup ticked: the 3. Panzer-Division sent
+from Berlin to Frankfurt an der Oder raised "Army Arrived! ... has safely arrived in Frankfurt an der Oder", its log
+line appeared, and its Goto closed the popup with the division selected. Not checked in the running game: the shatter
+and access refusals, and the double message on boarding.
 
 ---
 

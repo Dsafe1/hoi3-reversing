@@ -619,6 +619,6 @@ and `+0xC0` **`radar_impact`**.
   country; the strategic warfare tally in `CCombat::Tick`; the message `CBomberCombatant`
   slot 10 builds when a bombing ends.
 - The reader of `CAirOrder +0x7C`, and of slot 20.
-- `ResolveConvoyRaid` with an air unit for its raider.
+- ~~`ResolveConvoyRaid` with an air unit for its raider.~~ Read 2026-11-14: `FINDINGS-navalmissions.md`, section 9a.
 - `CNukeMission`, `CParadropMission`, `CTransportSuppliesOrder`, `CRebaseToCarrierMission`.
 - Whether flying costs an air unit organisation: nothing read here takes any.

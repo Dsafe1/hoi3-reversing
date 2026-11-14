@@ -117,10 +117,22 @@ By slot 15, `IsLand`:
 
 ### 3.5 The hourly regain (`0x5C6660`)
 
-Nothing for a unit in a battle. Otherwise `+§Y` + the organisation a brigade of it regains an hour,
-to three places: the regain rate the unit's supply, its officers, the country's `ORG_REGAIN`
-modifier and its province give, as the hourly pass computes it. `confirmed` for the shape; that it
-is the hourly pass's own figure is read off the terms it multiplies, not compared.
+*Read term by term 2026-11-14; this said it was the hourly pass's own figure, which it is not quite.*
+Empty for a unit with battles, or a land unit aboard a fleet whose province is not land. Otherwise, in order:
+
+    x = supply_received
+    x = clamp(m[12] * (m[13] + 1000 + m[14]) / 1000, floor(10.5), 1000) * x / 1000     - no is_land test
+    x = OfficerRatio * x / 1000      - the owner's, or the expeditionary owner's with no scenario test
+    a fleet or an air unit with a base: times the crowding, exactly as RegainOrganisation works it
+    x = (1000 + ORG_REGAIN) * x / 1000
+    - no -1000 where unsupplied -
+    x = (the unit definition's +0xC8 -> +0xF4 morale, the brigades' mean) * x / 1000
+    x = x * 200 / 1000
+
+Written `+§Y` (`0x15C82E4`) and the figure to 3 places, with no closing colour. It leaves out the per-brigade low/high
+bonus and the strategic redeployment's loss. So it differs from the hour in three ways: the roads count at sea (a fleet
+at sea is shown a hundredth of its regain), an unsupplied unit is shown regaining 0 where the hour takes organisation
+away, and there is no scenario test. `confirmed`
 
 ## 4. A unit under it (`CChildUnitEntry`)
 
@@ -142,13 +154,26 @@ Its unit at `+0x78`. `confirmed`
 | `unit_cw_strip` | `UNIT_COMBAT_WIDTH` + `: §Y` + the unit's width to 1 place + `§W\n` |
 | `unitstatus_delay` | `UW_STRATDEPLOYMENT_DELAY` for a unit on strategic redeployment (order type `0x5A4`), else `UW_ATTACK_DELAY`; `HOURS` and `DATE` as section 3.1 |
 | `unitstatus_nuke` | `UW_CARRYING_NUKE` |
-| `unitstatus_dugin` | `UW_DUGIN`, `CURR` the unit's digging in (`+0x1C8`, 0 places), `CAP` `UNIT_DIGIN_CAP` + what its country's technology adds (`+0x14`), 0 places |
+| `unitstatus_dugin` | `UW_DUGIN`, `CURR` the unit's digging in (`+0x1C8`, 0 places), `CAP` `UNIT_DIGIN_CAP` + the technology effect `dig_in_cap` (`CTechStatistics +0x14`), 0 places. `CUnit::UpdateDaily` (`0x5BB0FE`..`0x5BB13A`) caps the day's digging in at the same sum (2026-11-14) |
 | `unitstatus_combinedarms` | the combined arms breakdown (section 12) |
 | `supply_status` | `UW_SUPPLY_STATUS2`: `FROM` the depot's name, `DAYS` the supplies there over what its units use a day, whole, `VAL` the supplies the unit received (`+0xFC`) times 100, `CON` what it uses a day (`CUnit::SupplyConsumption`) to 2 places |
 | `fuel_status` | `UW_SUPPLY_FUEL2`, the same for fuel (`+0x100`, `CUnit::FuelConsumption`) |
 | `unitstatus_moving` | while moving and in no battle, `ESTIMATE_ARIVAL` as section 3.1 |
 | `speed` | `UW_SPEED` + `\n`; where the speed multiplier is not 1, ` / ` + the speed it gives + `KPH`; then for each brigade `\n` + `£` + key + ` ` + name + ` - ` + its type's speed + ` ` + `KPH`; then `\n` and the speed breakdown (section 11) |
 | `unitstatus_distance` | where a unit above is out of radio range, `UW_DIS_OUT_OF_RANGE` + `\n`; for a headquarters, `UW_EFFECTIVE_RADIO_STRENGTH` with `HQ` its level's name and `DISTANCE` its first brigade's radio times the define of its level (`RADIO_*_LEADER_DISTANCE`), over 1000, + `\n`; then for each headquarters above, `UW_DIST_TO` + `\n` with `LOCATION` the headquarters' province, `HQ` its level's name, `NAME` its name, `LOWER` the name of the unit below it in the chain - not the selected unit - and `DISTANCE` a colour and the distance between their provinces: `§R` where the reach (`CUnit::CommandReachFrom`) is under 0, `§Y` under 1000, `§G` at it. **A reach is never under 0** - beyond twice the radius it is 0 - so a link out of reach is yellow and nothing is ever red. Each text comes before its `\n`, read in the listing at `0x75C4B0`, `0x75C6B6` and `0x75C953` (`operator+` at `0xA5B0D0` with the text on the left) |
+
+**`unitbase` for a fleet or an air unit**, read 2026-11-14 (`BuildBaseSupplyInfo`, `0x76FF40`: the key in ECX and six
+arguments on the stack, bare `ret`; called at `0x75B50E` and `0x75B5F9`):
+
+- `NAME` the base province's name - for an air unit on a carrier, the carrier fleet's own base where it has one
+  (`likely`);
+- demand = `SumSubUnitCounts` of the base's list times 1000;
+- room = `NavalBaseCapacity` for a fleet; the air base's level for an air unit; demand itself for one on a carrier at
+  the unit's place;
+- share = room x 1000 / demand where demand is above 0, else 0; at most 1000 and at least `g_BaseSupplyShareFloor`
+  (`0x168AEF0`, `floor(250.5f)` = 250) - so a base with nothing at it reads 25%, where the hour's crowding counts it
+  whole;
+- `VAL` the share times 100 to 1 place, `PLANES` or `SHIPS` the demand whole, `DAILY` the room to 2 places.
 
 ## 6. The order (`CCurrentOrdersEntry`)
 
@@ -184,8 +209,9 @@ constructor - the record had both as tooltips.
 
 **A brigade's summary** (`0x5A9900`), used by its row and by the reorganise window:
 
-    "(§Y" + the historical model's name (section 13) + "+*" where the model is not the one
-          the country builds today + "§W)\n"
+    "(§Y" + the historical model's name (section 13) + "+*" where no model's levels are exactly
+          the brigade's (corrected 2026-11-14, section 13: this said "not the one the country
+          builds today") + "§W)\n"
     PRIDE_OF_FLEET + "\n", for a pride of the fleet (+0xA5)
     SUBTT_STRENGTH + ": §Y" + its slot 13 + "§W/" + then, where its slot 9 says yes, the men of
           its most (slot 12, FormatMen) + "\n"; where it says no, its most over 1000 as a whole
@@ -399,10 +425,29 @@ models and says `YES` or `NO`.
 **A historical model's name** (`0x581F70`): the text of `TAG_type_n` - the model's tag, its type's
 key and its number (`+0x24`) - where there is one; for a faction member, the faction leader's
 `LEADER_type_n` where that is; else the type's `type_n`; and where none has a text, the type's
-name + ` (` + the number plus 1 in Roman numerals + `)`. `inferred` past the first two - the tail of
-the routine was read in the decompilation only. `0x582FA0` finds, among a set's models, the one
-whose technology levels equal the brigade's; the summary marks a model with `+*` where
-`PickBestModel` answers another.
+name + ` (` + the number plus 1 in Roman numerals + `)`. **Confirmed 2026-11-14**, the faction branch read: the
+model's tag is its set's country (`CHistoricalModel +0x8`, which `CHistoricalModelSet`'s constructor writes - not the
+null tag), and the faction's name is its **first member's** tag, asked only where that member is not the model's own
+country.
+
+**The model a brigade is shown as is never its `historical_model` (`CSubUnit +0xD0`)**, which an order of battle sets,
+`CSubUnit::AfterLoad` uses to give the brigade that model's levels, and no save writes. Every display takes
+`PickBestModel` against the brigade's **own levels** (2026-11-14):
+
+| where | the set of models asked |
+| --- | --- |
+| the panel's numeral (the call at `0x74AB3D`) | the owner's |
+| the reorganise window | the owner's |
+| the summary, the brigade card's label and picture, a sunk ship's row | the builder's (`CSubUnit +0x34`, where its id half is set), else the owner's |
+
+`0x582FA0` (`FindModelOf`) finds, among a set's models, the one whose technology levels equal the brigade's; the summary
+marks the model with `+*` where it and `PickBestModel` differ - **both scored against the brigade**, so `+*` means "no
+model's levels are exactly this brigade's", not "a model the country no longer builds", as this said. A model from a
+file that leaves a technology out is never matched exactly, so is always marked. No line where there is no model.
+
+**The builder**: `CMilitaryConstruction::Deliver` sets it only where the line's builder is not the line's country
+(`0x484E7E`); yet a save of July 1941 names the owner itself on 3,195 of the 3,201 brigades that carry one, so another
+writer sets it, not found.
 
 ## Kept as read, though they look odd
 
@@ -415,6 +460,9 @@ whose technology levels equal the brigade's; the summary marks a model with `+*`
 6. The distance to a headquarters out of reach is yellow, as one within part of its reach is: the
    red asks for a reach under nothing.
 7. An air unit's `counter_size` says `UNIT_BRIGADE_NAME`, its counter's size being 0.
+8. The hourly regain counts the roads at sea and shows an unsupplied unit regaining nothing (section 3.5).
+9. A base with nothing at it reads 25% (section 5).
+10. A model from a file that leaves a technology out is always marked `+*` (section 13).
 
 ## Not established
 
@@ -424,6 +472,8 @@ whose technology levels equal the brigade's; the summary marks a model with `+*`
 - The base's arithmetic in the attrition breakdown, term by term.
 - Which class `BuildUnitStatsTooltip` constructs: its vftables `0x15D626C` and `0x15D6280` belong to
   no class with RTTI.
+- Who else writes a brigade's `builder` (section 13), and why a live sample once saw the null tag on every
+  `CHistoricalModel +0x8`, which the constructor contradicts.
 
 ## In the record
 
