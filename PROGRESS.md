@@ -213,7 +213,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CIngameLobby` | `CReferenceObject` `CSessionInfoObserver` |  |  |  |  |  |  | RTTI |  |
 | `CJoinAirOrder` | `CAirOrder` |  |  | 1/1 | 4 |  | 4 | placed |  |
 | `CJoinFactionGoalAction` | `CWarGoalBaseAction` | 0x5C | 1 | 1/1 | 6 |  |  | placed |  |
-| `CJoinFleetOrder` | `CNavalOrder` |  |  |  | 4 |  | 7 | keys |  |
+| `CJoinFleetOrder` | `CNavalOrder` |  |  |  | 5 |  | 7 | keys |  |
 | `CLandBombing` | `CBombing` |  |  | 4/6 | 3 |  | 6 | RTTI |  |
 | `CLandCombat` | `CCombat` |  |  | 4/6 | 4 |  | 80 | RTTI |  |
 | `CLandCombatant` | `CCombatant` | 0xE4 | 3 | 2/2 | 17 |  | 324 | placed |  |
