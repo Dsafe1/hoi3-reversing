@@ -44,13 +44,35 @@ the name is ours.
 | `+0x1A8` | orientation, 0 to 6 as `ParseGuiOrientation` gives it |
 | `+0x1AC` | format: **0 left, 1 right, 2 centre** |
 | `+0x1B0`, `+0x1B4` | the size of the area positions are measured in; the font fills it |
-| `+0x1B8` | a flag: when set the constructor has the font re-flow the text (slot 12) |
+| `+0x1B8` | `fixedsize` (inferred): when set and there is text, the constructor has the font cut it to the box (slot 12, section 2.4) - *corrected 2026-11-14*: this said "re-flow" |
 | `+0x1BC` | the font |
 
 Its draw routine is `0xB326C0` (rva `0x7326C0`, `ret 0x18`): font slot 15 with the
 colour block, then **font slot 8** with, in order, the text, the format, the orientation,
 a rectangle `{x, y, maxWidth, maxHeight}` by value, border x, border y, and a pointer to
 the area size.
+
+*Added 2026-11-14 by the `linebreak` agent; the collecting session checked the cut's place off the listing:*
+
+- `findRefs --callers 0xB32350` gives two callers: the instant box's constructor (`0xA7FABF`) and `GuiButton_Construct`
+  (`0xB3FDC5`, kept at the button's `+0x94`). **So a button's caption is drawn by slot 8 too.**
+- `CGuiText`'s constructor tests `+0x1B8` at `0xB32528` and, with text, calls font slot 12 (`[vftable+0x30]`,
+  `0xB32580`) with maxWidth and maxHeight **as given**; only then (`0xB325AB`..`0xB325C8`) are zeros made 200. All 1320
+  instant boxes in the base game and Their Finest Hour have both a width and a height.
+- **A `textBoxType` does not use `CGuiText`.** Its constructor (`0xA87770`) makes a display object through the graphics
+  (`0xA6FFB0`): a template found by the box's name in a hash at graphics `+0xA0`, built where missing (0x144 bytes,
+  constructor `0xB266E0`, vftable `0x1606708`), whose slot 23 builds a 0x310-byte object (`0xAB4AA0`, vftable
+  `0x1600F58`, no RTTI) - called `CTextSprite` here - kept at the box's `+0x4C`. `SetText` calls its slot 61 (`0xAB59B0`,
+  `ret 0x24`, nine arguments), which calls slot 60 (`0xAB5190`, `ret 0x28`); `SetTextToFit` calls slot 60 directly with
+  height 0. Slot 60 cuts with font slot 12 where fixedsize is set and the height is not 0; where fixedsize is set, a
+  dimension is 0 and there is a background, that dimension becomes the background's less the border; then **font slot 6**
+  renders into the texture (section 2.2).
+- `+0xC8` is fixedsize because it is the constructor's only byte argument, and the factory `0xB31BE0` pushes the type's
+  `+0xD4`, where the loader puts `fixedsize`.
+- `CTextBoxType`'s loader (`0xB31DC0`), key to offset: font `0x1D` -> `+0x88`, textureFile `0x24` -> `+0x6C`, position
+  `0x4B` -> `+0xCC`, format `0x71` -> `+0xF8` (left 0, right 1, centre 2), borderSize `0x83` -> `+0x64`, text `0x8C` ->
+  `+0xA4` (localised at once), maxHeight `0x8D` -> `+0xC4`, maxWidth `0x8E` -> `+0xC0`, fixedsize `0xAD` -> `+0xD4`,
+  orientation `0xBF` -> `+0xDC`, textblock 300.
 
 ## 2. `CEU3BitmapFont` slot 8, `0xAFC070` (rva `0x6FC070`)
 
@@ -110,6 +132,61 @@ never cut to its box's height.
 Two consequences: a first word wider than the box, followed by a space, leaves the first line empty; and a word broken by
 the long-word rule is tested again at the end from where it was broken.
 
+The rule is the instant box's and a button caption's (section 1). It stops at **55 lines** like slot 6 below.
+
+### 2.2 Slot 6, `0xAFA610` (rva `0x6FA610`): a `textBoxType`'s breaking (read 2026-11-14)
+
+`ret 0x30`: twelve stack arguments, ten seen read. maxWidth 0 becomes 320; otherwise a maxHeight not 0 sets `fit`. The
+text is read a character at a time; L is the line's width and w the word's, and each character is appended to the word
+first.
+
+- Where the font's slot 19 (byte `+8`, the escape switch) is true, these are pictures, added to L only, not to w: `§` and
+  1 character, 0 wide; `@` and 3, the flag's width; `{` and 2, 8 wide; `£` and a name, the counter's width; `¤`, 16 wide.
+- Then, for every character, before a plain glyph is counted: where `limit <= L + 2 * borderX` (`0xAFAC06`), `\n` and the
+  word gathered so far go out; the broken line is stored as `L - n - w`, n being the picture's width or -1 for a plain
+  character; L becomes `n + w` and w is kept (`0xAFAC4C`..`0xAFAC63`). So a plain word goes down at the character where
+  the line reaches the box - no floor of 50 and no "something already laid out" test. After such a break L is one short,
+  and w is never reset there, so **a word wider than the box goes on one character a line**.
+- `\n` or `\r`: where `L + 2b < limit`, the word goes out and w = 0; otherwise `\n` and the word go out and w is kept (the
+  `jmp` at `0xAFAE5C` skips `0xAFAEA2`). Either way L = 0. Other characters with no glyph are skipped.
+- A glyph adds its `xadvance` and the kerning with the next byte to L and to w.
+- At a space (a glyph of no height): the word goes out where the result is still empty (`[esp+0x60]`) or `L + 2b <
+  limit`; otherwise `\n` and the word, with L = w. Then w = 0 (`0xAFADAC`).
+- At the end: where `L + 2b < limit` the word goes out, otherwise `\n` and the word. The word alone is never tested.
+- The newline and space breaks count lines, and the loop stops at 55 (`cmp 0x37; cmovge`, four places).
+- **Placement**: with `fit` the texture is the box's size, rounded up to powers of two - left at the border, centre at
+  `maxWidth/2 - w/2` with no border, right at `maxWidth - borderX - 1 - w`; without `fit`, at the border whatever the
+  format. Lines step down by `+0x494` from the texture's top less borderY; with a background the text is centred
+  vertically.
+
+How the display object draws the texture was not read, so a clip at maxHeight is likely, not established.
+
+### 2.3 `CTextLayout::BuildLines`, `0xACCB10` (rva `0x6CCB10`) (read 2026-11-14)
+
+O = slot 18 = `GetStringWidth("O", 1)` (the string at `0x16049D4`). Where the width up to the first newline, plus O, is
+over the area: if the text has a space and the width up to the first space plus O is within the area, it is cut at the
+**last space before n** (`0xACE240`) and the space dropped (`0xACE150`); otherwise after n characters (`0xACE090`) - n
+being **the fewest characters at least `area - O` wide** (`0xACC960`, a binary search). Otherwise the line is taken with
+its newline. *Corrected*: the record had "at the last space that fits", `inferred`.
+
+Its users and their area: a **tooltip**, `maxWidth - 3 * border` = 352, then `SetTextToFit`, whose limit of 368 never
+breaks again; the **message log**, the button's width less 10 and a height of 2000, the result split at `\n`; the
+**diplomacy status list**, the row text box's maxWidth (`[edi+0x8c]` beside `mov ecx,0x7d0` at `0x78A484`); the
+**technology effects**; the **edit box**. Not followed: the calls in the lobby's constructor and `OnBack`, the province
+view, the statistics ledger and `CreateIcon`.
+
+### 2.4 Slot 12, `0xB003E0` (rva `0x7003E0`): the fixedsize cut (read 2026-11-14)
+
+`ret 0x14`. maxWidth 0 becomes 320. The room across is `maxWidth - 2 * border[0]`, the room down `maxHeight - 2 *
+border[0]` - **the border's y is never read**. Lines are counted a character at a time, from one: `§` skips the next
+character; `{` adds 8 and skips **three** more, one past the two digits; `@` adds the flag's width and skips three; `£`
+adds the counter's width over its name. Where the line's width reaches the room across, a line is added and the line
+count is set to the second count, which is then zeroed - the two being equal then, **the next character adds a line
+too**. `\n` and `\r` add a line and zero both counts. Where the lines counted are more than the room down: out =
+`text[0..i]` with its last four characters set to `' ', '.', '.', '.'` - at a newline only where out is at least 5 long,
+at a full line only where i > 3, else `"..."` (from `0x15B5C6C`, the construction not read). **The cut runs before the
+breaking.**
+
 ## 3. What that comes to on screen
 
 `measured`, on the maintainer's screenshot of the running game. In the panel for one
@@ -154,7 +231,11 @@ table the other fonts fall back to was not read.
 - **Orientation 5** of the switch, and what 2 and 3 do with text set right.
 - ~~**The line breaking loop**~~ - read 2026-11-14, section 2.1. Left of it: what `$` (`0xAFC256`) is used for in a
   text, `0xA4` adding 16 to the width at `0xAFC5E1`, and `@` in the quad loop at `0xAFCE0F`.
-- **`textBoxType`**, the other kind of text box: assumed to reach the same slot 8 through
-  the layout `GuiObject_textBoxType::SetText` asks for, not traced.
+- ~~**`textBoxType`**, the other kind of text box: assumed to reach the same slot 8~~ - it does not: it renders through
+  slot 6 into a texture of its own (section 1, section 2.2), read 2026-11-14.
 - **The global colour table** at `0x1B211A8`: who fills it and with what.
-- **Button captions.** Whether a button's text goes through slot 8 with a box of its own.
+- ~~**Button captions.**~~ Slot 8, through a `CGuiText` of their own (section 1); the box `GuiButton_Construct` passes
+  was not read.
+- Whether a `textBoxType` clips its lines at maxHeight (section 2.2).
+- Whether an instant box cuts again when its text is set after it was made: no `CGuiText` virtual reads `+0x1B8`.
+- Who writes slot 19's byte (the escape switch), slot 6's last two arguments, and what `¤` draws.

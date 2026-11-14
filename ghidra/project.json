@@ -24197,7 +24197,7 @@
    "name": "CGuiText::CGuiText",
    "signature": null,
    "no_signature": "twelve stack arguments by `ret 0x30`, with the gui in ECX; not traced one by one",
-   "comment": "**The object a text box draws through**, 0x1D4 bytes, vftable 0x1606C70, no RTTI - the class name is ours. Keeps the text at +0x150, the position at +0x188, the border at +0x198, maxWidth and maxHeight at +0x1A0 and +0x1A4 (each made 200 if it was 0), the orientation at +0x1A8, **the format at +0x1AC - 0 left, 1 right, 2 centre** - and the font at +0x1BC, found by name through the gui. When the flag at +0x1B8 is set and there is text, it has the font re-flow the text at once (slot 12).",
+   "comment": "**The object an instantTextBoxType - and a button's caption, which GuiButton_Construct makes at +0x94 - draws through**, 0x1D4 bytes, vftable 0x1606C70, no RTTI - the class name is ours. Keeps the text at +0x150, the position at +0x188, the border at +0x198, maxWidth and maxHeight at +0x1A0 and +0x1A4, the orientation at +0x1A8, **the format at +0x1AC - 0 left, 1 right, 2 centre** - fixedsize at +0x1B8 and the font at +0x1BC, found by name through the gui. **Where fixedsize is set and there is text, the text is cut at once by the font's slot 12 (CEU3BitmapFont::FitTextWithEllipsis) with maxWidth and maxHeight as given; only then is each of the two made 200 where it is 0** - so an instantTextBoxType of no maxWidth breaks at 200, never at slot 8's own 320.",
    "confidence": "confirmed",
    "source": "reversing/findings/FINDINGS-textdraw.md"
   },
@@ -62637,9 +62637,9 @@
    "name": "CTextLayout::BuildLines",
    "signature": null,
    "no_signature": "the text comes by value (0x1C bytes) with a pointer to the vector after it: `ret 0x20`",
-   "comment": "Slot 51, **the line breaker**: splits at '\\n'; and unless +0x9B is set, **wraps a line whose width (font slot 10) plus the width of one 'O' (font slot 18) exceeds the area width (+0x48, the box less twice its border)** - at the last space that fits, else at the most characters that fit (0xACC960). This settles FINDINGS-tooltips.md's open 'how the layout at 0xACBB90 breaks lines', likely.",
-   "confidence": "inferred",
-   "source": "reversing/findings/FINDINGS-editbox.md"
+   "comment": "Slot 51, **the line breaker** of the text layout - what a tooltip, a message-log row, the diplomacy status list, the technology panel's effects and an edit box are laid out by before their text is handed to a box. O = the font's slot 18, GetStringWidth(\"O\", 1). Unless +0x9B (no_wrap) is set, repeatedly: the text up to its first '\\n' is measured (font slot 10); **where area_width (+0x48) < that + O the line is cut**: where the text has a space and GetStringWidth(up to the first space) + O <= area_width, at the last space before n (CTextLayout_LastSpaceBefore, 0x6CE240), the line being text[0..space] - the space dropped (0x6CE150 takes the piece less its last byte and marks the break) - and the rest after it; otherwise after n characters (0x6CE090), the word split; **n being the fewest characters at least area_width - O wide** (CTextLayout_FirstCountReaching, 0x6CC960). So a line kept whole may be area_width - O wide, but one broken off is narrower. Where the line fits, it is taken with its '\\n' and the rest follows; an empty rest ends it. With no_wrap the text is only cut at newlines.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-textdraw.md"
   },
   {
    "rva": "0x6CCFE0",
@@ -76740,6 +76740,66 @@
    "comment": "`cmp [esi+0x1C8], eax; jge` - the daily dig-in's cap: eax = the military defines' UNIT_DIGIN_CAP (+0xB0) + the owner's CTechStatistics (CCountry +0xDF8) dig_in_cap (+0x14), the country found by the unit's tag id half (+0x128). So technology's `dig_in_cap` raises how far a unit digs, not only what the panel says. Then `add [esi+0x1C8], 1000` at 0x1BB13C.",
    "confidence": "confirmed",
    "source": "reversing/findings/FINDINGS-unitpaneltooltips.md"
+  },
+  {
+   "rva": "0x6FA610",
+   "kind": "function",
+   "name": "CEU3BitmapFont::DrawTextToTexture",
+   "signature": "void* __thiscall CEU3BitmapFont::DrawTextToTexture(CEU3BitmapFont* this, void* texture, float* textureSize, float* size, Hoi3CString* text, void* background, int maxWidth, int maxHeight, int* border, int format, bool fit, int unread1, int unread2)",
+   "no_signature": null,
+   "comment": "**Slot 6 of CEU3BitmapFont: lays a textBoxType's text out and draws it into a texture of its own** - how every textBoxType is drawn, through its display object (CTextSprite::RenderText, 0x6B5190); an instantTextBoxType goes through slot 8 instead (CEU3BitmapFont::DrawText). `ret 0x30`. Empty text and no background: the old texture released, null returned. **maxWidth 0 becomes 0x140 (320); otherwise a maxHeight that is not 0 sets `fit`.** **The line breaking**, a character at a time, L the line's width and w the word's: every character goes into the word first. Where the font's slot 19 answers true (the byte at +8, the escape switch; true for the game's fonts, since the top bar's colours reach the screen through a textBoxType): a7 takes the next character and adds nothing; '@' takes three and adds FlagIconWidth; '{' two and adds 8; a3 the letters and underscores after it and adds CounterIconWidth; a4 adds 16 - each to L only, not to w - and then, **for every character, these and the plain ones alike, before its glyph is counted: where limit <= L + 2*border.x, '\\n' and the word go out** (a break before the word gathered, the current character in it), the broken line's width stored as L - n - w (n the picture's width, -1 for a plain character) and **L = n + w with w kept** - so after a break in a plain word L is one short of the line, and w, never set back there, carries on over the lines: a word wider than the box goes on a character to a line. A plain character then: no glyph - '\\n' or '\\r': where L + 2*border.x < limit the word goes out and the line ends (w = 0), otherwise '\\n' and the word (a break before the word, then the newline), w kept; L = 0; any other glyphless character is passed over. A glyph adds its xadvance and kerning with the next byte to L and w; **a glyph of height 0 (the space) goes out with its word where nothing has gone out yet (the result's length is 0) or L + 2*border.x < limit, else '\\n' and the word, L = w**; then w = 0. **At the end: L + 2*border.x < limit, the word goes out; otherwise '\\n' and the word**, with no test of the word alone. Each newline and space break counts its lines and at 55 (cmp 0x37, cmovge) the loop ends. So against slot 8: a line that reaches the box breaks (>= where slot 8 has >), a plain word goes down as soon as the line reaches the box with no 50-wide floor and no test of anything laid out, and a first word reaching the box still leaves the first line empty. The texture: with `fit` the box's own size (maxWidth, maxHeight, or the text's height where that is 0), each made the next power of two; otherwise the widest line and the lines' height, each plus twice the border. With `fit` a line is placed at the border set left, at **maxWidth/2 - its width/2 set centre - no border**, and at maxWidth - border.x - 1 - its width set right; without it at the border whatever the format. Lines step down a line height (+0x494) from the texture's top less border.y, or, with a background, from half the space the text leaves. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-textdraw.md"
+  },
+  {
+   "rva": "0x7003E0",
+   "kind": "function",
+   "name": "CEU3BitmapFont::FitTextWithEllipsis",
+   "signature": "void __thiscall CEU3BitmapFont::FitTextWithEllipsis(CEU3BitmapFont* this, Hoi3CString* text, Hoi3CString* out, int maxWidth, int maxHeight, int* border)",
+   "no_signature": null,
+   "comment": "**Slot 12: what a fixedsize box's text is cut to before it is laid out** - called by CGuiText::CGuiText where its fixedsize flag (+0x1B8) is set and by the textBoxType's display object (CTextSprite::RenderText) where the box is fixedsize and has a height. `ret 0x14`. out = text; maxWidth 0 becomes 0x140. The room across is maxWidth - 2*border[0] and the room down **maxHeight - 2*border[0]** - border x for the height too, the y never read. Lines are counted a character at a time, from one line: a7 passes over the next character; '{' adds 8 and passes over **three** more, one beyond the bar's two digits; '@' adds FlagIconWidth and passes over three; a3 adds CounterIconWidth over its name; a glyph adds xadvance and kerning to the line's width and to a second count; **where the line's width reaches the room across (>=) a line is added and the line's width set to the second count, which is then set to 0** - the two counts being equal since the last newline, the first such character does not set the line back, so the next character adds a line as well. '\\n' and '\\r' add a line and set both to 0. Where the lines are then taller than the room down, the text is cut before the character that added the line: out = text[0..i], **its last four characters made ' ', '.', '.', '.'** - for a newline only where out is 5 or more long (else left so), for a full line where i > 3 (else out is made from '...' at 0x15B5C6C, how not read). The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-textdraw.md"
+  },
+  {
+   "rva": "0x6B5190",
+   "kind": "function",
+   "name": "CTextSprite::RenderText",
+   "signature": "void __thiscall CTextSprite::RenderText(CTextSprite* this, void* graphics, Hoi3CString* text, Hoi3CString* font, Hoi3CString* textureFile, int width, int height, int borderX, int borderY, int format, bool fixedsize)",
+   "no_signature": null,
+   "comment": "**Slot 60 of the object a textBoxType draws through** (vftable 0x1600F58, 0x310 bytes, no RTTI - the class name is ours; made by the box's constructor through the graphics, 0xA6FFB0, and kept at GuiObject_textBoxType +0x4C). `ret 0x28`. Keeps the text (+0x1BC), the font name (+0x1D8), the size (+0x1AC/+0x1AE) and border (+0x1B0/+0x1B4), the format (+0x210) and fixedsize (+0x309); resolves the textureFile against the graphics' texture table (an empty one taking the type's own, +0x150 +0x74) for the background (+0x1A0) and its size; finds the font by name (graphics +0x88, then +0x94). Where fixedsize is set and the width or height is 0 and there is a background, that dimension is the background's less the border. **Where fixedsize is set and the height is not 0, the text is first cut by the font's slot 12 (CEU3BitmapFont::FitTextWithEllipsis).** Then the font's slot 6 (CEU3BitmapFont::DrawTextToTexture) renders it into the object's texture (+0x1F8). GuiObject_textBoxType::SetTextToFit calls this slot directly with a height of 0; CTextSprite::SetText (slot 61) calls it with the box's. The name is ours.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-textdraw.md"
+  },
+  {
+   "rva": "0x6B59B0",
+   "kind": "function",
+   "name": "CTextSprite::SetText",
+   "signature": "void __thiscall CTextSprite::SetText(CTextSprite* this, Hoi3CString* text, Hoi3CString* font, Hoi3CString* textureFile, int width, int height, int borderX, int borderY, int format, bool fixedsize)",
+   "no_signature": null,
+   "comment": "**Slot 61 of the object a textBoxType draws through: what GuiObject_textBoxType::SetText hands a new text to.** `ret 0x24`. Keeps the text, the font name and the textureFile (+0x1BC, +0x1D8, +0x184), the size and the border, and calls slot 60 (CTextSprite::RenderText) with the graphics it keeps at +0x1F4 and everything else as given. The name is ours.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-textdraw.md"
+  },
+  {
+   "rva": "0x6CC960",
+   "kind": "function",
+   "name": "CTextLayout_FirstCountReaching",
+   "signature": null,
+   "no_signature": "the layout on the stack (`ret 4`) and the text in EAX, the count returned in EAX",
+   "comment": "**The fewest characters of a text at least the layout's area_width less one 'O' wide**, by GetStringWidth (font slot 10): a halving search between 0 and length - 1 from the middle, the step a quarter of the length and halved each time, then a step at a time to the first count that reaches it - from below while short of it, from above back to one past the last that reaches it. 0 for a text of one character; the search returns early where its two ends meet. One caller, CTextLayout::BuildLines, which cuts there or at the last space before it. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-textdraw.md"
+  },
+  {
+   "rva": "0x6CE240",
+   "kind": "function",
+   "name": "CTextLayout_LastSpaceBefore",
+   "signature": null,
+   "no_signature": "the text in EDI and the limit on the stack (`ret 4`); the index returned in EAX",
+   "comment": "**The last space of a text before an index**: -1 where a '\\n' comes before the first space (or there is a newline and no space); otherwise the first space, then each next space while it is before the index. The first space is answered even where it is not before the index. One caller, CTextLayout::BuildLines. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-textdraw.md"
   }
  ],
  "structs": [
@@ -99116,6 +99176,41 @@
    "comment": "A live `textBoxType` widget - the shape that holds displayed text, and so the one the DLL reads a computed number out of. **The name is ours**, from the .gui keyword; no RTTI class exists for it. Its own name is at +0x54, its font at +0x70 and **its displayed text at +0xD8**; verified live by reading topbar's children, where ic_number, manpower_number, money_number, leadership_number, oil_number and supplies_number all gave the figures on screen. Note the text is Windows-1252 and carries the game's colour escapes, so it must go through Text::toUtf8. See reversing/findings/FINDINGS-guilive.md.",
    "fields": [
     {
+     "offset": "0xC8",
+     "name": "fixedsize",
+     "type": "bool",
+     "comment": "The type's `fixedsize`, handed last by SetText: the display object cuts the text with the font's slot 12 where it is set and the box has a height. Inferred: the type's one bool, and the widget's one byte argument.",
+     "source": "reversing/findings/FINDINGS-textdraw.md"
+    },
+    {
+     "offset": "0xC4",
+     "name": "format",
+     "type": "int",
+     "comment": "0 left, 1 right, 2 centre, as the type's `format`. SetPosition tests it for 2.",
+     "source": "reversing/findings/FINDINGS-textdraw.md"
+    },
+    {
+     "offset": "0xAA",
+     "name": "max_height",
+     "type": "short",
+     "comment": "The type's maxHeight, handed by SetText; SetTextToFit passes 0 in its place. Where it is not 0 the font lays the text out to the box's own size, and a fixedsize text is cut.",
+     "source": "reversing/findings/FINDINGS-textdraw.md"
+    },
+    {
+     "offset": "0xA8",
+     "name": "max_width",
+     "type": "short",
+     "comment": "The type's maxWidth, handed by SetText to the display object as the width the font breaks at (0 is 320 there).",
+     "source": "reversing/findings/FINDINGS-textdraw.md"
+    },
+    {
+     "offset": "0x4C",
+     "name": "display",
+     "type": "void *",
+     "comment": "The CTextSprite (vftable 0x1600F58) the box draws through: made by the constructor through the graphics (0xA6FFB0); SetText calls its slot 61 (CTextSprite::SetText), SetTextToFit its slot 60 (CTextSprite::RenderText), SetPosition its slot 51.",
+     "source": "reversing/findings/FINDINGS-textdraw.md"
+    },
+    {
      "offset": "0x54",
      "name": "name",
      "type": "Hoi3CString",
@@ -99142,6 +99237,13 @@
    "name": "GuiObject_instantTextBoxType",
    "comment": "A live `instantTextBoxType` widget, the textBoxType variant that does not animate. **The name is ours**, from the .gui keyword; no RTTI class exists for it. See reversing/findings/FINDINGS-guilive.md.",
    "fields": [
+    {
+     "offset": "0xEC",
+     "name": "fixedsize",
+     "type": "bool",
+     "comment": "Handed to the CGuiText as its +0x1B8, which cuts the text with the font's slot 12 when it is made. Inferred as fixedsize, the instant type's one bool.",
+     "source": "reversing/findings/FINDINGS-textdraw.md"
+    },
     {
      "offset": "0xF0",
      "name": "format",
@@ -123007,6 +123109,8 @@
    "14": "IsValid"
   },
   "CEU3BitmapFont": {
+   "6": "DrawTextToTexture",
+   "12": "FitTextWithEllipsis",
    "13": {"name": "GetTextSize", "signature": "void __thiscall GetTextSize(CEU3BitmapFont* this, Hoi3CString* text, int maxWidth, int maxHeight, void* border, short* size)"},
    "24": {"name": "DrawCounterIcon", "signature": "void __thiscall DrawCounterIcon(CEU3BitmapFont* this, const char* name, int x, int y)"},
    "25": {"name": "CounterIconWidth", "signature": "int __thiscall CounterIconWidth(CEU3BitmapFont* this) @EAX"},

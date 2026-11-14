@@ -350,7 +350,7 @@ Definitions out of `common/` and the rest of the mod. Their `LoadKey` is the gra
 | `CDirectorySettings` | `CPersistent` | 0x3C8 | 5 |  | 2 |  | 1 | read | **read**: the path table; `replace` and `extend` are how a mod says whether its folder replaces the base game's |
 | `CDivisionTemplate` | `CPersistent` |  |  |  | 2 |  | 1,955 | RTTI |  |
 | `CEU3Application` | `CApplication` |  | 5 |  | 8 |  | 2 | read | plumbing: the settings file |
-| `CEU3BitmapFont` | `CBitmapFont` |  | 2 | 1/6 | 10 |  | 126 | placed |  |
+| `CEU3BitmapFont` | `CBitmapFont` |  | 2 | 1/6 | 12 |  | 126 | placed |  |
 | `CEU3DialogGuiType` | `CWindowType` |  |  | 1/1 | 1 |  | 30 | placed |  |
 | `CEU3Graphics` | `CGraphics` |  |  |  | 5 |  | 2 | keys |  |
 | `CEU3Gui` | `CGui` |  |  |  | 2 |  | 3 | RTTI |  |
