@@ -522,6 +522,17 @@ unit_deployment.
 **A province block's key order** is in CProvince::SaveContents's record (rva `0x95020`); the Ireland 1938 save agrees,
 the building keys between strategic_resource and history.
 
+**What reads a country block back** [exe] (added 2026-11-14, for OpenHOI3's sweep of its loader): `CCountry::LoadKey`
+(rva `0xCCDA0`) is a tree of comparisons and not a jump table, so the switch readers had left its keys out of the
+record. `scripts/switchmap.py`'s case walk over it finds 126 cases, 124 of them named; the list is in its record. Every
+country key in the maintainer's saves is among them - `human`, `prov_vp`, `offmap_vp`, `last_mission_cancel`,
+`trade_action`, `influence`, `lend_lease_from_yesterday`, `lend_lease_from_yesterday_values` and
+`lend_lease_income_yesterday` too - so **the original drops none of a country block's keys**. The pair blocks inside it
+(`CDiplomacyStatus::LoadKey`), the AI strategy (`CAIStrategy::LoadKey`), the province (`CProvince::LoadKey`) and the
+brigade (`CSubUnit::LoadKey`) were already recorded whole, and name every key their blocks hold in the saves. The one
+value the original reads and then throws away is a technology's third figure, the leadership put into it, which
+`CTechnologyStatus::LoadKey` sets to 0 whatever was read.
+
 ### B.5 Not settled
 
 - The class at CGameState +0xD68, and what its strategic_warfare entries are.
