@@ -25,9 +25,9 @@ how many objects a census found (taken 2026-09-20).
 
 | | classes |
 | --- | --- |
-| `read` | 182 |
+| `read` | 183 |
 | `placed` | 140 |
-| `keys` | 75 |
+| `keys` | 74 |
 | `part` | 181 |
 | `named` | 5 |
 | `RTTI` | 558 |
@@ -227,7 +227,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CLobbyStartGame` | `CCommand` |  |  |  | 1 |  | 1 | RTTI |  |
 | `CLoginHandler` | `TLoginInterface` `CLoginObservable` |  |  |  |  |  |  | RTTI |  |
 | `CMapPoint` | `CPersistent` | 0x10 | 2 |  | 2 |  | 879,780 | keys |  |
-| `CMapProvince` | `CProvince` |  | 88 | 14/26 | 14 | CMapProvince.hpp | 28,380 | read |  |
+| `CMapProvince` | `CProvince` |  | 89 | 14/26 | 14 | CMapProvince.hpp | 28,380 | read |  |
 | `CMapRenderingOptions` | `CPersistent` |  |  | 2/9 | 2 |  | 1 | placed |  |
 | `CMessageHandlerInterface` | `CReferenceObject` |  |  |  |  |  |  | RTTI |  |
 | `CMessageType` | `CPersistent` | 0x38 | 9 | 1/7 | 2 |  | 185 | read |  |
@@ -313,7 +313,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CUnitPlan` | `CPersistent` | 0x90 | 15 | 10/16 | 14 |  | 8,827 | read | **read**: a battle plan as the save keeps it |
 | `CVariables` | `_0A::anon::PAUCVariable::__CTernary` `CPersistent` |  | 1 |  | 5 | CFlags.hpp | 216 | keys |  |
 | `CVassal` | `CDependency` |  |  | 5/5 |  |  | 24 | RTTI |  |
-| `CVersion` | `CPersistent` |  |  | 1/4 | 1 |  | 9 | placed |  |
+| `CVersion` | `CPersistent` |  | 4 | 1/4 | 2 |  | 9 | placed |  |
 | `CVictoryConditionManager` | `CPersistent` | 0x44 | 10 |  | 2 |  | 1 | read |  |
 | `CWar` | `CPersistent` |  | 16 + 3 lua | 7/11 | 15 | CWar.hpp | 17 | read |  |
 | `CWarGoal` | `CPersistent` |  | 5 + 4 lua | 5/5 | 7 | CWar.hpp | 216 | read |  |
@@ -349,7 +349,7 @@ Definitions out of `common/` and the rest of the mod. Their `LoadKey` is the gra
 | `CDefines` | `CPersistent` |  | 11 | 1/11 | 1 | CDefines.hpp | 1 | read | **read**: the nine top-level blocks of `defines.lua` |
 | `CDirectorySettings` | `CPersistent` | 0x3C8 | 5 |  | 2 |  | 1 | read | **read**: the path table; `replace` and `extend` are how a mod says whether its folder replaces the base game's |
 | `CDivisionTemplate` | `CPersistent` |  |  |  | 2 |  | 1,955 | RTTI |  |
-| `CEU3Application` | `CApplication` |  | 4 |  | 8 |  | 2 | keys | plumbing: the settings file |
+| `CEU3Application` | `CApplication` |  | 5 |  | 8 |  | 2 | read | plumbing: the settings file |
 | `CEU3BitmapFont` | `CBitmapFont` |  | 2 | 1/6 | 10 |  | 126 | placed |  |
 | `CEU3DialogGuiType` | `CWindowType` |  |  | 1/1 | 1 |  | 30 | placed |  |
 | `CEU3Graphics` | `CGraphics` |  |  |  | 5 |  | 2 | keys |  |

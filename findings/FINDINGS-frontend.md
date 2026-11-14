@@ -63,7 +63,9 @@ hides the store window, and keeps `simple` in step for views 0 and 8.
 
 **`version_label`** [exe for the format]: the application's version name - `HoI3 v4.02`, built in the application's
 constructor; that this is the string the formatter reads is *inferred* - then ` (`, four letters A-Z from the checksum
-(its sum, >>4, >>8 and >>12, each mod 26) and `)`; and where a mod is loaded, `    Mod: ` and the mod's localised name. The
+(its sum, >>4, >>8 and >>12, each mod 26) and `)` - exactly, since 2026-11-13: the sum is `CVersion`'s `data` plus
+`executable`, the shifts arithmetic and each remainder C's made positive, and the name is confirmed the formatter's
+(`FINDINGS-checksum.md`, section 4); and where a mod is loaded, `    Mod: ` and the mod's localised name. The
 lobby's `checksum` label gets the same text.
 
 ### A.2 The main menu's buttons

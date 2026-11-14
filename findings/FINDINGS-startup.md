@@ -380,6 +380,11 @@ Three `common/`-folder things are loaded elsewhere, not here: `graphicalculturet
 
 ## 8. The checksum, and what it covers
 
+**Corrected 2026-11-13 by `FINDINGS-checksum.md`**, which read the calls and reproduced the logged figure: the list below
+is the strings near the function, not what it sums. It also sums `events`, `missions`, `technologies`, `decisions`,
+`common/*.txt` and `.lua`, and `units` and `units/country` `.lua`, and the version name - so "does not cover
+`common/*.txt`" is wrong. Kept as written for the record.
+
 `0x632DA0` logs at lines 759–761 and its file list is the `.rdata` run from `0x15CC9A0`:
 
 ```

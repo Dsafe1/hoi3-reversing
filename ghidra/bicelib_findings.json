@@ -22063,7 +22063,7 @@
      "offset": 424,
      "name": "order",
      "type": "int",
-     "comment": "where it sorts in its stack, smallest first, and how soon a click finds it; what sets it was not read (reversing/findings/FINDINGS-counters.md)"
+     "comment": "where it sorts in its stack, smallest first, so **the largest is on top**: set each frame in the near view by CUnit::UpdateAvatar's stackIndex, which ProvinceGraphics_Update gives as count-1 for the unit at the province's map_unit_cursor and one less for each after it round map_units - so the unit at the cursor is on top of its stack and those after it in the list come under it. With nothing selected the cursor is 0 and the first of map_units is on top. See reversing/findings/FINDINGS-mapstacks.md, section 3. (reversing/findings/FINDINGS-mapstacks.md)"
     },
     {
      "offset": 428,
@@ -29706,9 +29706,51 @@
    ]
   },
   {
+   "name": "CVersion",
+   "size": null,
+   "fields": [
+    {
+     "offset": 4,
+     "name": "token",
+     "type": "SaveToken",
+     "comment": "a SaveToken CPersistent's constructor sets to `none`, and nothing has been found that reads it. Of 714 inlined constructors that write this word and then a vftable, 697 write `none`, and **read live** it is still `none` on every CSubUnitDefinition, CTechnology, CRegiment, CCombat, CAIStrategy, CLeader, CTheatre and CConvoy in a running game - so it is not a class id, whatever a constant at +4 looks like (BiceLib/GameClasses/CPersistent.hpp:57), inherited from CPersistent"
+    },
+    {
+     "offset": 8,
+     "name": "minValue",
+     "type": "int",
+     "comment": "the `minValue` key, a fixed-point in thousandths; SaveContents writes it only when above nought. What it is the minimum of was not read. (reversing/findings/FINDINGS-checksum.md)"
+    },
+    {
+     "offset": 12,
+     "name": "executable",
+     "type": "int",
+     "comment": "the `executable` key; nought in the application's own CVersion in every run logged, and added to `data` for the label's letters. Nothing that sets it was found in the startup path. (reversing/findings/FINDINGS-checksum.md)"
+    },
+    {
+     "offset": 16,
+     "name": "data",
+     "type": "int",
+     "comment": "the `data` key: the file checksum CreateChecksum sums into, logged signed as `Checksum is ...    <data>`. (reversing/findings/FINDINGS-checksum.md)"
+    },
+    {
+     "offset": 20,
+     "name": "name",
+     "type": "Hoi3CString",
+     "comment": "the `name` key: `HoI3 v4.02` in the application's, the label's first part. (reversing/findings/FINDINGS-checksum.md)"
+    }
+   ]
+  },
+  {
    "name": "CEU3Application",
    "size": null,
    "fields": [
+    {
+     "offset": 32,
+     "name": "version",
+     "type": "CVersion",
+     "comment": "the application's CVersion, by value: its name the version name and its `data` the file checksum CreateChecksum makes. See reversing/findings/FINDINGS-checksum.md. (reversing/findings/FINDINGS-checksum.md)"
+    },
     {
      "offset": 236,
      "name": "settings",
@@ -42396,13 +42438,19 @@
      "offset": 712,
      "name": "map_units",
      "type": "CUnit**",
-     "comment": "Begin of a vector of the units shown in the province (end +0x2CC), the order a click on the selected unit's own counter cycles through. *Inferred* from its readers (ProvinceGraphics_HitTest) and 0x4A5880, which finds a unit in it. See reversing/findings/FINDINGS-selection.md, section A. (reversing/findings/FINDINGS-selection.md)"
+     "comment": "Begin of the vector of the province's units that have a counter (end +0x2CC): those MapUnit_IsShown passes, **kept sorted by MapUnitOrder_Before** - the player's own first, then fleets after land on land and before it at sea, then the higher rank - re-sorted at each CMapProvince::AddUnit. ProvinceGraphics_Update gives each near counter its stack order from it, walking from map_unit_cursor; ProvinceGraphics_HitTest's cycle walks it too. See reversing/findings/FINDINGS-mapstacks.md, section 2. (reversing/findings/FINDINGS-mapstacks.md)"
     },
     {
      "offset": 716,
      "name": "map_units_end",
      "type": "CUnit**",
      "comment": "End of the vector at +0x2C8. See reversing/findings/FINDINGS-selection.md, section A. (reversing/findings/FINDINGS-selection.md)"
+    },
+    {
+     "offset": 728,
+     "name": "hidden_units",
+     "type": "CUnit**",
+     "comment": "Begin of the vector of the province's units with no counter (end +0x2DC): air units at their base, fleets in port, passengers in port or at an air base - those MapUnit_IsShown refuses. Unsorted. ProvinceGraphics_Update's first loop tells each one's avatar it is seen far or near, with order 0. See reversing/findings/FINDINGS-mapstacks.md, section 2. (reversing/findings/FINDINGS-mapstacks.md)"
     },
     {
      "offset": 744,
@@ -88754,11 +88802,51 @@
    "labels": []
   },
   {
+   "rva": 677840,
+   "namespace": "",
+   "name": "MapUnit_IsShown",
+   "confidence": "CERTAIN",
+   "evidence": "**Whether a unit in a province goes on its map_units, the units with a counter**: false for an air unit at its own base (CUnit_IsAtOwnBase), a fleet in a land province, a land unit aboard a fleet (its slot 9 object +0x300) in a land province, and a land unit aboard an air unit (+0x304) that is at its own base; true otherwise. CMapProvince::AddUnit puts the false ones on hidden_units (+0x2D8). The name is ours. See reversing/findings/FINDINGS-mapstacks.md, section 2.\n(reversing/findings/FINDINGS-mapstacks.md)",
+   "signature": null,
+   "labels": []
+  },
+  {
+   "rva": 678080,
+   "namespace": "",
+   "name": "MapUnitOrder_Before",
+   "confidence": "CERTAIN",
+   "evidence": "**The order of a province's map_units**: whether `left` goes before `right`. `order` is {?, country id at +4, the province's is_land at +8}. In turn: **the order's country's own units first** (owner_id +0x128); an air unit at its own base after everything but another such, and before it everything else; an air unit before a land unit carried by an air unit (slot 9 object +0x304), a land unit so carried after an air unit; **in a land province anything not naval before a fleet, at sea a fleet before anything not naval**; and then **the lower oob_level (+0x1F4) first** - 0 theatre to 4 division, 5 navy, 6 air - so the higher rank first. A strict comparison, so std::sort's insertion pass leaves two it does not part in the order they were. The name is ours. See reversing/findings/FINDINGS-mapstacks.md, section 2.\n(reversing/findings/FINDINGS-mapstacks.md)",
+   "signature": {
+    "convention": "__stdcall",
+    "return": "bool",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "order",
+      "type": "void*",
+      "storage": "stack:4"
+     },
+     {
+      "name": "left",
+      "type": "CUnit*",
+      "storage": "stack:8"
+     },
+     {
+      "name": "right",
+      "type": "CUnit*",
+      "storage": "EDI"
+     }
+    ],
+    "returnStorage": "AL"
+   },
+   "labels": []
+  },
+  {
    "rva": 678448,
    "namespace": "CMapProvince",
    "name": "AddUnit",
-   "confidence": "TENTATIVE",
-   "evidence": "Enters a unit in a province's lists, for CUnit::EnterProvince. Unless it was already there: appended to the units list (+0x2B8), and **a fleet in a land province added to the province's CPort** (CPort::AddUnit) - or, with no port, the log line `Navalunit ... placed in non port ...` (province.cpp). Then pushed on one of two vectors (+0x2C8 or +0x2D8) by 0x4A57D0, the first kept sorted. The name is ours. See reversing/findings/FINDINGS-seaair.md, section 6.\n(reversing/findings/FINDINGS-seaair.md)",
+   "confidence": "CERTAIN",
+   "evidence": "Enters a unit in a province's lists, for CUnit::EnterProvince. Unless it was already there (`same`): appended to the units list (+0x2B8), and **a fleet in a land province added to the province's CPort** (CPort::AddUnit) - or, with no port, the log line `Navalunit ... placed in non port ...` (province.cpp). Then, by MapUnit_IsShown, **pushed on map_units (+0x2C8) and the whole vector sorted** - MapUnits_Sort with MapUnitOrder_Before, the order's country the selection listener's slot 23 answer and its land flag the province's is_land - **or pushed on hidden_units (+0x2D8)**, unsorted. The name is ours. See reversing/findings/FINDINGS-seaair.md, section 6, and reversing/findings/FINDINGS-mapstacks.md, section 2.\n(reversing/findings/FINDINGS-mapstacks.md)",
    "signature": {
     "convention": "__stdcall",
     "return": "void",
@@ -89671,6 +89759,80 @@
    "confidence": "TENTATIVE",
    "evidence": "0x4A8630, bare ret: walks the list whose head is [eax] (node id at +0x4, next at +0xC) and returns in al whether any node's id equals [ecx+4]. **39 call sites in 17 functions** across combat, diplomacy, the AI and the revolt roll, so it is a general helper and must not be named after a domain. The 'country id' reading comes from the revolt roll's call at 0x4C0881, where ecx is &country->tag (+0xCA4, so [ecx+4] is the tag's id) and eax is gameState->scenario (+0xD0C) + 0x78; other callers may pass a different id list.\n(reversing/findings/FINDINGS-revolt.md, section 1)",
    "signature": null,
+   "labels": []
+  },
+  {
+   "rva": 690400,
+   "namespace": "",
+   "name": "MapUnits_Sort",
+   "confidence": "CERTAIN",
+   "evidence": "std::sort of a province's map_units with MapUnitOrder_Before, the comparator's three words passed by value: the introsort loop - partition (0x4A8A20) while more than 32 remain and the ideal count lasts, heap sort (0x4A8D10, 0x4A8DF0) when it runs out - and MapUnits_InsertionSort for 32 or fewer. So a province of up to 32 units on the map keeps two equal units in the order they came. The name is ours. See reversing/findings/FINDINGS-mapstacks.md, section 2.\n(reversing/findings/FINDINGS-mapstacks.md)",
+   "signature": {
+    "convention": "__cdecl",
+    "return": "void",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "first",
+      "type": "CUnit**"
+     },
+     {
+      "name": "last",
+      "type": "CUnit**"
+     },
+     {
+      "name": "ideal",
+      "type": "int"
+     },
+     {
+      "name": "order0",
+      "type": "int"
+     },
+     {
+      "name": "orderCountry",
+      "type": "int"
+     },
+     {
+      "name": "orderIsLand",
+      "type": "int"
+     }
+    ]
+   },
+   "labels": []
+  },
+  {
+   "rva": 691792,
+   "namespace": "",
+   "name": "MapUnits_InsertionSort",
+   "confidence": "CERTAIN",
+   "evidence": "std::sort's insertion pass for map_units: each element from the second on moved down past those MapUnitOrder_Before puts after it, so equal elements keep their order. The comparator is its by-value copy on this function's stack. The name is ours. See reversing/findings/FINDINGS-mapstacks.md, section 2.\n(reversing/findings/FINDINGS-mapstacks.md)",
+   "signature": {
+    "convention": "__cdecl",
+    "return": "void",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "first",
+      "type": "CUnit**"
+     },
+     {
+      "name": "last",
+      "type": "CUnit**"
+     },
+     {
+      "name": "order0",
+      "type": "int"
+     },
+     {
+      "name": "orderCountry",
+      "type": "int"
+     },
+     {
+      "name": "orderIsLand",
+      "type": "int"
+     }
+    ]
+   },
    "labels": []
   },
   {
@@ -126947,8 +127109,8 @@
    "rva": 1858464,
    "namespace": "CUnit",
    "name": "IsAttackerHere",
-   "confidence": "TENTATIVE",
-   "evidence": "For a unit in a battle: walks the battles of the province it is in (+0x2EC) for one of the kind that fits the province - kind 2 at sea, 1 on land - and answers whether the unit's owner is in that battle's list of countries. CUnitView::Update gives the red arrow where true and the red star where false, and the counter's stack is picked by it. That the list is the attackers' is inferred from the arrow. See reversing/findings/FINDINGS-unitpanel.md, section 4.\n(reversing/findings/FINDINGS-unitpanel.md)",
+   "confidence": "CERTAIN",
+   "evidence": "**Whether a fighting unit is on a battle's attacking side**, for its counter's stack (2 where true, 3 where false) and its panel's red arrow or red star. False where the unit is in no battle (combats_count +0x11C <= 0). The battle asked is **the first on the list of the province the unit stands in (+0x130, its +0x2EC) whose kind (slot 11, +0x2C) fits the province - 2 at sea, 1 on land - or, where there is none, the unit's own first battle** (+0x114's first node); the answer is whether the unit's owner (+0x124) is on that battle's **attacker** (CCombat +0x10) list of countries still in the fight (+0x54), through CountryIdListContains. So an attacker standing in a province that is itself attacked answers false and stands with the defenders, and one attacking from a province with no battle answers by the battle it is in. See reversing/findings/FINDINGS-mapstacks.md, section 1.\n(reversing/findings/FINDINGS-mapstacks.md)",
    "signature": {
     "convention": "__stdcall",
     "return": "bool",
@@ -142043,7 +142205,7 @@
    "namespace": "CEU3Application",
    "name": "CreateChecksum",
    "confidence": "CERTAIN",
-   "evidence": "**The last thing startup does**, not the seventh - called once, at 0x632AB4, after `Idler Initialised <`. Extent 0x632DA0..0x634568, `ret 4`, one stack argument (the application). Shows the `CREATING_CHKSUM` progress text and logs `Creating checksum for all files took ` (eu3application.cpp:759), `Checksum is ` (760) and `Testversion 4(settings)` (761). Its file list is the .rdata run from 0x15CC9A0: common/countries, units/models, units/country, history/{countries,diplomacy,provinces,wars,leaders,units}, map/default.map, map/cache/time, map/cache/adjacencies.bin, /cgm, /battleplans. It does **not** cover common/*.txt as files, the graphics or the localisation. That the purpose is multiplayer desync detection is **inferred** from the list, not read. In a real startup it costs 10.3 of the 33.8 seconds of app init.\n(reversing/findings/FINDINGS-startup.md)",
+   "evidence": "**The last thing startup does** - called once, at 0x632AB4, after `Idler Initialised <`. Extent 0x632DA0..0x634568, `ret 4`. Shows CREATING_CHKSUM, then sums into the application's CVersion at +0x20 (its `data`, app +0x30): **CVersion::ChecksumFolder** over common (.lua, .txt), common/countries, events, missions, units (.txt, then .lua), units/models, units/country (.lua), technologies, decisions, history/countries, diplomacy, provinces (recursive), wars, leaders and units - each base folder where the path registry's mode for it is not 1, its override folder where the mode is not 0 - then ChecksumFile on map/default.map, map/cache/time and map/cache/adjacencies.bin (or the map override's), then cgm (recursive) and battleplans (.txt and .pln, recursive); and last **ChecksumString of the version name** (app +0x34, `HoI3 v4.02`). Every term is a 32-bit add. Logs `Creating checksum for all files took ` (eu3application.cpp:759), `Checksum is ` + CVersion_GetLabel + the signed `data` (760) and `Testversion 4(settings)` (761). Reproduced to the figure for the base game (1499173604, GSKH) and BlackICE 15.1 (-410340735, ZAUD) by scripts/checksum.py. It does not cover interface, gfx, localisation, script, sound, map files other than the three, or common's subfolders other than countries. That the figure is compared in multiplayer is inferred from CVersion being a persistent block; the comparison was not read. In a real startup it costs 10.3 of the 33.8 seconds of app init.\n(reversing/findings/FINDINGS-checksum.md)",
    "signature": {
     "convention": "__stdcall",
     "return": "void",
@@ -142781,7 +142943,7 @@
    "namespace": "",
    "name": "ProvinceGraphics_Update",
    "confidence": "CERTAIN",
-   "evidence": "**One province's pictures on the map, each frame** - called for every province graphics entry from 1, unconditionally, by MapGraphics_Update (0x85D842), which the graphics owner's update (0x641D00) runs from CInGameIdler_Render at 0x656F64, before that frame's MapGraphics_DrawScene (0x65704B) - so a picture's time is advanced and then drawn in the same frame. Read for the weather: it counts a frame at +0xA0 (which the entry's constructor starts from a running counter, so provinces' 15th frames are staggered); where the province's weather picture (+0x88) exists, **adds (float)fmod(g_PlatformClock slot 5, 1000.0) to the picture's time** (CBillboardObject::AddTime) - slot 5 being CHighPerfWinClock::GetSeconds, **the seconds since the clock was started at launch, never reset** - not a frame interval: each frame adds the whole clock reading modulo 1000, so the animation's speed is the frame rate x (seconds since launch mod 1000) units a second; then, **on every frame but each 15th** (+0xA0 % 15 != 0): with the template's `simulated` (+0x13D) set and the owner's +0x60F9 (the weather mode) set, ProvinceGraphics_UpdateWeatherPicture and the picture shown if hidden; otherwise the picture, if any, hidden and destroyed. On each 15th frame instead (and only for a province with an owner and a controller): the port, air base and supply depot pictures, the building pictures and the underground icon, and the counter reset. The units' counters (the first part, under `far`) were not read. The name is ours. See reversing/findings/FINDINGS-weathersim.md, sections C.3 and C.3.1.\n(reversing/findings/FINDINGS-weathersim.md)",
+   "evidence": "**One province's pictures on the map, each frame** - called for every province graphics entry from 1, unconditionally, by MapGraphics_Update (0x85D842), which the graphics owner's update (0x641D00) runs from CInGameIdler_Render at 0x656F64, before that frame's MapGraphics_DrawScene (0x65704B) - so a picture's time is advanced and then drawn in the same frame. Read for the weather: it counts a frame at +0xA0 (which the entry's constructor starts from a running counter, so provinces' 15th frames are staggered); where the province's weather picture (+0x88) exists, **adds (float)fmod(g_PlatformClock slot 5, 1000.0) to the picture's time** (CBillboardObject::AddTime) - slot 5 being CHighPerfWinClock::GetSeconds, **the seconds since the clock was started at launch, never reset** - not a frame interval: each frame adds the whole clock reading modulo 1000, so the animation's speed is the frame rate x (seconds since launch mod 1000) units a second; then, **on every frame but each 15th** (+0xA0 % 15 != 0): with the template's `simulated` (+0x13D) set and the owner's +0x60F9 (the weather mode) set, ProvinceGraphics_UpdateWeatherPicture and the picture shown if hidden; otherwise the picture, if any, hidden and destroyed. On each 15th frame instead (and only for a province with an owner and a controller): the port, air base and supply depot pictures, the building pictures and the underground icon, and the counter reset. **The units first** (read 2026-11-14): every unit of hidden_units (+0x2D8) told through slot 36 (CUnit::UpdateAvatar) whether it is seen far, with order 0; then, in the near view and with map_unit_cursor (+0x2E8) inside map_units, **every unit of map_units from the cursor round to it again, given order count-1, count-2 and so on down to 0** - so the unit at the cursor is on top of its stack - with the province's units shown or hidden by the player's part in their battles, not read further. See reversing/findings/FINDINGS-mapstacks.md, section 3. The name is ours. See reversing/findings/FINDINGS-weathersim.md, sections C.3 and C.3.1.\n(reversing/findings/FINDINGS-weathersim.md)",
    "signature": {
     "convention": "__stdcall",
     "return": "void",
@@ -225561,6 +225723,29 @@
    "labels": []
   },
   {
+   "rva": 6732288,
+   "namespace": "",
+   "name": "ListSubdirectories",
+   "confidence": "CERTAIN",
+   "evidence": "ListFilesWithExtension's twin for folders: `out` (a vector of std::string) emptied and given room for 1024, PHYSFS_enumerateFiles(directory), and each name for which PHYSFS_isDirectory(`directory/name`) is pushed bare - a name with a byte >= 0x80 is logged `Invalid directoryname found: ` (virtualfilesystem.cpp:412) and left out. No extension, no replace_path test. Called by CVersion::ChecksumFolder.\n(reversing/findings/FINDINGS-checksum.md)",
+   "signature": {
+    "convention": "__cdecl",
+    "return": "void",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "directory",
+      "type": "char*"
+     },
+     {
+      "name": "out",
+      "type": "void*"
+     }
+    ]
+   },
+   "labels": []
+  },
+  {
    "rva": 6732976,
    "namespace": "",
    "name": "ListFilesWithExtension",
@@ -230211,6 +230396,29 @@
    "labels": []
   },
   {
+   "rva": 7027856,
+   "namespace": "",
+   "name": "MakeVersion",
+   "confidence": "TENTATIVE",
+   "evidence": "Builds a CVersion in `out`: token 0x18D at +4, the vftable, minValue, executable and data 0, the name copied to +0x14. Six callers (0x6543EA, 0x654629, 0x654874, 0x6966FD, 0xB3A19A, 0xB3B49A), none read. Likely a CVersion returned by value - the hidden return slot first - rather than a constructor, both arguments being on the stack; inferred from the shape.\n(reversing/findings/FINDINGS-checksum.md)",
+   "signature": {
+    "convention": "__stdcall",
+    "return": "CVersion*",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "out",
+      "type": "CVersion*"
+     },
+     {
+      "name": "name",
+      "type": "std::string*"
+     }
+    ]
+   },
+   "labels": []
+  },
+  {
    "rva": 7027968,
    "namespace": "",
    "name": "ChecksumFile",
@@ -230223,6 +230431,81 @@
     "params": [
      {
       "name": "path",
+      "type": "std::string*"
+     }
+    ]
+   },
+   "labels": []
+  },
+  {
+   "rva": 7028144,
+   "namespace": "",
+   "name": "ChecksumString",
+   "confidence": "CERTAIN",
+   "evidence": "CBinaryStream::Checksum's Fletcher sum over a std::string's bytes, **each byte signed** (`movsx`) and the comparisons signed, so a byte of 0x80 or more subtracts. Answers (a << 16) | b. Used by CreateChecksum on the version name, CVersion +0x14.\n(reversing/findings/FINDINGS-checksum.md)",
+   "signature": {
+    "convention": "__fastcall",
+    "return": "unsigned int",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "text",
+      "type": "std::string*",
+      "storage": "ECX"
+     }
+    ],
+    "returnStorage": "EAX"
+   },
+   "labels": []
+  },
+  {
+   "rva": 7028224,
+   "namespace": "CVersion",
+   "name": "ChecksumFolder",
+   "confidence": "CERTAIN",
+   "evidence": "**Adds every file of a folder to the version's `data`** (+0x10). ListFilesWithExtension(directory, extension) - the whole search path, each name once, the extension a byte compare of the tail, names with a byte >= 0x80 and directories left out, and in a folder a .mod's replace_path names only the files the mod's mounts hold; then each name but `.`, `..` and `.svn` is ChecksumFile'd as `directory/name` and added. Where `recurse`, ListSubdirectories(directory) and the same call on each subfolder but those three names. Order does not matter, the sum being a plain 32-bit add. Called 30-odd times by CreateChecksum, recursive only for history/provinces, cgm and battleplans.\n(reversing/findings/FINDINGS-checksum.md)",
+   "signature": {
+    "convention": "__thiscall",
+    "return": "void",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "this",
+      "type": "CVersion*"
+     },
+     {
+      "name": "directory",
+      "type": "char*"
+     },
+     {
+      "name": "extension",
+      "type": "char*"
+     },
+     {
+      "name": "recurse",
+      "type": "bool"
+     }
+    ]
+   },
+   "labels": []
+  },
+  {
+   "rva": 7029488,
+   "namespace": "",
+   "name": "CVersion_GetLabel",
+   "confidence": "CERTAIN",
+   "evidence": "**The text `HoI3 v4.02 (GSKH)`**: the name (+0x14), ` (`, four letters, `)`. The letters come from v = `executable` (+0xC) + `data` (+0x10): v, v >> 4, v >> 8 and v >> 12 (arithmetic shifts), each C's remainder by 26 made positive, plus 'A'. Logged by CreateChecksum; per FINDINGS-frontend.md the main menu's version_label and the lobby's checksum label carry the same text.\n(reversing/findings/FINDINGS-checksum.md)",
+   "signature": {
+    "convention": "__stdcall",
+    "return": "std::string*",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "version",
+      "type": "CVersion*"
+     },
+     {
+      "name": "out",
       "type": "std::string*"
      }
     ]
@@ -374029,6 +374312,79 @@
      "typed": true,
      "own": true,
      "comment": "slot 11, 009D06C0"
+    }
+   ]
+  },
+  {
+   "name": "CVersion_vftable",
+   "class": "CVersion",
+   "rva": 18671916,
+   "objectOffset": 0,
+   "slots": [
+    {
+     "slot": 0,
+     "rva": 2380800,
+     "name": "vf_0",
+     "named": false,
+     "typed": false,
+     "own": true,
+     "comment": "slot 0, 00645400"
+    },
+    {
+     "slot": 1,
+     "rva": 375568,
+     "name": "Save",
+     "named": true,
+     "typed": true,
+     "own": false,
+     "comment": "slot 1, 0045BB10"
+    },
+    {
+     "slot": 2,
+     "rva": 7030032,
+     "name": "SaveContents",
+     "named": true,
+     "typed": true,
+     "own": true,
+     "comment": "slot 2, 00AB4510"
+    },
+    {
+     "slot": 3,
+     "rva": 6799440,
+     "name": "Load",
+     "named": true,
+     "typed": true,
+     "own": false,
+     "comment": "slot 3, 00A7C050"
+    },
+    {
+     "slot": 4,
+     "rva": 7030240,
+     "name": "LoadKey",
+     "named": true,
+     "typed": true,
+     "own": true,
+     "comment": "slot 4, 00AB45E0"
+    },
+    {
+     "slot": 5,
+     "rva": 7075984,
+     "name": "AfterLoad",
+     "named": true,
+     "typed": false,
+     "own": false,
+     "comment": "slot 5, 00ABF890 - CPersistent's slot, named by BiceLib, typed from the findings",
+     "signature": {
+      "convention": "__thiscall",
+      "return": "void",
+      "hiddenReturn": false,
+      "params": [
+       {
+        "name": "this",
+        "type": "CPersistent*"
+       }
+      ]
+     }
     }
    ]
   },

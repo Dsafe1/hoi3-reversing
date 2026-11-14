@@ -1,0 +1,93 @@
+{
+ "agent": "main session, 2026-11-13",
+ "question": "How CEU3Application::CreateChecksum works out the figure it logs and shows as four letters, well enough to reproduce it outside the game.",
+ "source": "reversing/findings/FINDINGS-checksum.md",
+ "addresses": [
+  {
+   "rva": "0x232DA0",
+   "kind": "function",
+   "name": "CEU3Application::CreateChecksum",
+   "signature": "void __stdcall CEU3Application::CreateChecksum(CEU3Application* app)",
+   "no_signature": null,
+   "comment": "**The last thing startup does** - called once, at 0x632AB4, after `Idler Initialised <`. Extent 0x632DA0..0x634568, `ret 4`. Shows CREATING_CHKSUM, then sums into the application's CVersion at +0x20 (its `data`, app +0x30): **CVersion::ChecksumFolder** over common (.lua, .txt), common/countries, events, missions, units (.txt, then .lua), units/models, units/country (.lua), technologies, decisions, history/countries, diplomacy, provinces (recursive), wars, leaders and units - each base folder where the path registry's mode for it is not 1, its override folder where the mode is not 0 - then ChecksumFile on map/default.map, map/cache/time and map/cache/adjacencies.bin (or the map override's), then cgm (recursive) and battleplans (.txt and .pln, recursive); and last **ChecksumString of the version name** (app +0x34, `HoI3 v4.02`). Every term is a 32-bit add. Logs `Creating checksum for all files took ` (eu3application.cpp:759), `Checksum is ` + CVersion_GetLabel + the signed `data` (760) and `Testversion 4(settings)` (761). Reproduced to the figure for the base game (1499173604, GSKH) and BlackICE 15.1 (-410340735, ZAUD) by scripts/checksum.py. It does not cover interface, gfx, localisation, script, sound, map files other than the three, or common's subfolders other than countries. That the figure is compared in multiplayer is inferred from CVersion being a persistent block; the comparison was not read. In a real startup it costs 10.3 of the 33.8 seconds of app init.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-checksum.md",
+   "revises": "the file list was incomplete (events, missions, technologies, decisions, common/*.txt and the .lua folders were missing, and it said common/*.txt is not covered); now the whole order, where the sum goes, and the version name's term",
+   "evidence": "Decompiled on a copy of the project and every helper call's ECX read off the listing (`lea ecx,[esi+0x20]` / `add ecx,0x20` before each call 0xAB3E00; `add [x+0x30], eax` after each ChecksumFile). A Python model of exactly this gives the base game's logged 1499173604 over 11,824 files and BlackICE 15.1's -410340735 over 14,177. A missing or extra folder would change the figure."
+  },
+  {
+   "rva": "0x6B3E00",
+   "kind": "function",
+   "name": "CVersion::ChecksumFolder",
+   "signature": "void __thiscall CVersion::ChecksumFolder(CVersion* this, char* directory, char* extension, bool recurse)",
+   "no_signature": null,
+   "comment": "**Adds every file of a folder to the version's `data`** (+0x10). ListFilesWithExtension(directory, extension) - the whole search path, each name once, the extension a byte compare of the tail, names with a byte >= 0x80 and directories left out, and in a folder a .mod's replace_path names only the files the mod's mounts hold; then each name but `.`, `..` and `.svn` is ChecksumFile'd as `directory/name` and added. Where `recurse`, ListSubdirectories(directory) and the same call on each subfolder but those three names. Order does not matter, the sum being a plain 32-bit add. Called 30-odd times by CreateChecksum, recursive only for history/provinces, cgm and battleplans.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-checksum.md",
+   "evidence": "`ret 0xc` at 0xAB42B4 with ECX the CVersion (every caller passes app+0x20); the add at `*(this+0x10) += ChecksumFile(...)`; the three strcmps against VA 0x15B5C64 '.', 0x15B5C68 '..', 0x1600F10 '.svn'. The figures scripts/checksum.py reproduces depend on all of it."
+  },
+  {
+   "rva": "0x6B3DB0",
+   "kind": "function",
+   "name": "ChecksumString",
+   "signature": "unsigned int __fastcall ChecksumString(std::string* text@ECX) @EAX",
+   "no_signature": null,
+   "comment": "CBinaryStream::Checksum's Fletcher sum over a std::string's bytes, **each byte signed** (`movsx`) and the comparisons signed, so a byte of 0x80 or more subtracts. Answers (a << 16) | b. Used by CreateChecksum on the version name, CVersion +0x14.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-checksum.md",
+   "evidence": "Bare `ret` at 0xAB3DFF, ECX the string (size at +0x10, capacity at +0x14); `movsx ebx, byte ptr [ecx+edi]` at 0xAB3DD0 and `jle` on both sums. The version name's term is part of the reproduced figure."
+  },
+  {
+   "rva": "0x6B42F0",
+   "kind": "function",
+   "name": "CVersion_GetLabel",
+   "signature": "std::string* __stdcall CVersion_GetLabel(CVersion* version, std::string* out)",
+   "no_signature": null,
+   "comment": "**The text `HoI3 v4.02 (GSKH)`**: the name (+0x14), ` (`, four letters, `)`. The letters come from v = `executable` (+0xC) + `data` (+0x10): v, v >> 4, v >> 8 and v >> 12 (arithmetic shifts), each C's remainder by 26 made positive, plus 'A'. Logged by CreateChecksum; per FINDINGS-frontend.md the main menu's version_label and the lobby's checksum label carry the same text.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-checksum.md",
+   "evidence": "`ret 8` at 0xAB4505; CreateChecksum pushes the out string and then esi = app+0x20. The formula gives the logged letters for all five figures in the user folders (GSKH, ZAUD, ZHBH, FZSY, JWQX), `executable` being 0 in each."
+  },
+  {
+   "rva": "0x66BA00",
+   "kind": "function",
+   "name": "ListSubdirectories",
+   "signature": "void __cdecl ListSubdirectories(char* directory, void* out)",
+   "no_signature": null,
+   "comment": "ListFilesWithExtension's twin for folders: `out` (a vector of std::string) emptied and given room for 1024, PHYSFS_enumerateFiles(directory), and each name for which PHYSFS_isDirectory(`directory/name`) is pushed bare - a name with a byte >= 0x80 is logged `Invalid directoryname found: ` (virtualfilesystem.cpp:412) and left out. No extension, no replace_path test. Called by CVersion::ChecksumFolder.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-checksum.md",
+   "evidence": "Bare `ret` at 0xA6BBEF, both arguments read off the stack; the pushes guarded by PHYSFS_isDirectory != 0."
+  },
+  {
+   "rva": "0x6B3C90",
+   "kind": "function",
+   "name": "MakeVersion",
+   "signature": "CVersion* __stdcall MakeVersion(CVersion* out, std::string* name)",
+   "no_signature": null,
+   "comment": "Builds a CVersion in `out`: token 0x18D at +4, the vftable, minValue, executable and data 0, the name copied to +0x14. Six callers (0x6543EA, 0x654629, 0x654874, 0x6966FD, 0xB3A19A, 0xB3B49A), none read. Likely a CVersion returned by value - the hidden return slot first - rather than a constructor, both arguments being on the stack; inferred from the shape.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-checksum.md",
+   "evidence": "`ret 8` at 0xAB3CF7; the call at 0x6543E1/0x6543E0 pushes two pointers with no ECX set up. Would be wrong if a caller loaded ECX and used it as `this`."
+  }
+ ],
+ "structs": [
+  {
+   "name": "CVersion",
+   "inherits": "CPersistent",
+   "vftable_rva": "0x11CE92C",
+   "comment": "**The version and file checksum**, a persistent block with four keys (CVersion::LoadKey, CVersion::SaveContents): `executable` at +0xC, `data` at +0x10, `name` at +0x14 and `minValue` (a fixed-point, written only when above nought) at +0x8; token 0x18D. The application holds one at +0x20, made by CApplication's constructor with the version name, and CreateChecksum sums the game's files into its `data`. Not in a savegame. See reversing/findings/FINDINGS-checksum.md.",
+   "evidence": "RTTI names the table at VA 0x15CE92C CVersion (a CPersistent at offset 0); the base constructor at 0xA909FB writes it at app+0x20, and LoadKey's switch stores executable/data at +0xC/+0x10 and name at +0x14. Size not declared: no allocation of one was read."
+  }
+ ],
+ "struct_fields": [
+  {"struct": "CVersion", "offset": "0x8", "name": "minValue", "type": "int", "comment": "the `minValue` key, a fixed-point in thousandths; SaveContents writes it only when above nought. What it is the minimum of was not read.", "evidence": "LoadKey: ParseFixedPoint(parse, this+8); SaveContents: `if (0 < *(int*)(this+8)) SaveWriteFixed(minValue, ...)`."},
+  {"struct": "CVersion", "offset": "0xC", "name": "executable", "type": "int", "comment": "the `executable` key; nought in the application's own CVersion in every run logged, and added to `data` for the label's letters. Nothing that sets it was found in the startup path.", "evidence": "LoadKey sscanfs it into this+0xC; CApplication's constructor zeroes it; CVersion_GetLabel adds it to +0x10."},
+  {"struct": "CVersion", "offset": "0x10", "name": "data", "type": "int", "comment": "the `data` key: the file checksum CreateChecksum sums into, logged signed as `Checksum is ...    <data>`.", "evidence": "every CVersion::ChecksumFolder and ChecksumFile term in CreateChecksum lands at app+0x30 = this+0x10; LoadKey sscanfs `data` into this+0x10."},
+  {"struct": "CVersion", "offset": "0x14", "name": "name", "type": "Hoi3CString", "comment": "the `name` key: `HoI3 v4.02` in the application's, the label's first part.", "evidence": "CApplication's constructor assigns its fifth argument, the literal at VA 0x15CC4A0 'HoI3 v4.02', to app+0x34; LoadKey ParseStrings `name` into this+0x14."},
+  {"struct": "CEU3Application", "offset": "0x20", "name": "version", "type": "CVersion", "comment": "the application's CVersion, by value: its name the version name and its `data` the file checksum CreateChecksum makes. See reversing/findings/FINDINGS-checksum.md.", "evidence": "CApplication::CApplication (0xA909FB) writes CVersion's vftable at this+0x20 and the name at this+0x34; CreateChecksum passes app+0x20 as ECX to every CVersion::ChecksumFolder."}
+ ],
+ "vftable_slots": {},
+ "slots_noted": "",
+ "frontier": ["0x2543D8", "0x296F70", "0xB37C70", "0xB4A3D0"]
+}

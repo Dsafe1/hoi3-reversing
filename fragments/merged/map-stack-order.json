@@ -1,0 +1,123 @@
+{
+ "agent": "main session, 2026-11-14",
+ "question": "Which side of a battle a counter's stack is, and what decides which counter of a stack is on top.",
+ "source": "reversing/findings/FINDINGS-mapstacks.md",
+ "addresses": [
+  {
+   "rva": "0x1C5BA0",
+   "kind": "function",
+   "name": "CUnit::IsAttackerHere",
+   "signature": "bool __stdcall CUnit::IsAttackerHere(CUnit* unit) @AL",
+   "no_signature": null,
+   "comment": "**Whether a fighting unit is on a battle's attacking side**, for its counter's stack (2 where true, 3 where false) and its panel's red arrow or red star. False where the unit is in no battle (combats_count +0x11C <= 0). The battle asked is **the first on the list of the province the unit stands in (+0x130, its +0x2EC) whose kind (slot 11, +0x2C) fits the province - 2 at sea, 1 on land - or, where there is none, the unit's own first battle** (+0x114's first node); the answer is whether the unit's owner (+0x124) is on that battle's **attacker** (CCombat +0x10) list of countries still in the fight (+0x54), through CountryIdListContains. So an attacker standing in a province that is itself attacked answers false and stands with the defenders, and one attacking from a province with no battle answers by the battle it is in. See reversing/findings/FINDINGS-mapstacks.md, section 1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-mapstacks.md",
+   "revises": "the list is the attackers' (CCombat +0x10, +0x54) - read, no longer inferred from the arrow; and the fallback to the unit's own first battle where its province has none of its kind",
+   "evidence": "Listing 0x5C5BA0..0x5C5C5A: `mov eax,[edi+0x10]; lea eax,[eax+0x54]; lea ecx,[ebx+0x124]; call 0x4A8630` at 0x5C5C0F, reached from both walks; the fallback at 0x5C5BE9 and 0x5C5C47 loads `[[ebx+0x114]]+0x10`. Kind compared with 2 on the sea branch (is_land +0x22 clear) and 1 on the land one."
+  },
+  {
+   "rva": "0xA5A30",
+   "kind": "function",
+   "name": "CMapProvince::AddUnit",
+   "signature": "void __stdcall CMapProvince::AddUnit(CMapProvince* province, CUnit* unit, bool same)",
+   "no_signature": null,
+   "comment": "Enters a unit in a province's lists, for CUnit::EnterProvince. Unless it was already there (`same`): appended to the units list (+0x2B8), and **a fleet in a land province added to the province's CPort** (CPort::AddUnit) - or, with no port, the log line `Navalunit ... placed in non port ...` (province.cpp). Then, by MapUnit_IsShown, **pushed on map_units (+0x2C8) and the whole vector sorted** - MapUnits_Sort with MapUnitOrder_Before, the order's country the selection listener's slot 23 answer and its land flag the province's is_land - **or pushed on hidden_units (+0x2D8)**, unsorted. The name is ours. See reversing/findings/FINDINGS-seaair.md, section 6, and reversing/findings/FINDINGS-mapstacks.md, section 2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-mapstacks.md",
+   "revises": "what the sort is and by what; the second vector named; confidence inferred -> confirmed (decompiled)",
+   "evidence": "Decompiled on a copy: `if (MapUnit_IsShown()) { push_back(&unit, map_units); FUN_004a88e0(begin, end, count, *selection_listener->slot_0x5c(), is_land) } else push_back(&unit, +0x2D8)`."
+  },
+  {
+   "rva": "0xA57D0",
+   "kind": "function",
+   "name": "MapUnit_IsShown",
+   "signature": null,
+   "no_signature": "the unit arrives in EAX and the answer leaves in AL with nothing on the stack (bare ret); no ordinary convention places a lone EAX argument",
+   "comment": "**Whether a unit in a province goes on its map_units, the units with a counter**: false for an air unit at its own base (CUnit_IsAtOwnBase), a fleet in a land province, a land unit aboard a fleet (its slot 9 object +0x300) in a land province, and a land unit aboard an air unit (+0x304) that is at its own base; true otherwise. CMapProvince::AddUnit puts the false ones on hidden_units (+0x2D8). The name is ours. See reversing/findings/FINDINGS-mapstacks.md, section 2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-mapstacks.md",
+   "evidence": "Decompiled on a copy; the unit is in_EAX throughout and the rets at 0x4A57EC and 0x4A587F are bare. The four cases are the same as CProvinceTemplate_AddUnitCounter's no-counter cases."
+  },
+  {
+   "rva": "0xA58C0",
+   "kind": "function",
+   "name": "MapUnitOrder_Before",
+   "signature": "bool __stdcall MapUnitOrder_Before(void* order@stack:4, CUnit* left@stack:8, CUnit* right@EDI) @AL",
+   "no_signature": null,
+   "comment": "**The order of a province's map_units**: whether `left` goes before `right`. `order` is {?, country id at +4, the province's is_land at +8}. In turn: **the order's country's own units first** (owner_id +0x128); an air unit at its own base after everything but another such, and before it everything else; an air unit before a land unit carried by an air unit (slot 9 object +0x304), a land unit so carried after an air unit; **in a land province anything not naval before a fleet, at sea a fleet before anything not naval**; and then **the lower oob_level (+0x1F4) first** - 0 theatre to 4 division, 5 navy, 6 air - so the higher rank first. A strict comparison, so std::sort's insertion pass leaves two it does not part in the order they were. The name is ours. See reversing/findings/FINDINGS-mapstacks.md, section 2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-mapstacks.md",
+   "evidence": "`ret 8` at 0x4A58E6; the first lines compare `[edi+0x128]` and `[ebx+0x128]` with `[[ebp+8]+4]`; the last, `cmp [ebx+0x1F4]` against `[edi+0x1F4]`, is setl. MapUnits_InsertionSort passes the comparator's address and the new element and holds the other in EDI."
+  },
+  {
+   "rva": "0xA88E0",
+   "kind": "function",
+   "name": "MapUnits_Sort",
+   "signature": "void __cdecl MapUnits_Sort(CUnit** first, CUnit** last, int ideal, int order0, int orderCountry, int orderIsLand)",
+   "no_signature": null,
+   "comment": "std::sort of a province's map_units with MapUnitOrder_Before, the comparator's three words passed by value: the introsort loop - partition (0x4A8A20) while more than 32 remain and the ideal count lasts, heap sort (0x4A8D10, 0x4A8DF0) when it runs out - and MapUnits_InsertionSort for 32 or fewer. So a province of up to 32 units on the map keeps two equal units in the order they came. The name is ours. See reversing/findings/FINDINGS-mapstacks.md, section 2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-mapstacks.md",
+   "evidence": "Decompiled on a copy: the 0x21 threshold, `param_3/2 + param_3/4` and the two recursive calls are MSVC's _Sort. Bare `ret` at 0x4A89C2, cdecl."
+  },
+  {
+   "rva": "0xA8E50",
+   "kind": "function",
+   "name": "MapUnits_InsertionSort",
+   "signature": "void __cdecl MapUnits_InsertionSort(CUnit** first, CUnit** last, int order0, int orderCountry, int orderIsLand)",
+   "no_signature": null,
+   "comment": "std::sort's insertion pass for map_units: each element from the second on moved down past those MapUnitOrder_Before puts after it, so equal elements keep their order. The comparator is its by-value copy on this function's stack. The name is ours. See reversing/findings/FINDINGS-mapstacks.md, section 2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-mapstacks.md",
+   "evidence": "Decompiled on a copy: `FUN_004a58c0(&stack0x0000000c, element)` with memmove to the front where it answers true. Bare `ret` at 0x4A8F02."
+  },
+  {
+   "rva": "0x23EF30",
+   "kind": "function",
+   "name": "ProvinceGraphics_Update",
+   "signature": "void __stdcall ProvinceGraphics_Update(void* provinceGraphics, CGraphics* graphics, void* owner, bool far)",
+   "no_signature": null,
+   "comment": "**One province's pictures on the map, each frame** - called for every province graphics entry from 1, unconditionally, by MapGraphics_Update (0x85D842), which the graphics owner's update (0x641D00) runs from CInGameIdler_Render at 0x656F64, before that frame's MapGraphics_DrawScene (0x65704B) - so a picture's time is advanced and then drawn in the same frame. Read for the weather: it counts a frame at +0xA0 (which the entry's constructor starts from a running counter, so provinces' 15th frames are staggered); where the province's weather picture (+0x88) exists, **adds (float)fmod(g_PlatformClock slot 5, 1000.0) to the picture's time** (CBillboardObject::AddTime) - slot 5 being CHighPerfWinClock::GetSeconds, **the seconds since the clock was started at launch, never reset** - not a frame interval: each frame adds the whole clock reading modulo 1000, so the animation's speed is the frame rate x (seconds since launch mod 1000) units a second; then, **on every frame but each 15th** (+0xA0 % 15 != 0): with the template's `simulated` (+0x13D) set and the owner's +0x60F9 (the weather mode) set, ProvinceGraphics_UpdateWeatherPicture and the picture shown if hidden; otherwise the picture, if any, hidden and destroyed. On each 15th frame instead (and only for a province with an owner and a controller): the port, air base and supply depot pictures, the building pictures and the underground icon, and the counter reset. **The units first** (read 2026-11-14): every unit of hidden_units (+0x2D8) told through slot 36 (CUnit::UpdateAvatar) whether it is seen far, with order 0; then, in the near view and with map_unit_cursor (+0x2E8) inside map_units, **every unit of map_units from the cursor round to it again, given order count-1, count-2 and so on down to 0** - so the unit at the cursor is on top of its stack - with the province's units shown or hidden by the player's part in their battles, not read further. See reversing/findings/FINDINGS-mapstacks.md, section 3. The name is ours. See reversing/findings/FINDINGS-weathersim.md, sections C.3 and C.3.1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-weathersim.md",
+   "revises": "comment: the units part, which it said was not read, is read; nothing else changed",
+   "evidence": "Listing 0x63F0FA..0x63F18A (the hidden_units loop, slot 36 pushed 0, 0) and 0x63F18C..0x63F3FE (the map_units loop: index from [prov+0x2E8], wrapping to 0 at 0x63F3EA, stopping back at the start; the order pushed is a counter from the size, decremented before each call at 0x63F200)."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CMapProvince",
+   "offset": "0x2C8",
+   "name": "map_units",
+   "type": "CUnit**",
+   "comment": "Begin of the vector of the province's units that have a counter (end +0x2CC): those MapUnit_IsShown passes, **kept sorted by MapUnitOrder_Before** - the player's own first, then fleets after land on land and before it at sea, then the higher rank - re-sorted at each CMapProvince::AddUnit. ProvinceGraphics_Update gives each near counter its stack order from it, walking from map_unit_cursor; ProvinceGraphics_HitTest's cycle walks it too. See reversing/findings/FINDINGS-mapstacks.md, section 2.",
+   "revises": "comment: what fills it and in what order is read, no longer inferred",
+   "evidence": "CMapProvince::AddUnit decompiled: push_back on +0x2C8 then FUN_004a88e0 over it; CMapProvince::RemoveUnit erases from it."
+  },
+  {
+   "struct": "CMapProvince",
+   "offset": "0x2D8",
+   "name": "hidden_units",
+   "type": "CUnit**",
+   "comment": "Begin of the vector of the province's units with no counter (end +0x2DC): air units at their base, fleets in port, passengers in port or at an air base - those MapUnit_IsShown refuses. Unsorted. ProvinceGraphics_Update's first loop tells each one's avatar it is seen far or near, with order 0. See reversing/findings/FINDINGS-mapstacks.md, section 2.",
+   "evidence": "CMapProvince::AddUnit pushes there where 0x4A57D0 answers false; ProvinceGraphics_Update's loop at 0x63F0FA walks `[prov+0x2D8]..[prov+0x2DC]` calling slot 36 with 0, 0."
+  },
+  {
+   "struct": "CCounterObject",
+   "offset": "0x1A8",
+   "name": "order",
+   "type": "int",
+   "comment": "where it sorts in its stack, smallest first, so **the largest is on top**: set each frame in the near view by CUnit::UpdateAvatar's stackIndex, which ProvinceGraphics_Update gives as count-1 for the unit at the province's map_unit_cursor and one less for each after it round map_units - so the unit at the cursor is on top of its stack and those after it in the list come under it. With nothing selected the cursor is 0 and the first of map_units is on top. See reversing/findings/FINDINGS-mapstacks.md, section 3.",
+   "revises": "comment: what sets it is read",
+   "evidence": "CUnit::UpdateAvatar writes [ebp+0x10] to `[[unit+0x164]+0x140]+0x1A8` at 0x5CD06F; ProvinceGraphics_Update pushes `dec eax` of a counter starting at the vector's size (0x63F200) for an index starting at [prov+0x2E8] and wrapping at 0x63F3EA."
+  }
+ ],
+ "structs": [],
+ "vftable_slots": {},
+ "slots_noted": "",
+ "frontier": [
+  "0x4A8A20",
+  "0x4A8D10",
+  "0x4A8DF0"
+ ]
+}
