@@ -161,6 +161,45 @@ write through `[reg + 0x5C]`, the ceiling at `+0x30` raised after. So it is hook
 same way and priced with the same formula. The one difference is that the unit is not in
 a register - it comes off the frame at `[ebp + 8]`.
 
+### Read whole, 2026-11-14
+
+Read for OpenHOI3's attrition, decompiled on a copy and checked on the listing. **The "global" is `Define10`**, a fixed
+0.010, and each step truncates:
+
+    a    = GetProvinceAttrition(the unit's province, out, the brigade)
+    lost = ((a x 10 / 1000) x the brigade's maximum strength / 1000) x 1000 / 30000
+    GameStrategicWarfare_TallyAttrition(the brigade, lost)        where lost is not nought
+    strength = clamp(strength - lost, 0, maximum); the ceiling raised to it
+
+**`GetProvinceAttrition` (`0xA0990`) is asked per brigade**: the province and the out pointer on the stack (`ret 8`),
+**the brigade in EAX** - not the unit, as the record had it. In thousandths:
+
+    nought where the brigade's slot 9 (IsLand) says no
+    base     = the province's ATTRITION modifier (CModifierValues, modifier 7)
+    infra    = INFRASTRUCTURE x (1000 + LOCAL_INFRASTRUCTURE + GLOBAL_INFRASTRUCTURE) / 1000   (modifiers 12, 13, 14)
+               held between Define 10 (floor of 10.5) and 1000
+    weather  = CWeather::AttritionEffect(the province's weather, the brigade's owner)          (0xB3F30)
+               + the brigade's unit's CommandEffect(6, winter_attrition) where the province's temperature is below 0
+               floored at 0
+    sum      = base + (1000 - infra) + weather
+    terrain  = the brigade's definition's terrain adjuster for the province's terrain, its attrition (+0x14)
+               + the terrain's own attrition (CTerrain +0x5C);   added only where above 0
+    where the province's OWNER (+0x330) IsFriend(the brigade's owner, with military access):
+               sum = sum x 1000 / 10000 at the front (CProvince::IsFrontProvince(false)), else 0
+    answer   = (1000 + the owner's technology maximum_attrition (TechnologyStatus +0x88)) x sum / 1000, floored at 0
+
+**`CWeather::AttritionEffect`** is a chain, the first that holds: temperature at or above HIGHTEMPERATUREATTRITIONTHRESHOLD
+gives 1000, times (1000 - the owner's jungle_effects) / 1000 where the terrain's humidity is above 0; at or below
+LOWTEMPERATUREATTRITIONTHRESHOLD, 1000 - winter_effects; windspeed at or above WINDATTRITIONTHRESHOLD, 1000; else 0.
+
+**The unit panel's `unitattrition`** (`CUnitStatusEntry::Update`, `0x3593E3`) asks it of the unit's **first brigade**
+(the first node of its regiments list) and writes whole percent.
+
+**Consequences**, all of the reading: an army at home and away from the front takes nothing; at a front of its own or a
+friend's, a tenth; on an enemy's ground or a neutral's, the whole; a province's land_province attrition of 1 and a
+whole infrastructure give 1.000, which at a brigade of 3.0 is 0.001 a day; the infrastructure term grows as infrastructure
+falls, to 0.990 more at the floor.
+
 ## What an overloaded fleet does to its cargo
 
 `CheckTransportOverload` (`0x1CFBD0`), the last thing `CUnit::UpdateDaily` does and only
