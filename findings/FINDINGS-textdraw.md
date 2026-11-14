@@ -247,6 +247,15 @@ glyph's corners are then placed as slot 8 places them: `x + xoffset + 0.5`, `top
 xmm0,[0x160A350]` = -0.5, subtracted). There is no orientation in any of it: the box's orientation places the picture,
 not the text in it.
 
+**`h` is the descriptor's `lineHeight`** (read 2026-11-14, the `editline` agent). `+0x494` is written by
+`CEU3BitmapFont::LoadGlyphs` (`0xAF9FD0`), which reads the `.fnt` positionally: one token (`info`), nine key-value
+pairs (`face` to `padding`'s first number), six tokens (`padding`'s other three numbers and their commas), one pair
+(`spacing`'s first), three tokens (`,`, its second number, `common`) - and then `atoi` of the next pair's value into
+`+0x494` and of the one after into `+0x498`. That lands on `lineHeight` and `base` only if a comma is a token of its own,
+which is what the counts of six and three need; for `Arial12_bold` the two are 14 and 11. So the centring's text height
+is lines times `lineHeight` - 14 for `game_name`'s one line, and (32 - 14) / 2 = 9 as written above. *Not checked*: a
+descriptor whose `info` line carries another number of pairs, which would shift both.
+
 **The background is drawn into the same picture, under the text** - section 2.2.2.
 
 Base game and Their Finest Hour, layered: of 341 `textBoxType`s, 18 do not fit (16 in `metaserver.gui`, two in
@@ -287,6 +296,15 @@ That is exactly the edit box OpenHOI3 measured on the maintainer's screenshot of
 `GuiObject_editBoxType::PlaceAt` puts the border in; it shows 252 by 26, and the picture is 250 by 24 at 8, 6 - its rim,
 the picture having two clear all round, 246 by 20 at 10, 8, as measured. **So an edit box draws its line and its picture
 through the same `CTextSprite` and slot 6 as a `textBoxType`.**
+
+**An edit box with no `textureFile` has no picture behind its line** (read 2026-11-14). The display object is made from
+a template found by the element's name in the graphics' `+0xA0` hash, built where none is (`0xA6FFB0`); the one built
+(`TextSpriteTemplate_Construct`, `0xB266E0`, `__stdcall`, `ret 0x2C`) leaves its own texture name, `+0x74`, empty.
+`RenderText`, given an empty `textureFile`, takes the template's `+0x74` instead (`0xAB538A`), finds it empty too and
+makes no lookup in the texture table (the `sete` at `0xAB5486` gates the call of `0xA60F30`), so the background
+(`+0x1A0`) stays null - and slot 6 places the line at the border, not centred. The unit panel's `unitname` (235 by 24,
+border 8 by 4, `Arial12_bold`, no `textureFile`) is such a box; the save dialog's `game_name` names
+`small_tiles_dialog.dds` and is centred. No `.gfx` of the base game declares a sprite of either name.
 
 With the shown size of a box that does not fit (section 2.2.1) the tooltip's picture is its lines and the border round
 them, less two each way. Of the base game's four `textBoxType`s with a picture, two name `transparency.dds`, which is
@@ -389,13 +407,30 @@ table the other fonts fall back to was not read.
 - ~~**Button captions.**~~ The box `GuiButton_Construct` passes is read since 2026-11-14 (section 1): the button's `size`
   with no border on a button with no sprite, and on a sprite a `textBoxType`'s display object laid out in the sprite's
   picture.
-- **Where an edit box's line stands up and down.** Section 2.2.1's rule, which an edit box follows (section 2.2.2),
-  centres one line in a box that fits and has a picture: for `game_name` (32 high, a border of 6 down, `Arial12_bold`'s
-  line 14) that is the border plus (32 - 14) / 2 = 15 from the box's top. OpenHOI3's placing, measured on the unit
-  panel's name box and set beside the maintainer's screenshot of the save dialog "to within a pixel", draws the line's
-  top 12 or 13 down. The two disagree by about three pixels; either the centring's `+0x494` is not the line height the
-  descriptor gives, or the measurement was of something else. A screenshot of the save dialog with a known name,
-  measured, would settle it.
+- ~~**Where an edit box's line stands up and down.**~~ *Measured* 2026-11-14 on two screenshots of the original, both
+  1:1 crops of the maintainer's screen, each placed by its own art (`frontend_button4.dds`'s opaque edge and
+  `unitpanel_bg.dds`): **the save dialog's `game_name`** with "Ireland1939_09_07_17sdadad" typed - the capitals and
+  figures stand on rows 17 to 24 below the box's top, the `_` on row 26, `small_tiles_dialog`'s rim on rows 8 and 27 and
+  columns 10 on; the first letter's ink 17 in and every later one where its `xadvance` sum puts it, rim + 7 + pen; the
+  caret's bar (`textcursor.dds` rows 5 to 20) on rows 10 to 25, its stem 173 in, the border plus the line's 156 plus 3,
+  plus the sprite's six; and **the unit panel's `unitname`** with "5th Air wing" - the figures on rows 11 to 18 below
+  the box's top, the `5`'s ink 17 in. Against sections 2.2.1 and 2.2.2, where the arithmetic puts the line's top at the
+  border plus 9 (`game_name`) and at the border plus the border (`unitname`), and a glyph's ink `yoffset` below that and
+  one right of its pen (the `+ 0.5` on a glyph's x): **across, both are exactly the arithmetic, a unit right; up and
+  down, `unitname` is exactly the arithmetic, 4 + 4 + 3 = 11, and `game_name` is a unit higher than it, 6 + 9 + 3 = 18
+  against 17 - and its caret a unit higher than its border, 11 against 10.** The rim stands where the arithmetic puts it.
+  So it was neither of the two guesses: the centring's line height is the descriptor's (section 2.2.1, above), and the
+  old placing was off by two, not the reading by three. **What lifts the line and the caret by a unit only where a
+  picture is behind them was not found**: the projection is set before the background test (`0xAFB319`) and the glyph
+  arithmetic does not depend on it; the quad (`0xAB61F0`) shows the shown height 1:1 in both boxes - the rim keeps its
+  20 rows and the capitals their 8 - so no row is dropped above the text. Candidates not read: where the sprite renderer
+  stands a CTextSprite's quad (its corners run from b up to the shown height less d less 1, y up), and whether the
+  caret is placed off the display object rather than the box. Note also that the background's corners are set less 0.5
+  in a space whose y points up (section 2.2.2), which by Direct3D 9's integer pixel centres moves it a pixel *down* in
+  its texture while the glyphs' `+ 0.5` leaves them where they are - which would explain the unit if the whole quad
+  stood a unit up where there is a background, and nothing explains that yet. A `textBoxType` with no picture, drawn
+  through the same object, would on this evidence also stand at the arithmetic and not a unit up as an
+  `instantTextBoxType`'s text does (section 3); no screenshot of one has been measured.
 - Whether a text sprite's button frames or `buttonstate.fx` state still apply over the picture `0xAFDAC0` draws behind
   its caption.
 - ~~Whether a `textBoxType` clips its lines at maxHeight (section 2.2).~~ It shows only its `maxWidth - borderX` by

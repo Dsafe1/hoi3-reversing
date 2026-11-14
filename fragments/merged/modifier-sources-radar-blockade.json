@@ -1,0 +1,93 @@
+{
+ "agent": "modsources",
+ "question": "What OpenHOI3's country and province modifier rebuilds lacked of the original's: the subject's align_towards step, the laws' order, the blockaded port and how it is worked out, and the radar list step 13 keeps.",
+ "source": "reversing/findings/FINDINGS-modifiersources.md",
+ "addresses": [
+  {
+   "rva": "0xDF479",
+   "kind": "instruction",
+   "name": "RebuildStaticModifiers_SubjectInfluence",
+   "signature": null,
+   "no_signature": null,
+   "comment": "**Step 19 of CCountry::RebuildStaticModifiers: a puppet's master's faction's influence modifier.** 0x4DF479..0x4DF57A. Skipped unless isSubject (+0xF34) is set; skipped where the country's own faction (+0xD8) is non-null and answers slot 7 (a real faction); the overlord is countries[+0xF3C] (the id half of Overlord +0xF38), skipped where its faction is null or not real. Then FindStaticModifierByName(overlord's faction) - which reads the faction's `influence` string (CFaction +0xBC, `align_towards_axis` in Their Finest Hour) - and the country's active_modifiers (+0x648) are walked: an entry whose modifier (+8) is that very pointer skips the step, which is how an influence or an alignment that put the static there already keeps it from counting twice. Otherwise its values are added id by id and it is pushed onto the contributor vector. **A null answer is not guarded**: `test ebx,ebx; je 0x4DF533` jumps past the list walk straight into the add loop, which reads [ebx+0x18] - a static_modifiers.txt with no modifier of the faction's influence name faults here.",
+   "confidence": "confirmed",
+   "evidence": "Read on the listing: cmp byte [esi+0xf34],0 at 0x4DF47C; [esi+0xd8] slot 7 (call [edx+0x1c]) at 0x4DF49D; overlord via [0x1a855a4]+0x16c indexed by [esi+0xf3c] at 0x4DF4C3; push faction, call 0x523560 at 0x4DF510; cmp [ecx+8],ebx over the +0x648 list at 0x4DF52A; the add at 0x4DF550..0x4DF575. FindStaticModifierByName pushes faction+0xBC at 0x5235BA. What would show it wrong: a second reader of the faction's influence string here, or a test of ebx before 0x4DF550 on the null path."
+  },
+  {
+   "rva": "0xDEA50",
+   "kind": "instruction",
+   "name": "RebuildStaticModifiers_AddControlledProvinceModifiers",
+   "signature": null,
+   "no_signature": null,
+   "comment": "**A country's modifier takes in the whole modifier of every province it controls.** In CCountry::RebuildStaticModifiers, the loop 0x4DEA50..0x4DEB98 walks ControlledProvinces (+0xD00) and, for each, adds the province's CProvinceModifier (+0xFC) into the country's one modifier id at a time - `values[id] += provinceValues[id]` over all ([0x1A86198] - [0x1A86194]) / 4 ids - and records the province modifier in the contributor vector. So anything a province's modifier holds reaches its controller's, once for each province, the country-wide kinds included; the local kinds come along too and are read by nothing at country level. **This is not how a strategic resource reaches a country**: that is step 9 of the rebuild, from the levels UpdateStrategicResources keeps. **The tail of the loop is dead**: for a country at war (+0xACC) it tests the province's blockaded byte (+0x36C, 0x4DEB60), that the country owns it (+0x330 against +0xCA8) and that its area (+0x2B4) is the acting capital's (CCountry::GetActingCapitalLocation, 0x4DEB7F) - and on success only calls GetActingCapitalLocation once more (0x4DEB8E) and discards the answer. A getter, so nothing follows from the test; a remnant.",
+   "confidence": "confirmed",
+   "evidence": "0x4DEB50..0x4DEB93 on the listing: both calls to 0x42F100 have their eax compared once (0x4DEB84) or not used at all (0x4DEB8E), and the loop continues at 0x4DEB93. 0x42F100 is CCountry::GetActingCapitalLocation, a getter with no side effect beyond lazily making the game state. What would show it wrong: a side effect in 0x42F100 that matters, or a read of a register set by the second call after 0x4DEB93.",
+   "revises": "the comment said what the at-war blockade test is for was not read; it does nothing"
+  },
+  {
+   "rva": "0xE1FC0",
+   "kind": "function",
+   "name": "UpdateBlockadeLevel",
+   "signature": "void __stdcall UpdateBlockadeLevel(CCountry* country)",
+   "no_signature": null,
+   "comment": "**Works out CCountry +0xBD4 (blockade), the share of a country's home ports that are cut off**, which the `blockade = N` trigger tests. One stack argument, `ret 4` at 0x4E216B. It zeroes +0xBD4, walks OwnedProvinces (+0xCF0) and counts each that is in the acting capital's area (+0x2B4 against GetActingCapitalLocation's +0x2B4) or on its continent (+0x368), has an owner (+0x330), a map port (+0x354) and a naval base (+0x300) whose built level (+0x20) is above 0. Of those it counts again the ones whose blockaded byte (+0x36C) is set or whose owner is not their controller (+0x338). +0xBD4 = FixedDivide(second x 1000, first x 1000), i.e. second x 1000 / first truncated, or 0 with no such port. Three callers: CCountry::UpdateMonthly at 0x4DCBAA, straight after UpdateMaxManpower; CInGameIdler::Enter at 0x65B2CB, after UpdateIC; and UpdateProvinceBlockaded at 0x4A6745, for the port's owner. Not saved. The name is ours.",
+   "confidence": "confirmed",
+   "evidence": "Read whole on the listing 2026-11-14: the area/continent tests at 0x4E208C..0x4E20B3, the port tests 0x4E20B5..0x4E20D0, the two counters [ebp-0x10]/[ebp-0x14], the 64-bit fixed-point divide 0x4E2109..0x4E2155. The byte +0x36C is now known as the blockaded flag from its one writer, UpdateProvinceBlockaded, which was read. What would show it wrong: another writer of +0xBD4.",
+   "revises": "confidence inferred -> confirmed: the +0x36C byte is read as the blockaded flag off its writer; the formula, the third caller and its place in Enter written out"
+  },
+  {
+   "rva": "0xDD250",
+   "kind": "function",
+   "name": "CCountry::AddRadarProvince",
+   "signature": "void __thiscall CCountry::AddRadarProvince(CCountry* this, int province)",
+   "no_signature": null,
+   "comment": "Appends the province id to the country's radar list (+0x1148, tail +0x114C, count +0x1150; a 0x10-byte node {id, prev, next, deleted}) unless it is there, then - present or not - pushes -1 onto CCurrentGameState +0xCF8 so the hour's end runs the whole intelligence rebuild. 0x4DD250 to the `ret 4` at 0x4DD36C. Two callers: Province_SetController with applyConsequences, for the new controller where the province's MODIFIER_RADAR_LEVEL is non-zero; and RebuildProvinceModifierValues_Radar, where the level last applied was below 1000 and the new one is above 0 - not 'when it crosses 1000'.",
+   "confidence": "confirmed",
+   "evidence": "The search loop 0x4DD280..0x4DD28C jumps to 0x4DD2D8 on a match, past the allocation, and 0x4DD2D8..0x4DD357 pushes -1 on both paths. findRefs --callers gives the two sites. What would show it wrong: a third caller.",
+   "revises": "the comment said it is called when radar_level_applied crosses 1000; the rule is old < 1000 and new > 0, and the -1 is pushed even when the province was already listed"
+  },
+  {
+   "rva": "0xDD370",
+   "kind": "function",
+   "name": "CCountry_RemoveRadarProvince",
+   "signature": "void __fastcall CCountry_RemoveRadarProvince(CCountry* country@ECX, int province@EDX)",
+   "no_signature": null,
+   "comment": "Takes the province id off the radar list (+0x1148): the first node whose id is EDX is found and handed to CList_RemoveNode (0x5D49D0, list in ESI, node on the stack), a null node where it is not there; then -1 is pushed onto the intelligence refresh list either way. 0x4DD370 to the bare `ret` at 0x4DD44A. Two callers: Province_SetController with applyConsequences, on the old controller, whatever the level (0x4A270E); and RebuildProvinceModifierValues_Radar, where the level last applied was above 0 and the new one is below 1000 (0x4A047A). So a province **is** taken off the list - OpenHOI3's intelligence spec had it never removed.",
+   "confidence": "confirmed",
+   "evidence": "Read whole: cmp [eax],edx at 0x4DD3A0, the node stored at [esp] and call 0x5D49D0 at 0x4DD3AD, the push of -1 at 0x4DD425..0x4DD436. findRefs --callers 0x4DD370 gives 0x4A047A and 0x4A270E. What would show it wrong: CList_RemoveNode doing nothing for a found node.",
+   "revises": "comment only: the search, both callers and the -1 pushed whether or not the province was listed"
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CCountry",
+   "offset": "0xBD4",
+   "name": "blockade",
+   "type": "int",
+   "comment": "Thousandths: the share of its home ports cut off - of the provinces it owns in its acting capital's area or on its continent with a port and a naval base built, those blockaded (CMapProvince +0x36C) or held by another than their owner, x 1000 / all of them. Written only by UpdateBlockadeLevel (rva 0xE1FC0), monthly, on entering a game and for a port's owner whenever UpdateProvinceBlockaded works the port out; read by CBlockadeTrigger::Evaluate (`blockade = N`, >=). Not saved.",
+   "evidence": "UpdateBlockadeLevel zeroes it at 0x4E20FF and stores the quotient at 0x4E2155; no other writer by a scan for the displacement 0xBD4 in CCountry's functions. What would show it wrong: a second writer.",
+   "revises": "comment only: its writer read and the name no longer resting on the trigger's class name"
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0x1148",
+   "name": "radar_provinces",
+   "type": "CList<int>",
+   "comment": "Head of the list of province ids where the country has radar (tail +0x114C, count +0x1150), 0x10-byte nodes {id, prev, next, deleted}. Touched only by the constructor, the function at 0x4CA740 (likely the destructor), CCountry_Reset (0x4D4B29), CCountry::AddRadarProvince (rva 0xDD250) and CCountry_RemoveRadarProvince (rva 0xDD370), whose callers are Province_SetController (with applyConsequences) and RebuildProvinceModifierValues_Radar; **read only by UpdateIntelFunctor_SerialBody (0x688AB0)**, the daily radar pass, which uses each listed province's current MODIFIER_RADAR_LEVEL. Not saved: a load starts it empty and CInGameIdler::Enter's province rebuilds fill it. Every change asks for the hourly intelligence refresh.",
+   "evidence": "A scan of the image for the displacements 0x1148/0x114C/0x1150 with a base register: CCountry::CCountry (0x4C9A9A), 0x4CA996 in the function at 0x4CA740 (likely the destructor: its one caller is 0x4CA677, in the function straight after the constructor), CCountry_Reset (0x4D4B04/0x4D4B29), Add (0x4DD26D/0x4DD2D2), Remove (0x4DD389/0x4DD391), UpdateIntelFunctor_SerialBody (0x688AB0); the other hits are CInGameIdler's own +0x1148 and stack slots. What would show it wrong: a reader through a computed pointer the scan cannot see.",
+   "revises": "comment only: who writes and who reads it, and that it is not saved"
+  },
+  {
+   "struct": "CProvince",
+   "offset": "0x378",
+   "name": "radar_level_applied",
+   "type": "int",
+   "comment": "The MODIFIER_RADAR_LEVEL (values +0x180) last told to the controller's radar list. RebuildProvinceModifierValues_Radar (0x4A03E6), for an owned province whose level is not this: old < 1000 and new > 0 -> CCountry::AddRadarProvince(controller); else old > 0 and new < 1000 -> CCountry_RemoveRadarProvince(controller); then this = new and -1 pushed onto the intelligence refresh list. Province_SetController with applyConsequences also sets it to the province's level after moving the radar from the old controller's list to the new one's. Not saved, so a loaded game starts it at 0. So it is not a crossing of 1000 either way: 0.5 -> 0.7 adds again, 1.5 -> 0.5 removes.",
+   "evidence": "0x4A0403..0x4A047F read on the listing; the store in Province_SetController's step 2b (FINDINGS-surrender.md D.2). What would show it wrong: a third writer.",
+   "source": "reversing/findings/FINDINGS-modifiersources.md",
+   "revises": "comment: it said 'a crossing of 1000 in either direction' and that what Add and Remove do was not read"
+  }
+ ],
+ "frontier": [],
+ "notes": "OpenHOI3's intelligence spec said a country's radar list is never taken from; CCountry_RemoveRadarProvince is reached from two places and removes. The country's +0x700 modifier: a second scan, of the displacement 0x718 (its values pointer), finds no CCountry function, which adds to FINDINGS-countrymodifier.md's scan of 0x700 that nothing fills it; not watched live (the Cheat Engine bridge was down)."
+}

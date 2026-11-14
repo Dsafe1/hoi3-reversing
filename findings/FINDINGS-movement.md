@@ -1041,6 +1041,37 @@ seconds** (g_PlatformClock slot 5) - when it was made, and where its pulse start
 | fleet, the sea joins (SeaConnected) | with a path, its own province: CCancelMovementCommand, none; append clear, out of battle, selected: the orders window (kind 0), none; else `navy_move`, then `COrder::IsTargetInRange` yes: CMoveCommand and the mark | `IsTargetInRange` no: the mark, no `error` |
 | fleet, the sea does not join | - | unless (a coastal land province, the fleet carrying (CNavy +0x2EC), the first carried unit's slot 34 saying yes, append clear, out of battle) - which opens the orders window - the mark, and `error` for the player's |
 
+**The air branch, read whole on the listing** (2026-11-14 by the `airclick` agent, for OpenHOI3's right click with an air unit in a battle;
+`0x5C2336`..`0x5C2492`). After slot 17 (`IsAir`) answers yes:
+
+    if (combats.count (+0x11C) < 1 && is_selected (+4) == 1)
+        CInGameIdler::OpenOrdersView(1, idler, idler, unit, province)      # Shift plays no part
+    else
+        if (is_selected) CUnit_ShowOrderProjection(unit, province, "legal_selection_projection")
+        post CMoveCommand(unit, province id, clear = !append, safe 0, very safe 0)
+    play "air_move" unless it is already playing
+
+- **Nothing is tested.** No call of slot 35 (`CanMoveTo`, so not CAir's cloud gate either) and none of
+  `COrder::IsTargetInRange` lies in the branch; the move is never refused at the click and never gets the illegal mark.
+  Whether the unit may get there is the route's alone, when the command runs (`CMoveCommand::RouteUnit`, `CPathFind`
+  asking `MayStandIn` of the goal and `MayStep` of every step).
+- **`clear` is always set** for an air unit sent this way: the routine's first lines let go of `append` for a unit with
+  a battle (`mov [ebp+0xc], bl` at `0x5C1AFD`), and only a unit with a battle reaches the move from the player's click.
+- The command is posted as the land branch's is: the unit's in-game screen (`+0x160`), its slot 18, that object's
+  `+0x38`, slot 6.
+- **The sound comes after either arm**, the window's too: `GetSound`, `Sound_NameToId("air_move", 1)`, the sound's slot 25
+  (is it playing) and, only where that answered no, slot 9 (play).
+- When the command runs, `SetUnitPath` takes the unit out of its battles - every kind's slot 12 lets it go - and marks it
+  retreating where it was holding ground (`FINDINGS-landbattle.md`, section 7), and `RouteUnit` leaves it with no order.
+
+**Several air units selected** (the right release gives each selected thing slot 6 in turn, `FINDINGS-selection.md`
+section A): one in no battle after the first finds the window of mode 1 up and `OpenOrdersView` returns at once - the
+window keeps the first unit - while **one in a battle is still sent**, wherever it comes in the selection. The same holds
+for fleets in a battle among fleets clicked without Shift.
+
+`OpenOrdersView`'s same-mode test (`0x677283`..`0x677296`) asks the view's slot 1 and nothing about whether it is shown,
+and writes nothing into the view before it jumps to the epilogue at `0x677364`.
+
 ### 13.3 How long it stays: the draw's clock
 
 The draw (rva 0x44D9B0, below) takes the type, the anchor, the current view's camera, the object's local translation

@@ -261,8 +261,12 @@ So each unit is ordered separately and plays its own move sound inside OrderToPr
 **Several fleets, or several air units, without Shift.** The first unit's OrderToProvince opens the orders window for
 itself (`CInGameIdler::OpenOrdersView`). For each later unit the window is already of that mode, so `OpenOrdersView`
 returns at once (`0x677296` -> `0x677364`). **So a plain right click opens the window for the first selected unit only,
-and moves no one.** With Shift every fleet is sent straight there, and every air unit is moved (`FINDINGS-seaair.md`
-section 1).
+and moves no one** - but for a unit in a battle (below). With Shift every fleet is sent straight there; **an air unit is
+not** - its branch never reads the Shift key, and an air unit in no battle opens the air window, Shift or not
+(`FINDINGS-seaair.md` section 1, which has it right). *Corrected 2026-11-14 by the `airclick` agent, off the listing
+(`0x5C2347`..`0x5C2367`: the battle count and `is_selected`, then `OpenOrdersView(1)`, with no read of `[ebp+0xC]`; checked
+by the collecting session).* **Only an air unit in a battle is moved**, Shift or not, and it is moved wherever it comes
+in the selection - a later unit is not skipped because the window is up (`FINDINGS-movement.md`, section 13.2).
 
 A mixed selection cannot exist (A.3). A land selection with Ctrl opens the land orders window for the first unit in the
 same way.

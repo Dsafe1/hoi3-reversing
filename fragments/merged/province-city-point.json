@@ -1,0 +1,62 @@
+{
+ "agent": "delegated agent citypoint, a province's city point, 2026-11-14",
+ "question": "What reads CProvinceTemplate +0x4C/+0x50, positions.txt's `city` point: what is drawn there, at which zoom and on which provinces, what else reads it, and its default.",
+ "source": "reversing/findings/FINDINGS-citypoint.md",
+ "addresses": [
+  {
+   "rva": "0x23F790",
+   "kind": "function",
+   "name": "ProvinceGraphics_UpdatePictures",
+   "signature": "void __stdcall ProvinceGraphics_UpdatePictures(void* provinceGraphics, CMapProvince* province, void* owner, CCountryTag* viewer)",
+   "no_signature": null,
+   "comment": "**Keeps a province's pictures on the map up to date**: the `capital` marker, and for every building of the province from index 1 up a billboard `building_` + the building's name. `g` the province graphics, `t` its template (g +8).\n\n**The capital marker** (read whole 2026-11-14, VA 0x63F7B2..0x63F954): where t->simulated (+0x13D) is clear or t->pictures_stale (+0x20) is set, the marker picture (g +0x34), if any, is hidden (slot 14), destroyed out of the owner's group +0x1358 and g +0x34 zeroed. Then where t->simulated and g +0x34 is 0: a billboard of the type named `capital` (mapitems.gfx) is made, added to the owner's group +0x1358, Translated (slot 33) by **((double)city_x (+0x4C) - (float)label_x (+0x5C), 0, (double)city_y (+0x50) - (float)label_y (+0x60))**, each half narrowed to float, and hung on the province's anchor through ProvinceGraphics_PlacePicture with raise - **so it stands at the city point, (city_x, 1.0, city_y)**. Then, where it exists: **shown (slot 13) where the province is CCountry::GetActingCapitalLocation of its owner's country (CMapProvince +0x330), hidden (slot 14) otherwise**, each only where its shown state (slot 15) differs. The owner and not the controller; no test of what the viewer knows. So every simulated province carries one capital picture, shown on its owner's acting capital alone. The hit test of a province's pictures (0x240F40) never reads g +0x34, so a click on the marker goes through.\n\n**The buildings**: where t->simulated is clear or t->pictures_stale is set, every building picture (g +0x40, by building index) is destroyed; then for each building from index 1: made where t->simulated is set, the building's level (+0x20) is above the fixed point at 0x1A870F4, the building type's +0x94 (onmap) is set and either the viewer knows the province (its intel byte is not 0) or the type's +0x95 (visibility) is set, and destroyed otherwise. It stands at the building's position (CProvinceTemplate +0x258[index]) less the label point, raised by the building's nudge (+0x268[index]); a type with +0xDD (port) whose position is more than the constant at 0x15BED10 east of the naval base position sets +0x14A on the picture. The name is ours. See reversing/findings/FINDINGS-seaair.md, section 6, and reversing/findings/FINDINGS-citypoint.md, section 3.",
+   "confidence": "confirmed",
+   "revises": "Comment and confidence: the capital marker, only named before, is now read - made on every simulated province at the city point (+0x4C/+0x50) less the label point, and shown on the owner's acting capital alone - and the destroy-all on a clear +0x13D or a set template +0x20 is added for both kinds of picture. inferred -> confirmed, the function now read whole on the decompilation and the capital half on the listing.",
+   "evidence": "Decompiled with DecompileAt.java on a copy of Hoi3_v12.1.2; the listing VA 0x63F7B2..0x63F954 decoded with scripts/disasm.py: movss xmm2,[eax+0x4c] / movss xmm3,[eax+0x50] at 0x63F814/19 beside movd [eax+0x5c]/[eax+0x60], cvtdq2ps, subsd, cvtpd2ps into [ebp-0x34]/[ebp-0x2c] with 0 at [ebp-0x30]; push 'capital' (VA 0x15CD5D4) at 0x63F84F; the slot-0x84 call on [ebp-0x34]; GetActingCapitalLocation of the owner compared with the province. The ret 0x10 matches four stack parameters. Would be wrong if [g+8] were not the template - it is the object whose +0x13D (simulated), +0x5C/+0x60 (label), +0x258 (building positions) and +0x7C (province id) the same function reads, all template fields."
+  },
+  {
+   "rva": "0x23EF30",
+   "kind": "function",
+   "name": "ProvinceGraphics_Update",
+   "signature": "void __stdcall ProvinceGraphics_Update(void* provinceGraphics, CGraphics* graphics, void* owner, bool far)",
+   "no_signature": null,
+   "comment": "**One province's pictures on the map, each frame** - called for every province graphics entry from 1, unconditionally, by MapGraphics_Update (0x85D842), which the graphics owner's update (0x641D00) runs from CInGameIdler_Render at 0x656F64, before that frame's MapGraphics_DrawScene (0x65704B) - so a picture's time is advanced and then drawn in the same frame. Read for the weather: it counts a frame at +0xA0 (which the entry's constructor starts from a running counter, so provinces' 15th frames are staggered); where the province's weather picture (+0x88) exists, **adds (float)fmod(g_PlatformClock slot 5, 1000.0) to the picture's time** (CBillboardObject::AddTime) - slot 5 being CHighPerfWinClock::GetSeconds, **the seconds since the clock was started at launch, never reset** - not a frame interval: each frame adds the whole clock reading modulo 1000, so the animation's speed is the frame rate x (seconds since launch mod 1000) units a second; then, **on every frame but each 15th** (+0xA0 % 15 != 0): with the template's `simulated` (+0x13D) set and the owner's +0x60F9 (the weather mode) set, ProvinceGraphics_UpdateWeatherPicture and the picture shown if hidden; otherwise the picture, if any, hidden and destroyed. On each 15th frame instead (and only for a province with an owner and a controller): the port, air base and supply depot pictures, the building pictures and the underground icon, and the counter reset. **The units first** (read 2026-11-14): every unit of hidden_units (+0x2D8) told through slot 36 (CUnit::UpdateAvatar) whether it is seen far, with order 0; then, in the near view and with map_unit_cursor (+0x2E8) inside map_units, **every unit of map_units from the cursor round to it again, given order count-1, count-2 and so on down to 0** - so the unit at the cursor is on top of its stack - with the province's units shown or hidden by the player's part in their battles, not read further. See reversing/findings/FINDINGS-mapstacks.md, section 3.\n\n**The picture pass, read 2026-11-14** (VA 0x63F50E..0x63F5D0): the byte at [ebp+0xB] is the template's simulated flag (+0x13D, stored at VA 0x63EF62), not the fourth argument. Where the province has a controller (CMapProvince +0x338) and an owner (+0x330) and is simulated, on each 15th frame of +0xA0 it calls UpdatePortPicture, UpdateAirBasePicture, 0x23FD30, ProvinceGraphics_UpdatePictures (which makes and shows or hides the `capital` marker) and 0x240450, and zeroes +0xA0; **then, on every such frame whether the pass ran or not, it clears the template's +0x20 (pictures_stale)** at VA 0x63F590. Where it has no controller or no owner or is not simulated, it hides and destroys the capital picture (+0x34) and the pictures at +0x98, +0x90 and on. The name is ours. See reversing/findings/FINDINGS-weathersim.md, sections C.3 and C.3.1, and reversing/findings/FINDINGS-citypoint.md, section 3.",
+   "confidence": "confirmed",
+   "revises": "Comment only: adds the picture pass's gate - the [ebp+0xB] byte is the simulated flag, not the bool argument - the clearing of the template's +0x20 on every frame after the 15-frame test, and the destroying of the capital picture where the province has no owner or controller.",
+   "evidence": "scripts/disasm.py: VA 0x63EF54..0x63EF62 mov ecx,[ebx+8]; mov cl,[ecx+0x13d]; mov [ebp+0xb],cl. 0x63F511 cmp [ecx+0x338],0; 0x63F51E cmp [ecx+0x330],0; 0x63F52B cmp byte [ebp+0xb],0, each je 0x63F5A7. 0x63F531..0x63F541 +0xA0 idiv 15, jne 0x63F587. 0x63F56E call 0x63F790. 0x63F57D mov [ebx+0xa0],0. 0x63F587..0x63F590 mov eax,[ebx+0xc]; mov ecx,[eax+0xd4]; mov byte [ecx+0x20],0. 0x63F5A7..0x63F5C9 hides (slot 14) and destroys [ebx+0x34] out of owner+0x1358. Would be wrong if the jne at 0x63F541 landed after the clear: it lands on 0x63F587, the first instruction of the clear."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CProvinceTemplate",
+   "offset": "0x4C",
+   "name": "city_x",
+   "type": "float",
+   "comment": "positions.txt's `city` x, as a float, written at 0x490070 (save token 0x2A2). Where the province declares no `city` it holds the bounding-box centre as a float (CMap::ComputeProvinceGeometry, from label_x, with none of the 2.0 the name's point has): Paris, which has no `city` key, reads 2786.0 against its centre_x of 2786. **Its one reader in a game is ProvinceGraphics_UpdatePictures**, which stands the `capital` marker there, shown on the owner's acting capital; the others are CProvinceTemplate::Save and the hidden map editor's nudge (VA 0x69F362, x += 0.1). Their Finest Hour gives one province a `city`, Lisbon (2541.856, 1475.007, its centre being 2541, 1478); the base game London; BlackICE none. See reversing/findings/FINDINGS-citypoint.md.",
+   "source": "reversing/findings/FINDINGS-citypoint.md",
+   "revises": "Comment only: adds the reader (the capital marker), the editor's nudge and the files' one city each. Name and type unchanged.",
+   "evidence": "Three scans of .text for reads of [reg+0x4C] (section 2 of the findings): with +0x50 within 14 instructions, 90 hits of which the template's are Save (VA 0x4AA32B, 0x4AA877, the positive control) and UpdatePictures (VA 0x63F814); with template markers in the same int3 piece, those two and the editor's VA 0x69F310; getters (lea [ecx+0x44]/[ecx+0x4C]; ret, movq/movsd [reg+0x4C]) none on the template. Would be wrong if a reader took the x half alone or reached +0x44 through another kind of call - not searched exhaustively."
+  },
+  {
+   "struct": "CProvinceTemplate",
+   "offset": "0x50",
+   "name": "city_y",
+   "type": "float",
+   "comment": "The y beside +0x4C, written at 0x49007B. Province 14000 reads 1214.0 / 984.0 for the pair, which is its bounding-box centre, not its `unit` position - so this pair keeps the centre where +0x64/+0x68 has moved. Read with +0x4C by ProvinceGraphics_UpdatePictures for the `capital` marker's place. See reversing/findings/FINDINGS-citypoint.md.",
+   "source": "reversing/findings/FINDINGS-citypoint.md",
+   "revises": "Comment only: adds the reader. Name and type unchanged.",
+   "evidence": "movss xmm3,[eax+0x50] at VA 0x63F819, subtracted from as a double by (float)label_y (+0x60) at 0x63F83F. As +0x4C for the negative."
+  },
+  {
+   "struct": "CProvinceTemplate",
+   "offset": "0x20",
+   "name": "pictures_stale",
+   "type": "uint8_t",
+   "comment": "**Set where a province's map pictures are to be made again.** Zeroed by the constructor (the word store at VA 0x4A92F4, with +0x21); set to 1 wherever an underground is built, dissolved or lost - CBuildingConstruction::Deliver, CBuildingDeployment::DeployAt, CCgmSetUndergroundCommand::Execute, RunDailyUndergroundPass, Province_SetController; cleared by ProvinceGraphics_Update at VA 0x63F590 on every frame after its 15-frame test, whether the picture pass ran or not. ProvinceGraphics_UpdatePictures destroys the capital marker and every building picture where it is set, and makes them again where they apply. *Inferred*: being cleared on every frame and acted on only on the 15th, a flag set on another frame never forces the remake. The name is ours. See reversing/findings/FINDINGS-citypoint.md, section 3.",
+   "source": "reversing/findings/FINDINGS-citypoint.md",
+   "evidence": "The constructor's `mov word [edi+0x20],bx` at VA 0x4A92F4; the five setters already recorded in those functions' comments as 'the template's byte +0x20 = 1'; the reads at VA 0x63F7C4 and the second test in the decompilation (cmp byte [eax+0x20],0 gating the destroys) and the clear at 0x63F590 through CMapProvince +0xD4. Would be wrong if +0x20 were read elsewhere with another meaning - no scan for other readers was made."
+  }
+ ],
+ "frontier": ["0x29F310 the map editor's nudge-east handler (city, unit, text_position, building position by the type at +0x9C0) - not named", "0x23FD30 and 0x240450, the 15-frame pass's two other calls"],
+ "slots_noted": "Neither function is in a virtual table (ProvinceGraphics_UpdatePictures has two direct callers, ProvinceGraphics_Update at VA 0x63F56E and CProvinceManager_CreateWorld at VA 0x8558BC; ProvinceGraphics_Update one, MapGraphics_Update at VA 0x85D842)."
+}

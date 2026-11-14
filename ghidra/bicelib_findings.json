@@ -24085,7 +24085,7 @@
      "offset": 3028,
      "name": "blockade",
      "type": "int",
-     "comment": "Thousandths. **Likely** the blockade level the `blockade = N` keyword tests, and likely only because the single reader found is `CBlockadeTrigger::Evaluate` (0x5D4100), whose class name is the whole of the evidence for the name. It sits immediately after `manpower` and `max_manpower`. (reversing/findings/FINDINGS-numtriggers.md)"
+     "comment": "Thousandths: the share of its home ports cut off - of the provinces it owns in its acting capital's area or on its continent with a port and a naval base built, those blockaded (CMapProvince +0x36C) or held by another than their owner, x 1000 / all of them. Written only by UpdateBlockadeLevel (rva 0xE1FC0), monthly, on entering a game and for a port's owner whenever UpdateProvinceBlockaded works the port out; read by CBlockadeTrigger::Evaluate (`blockade = N`, >=). Not saved. (reversing/findings/FINDINGS-modifiersources.md)"
     },
     {
      "offset": 3036,
@@ -24373,7 +24373,7 @@
      "offset": 4424,
      "name": "radar_provinces",
      "type": "CList<int>",
-     "comment": "Head of the list of province ids where the country has radar (tail +0x114C, count +0x1150), 0x10-byte nodes {id, prev, next, deleted}. Kept by CCountry::AddRadarProvince (rva 0xDD250) and CCountry_RemoveRadarProvince (rva 0xDD370), both gated on MODIFIER_RADAR_LEVEL; every change asks for the hourly intelligence refresh. (reversing/findings/FINDINGS-surrender.md)"
+     "comment": "Head of the list of province ids where the country has radar (tail +0x114C, count +0x1150), 0x10-byte nodes {id, prev, next, deleted}. Touched only by the constructor, the function at 0x4CA740 (likely the destructor), CCountry_Reset (0x4D4B29), CCountry::AddRadarProvince (rva 0xDD250) and CCountry_RemoveRadarProvince (rva 0xDD370), whose callers are Province_SetController (with applyConsequences) and RebuildProvinceModifierValues_Radar; **read only by UpdateIntelFunctor_SerialBody (0x688AB0)**, the daily radar pass, which uses each listed province's current MODIFIER_RADAR_LEVEL. Not saved: a load starts it empty and CInGameIdler::Enter's province rebuilds fill it. Every change asks for the hourly intelligence refresh. (reversing/findings/FINDINGS-modifiersources.md)"
     },
     {
      "offset": 4440,
@@ -29828,6 +29828,18 @@
      "name": "glyphs",
      "type": "CEU3BitmapFontGlyph*[256]",
      "comment": "one pointer per character code, null where the font has no such glyph. Indexed by the raw byte in GetStringWidth, so 256 entries exactly - and 0x94 + 256 * 4 is 0x494, which is the next field LoadGlyphs writes (0x6FA26D), so the length is measured rather than assumed (reversing/findings/FINDINGS-text.md)"
+    },
+    {
+     "offset": 1172,
+     "name": "line_height",
+     "type": "int",
+     "comment": "The .fnt's `common` line's lineHeight, taken positionally by LoadGlyphs (0x6FA26D): after the `info` line's nine key-value pairs, the six tokens of `padding`'s commas and the three after `spacing`, the next pair's value. What slot 6 (DrawTextToTexture) steps lines by, sizes a picture that does not fit by and centres a fitting box's lines by - (H - lines * line_height) / 2. 14 for Arial12_bold. (reversing/findings/FINDINGS-textdraw.md)"
+    },
+    {
+     "offset": 1176,
+     "name": "base",
+     "type": "int",
+     "comment": "The .fnt's `common` line's base, taken positionally by LoadGlyphs right after line_height (+0x494). Who reads it was not followed; slot 6 pushes it beside its icon draws (0xAFB810, 0xAFB8DD). (reversing/findings/FINDINGS-textdraw.md)"
     }
    ]
   },
@@ -50423,7 +50435,7 @@
      "offset": 888,
      "name": "radar_level_applied",
      "type": "int",
-     "comment": "The last value of provinceValues[MODIFIER_RADAR_LEVEL] (modifier id 0x30, so +0x180 in the 8-byte-per-entry values array) that RebuildProvinceModifierValues acted on. At 0x4A03EB..0x4A047F it compares the new value against this one and, on a crossing of 1000 (1.0) in either direction, calls 0x4DD250 or 0x4DD370 on the controller country with province->id (+0xD0), then stores the new value here. Nothing else in the image reads it. The name is from the modifier id, which is certain; what 0x4DD250 and 0x4DD370 do was not read. (reversing/findings/FINDINGS-revolt.md, section 3)"
+     "comment": "The MODIFIER_RADAR_LEVEL (values +0x180) last told to the controller's radar list. RebuildProvinceModifierValues_Radar (0x4A03E6), for an owned province whose level is not this: old < 1000 and new > 0 -> CCountry::AddRadarProvince(controller); else old > 0 and new < 1000 -> CCountry_RemoveRadarProvince(controller); then this = new and -1 pushed onto the intelligence refresh list. Province_SetController with applyConsequences also sets it to the province's level after moving the radar from the old controller's list to the new one's. Not saved, so a loaded game starts it at 0. So it is not a crossing of 1000 either way: 0.5 -> 0.7 adds again, 1.5 -> 0.5 removes. (reversing/findings/FINDINGS-modifiersources.md)"
     },
     {
      "offset": 904,
@@ -50780,6 +50792,12 @@
      "comment": "Set to 1 on a province a row of adjacencies.csv names as what a crossing goes through. No reader was looked for. See reversing/findings/FINDINGS-movement.md. (reversing/findings/FINDINGS-movement.md)"
     },
     {
+     "offset": 32,
+     "name": "pictures_stale",
+     "type": "unsigned char",
+     "comment": "**Set where a province's map pictures are to be made again.** Zeroed by the constructor (the word store at VA 0x4A92F4, with +0x21); set to 1 wherever an underground is built, dissolved or lost - CBuildingConstruction::Deliver, CBuildingDeployment::DeployAt, CCgmSetUndergroundCommand::Execute, RunDailyUndergroundPass, Province_SetController; cleared by ProvinceGraphics_Update at VA 0x63F590 on every frame after its 15-frame test, whether the picture pass ran or not. ProvinceGraphics_UpdatePictures destroys the capital marker and every building picture where it is set, and makes them again where they apply. *Inferred*: being cleared on every frame and acted on only on the 15th, a flag set on another frame never forces the remake. The name is ours. See reversing/findings/FINDINGS-citypoint.md, section 3. (reversing/findings/FINDINGS-citypoint.md)"
+    },
+    {
      "offset": 33,
      "name": "unknown_21",
      "type": "unsigned char",
@@ -50855,13 +50873,13 @@
      "offset": 76,
      "name": "city_x",
      "type": "float",
-     "comment": "positions.txt's `city` x, as a float, written at 0x490070 (save token 0x2A2). Where the province declares no `city` it holds the bounding-box centre as a float: Paris, which has no `city` key, reads 2786.0 against its centre_x of 2786. (reversing/findings/FINDINGS-mapbuild.md)"
+     "comment": "positions.txt's `city` x, as a float, written at 0x490070 (save token 0x2A2). Where the province declares no `city` it holds the bounding-box centre as a float (CMap::ComputeProvinceGeometry, from label_x, with none of the 2.0 the name's point has): Paris, which has no `city` key, reads 2786.0 against its centre_x of 2786. **Its one reader in a game is ProvinceGraphics_UpdatePictures**, which stands the `capital` marker there, shown on the owner's acting capital; the others are CProvinceTemplate::Save and the hidden map editor's nudge (VA 0x69F362, x += 0.1). Their Finest Hour gives one province a `city`, Lisbon (2541.856, 1475.007, its centre being 2541, 1478); the base game London; BlackICE none. See reversing/findings/FINDINGS-citypoint.md. (reversing/findings/FINDINGS-citypoint.md)"
     },
     {
      "offset": 80,
      "name": "city_y",
      "type": "float",
-     "comment": "The y beside +0x4C, written at 0x49007B. Province 14000 reads 1214.0 / 984.0 for the pair, which is its bounding-box centre, not its `unit` position - so this pair keeps the centre where +0x64/+0x68 has moved. (reversing/findings/FINDINGS-mapbuild.md)"
+     "comment": "The y beside +0x4C, written at 0x49007B. Province 14000 reads 1214.0 / 984.0 for the pair, which is its bounding-box centre, not its `unit` position - so this pair keeps the centre where +0x64/+0x68 has moved. Read with +0x4C by ProvinceGraphics_UpdatePictures for the `capital` marker's place. See reversing/findings/FINDINGS-citypoint.md. (reversing/findings/FINDINGS-citypoint.md)"
     },
     {
      "offset": 84,
@@ -95911,7 +95929,7 @@
    "namespace": "CCountry",
    "name": "AddRadarProvince",
    "confidence": "CERTAIN",
-   "evidence": "Appends the province id to the country's radar list (+0x1148, tail +0x114C, count +0x1150) unless present, then pushes -1 onto CCurrentGameState +0xCF8 so the hourly intelligence refresh runs. 0x4DD250 to the `ret 4` at 0x4DD36C. Called where MODIFIER_RADAR_LEVEL is non-zero: Province_SetController for the new controller, and RebuildProvinceModifierValues when radar_level_applied crosses 1000.\n(reversing/findings/FINDINGS-surrender.md)",
+   "evidence": "Appends the province id to the country's radar list (+0x1148, tail +0x114C, count +0x1150; a 0x10-byte node {id, prev, next, deleted}) unless it is there, then - present or not - pushes -1 onto CCurrentGameState +0xCF8 so the hour's end runs the whole intelligence rebuild. 0x4DD250 to the `ret 4` at 0x4DD36C. Two callers: Province_SetController with applyConsequences, for the new controller where the province's MODIFIER_RADAR_LEVEL is non-zero; and RebuildProvinceModifierValues_Radar, where the level last applied was below 1000 and the new one is above 0 - not 'when it crosses 1000'.\n(reversing/findings/FINDINGS-modifiersources.md)",
    "signature": {
     "convention": "__thiscall",
     "return": "void",
@@ -95934,7 +95952,7 @@
    "namespace": "",
    "name": "CCountry_RemoveRadarProvince",
    "confidence": "CERTAIN",
-   "evidence": "Takes the province id off the radar list (+0x1148) through CList_RemoveNode and pushes -1 onto the intelligence refresh list. 0x4DD370 to the bare `ret` at 0x4DD44A. Province_SetController calls it on the old controller for every change made with applyConsequences.\n(reversing/findings/FINDINGS-surrender.md)",
+   "evidence": "Takes the province id off the radar list (+0x1148): the first node whose id is EDX is found and handed to CList_RemoveNode (0x5D49D0, list in ESI, node on the stack), a null node where it is not there; then -1 is pushed onto the intelligence refresh list either way. 0x4DD370 to the bare `ret` at 0x4DD44A. Two callers: Province_SetController with applyConsequences, on the old controller, whatever the level (0x4A270E); and RebuildProvinceModifierValues_Radar, where the level last applied was above 0 and the new one is below 1000 (0x4A047A). So a province **is** taken off the list - OpenHOI3's intelligence spec had it never removed.\n(reversing/findings/FINDINGS-modifiersources.md)",
    "signature": {
     "convention": "__fastcall",
     "return": "void",
@@ -97085,8 +97103,8 @@
    "rva": 925632,
    "namespace": "",
    "name": "UpdateBlockadeLevel",
-   "confidence": "TENTATIVE",
-   "evidence": "**Works out CCountry +0xBD4, the share of a country's home ports that are cut off.** One stack argument, `ret 4` at 0x4E216B. It walks OwnedProvinces (+0xCF0) and counts each that is in the acting capital's area (+0x2B4) or on its continent (+0x368), has an owner, a map port (+0x354) and a naval base (+0x300) whose level (+0x20) is above 0. Of those it counts again the ones whose byte at +0x36C is set or whose owner is not their controller. +0xBD4 = second count * 1000 / first, or 0 with no such port. **That +0x36C is a blockaded flag is inference** from this use and from CBlockadeTrigger reading the result. Three callers: CCountry::UpdateMonthly at 0x4DCBAA, straight after UpdateMaxManpower; CInGameIdler::Enter at 0x65B2CB; and 0x4A6745 in 0x4A65E0, unread. The name is ours.\n(reversing/findings/FINDINGS-manpowergain.md)",
+   "confidence": "CERTAIN",
+   "evidence": "**Works out CCountry +0xBD4 (blockade), the share of a country's home ports that are cut off**, which the `blockade = N` trigger tests. One stack argument, `ret 4` at 0x4E216B. It zeroes +0xBD4, walks OwnedProvinces (+0xCF0) and counts each that is in the acting capital's area (+0x2B4 against GetActingCapitalLocation's +0x2B4) or on its continent (+0x368), has an owner (+0x330), a map port (+0x354) and a naval base (+0x300) whose built level (+0x20) is above 0. Of those it counts again the ones whose blockaded byte (+0x36C) is set or whose owner is not their controller (+0x338). +0xBD4 = FixedDivide(second x 1000, first x 1000), i.e. second x 1000 / first truncated, or 0 with no such port. Three callers: CCountry::UpdateMonthly at 0x4DCBAA, straight after UpdateMaxManpower; CInGameIdler::Enter at 0x65B2CB, after UpdateIC; and UpdateProvinceBlockaded at 0x4A6745, for the port's owner. Not saved. The name is ours.\n(reversing/findings/FINDINGS-modifiersources.md)",
    "signature": {
     "convention": "__stdcall",
     "return": "void",
@@ -127220,7 +127238,7 @@
    "namespace": "CUnit",
    "name": "OrderToProvince",
    "confidence": "CERTAIN",
-   "evidence": "**CUnit slot 6: a right click on a province with this unit selected.** A unit in a battle is never appended to. Nothing happens for a unit with no brigades, a retreating one, or one with an AI agent on a unit above it. For a land unit outside the battle plan branch: the province it stands in, with `append` clear or no path, posts a CCancelMovementCommand; a province CUnit::CanMoveTo refuses gets the `illegal_selection_projection` mark and the `error` sound; otherwise `legal_selection_projection`, the sound `army_move`, and `CMoveCommand(unit, province id, !append, 0, 0)`. **Every mark is CUnit_ShowOrderProjection's and made only for a unit whose is_selected (+4) is set.** An air unit out of battle and selected opens the orders window (kind 1); otherwise it gets the legal mark and a CMoveCommand with nothing tested, then `air_move`. A fleet where the sea joins (SeaConnected): with a path, its own province, a cancel; append clear, out of battle and selected, the orders window (kind 0); else `navy_move`, and COrder::IsTargetInRange decides a CMoveCommand with the legal mark or the illegal mark alone. Where the sea does not join: the orders window for a coast its first carried unit may stand in (append clear, out of battle), else the illegal mark and `error`. See reversing/findings/FINDINGS-movement.md, sections 1 and 13.2. **The battle plan branch**, read 2026-11-09: for a land unit of the player's with an agent (a unit under an agent above it has returned already), selected and above a division: a plain click posts CTogglePlanObjectiveCommand(unit, province); an appending click calls slot 29 (CUnit::SetPlanAxisTo), **and where that answers false returns with no sound and no mark**. Either plays `army_move` and leaves the legal mark; a division (oob level 4 and up) in that branch gets the illegal mark and `error`. See reversing/findings/FINDINGS-frontline.md, section 7.\n(reversing/findings/FINDINGS-movement.md)",
+   "evidence": "**CUnit slot 6: a right click on a province with this unit selected.** A unit in a battle is never appended to. Nothing happens for a unit with no brigades, a retreating one, or one with an AI agent on a unit above it. For a land unit outside the battle plan branch: the province it stands in, with `append` clear or no path, posts a CCancelMovementCommand; a province CUnit::CanMoveTo refuses gets the `illegal_selection_projection` mark and the `error` sound; otherwise `legal_selection_projection`, the sound `army_move`, and `CMoveCommand(unit, province id, !append, 0, 0)`. **Every mark is CUnit_ShowOrderProjection's and made only for a unit whose is_selected (+4) is set.** **An air unit** (slot 17, read whole 2026-11-14): with no battle (+0x11C at most 0) and is_selected exactly 1, CInGameIdler::OpenOrdersView(1, ...) - whatever `append` says, Shift playing no part; otherwise the legal mark where selected and `CMoveCommand(unit, province id, clear = !append, safe 0, very safe 0)` - clear always set, `append` having been let go of in a battle - posted through the unit's in-game screen (+0x160, slot 18, then +0x38's slot 6) with **nothing tested**: neither slot 35 (CanMoveTo, CAir's cloud gate included) nor a range. Both arms then play `air_move` unless it is already playing (GetSound, Sound_NameToId, the sound's slot 25 and then slot 9). With several air units selected each gets this in turn: one in no battle after the first finds the window of mode 1 up and is left alone, one in a battle is still sent. A fleet where the sea joins (SeaConnected): with a path, its own province, a cancel; append clear, out of battle and selected, the orders window (kind 0); else `navy_move`, and COrder::IsTargetInRange decides a CMoveCommand with the legal mark or the illegal mark alone. Where the sea does not join: the orders window for a coast its first carried unit may stand in (append clear, out of battle), else the illegal mark and `error`. See reversing/findings/FINDINGS-movement.md, sections 1 and 13.2. **The battle plan branch**, read 2026-11-09: for a land unit of the player's with an agent (a unit under an agent above it has returned already), selected and above a division: a plain click posts CTogglePlanObjectiveCommand(unit, province); an appending click calls slot 29 (CUnit::SetPlanAxisTo), **and where that answers false returns with no sound and no mark**. Either plays `army_move` and leaves the legal mark; a division (oob level 4 and up) in that branch gets the illegal mark and `error`. See reversing/findings/FINDINGS-frontline.md, section 7.\n(reversing/findings/FINDINGS-movement.md)",
    "signature": {
     "convention": "__thiscall",
     "return": "void",
@@ -143591,7 +143609,7 @@
    "namespace": "",
    "name": "ProvinceGraphics_Update",
    "confidence": "CERTAIN",
-   "evidence": "**One province's pictures on the map, each frame** - called for every province graphics entry from 1, unconditionally, by MapGraphics_Update (0x85D842), which the graphics owner's update (0x641D00) runs from CInGameIdler_Render at 0x656F64, before that frame's MapGraphics_DrawScene (0x65704B) - so a picture's time is advanced and then drawn in the same frame. Read for the weather: it counts a frame at +0xA0 (which the entry's constructor starts from a running counter, so provinces' 15th frames are staggered); where the province's weather picture (+0x88) exists, **adds (float)fmod(g_PlatformClock slot 5, 1000.0) to the picture's time** (CBillboardObject::AddTime) - slot 5 being CHighPerfWinClock::GetSeconds, **the seconds since the clock was started at launch, never reset** - not a frame interval: each frame adds the whole clock reading modulo 1000, so the animation's speed is the frame rate x (seconds since launch mod 1000) units a second; then, **on every frame but each 15th** (+0xA0 % 15 != 0): with the template's `simulated` (+0x13D) set and the owner's +0x60F9 (the weather mode) set, ProvinceGraphics_UpdateWeatherPicture and the picture shown if hidden; otherwise the picture, if any, hidden and destroyed. On each 15th frame instead (and only for a province with an owner and a controller): the port, air base and supply depot pictures, the building pictures and the underground icon, and the counter reset. **The units first** (read 2026-11-14): every unit of hidden_units (+0x2D8) told through slot 36 (CUnit::UpdateAvatar) whether it is seen far, with order 0; then, in the near view and with map_unit_cursor (+0x2E8) inside map_units, **every unit of map_units from the cursor round to it again, given order count-1, count-2 and so on down to 0** - so the unit at the cursor is on top of its stack - with the province's units shown or hidden by the player's part in their battles, not read further. See reversing/findings/FINDINGS-mapstacks.md, section 3. The name is ours. See reversing/findings/FINDINGS-weathersim.md, sections C.3 and C.3.1.\n(reversing/findings/FINDINGS-weathersim.md)",
+   "evidence": "**One province's pictures on the map, each frame** - called for every province graphics entry from 1, unconditionally, by MapGraphics_Update (0x85D842), which the graphics owner's update (0x641D00) runs from CInGameIdler_Render at 0x656F64, before that frame's MapGraphics_DrawScene (0x65704B) - so a picture's time is advanced and then drawn in the same frame. Read for the weather: it counts a frame at +0xA0 (which the entry's constructor starts from a running counter, so provinces' 15th frames are staggered); where the province's weather picture (+0x88) exists, **adds (float)fmod(g_PlatformClock slot 5, 1000.0) to the picture's time** (CBillboardObject::AddTime) - slot 5 being CHighPerfWinClock::GetSeconds, **the seconds since the clock was started at launch, never reset** - not a frame interval: each frame adds the whole clock reading modulo 1000, so the animation's speed is the frame rate x (seconds since launch mod 1000) units a second; then, **on every frame but each 15th** (+0xA0 % 15 != 0): with the template's `simulated` (+0x13D) set and the owner's +0x60F9 (the weather mode) set, ProvinceGraphics_UpdateWeatherPicture and the picture shown if hidden; otherwise the picture, if any, hidden and destroyed. On each 15th frame instead (and only for a province with an owner and a controller): the port, air base and supply depot pictures, the building pictures and the underground icon, and the counter reset. **The units first** (read 2026-11-14): every unit of hidden_units (+0x2D8) told through slot 36 (CUnit::UpdateAvatar) whether it is seen far, with order 0; then, in the near view and with map_unit_cursor (+0x2E8) inside map_units, **every unit of map_units from the cursor round to it again, given order count-1, count-2 and so on down to 0** - so the unit at the cursor is on top of its stack - with the province's units shown or hidden by the player's part in their battles, not read further. See reversing/findings/FINDINGS-mapstacks.md, section 3.\n\n**The picture pass, read 2026-11-14** (VA 0x63F50E..0x63F5D0): the byte at [ebp+0xB] is the template's simulated flag (+0x13D, stored at VA 0x63EF62), not the fourth argument. Where the province has a controller (CMapProvince +0x338) and an owner (+0x330) and is simulated, on each 15th frame of +0xA0 it calls UpdatePortPicture, UpdateAirBasePicture, 0x23FD30, ProvinceGraphics_UpdatePictures (which makes and shows or hides the `capital` marker) and 0x240450, and zeroes +0xA0; **then, on every such frame whether the pass ran or not, it clears the template's +0x20 (pictures_stale)** at VA 0x63F590. Where it has no controller or no owner or is not simulated, it hides and destroys the capital picture (+0x34) and the pictures at +0x98, +0x90 and on. The name is ours. See reversing/findings/FINDINGS-weathersim.md, sections C.3 and C.3.1, and reversing/findings/FINDINGS-citypoint.md, section 3.\n(reversing/findings/FINDINGS-citypoint.md)",
    "signature": {
     "convention": "__stdcall",
     "return": "void",
@@ -143621,8 +143639,8 @@
    "rva": 2357136,
    "namespace": "",
    "name": "ProvinceGraphics_UpdatePictures",
-   "confidence": "TENTATIVE",
-   "evidence": "**Keeps a province's pictures on the map up to date**: the `capital` marker, and for every building of the province from index 1 up a billboard `building_` + the building's name - made where the template's +0x13D is set, the building's level (+0x20) is above the fixed point at 0x1A870F4, the building type's +0x94 (onmap) is set and either the viewer knows the province or the type's +0x95 (visibility) is set, and destroyed otherwise. It stands at the building's position (CProvinceTemplate +0x258[index]) less the label point, raised by the building's nudge (+0x268[index]); a type with +0xDD (port) whose position is more than the constant at 0x15BED10 east of the naval base position sets +0x14A on the picture. The pictures are kept at +0x40 of the province graphics by building index. The name is ours. See reversing/findings/FINDINGS-seaair.md, section 6.\n(reversing/findings/FINDINGS-seaair.md)",
+   "confidence": "CERTAIN",
+   "evidence": "**Keeps a province's pictures on the map up to date**: the `capital` marker, and for every building of the province from index 1 up a billboard `building_` + the building's name. `g` the province graphics, `t` its template (g +8).\n\n**The capital marker** (read whole 2026-11-14, VA 0x63F7B2..0x63F954): where t->simulated (+0x13D) is clear or t->pictures_stale (+0x20) is set, the marker picture (g +0x34), if any, is hidden (slot 14), destroyed out of the owner's group +0x1358 and g +0x34 zeroed. Then where t->simulated and g +0x34 is 0: a billboard of the type named `capital` (mapitems.gfx) is made, added to the owner's group +0x1358, Translated (slot 33) by **((double)city_x (+0x4C) - (float)label_x (+0x5C), 0, (double)city_y (+0x50) - (float)label_y (+0x60))**, each half narrowed to float, and hung on the province's anchor through ProvinceGraphics_PlacePicture with raise - **so it stands at the city point, (city_x, 1.0, city_y)**. Then, where it exists: **shown (slot 13) where the province is CCountry::GetActingCapitalLocation of its owner's country (CMapProvince +0x330), hidden (slot 14) otherwise**, each only where its shown state (slot 15) differs. The owner and not the controller; no test of what the viewer knows. So every simulated province carries one capital picture, shown on its owner's acting capital alone. The hit test of a province's pictures (0x240F40) never reads g +0x34, so a click on the marker goes through.\n\n**The buildings**: where t->simulated is clear or t->pictures_stale is set, every building picture (g +0x40, by building index) is destroyed; then for each building from index 1: made where t->simulated is set, the building's level (+0x20) is above the fixed point at 0x1A870F4, the building type's +0x94 (onmap) is set and either the viewer knows the province (its intel byte is not 0) or the type's +0x95 (visibility) is set, and destroyed otherwise. It stands at the building's position (CProvinceTemplate +0x258[index]) less the label point, raised by the building's nudge (+0x268[index]); a type with +0xDD (port) whose position is more than the constant at 0x15BED10 east of the naval base position sets +0x14A on the picture. The name is ours. See reversing/findings/FINDINGS-seaair.md, section 6, and reversing/findings/FINDINGS-citypoint.md, section 3.\n(reversing/findings/FINDINGS-citypoint.md)",
    "signature": {
     "convention": "__stdcall",
     "return": "void",
@@ -148582,7 +148600,7 @@
    "namespace": "CInGameIdler",
    "name": "OpenOrdersView",
    "confidence": "CERTAIN",
-   "evidence": "**Opens the window of orders a right click with a fleet or an air unit, or Ctrl and a right click with a land unit, brings up.** Nothing where the view at idler +0x160 is already of this mode (its slot 1); otherwise the old view is closed and a new one made: mode 0 a CNavalOrdersView (0x274 bytes), 1 a CAirOrdersView (0x37C), 2 a CLandOrdersView (0x198). CUnit::OrderToProvince calls it with 0 for a fleet clicked without shift, 1 for an air unit, 2 for a land unit with **Ctrl** held (the keyboard's slot 12, Keyboard_IsCtrlDown; FINDINGS-selection.md section A). Only an air window has the last one's settings restored (0x747300); a land window starts fresh each time. The name is ours. See reversing/findings/FINDINGS-seaair.md, section 1, and reversing/findings/FINDINGS-landorders.md, section A.\n(reversing/findings/FINDINGS-landorders.md)",
+   "evidence": "**Opens the window of orders a right click with a fleet or an air unit, or Ctrl and a right click with a land unit, brings up.** Nothing where the view at idler +0x160 is already of this mode (its slot 1) - asked whether or not the view is shown, and the view keeps the unit it was made for; otherwise the old view is closed and a new one made: mode 0 a CNavalOrdersView (0x274 bytes), 1 a CAirOrdersView (0x37C), 2 a CLandOrdersView (0x198). CUnit::OrderToProvince calls it with 0 for a fleet clicked without shift, 1 for an air unit in no battle whatever the shift key, 2 for a land unit with **Ctrl** held (the keyboard's slot 12, Keyboard_IsCtrlDown; FINDINGS-selection.md section A). Only an air window has the last one's settings restored (0x747300); a land window starts fresh each time. The name is ours. See reversing/findings/FINDINGS-seaair.md, section 1, and reversing/findings/FINDINGS-landorders.md, section A.\n(reversing/findings/FINDINGS-movement.md)",
    "signature": {
     "convention": "__stdcall",
     "return": "void",
@@ -237137,6 +237155,65 @@
    "labels": []
   },
   {
+   "rva": 7497440,
+   "namespace": "",
+   "name": "TextSpriteTemplate_Construct",
+   "confidence": "CERTAIN",
+   "evidence": "**Makes the 0x144-byte template the graphics builds where no template of an element's name is found** (the graphics' make-display-object, 0x66FFB0: StringHashFind in its +0xA0, and where it fails operator new(0x144), this, StringHashInsert). Writes the vftable 0x1206708 (VA 0x1606708), +0x04 = 0x18D, and empty strings at +0x08 (then assigned the name passed), +0x58, **+0x74 - the template's own texture name, left empty** - +0xAC and +0x128; +0x90 = -1, +0x94 = 1 (the frame count CTextSprite::RenderText reads at +0x94), +0x98, +0xA4 and +0xA8 from the last three arguments, +0xA0 a global (0x171DBAC), +0x120 a short 1. So **an edit box or textBoxType whose name no .gfx declares and whose textureFile is empty has no picture behind its text**: RenderText takes an empty textureFile as the template's +0x74, finds that empty too and makes no texture lookup, leaving the background (+0x1A0) null - which is the unit panel's `unitname`. __stdcall, `ret 0x2C`: the object, the name as a std::string by value (seven dwords, freed on the way out where its capacity is over 15), three dwords. The name is ours; the class has no RTTI.\n(reversing/findings/FINDINGS-textdraw.md)",
+   "signature": {
+    "convention": "__stdcall",
+    "return": "void*",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "object",
+      "type": "void*"
+     },
+     {
+      "name": "name0",
+      "type": "int"
+     },
+     {
+      "name": "name1",
+      "type": "int"
+     },
+     {
+      "name": "name2",
+      "type": "int"
+     },
+     {
+      "name": "name3",
+      "type": "int"
+     },
+     {
+      "name": "name4",
+      "type": "int"
+     },
+     {
+      "name": "name5",
+      "type": "int"
+     },
+     {
+      "name": "name6",
+      "type": "int"
+     },
+     {
+      "name": "unknown1",
+      "type": "int"
+     },
+     {
+      "name": "unknown2",
+      "type": "int"
+     },
+     {
+      "name": "unknown3",
+      "type": "int"
+     }
+    ]
+   },
+   "labels": []
+  },
+  {
    "rva": 7498912,
    "namespace": "CProgressBarType",
    "name": "CProgressBarType",
@@ -240737,7 +240814,16 @@
    "name": "RebuildStaticModifiers_AddControlledProvinceModifiers",
    "kind": "instruction",
    "confidence": "CERTAIN",
-   "evidence": "**A country's modifier takes in the whole modifier of every province it controls.** In CCountry::RebuildStaticModifiers, the loop 0x4DEA50..0x4DEB98 walks ControlledProvinces (+0xD00) and, for each, adds the province's CProvinceModifier (+0xFC) into the country's one modifier id at a time - `values[id] += provinceValues[id]` over all ([0x1A86198] - [0x1A86194]) / 4 ids - and records the province modifier in the contributor vector. So anything a province's modifier holds reaches its controller's, once for each province, the country-wide kinds included; the local kinds come along too and are read by nothing at country level. **This is not how a strategic resource reaches a country**: that is step 9 of the rebuild, from the levels UpdateStrategicResources keeps. The same loop then tests, for a country at war, whether a province flagged at +0x36C that it owns is in its capital's area; what that is for was not read.\n(reversing/findings/FINDINGS-countrymodifier.md)",
+   "evidence": "**A country's modifier takes in the whole modifier of every province it controls.** In CCountry::RebuildStaticModifiers, the loop 0x4DEA50..0x4DEB98 walks ControlledProvinces (+0xD00) and, for each, adds the province's CProvinceModifier (+0xFC) into the country's one modifier id at a time - `values[id] += provinceValues[id]` over all ([0x1A86198] - [0x1A86194]) / 4 ids - and records the province modifier in the contributor vector. So anything a province's modifier holds reaches its controller's, once for each province, the country-wide kinds included; the local kinds come along too and are read by nothing at country level. **This is not how a strategic resource reaches a country**: that is step 9 of the rebuild, from the levels UpdateStrategicResources keeps. **The tail of the loop is dead**: for a country at war (+0xACC) it tests the province's blockaded byte (+0x36C, 0x4DEB60), that the country owns it (+0x330 against +0xCA8) and that its area (+0x2B4) is the acting capital's (CCountry::GetActingCapitalLocation, 0x4DEB7F) - and on success only calls GetActingCapitalLocation once more (0x4DEB8E) and discards the answer. A getter, so nothing follows from the test; a remnant.\n(reversing/findings/FINDINGS-modifiersources.md)",
+   "type": null
+  },
+  {
+   "rva": 914553,
+   "namespace": "",
+   "name": "RebuildStaticModifiers_SubjectInfluence",
+   "kind": "instruction",
+   "confidence": "CERTAIN",
+   "evidence": "**Step 19 of CCountry::RebuildStaticModifiers: a puppet's master's faction's influence modifier.** 0x4DF479..0x4DF57A. Skipped unless isSubject (+0xF34) is set; skipped where the country's own faction (+0xD8) is non-null and answers slot 7 (a real faction); the overlord is countries[+0xF3C] (the id half of Overlord +0xF38), skipped where its faction is null or not real. Then FindStaticModifierByName(overlord's faction) - which reads the faction's `influence` string (CFaction +0xBC, `align_towards_axis` in Their Finest Hour) - and the country's active_modifiers (+0x648) are walked: an entry whose modifier (+8) is that very pointer skips the step, which is how an influence or an alignment that put the static there already keeps it from counting twice. Otherwise its values are added id by id and it is pushed onto the contributor vector. **A null answer is not guarded**: `test ebx,ebx; je 0x4DF533` jumps past the list walk straight into the add loop, which reads [ebx+0x18] - a static_modifiers.txt with no modifier of the faction's influence name faults here.\n(reversing/findings/FINDINGS-modifiersources.md)",
    "type": null
   },
   {
