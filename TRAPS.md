@@ -58,6 +58,9 @@ misses it), `0x5A8540`/`0x5A8690`, `0x682630`/`0x682C20`, `0x9C0520`/`0x9C0A40`,
 `0x8BA05C`/`0x8BA060`, `0x68EBA0`/`ProcessUnitFunctor::execute`, `0x8ACD00`/`0x8ACD50`,
 `0x5C48E0`/`0x5C4B20` (`CUnit_SetName` ends `ret 4` at `0x5C4B1D` and `CUnit::BuildTooltip`, slot 3, starts on the
 next byte - `functionStart` inside the tooltip answers `0x5C47E0`; found 2026-11-07, `FINDINGS-countertooltip.md`),
+`0x84085D`/`0x840860` (`~CEU3Graphics` ends `ret 4` at `0x84085D` and `CEU3Graphics_CreateProjection`'s `push ebp` is the
+next byte, no padding - `functionStart` inside the latter answers `~CEU3Graphics`; found 2026-11-14,
+`FINDINGS-movement.md` section 13.8),
 `0x5D06C0`/`0x5D06E0` and `0x5D0CD0`/`0x5D0D00` (both `CountEvaluation` ending `ret 0xc` with the
 next trigger's `Evaluate` on the following byte - wave 11's plan asserted "clean boundaries on both
 sides" here having checked only the upper one), `0x90390`/`0x90750` (`ret 0xc` then `push ebp`;

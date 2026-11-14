@@ -128,6 +128,11 @@ is that sum. So **red is a deficit even after trade, yellow is a deficit that tr
 covers, and green is a surplus without it**. `repaid_away` and `tribute_sent` are
 subtracted, which fits the record's note that `tribute_sent` is held negative.
 
+**The pool at `+0xA64` is `received_from_exiles`** (`FINDINGS-surrender.md`, C.5, which corrected the record's
+"unused"): each day a government in exile's supplies and fuel are added to it for the country controlling the exile's
+acting capital. So in the bar's colour only supplies and fuel ever carry it. (Noted 2026-11-14 by the `topbarpanel`
+agent, from the record.)
+
 The number is the stockpile - the exile's own pool at `+0x9F8`, or the pool on the acting
 capital at `+0x15C` otherwise - through `FormatFixedPoint(value, 0)`, so truncated to a
 whole number. **Above 99999 it is shown in thousands with a `K`** (`cmp ..., 0x5F5DD18` at
@@ -243,6 +248,40 @@ With a scenario at game state `+0xD0C`, Update disables `topbarbutton_diplo`, `_
 `_tech`, `_politics`, `_intelligence`, `_statistics` and `_theatre` on every pass
 (`0x6CB638`..`0x6CB7F2`). The field's comment says it is null in a loaded save; what sets
 it in an ordinary campaign was not checked.
+
+### The skin (read 2026-11-14)
+
+*Read for OpenHOI3 by the `topbarpanel` agent. Static only.*
+
+**The bar's picture follows the played country's tag, once, as the game is entered.** The string
+`'gfx/interface/skins/topbar_'` (`0x15D2BE8`) has one reference in the image, at `0x66254B`, inside
+`CInGameIdler::ApplyCountrySkins` (`0x662430`, `__thiscall`, the idler in ECX, bare `ret` at `0x6627CB`). In order:
+
+1. Each of the six country views (`CInGameIdler +0xD00`) is asked its slot 9 - `CCountryView::UpdateCountrySkin`, the
+   `country_bg_<TAG>.dds` of `FINDINGS-countryviews.md` section 1.
+2. The path `'gfx/interface/skins/topbar_'` + the current game state's player tag as text + `'.dds'`.
+3. **Only where `FileExists` (`0x66B3A0`) answers yes**: a `PictureSprite_Construct` (`0xABA9A0`) of that file with the
+   sprite type `StringHashFind('GFX_topbar_bg')` out of the graphics' sprite registry (`+0xA0`), set on the icon
+   `topbar_bg` of the bar's window (`CTopBar +0x20`, through `CFixedWindow::FindIcon`, slot 17) by the icon's slot 56,
+   then shown (slot 13) where the window's byte `+0x5B` is set.
+4. Otherwise the icon keeps what `GFX_topbar_bg` names: `gfx\\interface\\skins\\topbar_generic.tga` in
+   `interface/topbar.gfx`, which the loader's `.tga`-to-`.dds` swap turns into the `topbar_generic.dds` the install
+   ships.
+
+So the picture is chosen **by the tag alone** - not by faction or government. Their Finest Hour's `gfx/interface/skins`
+holds 46 `topbar_<TAG>.dds` beside `topbar_generic.dds` (GER, ENG, SOV, USA, ITA, JAP, FRA among them, and minors such
+as SIA, ALB, MEX; no IRE). `confirmed`
+
+- **The icon is not tested for a miss.** A mod shipping `topbar_<TAG>.dds` while renaming the icon `topbar_bg` would have
+  slot 56 called on null (no test between the slot 17 call at `0x66275C` and the slot 56 call).
+- **Nothing sets it again.** `findRefs --callers 0x662430` gives one call, `0x66153B` in `CInGameIdler::Enter`; no other
+  reference, and it is in no virtual table. So a played country changed in play (the `tag` console command) keeps the
+  first country's bar picture - `inferred` from the one caller; the command's `Execute` was not read.
+
+Evidence: decompiled whole, and the listing `0x662697`..`0x6627A1`: `'GFX_topbar_bg'` pushed at `0x662699` (one
+reference), `call 0x9C7D60` on `[esi+0xA0]`, `call 0xABA9A0`; `'topbar_bg'` at `0x662733` (one reference), `mov
+ecx,[ebp-0x20]`, `mov ecx,[ecx+0x20]`, `call [edx+0x44]`. Hardcoded: the folder, the prefix `topbar_`, the `.dds`
+extension and the icon's name; mod-able: the pictures, and the generic one through `GFX_topbar_bg`.
 
 ## 4. Orientation keywords
 

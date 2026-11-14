@@ -1,0 +1,94 @@
+{
+ "agent": "smallgaps",
+ "question": "What closed list of modifier kinds does the original accept in a modifier block, what does an order of battle's unknown leader do, and where does extra_amphibious_defence go when read?",
+ "source": "reversing/findings/FINDINGS-modifierkinds.md",
+ "addresses": [
+  {
+   "rva": "0x142FC0",
+   "kind": "function",
+   "name": "AmphibiousMultPending_PushBack",
+   "signature": null,
+   "no_signature": "Register convention: the vector in EDI, the element to copy in ECX, nothing on the stack (it ends in a bare ret). An ordinary signature cannot place both.",
+   "comment": "`std::vector<{Hoi3CString name; int value}>::push_back`, 0x20-byte elements: grows through 0x5B1FC0 when end == capacity, copy-constructs the string (0x401BD0) and copies the int at +0x1C, then end += 0x20. Its caller read here is CSubUnitAmphibiousMult::LoadKey (0x5A3304), which passes `this + 8` - the pending list of `extra_amphibious_defence` names - in EDI and a local {key text, value in thousandths} in ECX. The name is ours. See reversing/findings/FINDINGS-modifierkinds.md, section 4.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-modifierkinds.md",
+   "evidence": "Disassembled 0x542FC0..0x543044: `mov esi, ecx`; bounds test against [edi], [edi+4]; `cmp eax, [edi+8]` then call 0x5B1FC0; `call 0x401BD0` on the new slot; `mov eax,[ebx+0x1c]; mov [esi+0x1c],eax`; `add dword ptr [edi+4], 0x20`. The caller at 0x5A32FD sets `lea edi,[esi+8]` and `lea ecx,[esp+0x10]` (the string built by 0x40A160 from the key's text, the value from 0xA69550 at [esp+0x2c]). Wrong if 0x542FC0 has callers passing something other than a vector in EDI - only the one caller was read."
+  },
+  {
+   "rva": "0x1A3280",
+   "kind": "function",
+   "name": "CSubUnitAmphibiousMult::LoadKey",
+   "signature": "void __thiscall CSubUnitAmphibiousMult::LoadKey(CSubUnitAmphibiousMult* this, CParseContext* parse, SaveToken key)",
+   "no_signature": null,
+   "comment": "**No keys of its own.** It builds a string out of the key's own text and looks it up, so every key is a **unit type's name** and the value is that type's amphibious multiplier. **Read whole 2026-11-14**: it does not look the name up. It copies the key's text into a string, reads the value with TokenToFixedPoint (0xA69550, thousandths), and appends the pair to a **pending list at `this + 8`** (a std::vector of 0x20-byte {string, int}; begin/end/capacity at +8/+0xC/+0x10, i.e. CSubUnitDefinition +0x208..+0x210) through AmphibiousMultPending_PushBack (0x542FC0). Nothing is logged for any name. What turns the pending names into the map at +0x18 (CSubUnitDefinition +0x218, keyed by type_index) - and what it does with a name that is no unit type - was not found; it does not matter for play, since the only reader asks a fleet's summed definition, whose map is always empty (reversing/findings/FINDINGS-transport.md, B.4). See reversing/findings/FINDINGS-modifierkinds.md, section 4.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-definitions.md",
+   "revises": "The comment said the key is looked up; it is appended as text to a pending list at +8, unresolved here.",
+   "evidence": "Decompiled whole (Ghidra, smallgaps copy) and disassembled 0x5A3280..0x5A331D: assign of the key text (0x40A160), TokenToFixedPoint (0xA69550) of parse+0x228, `lea edi,[esi+8]`, call 0x542FC0, free of the temporary. No lookup, no log call. Wrong if a later slot of the class resolves the names during load and logs - not read."
+  },
+  {
+   "rva": "0x126E60",
+   "kind": "function",
+   "name": "CIdeologyGroup::LoadKey",
+   "signature": "void __thiscall CIdeologyGroup::LoadKey(CIdeologyGroup* this, CParseContext* parse, SaveToken key)",
+   "no_signature": null,
+   "comment": "A group of ideologies - fascism, democracy, communism. Two keys of its own; every other key in the block is an ideology's name. **The keys its switch names**, 2 of them, one case each: `faction`, `position`. Inherited by 2 classes in all. Read from the switch by reversing/scripts/definitions.py. A loader may resolve further keys as names out of a database - CGovernment and CMinister both do - but anything that is neither is dropped in silence. **The `faction` case makes a modifier definition** (read 2026-11-14, 0x526FAF..0x52708B): a new CFaction (0xD8 bytes, 0x5224B0) is stored at the group's +0x54 and loads its block (slot 3) - its `modifier` among it - and only then is `suseptibility_` + the faction's name (+0xC, its `tag`) built, turned into a token by 0xA69CA0, and a CModifierDefinition made with that token and that name, flags percent and more-is-better both 1, id = the definition count (also written to the faction's +0xB4), and appended with ModifierDefinitionDatabase::Add (0x52707C, 0x527086). So `suseptibility_axis`, `suseptibility_allies` and `suseptibility_comintern` are kinds a modifier block may name - the base game's minister_types.txt does - and a faction's own modifier cannot name its own kind, nor a later faction's. Called from 0x63682F, after InitModifierDefinitions (0x636779) and InitMissionEfficiencyModifiers (0x636783) and before static and event modifiers (0x636B34) and every other modifier file. See reversing/findings/FINDINGS-modifierkinds.md, section 1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-definitions.md",
+   "revises": "Adds what the faction case does after loading the faction: it makes the faction's suseptibility_<tag> modifier definition.",
+   "evidence": "Disassembled 0x526FAF..0x5270B6: operator new(0xD8), 0x5224B0, `mov [ebx+0x54],eax`, the faction's slot 3 (`call [edx+0xc]`), `mov edx,'suseptibility_'` + [faction+0xC] through 0xA5B150, 0xA69CA0 on the result into edi, definition count `sar esi,2` into [faction+0xB4], operator new(0x2C), `push 1; push 1`, the name copied (0x401BD0), `push edi; push ebx; mov edx,esi; call 0x456D50`, then 0x45C5D0. The keys suseptibility_axis/allies/comintern are what common/minister_types.txt writes for the three tags of common/ideologies.txt. Call order from the application's init: 0x636779, 0x63677E, 0x636783, 0x636828, 0x63682F read in a straight run. Wrong if the faction's +0xC were not its tag - inferred from the file keys matching."
+  },
+  {
+   "rva": "0x5C5D0",
+   "kind": "function",
+   "name": "ModifierDefinitionDatabase::Add",
+   "signature": "void __fastcall ModifierDefinitionDatabase::Add(CModifierDefinition** value@EAX)",
+   "no_signature": null,
+   "comment": "A hand-inlined `std::vector<CModifierDefinition*>::push_back` over the three globals 0x1686194 (begin), 0x1686198 (end) and 0x168619C (capacity), growing through 0x5C6B0. Named from the one call site read, InitMissionEfficiencyModifiers at 0x5839E2; the vector's identity comes from the same function computing a modifier id as its length. Not a shared stub - the globals are compiled in. **Three callers, 2026-11-14** (findRefs over the whole image, 110 direct calls): InitModifierDefinitions' 108 (0x456E00..0x459345), InitMissionEfficiencyModifiers (0x5839E2) and CIdeologyGroup::LoadKey's faction case (0x527086), which adds one `suseptibility_<tag>` definition per faction. So in Their Finest Hour the vector holds 108 + 32 + 3 = 143 definitions, 142 distinct keys. See reversing/findings/FINDINGS-modifierkinds.md, section 1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-convoys.md",
+   "revises": "Raised to confirmed: all three callers found, which settles that the vector is the modifier definitions and how many it holds.",
+   "evidence": "findRefs --callers 0x45C5D0: 110 direct calls, 108 inside 0x456E00..0x459345 and the two others at 0x5839E2 and 0x527086; findRefs --callers 0x456D50 likewise gives 108 + 0x527077 (the mission ones construct inline). Wrong if something appends to the vector without this function (a call through a pointer, or an inlined push_back) - writers of 0x1A86198 were not searched for. The scan of every base and BlackICE modifier file against the 142 keys found none outside them, a positive control that the list is whole for what the files use."
+  },
+  {
+   "rva": "0x1B6E90",
+   "kind": "function",
+   "name": "CUnit::LoadKey",
+   "signature": "void __thiscall CUnit::LoadKey(CUnit* this, CParseContext* parse, SaveToken key)",
+   "no_signature": null,
+   "comment": "**The whole of what an order of battle block accepts** - a `division`, `corps`, `army`, `navy`, `air` or `theatre` - 40 keys in one switch of 4658 bytes. Seven open a child unit (`theatre`, `armygroup`, `army`, `corps`, `division`, `navy`, `air`), three say what the unit is made of (`regiment`, `ship`, `wing`, all reaching CSubUnit::LoadKey), four are identity (`id`, `name`, `location`, `leader`) and the rest is state a save carries: `path`, `track`, `previous`, `movement_progress`, `retreat`, `possible_retreat`, `disengage`, `arrow_state`, `start_date`, `end_date`, `was_paradropped`, `supplies`, `fuel`, `dig_in`, `attack_delay`, `combat_hours`, `can_upgrade`, `can_reinforce`, `is_reserve`, `is_prioritized`, `plan`, `expeditionary_owner`, `expeditionary_date`, `aggression_enabled`, `aggression_setting`, `country_intel`. The loader cannot tell an OOB file from a save - it is the same switch - so every one of them is legal in `history/units`.\n\n**Any other key goes to CreateOrder** (the default at 0x5B7E3F): where the token is one of its 33 order kinds the new order reads the block (its slot 3) and becomes the unit's order (+0xB0), **without freeing an order already there**; anything else is dropped. That is how `strategic_redeployment`, `patrol`, `air_intercept` and the rest come back.\n\n**A child unit**: a new CArmy (or CNavy, or CAir), +0x48 set, oob_level from the key, slot 28 with this unit's idler, the owner copied, the block read; **without a `location` it is deleted**; with one it is hung under this unit (CUnit_AttachToParent - for a land child only where this unit answers IsLand) and added to its owner's unit list. **A `regiment`, `ship` or `wing`**: a new sub unit with this unit's owner and unit_ptr (+0xB0) - a regiment also takes is_reserve where this unit's +0x96 is set, before and after its block - read, added with AddRegimentToUnit, and given a name where it has none: a ship or wing from CCountry::MakeSubUnitName, a regiment `<n>. <unit name>`. **`location`**: the province by id and CUnit::EnterProvince; outside a game loaded from a save (+0xD9C) an unknown id puts the unit in province 1 with an error and enemy ground or under 20% infrastructure only logs. The scalars land where CUnit::SaveContents reads them (`this` is the unit + 8): fixed through TokenToFixedPoint or ParseFixedPoint, `track`, `was_paradropped`, `is_prioritized`, `can_reinforce`, `can_upgrade`, `aggression_enabled` and `is_reserve` through ParseBool, `retreat` true only for the word yes, `start_date`/`end_date` through Date_SetFromString, `previous` as a province, `country_intel` as a vector re-cut into 12-byte grants.\n\n**The keyword does not pick the class, the parent does**: CNavy::LoadKey and CAir::LoadKey take the five child-unit keywords back and send all five to one handler that still builds a CArmy. Reached from RTTI, not from the first vftable: CArmy keeps CPersistent at object offset 8, so slot 4 of its primary table is a per-unit update and not this. **`leader`** (token 0x268): a plain number is looked up as the persistent {id, type 0x25} across the whole game and put on with CUnit::SetLeader(leader, 0, 0) - no check of his country, rank or kind; a save's {id type} block goes through ParseObjectReference to the same setter. See reversing/findings/FINDINGS-leaderassign.md, section 3.\n\n**`country_intel`, read 2026-11-14** (FINDINGS-savegame.md, C.2): the arm at 0x5B7EA6 reads the block with ParseIntVector into a local vector and appends `(n - 1) / 3 + 1` grants to +0x2A8 through Vector12_PushBack, each the three ints as read - **nothing subtracted from the country number**, and the unit's grants are not cleared first, so a second key appends. With a count not a multiple of three the last grant reads past the vector's end (no save has one). **The `leader` case with a number no leader has** (read 2026-11-14): FindPersistentByIdPair({0x25, atoi(value)}) answers 0 and `je 0x5B7F4E`, which is the function's common epilogue - nothing is logged, nothing is made, and the unit's leader is left as it was (null for a new unit; whatever an earlier `leader` line set otherwise). The block form's ParseObjectReference arm likewise calls SetLeader only on a non-null answer (0x5B77D6). A unit left without one is then given the best free leader as the game is entered, as any unit without one is (reversing/findings/FINDINGS-leaderassign.md, section 8). See reversing/findings/FINDINGS-modifierkinds.md, section 5.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-savegame.md",
+   "revises": "Adds what an order of battle's leader number that no leader has does: nothing.",
+   "evidence": "Disassembled 0x5B7747..0x5B77A3 and 0x5B7F4E: `call 0xA9D390; test eax,eax; je 0x5B7F4E`, and 0x5B7F4E is `mov ecx,[esp+0x43c]; pop edi; pop esi; mov fs:[0],ecx; pop ebx; mov esp,ebp; pop ebp; ret 8` - the epilogue. Checked on the installs: no base game or Their Finest Hour order of battle names an undeclared leader (1291 and 1413 leader lines); BlackICE has 33, none in a start file. Wrong if FindPersistentByIdPair itself logs or creates on a miss - its record says it answers 0."
+  },
+  {
+   "rva": "0xB6950",
+   "kind": "function",
+   "name": "CBuilding::LoadKey",
+   "signature": "void __thiscall CBuilding::LoadKey(CBuilding* this, CParseContext* parse, SaveToken key)",
+   "no_signature": null,
+   "comment": "**The keys its switch names**, 16 of them, one case each: `capital`, `completion_size`, `confirm`, `cost`, `damage_factor`, `max_level`, `not_if_x_exists`, `on_completion`, `onmap`, `orientation`, `port`, `prerequisites`, `repair`, `show_for_province`, `time`, `visibility`. Inherited by 2 classes in all. Read from the switch by reversing/scripts/definitions.py. A loader may resolve further keys as names out of a database - CGovernment and CMinister both do - but anything that is neither is dropped in silence. **The fall-through** (read 2026-11-14): any other key is compared by token with each modifier definition in vector order; the first match puts the definition in `effect` (+0xC) and the value, TokenToFixedPoint, in `effect_size` (+0x8), so a second matching key replaces the first. A key matching no definition is dropped **in silence** - unlike CModifier::LoadKey, which logs `unknown modifier`. CBuilding is not a CModifier, so `icon` is not taken here. See reversing/findings/FINDINGS-modifierkinds.md, section 3.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-definitions.md",
+   "revises": "Adds the default branch: a building's one modifier, looked up among the definitions, an unknown key dropped silently.",
+   "evidence": "Decompiled whole (Ghidra, smallgaps copy): after the sixteen cases, `for i in definitions: if def->token == parse->key.type { effect = def; effect_size = TokenToFixedPoint(value); return }` then a bare return - no log call anywhere in the fall-through; the only log strings in the function are the prerequisites' 'Unknown building' ones. Wrong if a matching later key were meant to be refused - nothing tests effect before writing it."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CSubUnitDefinition",
+   "offset": "0x208",
+   "name": "extra_amphibious_defence_pending",
+   "type": "void*",
+   "comment": "The embedded CSubUnitAmphibiousMult's pending list (its +8): a std::vector of 0x20-byte {Hoi3CString name; int value (thousandths)} elements, begin here, end +0x20C, capacity +0x210, appended by CSubUnitAmphibiousMult::LoadKey for each `extra_amphibious_defence` entry as written. The copy constructor 0x536570 copies it (0x536A57, 0x5426A0) before the map at +0x218. What resolves it into that map was not found.",
+   "evidence": "CSubUnitAmphibiousMult::LoadKey passes `lea edi,[esi+8]` to the push_back 0x542FC0, whose `add [edi+4],0x20` is the end pointer; the copy constructor at 0x536A4A..0x536A57 builds a three-pointer vector at the copy's +0x208 from the source's +0x208 before the map copy at +0x218. Wrong if +0x208 were read as something other than a vector anywhere - a whole-image scan for +0x208 readers was not made."
+  }
+ ],
+ "vftable_slots": {},
+ "frontier": [
+  "0x5B1FC0",
+  "0x5426A0"
+ ],
+ "slots_noted": "The five LoadKeys revised here are slot 4 of their classes' CPersistent tables, already named by the RTTI export (CUnit's is in its table at +8, whose slot 4 the record names under CUnit@0x8 if at all); this fragment only adds to their comments. AmphibiousMultPending_PushBack is in no table."
+}

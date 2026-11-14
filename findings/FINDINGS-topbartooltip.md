@@ -145,6 +145,12 @@ reading of its fifteen pools stands (`FINDINGS-uinumbers.md`, section 5). What i
 | `RES_SHIPPED_BACK` | sent back > 0 | `§G+` it |
 
    Each key ends in its own `\n`.
+
+   Note (2026-11-14, the `topbarpanel` agent): of the pools in `change`, **the pool at `+0xA64`,
+   `received_from_exiles` (`FINDINGS-surrender.md` C.5), is the only one with no line of its own** - the table above has
+   no key for it - so for a country hosting a government in exile, the supplies' and fuel's lines do not add up to the
+   change at the head. The ledger screen's `LEDGER_FROM_EXILES` row (`FINDINGS-topscreens.md`) is where the player sees
+   it.
 3. **`"\n"` and the contributors to the good's global modifier** (section 10), kind by goods
    from the table built at `0x4F4AB0`: supplies `MODIFIER_GLOBAL_SUPPLIES` (27), fuel
    `MODIFIER_GLOBAL_FUEL` (29), money `MODIFIER_GLOBAL_MONEY` (31), crude oil `_CRUDE_OIL` (19),

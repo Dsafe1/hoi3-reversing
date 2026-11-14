@@ -1,0 +1,78 @@
+{
+ "agent": "selproj",
+ "question": "What makes and keeps selection_projection, the mark under a selected unit: for which units, where, how long, and when it goes - the constructor's other caller, VA 0x8408AE, which functionStart put inside ~CEU3Graphics.",
+ "source": "reversing/findings/FINDINGS-movement.md",
+ "addresses": [
+  {
+   "rva": "0x440860",
+   "kind": "function",
+   "name": "CEU3Graphics_CreateProjection",
+   "signature": "CProjectionObject* __stdcall CEU3Graphics_CreateProjection(CEU3Graphics* graphics@stack:4, Hoi3CString* typeName@stack:8, void* anchor@stack:12, void* group@EDI) @EAX",
+   "no_signature": null,
+   "comment": "**Makes a projection by its type's name and adds it to an object group**: the type by StringHashFind in the object-type registry (graphics +0x6BCF0) - **no test for a miss**, so an unknown name reaches the constructor as a null type - `new 0x148`, CProjectionObject::CProjectionObject(this, type, anchor), then the group's slot 4 (add) with it; answers the object, or null where the allocation failed. Neither shows nor hangs it - the caller does. One caller, CUnit::OnSelected (VA 0x5C06DD), with `selection_projection`, the CEU3Graphics from the in-game screen's slot 17 and the group at +0x778 of the map graphics (the screen's slot 15) - not the +0x5FC group CUnit_ShowOrderProjection adds the click's marks to. **It abuts ~CEU3Graphics with no padding** (that one's `ret 4` at VA 0x84085D, this one's `push ebp` at VA 0x840860), so functionStart inside it answers VA 0x840790 (trap 2); Ghidra already holds it as its own function. The name is ours. See reversing/findings/FINDINGS-movement.md, section 13.8.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled whole, VA 0x840860..0x8408DA, `ret 0xc`: [ebp+8] + 0x6BCF0 into EAX and [ebp+0xC] pushed for 0x9C7D60 (StringHashFind, the registered signature table@EAX, key on the stack); push 0x148 / call 0xB9602F (operator new); [ebp+0x10], the type and the new object pushed for 0x84D490; `mov edx,[edi]; call [edx+0x10]` with the object; EDI is never written in the body, so it is the caller's. findRefs --callers 0x840860: exactly one, 0x5C06DD. vtable.py --holding 0x840860: in no table. Wrong if 0x9C7D60 were not the lookup (its record says it is) or if EDI were set before the call by something other than the caller's `lea edi,[eax+0x778]` at 0x5C06CE.",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0x440790",
+   "kind": "function",
+   "name": "CEU3Graphics::~CEU3Graphics",
+   "signature": "void __stdcall CEU3Graphics::~CEU3Graphics(CEU3Graphics* this@stack:4)",
+   "no_signature": null,
+   "comment": "**CEU3Graphics's destructor**, VA 0x840790 to its `ret 4` at VA 0x84085D: writes its two vftables (0x15E14C8 at +0, 0x15E14E0 at +4) back, releases the object held at VA 0x1A8CB40 through its slot 2 where it is set, frees the loading screens' texture vector (+0x6BDB4..+0x6BDBC, CEU3Graphics::LoadLoadingScreens) and the vector at +0x6BDA4..+0x6BDAC with its elements (0x414B50), destroys the member at +0x6BD6C (0x841750), and ends in the base destructor (0xA6F530, `this` in ECX). One caller, the scalar deleting destructor at VA 0x840760 (CEU3Graphics slot 0), which pushes `this`. **It is followed with no padding by CEU3Graphics_CreateProjection (VA 0x840860)**, so functionStart answers this entry for any address in that function - which is how 13.7 of FINDINGS-movement.md came to say the projection's maker was inside ~CEU3Graphics. See reversing/findings/FINDINGS-movement.md, section 13.8.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled whole: the SEH prologue at 0x840790, `mov esi,[ebp+8]`, the two vftable writes CEU3Graphics::CEU3Graphics's record names, the frees, `mov ecx,esi; call 0xA6F530`, epilogue and `ret 4` at 0x84085D, the next byte 0x840860 a fresh `push ebp; mov ebp,esp`. findRefs --callers 0x840790: one, 0x840767, inside 0x840760, which vtable.py --holding gives as CEU3Graphics slot 0 alone. Wrong if a jump from below 0x84085D reached 0x840860 (cfg.walk from 0x840790 stops at the ret).",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0x1C05F0",
+   "kind": "function",
+   "name": "CUnit::OnSelected",
+   "signature": "void __thiscall CUnit::OnSelected(CUnit* this, void* argument)",
+   "no_signature": null,
+   "comment": "Slot 4, one body for CUnit, CArmy, CNavy and CAir: what a unit does when it becomes selected. Nothing for a unit with no in-game screen (+0x160). In order: 0x4A5880 (province in ESI, unit in EDI; not read); **the arrow made again** (CUnit::FreeArrow where one is held, CUnit::MakeArrow into +0x188, `arrow_state` = 0); **then, only where the settings' `alwaysCounters` (+0xF9) is clear, the selection mark**: CEU3Graphics_CreateProjection(`selection_projection`, the anchor (+0x10) of the province's graphics entry) into **+0x168**, shown (slot 13), hung on the province with ProvinceGraphics_PlacePicture(raise 0), and then **hidden (slot 14) for a fleet in a land province or an air unit at its own base** (CUnit_IsAtOwnBase), otherwise placed with C3dVisibleObject::SetPosition (slot 90) at its stack's point - an air unit's at CProvinceTemplate +0xFC, a unit in a battle at its own +0x19C, one with a path at +0xD8 and one without at +0xCC (offsets from the label point, as the anchor is). The unit's GetPosition (slot 30) is asked and its answer overwritten. **With `alwaysCounters` on - the install's setting, and the only one OpenHOI3 has - no mark is made.** Then **its own two counters get ring 1, white, and CUnit_SetRingBelow(3, its units) gives every unit under it the counter type's color2** (CInGameIdler::ShowSelection afterwards makes the selected unit's own ring 2, color1, where an AI commands it); the in-game screen's AddUnitRow (slot 34) unless the byte at VA 0x1A855F6 is set; and the sound `army_selected`, `navy_selected` or `air_selected`, through the sound object's slot 9 where its slot 25 answers false (likely: not while it already plays). The name is ours. See reversing/findings/FINDINGS-hierarchy.md, section 6, and reversing/findings/FINDINGS-movement.md, section 13.8.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x5C05F0..0x5C0B2F and decompiled: `call 0x45FF30` (GetGameSettings), `mov al,[eax+0xf9]; test al,al; jne 0x5C0857` skips everything from the name's assign to the last SetPosition; the store `mov [ebx+0x168],eax` at 0x5C06EF after `call 0x840860`; slots 13/14/90 of CProjectionObject's table (VA 0x15E1DCC) are 0xA60440, 0xA60450 and 0x84AB80 (C3dVisibleObject::SetPosition). +0xF9 is alwaysCounters by the settings window's record (counters_checkbox into +0xF9) and FINDINGS-hierarchy.md. Wrong if 0x45FF30 answered anything but the settings singleton.",
+   "source": "reversing/findings/FINDINGS-movement.md",
+   "revises": true
+  },
+  {
+   "rva": "0x1C0B30",
+   "kind": "function",
+   "name": "CUnit::OnDeselected",
+   "signature": "void __thiscall CUnit::OnDeselected(CUnit* this)",
+   "no_signature": null,
+   "comment": "Slot 5, one body for CUnit, CArmy, CNavy and CAir: what a unit does when it is selected no longer. Frees its arrow (keeping its counter at +0x18C), **takes away the selection mark** (+0x168, CUnit::OnSelected's `selection_projection`, made only without `alwaysCounters`): slot 32 on it, then CGraphics::DestroyVisibleObject with the graphics (in-game screen slot 17) and the mark's scene (its slot 17), and +0x168 = null; the in-game screen's slot 35 unless the byte at VA 0x1A855F6 is set; **sets its own two counters' ring to 0 and CUnit_SetRingBelow(0, its units)**, and clears the province's +0x2E8. The name is ours. See reversing/findings/FINDINGS-hierarchy.md, section 6, and reversing/findings/FINDINGS-movement.md, section 13.8.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled 0x5C0B30..0x5C0C0F (bare `ret`): `mov ecx,[ebx+0x168]; test; je` around `call [edx+0x80]`, the two slot-17 calls and `call 0xA6FBC0` (CGraphics::DestroyVisibleObject, esi the mark, edi the graphics), then `mov [ebx+0x168],edi` with edi zeroed.",
+   "source": "reversing/findings/FINDINGS-movement.md",
+   "revises": true
+  },
+  {
+   "rva": "0x44D490",
+   "kind": "function",
+   "name": "CProjectionObject::CProjectionObject",
+   "signature": "CProjectionObject* __stdcall CProjectionObject::CProjectionObject(CProjectionObject* this@stack:4, CObjectType* type@stack:8, void* anchor@stack:12) @EAX",
+   "no_signature": null,
+   "comment": "C3dVisibleObject::C3dVisibleObject(this, type), its own vftable (VA 0x15E1DCC), **+0x138 = the anchor** it hangs on, the byte +0x144 (done) = 0, and **+0x13C (start) and +0x140 (pulse phase) = the platform clock's seconds** (g_PlatformClock slot 5), making g_random_object on first use. Returns `this`. Two callers: CUnit_ShowOrderProjection (VA 0x5C0C94), the right click's marks, and CEU3Graphics_CreateProjection (VA 0x8408AE), which CUnit::OnSelected calls for `selection_projection` where `alwaysCounters` is off. See reversing/findings/FINDINGS-movement.md, sections 13.2 and 13.8.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled whole; `ret 0xc`; `this` is the stack argument passed on to 0x4011B0 as C3dVisibleObject's own. findRefs --vftable CProjectionObject finds this one write of the table. The second caller is now read: VA 0x8408AE is inside CEU3Graphics_CreateProjection (VA 0x840860), not ~CEU3Graphics.",
+   "source": "reversing/findings/FINDINGS-movement.md",
+   "revises": true
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CUnit",
+   "offset": "0x168",
+   "name": "selection_projection",
+   "type": "CProjectionObject*",
+   "comment": "**The mark under a selected unit**, `selection_projection` of interface/mapitems.gfx: made by CUnit::OnSelected only where the settings' alwaysCounters is off, taken away and nulled by CUnit::OnDeselected, destroyed by CUnit::~CUnit, null from CUnit::CUnit. **It follows the unit**: CUnit::EnterProvince, after +0x130 is the new province, hangs it there (ProvinceGraphics_AttachPicture, raise 0), sets its anchor (+0x138) to the new province's graphics entry's +0x10, and either hides it at a point of its locals (two flags of the function's, by the avatar's matching branches a fleet in a land province and an air unit at its own base - inferred) or shows it and sets it at the air (+0xFC), moving (+0xD8) or standing (+0xCC) point - with no battle branch; CUnit::ShowMoving puts it at the moving point (+0xD8), or, for a fleet in a land province or an air unit at its own base, hides it at the port or base less the label point; CUnit::AdvanceMovement and CUnit::CancelMovement move it to the stack point the avatar goes to. Each of these asks the unit's selected byte (+4) and +0x168 not null, so with alwaysCounters on none of them does anything. See reversing/findings/FINDINGS-movement.md, section 13.8.",
+   "evidence": "The store at 0x5C06EF (OnSelected, behind the alwaysCounters test), the null store at 0x5C0BB1 (OnDeselected), `mov [edi+0x168],ebx` at 0x5B52E2 in CUnit::CUnit with ebx zero, and the reads at 0x5B5701/0x5B5722 (~CUnit). The follow sites: EnterProvince 0x5BF768..0x5BF8E7 (`cmp byte [ebx+4],0`, `mov eax,[ebx+0x168]; test`, `mov [eax+0x138],esi`), ShowMoving 0x5C9F10..0x5CA0E6, AdvanceMovement 0x5CB237..0x5CB3D6, CancelMovement 0x5C95B6..0x5C95F2, each calling slots 13/14/15/90 of the object. A scan of every recorded CUnit/CArmy/CNavy/CAir function for displacement 0x168 off a non-stack register found no other writer."
+  }
+ ],
+ "vftable_slots": {},
+ "slots_noted": "CEU3Graphics slot 0 (VA 0x840760, the scalar deleting destructor calling ~CEU3Graphics) is not given a record here.",
+ "frontier": ["0x4A5880", "0x441750"]
+}

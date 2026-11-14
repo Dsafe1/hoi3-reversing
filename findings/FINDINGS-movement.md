@@ -1118,11 +1118,67 @@ makes a second mark beside the first.
 
 ### 13.7 Not read
 
-- What `selection_projection`'s maker does (the constructor's other caller, VA 0x8408AE, inside a function `functionStart`
-  puts at ~CEU3Graphics, VA 0x840790 - more likely an abutting function, trap 2) - and so the selection mark is not built
-  in OpenHOI3.
+- ~~What `selection_projection`'s maker does~~ - read 2026-11-14, section 13.8: an abutting function it was (trap 2),
+  and the mark is made only without `alwaysCounters`.
 - The vertex declaration at VA 0x170ACD0 was not dumped; float2 POSITION is inferred from the stride of 8.
 - How the map object group's camera relates to the tile matrices' camera-relative space (13.4).
+
+### 13.8 The mark under a selected unit: `selection_projection`
+
+*Read 2026-11-14 on the listing and the decompiled C by the `selproj` agent, for OpenHOI3's `movement.md`, section 7;
+the boundary and the gate (`mov al, [eax+0xF9]; test al, al; jne 0x5C0857` at `0x5C065C`, before the maker's call at
+`0x5C06DD`) checked off the listing by the collecting session. Not watched in a running game.*
+
+**The maker 13.7 could not find is a function of its own.** `~CEU3Graphics` (VA `0x840790`) ends `ret 4` at VA
+`0x84085D`, and the next byte, VA `0x840860`, is a fresh `push ebp; mov ebp, esp` - no padding at all, so `functionStart`
+inside it answers VA `0x840790` (trap 2; a new known pair). Ghidra already held it as `FUN_00840860`.
+
+**`CEU3Graphics_CreateProjection`** (VA `0x840860`, `ret 0xC`; graphics, type name and anchor on the stack, the object
+group in EDI): the type by StringHashFind in the object-type registry (graphics `+0x6BCF0`) - with no test for a miss -
+`new 0x148`, `CProjectionObject::CProjectionObject(this, type, anchor)`, the group's slot 4 (add); it answers the object.
+It neither shows nor hangs it. Its one caller is `CUnit::OnSelected`.
+
+**`CUnit::OnSelected`** (slot 4, one body for all four unit classes), after it has made the unit's arrow again:
+
+    if settings.alwaysCounters (+0xF9) is clear:
+        mark = CEU3Graphics_CreateProjection("selection_projection", anchor of the unit's province's graphics entry)
+               - added to the group at +0x778 of the map graphics (the click's marks go to +0x5FC)
+        unit +0x168 = mark
+        mark: Show (slot 13); ProvinceGraphics_PlacePicture(entry, owner, mark, raise 0)
+        if (a fleet in a land province) or (an air unit at its own base, CUnit_IsAtOwnBase):
+            mark: Hide (slot 14)
+        else mark: SetPosition (slot 90, local to the anchor) at
+            an air unit:          CProvinceTemplate +0xFC  (stack point 4)
+            a unit in a battle:   the unit's own +0x19C    (not read; by its place a battle stack's point)
+            one with a path:      +0xD8                    (point 1, the moving stack)
+            one without:          +0xCC                    (point 0, the standing stack)
+    (then the rings, the unit row and the selection sound, as before)
+
+**So with `alwaysCounters` on there is no selection mark at all** [exe] - the install ships `alwaysCounters=yes`, and the
+counters the setting gives are marked by their rings alone (`FINDINGS-hierarchy.md` section 6). The mark is the
+figures' mode's: one for **every** selected unit, land, sea and air, under the unit's stack, hidden while a fleet is in
+port or an air unit at its base.
+
+**How long**: until the unit is deselected. The install's type (`interface/mapitems.gfx`, `tfh/` alike) [mod]:
+`gfx\\test\\selection.tga` (the install has `selection.dds`), `size = 5`, `spin = 0.4`, `pulsating = no`, `pulseLowest =
+1.0`, `pulseSpeed = 3`, `additative = no`, `expanding = 0.7` and **no `duration`** - so by 13.3 it grows from 0.1 to 5
+units over 0.7 s, stays at full alpha, never fades, and turns 0.4 x 3.14 radians a second, on the process's clock. One
+object per selection, kept at `+0x168`.
+
+**It follows the unit.** Every site asks the unit's selected byte (`+4`) and `+0x168` not null: `CUnit::EnterProvince`
+re-anchors it to the new province and hides it or sets it at the air, moving or standing point (which of the function's
+two flags hides it is *inferred* from the avatar's matching branches); `CUnit::ShowMoving` hides it for the port and base
+cases, else sets it at the moving point `+0xD8` - **for an air unit too**, where the avatar takes `+0xFC`;
+`CUnit::AdvanceMovement` and `CUnit::CancelMovement` show it where hidden and set it at the avatar's stack point.
+
+**Taken away**: `CUnit::OnDeselected` - slot 32 on it, `CGraphics::DestroyVisibleObject` with the mark's scene, `+0x168`
+= null; `CUnit::~CUnit` destroys one still held. Nothing else writes `+0x168` (a scan of every recorded CUnit, CArmy,
+CNavy and CAir function for that displacement). A mark made with `alwaysCounters` off survives turning it on until the
+unit is deselected, since only `OnSelected` tests the setting.
+
+**Hardcoded or mod-able**: [exe] the gate on `alwaysCounters`, the name `selection_projection`, which stack point, the
+hiding in port and at base, that it lasts the selection; [mod: `interface/*.gfx`] its picture and figures; [mod:
+`settings.txt` `alwaysCounters`] whether there is one at all.
 
 ---
 

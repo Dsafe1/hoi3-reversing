@@ -28,9 +28,9 @@ how many objects a census found (taken 2026-09-20).
 | `read` | 185 |
 | `placed` | 139 |
 | `keys` | 74 |
-| `part` | 181 |
+| `part` | 182 |
 | `named` | 5 |
-| `RTTI` | 557 |
+| `RTTI` | 556 |
 | **all** | **1141** |
 
 ## What to read next
@@ -155,7 +155,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CChannelHandler` | `TChannelHandlerInterface` |  |  |  |  |  |  | RTTI |  |
 | `CChatMessagehandler` | `CMessageHandlerInterface` |  |  |  |  |  |  | RTTI |  |
 | `CClearBookmark` | `CCommand` |  |  |  | 1 |  | 1 | RTTI |  |
-| `CCoastlines` | `CPersistent` |  |  |  |  |  | 1 | RTTI |  |
+| `CCoastlines` | `CPersistent` | 0x44 | 2 |  | 2 |  | 1 | part |  |
 | `CCombat` | `CPersistent` `CSelectable` |  | 17 | 4/6 | 26 | CCombat.hpp | 24 | read |  |
 | `CCombatHistory` | `CPersistent` |  | 4 |  | 4 | CCombatManager.hpp | 1 | keys |  |
 | `CCombatHistoryEntry` | `CPersistent` |  | 10 | 5/6 | 3 |  | 413 | read |  |
@@ -308,7 +308,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CTraitGainTracker` | `CPersistent` |  | 4 |  | 6 | CTrait.hpp | 24,137 | keys |  |
 | `CTransportSuppliesOrder` | `CAirOrder` |  | 2 | 2/2 | 10 |  |  | placed |  |
 | `CUndeclaredWar` | `CPersistent` |  | 9 |  | 6 | CWar.hpp | 1 | read | **read**: the save's record of a war nobody declared |
-| `CUnit` | `PAVCSubUnit::__CList` `CSelectable` `CReferenceObject` |  | 113 + 1 lua |  | 120 | CUnit.hpp |  | read |  |
+| `CUnit` | `PAVCSubUnit::__CList` `CSelectable` `CReferenceObject` |  | 114 + 1 lua |  | 120 | CUnit.hpp |  | read |  |
 | `CUnitDeployment` | `CDeployment` |  | 1 | 3/4 | 6 |  | 49 | placed |  |
 | `CUnitPlan` | `CPersistent` | 0x90 | 15 | 10/16 | 14 |  | 8,827 | read | **read**: a battle plan as the save keeps it |
 | `CVariables` | `_0A::anon::PAUCVariable::__CTernary` `CPersistent` |  | 1 |  | 5 | CFlags.hpp | 216 | keys |  |
@@ -352,7 +352,7 @@ Definitions out of `common/` and the rest of the mod. Their `LoadKey` is the gra
 | `CEU3Application` | `CApplication` |  | 5 |  | 8 |  | 2 | read | plumbing: the settings file |
 | `CEU3BitmapFont` | `CBitmapFont` |  | 2 | 1/6 | 12 |  | 126 | placed |  |
 | `CEU3DialogGuiType` | `CWindowType` |  |  | 1/1 | 1 |  | 30 | placed |  |
-| `CEU3Graphics` | `CGraphics` |  |  |  | 5 |  | 2 | keys |  |
+| `CEU3Graphics` | `CGraphics` |  |  |  | 6 |  | 2 | keys |  |
 | `CEU3Gui` | `CGui` |  |  |  | 2 |  | 3 | RTTI |  |
 | `CEU3SoundConfigurator` | `CSoundConfigurator` |  |  |  | 2 |  |  | keys | plumbing |
 | `CFactionModifier` | `CModifier` |  |  | 1/2 |  |  | 4 | RTTI |  |
@@ -372,7 +372,7 @@ Definitions out of `common/` and the rest of the mod. Their `LoadKey` is the gra
 | `CLawGroup` | `PAVCLaw::__CList` `CPersistent` |  | 4 + 2 lua |  | 1 |  | 8 | keys |  |
 | `CLocalIntelBoost` | `CIntEffect` |  |  | 3/91 | 2 |  | 9 | RTTI |  |
 | `CMTTHModifier` | `CAndTrigger` |  | 1 | 1/1 | 1 |  | 650 | placed |  |
-| `CMap` | `CPersistent` `CReloadableInterface` |  | 54 | 15/22 | 18 | CMap.hpp | 2 | read | the map load rather than a `common/` file |
+| `CMap` | `CPersistent` `CReloadableInterface` |  | 55 | 15/22 | 18 | CMap.hpp | 2 | read | the map load rather than a `common/` file |
 | `CMasked3dFlagType` | `C3dObjectType` |  |  | 1/4 | 1 |  | 1 | placed |  |
 | `CMaskedSpriteType` | `CSpriteType` | 0x250 | 24 |  | 11 |  | 12 | read |  |
 | `CMeanTimeToHappen` | `CPersistent` | 0x1C | 2 | 5/5 | 3 |  | 9,821 | placed | **read**: the MTTH grammar every event and decision is timed by |
@@ -397,9 +397,9 @@ Definitions out of `common/` and the rest of the mod. Their `LoadKey` is the gra
 | `CStaticModifier` | `CModifier` | 0x48 | 1 | 1/2 | 2 |  | 31,318 | part |  |
 | `CStrategicResource` | `CModifier` | 0x50 | 3 | 1/2 |  |  | 337 | part |  |
 | `CSubUnitAmphibiousMult` | `CPersistent` |  |  |  | 1 |  | 60,489 | keys |  |
-| `CSubUnitDefinition` | `CPersistent` |  | 81 + 20 lua | 71/73 | 9 | CSubUnitDefinition.hpp | 60,485 | read | **the unit files**, and the most used class in the mod. The stat block is done; nine keys are still unplaced, most of them moved by technology |
+| `CSubUnitDefinition` | `CPersistent` |  | 82 + 20 lua | 71/73 | 9 | CSubUnitDefinition.hpp | 60,485 | read | **the unit files**, and the most used class in the mod. The stat block is done; nine keys are still unplaced, most of them moved by technology |
 | `CTechStatistics` | `CPersistent` |  | 55 | 46/50 | 3 | CCountryHistory.hpp |  | read | **read**: the 47 country-wide effects a technology can have, one case each. See GameClasses/CCountryHistory.hpp |
-| `CTechnology` | `CTechStatistics` |  | 23 + 7 lua | 13/21 | 2 | CTechnology.hpp | 1,175 | read | the technology files: a dozen keys of its own, and every other key read as a unit type's name, which is how an effect is written |
+| `CTechnology` | `CTechStatistics` |  | 23 + 7 lua | 13/21 | 3 | CTechnology.hpp | 1,175 | read | the technology files: a dozen keys of its own, and every other key read as a unit type's name, which is how an effect is written |
 | `CTerrain` | `CPersistent` |  | 17 | 9/12 | 3 | CTerrain.hpp | 45 | read | mostly done; `movement_cost`, `temperature` and `precipitation` went in last |
 | `CTerrainGraphical` | `CPersistent` | 0x7C | 8 | 2/10 | 2 |  | 256 | read | **read**: how a terrain type is drawn. `CTerrain` is what it does |
 | `CTrait` | `CModifier` |  | 9 | 2/33 | 6 | CTrait.hpp | 343 | read | `traits.txt`: 31 effects and a count that stops at sixteen. `gainable_traits.txt` is a different class, `CGainableTrait`, still unread |
@@ -543,7 +543,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CICCostComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CIcon` | `CButton` |  |  |  | 4 |  |  | RTTI |  |
 | `CIdler` |  |  |  |  |  |  |  | RTTI |  |
-| `CInGameIdler` | `CEU3Idler` `CLostDeviceInterface` `CReloadDispatcher` |  | 135 |  | 119 | CInGameIdler.hpp | 3 | read |  |
+| `CInGameIdler` | `CEU3Idler` `CLostDeviceInterface` `CReloadDispatcher` |  | 135 |  | 120 | CInGameIdler.hpp | 3 | read |  |
 | `CIngameSettingsScreen` | `CSettingsScreen` | 0x3E0 | 1 |  | 2 |  | 1 | part |  |
 | `CLandOrdersView` | `COrdersView` | 0x198 | 10 |  | 10 |  |  | read |  |
 | `CLawEntry` | `CStandardlistboxItem` | 0x88 | 4 |  | 3 |  | 16 | part |  |

@@ -415,8 +415,72 @@ Not part of the brief, but it is where `max_level` and `additional_offset` do ac
 - and finally the technology's own `allow` block, `[this+0x248]` slot 6, with
   `cmp al, 1; sete al`.
 
-Its polarity at the two use sites (`0x51F728`, `0x5335CA`, both `jne` past the research) reads
-the opposite way round from that ending, and **was not resolved**.
+Its polarity is settled - FINDINGS-researchshare.md: CDistributeResearch::Distribute's
+`test al, al; jne` at VA 0x51F726 takes a non-zero answer on to the leadership.
+
+### The `allow` block: the whole condition language, asked of the country (2026-11-14, the `techallow` agent)
+
+**What `+0x248` is.** CTechnology's constructor (rva `0x1339A0`, recorded with this reading as
+CTechnology::CTechnology, `__stdcall`, `ret 0x24`: this, a Hoi3CString key by value, the index;
+its callers allocate 0x318 bytes) builds a CTrigger **in place** at `+0x248` and then gives it
+CAndTrigger's vftable - an embedded "all of", not a pointer - and sets that trigger's
+`is_script_block` (`+0x3C`, so `+0x284` of the technology) to 1 at VA 0x533B39. The record's
+field `CTechnology +0x248 allow` is typed `void*`; it is the object itself. `confirmed`.
+
+**How it is filled.** CTechnology::LoadKey's `allow` arm (VA 0x53544D..0x535460) is
+
+    mov edx, [ebx+0x248] ; mov edx, [edx+0xC] ; lea ecx, [ebx+0x248] ; push parse ; call edx
+
+- slot 3 of the embedded trigger with the parse context, the block load every trigger uses,
+which hands each key to CTrigger::LoadKey and its default arm (FINDINGS-triggergrammar.md,
+sections 2 and 3). So **a technology's `allow` is read with the whole trigger grammar**, every
+one of the 153 keywords and every name kind, exactly as an event's `trigger` is. A second
+`allow` in one technology calls the same slot on the same object, so its conditions are
+appended. Because `is_script_block` is set, a key none of the six database lookups knows at
+parse time is deferred, and CTechnologyDataBase::LoadTechnologies calls
+CTrigger::ResolveDeferredKeys over every technology's `allow` once all are loaded - the reason
+the mechanism exists is one technology naming another later in the files; a key still unknown
+then is logged (`Failed to post process trigger dependency`, channel 0x10004) and dropped.
+`confirmed`.
+
+**The scope it is asked in.** CheckResearchAllowed (rva `0x135760`) builds a fresh CEventScope
+on its stack - CEventScope::CEventScope(&scope, seed 0, 0) - stores the country's tag chars and
+id from its arguments (VA 0x5357FD..0x535816) and nothing else, and calls slot 6 (vft+0x18) on
+the object at `+0x248`; `cmp al, 1; sete al`. **No province, no FROM, and the scope is its own
+root, so THIS is the country.** DescribeWhyNotResearchable (rva `0x135830`) builds the same
+scope for slot 9, which is why the requirement text and a decision's `allow` text are one
+routine (FINDINGS-techtext.md). An empty block holds: CAndTrigger::Evaluate over no children.
+`confirmed`.
+
+**So each condition answers as it does for an event asked of a country.** The six the base
+game's 213 blocks use, as already recorded elsewhere:
+
+| in the block | answers | where it was read |
+| --- | --- | --- |
+| `<technology> = N` | CTechnologyTrigger: the country's level of it `>=` N | FINDINGS-numtriggers.md |
+| `num_of_ports = N` | CNumOfPortsTrigger: `CCountry +0x105C >= N` - provinces the country **owns** (not holds) with a port and a naval base **built** (`level_max > 0`, however damaged), in its acting capital's area; made by CCountry::RebuildNeighbours, daily and on a diplomatic change | FINDINGS-scriptgaps.md section 1; FINDINGS-ministers.md A.6 |
+| `any_owned_province = { ... }` | the country's OwnedProvinces, true at the first province whose block holds | FINDINGS-scopetriggers.md |
+| `has_building = X` | the province's built level of X above nought; in a country scope with no province it reads province 0 | FINDINGS-triggerleaves.md |
+| `OR`, `AND`, `NOT` | as their names; `NOT` is a NOR | FINDINGS-triggereval.md |
+
+**A theory or practical is no condition.** The six lookups of Trigger_LoadDatabaseKey are a
+government position, a building, a technology (`GetTechnologyDataBase() +0x10`), a unit type,
+a law group and a combined-arms group; nothing looks up a technology category. So
+`infantry_theory = 3` in an `allow` is deferred, fails its replay, is logged and dropped.
+Neither Their Finest Hour nor BlackICE writes one (searched: every `allow` block under
+`tfh/technologies` and BlackICE's `technologies`, against `common/technology.txt`'s 33
+categories). `confirmed` for the lookups; the search is the positive-controlled kind - the same
+script finds the base game's 17 `radar` and 10 `num_of_ports`.
+
+**The custom game's ceiling** (0x41F500, its `+0x28`) is the one refusal that is not the
+block's, and only while the custom game settings are on.
+
+Not established: whether `CCountry +0x105C` is already counted when
+SetUpCountryLawsAndTechnologyForNewGame buys a new game's head start - it is made by
+RebuildNeighbours, and whether that has run for every country by then was not looked at. The
+head start's readers (FINDINGS-starttech.md section 5) used the save's ports and matched 627 of
+627 steps, which says the naval technologies' `num_of_ports = 1` did not change a pick, not
+which way the figure stood.
 
 ---
 

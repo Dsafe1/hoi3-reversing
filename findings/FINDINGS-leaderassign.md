@@ -316,7 +316,7 @@ what the save's `current_experience=2000.00000` shows on every skill-2 leader.
 
 ## Not established
 
-- `0x1B7F4E`, what an order of battle naming an unknown leader does.
+- ~~`0x1B7F4E`, what an order of battle naming an unknown leader does~~ - nothing: `CUnit::LoadKey` jumps to its epilogue (`FINDINGS-modifierkinds.md`, section 5, 2026-11-14).
 - The other four callers of `CUnit::AssignBestLeader` in section 8.
 - `AI_ReassignLeaders`'s scoring (`0x499500`) and when `ProcessAI` runs it.
 - `CContainer::AddEntry`'s order for a leader's history - whether "the first `rank` entry" of

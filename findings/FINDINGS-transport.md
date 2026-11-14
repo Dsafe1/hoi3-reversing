@@ -975,6 +975,52 @@ as its base the first hour, and lands with half its organisation (`FINDINGS-seaa
 
 **In port** nothing is special: the fleet's province is the land province, and the group is "at base" there.
 
+**In the order of battle, read 2026-11-14** by the `cagchain` agent (both `CUnit_AttachToParent` calls - `0x5ADCA6` in `CShip::LoadKey`, `0x593269` in `Start` - checked off the listing by the collecting session) (for OpenHOI3: the maintainer's screenshot of the original has the 5th Air
+wing aboard USS Ranger showing "CONUS East Theater" and "USS Ranger Taskforce" as its units above). **An air group
+aboard a carrier is its fleet's child in the order of battle**, and the panel shows the chain because of that, not
+because it asks the carrier:
+
+- **Reading.** `CShip::LoadKey` (VA 0x5ADBF0), the one key `air`, for an order of battle file and a save alike: a CAir,
+  `CUnit_SetOwner`, **`CUnit_AttachToParent(group, the ship's fleet)`**, `CUnit::SetBase(the ship's CUnitBaseCarrier at
+  +0xD8)`, the block's Load, `CCountry::AddUnit`. A ship with no unit reads the block and deletes the group.
+  (`FINDINGS-unitstart.md` had this in its evidence; the record's entry now says it.)
+- **Rebase to carrier** (`Start`, step 4 above): `CUnit_AttachToParent` - which appends the child to the parent's
+  +0x1E4 list, sets +0x1E0, lets go any agent of the child's own and marks the nearest agent above (replan, and regroup
+  air for an air child); the child leaves its old parent first (`CUnit_LeaveParent`, the AI told where the two nearest
+  agents differ). Only the owners and `parent->oob_level < child->oob_level` are tested; a fleet is 5, an air unit 6.
+  `CUnit_MayTakeSubordinate` refuses any naval or air subordinate under a commander above level 3, so the attach command
+  can never put an air unit under a fleet - only these two paths do.
+- **The panel.** `CSingleUnitPanel::Rebuild` (VA 0x762780) walks +0x1E0 from the unit's parent upward into a local list
+  and makes a `CParentUnitEntry` for each from the top; nothing else feeds it. `CUnit::CountChildrenShown` (VA
+  0x5B9B80) leaves an air child out where its base's slot 1 (IsCarrier) answers true, so a fleet's own list of units
+  under it never shows its carriers' groups - the list of what it carries does.
+- **Rebase to an airfield.** `CRebaseAirOrder::IsActive` (VA 0x595D90): where the base answers IsCarrier,
+  **`CUnit_LeaveParent(unit, true)`** (the record's "leaves it (0x5B9A30)") - out of the fleet, to the top of the order
+  of battle, not back to any commander it had - then `CUnit::SetBase` to the province's air base.
+- **The carrier sunk.** `CGameState::DisposeSubUnit` (VA 0x684CE0), read whole: each group is taken off the ship's list,
+  its base cleared, given a fresh null order, `CAir::CheckBase`, `CUnit::EnterProvince` - **and no `CUnit_LeaveParent`**:
+  it stays under the fleet (D.6 below already said so; the entry did not).
+- **The fleet removed.** `CGameState::RemoveUnit` (VA 0x684E40): after `LeaveAllCombats` and `CUnit_LeaveParent(unit,
+  true)`, **each child is `CUnit_LeaveParent(child, true)`** - left with nobody above it, never handed to the removed
+  unit's superior - and where the unit is a theatre (oob_level 0) the child's `orphaned` (+0x50) is set. For a fleet the
+  naval branch then walks each ship's carried list as D.1 above says (LeaveParent again, base, order, CheckBase).
+  **A fleet merged into another** (`CMergeCommand::Execute`: `CUnit_MergeInto`, then `RemoveUnit(from, false, true)`)
+  hands its ships, groups aboard, to the other fleet, and the removal then leaves each group - still the emptied
+  fleet's child until then - with nobody above it, aboard a ship of a fleet it is not under. That is the case the
+  outliner's "except an all-carrier-air-group unit whose base is a carrier" (`FINDINGS-outliner.md` A.4) and the panel's
+  "attach_button ... not all carrier air groups" (`FINDINGS-unitpanel.md` section 9) exist for.
+- **The save.** `CUnit::SaveContents` writes the children in list order and skips an air child whose base is a carrier
+  (its ship writes it, C.3 of `FINDINGS-savegame.md`); a group under a fleet whose carrier sank is not based on a carrier
+  and is written as one of the fleet's units, `air` inside the `navy` block. What `CUnit::LoadKey` then does with an `air`
+  key inside a `navy` block - hung under the fleet or only added to the country - was not read; no save has one.
+
+What follows from the tree and was not read separately, because each is a walk of +0x1E0 or +0x1E4 already in the record:
+the radio reach (`CUnit::IsOutOfRadioRange` walks every headquarters up to the top; a fleet as headquarters passes 1000,
+so a group is out of range where its fleet is), the order of battle browser (`COOBBrowser::AddSubtree` gives every child
+a row, so the groups stand under their fleet), the outliner (children under the fleet in Naval Units), the AI agent a
+unit answers to (`CUnit_FindNearestAgent`), `CUnit::HasAgentAbove`, and the `split_troops` rule that skips a fleet with
+units under it.
+
 ### D.2 Carrying by air
 
 **Who may board what: `CAir::MayLoad`** (0x5D07F0, rva 0x1D07F0), asked by `CLoadOnPlaneCommand::IsValid`. All of
@@ -1138,6 +1184,10 @@ troops needing them."
 - Only one's own country's carriers are offered or taken.
 - A **sunk** carrier's air groups stay children of its fleet in the order of battle. Only removing the whole fleet
   detaches them.
+
+- A fleet merged into another leaves its carriers' air groups aboard the ships that went over, with nobody above them:
+  `CUnit_MergeInto` moves the ships and `CGameState::RemoveUnit` then takes every child of the emptied fleet out of the
+  order of battle.
 
 ### D.7 Not settled
 

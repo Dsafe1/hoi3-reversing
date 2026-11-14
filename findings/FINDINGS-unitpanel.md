@@ -79,6 +79,12 @@ is rebuilt first (`CUnit::RebuildDefinition`), which is the debug switch that wr
 `CUnit::CountChildrenShown` counts the units directly under this one, leaving out an air unit
 that is aboard a carrier (its `home_base_ptr`'s slot 1).
 
+*The chain is the tree's and nothing else* (2026-11-14, the `cagchain` agent): the loop at the head of
+`CSingleUnitPanel::Rebuild` reads only `higher_oob_unit_ptr` (+0x1E0). An air group aboard a carrier shows its fleet and
+the fleet's superiors because it is the fleet's child - `CShip::LoadKey` and `CRebaseToCarrierMission::Start` both call
+`CUnit_AttachToParent` - which is also why `CUnit::CountChildrenShown` has to leave it out of the fleet's own list
+(`FINDINGS-transport.md`, section D.1, "In the order of battle").
+
 ## 3. The parents: `CParentUnitEntry`
 
 `0x74D4F0`. One button, `unit`, whose text is the unit's name (slot 7) -

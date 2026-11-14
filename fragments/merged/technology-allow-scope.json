@@ -1,0 +1,33 @@
+{
+ "agent": "techallow",
+ "question": "How the original evaluates a technology's allow block: the trigger machinery events use or a reader of its own, in which scope, and what the base game's conditions in it answer.",
+ "source": "reversing/findings/FINDINGS-research.md",
+ "addresses": [
+  {
+   "rva": "0x1339A0",
+   "kind": "function",
+   "name": "CTechnology::CTechnology",
+   "signature": "CTechnology* __stdcall CTechnology::CTechnology(CTechnology* this, Hoi3CString key, int index)",
+   "no_signature": null,
+   "comment": "**CTechnology's constructor.** 0x5339A0 to the `ret 0x24` at 0x533F8A (this, a 0x1C-byte Hoi3CString key by value, the index), answering `this` in EAX (`mov eax, ebx` at 0x533F7D). Its callers allocate 0x318 bytes - CTechnologyDataBase::LoadTechnologies for `notech` at VA 0x541407, `push 0x318` at 0x5413C5. In order: CTechStatistics's constructor on `this` (0x536B20); the vftable; the key into +0x20C and an empty name at +0x228; **the `allow` block built in place at +0x248 as a CTrigger, then given CAndTrigger's vftable** - an embedded object, not a pointer, which CTechnology::LoadKey's `allow` arm fills by calling its slot 3 with the parse context (VA 0x53544D..0x535460: `mov edx,[ebx+0x248]; mov edx,[edx+0xc]; lea ecx,[ebx+0x248]; push parse; call edx`), the same block load every trigger uses; **its `is_script_block` (+0x284, the trigger's +0x3C) set to 1** at 0x533B39, so a key no lookup knows is deferred and replayed by CTrigger::ResolveDeferredKeys after every technology is loaded; **`canUpgrade` (+0x314) set to 1** at 0x533B32, so `can_upgrade` defaults to yes; `Index` (+0x244) from the third argument; the key registered as a dynamic token (+0x208); and the name rendered from the key's localisation into +0x228. **There is no second embedded trigger at +0x2D8**: FINDINGS-triggergrammar.md section 3 read the +0x314 store as one, +0x3C past +0x2D8, and +0x2D0..+0x2DF is build_cost_ic_modifier. So a technology's `allow` is the whole condition language, as an event's trigger is.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-research.md",
+   "evidence": "Decompiled on a private copy (agent_techallow/load.txt): `puVar1 = param_1 + 0x92` (+0x248), `*puVar1 = CTrigger::vftable` then `*puVar1 = CAndTrigger::vftable`, `param_1[0xa1] = 0` then `= 1` (+0x284), `param_1[0xc5] = 1` (+0x314). disasm.py at 0x533B32: `mov byte ptr [ebx + 0x314], 1`, 0x533B39: `mov byte ptr [ebx + 0x284], 1`, 0x533B40: `mov dword ptr [ebx + 0x244], edx`. The call site 0x5413E4..0x541407 pushes 0 (ebx), reserves 0x1C bytes for a string built from 'notech', pushes esi (the 0x318-byte allocation) and calls 0x5339A0; the callee ends `ret 0x24` at 0x533F8A, 4 + 0x1C + 4. CTechnology::CanUpgrade (rva 0x1187D0) reads +0x314, which is what makes that store canUpgrade and not an is_script_block. Shown wrong by: a CTrigger-derived vftable stored at +0x2D8 anywhere in the constructor (there is none in the decompilation; +0x2D8 is zeroed as an int, `param_1[0xb6] = 0`)."
+  },
+  {
+   "rva": "0x135760",
+   "kind": "function",
+   "name": "CTechnology::CheckResearchAllowed",
+   "signature": "bool __thiscall CTechnology::CheckResearchAllowed(CTechnology* this, int tagType, int countryId, int level)",
+   "no_signature": null,
+   "comment": "**Whether a country may research a level of this technology: 1 when it may.** A level of -1 means the country's next one. It answers 0 when `additional_offset` (+0x2C0) is 0 and the level is above 1 or below 0 - **so additional_offset = 0 declares a single-level technology** - and 0 when the level exceeds `max_level` (+0x2C4); 0 when the custom game settings are on and their per-technology table (0x41F500, its +0x28) holds a figure above the level; and otherwise the technology's own `allow` block, [this+0x248] slot 6, evaluated in the country's scope, with `cmp al, 1; sete al`. `ret 0xC`.\n\n**The scope, read 2026-11-14:** a fresh CEventScope on the stack, CEventScope::CEventScope(&scope, seed 0, 0), with only its country tag and id set from the arguments - **no province, no FROM**, and it is its own root, so THIS is the country. The block is the embedded CAndTrigger CTechnology::CTechnology builds, loaded by the general trigger grammar, so **every condition the script language has works in it**, each answering as it does in an event asked of a country; an empty block holds (CAndTrigger::Evaluate over no children). DescribeWhyNotResearchable builds the same scope for the block's slot 9.\n\n**The polarity is settled.** CDistributeResearch::Distribute's `test al, al; jne 0x51f749` at 0x51F726 takes a non-zero answer on to where the leadership is given; a zero answer falls through to AdvanceResearch with no leadership. The name is BiceLib's.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-research.md",
+   "revises": "comment only: adds the scope the allow block is asked in - a fresh CEventScope with the country alone - and that the block is the general trigger, so any condition works",
+   "evidence": "Decompiled on a private copy (agent_techallow/gate8.txt): `CEventScope::CEventScope(&local_50, 0, 0); local_50.country_tag[0..3] = arg1.tag[0..3]; local_50.country_id = arg1.id; cVar1 = (**(code **)((int)this->allow + 0x18))(&local_50); return cVar1 == '\\x01';` - slot 6 at vft+0x18 on the object at +0x248, nothing else stored into the scope. DescribeWhyNotResearchable (rva 0x135830) does the same: `CEventScope::CEventScope(&local_60,0,0); local_60.country_id = countryId; local_60.country_tag = tag;` then vft+0x24 (slot 9) with (out, &scope, 0, 0). Shown wrong by: a store into the scope's province or FROM fields between the constructor and the call (there is none)."
+  }
+ ],
+ "struct_fields": [],
+ "frontier": [],
+ "slots_noted": "Neither function is a virtual: CTechnology::CTechnology is a constructor reached by direct calls, and CheckResearchAllowed is reached by direct calls and a luabind registration."
+}

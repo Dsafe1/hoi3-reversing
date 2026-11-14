@@ -405,7 +405,13 @@ break were read in their line builders here (`confirmed`).
    - otherwise the current row's `text` is set to the piece **unchanged** - no trim, so a wrapped
      continuation starts with whatever followed the dropped space, and **no colour is carried over**
      from the row before (the diplomacy status list carries one; this list does not). The row is
-     resized to **180** wide and as tall as its text box reports;
+     resized (window slot 25) to **180** wide and as tall as its text box reports - the box's slot 47,
+     `GuiObject_instantTextBoxType::GetSize`, which is `CGuiText::GetSize` (`0xB32650`): the font's
+     `GetTextSize`, **lines x lineHeight plus twice the border**, the second short taken. A piece has
+     no newline and is already narrower than maxWidth less an `O`, so it is one line: **14** in
+     `Arial12` (its `.fnt`'s `lineHeight=14`), border 0. Read 2026-11-14 by the `topbarpanel` agent
+     (`0x81ED7C`..`0x81EDC1`: `[edi+0x20]` slot 15 (`0x3C`) with 'text', the result's `[+0xBC]`,
+     `movzx eax, word [eax+2]`, `mov ecx,0xB4`, the row's `[+0x64]` with the pair);
    - **only if another piece follows**, a new empty row is made and added, and becomes current.
 4. The list is shown again.
 
@@ -419,7 +425,13 @@ What follows:
 - **There is always one empty row at the bottom.** Every line of the effects text ends in `\n`
   (`FINDINGS-techtext.md` sections 5 and 7), so the split ends with an empty piece; the row made
   after the last real line is never filled. It keeps the `detail_entry` window's declared size
-  (1024 x 16) and sits below the last line by the list's `spacing` (2).
+  (1024 x 16). *Corrected 2026-11-14*: this said it "sits below the last line by the list's spacing (2)"; the list is
+  in rows mode (`FINDINGS-listbox.md` section 2), where `spacing` plays no part.
+- **The rows stand a first row's height apart, 14, not 16.** Each row is added to the list (`InsertEntry`, which counts
+  rows as box height / the new entry's height) **before** its text is set and it is resized, so the rows are counted at
+  the file's 16 - `82 / 16`, five - while `GuiListBox::Layout` steps by the first entry's height at layout time, the 14
+  of a filled row (every technology with any effect fills the first row). With nothing at all to say, the one row keeps
+  16. `confirmed` from this routine and `FINDINGS-listbox.md` together; nothing measured on the original's screen.
 - **A technology with no effects shows one empty row**, the one made first.
 - A colour run broken by a wrap loses its colour on the continuation row.
 
@@ -496,7 +508,13 @@ level local pushed into the call at `0x81E83C`, and `0x81ECA4 cmp [esp+0x110],2`
 - **Whether `+0xB8` is a `CCountryView` byte**; `CDiplomacyView` uses the offset as a rebuild flag.
 - **Whether emptying the list resets its scroll.**
 - **Clipping.** The wrap allows lines up to 330 less one `O`, the list box is 310 wide and each row
-  is resized to 180; how a row wider than its list or its window is clipped was not read.
+  is resized to 180; how a row wider than its list or its window is clipped was not read. The draw list's scissor
+  (`CGraphics_DrawObjectList`, an object's byte `+0xF0`, the graphics' rectangle `+0x6BCE0`): `findRefs --address
+  0x6BCE0` gives two references, the graphics' constructor zeroing all four of `+0x6BCE0..+0x6BCEC`
+  (`0xA6F1BB`..`0xA6F1CD`) and the draw pushing its address for the device's `SetScissorRect` (slot 75, `0xA7357C`).
+  With the rectangle never written elsewhere a scissored object would draw nothing, so nothing seems to set the flag in
+  practice - `inferred` (2026-11-14); a write through a computed pointer was not excluded, and a byte scan for `mov byte
+  [reg+0xF0], ...` gives 132 sites that were not sorted.
 - **Which button event of a tree entry or queue line reaches its handler**; the tree entry's second
   handler (`0x818170`) was not read.
 - **The six CCgm commands' `Execute` bodies** beyond their call to slot 102.

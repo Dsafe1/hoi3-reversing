@@ -270,21 +270,7 @@ Then, for every country that owns at least one province and is given the control
 **It is a maximum, so a resource counts once however many provinces of it a country has the use
 of, at the best of them.** That much is the instruction itself.
 
-**That nothing lowers it is a scan's negative, not something watched.** Every instruction that
-reaches the array through its displacement is accounted for - the constructor's zero fill, the
-zeroing in the country reset (`0x4D2B60`), the destructor, three reads, and the raise above - and
-the reset is called from the constructor and, for every country, from `CGameState::ResetSession`
-(`0x67BDFC`). So by the scan a country that loses the province keeps the resource, at the best
-level it ever had, until the session is reset. What was not done:
-
-- a writer handed the array some other way would not show in such a scan;
-- three more stores of the displacement (`0x6478D1`, `0x705081`, `0x71283E`), which replace the
-  dword at `+0x678` itself, sit in `CInGameIdler::CInGameIdler` and two unnamed functions in the
-  interface's range and were taken to be other classes without proving it;
-- whether loading a save goes through the reset was not traced. A save does not store the levels;
-- **it has not been seen in a running game**, and no save examined has a resource province
-  changing hands. BiceLib could settle it by reading the array for a country before and after it
-  loses such a province.
+**Nothing else lowers it within a session, and a load resets it** - section 7.
 
 `RebuildStaticModifiers` step 9 then copies the resource's modifier, multiplies every value by
 `level / 1000`, and adds it.
@@ -310,10 +296,9 @@ faction's **leader at war** also gets the resources of outsiders aligned closely
 leader is the first of the faction's `Members`. `max_ic` is the province sum before the country's
 own bonuses (`FINDINGS-ic.md`).
 
-The second link was read as arithmetic only: `CollectSeaNeighboursOfNavalBases` gathers the
-non-land neighbours of each country's naval bases, `MarkRegionsTouched` marks which entries of the
-object at `CMap +0x2A5C` those provinces fall in, and the answer is yes when one entry is marked for
-both. What the entries are - named sea regions is the natural reading - was not established.
+The second link is the coast regions of `map/coastlines.txt` - section 7: `CollectSeaNeighboursOfNavalBases`
+gathers the non-land neighbours of each country's naval bases, `MarkRegionsTouched` marks which of those regions they
+fall in, and the answer is yes when one region is marked for both.
 
 ### When
 
@@ -348,10 +333,134 @@ minister appointed after the last day ran).
 
 ## 6. Not established
 
-- what the entries of `CMap +0x2A5C` are, and so exactly when two countries on different
-  continents share;
+- ~~what the entries of `CMap +0x2A5C` are, and so exactly when two countries on different
+  continents share;~~ - the coastlines' regions, section 7;
 - which script key writes province modifier entry 105;
 - whether anything fills the modifier at `CCountry +0x700`;
 - `0x4F7160`, the test for `fractured_government`;
 - what a faction's own modifier (`CFaction +0x7C`) is loaded from;
 - `0x4DD8D0`, the first helper of the country's daily pass.
+
+## 7. The coast regions, and whether a level is ever lost
+
+Read 2026-11-14 by the `searesources` agent for OpenHOI3's `docs/mechanics/modifiers.md`, section 6, settling the two things section 6
+left open; the store at 0x48F721 and the naval base test at 0x4E2F70 checked off the listing by the collecting session. Listings are virtual addresses (rva + 0x400000).
+
+| rva | name | new or revised | confidence | one line |
+| --- | --- | --- | --- | --- |
+| `0x8F4D0` | `CMap_LoadCoastlinesFile` | new | confirmed | reads `map/coastlines.txt` into a CCoastlines at CMap +0x2A5C |
+| `0x2E7B0` | `CCoastlines::Load` | new | confirmed | slot 3: every word of the block, as a name |
+| `0x2E960` | `CCoastlines::ResolveRegions` | new | confirmed | the names to regions, in region.txt's order, case-sensitive, once each |
+| `0x2EBD0` | `MarkRegionsTouched` | revised | confirmed | its entries are the coastlines' CRegion objects |
+| `0x28BD60` | `CollectSeaNeighboursOfNavalBases` | revised | confirmed | was inferred; NavalBases is controlled provinces with a base built |
+| `0x28BEF0` | `CCountry::GetsStrategicResourcesFrom` | revised | confirmed | the second link named |
+| `0x28C190` | `UpdateStrategicResources` | revised | confirmed | nothing lowers a level but a session reset, which a load is |
+
+| struct | offset | name | type | new or revised |
+| --- | --- | --- | --- | --- |
+| `CCoastlines` | - | the struct, 0x44 bytes over `CPersistent`, table 0x15B650C | | new |
+| `CCoastlines` | `+0x24` | `names` | `Hoi3CString*` | new |
+| `CCoastlines` | `+0x34` | `regions` | `CRegion**` | new |
+| `CMap` | `+0x2A5C` | `strategic_resource_coastlines` | `CCoastlines*` | new |
+| `CCountry` | `+0x678` | `strategic_resource_levels` | `int*` | revised - the session reset and the load |
+| `CCountry` | `+0xD80` | `NavalBases` | `CList<CProvince*>` | revised - what fills it |
+
+### The object at CMap +0x2A5C is map/coastlines.txt
+
+Every instruction with the displacement 0x2A5C (findRefs over .text, five hits): CMap::CMap's zero
+(0x48867C), a store at 0x48F721, the map teardown's delete (0x488B38), the read in
+GetsStrategicResourcesFrom (0x68C06E), and one mis-decode in the history loader. The store is in
+`CMap_LoadCoastlinesFile` (0x48F4D0, `ret 4`), which opens the path at CMap +0x217C - default.map's
+`coastlines` - and at each top-level `strategic_resource_coastlines` (token 0x7B6, 0x48F653):
+
+    0x48F65C  push 0x44 ; call operator new
+    0x48F6B5  mov dword ptr [esi], 0x15b650c         ; CCoastlines' vftable (RTTI)
+    0x48F6D2  mov [esi+0x24..0x2C], 0 ; mov [esi+0x34..0x3C], 0
+    0x48F715  call [vftable+0xC]                      ; slot 3, Load
+    0x48F71C  call 0x42e960                           ; ResolveRegions(object, map)
+    0x48F721  mov [edi+0x2a5c], esi
+
+Any other key is passed over. A second block of the key replaces (and leaks) the first. It is called once,
+by CMap::LoadMapFiles at 0x489F3C, straight after 0x48F750, which reads the path at +0x2160 (region.txt) -
+so the regions exist when the names are matched. Missing file or key: +0x2A5C stays null and
+GetsStrategicResourcesFrom's sea link is false (`je` at 0x68C076).
+
+`CCoastlines::Load` (slot 3, 0x42E7B0) appends the text of every token up to a closing brace or the end of
+the file to the vector of 0x1C-byte strings at +0x24 - nothing matched there.
+
+`CCoastlines::ResolveRegions` (0x42E960, `ret 8`):
+
+    for each region R of CMap +0x2A40..+0x2A44, in order        ; region.txt's order
+        for each name N of +0x24
+            if R.key (CRegion +0x18) has N's length and N's bytes   ; case-sensitive
+                append R to +0x34; go on to the next region
+    if (regions taken < names) log "Warning: Couldn't find some of the coastlines in region definitions."
+
+So the list is in region.txt's order, each region at most once; a name given twice warns although nothing
+is missing.
+
+Their Finest Hour's file, and BlackICE's and Dies Irae's, are the same three names:
+
+    strategic_resource_coastlines = { indian_coast_region atlantic_coast_region pacific_coast_region }
+
+whose region.txt blocks list 90, 256 and 215 sea zones along the three oceans' coasts (`indian ocean`,
+`french coast`, `pacific ocean` ... in definition.csv).
+
+`MarkRegionsTouched` (0x42EBD0) walks +0x34 and each region's province ids (CRegion +8..+0xC): out[k] = 1
+where one of them is the id (+0xD0) of a province in the vector given. GetsStrategicResourcesFrom sizes the
+two arrays by `(+0x38 - +0x34) / 4` - one int per coast region - and answers true at the first k set in
+both (0x68C127..0x68C130).
+
+### Which naval bases
+
+`CollectSeaNeighboursOfNavalBases` walks `CCountry +0xD80`, NavalBases, and for each province every edge of
+its template (+0x90, 20 bytes each, the neighbour at +4), keeping a neighbour whose template is not
+is_land. What NavalBases holds is filled in `CCountry::RebuildNeighbours`:
+
+    0x4E2F38  mov eax, [ebx+0xd00]          ; ControlledProvinces
+    0x4E2F6A  mov eax, [esi+0x300]          ; the province's naval_base building
+    0x4E2F70  cmp dword ptr [eax+0x20], 0   ; level_max
+    0x4E2F74  jle skip
+              ... append to +0xD80/+0xD84/+0xD88
+
+So **the provinces the country controls whose naval base was built to any level** - the built level, so a
+bombed base counts; owning is not asked, nor the faction, nor a port. RebuildNeighbours runs in each
+country's pre-daily pass - after UpdateStrategicResources, which is the first thing a day does - and at a
+change of hands, so a base finished in play is in the list from the next rebuild.
+
+### Nothing lowers a level within a session; a load resets it
+
+Section 4 rested this on a scan that set three stores aside unproven. Done again over the whole of .text,
+for **every instruction whose memory displacement or immediate is any of 0x674, 0x678, 0x67C, 0x680** (the
+vector's begin, end and capacity, and the dword before). Positive control: it finds the raise at 0x68C377
+and the three reads already known. Against a CCountry:
+
+| where | what |
+| --- | --- |
+| CCountry::CCountry, 0x4C8DB3, 0x4CA311 (resize, 0x4CA31B) | sized, zeros |
+| 0x4CB074..0x4CB093, in 0x4CA740 | freed and nulled: ~CCountry's body, whose one caller is the deleting destructor 0x4CA670 (CCountry slot 0) |
+| CCountry_Reset, 0x4D2BE2..0x4D2DCB | refilled: every entry set to 0 (`mov [eax+ecx*4], esi`, esi zero) |
+| RebuildStaticModifiers 0x4DE797, 0x4DE876; CProductionView 0x7FF0AF | reads of an element |
+| UpdateStrategicResources 0x68C377..0x68C38C | the raise |
+
+The rest are other objects' own fields at the same offsets - CInGameIdler::CInGameIdler (0x6478D1), CGameSetup
+(0x705081) and a lobby window (0x71283E, the three section 4 set aside), CFrontEnd::Reload (+0x680) - stack
+slots, token ids (0x674 is one) and the C runtime.
+
+CCountry_Reset is called by the constructor and by CGameState::ResetSession for every country (0x67BDFC),
+and **CGameState::LoadFromSave calls ResetSession first** (0x67CE58), then, after reading the file,
+UpdateStrategicResources (0x67CF9D). So:
+
+- **within a session a level is only ever raised**: a country that loses a resource province keeps the
+  resource at the best level it had (`confirmed`, by the scan);
+- **a load forgets it**: every level is set to 0 and worked out again from the provinces as the save has
+  them, so a resource lost before the save is gone after the load (`confirmed`).
+
+Not watched in a running game. A writer through a pointer handed out by one of the three reads would not
+show in the scan; none of the three stores through it.
+
+### Not established
+
+- whether a running game keeps a lost resource until a load - BiceLib or the Cheat Engine bridge reading
+  `CCountry +0x678` before and after a resource province changes hands, and after a load;
+- 0x48F750 (the region file's reader) is unnamed in the record.

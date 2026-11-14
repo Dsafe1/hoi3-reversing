@@ -638,7 +638,7 @@ none]. The colour is unpacked to floats (rva 0x662D30, byte / 255) and written b
 
 **Other selection marks, none of them a province's.** For a selected unit, the counter rings (`FINDINGS-hierarchy.md`
 section 6) and a `selection_projection` CUnit::OnSelected makes on the anchor (+0x10) of its province's graphics entry
-(interface/mapitems.gfx: gfx/test/selection.tga, size 5, spin 0.4, expanding 0.7 [mod]; read as far as the creation); a
+(interface/mapitems.gfx: gfx/test/selection.tga, size 5, spin 0.4, expanding 0.7 [mod]; only where alwaysCounters is off - FINDINGS-movement.md section 13.8); a
 right-click order's `legal_` / `illegal_selection_projection`; a building's picture's own highlight
 (CProvinceBuilding::OnSelected); the drag box, a white 2-pixel ID3DXLine.
 

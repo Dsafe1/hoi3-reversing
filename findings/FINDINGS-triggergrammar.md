@@ -105,8 +105,15 @@ are the 0x10-byte `std::vector<std::string>`s the constructor's `__ehvec_ctor` b
 `FINDINGS-scopetriggers.md` section 16.
 
 Who sets `+0x3C`: the block tail and the default arm's tail (rva `0x5C915B`, `0x5CAE09`), and
-`CTechnology`'s constructor (rva `0x1339A0`, unrecorded), by its stores, on its embedded triggers at
-`+0x248` (`allow`) and `+0x2D8` (rva `0x133B39`/`0x133B32`). Every constructor clears it.
+`CTechnology`'s constructor (rva `0x1339A0`, CTechnology::CTechnology), on its one embedded trigger, the `allow` at
+`+0x248` (the store at rva `0x133B39` to `+0x284`). Every constructor clears it.
+
+**Corrected 2026-11-14 (the `techallow` agent; checked off the listing by the collecting session): there is no second
+embedded trigger at `+0x2D8`.** The other store, rva `0x133B32`, is `mov byte ptr [ebx + 0x314], 1` - `canUpgrade`,
+which CTechnology::CanUpgrade (rva `0x1187D0`) reads, set to 1 so that `can_upgrade` defaults to yes. Reading it as an
+`is_script_block` put a trigger 0x3C before it, at `+0x2D8`, which the constructor zeroes as a plain dword among the
+run `+0x2C0`..`+0x308`. The constructor builds one CTrigger-then-CAndTrigger vftable pair, at `+0x248`
+(`FINDINGS-research.md`, the section on the `allow` block).
 
 **An event's own `trigger` block does not set it.** `CEvent::LoadKey`'s arm (`0x9BF47B`) calls the
 embedded `CAndTrigger` at `+0x30` through its slot 3 directly - `mov edx,[esi+0x30]; mov
@@ -419,9 +426,9 @@ give 0 on text that is no number, with no message.
   `CSubUnitTrigger` (`0x5DABE0`).
 - Whether a dynamic token's id can equal a compiled case's (`inferred` not: they are allotted after
   the compiled table).
-- The fourth dword of each deferred vector (`+0x28`, `+0x38`), and what `CTechnology`'s second
-  embedded trigger at `+0x2D8` is.
+- The fourth dword of each deferred vector (`+0x28`, `+0x38`), and ~~what `CTechnology`'s second
+  embedded trigger at `+0x2D8` is~~ - there is none (section 3).
 
-**Frontier:** `0x1339A0` (`CTechnology`'s constructor), `0x5C7D10` (the `CMission` database's
+**Frontier:** ~~`0x1339A0` (`CTechnology`'s constructor)~~ - read 2026-11-14, `0x5C7D10` (the `CMission` database's
 setter), `0x1D62B0` (the unit counter behind `subunit`), `0x5F59E0`, `0x5DABE0`, `0x6060C0`
 (`CHasHostileSpyMissionTrigger::Evaluate`), `0x669CA0` (`RegisterDynamicToken`'s ids).
