@@ -416,3 +416,21 @@ parser-buffer fragments, nothing writing them — fits trailing padding at least
 field is landed as **`unused_tail`** with the question marked open. The size correction, which
 is what the 63 signature revisions rest on, is unaffected: an array's stride is its `sizeof`
 whichever the answer is.
+
+## Four more, 2026-11-14
+
+The whole-image run had settled at four disagreements, each a parameter passed **by value** that the record had split or
+reduced to a pointer:
+
+| rva | function | was | is | the `ret` |
+| --- | --- | --- | --- | --- |
+| `0x488020` | `CEU3AI::CEU3AI` | `(this, CCountryTag tag, int countryId)` | `(this, CCountryTag tag)` | `ret 0xC`: this 4 + the tag's 8 |
+| `0x4AF530` | `CAIUnit::CAIUnit` | `(this, owner, CCountryTag tag, int countryId)` | `(this, owner, CCountryTag tag)` | `ret 0x10` |
+| `0x18C140` | `CBombRunwayOrder::MayBeGivenOver` | `(this, void* provinces)` | `(this, CList provinces)` | `ret 0x10`: a CList by value |
+| `0x191AD0` | `CPortStrikeOrder::MayBeGivenOver` | `(this, void* provinces)` | `(this, CList provinces)` | `ret 0x10` |
+
+The "country id" was the second half of the `CCountryTag` (its `id` at `+4`): `CEU3AI::CEU3AI` stores `[ebp+0xC]` and
+`[ebp+0x10]` at its own `+0x20` and `+0x24`, the two halves of a tag, and `CAIUnit::CAIUnit` hands the same two words to
+`CAIAgent::CAIAgent`, whose record already takes one `CCountryTag tag@stack:4`. The orders walk `[ebp+8]` as a list's first
+node and end with `CList_FreeAndClear` on `&[ebp+8]` - a `CList` (first, last, count, `no_unlink`, 0x10 bytes) handed over
+and freed by the callee. After the four, the whole image's run is **none disagree** again.
