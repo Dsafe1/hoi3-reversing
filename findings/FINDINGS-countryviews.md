@@ -672,6 +672,40 @@ bounded read of `+0x1090` at `0x81A649`..`0x81A666`.*
 
 ---
 
+## 7. The toggle, and the selection it clears (2026-11-14)
+
+Read on the listing after the maintainer saw OpenHOI3 keep a selection when a screen opened, where the original lets it go.
+VAs here.
+
+**`CInGameIdler::OpenCountryView(index)`** (`0x6656D0`, rva `0x2656D0`) is the one way a country screen comes up or goes
+down: the top bar's six buttons (`CTopBar::On...Button`, `0x6CEF46`..`0x6CEF96`: diplomacy 0, production 1, technology 2,
+politics 3, intelligence 4, theatres 5), the screen's own `close_button`, the alerts, a message's Goto, the selection-group
+keys, the in-game menu and some forty call sites in all. In order:
+
+1. where any screen is up (`0x665280`): it notes whether screen `index` is (slot 7), and every screen that is up gets
+   slot 5 and slot 4 (Hide); `bg_main_menus` (`+0x1914`) is hidden;
+2. `+0xCFC` = index, and `CInGameIdler_CloseSideMenus` (`0x665790`) - the deploy menu and the other side menus close;
+3. **where screen `index` was up**: the minimap and its two companions (`+0x1920`, `+0x1918`, `+0x191C`) are shown
+   again, and nothing opens - the toggle;
+4. **otherwise**: those three are hidden; where the statistics ledger is open (`+0x1CE0`) its page is noted
+   (`+0x1D40`), its close asked for (`+0x1D3D`) and `bg_main_menus` hidden; `CInGameIdler_ShowMenuBackground`
+   (`0x678610`); the screen's slot 8 and slot 2 (Show);
+5. on both paths: `diplomessageicons_window` (`+0x1D34`) slot 11; the top bar (`+0x1318`) slot 3; the custom game
+   settings' first byte decides between the top bar's `+0x20` slot 11 and `+0x131C`'s slots 5 and 2;
+6. **then, on both paths, `call [vtable+0xB8]` on the in-game screen at `0x6658F3` - slot 46,
+   `CInGameIdler::ClearSelection`**: the whole selection emptied (units and provinces, each deselected, so the unit
+   panels and the province view close) and the orders window closed.
+
+So **opening a country screen, or shutting it by any of these, clears the selection**. `confirmed`: the call is
+unconditional after the two paths join at `0x665845`.
+
+**`close_button`** is bound by `CCountryView::CCountryView` to the glue at `+0x7C`, whose handler is **`0x6EB290`**
+(rva `0x2EB290`): unless the view's `+0xB4` is set, where any screen is up, `OpenCountryView(idler +0xCFC)` - the screen
+that is up, so the toggle shuts it, and clears the selection.
+
+**The statistics ledger** (`0x673470`, `FINDINGS-topscreens.md` B.1) calls `OpenCountryView` on the current screen only
+where one is up, before it opens; opened over the map it clears nothing.
+
 ## What is not established
 
 - **Little was seen running.** Every format is from the bytes. The maintainer, who knows
@@ -707,4 +741,4 @@ bounded read of `+0x1090` at `0x81A649`..`0x81A666`.*
   adc edx,[0x1a8771c]`). It is in the part of the image that is not initialised, so its
   value cannot be read statically. If it is a rounding half, a share set exactly at its
   need is not red; if it is nought, it is, by the hair the share lost being stored.
-- **Which top bar button opens which view**, and whether opening one closes another.
+- ~~**Which top bar button opens which view**, and whether opening one closes another.~~ Section 7, 2026-11-14.

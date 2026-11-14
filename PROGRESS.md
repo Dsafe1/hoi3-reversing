@@ -488,7 +488,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CCounterStack` | `C3dVisibleObject` | 0x158 | 3 |  | 2 |  | 21,748 | part |  |
 | `CCountryEntry` | `CStandardlistboxItem` | 0x88 | 10 |  | 6 |  |  | read |  |
 | `CCountrySelectionItem` | `CStandardlistboxItem` |  |  |  | 1 |  |  | RTTI |  |
-| `CCountryView` | `CReloadableInterface` |  | 8 |  | 12 |  |  | read |  |
+| `CCountryView` | `CReloadableInterface` |  | 8 |  | 13 |  |  | read |  |
 | `CCountrylistItem` | `CStandardlistboxItem` | 0xC0 | 7 |  | 9 |  | 152 | read |  |
 | `CCreditsScreen` | `CFrontEndView` |  |  |  |  |  |  | RTTI |  |
 | `CCurrentModelEntry` | `CStandardlistboxItem` |  |  |  |  |  | 48 | RTTI |  |
