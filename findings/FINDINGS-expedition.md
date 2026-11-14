@@ -119,6 +119,17 @@ Pressing any of these rows opens `CExpeditionaryForceDialog` (FINDINGS-agreement
 
 **`CUnit::ReturnFromExpedition`** (recorded): leaves its parent, off the lender's lent list, `expeditionary_owner` cleared, off the host's units, `CCountry::AddUnit(lender)`, `CUnit_TransferChildren(unit, &lender, 1)` **with detachOnly set - its children are detached and left on the host's list as the host's own**, avatar rebuilt, province re-entered, intel reckoned, and `EXPRETURNED`/`EXPRETURNEDWE` where the local player is the lender or the host. (`ReturnFromExpedition` handles one unit; `CSendExpeditionCommand` is the route that recurses.)
 
+**The message's arguments, read on the listing 2026-11-14** (`0x5020E0`..`0x502BB3`, by the `messages` agent): the
+variables are `CCountry::BuildMessageVariables` of the player's country, then `ACTOR` = `CountryNameOfCountry(host)`,
+`RECIPIENT` = `CountryNameOfTag(lender)`, `MESSENGER` = `MESSAGE_HEAD_CHAN` and `NAME` = the unit's `GetName`. Both
+raises - `EXPRETURNEDWE` where the player is the host, else `EXPRETURNED` - are `CMessage(type, vars, the unit's province
+(+0x130, read after the hand-over), "", 0, first = the host, second = the lender, the unit's persistent id
+(+0x10/+0x14))`, the id written into the constructor's reserved arguments 11 and 12 (`0x5029D8`..`0x5029F0`), posted
+with `CMessageHandler::GotoUnitForMessage`. That Goto looks the unit up by its id in the persistent table, so it finds it
+whoever holds it - by then the lender - selects it and centres on its province; it answers false, so the popup closes.
+An annexed host's lent units are shattered by `CCountry::ShatterUnit` only after this, so the message's province is
+where the unit stood.
+
 **Coming home, the command route** (AI and only AI): `CSendExpeditionCommand` is posted only by `CAIUnit::ManageExpeditions` (give back, or lend) and `CEU3AI_SendLandlessUnitsOnExpedition`. Its Execute moves the unit immediately and recurses through `CSendExpeditionCommand_TransferSubtree`; no date wait, no message.
 
 **The end of a loan is never automatic on a change of diplomacy.** Reasons a unit returns: (1) the daily pass on an expired date; (2) `AnnexCountry` (host annexed - units lent to it and units it lent out are returned first; FINDINGS-surrender A); (3) `SetGovernmentInExile` (host in exile, for units lent to it standing where the controller is not its friend - returned and shattered; FINDINGS-surrender); (4) the AI's commands; (5) a save's load. **Nothing returns it when the lender leaves the alliance, the two go to peace or a war ends.** Search: `findRefs.py --callers 0x5020E0` gives exactly four callers (the daily pass, `AnnexCountry` twice, `SetGovernmentInExile`), and `findRefs.py --callers 0x5E95B0` three callers (all AI); the writers of `+0x290` over the image (fieldchain census, 153 sites in 111 functions) are `CUnit::CUnit`, `CUnit::LoadKey`, `CUnit::ReturnFromExpedition`, `CUnit_TransferChildren`, `CSendExpeditionCommand::Execute`/`_TransferSubtree`, and `Apply`. Positive control: the same census finds Apply's known writes at `0xA39F86` and `0x5E982C`.

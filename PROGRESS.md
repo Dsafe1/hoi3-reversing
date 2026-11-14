@@ -246,7 +246,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CNavalStrikeOrder` | `CAirOrder` |  |  |  | 5 |  | 1 | RTTI |  |
 | `CNavalTargetCombatant` | `CBombTargetCombatant` |  |  | 4/6 | 1 |  | 2 | RTTI |  |
 | `CNavalTransportOrder` | `CNavalOrder` |  |  |  | 3 |  | 3 | RTTI |  |
-| `CNavy` | `CUnit` |  | 3 |  | 16 |  | 1,738 | keys |  |
+| `CNavy` | `CUnit` |  | 4 |  | 16 |  | 1,738 | keys |  |
 | `CNukeMission` | `CAirOrder` | 0x84 | 1 |  | 11 |  |  | keys |  |
 | `CObjectType` | `CPersistent` |  | 5 |  | 1 |  |  | read |  |
 | `CObjective` | `CPersistent` |  | 8 | 1/4 | 1 |  | 9,637 | read |  |
@@ -559,7 +559,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CLostDeviceInterface` |  |  |  |  |  |  |  | RTTI |  |
 | `CMPCostComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CMasked3dFlag` | `C3dVisibleObject` |  |  |  |  |  |  | RTTI |  |
-| `CMessage` |  | 0x78 | 11 |  | 4 |  | 137 | read |  |
+| `CMessage` |  | 0x78 | 13 |  | 4 |  | 137 | read |  |
 | `CMessageSettingsItem` | `CStandardlistboxItem` | 0x68 | 3 |  | 2 |  |  | part |  |
 | `CMetaserverInterface` | `CLoginObserver` `CSessionInfoObserver` `CFrontEndView` |  |  |  |  |  |  | RTTI |  |
 | `CMicroAvailableItemsTab` | `CMicroItemsTab` |  |  |  |  |  |  | RTTI |  |

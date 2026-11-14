@@ -261,6 +261,27 @@ Banner Baltic Fleet at Murmansk, patrolling the Gulf of Riga, keeps 0.916 all da
 - The panel says `ORDER_PATROL_S` with `ACTION` either `PATROL_SHADOW` or `PATROL_SEARCH`
   (`0x59C680`).
 
+**`PATROLTRACK`, read whole** (2026-11-14 by the `messages` agent, decompiled `0x59CE10` and listed
+`0x59CE10`..`0x59D810`):
+
+- **"A new one"** is a test of persistent ids: the reference's id (`+0x4C`/`+0x50`) is copied to locals as the
+  function is entered, before the old shadow is let go, and the raise sits inside `if (saved id != the reference's id
+  now)`. So the same fleet found again the next hour raises nothing; one found after an hour of shadowing nobody - the
+  sighting roll having failed - raises it again, as does a switch between two fleets in one province.
+- **Who is told**: only where the game state's player id is the patrol's owner's (`+0x128`).
+- **The values**, in order: `CCountry::BuildMessageVariables` of the player's country; `MONARCHTITLE` =
+  `CCountry_GetRulerTitle` of the patrol's owner (the same country, so the title twice); `OUR_FLEET` = the patrol's
+  name (slot 7); `OTHER` = `CountryNameOfTag` of the shadowed fleet's owner; `OTHERS` = the shadowed fleet's own name
+  (slot 7) - which the log text "`$OUR_FLEET$ found $OTHERS$ fleet in $PROV$.`" reads as though it were a country's
+  adjective ("found Home Fleet fleet"); `PROV` = the shadowed fleet's province's name (its `+0x130`) - the patrol's
+  province too, the fleet having been found in its list.
+- **The message**: `CMessage(FindType("PATROLTRACK"), vars, the patrol's province (+0x130), "", 0, first = the patrol's
+  owner, second = the shadowed fleet's owner, the patrol's persistent id (+0x10/+0x14))` - the id in the constructor's
+  arguments 11 and 12, written into the reserved stack bytes (`0x59D7EF`..`0x59D808`) - posted with
+  `CMessageHandler::GotoProvinceForMessage`. So it carries the patrol, but its Goto centres on the province.
+- Their Finest Hour's `messagetypes.txt`: log, onmap, option yes; **popup no**; category `cat_combat`. The texts are in
+  `localisation/unit_messages.csv`; the header is `$chief_of_navy$ reports.`
+
 **A patrol tries the convoys too.** `ResolveConvoyRaid`'s call at `0x59C66B` is in this
 function - `CPatrolOrder`'s slot 14 by the vtable - and not in `CConvoyRaid`'s, where the record
 had it. Every twelve hours a patrolling fleet in no battle does exactly what a raider does.
@@ -560,7 +581,7 @@ such order, so **this is dead**. For kind 3, one walk sets flags for `0x6F9` and
 recorded, and independently `SumSubUnitCounts(attacker) x STRAT_AIR_RAIDER_FOUGHT_IMPACT / 5` through
 `AddConvoyImpact`. `FINDINGS-government.md` C.5's "naval convoy battle's first hour" row is right.
 
-**Not read**: `PATROLTRACK`'s values; whether the original's AI ever gives `0x592`; why `+0x110` is saved, no store to
+**Not read**: whether the original's AI ever gives `0x592`; why `+0x110` is saved, no store to
 it having been found inside the rounds.
 
 ## 10. Mission efficiency, and the penalty nothing reads
@@ -609,7 +630,7 @@ fleet's wait. So **`reduction_modifier` does nothing in this build.**
 - **`CUnit +0x94`**, the byte that keeps a fleet out of the reserve's exchange.
 - **`CProvinceTemplate`'s `simulated`** beyond its name.
 - **`CCountry`'s list of naval bases**: what puts a province on it and in what order.
-- **The message `PATROLTRACK`** (`CPatrolOrder::UpdateShadow`); the other three are section 9a.
+- ~~**The message `PATROLTRACK`**~~ - read 2026-11-14, section 4; the other three are section 9a.
 - **`0x463EC0`** and **`0x530600`**, the two statistics calls of the raid.
 - **Whether an interceptor really lies idle after its first return.** Read three ways - the
   listing of slot 14, the scan for a write that clears the byte, the air order's code that does

@@ -1,0 +1,68 @@
+{
+ "agent": "canmove",
+ "question": "The rest of the click's test, CUnit::CanMoveTo: what HasEdgeTo, the battle clauses, SeaConnected and the fleet's last loop ask, read whole for OpenHOI3's movement.md section 1; and the two strength counts and the sea-region test they rest on.",
+ "date": "2026-11-14",
+ "source": "reversing/findings/FINDINGS-movement.md",
+ "addresses": [
+  {
+   "rva": "0x1C2BA0",
+   "kind": "function",
+   "name": "CUnit::CanMoveTo",
+   "revises": "comment: the fleet's last clause corrected - the list at CNavy +0x2E4 is the fleet's carried land units, not its ships, and the answer is yes only where none of them has +0x140 (movement_order_remaining_provinces_count) above nought, the old text having it backwards; the edge clause said precisely (the target's own edges, asked only where the unit is land, in a sea province, and the target is land); hoi3-98's live note of 2026-11-14 and its slot-19 sentence kept as they were",
+   "signature": "bool __thiscall CUnit::CanMoveTo(CUnit* this, CMapProvince* province)",
+   "no_signature": null,
+   "comment": "**Whether this unit may be sent to that province**, virtual slot 35 (CUnit, CArmy and CNavy share the body; CAir overrides it to gate on cloud and then tail-calls this). In order: no unless slot 34 (MayStandIn) says yes; no where the unit is land (slot 15), stands in a sea province (path node is_land clear), the province is land, and the province's own edges (CProvinceTemplate::HasEdgeTo on the province's template, with the unit's province id) do not lead to the unit's sea - so a land unit aboard a fleet is sent only to the coast beside its sea; no where it has battles (+0x11C at least 1) and its CanRetreatToProvince slot (19) refuses the province. A land unit: no where CCountry::IsEnemy(country[province.controller], &owner, province) (the province form, rva 0x2F210 - an undeclared war covering the province counts) and its strength over GetTotalStrengthCeiling is under CUnit::ShatterThreshold; no where it is carried by no fleet (CArmy +0x300 == 0), IsEnemy(..., province), supply_received_percentage 0 and SupplyConsumption > 0; no where FuelConsumption > 0, IsEnemy(..., province) and fuel_received_percentage 0. Every unit: no where it has a path (+0x140 at least 1), battles, and a battle in the next province of its path (HasCombatIn with the path's first node). Yes for anything but a fleet (slot 16). A fleet: its own sea is its province, or where that is land the sea province its template names (+0xA4); no unless SeaConnected(province, own sea, &owner); then a walk of **the fleet's carried land units** (CNavy +0x2E4, the carrying list: node data at +0, next at +8) - **no where any of them has a path** (CUnit +0x140 above nought), yes at the end of the list. (Corrected 2026-11-14: this sentence used to say the list was the fleet's ships and that one with +0x140 above nought made it yes; the loop exits to the refusal on the first unit with a path, and FINDINGS-seaair.md section 5 had it right.) **It is the click's test** (CUnit::OrderToProvince: a refusal is the illegal_selection_projection and the error sound), not CMoveCommand::Execute's; the route (CPathFind::MayStep) then asks the same shatter, supply and fuel tests of every step with the tag form of IsEnemy and without the carried unit's exemption. So the shatter threshold does two jobs: below it a unit shatters when hurt, and below it a unit is neither sent nor routed into enemy ground. See reversing/findings/FINDINGS-shatter.md and reversing/findings/FINDINGS-movement.md, section 12.2. **Its battle clauses seen in play 2026-11-14** (FINDINGS-liveread.md, section 88): Armia Modlin, with the path 1749 and attacking there, refused its own province 1809. Slot 19, which the retreat clause asks, is CUnit::CanRetreatToProvince in CArmy's and CNavy's tables alike (read off both on the running game) and CAir::CanRetreatToProvince in CAir's.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled 0x5C2BA0 on a copy of Hoi3_v12.1.2 (agent_canmove/dec1.txt): the last loop is `p = *(AsNavy()+0x2e4); do { if (p == 0) return true; e = *p; p = p[2]; } while (*(e+0x140) < 1);` falling through to `return false`. +0x2E4 is the carrying list: CNavy::AddCarried appends the land unit there, SumTransportWeight is called with eax = fleet+0x2E4, and CNavy +0x2F0 is already recorded as that list's no-unlink byte; CShip is 0xF8 bytes, so a ship has no +0x140 at all. The edge clause reads `IsLand() == 0 || current.path_node.is_land != 0 || province.path_node.is_land == 0 || HasEdgeTo(province.path_node, current.id)`. Shown wrong by a listing in which the loop's exit goes to `mov al,1`.",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0x1D67C0",
+   "kind": "function",
+   "name": "EnemyLandStrengthIn",
+   "revises": "comment: the enemy test is CCountry::IsEnemy's province form with each unit's own province (an undeclared war covering it counts), the regiments are the unit's own list at +0x38, and the total is the raw thousandths summed over every unit and then divided by 1000 once (truncating); source moved to the movement write-up",
+   "signature": "int __stdcall EnemyLandStrengthIn(CList* units@EAX, CCountryTag asking@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "How much enemy land strength stands in a province, in whole points: over the province's Units list (CProvince +0x2B8), skipping naval and air units (slots 16 and 17), keeping each unit for which CCountry::IsEnemy(country[unit.owner (+0x128)], &asking, unit's own province (+0x130)) answers - the province form (rva 0x2F210), so a war nobody declared counts where it covers the province, and the rebels on either side - and adding up the strength (+0x5C) of each brigade on the unit's own list (+0x38). The sum of every unit's thousandths is divided by 1000 once at the end, an int division, so a province whose enemy land units total under 1.000 answers 0. Takes the list in eax and the asking country's tag on the stack, and cleans it itself. CUnit::CanRetreatToProvince (slot 19) asks it to be under 1. See reversing/findings/FINDINGS-movement.md, section 12.6.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled 0x5D67C0 (agent_canmove/dec3.txt): `if (!slot16() && !slot17() && CCountry::IsEnemy(countries[unit[0x4a]], &asking, (CMapProvince*)unit[0x4c]))` then a walk of unit[0xe] adding `*(node.data + 0x5c)`, and `return total / 1000`. 0x4a*4 = 0x128 owner id, 0x4c*4 = 0x130 current province, 0xe*4 = 0x38 the sub-unit list. Shown wrong by a call to the tag form (0x42F1B0) in the listing.",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0x1D69C0",
+   "kind": "function",
+   "name": "EnemyAirStrengthIn",
+   "revises": "comment: spelled out - the enemy test is inlined (a war in the owner's pair record towards the asker, REB on either side, or the owner's undeclared war towards the asker covering the unit's province), and the total is the summed thousandths divided by 1000 once",
+   "signature": "int __stdcall EnemyAirStrengthIn(CList* units@EAX, CCountryTag asking@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "How much enemy air strength stands in a province, in whole points: over the province's Units list, the air units only (slot 17), and of those the ones whose owner (+0x128) is not the asker and either has a war in its pair record towards the asker (CCountry diplomacy[asking]->War), or the asker or the owner is REB, or the unit has a province (+0x130) and the owner's undeclared war towards the asker covers it (UndeclaredWarCoversProvince) - CCountry::IsEnemy's province form written out in place. Adds the strength (+0x5C) of each wing on the unit's own list (+0x38) and divides the sum of thousandths by 1000 once at the end. CAir::CanRetreatToProvince (slot 19) asks it to be under 1. See reversing/findings/FINDINGS-movement.md, section 12.6.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled 0x5D69C0 (agent_canmove/dec4.txt): `if (slot17()) { c = countries[unit[0x4a]]; if (asking.id != c.id && (c->Diplomacy[asking.id]->War != 0 || asking is REB || c is REB || (unit[0x4c] != 0 && c->Diplomacy[asking.id]->undeclared_war != 0 && UndeclaredWarCoversProvince(war, unit[0x4c])))) sum += wings' +0x5c }` and `return sum / 1000`. Shown wrong by a listing where the REB tests read the unit's tag rather than the country's.",
+   "source": "reversing/findings/FINDINGS-movement.md"
+  },
+  {
+   "rva": "0xA7F80",
+   "kind": "function",
+   "name": "SeaRegionsConnected",
+   "revises": "comment and confidence: read whole - its branches in order, one way only, the defines' map entries it asks, and the three globals named (they are the regions looked up by name, already recorded); inferred -> confirmed",
+   "signature": "bool __stdcall SeaRegionsConnected(CMapProvince* from, CCountryTag* country, CMapProvince* to)",
+   "no_signature": null,
+   "comment": "**Whether closed waters cut one sea off from another for a country, one way.** With f and t the first region of `from` and `to` (CMapProvince +0x358 head's region, 0 where the count +0x360 is 0) and closed(X) = WaterIsClosed(the province of the defines' map entry X, country): f == t -> true. f == g_black_sea_region: closed(BLACKSEA, map[6]) -> false; t == g_mediterranean_region or t == g_black_sea_region -> true; closed(GIBRALTAR, map[8]) and closed(SUEZ, map[0]) -> false; else true. Otherwise: f == g_baltic_sea_region and closed(BALTIC, map[4]) -> false; f != g_mediterranean_region -> true; t == g_black_sea_region -> !closed(BLACKSEA); t == g_mediterranean_region -> true; closed(GIBRALTAR) and closed(SUEZ) -> false; else true. The three globals are the regions named black_sea_region, baltic_sea_region and mediterranean_region in map/region.txt (rva 0x1685588, 0x168558C, 0x1685584), so a region missing from a mod's file leaves its global null - the value a province in no region compares as - and every such sea is then taken for that one. One way only: SeaConnected (rva 0xA7D70) asks it (to, from) and then (from, to). Into the Baltic or the Mediterranean is never refused this way; out of them is. The name is ours. See reversing/findings/FINDINGS-seaair.md, section 5, and reversing/findings/FINDINGS-movement.md, section 12.6.",
+   "confidence": "confirmed",
+   "evidence": "Decompiled 0x4A7F80 whole (agent_canmove/dec3.txt): the branch structure above, `pCVar4 = GetDefines()` and `WaterIsClosed(g_CMap->provinces[pCVar4->map[6]], country)` for BLACKSEA, map[8] and *map (map[0]) for GIBRALTAR and SUEZ, map[4] for BALTIC; definesMap.py --block map gives +0x0 SUEZ, +0x10 BALTIC, +0x18 BLACKSEA, +0x20 GIBRALTAR. Shown wrong by a listing in which the Black Sea branch's GIBRALTAR/SUEZ test is reached for t == g_mediterranean_region.",
+   "source": "reversing/findings/FINDINGS-seaair.md"
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CNavy",
+   "offset": "0x2E4",
+   "name": "carrying_first",
+   "type": "CListNode<CUnit*>*",
+   "comment": "Head of the fleet's `carrying` list - the land units it carries, each node {data +0, next +8}; +0x2F0 is the same list's no-unlink byte. CNavy::AddCarried appends to it, SumTransportWeight is called with eax = fleet + 0x2E4, and CUnit::CanMoveTo refuses a fleet while any unit on it has a path (CUnit +0x140 above nought). See reversing/findings/FINDINGS-movement.md, section 12.2.",
+   "source": "reversing/findings/FINDINGS-movement.md",
+   "evidence": "CUnit::CanMoveTo's last loop walks *(AsNavy()+0x2e4) as nodes with data at +0 and next at +8 and reads each data's +0x140; CNavy::AddCarried's record says it appends a node at the tail of the fleet's +0x2E4 list; CNavy +0x2F0 is recorded as the fourth member (no_unlink) of that list. Shown wrong by a CNavy::CNavy that stores something other than null into +0x2E4."
+  }
+ ],
+ "slots_noted": "Slot 35 of CUnit, CArmy and CNavy is already recorded as CanMoveTo under vftable_slots; this fragment only corrects the comment."
+}

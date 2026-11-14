@@ -154,12 +154,76 @@ first.
   limit`; otherwise `\n` and the word, with L = w. Then w = 0 (`0xAFADAC`).
 - At the end: where `L + 2b < limit` the word goes out, otherwise `\n` and the word. The word alone is never tested.
 - The newline and space breaks count lines, and the loop stops at 55 (`cmp 0x37; cmovge`, four places).
-- **Placement**: with `fit` the texture is the box's size, rounded up to powers of two - left at the border, centre at
-  `maxWidth/2 - w/2` with no border, right at `maxWidth - borderX - 1 - w`; without `fit`, at the border whatever the
-  format. Lines step down by `+0x494` from the texture's top less borderY; with a background the text is centred
-  vertically.
+- **Placement**: section 2.2.1.
 
-How the display object draws the texture was not read, so a clip at maxHeight is likely, not established.
+#### 2.2.1 Where slot 6 places the lines, and how much of its picture is shown (read 2026-11-14, the `textplace` agent)
+
+Read off the listing of `0xAFA610` from the end of the breaking loop (`0xAFAEC3`) to the glyph loop (`0xAFB584`), the
+newline arm of that loop (`0xAFB99C`..`0xAFBA2C`), `CTextSprite::RenderText` (`0xAB5190`) around its call of slot 6
+(`0xAB57CB`..`0xAB5934`), and the routine it ends in, `0xAB61F0`, which makes the quad the picture is drawn with.
+
+**`fit` is an argument, and it is the box's `fixedsize`** - *corrected*: this said only that a maxHeight not 0 sets it.
+RenderText pushes, last to first: `!fixedsize`, `1`, fixedsize (`[ebp+0x2c]`), the format, the border, the height, the
+width, the background, the text, the size, the texture size and the texture (`0xAB58BB`..`0xAB58FC`). Slot 6 then sets
+the byte to 1 where the width and the height are both given (`0xAFA6B4`), and makes a width of 0 into 320 leaving it as
+it came (`0xAFA6BA`). So:
+
+    fit = fixedsize || (maxWidth != 0 && maxHeight != 0)
+
+and a box of fixed size with no width is laid out at 320 *and* fits. (The arm RenderText takes where its `+0x20C` - the
+template's `+0x94`, a count of frames - is above 1 passes `fit = 1` and a quarter of the width; no box of the base game
+was seen to take it.) The last two arguments, `1` and `!fixedsize`, are still not seen read.
+
+**The size of the picture** (`0xAFAF55`..`0xAFAFFA`), with n lines and h the font's line height (`+0x494`):
+
+    W = fit ? maxWidth (320 where it was 0) : widest + 2 * borderX
+    H = fit && maxHeight != 0 ? maxHeight : n * h + 2 * borderY
+    texture = the next power of two at least W, and at least H
+
+**What is shown of it**, written through slot 6's third argument and kept by RenderText at `+0x1FC`/`+0x200` (the
+texture's own size at `+0x204`/`+0x208`, `0xAB5914`..`0xAB592E`):
+
+    shown = fit ? (W - borderX,  maxHeight != 0 ? maxHeight - borderY : H)
+                : (W, H)
+
+`0xAB61F0` (this in EDI) makes the four corners from the shown size: across from c to (shown width / frames) - a - 1,
+up from b to shown height - d - 1, with texture coordinates from c / texture width to (shown width - a) / texture width
+and from d / texture height to (shown height - b) / texture height - a, b, c and d being four words at
+`+0x17A`..`+0x180` that only the object's slots 56 and 57 write (`0xAB5A90`, `0xAB5AC0`) and that are nought for a box
+nobody crops (inferred; who calls the two was not followed). **So only the shown part of the picture reaches the screen:
+a `textBoxType`'s lines past its `maxHeight` less its `borderSize` y are cut off, and so is anything right of its
+`maxWidth` less its `borderSize` x.** The quad spans one unit less than the texels it shows, each way; whether pictures
+do the same was not read.
+
+**The lines** (`0xAFB4D2`..`0xAFB55F` for the first, `0xAFB99C`..`0xAFBA2C` at each newline): in the texture's space,
+y upwards from its bottom,
+
+    top = texture height - borderY                      ; borderY down from the picture's top
+    where fit and there is a background:
+        top = texture height - (H - n * h) / 2          ; cut towards nought: cdq; sub; sar 1
+    x   = fit && format 2 (centre) : W / 2 - width / 2  ; each half cut towards nought, no border
+          fit && format 1 (right)  : W - borderX - 1 - width
+          otherwise                : borderX            ; without fit, every format
+    each later line: top -= h, x by the same rule with that line's stored width
+
+So the centring up and down is **(H - text height) / 2 from the picture's top, with no border in it**, and only where
+the box fits. "A background" is the box's `textureFile` - RenderText resolves it against the graphics' texture table into
+`+0x1A0` (an empty name taking the template's own, `+0x150 +0x74`), and slot 6 tests that pointer (`[ebp+0x18]`). A
+glyph's corners are then placed as slot 8 places them: `x + xoffset + 0.5`, `top - yoffset + 0.5` (`movsd
+xmm0,[0x160A350]` = -0.5, subtracted). There is no orientation in any of it: the box's orientation places the picture,
+not the text in it.
+
+**The background is drawn into the same picture, under the text**, by `0xAFDAC0` (`__cdecl`, five arguments: the
+device, the border, the texture size, the size and the size the caller held before): a vertex buffer of `0x36` vertices
+drawn as 18 triangles (`DrawPrimitive(D3DPT_TRIANGLELIST, 0, 0x12)` at `0xAFB3C3`) - nine quads, likely the picture's
+nine parts kept to the border at the corners - every position less half a pixel (`subsd 0.5` at
+`0xAFE51E`/`0xAFE539`), with alpha blending off while it is drawn (`SetRenderState(0x1B, 0)` at `0xAFB36E`) and the
+render target cleared to `0x00FFFF99` first.
+
+Base game and Their Finest Hour, layered: of 341 `textBoxType`s, 18 do not fit (16 in `metaserver.gui`, two in
+`settings.gui`, among them `MustRestartTextBox`, centred, which therefore starts at its border); four have a picture and
+fit - `console_text`, `ChatMemberText`, `ToolTip` and `FPS_Counter` - and the tooltip is filled through `SetTextToFit`
+with no height, so it does not fit and its picture does not centre it.
 
 ### 2.3 `CTextLayout::BuildLines`, `0xACCB10` (rva `0x6CCB10`) (read 2026-11-14)
 
@@ -236,6 +300,9 @@ table the other fonts fall back to was not read.
 - **The global colour table** at `0x1B211A8`: who fills it and with what.
 - ~~**Button captions.**~~ Slot 8, through a `CGuiText` of their own (section 1); the box `GuiButton_Construct` passes
   was not read.
-- Whether a `textBoxType` clips its lines at maxHeight (section 2.2).
+- ~~Whether a `textBoxType` clips its lines at maxHeight (section 2.2).~~ It shows only its `maxWidth - borderX` by
+  `maxHeight - borderY` of its picture (section 2.2.1), read 2026-11-14. Left: who calls the display object's slots 56
+  and 57, which crop it; whether a picture's quad is also one unit short of its texels each way; and the arm of
+  RenderText taken where the template counts more than one frame.
 - Whether an instant box cuts again when its text is set after it was made: no `CGuiText` virtual reads `+0x1B8`.
 - Who writes slot 19's byte (the escape switch), slot 6's last two arguments, and what `¤` draws.

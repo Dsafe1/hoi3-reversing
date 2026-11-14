@@ -252,8 +252,9 @@ line".
     free   = thousandths(percentage * factor * lend_lease_ic)
     this->+0x20 (an __int64, fixed 15) = 0 ;  country->upgrade_cost (+0xAA4) = 0 ;  spent = 0
 
-    list: first the country's second list (+0xBBC), then its own units (+0xBAC) less those with
-          an expeditionary owner; each needs upgrade_active (+0xA5); +0xA4 puts one at the front
+    list: first the country's second list (+0xBBC, the units it lent out), then its own units (+0xBAC)
+          less those with an expeditionary owner - the reverse of reinforcement's order; each needs
+          upgrade_active (+0xA5); +0xA4 puts one at the front
 
     status = country->technology_status
     host   = a government in exile: the technology_status of the first member of its faction
@@ -282,7 +283,8 @@ line".
             node->progress += progress
             if (node->progress >= 1000)
                 node->progress = 0 ;  node->level += 1 ;  a level was gained
-                if (technology->change && the unit is not on loan to this country) brigade->builder = brigade->owner
+                if (technology->change && unit->expeditionary_owner.id (+0x290) != country->id (+0xCA8))
+                    brigade->builder = brigade->owner (+0x94)        ; 0x51D48F..0x51D4CD
             spent += pays ;  budget -= pays
         country->upgrade_cost += daily
         the brigade is upgrading
@@ -307,6 +309,13 @@ In words:
   brigade lists, and divided again by how many levels behind it is.** So being further behind
   costs no more a day, and a brigade behind in everything by one level pays half its build
   cost a day until it has caught up.
+- **A whole level of a technology with `change` makes the brigade's owner its builder** (`CSubUnit +0x34`), which is
+  where nearly every `builder` in a save comes from; a doctrine names nobody, and a unit the country lent out keeps
+  whatever builder it had. The owner (`+0x94`) is its unit's (AddRegimentToUnit, CUnit_SetOwner), so for a lent unit the
+  host. *Corrected 2026-11-14*: the line above read "the unit is not on loan to this country", which is the test the
+  wrong way round - the units it fails for are the ones this country lent out, walked through `+0xBBC`; a unit lent *to*
+  this country is not in its list at all. `FINDINGS-unitpaneltooltips.md`, section 13, has the saves it was checked
+  against.
 - **A technology with `change = no` - a doctrine - costs nothing and takes a day a level**,
   whatever the share is given, including nothing. **One with `can_upgrade = no` is never
   brought up at all**: 19 of Their Finest Hour's technologies say so.

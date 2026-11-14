@@ -72,11 +72,19 @@ the batch once a frame, out of `Present` and never nested.
     4      the province                              -> +0x44
     5      a head string, which `ShatterUnit` passes **empty**
     6      zero                                      -> +0x70
-    7,8    the game state's player tag and id        -> +0x34, +0x38
-    9,10   the country's +0xCA4 and +0xCA8           -> +0x3C, +0x40
-    11,12  two zeroes                                -> +0x68, +0x6C
+    7,8    the first country's tag and id            -> +0x34, +0x38
+    9,10   the second country's tag and id           -> +0x3C, +0x40
+    11,12  a unit's persistent id, or two zeroes     -> +0x68, +0x6C (unit_type, unit_id)
 
 Arguments 11 and 12 are not pushed: they are eight bytes reserved below the ten that are.
+
+**Corrected 2026-11-14** (the `messages` agent; the stores at `0x69AB31`/`0x69AB37` checked by the collecting session):
+this had 7 to 10 as "the player" and "the country", after `ShatterUnit`'s use, and 11 and 12 as always zero. The caller
+reserves the eight bytes (`sub esp,8`) and fills them by `mov`: `CCountry::ShatterUnit` with zeroes, but
+`CUnit::ReturnFromExpedition` (`0x5029D8`..`0x5029F0`) and `CPatrolOrder::UpdateShadow` (`0x59D7EF`..`0x59D808`) with
+the unit's `+0x10`/`+0x14`. `CMessageHandler::GotoUnitForMessage` (`0x2996F0`) reads them: both zero means no unit and
+nothing happens; otherwise `FindPersistentById` in the high or low table by type (`< 0x1269`), then `ClearSelection`,
+`Select` and `CentreOnProvince` on the in-game screen, answering false.
 
 The head was read as `MESSAGE_HEAD_MARS` at first. It is not: `0x100DB5` builds that
 string from a **zero length**, and the pointer it builds it from is the padding after

@@ -1,0 +1,72 @@
+{
+ "agent": "textplace",
+ "question": "Where a textBoxType's font places its lines (slot 6), what a background is and how the vertical centring is worked, and how the picture is drawn on screen - whether lines past maxHeight are cut.",
+ "source": "reversing/findings/FINDINGS-textdraw.md",
+ "addresses": [
+  {
+   "rva": "0x6FA610",
+   "kind": "function",
+   "name": "CEU3BitmapFont::DrawTextToTexture",
+   "signature": "void* __thiscall CEU3BitmapFont::DrawTextToTexture(CEU3BitmapFont* this, void* texture, float* textureSize, float* size, Hoi3CString* text, void* background, int maxWidth, int maxHeight, int* border, int format, bool fit, int unread1, int unread2)",
+   "no_signature": null,
+   "comment": "**Slot 6 of CEU3BitmapFont: lays a textBoxType's text out and draws it into a texture of its own** - how every textBoxType is drawn, through its display object (CTextSprite::RenderText, 0x6B5190); an instantTextBoxType goes through slot 8 instead (CEU3BitmapFont::DrawText). `ret 0x30`. Empty text and no background: the old texture released, null returned. **maxWidth 0 becomes 0x140 (320); otherwise a maxHeight that is not 0 sets `fit` - which comes in as the caller's argument, the box's fixedsize, so fit = fixedsize || (maxWidth && maxHeight).** **The line breaking**, a character at a time, L the line's width and w the word's: every character goes into the word first. Where the font's slot 19 answers true (the byte at +8, the escape switch; true for the game's fonts, since the top bar's colours reach the screen through a textBoxType): a7 takes the next character and adds nothing; '@' takes three and adds FlagIconWidth; '{' two and adds 8; a3 the letters and underscores after it and adds CounterIconWidth; a4 adds 16 - each to L only, not to w - and then, **for every character, these and the plain ones alike, before its glyph is counted: where limit <= L + 2*border.x, '\\n' and the word go out** (a break before the word gathered, the current character in it), the broken line's width stored as L - n - w (n the picture's width, -1 for a plain character) and **L = n + w with w kept** - so after a break in a plain word L is one short of the line, and w, never set back there, carries on over the lines: a word wider than the box goes on a character to a line. A plain character then: no glyph - '\\n' or '\\r': where L + 2*border.x < limit the word goes out and the line ends (w = 0), otherwise '\\n' and the word (a break before the word, then the newline), w kept; L = 0; any other glyphless character is passed over. A glyph adds its xadvance and kerning with the next byte to L and w; **a glyph of height 0 (the space) goes out with its word where nothing has gone out yet (the result's length is 0) or L + 2*border.x < limit, else '\\n' and the word, L = w**; then w = 0. **At the end: L + 2*border.x < limit, the word goes out; otherwise '\\n' and the word**, with no test of the word alone. Each newline and space break counts its lines and at 55 (cmp 0x37, cmovge) the loop ends. So against slot 8: a line that reaches the box breaks (>= where slot 8 has >), a plain word goes down as soon as the line reaches the box with no 50-wide floor and no test of anything laid out, and a first word reaching the box still leaves the first line empty. **The picture**: W = fit ? maxWidth (320 where 0) : widest + 2*border.x; H = fit && maxHeight ? maxHeight : lines*h + 2*border.y (h = +0x494); the texture each made the next power of two. **What is shown of it**, written to the third argument: fit ? (W - border.x, maxHeight ? maxHeight - border.y : H) : (W, H) - the display object draws only that part (CTextSprite_BuildQuad, 0x6B61F0), so a textBoxType's lines past maxHeight - border.y are cut off. **The lines**, in the texture's space with y upwards: top = texture height - border.y, or, **where fit and there is a background** (the fifth argument, the box's textureFile), texture height - (H - lines*h)/2, the half cut towards nought and no border in it; x = border.x set left, **W/2 - width/2 set centre - no border**, W - border.x - 1 - width set right, each half cut towards nought; **without fit border.x whatever the format**; each later line h lower, by its stored width. A glyph's corners then take +0.5 as in slot 8. No orientation term. **The background is drawn into the same texture first** (0x6FDAC0: nine quads, 18 triangles, alpha blending off, after a clear to 0x00FFFF99). The two last arguments (1 and !fixedsize from RenderText) are not seen read. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-textdraw.md",
+   "revises": "fit is the caller's fixedsize as well as width-and-height; the size shown, the vertical centring's arithmetic and the background's drawing read",
+   "evidence": "RenderText pushes `sete cl` of [ebp+0x2c] (!fixedsize), 1, then [ebp+0x2c] itself as slot 6's tenth argument (0xAB58BB..0xAB58CE). In slot 6: `mov byte ptr [ebp+0x2c],1` at 0xAFA6B4 only where [ebp+0x20] != 0; W/H at 0xAFAF5C..0xAFAF87 (`mov esi,[ebp+0x1c]` under fit, `lea esi,[esi+ecx*2]` without); the shown size written through [ebp+0x10] at 0xAFAFAA..0xAFAFCB (`sub ebx,[edx]` = W - border.x; `sub ecx,[edx+4]` = maxHeight - border.y); the placement switch at 0xAFB4E4..0xAFB55F (`dec eax` for right; `sub eax,[esp+0x70]; cdq; sub eax,edx; sar eax,1; sub ecx,eax` for the background, inside the fit branch) and its repeat per newline at 0xAFB9A4..0xAFBA28. Background: SetTexture(0, [ebp+0x18]) at 0xAFB359, SetRenderState(0x1B, 0) at 0xAFB36E, `call 0xafdac0` at 0xAFB388, DrawPrimitive(4, 0, 0x12) at 0xAFB3C3. Wrong if [ebp+0x2c] is not the box's fixedsize - it is RenderText's last argument, which the record already reads as fixedsize."
+  },
+  {
+   "rva": "0x6B5190",
+   "kind": "function",
+   "name": "CTextSprite::RenderText",
+   "signature": "void __thiscall CTextSprite::RenderText(CTextSprite* this, void* graphics, Hoi3CString* text, Hoi3CString* font, Hoi3CString* textureFile, int width, int height, int borderX, int borderY, int format, bool fixedsize)",
+   "no_signature": null,
+   "comment": "**Slot 60 of the object a textBoxType draws through** (vftable 0x1600F58, 0x310 bytes, no RTTI - the class name is ours; made by the box's constructor through the graphics, 0xA6FFB0, and kept at GuiObject_textBoxType +0x4C). `ret 0x28`. Keeps the text (+0x1BC), the font name (+0x1D8), the size (+0x1AC/+0x1AE) and border (+0x1B0/+0x1B4), the format (+0x210) and fixedsize (+0x309); resolves the textureFile against the graphics' texture table (an empty one taking the type's own, +0x150 +0x74) for the background (+0x1A0) and its size; finds the font by name (graphics +0x88, then +0x94). Where fixedsize is set and the width or height is 0 and there is a background, that dimension is the background's less the border - once: width less border x, height less border y. **Where fixedsize is set and the height is not 0, the text is first cut by the font's slot 12 (CEU3BitmapFont::FitTextWithEllipsis).** Then the font's slot 6 (CEU3BitmapFont::DrawTextToTexture) renders it into the object's texture (+0x1F8), **fixedsize handed on as its `fit`** with 1 and !fixedsize after it; the size it says is shown is kept at +0x1FC/+0x200 and the texture's at +0x204/+0x208, and CTextSprite_BuildQuad (0x6B61F0) makes the quad of the shown part. Where the template's +0x94 (frames) is above 1 another arm passes fit 1 and a quarter of the width. GuiObject_textBoxType::SetTextToFit calls this slot directly with a height of 0; CTextSprite::SetText (slot 61) calls it with the box's. The name is ours.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-textdraw.md",
+   "revises": "what it hands slot 6 as fit, what it keeps of slot 6's answer, and the quad it then makes",
+   "evidence": "Likely, the class's name and the meaning of fixedsize resting where the record had them. Off the listing: `movzx ecx,cl` of `sete` on [ebp+0x2c] pushed, `push 1`, `push eax` (= [ebp+0x2c]) at 0xAB58BB..0xAB58CE; the background's dimension `sub edx,[ebp+0x24]` (height) and `sub eax,[ebp+0x20]` (width) at 0xAB5873..0xAB588E; after the call the size and texture size stored to +0x1FC..+0x208 at 0xAB5910..0xAB592E; `call 0xab61f0` at 0xAB5990. Wrong if +0x1FC/+0x200 are not what BuildQuad draws from - it reads them first (0xAB61F9, 0xAB621C)."
+  },
+  {
+   "rva": "0x6B61F0",
+   "kind": "function",
+   "name": "CTextSprite_BuildQuad",
+   "signature": null,
+   "no_signature": "the object comes in EDI and nothing on the stack; bare `ret`",
+   "comment": "**The quad a textBoxType's picture is drawn with.** With S = the shown size (+0x1FC, +0x200), T = the texture's (+0x204, +0x208), F = the frames (+0x20C, at least 1) and a, b, c, d the words at +0x17A, +0x17C, +0x17E, +0x180: four corners from (c, b) to (S.x/F - a - 1, S.y - d - 1), each turned by the object's rotation (+0xF4, 0x6B5CD0), with texture coordinates from c/T.x to c/T.x + ((S.x - a)/T.x - c/T.x)/F across and from (S.y - b)/T.y at the bottom to d/T.y at the top; kept at +0x230..+0x27C and copied into the vertex buffer at +0x280. **So only the shown part of the texture reaches the screen** - the lines of a textBoxType past its maxHeight less its border are cut off. a, b, c and d are written only by the object's slots 56 and 57 (0x6B5A90, 0x6B5AC0) and are nought for a box nobody crops (inferred). Nothing is drawn where either span is not positive. The name is ours.",
+   "confidence": "inferred",
+   "evidence": "Likely. Off the listing 0xAB61F0..0xAB67BC: `mov ecx,[edi+0x1fc]; cdq; idiv ebx` with ebx = [edi+0x20c]; the spans `cvtsi2ss` less the words at +0x17A/+0x180; the corners built in four blocks each ending in `call 0xab5cd0` (a rotation by [edi+0xf4]); the `subsd [0x160a248]` (1.0) on two corners' x and y; `comiss` against nought before any of it. The only word-sized writers of +0x17A..+0x180 in .text near this class are 0xAB5A9E..0xAB5AD5 (a byte scan for `66 89 /r disp32`). Wrong if the GUI's world transform rescales the quad - C3dVisibleObject::UpdateTransform was not read.",
+   "source": "reversing/findings/FINDINGS-textdraw.md"
+  },
+  {
+   "rva": "0x6B4EE0",
+   "kind": "function",
+   "name": "CTextSprite::Render",
+   "signature": "void __thiscall CTextSprite::Render(CTextSprite* this, void* a, void* b, void* c, void* d, void* e, void* f)",
+   "no_signature": null,
+   "comment": "Slot 10 of the object a textBoxType draws through (vftable 0x1600F58; CSprite's slot 10 is CSprite::Render). Where it has no texture (+0x1F8 null) and its font (by the name at +0x1D8, graphics +0x88 then +0x94) is found, it renders its text again through slot 59; then its slot 27, and 0x6B5B80(this, the third argument), which draws the buffer CTextSprite_BuildQuad filled. `ret 0x18`. The name is ours, after CSprite's slot.",
+   "confidence": "inferred",
+   "evidence": "Likely: `cmp dword ptr [esi+0x1f8],0; jne` then the two `call 0xa77f90` font lookups and `call [edx+0xec]` (slot 59) with (+0x1F4, +0x1BC, font, 0); `call [edx+0x6c]`; `push [ebp+0x10]; push esi; call 0xab5b80`; `ret 0x18`. Sits at slot 10 beside CSprite::Render in CSprite's table (0x1605020), the two tables sharing most other slots. The arguments' meaning was not read. Wrong if 0x6B5B80 is not the draw - it was not read.",
+   "source": "reversing/findings/FINDINGS-textdraw.md"
+  },
+  {
+   "rva": "0x6FDAC0",
+   "kind": "function",
+   "name": "CEU3BitmapFont_BuildBackgroundQuads",
+   "signature": "void* __cdecl CEU3BitmapFont_BuildBackgroundQuads(void* device, int* border, int* textureSize, int* size, int* sizeBefore)",
+   "no_signature": null,
+   "comment": "**A textBoxType's picture behind its text, as nine quads**: called by CEU3BitmapFont::DrawTextToTexture (slot 6) where the box has a background, which then sets the stream, FVF 0x102 and draws 18 triangles. Makes a managed vertex buffer of 20-byte XYZ+UV vertices, 0x36 of them, every position less half a pixel (0.5 subtracted from x and y). The nine parts' arithmetic - corners kept to the border - was not read beyond the count; inferred. Returns the vertex buffer. The name is ours.",
+   "confidence": "inferred",
+   "evidence": "The call `push ecx(&size before); push edx(size); push ebx(texture size); push eax(border); push esi(device); call 0xafdac0; add esp,0x14` at 0xAFB383..0xAFB395 and the bare `ret` at 0xAFE5A6 (cdecl, five arguments); `mov eax,0x36` twice before two vector allocations at 0xAFDAFE/0xAFDB0F; CreateVertexBuffer (device +0x68) with usage 8 and FVF 0x102 at 0xAFE4DA; the fill loop subtracting [0x160A308] (0.5) at 0xAFE51E/0xAFE539; the caller's DrawPrimitive(4, 0, 0x12) at 0xAFB3C3. Wrong if the 54 vertices are not nine quads - two triangles each is what 18 triangles over 54 vertices in a list gives.",
+   "source": "reversing/findings/FINDINGS-textdraw.md"
+  }
+ ],
+ "struct_fields": [],
+ "frontier": [
+  "0x6B5B80",
+  "0x6B5A90",
+  "0x6B5AC0",
+  "0x6B5CD0"
+ ],
+ "slots_noted": "CTextSprite's table (0x1600F58) has no RTTI and no record, so its slot 10 (CTextSprite::Render) is named in the address entry only, as slots 60 and 61 were. Slots 56 and 57 (0x6B5A90, 0x6B5AC0), which write the crop words, are left unnamed: who calls them was not followed."
+}

@@ -445,9 +445,44 @@ marks the model with `+*` where it and `PickBestModel` differ - **both scored ag
 model's levels are exactly this brigade's", not "a model the country no longer builds", as this said. A model from a
 file that leaves a technology out is never matched exactly, so is always marked. No line where there is no model.
 
-**The builder**: `CMilitaryConstruction::Deliver` sets it only where the line's builder is not the line's country
-(`0x484E7E`); yet a save of July 1941 names the owner itself on 3,195 of the 3,201 brigades that carry one, so another
-writer sets it, not found.
+**The builder** (`CSubUnit +0x34`, the id half `+0x38`) has two writers besides `CSubUnit::LoadKey` and the
+constructor's `---`, found 2026-11-14 by the `builder` agent's store scan and checked against the saves
+(`FINDINGS-unitdaily.md`, section 5; the collecting session checked the second write off the listing):
+
+    CMilitaryConstruction::Deliver (0x484E7E..0x484E8F)
+        builder = the line's builder (CConstruction +0x50/+0x54), only where that is not the line's country
+    CDistributeUpgrade::Distribute (0x51D48F..0x51D4CD), at every whole level a brigade gains:
+        if (technology->change (+0x288) && unit->expeditionary_owner.id (+0x290) != country->id (+0xCA8))
+            builder = brigade->owner (+0x94/+0x98)
+
+A line's builder is the command's or the country (`CConstructUnitCommand::Execute`), or the brigade's owner for a line
+that changes a brigade's type (`CUpgradeRegimentCommand::Execute`); a line out of the history files has none. So a
+brigade of the country's own line has no builder, and **its first whole level of equipment names its owner** - which is
+where nearly every `builder` in a save comes from. A doctrine (`change = no`), which moves a level a day, names nobody.
+The test on the unit's expeditionary owner is false only for the units the country lent out, which it upgrades through
+its second list (`+0xBBC`) at its own levels: their brigades' owner is the host, and their builder is left alone.
+`confirmed`
+
+**Measured** in the saves (`builder=` blocks by their path; brigades matched by number between two saves of one game):
+
+- none in `Germany1936_01_01_00` (nor on any of its 30 lines); 1,262 brigades in `Germany1936_04_20_03`, of which 1,253
+  had a level of a technology with `change` rise since 1 January and 6 more were Guangxi's, upgraded by Guangxi and
+  annexed by China (owner CHI, builder CGX) - `CUnit_SetOwner` rewrites `+0x94` and never `+0x34`; no brigade gained one
+  without a level of such a technology rising. The other 3 were ships not in the start save (not looked at further).
+- `Ireland1936_02_06_02` to `_03_11_04`: 390 gained, all with a level risen.
+- `Ireland1940_05_23_20` to `1941_07_16_07`: every brigade whose equipment level rose and did not gain a builder - 17 -
+  stood in a unit with an `expeditionary_owner` (Manchukuo's and Mengkukuo's from Japan, Slovakia's from Germany); the
+  same in August 1938 to September 1939, the Philippines' three regiments among them.
+- `Ireland1941_07_16_07`: 3,732 of 5,457 brigades carry one, 3,519 naming the owner; the rest are licence-built and not
+  upgraded since (Manchukuo 142 from Japan, Mengkukuo 20 from Japan, Slovakia 16 from Germany, ...) or changed hands
+  after their last upgrade. **This replaces "3,195 of 3,201"**, which counted one path of the tree and called the other
+  173 on it the owner's.
+
+The store scan: a dword store to `[r+0x34]` followed within eight instructions by one to `[r+0x38]` through the same
+register, over all of `.text` - 669 hits, 418 not through esp or ebp; the two whose value comes from a country tag or a
+line's builder are Distribute's (`0x51D4C4`) and Deliver's (`0x484E8C`, the positive control). The five qword stores to
+`[r+0x34]` are in unrelated functions. A copy by memcpy or of a whole object would not show in such a scan; the saves
+are the check on that, and found none.
 
 ## Kept as read, though they look odd
 
@@ -472,8 +507,8 @@ writer sets it, not found.
 - The base's arithmetic in the attrition breakdown, term by term.
 - Which class `BuildUnitStatsTooltip` constructs: its vftables `0x15D626C` and `0x15D6280` belong to
   no class with RTTI.
-- Who else writes a brigade's `builder` (section 13), and why a live sample once saw the null tag on every
-  `CHistoricalModel +0x8`, which the constructor contradicts.
+- ~~Who else writes a brigade's `builder` (section 13)~~ - the upgrade share, at a whole level (section 13, 2026-11-14);
+  and why a live sample once saw the null tag on every `CHistoricalModel +0x8`, which the constructor contradicts.
 
 ## In the record
 

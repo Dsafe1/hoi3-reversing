@@ -841,11 +841,27 @@ order:
     no where FuelConsumption > 0, IsEnemy(..., province), fuel_received 0
     -- every unit --
     no where it has a path, battles, and a battle in the next province of its path
-    yes for anything but a fleet; a fleet yes where SeaConnected to its own sea and one ship has +0x140 > 0
+    yes for anything but a fleet; a fleet: no unless SeaConnected(province, its own sea);
+        then no where any land unit it carries (CNavy +0x2E4, the carrying list) has a path (+0x140 > 0); else yes
 
 It is the click's test (`CUnit::OrderToProvince`), not `CMoveCommand::Execute`'s. Its two land differences from 12.1
 (the province form of "at war", and the carried unit let off the supply test) mean an order the click passes can still
-find no way.
+find no way. `CEU3AI::MoveUnit` asks it too, as its second gate (`FINDINGS-liveread.md`, section 88).
+
+**Corrected 2026-11-14** (the `canmove` agent; the collecting session checked the loop at `0x5C2E41`..`0x5C2E64`): the
+block said a fleet is allowed where "one ship has +0x140 > 0". The loop at the end of the body walks `*(AsNavy() +
+0x2E4)` - node data at +0, next at +8 - and exits to the refusal on the first entry whose `+0x140` is 1 or more, answering
+yes only at the end of the list. `+0x2E4` is the fleet's **carrying** list (`CNavy::AddCarried` appends the land unit
+there; `SumTransportWeight` is called with eax = fleet + 0x2E4; `+0x2F0` is that list's no-unlink byte), and a `CShip` is
+0xF8 bytes with no `+0x140` at all; the entries are land units, whose `+0x140` is the count of provinces left on their
+path. So **a fleet is not sent while anything it carries has a path of its own** - which `FINDINGS-seaair.md` section 5
+already said.
+
+The edge clause, as the body has it: the unit is land (slot 15), the province it stands in is sea (the path node's
+`is_land` clear), the target is land, and **the target's own** edges (`CProvinceTemplate::HasEdgeTo` on the target's
+template, with the unit's province id) do not lead to the unit's sea -> no. A unit aboard a fleet is sent only to the
+coast beside its sea; a path that would run on inland is refused at the click, though the route would find it. The
+fleet's "own sea" is its province, or where that is land the sea province its template names (`+0xA4`, unconditionally).
 
 ### 12.3 `CUnit::AnnounceArrival` (`0x5C0D50`)
 
@@ -884,6 +900,66 @@ OpenHOI3 built all of it 2026-11-14. `march` (7 Jan 22:00 to 8 Jan 02:00, 1936) 
 from Berlin to Frankfurt an der Oder raised "Army Arrived! ... has safely arrived in Frankfurt an der Oder", its log
 line appeared, and its Goto closed the popup with the division selected. Not checked in the running game: the shatter
 and access refusals, and the double message on boarding.
+
+### 12.6 What the battle clause and the fleet clause rest on
+
+*Read 2026-11-14 on the decompiled C by the `canmove` agent, for OpenHOI3's movement.md section 1, and built there the
+same day; the click refusing a far province for a unit in a battle and taking a neighbour was seen in OpenHOI3, not in
+the original.*
+
+**Slot 19, `CanRetreatToProvince`** (CUnit `0x5C5C60` for land units and fleets alike; CAir `0x5D0B30` - hoi3-98
+recorded the slots, `FINDINGS-liveread.md` section 88):
+
+    CUnit's:  the target is the province the unit is in, or one an edge of the unit's province leads to (any kind of edge,
+              impassable included: the walk compares to_province only); then yes where
+                  (not CCountry::IsEnemy(country[target.controller], &owner, target)    - the province form: an undeclared
+                   or GetAverageOrganisation (slot 20) >= the global at 0x170D7EC)         war covering the target counts
+              and EnemyLandStrengthIn(target's units, owner) < 1
+    CAir's:   EnemyAirStrengthIn(target's units, owner) < 1, and nothing else - no edge, no controller
+
+So a fleet in a sea battle may be sent only to its own sea or the next one (a sea has no controller; no land unit stands
+at sea), and an air unit in an air battle anywhere but where enemy aircraft stand.
+
+**`EnemyLandStrengthIn`** (`0x5D67C0`) and **`EnemyAirStrengthIn`** (`0x5D69C0`): over the province's units, the land
+units (not slot 16, not slot 17) or the air units (slot 17); an enemy is `CCountry::IsEnemy`'s province form with **each
+unit's own province** (`+0x130`) - written out in place in the air count: a war in the owner's pair record towards the
+asker, REB on either side, or the owner's undeclared war towards the asker covering the unit's province; each counted
+unit adds the strength (`+0x5C`) of every brigade or wing on its own list (`+0x38`); and the **sum of thousandths over
+every unit is divided by 1000 once**, an int division. So "under 1" is "under one whole point of strength between all of
+them": a province whose enemies are down to 0.999 between them can be fallen back into.
+
+**`SeaConnected`** (`0x4A7D70`) replaces each end that is land with a `CPort` by its sea province, wants both ends sea,
+and asks **`SeaRegionsConnected` (`0x4A7F80`) both ways**, (to, from) and then (from, to). `SeaRegionsConnected`, read
+whole, one way, with f and t the first region of each (0 where a province is in none) and closed(X) `WaterIsClosed` of
+the defines' map entry:
+
+    f == t                                                          -> yes
+    f == black_sea:   closed(BLACKSEA, map[6])                      -> no
+                      t == mediterranean or t == black_sea          -> yes
+                      closed(GIBRALTAR, map[8]) and closed(SUEZ, map[0]) -> no
+                      else                                          -> yes
+    f == baltic and closed(BALTIC, map[4])                          -> no
+    f != mediterranean                                              -> yes
+    t == black_sea                                                  -> not closed(BLACKSEA)
+    t == mediterranean                                              -> yes
+    closed(GIBRALTAR) and closed(SUEZ)                              -> no
+    else                                                            -> yes
+
+The three are the regions named `black_sea_region`, `baltic_sea_region` and `mediterranean_region` (cached by name at
+`0x48B6D0`..`0x48B79F`). A name missing from a mod's `region.txt` leaves its global null, which is also what a sea in no
+region compares as - so with one of the three missing, every sea in no region is taken for it (an oddity, not a case in
+Their Finest Hour). Into the Baltic or the Mediterranean is never refused one way; out of them is, and asking both ways
+makes it symmetric.
+
+**`OrderToProvince` clears append for a unit in a battle** (section 1's first line) before any branch, the plan branch
+included.
+
+Checked: OpenHOI3 built all of it and ran `march` (7 Jan 22:00 to 8 Jan 02:00, 1936) and `agents` (1 to 4 Jan 1936)
+before and after - identical, line for line, but the run's time. Seen in OpenHOI3 on the Ireland game's save of 6
+September 1939 played as Germany (console `tag GER`, its theatre's AI taken off): the 21. Infanterie-Division defending
+Johannisburg was refused Plock (two provinces off, Polish) - "21. Infanterie-Division may not go to Plock.", still
+defending, the map's tooltip saying `UTM_NOT_LEGAL_RETREAT` - and sent to Ortelsburg next door, which it then retreated
+to. Not checked in the original's running game: any of it.
 
 ---
 
