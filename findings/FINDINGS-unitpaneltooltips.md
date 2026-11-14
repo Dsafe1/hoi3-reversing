@@ -294,18 +294,39 @@ says nothing. `confirmed`. The two tables, now read whole:
 
 ## 11. The breakdowns of attrition and of speed
 
-**Attrition** (`BuildAttritionTooltip`, `0x4A0BA0`; the province, the out string, the unit): nothing
-for a unit whose slot 9 says no. Otherwise, in a friend's province not at the front
-`IN_FRIENDLY_FOR_ATT` alone; at the front `IN_FRONT_PROV_ONLY_10` and a base of 0.1; in an enemy's
-`IN_HOSTILE_FOR_ATT` and a base of 1; then the province's own line (its `+0xFC` object's slot 9);
-`ATTR_INFRA` + `: §R` + `(1000 - infrastructure share) * base`, `+` above 0, 2 places, `§!\n`, the
-share being the province's infrastructure over its most, between `0x1BEA400` and 1;
-`ATTR_WEATHER` with `: §R+` where the weather's attrition (with the unit's leader's effect 6 in the
-cold) times the base is above 0; the terrain's adjuster's attrition for the unit's type and the
-province's own, times the base, by the terrain's name with `: §R+`; `ATTR_TECH` with `: ` and the
-country's technology's attrition (`+0x88`), `§G` below 0 and `§R+` above, times 100, 2 places,
-`%§!\n`; and last `\n§Y` + `TERRAIN_ATTRITION` + `§!` and the province's attrition, `§R+` above 0,
-2 places, `%§!`. `confirmed` for the shape; the base's arithmetic was not followed into every term.
+**Attrition** (`BuildAttritionTooltip`, `0x4A0BA0`; the province, the out string, **the brigade**):
+`CUnitStatusEntry` slot 13 passes the unit's location and its **first brigade**, and makes no call
+for a unit with none. Read whole 2026-11-14, `confirmed`; every figure is in thousandths and every
+product is taken over 1000, truncated:
+
+    if not brigade.IsLand:                      out = ""
+    base = 1000
+    if owner(province).IsFriend(brigade's owner, with access):
+        if not IsFrontProvince(province, false): out = IN_FRIENDLY_FOR_ATT; return
+        text = IN_FRONT_PROV_ONLY_10;  base = 100
+    else:
+        text = IN_HOSTILE_FOR_ATT
+    text += "\n" + province.modifier.DescribeContributors(ATTRITION, base)
+    if text does not end in "\n":  text += "\n"
+    infra   = (1000 - infrastructure share) * base          the share as GetProvinceAttrition holds it
+    if infra != 0:   text += ATTR_INFRA + ": §R" + ("+" if infra > 0) + infra to 2 places + "§!\n"
+    weather = (AttritionEffect + unit's CommandEffect(6) below 0 degrees) * base     NOT floored at 0
+    if weather > 0:  text += ATTR_WEATHER + ": §R+" + weather to 2 places + "§!\n"
+    ground  = (definition's terrain adjuster attrition + terrain attrition) * base
+    if ground > 0:   text += <terrain's localised name> + ": §R+" + ground to 2 places + "§!\n"
+    tech    = owner's maximum_attrition (TechnologyStatus +0x88)
+    if tech != 0:    text += "\n" + ATTR_TECH + ": " + ("§G" if < 0, "§R+" if > 0)
+                             + tech x 100 to 2 places + "%§!\n"
+    figure  = GetProvinceAttrition(province, brigade)
+    text += "\n§Y" + TERRAIN_ATTRITION + "§!" + ("§R+" if figure > 0) + figure to 2 places + "%§!"
+
+`DescribeContributors` is section 10 of `FINDINGS-topbartooltip.md`: each source's own line times the
+base, so at the front the province's sources are written at a tenth too. The weather the figure holds at
+nothing is written here before that floor and only above it, so a cold softened past nothing by winter
+effects writes no weather line. `std::string::operatorPlusChars` (the literal on the left) builds the
+`"\n" +` parts; every other piece is appended in reading order. The tooltip's figure is the same one the
+panel shows whole, so at Edd on 1 January 1936, Italy at war with Ethiopia, the panel says 0% and the
+tooltip 0.43%.
 
 **Speed** (`BuildSpeedModifierTooltip`, `0x5C82A0`; the unit, the out string): `SPEED_MODIFIER` with
 `PERC` the whole multiplier (`CUnit::MovementSpeedModifier`), as a percentage (`0xAB6FC0`); nothing
