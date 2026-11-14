@@ -109,7 +109,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CAIStrategy` | `CPersistent` |  | 58 + 4 lua | 11/22 | 24 | CAIStrategy.hpp | 324 | read |  |
 | `CAISubscriber` | `CReferenceObject` |  |  |  |  |  |  | RTTI |  |
 | `CAITechMinister` | `CAIAgent` | 0x80 | 3 + 3 lua |  | 9 |  | 107 | part |  |
-| `CAIUnit` | `CAIAgent` |  | 105 |  | 46 |  | 99 | read |  |
+| `CAIUnit` | `CAIAgent` |  | 105 |  | 47 |  | 99 | read |  |
 | `CActiveMission` | `CPersistent` |  | 6 | 4/5 | 2 | CActiveMission.hpp | 108 | read |  |
 | `CAddPlayer` | `CCommand` |  |  |  | 1 |  | 1 | keys |  |
 | `CAddTraitEntry` | `CLeaderHistoryEntry` |  |  |  | 2 |  |  | RTTI |  |
