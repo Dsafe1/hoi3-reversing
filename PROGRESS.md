@@ -1134,7 +1134,7 @@ One class per effect, trigger, command and decision the event scripts can use. E
 | `CSetCountryFlagEffect` | `CFlagEffect` |  |  | 3/91 | 1 |  | 8,120 | RTTI |  |
 | `CSetFlagCommand` | `CCommand` |  | 3 | 2/2 | 4 |  | 1 | placed |  |
 | `CSetGlobalFlagEffect` | `CFlagEffect` |  |  | 3/91 | 1 |  | 179 | RTTI |  |
-| `CSetOrderCommand` | `CCommand` |  |  | 10/12 | 2 |  | 1 | placed |  |
+| `CSetOrderCommand` | `CCommand` |  |  | 10/12 | 3 |  | 1 | placed |  |
 | `CSetPlanAttributesCommand` | `CCommand` |  |  | 5/7 | 3 |  | 1 | placed |  |
 | `CSetPlanAxisCommand` | `CCommand` |  |  | 1/3 | 3 |  | 1 | placed |  |
 | `CSetPlanForcesCommand` | `CCommand` |  |  | 1/2 | 3 |  | 1 | placed |  |
