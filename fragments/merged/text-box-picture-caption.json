@@ -1,0 +1,89 @@
+{
+ "agent": "textrest",
+ "question": "How a textBoxType's picture behind its text is cut and drawn (0x6FDAC0), which box GuiButton_Construct hands a caption, and how the lobby's chat lines are laid out.",
+ "source": "reversing/findings/FINDINGS-textdraw.md",
+ "addresses": [
+  {
+   "rva": "0x6FDAC0",
+   "kind": "function",
+   "name": "CEU3BitmapFont_BuildBackgroundQuads",
+   "signature": "void* __cdecl CEU3BitmapFont_BuildBackgroundQuads(void* device, int* border, int* textureSize, int* shownSize, uint* pictureSize)",
+   "no_signature": null,
+   "comment": "**A textBoxType's picture behind its text, as nine quads** - and an editBoxType's, whose display object is the same CTextSprite. Called by CEU3BitmapFont::DrawTextToTexture (slot 6) where the box has a background (its fifth argument), with the device, the box's border {x, y}, the render texture's size (only its height read), the shown size slot 6 has just written through its third argument, and the size that argument held when slot 6 was called - which CTextSprite::RenderText fills with the background's own size (+0x1A4/+0x1A8, the texture table entry's +0x17C/+0x180). Slot 6 then sets the stream, FVF 0x102 and draws 18 triangles, alpha blending off and **point sampling** (SetSamplerState MINFILTER and MAGFILTER = POINT just before) into a target cleared to 0x00FFFF99, in an orthographic space 0..texture width by 0..texture height with y up. **The grid** is 4 by 4: across x = 0, border.x, W - border.x, W with W = shown width less 2.0 where border.x is not 0; down (y up from the texture's bottom) T, T - border.y, T - H + border.y, T - H with T the texture height and H = shown height less 2.0 where border.y is not 0 - so the picture covers the shown part's upper left W by H. **The texture coordinates** are 0, border.x, Pw - border.x, Pw over the next power of two at least Pw (and the same down with border.y and Ph), Pw by Ph being the picture's size: the four corners are border.x by border.y texels drawn at that size, the edges stretched along their length and the middle both ways - nine single quads, nothing repeated. Every position then less 0.5 (the double at 0x160A308), which maps texels to pixels exactly under Direct3D 9. A managed vertex buffer of 0x36 20-byte XYZ+UV vertices, returned. The -2 is the edit box's measured 'two short of its far edges' (save dialog, game_name). The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-textdraw.md",
+   "revises": "the nine parts' arithmetic read (it was inferred from the count alone), the last two parameters named, point sampling, confidence to confirmed",
+   "evidence": "Decompiled whole on a private copy (FUN_00afdac0): the 2.0 is DAT_0160a360 subtracted from Sw where *param_2 != 0 and added to (T - Sh) where param_2[1] != 0; the uv columns are bx/pow2(Pw), (Pw - bx)/pow2(Pw), Pw/pow2(Pw); the vertex assembly puts p10,p00,p11 / p11,p00,p01 for the first quad and so on, nine quads over the 16 points. The caller's pushes at 0xAFB37C..0xAFB388 (esi device, [ebp+0x24] border, ebx texture size, [ebp+0x10] shown size, esp+0xFC the saved input of arg 3) and RenderText's esp+0x18/+0x1C = +0x1A4/+0x1A8 before the call (0xAB56F3..0xAB56FD) give the arguments. Point sampling: SetSamplerState (vtable +0x114) (0,6,1) and (0,5,1) at 0xAFB14A..0xAFB16E. Shown wrong by: a measurement of an edit box's picture other than shown less 2 per non-zero border."
+  },
+  {
+   "rva": "0x73FA50",
+   "kind": "function",
+   "name": "GuiButton_Construct",
+   "signature": null,
+   "no_signature": "Stack constructor with by-value strings, `ret 0xE4`: (this, the GuiType_guiButtonType, the CGui, ?, the sprite name (type +0x104), the position, five strings - tooltip text and the like - ?, the button text, the button font (+0xB0), the orientation (+0x278), rotation (+0x28C), &borderSize (+0x294), scale (+0x290), the parent's size (two dwords), the `size` x and y (+0x280/+0x284)).",
+   "comment": "**The guiButtonType widget's constructor** (table VA 0x1607698; callers the type's create, slot 11 at VA 0xB2C070, and VA 0xB5B43A). The four sound ids start at -1 and are filled from the type: **over (+0x124) = `oversound`** (type +0x158), **up (+0x12C) = `upsound`** (+0x1AC), **down (+0x128) = `downsound`** (+0x190), and **click (+0x130) = `clicksound`** (+0x174) - or, where that is empty, **the sprite's own `clicksound`** (CSprite::GetClickSound), or, where that is empty too, **the CGui's default click sound** (the fourth argument's +0x14: `click`, set by the in-game and front-end screens). Each non-empty name goes through Sound_NameToId with logging, so a name sound.sfx lacks logs `Sound <name> not found.` at build time and leaves -1. See reversing/findings/FINDINGS-soundeffects.md, section 5. **The caption** (read 2026-11-14, reversing/findings/FINDINGS-textdraw.md, section 1): where the button text and font are both set and **the button names no sprite** (`spriteType`/`quadTextureSprite`, type +0x104, empty), a CGuiText (0x1D4 bytes, at +0x94) with the font, the button's position, maxWidth and maxHeight = the type's `size` (+0x280/+0x284; 200 where 0, by CGuiText), **border 0**, the type's `format` (+0x288), the button's orientation and the parent's size, not of fixed size - drawn by CEU3BitmapFont::DrawText (slot 8) as an instantTextBoxType. Where text and font are set **and it names a sprite**, the graphics' 0xA6FFB0 makes a display object from the sprite's template with (text, font, textureFile \"\", width 0, height 0, layer, **format 2 (centre), fixedsize 1**, the type's `borderSize` +0x294) - so on a text sprite the caption is a CTextSprite's text, laid out by DrawTextToTexture (slot 6) in the sprite's own picture less the border, cut first by FitTextWithEllipsis; a plain sprite's template makes no text object. Where text or font is empty, the display object is made from the sprite alone.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-soundeffects.md",
+   "revises": "comment and no_signature only: the caption's two routes added, the arguments named further; the sound part kept as it was",
+   "evidence": "Listing 0xB3FC5C..0xB3FF6E: String_Equals of the text (&[ebp+0x94]) and the font (&[ebp+0xB0]) with \"\", then String_EqualsCString of [ebp+0x18] (= type+0x104, the target of `spriteType` and `quadTextureSprite` in GuiType_guiButtonType::LoadKey) with \"\" decide [ebp+0xD3]; set, the CGuiText constructor 0xB32350 is pushed [ebx+0x13C]/[ebx+0x140] (= args +0xE4/+0xE8, the caller's [edi+0x280]/[edi+0x284], `size`), a zeroed border at [ebp-0xB4], [edx+0x288] (`format`), [ebp+0xCC] (the type's +0x278) and fixedsize 0 (0xB3FD5A..0xB3FDC5). Unset with text and font, 0xA6FFB0 is pushed border.y, border.x from [ebp+0xD4] (= &type+0x294, `borderSize`), 1, 2, [ebp+0x90], 0, 0 and the strings \"\", font, text (0xB3FED4..0xB3FF69); 0xA6FFB0 hands them to the template object's slot 60 as (text, font, texture, width, height, borderX, borderY, format, fixedsize) (0xA70095..0xA700B7). Shown wrong by: a sprite button whose caption is not centred in its picture."
+  },
+  {
+   "rva": "0x72CE40",
+   "kind": "function",
+   "name": "GuiType_guiButtonType::LoadKey",
+   "signature": "void __thiscall GuiType_guiButtonType::LoadKey(GuiType_guiButtonType* this, void* reader, int token)",
+   "no_signature": null,
+   "comment": "**The `guiButtonType` and `checkboxType` grammar** - slot 4 of GuiType_guiButtonType (the no-RTTI table at 0x1206AD0, shared by both keywords). `ret 8`. Two jump tables, tokens 0x2E..0xBF and 0x141..0x17E, key to offset: `borderSize` +0x294 ({x y}), `upSprite`, `downSprite`, `dissableSprite`, `overSprite`, **`spriteType` and `quadTextureSprite` both +0x104**, `position` +0x254, `scale` +0x290, `parent`, `tooltip` +0x120, `tooltipText`, `delayedTooltipText`, `buttonText` +0x200, **`buttonFont` and `origo` both +0xB0**, `orientation`, **`size` +0x280** ({x y}), **`format` +0x288** (tokens 0x74 centre 2, 0x73 right 1, 0x72 left 0), `oversound` +0x158, `clicksound` +0x174, `downsound` +0x190, `upsound` +0x1AC (token 0x140), `shortcut` +0x1E4, `luaClick` +0x1C8, `rotation` +0x28C; everything else goes to CGuiType::LoadKey (0xAC8710). So a button may give a `borderSize`, which its caption is laid out inside on a text sprite (GuiButton_Construct); no button of the base game or of BlackICE does. The name is ours, after the type class.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-textdraw.md",
+   "evidence": "The byte and dword tables at 0xB2D39C/0xB2D354 (base 0x2E, 0x92 entries) and 0xB2D44C/0xB2D430 (base 0x141, 0x3E) mapped token by token, the names from ghidra/saveTokens.json; each case's store or `lea` read off the listing (0xB2CE94 +0x294, 0xB2CF63 +0x104, 0xB2D133 +0xB0, 0xB2D17D +0x280, 0xB2D19F..0xB2D1F7 +0x288, 0xB2D215 +0x1AC). The table address 0x1606AD0 holds 0xB2CE40 at slot 4 and the create 0xB2C070 at slot 11 (a .rdata dword scan). Shown wrong by: a token in the tables mapped to another key name by the running game's token table."
+  },
+  {
+   "rva": "0x30D3E0",
+   "kind": "function",
+   "name": "CGameSetup::AddChatLine",
+   "signature": "void __thiscall CGameSetup::AddChatLine(CGameSetup* this, void* line)",
+   "no_signature": null,
+   "comment": "**Writes a line into the lobby's `chatlog`.** A probe row `lobby_chat_text` is made to find its `messagelogtext` (an instantTextBoxType) and that box's font (graphics +0x88, then +0x94); a CTextLayout is made with the font, its area **the box's GetSize width less 10 by 2000** - maxWidth, 750 in temp_frontend.gui, since the probe's text is empty - and the line's text (the argument's slot 8) set into it; the laid-out text (CTextLayout::GetLaidOutText) is split at '\\n' and **each piece made a row of its own**, written into its `messagelogtext` (+0xD0). Then, where the list holds more rows than the lobby's limit (a short at +0x3BC +0x4C), the first is taken off, and the list scrolled to its end. So the chat is broken by CTextLayout::BuildLines as the message log's rows are. Called by CGameSetup_SayOptionChanged and the lobby's other chat lines. `ret 4`. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-textdraw.md",
+   "evidence": "Decompiled on a private copy (FUN_0070d3e0): the strings \"chatlog\", \"lobby_chat_text\", \"messagelogtext\"; CTextLayout::CTextLayout with the font found by name; `sub eax, 0xA` and `mov eax, 0x7D0` stored as the area (0x70D6CF..0x70D6DF); GetLaidOutText then FUN_00a5b520 with 10; a row per piece. `ret 4` at 0x70DCFA. The width is GuiObject_instantTextBoxType::GetSize (slot 47) of the probe box. Shown wrong by: a lobby chat line broken at another width."
+  },
+  {
+   "rva": "0x741300",
+   "kind": "function",
+   "name": "GuiObject_instantTextBoxType::GetSize",
+   "signature": "short* __thiscall GuiObject_instantTextBoxType::GetSize(GuiObject_instantTextBoxType* this, short* out)",
+   "no_signature": null,
+   "comment": "Slot 47 of GuiObject_instantTextBoxType (the no-RTTI table at 0x11FDB70): its CGuiText's (+0x94) slot 54, CGuiText::GetSize. `ret 4`. What CGameSetup::AddChatLine takes the chat's width from. The name is the slot's meaning on the edit box (GuiObject_editBoxType::GetSize, slot 24 there).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-textdraw.md",
+   "evidence": "Listing 0xB41300..0xB4131C: ecx = [ecx+0x94], call [vtable+0xD8], return the out pointer; the dword at 0x15FDB70 + 47*4 is 0xB41300. Shown wrong by: nothing in the listing - it is five instructions."
+  },
+  {
+   "rva": "0x732650",
+   "kind": "function",
+   "name": "CGuiText::GetSize",
+   "signature": "short* __thiscall CGuiText::GetSize(CGuiText* this, short* out)",
+   "no_signature": null,
+   "comment": "Slot 54 of CGuiText (table 0x1606C70): **the text's size as its font lays it out** - the font's slot 13 with the text (+0x150), maxWidth (+0x1A0), maxHeight (+0x1A4) and the border (+0x198/+0x19C) - and **the width raised to maxWidth where it comes out less**. `ret 4`. So an instantTextBoxType is never reported narrower than its box.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-textdraw.md",
+   "evidence": "Listing 0xB32650..0xB326B2: font [esi+0x1BC] slot 13 ([edx+0x34]) pushed the out pointer, the border pair, maxHeight, maxWidth and &text; then `movsx eax,[edi]; cmp eax,[esi+0x1A0]; jge` and the store of maxWidth's low word. The dword at 0x1606C70 + 54*4 is 0xB32650. Shown wrong by: font slot 13 not being a measure (its arguments are the measure's of slot 8)."
+  },
+  {
+   "rva": "0x6B5190",
+   "kind": "function",
+   "name": "CTextSprite::RenderText",
+   "signature": "void __thiscall CTextSprite::RenderText(CTextSprite* this, void* graphics, Hoi3CString* text, Hoi3CString* font, Hoi3CString* textureFile, int width, int height, int borderX, int borderY, int format, bool fixedsize)",
+   "no_signature": null,
+   "comment": "**Slot 60 of the object a textBoxType draws through** (vftable 0x1600F58, 0x310 bytes, no RTTI - the class name is ours; made by the box's constructor through the graphics, 0xA6FFB0, and kept at GuiObject_textBoxType +0x4C). `ret 0x28`. Keeps the text (+0x1BC), the font name (+0x1D8), the size (+0x1AC/+0x1AE) and border (+0x1B0/+0x1B4), the format (+0x210) and fixedsize (+0x309); resolves the textureFile against the graphics' texture table (an empty one taking the type's own, +0x150 +0x74) for the background (+0x1A0) and its size (+0x1A4/+0x1A8); finds the font by name (graphics +0x88, then +0x94). Where fixedsize is set and the width or height is 0 and there is a background, that dimension is the background's less the border - once: width less border x, height less border y. **Where fixedsize is set and the height is not 0, the text is first cut by the font's slot 12 (CEU3BitmapFont::FitTextWithEllipsis).** Then the font's slot 6 (CEU3BitmapFont::DrawTextToTexture) renders it into the object's texture (+0x1F8), **fixedsize handed on as its `fit`** with 1 and !fixedsize after it, the background's size in the size argument for CEU3BitmapFont_BuildBackgroundQuads; the size it says is shown is kept at +0x1FC/+0x200 and the texture's at +0x204/+0x208, and CTextSprite_BuildQuad (0x6B61F0) makes the quad of the shown part. **Where the template's +0x94 (frames) is above 1** another arm calls slot 6 with width (int)(background width * 0.25) - a quarter whatever the count - the background's height, fit 1, the format, and **the frame count and 0 as the last two arguments**, with no cut; so slot 6's eleventh argument is likely the frame count (inferred from that arm alone), and the shown width kept is it times the frames. No text sprite of the base game or of BlackICE has more than one frame. A button with a sprite and a caption reaches here through 0xA6FFB0 with width and height 0, centre and fixedsize (GuiButton_Construct), so its caption is laid out in its picture. GuiObject_textBoxType::SetTextToFit calls this slot directly with a height of 0; CTextSprite::SetText (slot 61) calls it with the box's. The name is ours.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-textdraw.md",
+   "revises": "comment only: the frames arm's arguments (slot 6's eleventh is likely the frame count), the background size handed on, and the button caption that reaches it",
+   "evidence": "As before; added: the frames arm 0xAB5701..0xAB57C6 (`cmp ecx,1; jle`, the 0.25 at 0x160A258 times [edi+0x1A4], `push 0; push ecx` the frames from +0x20C, `push 1` for fit, and +0x1FC = +0x20C * the shown width), and the general arm's pushes 0xAB58BB..0xAB58FC with esp+0x18/+0x1C = +0x1A4/+0x1A8 in the size argument. Shown wrong by: slot 6 reading its eleventh argument as something other than a count of frames."
+  }
+ ],
+ "struct_fields": [],
+ "frontier": ["0xA6FFB0", "0xB2C070", "0xB2C6E0"]
+}

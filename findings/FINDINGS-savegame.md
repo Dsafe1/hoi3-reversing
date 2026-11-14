@@ -218,7 +218,7 @@ whose thirteen tests of `loaded_from_save` are [exe] unless marked:
 | per-country set-up | laws and technology for the start [mod: technologies, laws], `LoadOobFile` [mod: history/units], SetUpCountryForNewGame, unit totals, IC shares, officers, the build queue priced again, history threat spread | **only CCountry::UpdateManpowerAfterMobilising** |
 | units | named, starting experience [mod: modifiers 52/77 from technologies/laws] | intel level, avatar, ShowMoving, EnterProvince |
 | units (both) | parent relink, trespass marks, combat markers | the same |
-| combats (both) | each side's combat modifiers applied again | the same |
+| combats (both) | **every battle on the list, of every kind**: slot 19 on the attacker, then the defender, flag 0 (A.5.1); finds none, coming before the two days | the same, on every battle the save made; draws only for a battle at sea or a bombing of ships saved before its first round |
 | per province, second pass | night flag; **temperature seeded at its target**; modifier; **the history `revolt` carried out** (SpawnFullRevoltInProvince); a fix-up of REB-owned provinces (not read) | night flag from the saved tick; modifier only; the save's weather kept |
 | per country, after "information caches" (both) | neighbours, after-diplomacy, static modifiers, the 6+4 distributions, research; **CAIStrategy::Rebuild only where the strategy is neither `initialized` nor `static`** | the same; a saved strategy (`initialized=yes`) kept |
 | supply (both) | PickDepot for every supply group, depots for provinces still at 0, RebuildSupplyNetwork | the same |
@@ -229,6 +229,45 @@ whose thirteen tests of `loaded_from_save` are [exe] unless marked:
 
 **So a loaded game's first hour is simply the hour after `date`.** Nothing runs in place of the two days but the
 re-derivations above and one AI pass.
+
+### A.5.1 Every battle's modifiers on entering, and what they draw
+
+*Read 2026-11-14 for OpenHOI3's reload check (the `loadgaps` agent), statically; the walk checked off the listing by the
+collecting session.*
+
+**The walk** [exe], `0x65BBAC`..`0x65BBDD` in `CInGameIdler::Enter`, for a new game and a loaded one alike:
+
+    for each node of the combat manager's list (CGameState +0xB5C, `combats` +0x8 - so +0xB64):
+        combat->attacker->ApplyCombatModifiers(combat->defender, 0)     ; slot 19, +0x4C
+        combat->defender->ApplyCombatModifiers(combat->attacker, 0)
+
+The same two calls in the same order as `CCombat::Tick`'s each hour. Nothing tests the battle's kind, `begun` or
+`ended`, so every battle on the list is given its modifiers: land, naval, air, and the bombings (a `CBomberCombatant`
+attacker against a `CTargetCombatant` defender). In a new game the walk comes before the block at `0x65C7F0` - the
+weather's hours and the two days - so it finds an empty list; in a loaded game it finds every battle the save's `combat`
+block made.
+
+**What it draws.** Of the five overrides of slot 19, two draw on the generator, each only while the battle's `day`
+(`CCombat +0x1C`) is under 1:
+
+- **`CNavalCombatant`** (`0x5665F6`..`0x56664F`): where the flag argument is 0, the side is the attacker (`+0x38`), `day <
+  1` (the `setl` at `0x5664CA`) and the fleet has a submarine - one `Random() % 100 < NAVAL_COMBAT_SUB_SURPRISE_CHANCE`
+  for **every** such fleet, whether or not an earlier fleet of the side already succeeded.
+- **`CBomberCombatant`** (`0x5618A8`..`0x56190F`): where the other side answers slot 9 (a naval target), the flag is 0,
+  the side is the attacker and `day < 1` - one `Random() % 100 < AIR_COMBAT_NAV_SURPRISE_CHANCE` for the side.
+
+`CLandCombatant`, `CAirCombatant` and `CTargetCombatant` draw nothing. *Negative, with its control*: a walk of every
+direct call from each of the five, six levels deep, reaches `Random` (`0xAA2F80`), `CSimpleRandom::GetInteger` and
+`MT19937Next` only from the naval and the bomber bodies - the positive control - and none of the five holds an inlined
+draw (no reference to the draw counter `0x174DA8C` or the generator's state `0x1710F80`). Virtual calls inside them were
+not followed, so the negative is *inferred* for those paths.
+
+`day` is a save key (`FINDINGS-savedbattle.md`, A.2.1), and after any whole round it is 1 or more; it is -1 only for a
+battle saved before its first round. **So the only draws entering makes for battles are for a battle at sea or a
+bombing of ships saved before its first round** - and that battle draws again in its first round (`day` 0), so it has
+two chances at the surprise where a running game's battle has one. Since the surprise is carried from round to round in
+the side's flag byte `+0x25`, which `CCombatant::SaveContents` does not write, **a surprise held within the surprise
+rounds is lost on a load** [exe]: entering and the next hour both find the flag clear and `day` past the roll.
 
 ### A.6 The played country, the lobby, multiplayer
 
@@ -666,15 +705,24 @@ duration, level) triples }]. **`is_reserve` is read but never written at unit le
 the disengage pair after both. In every save where a unit has all four - 14 fleets in four saves of 1936 to 1941, found
 by OpenHOI3's writer setting its output beside them - the pair stands **between** the two dates.
 
-**`country_intel`'s first number is the granted country's place plus one** - *measured*, 2026-11-14, not read in the
-bytes. Read against the order of the save's country blocks (which is `common/countries.txt`'s, REB first at place 0),
-the 22 triples of `Germany1936_01_07_22.hoi3` name, as place plus one, England, the United States, Holland,
-Czechoslovakia, Sinkiang, Siam and the like spying on their neighbours; read as the place itself they would have the
-Soviet Union granted its own units twice and Croatia - not a country in 1936 - granted the Soviet Union's. Lend-lease
-numbers its countries the same way (`lendlease_targets`, `lend_lease_from`). The second number is the days left and the
-third the level, 2 to 9. OpenHOI3 reads and writes them so since 2026-11-14 and the save's 22 come back as they were read
-(`OpenHOI3.SaveCheck write`). Whether the unit's 12-byte entries store this number or the place, with the writer adding
-one, is not established.
+**`country_intel`'s first number is the granted country's id** [exe], read 2026-11-14 (the `loadgaps` agent); it was
+*measured* earlier the same day as "the place plus one". `CUnit_GrantIntel` stores the id half of the country's tag -
+`RunMilitaryEspionage` pushes `[actor+4]` (`0x53006F`), `CLocalIntelBoost::Execute` the scope's FROM id (`0x9BE62D`) -
+and **both the writer and the loader copy the three ints unchanged**: `CUnit::SaveContents` (`0x5B8B7D`..`0x5B8C3C`)
+copies each 12-byte entry into a vector of 3n ints and hands it to `SaveWriteIntVector` under token `0x846`;
+`CUnit::LoadKey`'s arm (`0x5B7EA6`..`0x5B7F1B`) reads the block with `ParseIntVector` (`0x45F450`) and appends `(n - 1) /
+3 + 1` entries through `Vector12_PushBack` (`0x511E50`). A country's id is its index in the countries vector, where index
+0 is the null country `---` and REB is 1, and the save's country blocks are that vector from index 1 (B.2, item 14) - so
+the id is **the country's place among the save's country blocks plus one**, as measured: the 22 triples of
+`Germany1936_01_07_22.hoi3`, read so, name England, the United States, Holland, Czechoslovakia, Sinkiang, Siam and the
+like spying on their neighbours. Lend-lease numbers its countries the same way (`lendlease_targets`, `lend_lease_from`).
+The second number is the days left and the third the level, 2 to 9. OpenHOI3 reads and writes them so, and the save's
+22 come back as they were read (`OpenHOI3.SaveCheck write`).
+
+Two more things the loader does [exe]: it does not clear the unit's grants first, so a second `country_intel` key
+appends to the first; and with a count not a multiple of three the last entry reads past the end of the parsed vector
+(no save has one). `ParseIntVector` converts each token with sscanf `%i`, so a leading `0x` would read as hex and a
+leading `0` as octal.
 
 Each level's own tail: **CArmy** [`target` above 0], [`staging_province` above 0], [`parent` {id type} - only when
 carried by a fleet or by air]; **CNavy** each carried unit under its level key, then `at_sea` (the after-battle wait),

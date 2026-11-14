@@ -74,6 +74,40 @@ the area size.
   `+0xA4` (localised at once), maxHeight `0x8D` -> `+0xC4`, maxWidth `0x8E` -> `+0xC0`, fixedsize `0xAD` -> `+0xD4`,
   orientation `0xBF` -> `+0xDC`, textblock 300.
 
+*Added 2026-11-14 by the `textrest` agent: the box a button's caption is given (the branch on the sprite checked off the
+listing by the collecting session - one byte, `[ebp+0xD3]`, chooses the `CGuiText` route at `0xB3FDC5`).*
+
+`GuiButton_Construct` (`0xB3FA50`) makes its caption one of two ways, and a third case makes none
+(`0xB3FC5C`..`0xB3FF6E`). *Corrected*: the bullet above said "a button's caption is drawn by slot 8 too" - true only of a
+button with no sprite.
+
+- **The button names no sprite** - `spriteType` and `quadTextureSprite` both land at the type's `+0x104`
+  (`GuiType_guiButtonType::LoadKey`, `0xB2CE40`) - and its `buttonText` and `buttonFont` are both set: a `CGuiText` at
+  `+0x94`, with the button's position and orientation, the parent's size, **maxWidth and maxHeight the button type's
+  `size`** (`+0x280`/`+0x284`, so 200 each where the file gives none), **a border of nought**, the type's `format`
+  (`+0x288`; `left` 0, `right` 1, `centre` 2), not of fixed size. Drawn by slot 8 - an `instantTextBoxType`'s rule. In
+  the base game and Their Finest Hour only two buttons are so, `bg_button` and `messagelogbutton`, both with blank text.
+- **It names a sprite** and text and font are set: the graphics' `0xA6FFB0` - the call a `textBoxType` makes its
+  display object with - makes a display object from **the sprite's template**, with the text, the font, textureFile
+  `""`, **width 0, height 0, format 2 (centre), fixedsize 1** and the type's `borderSize` (`+0x294`). On a
+  `textSpriteType` that object is a `CTextSprite`, so the caption is a `textBoxType`'s text: `CTextSprite::RenderText`
+  takes the empty textureFile as the template's own picture, makes the width and height **the picture's less the border
+  once**, cuts the text with slot 12 (the height is not nought), and slot 6 breaks it (section 2.2), centres each line in
+  the width with no border and centres the lines up and down (a background is present), and shows the picture less the
+  border. A plain `spriteType`'s template makes no text object, so its caption is never drawn.
+- Text or font empty: the display object is made from the sprite alone.
+
+Of 329 `guiButtonType`s with both a text and a font in the base game and Their Finest Hour, 299 are on a text sprite, 27
+on a plain sprite, 2 have none, 1 names a sprite no `.gfx` declares. **No button gives a `borderSize`**, though the
+grammar takes one, and no text sprite has more than one frame.
+
+The button type's grammar (`0xB2CE40`, slot 4 of the no-RTTI table `0x1606AD0` that `guiButtonType` and `checkboxType`
+share): `borderSize` `+0x294`; `upSprite`, `downSprite`, `dissableSprite`, `overSprite`; `spriteType` and
+`quadTextureSprite` `+0x104`; `position` `+0x254`; `scale` `+0x290`; `parent`; `tooltip` `+0x120`; `tooltipText`;
+`delayedTooltipText`; `buttonText` `+0x200`; `buttonFont` and `origo` `+0xB0`; `orientation`; `size` `+0x280`; `format`
+`+0x288`; `oversound` `+0x158`; `clicksound` `+0x174`; `downsound` `+0x190`; `upsound` `+0x1AC`; `shortcut` `+0x1E4`;
+`luaClick` `+0x1C8`; `rotation` `+0x28C`; the rest to `CGuiType::LoadKey`.
+
 ## 2. `CEU3BitmapFont` slot 8, `0xAFC070` (rva `0x6FC070`)
 
 `ret 0x28`: ten dwords of arguments. It is 0x1674 bytes: a cache of forty laid-out texts
@@ -213,17 +247,56 @@ glyph's corners are then placed as slot 8 places them: `x + xoffset + 0.5`, `top
 xmm0,[0x160A350]` = -0.5, subtracted). There is no orientation in any of it: the box's orientation places the picture,
 not the text in it.
 
-**The background is drawn into the same picture, under the text**, by `0xAFDAC0` (`__cdecl`, five arguments: the
-device, the border, the texture size, the size and the size the caller held before): a vertex buffer of `0x36` vertices
-drawn as 18 triangles (`DrawPrimitive(D3DPT_TRIANGLELIST, 0, 0x12)` at `0xAFB3C3`) - nine quads, likely the picture's
-nine parts kept to the border at the corners - every position less half a pixel (`subsd 0.5` at
-`0xAFE51E`/`0xAFE539`), with alpha blending off while it is drawn (`SetRenderState(0x1B, 0)` at `0xAFB36E`) and the
-render target cleared to `0x00FFFF99` first.
+**The background is drawn into the same picture, under the text** - section 2.2.2.
 
 Base game and Their Finest Hour, layered: of 341 `textBoxType`s, 18 do not fit (16 in `metaserver.gui`, two in
 `settings.gui`, among them `MustRestartTextBox`, centred, which therefore starts at its border); four have a picture and
 fit - `console_text`, `ChatMemberText`, `ToolTip` and `FPS_Counter` - and the tooltip is filled through `SetTextToFit`
 with no height, so it does not fit and its picture does not centre it.
+
+#### 2.2.2 The picture behind the text, `0xAFDAC0` (rva `0x6FDAC0`) (read 2026-11-14, the `textrest` agent)
+
+Decompiled whole; *corrects* the "likely nine parts" of before. `__cdecl`, five arguments, pushed by slot 6 at
+`0xAFB37C`..`0xAFB388`: the device; **the box's border** `{x, y}` (slot 6's `[ebp+0x24]`); **the render texture's size**
+(only its height is read); **the shown size** slot 6 has just written through its third argument (section 2.2.1); and
+**what that argument held when slot 6 was called**, which `CTextSprite::RenderText` fills with the background's own size
+(`+0x1A4`/`+0x1A8`, the texture table entry's `+0x17C`/`+0x180`; `0xAB56F3`..`0xAB56FD`).
+
+It is drawn after `SetSamplerState` sets MINFILTER and MAGFILTER to **point** (`0xAFB14A`..`0xAFB16E`), into a target
+cleared to `0x00FFFF99`, alpha blending off (`SetRenderState(0x1B, 0)` at `0xAFB36E`), in an orthographic space `0..texture
+width` by `0..texture height` with y up (`D3DXMatrixOrthoOffCenter` at `0xAFB319`). With bx, by the border, Sw, Sh the
+shown size, T the texture's height and Pw, Ph the picture's size:
+
+    W = Sw - (bx != 0 ? 2 : 0)                 ; the 2.0 at 0x160A360
+    H = Sh - (by != 0 ? 2 : 0)
+    across:  0,  bx,  W - bx,  W
+    down:    T,  T - by,  T - H + by,  T - H   ; y up: the picture's top is the texture's
+    u:       0,  bx,  Pw - bx,  Pw             ; each over the next power of two at least Pw
+    v:       0,  by,  Ph - by,  Ph             ; the same with Ph
+
+and every position less 0.5 (`0x160A308`; `subsd 0.5` at `0xAFE51E`/`0xAFE539`), which under Direct3D 9 puts each texel
+on a pixel. Sixteen points, nine quads, 18 triangles (`DrawPrimitive(D3DPT_TRIANGLELIST, 0, 0x12)` at `0xAFB3C3`; the
+first `p10, p00, p11` and `p11, p00, p01`, and so on over the grid). So **the picture covers the upper left W by H of
+what the box shows**: its four corners are the border's size in the picture and on the screen, its edges are stretched
+along their length and its middle both ways - **stretched, not repeated** - and it ends **two pixels short of the shown
+part's right edge where the border across is not nought, and two short of its bottom where the border down is not**.
+
+That is exactly the edit box OpenHOI3 measured on the maintainer's screenshot of the save dialog (OpenHOI3's
+`interface.md`, section 8): `game_name`, 260 by 32 with a border of 8 by 6, is handed to its display object whole
+(`EditBox_RefreshText`, `0xA90140`: the size, the border, format 0, fixedsize 0, so it fits), which
+`GuiObject_editBoxType::PlaceAt` puts the border in; it shows 252 by 26, and the picture is 250 by 24 at 8, 6 - its rim,
+the picture having two clear all round, 246 by 20 at 10, 8, as measured. **So an edit box draws its line and its picture
+through the same `CTextSprite` and slot 6 as a `textBoxType`.**
+
+With the shown size of a box that does not fit (section 2.2.1) the tooltip's picture is its lines and the border round
+them, less two each way. Of the base game's four `textBoxType`s with a picture, two name `transparency.dds`, which is
+clear; the tooltip and `FPS_Counter` name `tiles_dialog.dds`.
+
+**A text sprite of more than one frame** (`RenderText`'s other arm, `0xAB5701`..`0xAB57C6`) is laid out at `(int)(picture
+width * 0.25)` - a quarter whatever the count - by the picture's height, fit, with no cut, and slot 6 is handed the frame
+count and 0 as its last two arguments; the shown width kept is that times the frames. So slot 6's eleventh argument is
+likely the frame count (`inferred`, from this arm alone; the general arm passes 1). No text sprite of the base game or of
+BlackICE has more than one frame.
 
 ### 2.3 `CTextLayout::BuildLines`, `0xACCB10` (rva `0x6CCB10`) (read 2026-11-14)
 
@@ -236,8 +309,23 @@ its newline. *Corrected*: the record had "at the last space that fits", `inferre
 Its users and their area: a **tooltip**, `maxWidth - 3 * border` = 352, then `SetTextToFit`, whose limit of 368 never
 breaks again; the **message log**, the button's width less 10 and a height of 2000, the result split at `\n`; the
 **diplomacy status list**, the row text box's maxWidth (`[edi+0x8c]` beside `mov ecx,0x7d0` at `0x78A484`); the
-**technology effects**; the **edit box**. Not followed: the calls in the lobby's constructor and `OnBack`, the province
-view, the statistics ledger and `CreateIcon`.
+**technology effects**; the **edit box**; the **lobby's chat**.
+
+**The lobby's chat** (`CGameSetup::AddChatLine`, `0x30D3E0`, read 2026-11-14 by the `textrest` agent): a probe row
+`lobby_chat_text` finds its `messagelogtext` and that box's font; the layout's area is the box's width less 10 by 2000
+(`0x70D6CF`..`0x70D6DF`) - the width through `GuiObject_instantTextBoxType::GetSize` (slot 47), which is
+`CGuiText::GetSize`, the text as laid out by font slot 13 and **raised to maxWidth**, so with the probe's empty text 750
+in `temp_frontend.gui` and an area of 740 - the line's text set, the laid-out text split at `\n`, and a row made for each
+piece; past the lobby's limit (a short at `+0x3BC +0x4C`) the first row is taken off. So the chat is laid out as the
+message log is.
+
+**The edit box**, followed the same day: `EditBox_RefreshText` hands its display object the caret's laid-out line with
+the box's whole size, its border, format 0 and fixedsize 0 (section 2.2.2). A line the layout gives is narrower than the
+size less twice the border less an `O`, so slot 6 never breaks it again. A text set by code (`CTextLayout::SetText`)
+leaves the caret at its end, so the box shows the last laid-out line.
+
+Not followed: the calls in the lobby's constructor and `OnBack`, the province view, the statistics ledger and
+`CreateIcon`.
 
 ### 2.4 Slot 12, `0xB003E0` (rva `0x7003E0`): the fixedsize cut (read 2026-11-14)
 
@@ -298,8 +386,18 @@ table the other fonts fall back to was not read.
 - ~~**`textBoxType`**, the other kind of text box: assumed to reach the same slot 8~~ - it does not: it renders through
   slot 6 into a texture of its own (section 1, section 2.2), read 2026-11-14.
 - **The global colour table** at `0x1B211A8`: who fills it and with what.
-- ~~**Button captions.**~~ Slot 8, through a `CGuiText` of their own (section 1); the box `GuiButton_Construct` passes
-  was not read.
+- ~~**Button captions.**~~ The box `GuiButton_Construct` passes is read since 2026-11-14 (section 1): the button's `size`
+  with no border on a button with no sprite, and on a sprite a `textBoxType`'s display object laid out in the sprite's
+  picture.
+- **Where an edit box's line stands up and down.** Section 2.2.1's rule, which an edit box follows (section 2.2.2),
+  centres one line in a box that fits and has a picture: for `game_name` (32 high, a border of 6 down, `Arial12_bold`'s
+  line 14) that is the border plus (32 - 14) / 2 = 15 from the box's top. OpenHOI3's placing, measured on the unit
+  panel's name box and set beside the maintainer's screenshot of the save dialog "to within a pixel", draws the line's
+  top 12 or 13 down. The two disagree by about three pixels; either the centring's `+0x494` is not the line height the
+  descriptor gives, or the measurement was of something else. A screenshot of the save dialog with a known name,
+  measured, would settle it.
+- Whether a text sprite's button frames or `buttonstate.fx` state still apply over the picture `0xAFDAC0` draws behind
+  its caption.
 - ~~Whether a `textBoxType` clips its lines at maxHeight (section 2.2).~~ It shows only its `maxWidth - borderX` by
   `maxHeight - borderY` of its picture (section 2.2.1), read 2026-11-14. Left: who calls the display object's slots 56
   and 57, which crop it; whether a picture's quad is also one unit short of its texels each way; and the arm of

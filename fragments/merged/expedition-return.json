@@ -1,0 +1,54 @@
+{
+ "agent": "exile (OpenHOI3 parallel wave, 2026-11-14)",
+ "question": "Read CUnit::ReturnFromExpedition whole, so it can be confirmed beyond its message part, and name what it calls that was unread; check the exile's, the annexation's and the AI command's routes home against it.",
+ "source": "reversing/findings/FINDINGS-expedition.md",
+ "addresses": [
+  {
+   "rva": "0x1020E0",
+   "kind": "function",
+   "name": "CUnit::ReturnFromExpedition",
+   "signature": "void __thiscall CUnit::ReturnFromExpedition(CUnit* this, CCountry* host)",
+   "no_signature": null,
+   "confidence": "confirmed",
+   "revises": "Read whole on the listing 2026-11-14 (0x5020E0 to 0x502BB3): the two unread callees named (0x8A2E00, 0x5D3840 was already CUnit_TransferChildren), confidence raised from inferred, and three corrections - the unit leaves its *own* owner's list (this->owner), not host's; the children keep their expeditionary owner; the date is never touched.",
+   "comment": "**An expeditionary unit goes back to the country that lent it.** 0x5020E0 to the single `ret 4` at 0x502BB3, read whole on the listing 2026-11-14. `this` the unit; `host` is used only for the message - its test and ACTOR. In order: the lender tag copied from expeditionary_owner (+0x28C/+0x290); CUnit_LeaveParent(unit, 1); the unit unlinked from the lender's expeditionary_units_lent (CCountry +0xBBC); expeditionary_owner set to `---`/0; where ai_agent (+0x198) is set it is cleared and the old agent's slot 64 (CAIUnit::ClearUnit) called with the unit; CUnit_NotifyAIUnitGone (0x8A2E00, unit in EDI) - every agent subscribed to g_AISubscriberList_1B14E90 lets the unit go; the unit unlinked from **its owner's** units (+0xBAC, through +0x124 - this->owner, not the host argument) and CCountry::AddUnit(lender, unit), which sets the owner of it and its regiments; CUnit_TransferChildren(unit, &lender, detachOnly 1) - **each child only leaves its parent and keeps its expeditionary_owner, so it stays on the host's list still on loan, a unit of its own at the top**; CUnit::RebuildAvatar; CUnit::EnterProvince(its province +0x130); intel_level (+0x1F8) for the player - 9 where CUnit_IsSeenAsOwnBy, else the province's intel byte for the player (0 past the array), avatar_stale (+0x10C) set where it changed. **expeditionary_date (+0x294) is never written**: a unit home keeps its old date, which nothing reads without an expeditionary owner. Then, only where the local player is the host or the lender, the message (the arguments below). Callers: AnnexCountry twice (0x4E8690 lent to it, 0x4E86D3 lent by it), SetGovernmentInExile (0x502DFB, then CCountry::ShatterUnit) and the country's daily pass (0x4DB418, the first unit past its date, ECX the unit, only `if unit->owner == country`). The name is ours. **The message read on the listing 2026-11-14**: the variables are CCountry::BuildMessageVariables of the player's country, then ACTOR = CountryNameOfCountry(host), RECIPIENT = CountryNameOfTag(lender), MESSENGER = MESSAGE_HEAD_CHAN, NAME = the unit's GetName; both raises - EXPRETURNEDWE where the player is the host, else EXPRETURNED - are CMessage(type, vars, the unit's province (+0x130, read after the hand-over), '', 0, first = the host, second = the lender, **the unit's persistent id (+0x10/+0x14) in the reserved arguments 11 and 12**), posted with CMessageHandler::GotoUnitForMessage - which finds the unit by that id through the persistent table, whoever owns it by then (the lender).",
+   "source": "reversing/findings/FINDINGS-expedition.md",
+   "evidence": "Decompiled whole on a private copy (agent_exile/ret.txt) and the head checked on the listing: 0x502148..0x50217B (owner cleared, agent slot 64 at [eax+0x100], call 0x8A2E00 with EDI = the unit), 0x502180 `lea ecx,[edi+0x124]` before the units-list walk (the unit's own owner), 0x5021C1 CCountry::AddUnit, 0x5021C6..0x5021CF `push 1; push &lender; push edi; call 0x5D3840`, 0x5021D5 RebuildAvatar, 0x5021E3 EnterProvince, 0x5021F7..0x502234 the intel level. No store to [edi+0x294] anywhere in the body. CUnit_TransferChildren with its third argument set jumps from 0x5D38BF straight to the next child after CUnit_LeaveParent (0x5D38B6), so the child's +0x290 is not written. Wrong if any write to +0x294 or a child's +0x290 is found between 0x5020E0 and 0x502BB3 or in 0x5D3840's detachOnly path."
+  },
+  {
+   "rva": "0x4A2E00",
+   "kind": "function",
+   "name": "CUnit_NotifyAIUnitGone",
+   "signature": "void __cdecl CUnit_NotifyAIUnitGone(CUnit* unit@EDI)",
+   "no_signature": null,
+   "confidence": "confirmed",
+   "comment": "**Tells the AI that a unit has gone from its country.** 0x8A2E00 to the bare `ret` at 0x8A2E8C, read whole; the unit in EDI, nothing on the stack. Where the unit's own ai_agent (+0x198) is set, that agent's slot 25 (+0x64, through the `mov eax,[ecx]; jmp [eax+0x64]` thunk at 0x8A3140) is called with the unit; then every node of g_AISubscriberList_1B14E90 (VA 0x1B14E90): a node whose subscriber is set has its slot 25 called with the unit; a node whose subscriber is null - a destroyed CAIUnit nulls its own node rather than unlinking it - is unlinked, freed and the count (0x1B14E98) decremented, or, while the list is being walked elsewhere (its byte at 0x1B14E9C set), only marked (node +0xC = 1). CAIUnit's slot 25 (0x4D5100) is a thunk to CAIUnit_ForgetUnit, which takes the unit off the agent's per-pass containers. One caller: CUnit::ReturnFromExpedition (0x50217B), which has already cleared ai_agent, so there only the channel is told. The name is ours.",
+   "source": "reversing/findings/FINDINGS-expedition.md",
+   "evidence": "Listing 0x8A2E00..0x8A2E8C (disasm.py): `mov ecx,[edi+0x198]; test; je; push edi; call 0x8A3140`, then the walk of [0x1B14E90] with `mov ecx,[esi]; test; je` / `push edi; call 0x8A3140` and the unlink-or-mark arm on [0x1B14E9C]; 0x8A3140 is `mov eax,[ecx]; jmp dword ptr [eax+0x64]`. findRefs --callers 0x8A2E00 gives exactly one call, 0x50217B; vtable.py --holding 0x8A2E00 gives no table. Wrong if a second caller exists or the slot reached is not +0x64."
+  },
+  {
+   "rva": "0x4BA2A0",
+   "kind": "function",
+   "name": "CAIUnit_ForgetUnit",
+   "signature": "void __stdcall CAIUnit_ForgetUnit(CAIUnit* agent@stack:4, CUnit* unit@EDI)",
+   "no_signature": null,
+   "confidence": "confirmed",
+   "comment": "**An agent lets a unit go from the containers its slot 78 (CAIUnit::ManageSubordinates) fills.** 0x8BA2A0 to the `ret 4` arms at 0x8BA441, 0x8BA4B7 and 0x8BA541, read whole; the agent on the stack, the unit in EDI. A land unit (the unit's slot 15, +0x3C): erased, where present, from the vectors +0x13C, +0x12C, +0x14C, +0x15C, +0x16C and +0x11C, each looked up by the unit's slot 9 (+0x24) pointer; else an air unit (slot 17, +0x44): from the list +0xFC (by its slot 13, +0x34) and the vector +0x10C; else a fleet: from the vectors +0xDC and +0xEC (slot 11, +0x2C). The erase helper 0x68D990 does nothing for an iterator outside [begin, end), so a unit absent from a container changes nothing. Two callers: CUnit_LeaveParent (0x5B9A85, on the nearest agent up the chain) and CAIUnit's slot 25 (0x4D5100, `push edi; mov edi,[ebp+8]; push ecx; call 0x8BA2A0; ret 4`), which CUnit_NotifyAIUnitGone reaches. The name is ours.",
+   "source": "reversing/findings/FINDINGS-expedition.md",
+   "evidence": "Listing 0x8BA2A0..0x8BA541 (disasm.py): `mov ebx,[ebp+8]` the agent, `mov eax,[edi]; call [eax+0x3C]` / `[eax+0x44]` the kind tests, six land vectors, the air list via 0x5D49D0 and vector +0x10C, the two naval vectors, each erase through 0x68D990, whose first test is the iterator against [begin, end). The containers are the ones ManageSubordinates empties in its step (1). vtable.py --holding 0x8BA2A0: in no table. Wrong if the kind order or a container differs on the listing."
+  },
+  {
+   "rva": "0x1714E90",
+   "kind": "global",
+   "name": "g_AISubscriberList_1B14E90",
+   "signature": null,
+   "no_signature": "a global, not a function",
+   "confidence": "confirmed",
+   "comment": "One of the eight `{first, last, count}` CAISubscriber channels CAIUnit::Enable push_backs every enabled agent onto (VA 0x1B14E90; the count at 0x1B14E98, a being-walked byte at 0x1B14E9C). **Notified by exactly one function, CUnit_NotifyAIUnitGone, from CUnit::ReturnFromExpedition**: each subscriber's slot 25 with a unit going home from an expedition. Five references in the image: three in CUnit_NotifyAIUnitGone (0x8A2E11, 0x8A2E5C, 0x8A2E64), the push_back in CAIUnit::Enable (0x8B059B) and ~CAIUnit (0x8AFD43), which nulls its node's subscriber rather than unlinking it - CUnit_NotifyAIUnitGone prunes those.",
+   "source": "reversing/findings/FINDINGS-expedition.md",
+   "evidence": "findRefs.py --address 0x1B14E90: sites 0x8A2E13, 0x8A2E5E, 0x8A2E66 (operand bytes inside 0x8A2E00), 0x8AFD44 and 0x8B059B; the record's functions at rva 0x4AFC30 (~CAIUnit) and 0x4B0360 (CAIUnit::Enable) contain the last two. Wrong if a byte-exact sweep finds another reference."
+  }
+ ],
+ "struct_fields": [],
+ "frontier": []
+}

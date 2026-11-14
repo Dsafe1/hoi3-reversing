@@ -25,12 +25,12 @@ how many objects a census found (taken 2026-09-20).
 
 | | classes |
 | --- | --- |
-| `read` | 183 |
-| `placed` | 140 |
+| `read` | 185 |
+| `placed` | 139 |
 | `keys` | 74 |
 | `part` | 181 |
 | `named` | 5 |
-| `RTTI` | 558 |
+| `RTTI` | 557 |
 | **all** | **1141** |
 
 ## What to read next
@@ -195,7 +195,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CGameLaunchInterface` | `CReferenceObject` |  |  |  |  |  |  | RTTI |  |
 | `CGameList` | `CGameHandlerInterface` `VCStandardlistboxItem::__CChoiceObserver` |  |  |  |  |  |  | RTTI |  |
 | `CGamePlaySettings` | `CPersistent` |  | 2 |  | 2 |  | 1 | keys |  |
-| `CGameSetup` | `CFrontEndView` `CSessionInfoObserver` `CLobbyInterface` `CLargefileHandlerInterface` `CReloadableInterface` |  | 24 |  | 33 |  |  | read |  |
+| `CGameSetup` | `CFrontEndView` `CSessionInfoObserver` `CLobbyInterface` `CLargefileHandlerInterface` `CReloadableInterface` |  | 24 |  | 34 |  |  | read |  |
 | `CGameState` | `CPersistent` |  | 74 | 14/33 | 15 |  |  | read |  |
 | `CGoodsPool` | `CPersistent` |  | 8 | 7/7 | 6 | CGoodsPool.hpp | 132,054 | read |  |
 | `CGraphStatistics` | `CPersistent` |  |  |  | 2 |  | 3 | keys |  |
@@ -382,7 +382,7 @@ Definitions out of `common/` and the rest of the mod. Their `LoadKey` is the gra
 | `CModifier` | `CPersistent` | 0x2C | 4 | 1/2 | 4 | CModifier.hpp | 108 | placed | one loader shared by `CProvinceModifier`, `CStaticModifier`, `CFactionModifier` and two more - `static_modifiers.txt` and `event_modifiers.txt`, which reach everything |
 | `CNationalProvinceTigger` | `CValueTrigger` | 0x44 |  | 2/153 | 2 |  | 8 | RTTI |  |
 | `COccupationPolicy` | `CModifier` | 0x90 | 4 |  | 2 |  | 7 | keys |  |
-| `CProjectionType` | `C3dObjectType` |  |  | 7/10 | 1 |  | 3 | placed |  |
+| `CProjectionType` | `C3dObjectType` |  | 14 | 7/10 | 5 |  | 3 | read |  |
 | `CProvinceHistoryEntry` | `CHistoryEntry` |  | 1 |  | 1 |  |  | part |  |
 | `CProvinceModifier` | `CModifier` | 0x30 | 3 | 1/2 |  |  | 14,190 | part |  |
 | `CProvinceTemplate` | `CPersistent` |  | 51 |  | 12 |  | 14,190 | read |  |
@@ -610,7 +610,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CPowerRatioEntry` | `CUnitViewBaseEntry` | 0x2C | 1 |  | 3 |  |  | part |  |
 | `CPrioComparator` | `CBrigadeSortInterface` |  |  |  | 1 |  | 2 | RTTI |  |
 | `CProductionView` | `CCountryView` |  | 11 |  | 31 |  | 1 | read |  |
-| `CProjectionObject` | `C3dVisibleObject` |  |  |  |  |  |  | RTTI |  |
+| `CProjectionObject` | `C3dVisibleObject` | 0x148 | 5 |  | 3 |  |  | read |  |
 | `CProvinceCollisionObject` | `C3dVisibleObject` |  | 4 |  |  |  |  | part |  |
 | `CProvinceManager` | `CLostDeviceInterface` |  |  |  | 1 |  | 1 | RTTI |  |
 | `CProvinceObject` | `CProvinceCollisionObject` | 0x160 |  |  | 1 |  | 10,642 | RTTI |  |

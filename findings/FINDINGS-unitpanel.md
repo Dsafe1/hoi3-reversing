@@ -145,6 +145,17 @@ Constructor `0x769940` `(object, unit, screen, bool inPanel, list)`, update `0x7
    `§R` in front where its strength over its strength ceilings is under
    `CUnit::ShatterThreshold`. `CRegiment`'s slot 14 (`0x5AC870`) is where the 100 comes from: it
    answers 100.000 and nothing else.
+
+   **A fleet's and an air unit's** (read 2026-11-14 by the `fleetpanel` agent, checked off the listing): CNavy and CAir
+   share one slot 37, `NavyOrAir_StrengthText` (`0x5D0770`; the only two tables holding it):
+
+       out = ""
+       out = _itoa(unit->regiments_count (+0x40), buffer, 10)
+
+   so **the count of the unit's own ships or wings in plain decimal** - `19` for the Home Fleet of 1936, ten capital
+   ships and nine screens; `3` for the French transport fleet of the 7 January save - with no colour, no separator, and
+   nothing asked of a ship's or wing's strength: a ship at a tenth of a point counts as one. `confirmed` (listing
+   `0x5D0770`..`0x5D07E9`).
 4. **`unitleader`**: the leader's name; `§R` and the name where `CUnit::LeaderHasRankForCommand`
    says no; the text `NO_LEADER` where the leader object's slot 8 answers false - a unit
    without a leader holds the null leader and not a null pointer.

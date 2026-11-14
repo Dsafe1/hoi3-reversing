@@ -117,7 +117,36 @@ Pressing any of these rows opens `CExpeditionaryForceDialog` (FINDINGS-agreement
 
 **Coming home, the date route** (the player's own route, and a government-in-exile's): `RunCountryDailyPass` (the host's day), `0xDB1AD..0xDB418`: every unit of the host's `units` with an expeditionary owner and `expeditionary_date < tick` goes on a local list; **only the first of them** is `CUnit::ReturnFromExpedition`'d that day (`if head && head.owner == country`) - so several recalled units come home one a day, list order, and a unit whose owner stopped being the host is skipped. So the unit stays the host's for at least the given number of days and is usable by the host meanwhile; the tooltip on `exp_force` (section 4) gives the date.
 
-**`CUnit::ReturnFromExpedition`** (recorded): leaves its parent, off the lender's lent list, `expeditionary_owner` cleared, off the host's units, `CCountry::AddUnit(lender)`, `CUnit_TransferChildren(unit, &lender, 1)` **with detachOnly set - its children are detached and left on the host's list as the host's own**, avatar rebuilt, province re-entered, intel reckoned, and `EXPRETURNED`/`EXPRETURNEDWE` where the local player is the lender or the host. (`ReturnFromExpedition` handles one unit; `CSendExpeditionCommand` is the route that recurses.)
+**`CUnit::ReturnFromExpedition`** (`0x1020E0`, `ret 4`), **read whole on the listing 2026-11-14** by the `exile` agent -
+`confirmed` now, where it was `inferred` beyond its message. `this` is the unit; the `host` argument is read only for the
+message (its test and ACTOR). In order:
+
+1. the lender's tag copied from `expeditionary_owner` (`+0x28C`/`+0x290`);
+2. `CUnit_LeaveParent(unit, 1)` - its commander's agent told;
+3. the unit unlinked from the lender's `expeditionary_units_lent` (`+0xBBC`);
+4. `expeditionary_owner` set to `---`/0 (the one write of `+0x290` in the body, `0x502160`, on the unit itself -
+   checked by the collecting session);
+5. where `ai_agent` (`+0x198`) is set: cleared, and the old agent's slot 64 (`CAIUnit::ClearUnit`) called with the unit;
+6. **`CUnit_NotifyAIUnitGone` (`0x4A2E00`, the unit in EDI)**, the callee the record had left as a bare address: the
+   unit's own agent (none by now) and every agent subscribed to the channel `g_AISubscriberList_1B14E90` get slot 25
+   with the unit - CAIUnit's slot 25 (`0x4D5100`) is a thunk to `CAIUnit_ForgetUnit` (`0x4BA2A0`), which erases the unit
+   from the containers slot 78 fills (land: `+0x13C`, `+0x12C`, `+0x14C`, `+0x15C`, `+0x16C`, `+0x11C`; air: the list
+   `+0xFC` and `+0x10C`; fleets: `+0xDC`, `+0xEC`), an absent unit changing nothing. Null subscriber nodes, which
+   `~CAIUnit` leaves behind, are pruned on the way. **That channel is notified from nowhere else**;
+7. the unit unlinked from **its own owner's** `units` (`+0xBAC`, reached through `+0x124` - `this->owner`, not the `host`
+   argument; the two are the same at every caller) and `CCountry::AddUnit(lender, unit)`, which sets the owner of the
+   unit and its regiments;
+8. `CUnit_TransferChildren(unit, &lender, detachOnly 1)`: each child only leaves its parent (`0x5D38BF` jumps past
+   everything else). **A child keeps its `expeditionary_owner`** - it stays on the host's list, still on loan, now a unit
+   of its own at the top: the lender's flag, the lender's figures, its date the game's end, offered again by the Return
+   and Retrieve rows. *Corrected*: this said the children are left "as the host's own";
+9. `CUnit::RebuildAvatar`, `CUnit::EnterProvince(its province)`, and `intel_level` (`+0x1F8`) for the player - 9 where
+   `CUnit_IsSeenAsOwnBy`, else the province's intel byte (0 past the array) - with `avatar_stale` set where it changed;
+10. the message, below.
+
+**`expeditionary_date` (`+0x294`) is never written**: a unit home keeps whatever date it had. Nothing reads the date
+without an owner (the rows, the save and the daily pass each test `+0x290` first), so it does not show.
+(`ReturnFromExpedition` handles one unit; `CSendExpeditionCommand` is the route that recurses.)
 
 **The message's arguments, read on the listing 2026-11-14** (`0x5020E0`..`0x502BB3`, by the `messages` agent): the
 variables are `CCountry::BuildMessageVariables` of the player's country, then `ACTOR` = `CountryNameOfCountry(host)`,
@@ -132,7 +161,16 @@ where the unit stood.
 
 **Coming home, the command route** (AI and only AI): `CSendExpeditionCommand` is posted only by `CAIUnit::ManageExpeditions` (give back, or lend) and `CEU3AI_SendLandlessUnitsOnExpedition`. Its Execute moves the unit immediately and recurses through `CSendExpeditionCommand_TransferSubtree`; no date wait, no message.
 
-**The end of a loan is never automatic on a change of diplomacy.** Reasons a unit returns: (1) the daily pass on an expired date; (2) `AnnexCountry` (host annexed - units lent to it and units it lent out are returned first; FINDINGS-surrender A); (3) `SetGovernmentInExile` (host in exile, for units lent to it standing where the controller is not its friend - returned and shattered; FINDINGS-surrender); (4) the AI's commands; (5) a save's load. **Nothing returns it when the lender leaves the alliance, the two go to peace or a war ends.** Search: `findRefs.py --callers 0x5020E0` gives exactly four callers (the daily pass, `AnnexCountry` twice, `SetGovernmentInExile`), and `findRefs.py --callers 0x5E95B0` three callers (all AI); the writers of `+0x290` over the image (fieldchain census, 153 sites in 111 functions) are `CUnit::CUnit`, `CUnit::LoadKey`, `CUnit::ReturnFromExpedition`, `CUnit_TransferChildren`, `CSendExpeditionCommand::Execute`/`_TransferSubtree`, and `Apply`. Positive control: the same census finds Apply's known writes at `0xA39F86` and `0x5E982C`.
+Its walk keeps the tree (2026-11-14, the `exile` agent): the unit leaves its parent, and the unit and every child each
+take one rule - an expeditionary owner equal to the target is cleared (off that country's lent list) and the date left
+alone; anything else gets the date `defines.end_date` and, where it had no expeditionary owner, its owner's - then each
+moves to the target and every child is re-attached under its parent. So the AI's give-back carries the whole tree home,
+where the date route (`ReturnFromExpedition`) carries only the top unit. The AI's own posters detach the children before
+a give-back (`CAIUnit::ManageExpeditions`) and lend only a childless unit, so in practice the difference shows only
+through `CEU3AI_SendLandlessUnitsOnExpedition`, which posts a command for units that may have children (not followed
+further).
+
+**The end of a loan is never automatic on a change of diplomacy.** Reasons a unit returns: (1) the daily pass on an expired date; (2) `AnnexCountry` (host annexed - units lent to it and units it lent out are returned first; FINDINGS-surrender A); (3) `SetGovernmentInExile` (host in exile: of its units on ground whose controller is not its friend by `CCountry::IsFriend(controller, exile, 1)` - a unit at sea is never tested - its own are destroyed on the spot and the lent ones collected; after the walk each collected unit is `ReturnFromExpedition`'d and then `CCountry::ShatterUnit`'d by its new owner, the lender. A lent unit on a friend's ground, or at sea, stays lent to the exile. A lent corps standing on such ground goes home without its divisions, and each of those, collected on its own account, follows it - one message each; FINDINGS-surrender C.2, steps 4 and 5); (4) the AI's commands; (5) a save's load. **Nothing returns it when the lender leaves the alliance, the two go to peace or a war ends.** Search: `findRefs.py --callers 0x5020E0` gives exactly four callers (the daily pass, `AnnexCountry` twice, `SetGovernmentInExile`), and `findRefs.py --callers 0x5E95B0` three callers (all AI); the writers of `+0x290` over the image (fieldchain census, 153 sites in 111 functions) are `CUnit::CUnit`, `CUnit::LoadKey`, `CUnit::ReturnFromExpedition`, `CUnit_TransferChildren`, `CSendExpeditionCommand::Execute`/`_TransferSubtree`, and `Apply`. Positive control: the same census finds Apply's known writes at `0xA39F86` and `0x5E982C`.
 
 ## 4. What a lent unit is afterwards
 
@@ -169,9 +207,11 @@ Fields: `expeditionary_owner` (+0x28C `CCountryTag`, +0x290 id half: the lender,
 2. `$NUM$` in the sender's own description counts the top unit as well as the units under it, whatever their kind.
 3. Deselecting a fleet leaves it in the selection list while emptying the action's unit (1.4).
 4. The dialog's Retrieve date text uses `EXPEDITION_RECLAIM_TIME`; the real delay is `EXPEDITION_RETURN_TIME`.
-5. `ReturnFromExpedition` calls `CUnit_TransferChildren` with detachOnly 1: a returning unit with children goes home alone and its children stay, detached, as the host's own units (the daily route; the AI's command route instead recurses and moves them).
+5. `ReturnFromExpedition` calls `CUnit_TransferChildren` with detachOnly 1: a returning unit with children goes home alone and its children stay on the host's list, detached and **still on loan** (their `expeditionary_owner` kept), each a unit of its own (the daily route; an annexation or an exile collects those children too and sends them home one by one; the AI's command route recurses and moves them with the unit). *Corrected 2026-11-14*: this said "as the host's own units".
 6. Several recalled units come home one per day per host.
 7. The influence cost is charged at the offer and is never refunded on a decline.
+8. `ReturnFromExpedition` never resets `expeditionary_date`; a unit home keeps its old date, unread while it has no
+   expeditionary owner (2026-11-14).
 
 ## Not established
 

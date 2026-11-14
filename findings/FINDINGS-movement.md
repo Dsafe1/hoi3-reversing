@@ -35,8 +35,8 @@ shift"); the caller that reads the keyboard was not looked for.
   - the province is **the one it stands in**, and either `append` is clear or it has no path:
     a `CCancelMovementCommand` for the unit;
   - `CUnit::CanMoveTo(province)` (slot 35, already recorded) says no: the
-    `illegal_selection_projection` effect on the province and the `error` sound;
-  - otherwise the `legal_selection_projection` effect, the sound `army_move`, and
+    `illegal_selection_projection` effect on the province (section 13) and the `error` sound;
+  - otherwise the `legal_selection_projection` effect (section 13), the sound `army_move`, and
     `CMoveCommand(unit, province id, clear = !append, safe = 0, very_safe = 0)`.
 - a fleet and a wing take their own branches (`navy_move`, `air_move`), which were not read
   through; both end in the same `CMoveCommand`.
@@ -960,6 +960,169 @@ September 1939 played as Germany (console `tag GER`, its theatre's AI taken off)
 Johannisburg was refused Plock (two provinces off, Polish) - "21. Infanterie-Division may not go to Plock.", still
 defending, the map's tooltip saying `UTM_NOT_LEGAL_RETREAT` - and sent to Ortelsburg next door, which it then retreated
 to. Not checked in the original's running game: any of it.
+
+## 13. The click's marks: `legal_selection_projection` and `illegal_selection_projection`
+
+*Read 2026-11-14 on the decompiled C and the listing, for OpenHOI3's `movement.md`, section 7. Not watched in a running
+game; OpenHOI3's build of it was set on screen with `--click` and looks as the reading says (a blue ring at the province's
+unit point, a red cross at a sea zone's), with no screenshot of the original's to set it beside.*
+
+Section 1 named the two marks and stopped. They are **projections**: a `projectionType` of `interface/mapitems.gfx`, made
+into a `CProjectionObject` hung on the clicked province's anchor and drawn through `gfx/FX/project.fx`, which lays the
+picture flat on the map from above. They grow, pulse, fade and are gone two seconds after the click.
+
+### 13.1 The type: `CProjectionType` (vftable VA 0x15E1FDC)
+
+The constructor (rva 0x44D670, `this` in EAX, the graphics on the stack, `ret 4`) and LoadKey (rva 0x44E330, already
+recorded with its ten keys) give the layout and every default:
+
+| offset | key | type | default |
+| --- | --- | --- | --- |
+| +0x8C | - | CGraphics* | the constructor's argument |
+| +0x90 | - | int | the effect's index, -1 until LoadResources |
+| +0x94 | - | int | the texture's index, -1 until LoadResources |
+| +0x98 | `textureFile` | Hoi3CString | empty |
+| +0xB4 | `additative` | bool | no |
+| +0xB5 | `pulsating` | bool | no |
+| +0xB8 | `expanding` | float | 0 |
+| +0xBC | `size` | float | **1.0** (the float at VA 0x171DBAC) |
+| +0xC0 | `pulseLowest` | float | **0.4** (VA 0x170AC10) |
+| +0xC4 | `pulseSpeed` | float | **3.0** (VA 0x171DC88) |
+| +0xC8 | `spin` | float | 0 |
+| +0xCC | `duration` | float | 0 |
+| +0xD0 | `fadeout` | float | 0 |
+| +0xD4 | - | IDirect3DVertexDeclaration9* | null until LoadResources |
+
+**LoadResources** (slot 6, rva 0x44D840, `ret 4`): the texture through the texture handler (VA 0xA60F30, flag 1) into
++0x94; the effect by `FxHandler_Register(graphics +0x6BCFC, "gfx/FX/project.fx", "projectioneffect", device)` into
++0x90 - **the path and key are hardcoded and there is no `effectFile` key**, so every projection type shares one effect
+[exe]; then CreateVertexDeclaration (device slot 86) of the static elements at VA 0x170ACD0 into +0xD4, a failure being a
+message box "CreateVertexDeclaration failed!! (WaterVertexDecl, projection)" and FatalExit(1). **ReleaseResources**
+(slot 7, rva 0x44D970, `ret 4`): the texture released (VA 0xA610E0) where +0x94 is not -1, +0x94 = -1, the declaration
+released. Slot 0 (rva 0x44D740) is the scalar deleting destructor.
+
+The install's two (both files, `interface/` and `tfh/interface/`, alike) [mod]: `size = 4`, `spin = 0`, `pulsating =
+yes`, `pulseLowest = 0.8`, `pulseSpeed = 1`, `additative = no`, `expanding = 0.3`, `duration = 1`, `fadeout = 1`;
+`gfx\\test\\legal.tga` (a blue ring, 128 x 128, transparent outside 7..116) and `gfx\\test\\illegal.tga` (a red cross,
+transparent outside 9..118). `selection_projection` names `gfx\\test\\selection.tga`, where the install has only
+`selection.dds` (the usual wrong extension), and has no `duration`.
+
+### 13.2 Where they are made: `CUnit::OrderToProvince` and `CUnit_ShowOrderProjection`
+
+*The collecting session checked the selected-unit test off the listing: six of the seven calls of `0x5C0C10` stand
+directly behind `cmp byte ptr [edi+4], 0`; the seventh (`0x5C1E72`) behind `test al, al` at `0x5C1E50`, reached by a
+jump, the byte loaded where the jump comes from - likely the same, not traced.*
+
+**`CUnit_ShowOrderProjection`** (rva 0x1C0C10, `__stdcall`, `(unit, province, type name)`, `ret 0xC`), its seven callers all
+inside `CUnit::OrderToProvince`: the map graphics from the unit's in-game screen (+0x160, slot 15); the province's graphics
+entry (graphics +0x1DF0 [province +0xD0]) and its anchor (+0x10); the type by name (StringHashFind); `new 0x148` and
+**`CProjectionObject::CProjectionObject(this, type, anchor)`**; the object added to the map's object group (graphics
++0x5FC, slot 4) and shown (slot 13); `ProvinceGraphics_PlacePicture(entry, owner, object, raise 0)`; and then slot 33
+(Translate) by **the unit's GetPosition in that province (slot 30) less the province template's label point
+(+0xD4 -> +0x5C/+0x60)**. So the mark lies where the unit would stand in the province: the unit point
+[mod: map/positions.txt `unit`], a fleet's naval base in a land province, an air unit's air base where it is at its own base
+there (CNavy::GetPosition, CAir::GetPosition, both recorded).
+
+**The constructor** (rva 0x44D490; `this`, the type and the anchor all on the stack, `ret 0xC`): C3dVisibleObject's, its
+own vftable (VA 0x15E1DCC), **+0x138 = the anchor**, the byte +0x144 = 0, and **+0x13C and +0x140 = the platform clock's
+seconds** (g_PlatformClock slot 5) - when it was made, and where its pulse starts from.
+
+**Every call is behind `is_selected`** (the unit's +4): only a selected unit leaves a mark, one each. In OrderToProvince
+(the branches section 1 had not read are read here as far as the marks):
+
+| branch | legal | illegal |
+| --- | --- | --- |
+| land, agent of its own (above a division) | after the plan objective's toggle or a set axis, with `army_move`; **where SetPlanAxisTo answers false the click returns with no sound and no mark** | a division (oob level 4 and up) with an agent of its own: the mark and `error` |
+| land, Ctrl held | - (the orders window, kind 2) | - |
+| land, the player's | after `CanMoveTo` (slot 35) says yes, with `army_move` and the CMoveCommand | `CanMoveTo` refuses: the mark, and `error` for the player's |
+| land, its own province (append clear or no path) | - (CCancelMovementCommand, no mark, no sound) | - |
+| air, in a battle (or not selected, when no mark is made) | the mark and a CMoveCommand, nothing tested; then `air_move` | never |
+| air, out of battle and selected | - (the orders window, kind 1) | - |
+| fleet, the sea joins (SeaConnected) | with a path, its own province: CCancelMovementCommand, none; append clear, out of battle, selected: the orders window (kind 0), none; else `navy_move`, then `COrder::IsTargetInRange` yes: CMoveCommand and the mark | `IsTargetInRange` no: the mark, no `error` |
+| fleet, the sea does not join | - | unless (a coastal land province, the fleet carrying (CNavy +0x2EC), the first carried unit's slot 34 saying yes, append clear, out of battle) - which opens the orders window - the mark, and `error` for the player's |
+
+### 13.3 How long it stays: the draw's clock
+
+The draw (rva 0x44D9B0, below) takes the type, the anchor, the current view's camera, the object's local translation
+(+0x84), the start (+0x13C) by value and the pulse phase (+0x140) by pointer, with **EAX the byte +0x144**, and works
+first on time, from the platform clock's seconds `now` as a float - **real time, not the game's: a paused game's marks
+still play out**:
+
+- `elapsed = (float)(now - start)`, `scale = size`, `alpha = 1`.
+- **Growing**, while `expanding + start > now` (doubles): `scale = (float)((double)(float)(elapsed / expanding) ×
+  (size - 0.1) + 0.1)`, 0.1 being the float 0.1 widened (VA 0x160A3C0) [exe], **and the phase = now** - so the pulse later
+  starts from the last frame of growing.
+- **Fading or over**, where `duration > 0` and `elapsed > duration`: where `fadeout > 0` and `fadeout + duration > elapsed`,
+  `alpha = P × (1 - (elapsed - duration) / fadeout)`; **otherwise the byte is set and nothing is drawn** - the object's
+  slot 10 then takes it off the map (13.5). P is the pulse below, **taken here whether or not the type pulsates** [exe].
+- **Otherwise**, where `scale >= size` and `pulsating`: `alpha = P`.
+- **P** = `pulseLowest + (1 - pulseLowest) × (sinf((float)((now - phase) × 3.14 × pulseSpeed)) + 1) × 0.5`, 3.14 the float
+  widened (VA 0x160A700) [exe], the sine FloatSin's.
+- **The angle** = `(float)((double)(float)elapsed × 3.14 × spin)` radians.
+
+With the install's figures: 0 to 0.3 s it grows from 0.1 to 4 units at full alpha; to 1 s it pulses from 0.9 (the sine at
+nought) up to 1 and back; from 1 s to 2 s the pulse is faded linearly to nothing; at 2 s it is gone. Nothing turns it.
+
+### 13.4 How it is drawn
+
+- **Device**: ALPHABLENDENABLE 1; SRCBLEND / DESTBLEND **ONE / ONE where `additative`, else SRCALPHA / INVSRCALPHA**;
+  ZWRITEENABLE 0, ZENABLE 0; the pass's own (ZENABLE false, ZWRITEENABLE false, ALPHABLENDENABLE true, ALPHATESTENABLE
+  false) over them [mod: project.fx]. Afterwards ZENABLE 1, ZWRITEENABLE 1, ALPHABLENDENABLE 0, SRCALPHA / INVSRCALPHA.
+  No SetTechnique: the effect's one, `tec0`.
+- **The look down**: `D3DXMatrixLookAtLH(eye, at, up)` with **eye = (anchor world x + x, anchor world y + y + 50, anchor
+  world z + z)** and **at the same 49 up** (the doubles 50.0 at VA 0x160A4C8 and 49.0 at VA 0x160A6F8), x, y, z the
+  object's local translation (+0x84..+0x8C) and the anchor's world translation its +0xC4..+0xCC; **up = (sin a, 0, cos a)**,
+  a the angle (sin at 0x588890, cos at VA 0xC0BCC0); then **`D3DXMatrixOrthoLH(scale, scale, 1, 70)`** (70.0 at VA
+  0x160A6F0); then the bias matrix built on the stack, rows (0.5, 0, 0, 0), (0, -0.5, 0, 0), (0, 0, FLT_MAX, 0),
+  (0.5, 0.5, FLT_MIN, 1) - its third column feeds a coordinate nothing samples. So **the picture covers a square `scale`
+  map units a side about the mark, its top to the north, turned by the angle** [exe].
+- **What it is laid on** - asked of the anchor's slot 95, which is ReturnTrue for `CProvinceObject` (a land province) and
+  ReturnFalse for `CProvinceWaterObject` (a sea zone):
+  - **land**: `TextureMatrix` = the province's tile's world matrix (tile +0x17C) × the look × the ortho × the bias, and the
+    effect drawn on **the province's own land triangles in its tile** - VA 0x863CA0, whose loop stops at the first tile
+    that holds the province and draws that province's group (DrawIndexedPrimitive, triangle list, the group's range of
+    the tile's index buffer) with the land's SHORT2 declaration. So **the picture is cut to the province's shape**; and
+    the land vertices reach project.fx's float2 POSITION as plain numbers, without the 0.5 terrain_2_0.fx adds.
+  - **sea**: world = translation(local x, 0, local z) × the anchor's world (Matrix4x4_Multiply), the same in front of the
+    look; the declaration +0xD4, and `DrawPrimitiveUP(D3DPT_TRIANGLEFAN, 2, ...)` of four float2 corners (-10,-10),
+    (-10,10), (10,10), (10,-10) (-10.0 at VA 0x160A588, 10.0 at VA 0x171DBB0): **a square 20 units a side about the mark**,
+    the picture clamped (project.fx's sampler) and transparent at its edges.
+  - Either way nothing is drawn where VA 0x869F10 - the first tile, of the visible ones, holding the anchor's province
+    id (+0x144) - finds none.
+- **Parameters**, each by name each frame: `TextureMatrix`, `Alpha`, `WorldViewMatrix` (world × the camera's view, which
+  project.fx declares and never reads), `WorldMatrix`, `ViewMatrix` (camera slot 91), `ProjectionMatrix` (slot 93) and
+  `tex0`. project.fx puts every vertex at y 0.25 (`LAND_ALT`) [mod].
+
+The anchor's world is absolute (CProvinceObject's Translate) where a tile's world matrix is camera-relative
+(FINDINGS-mapdraw.md, A.2); that the two agree in play is *inferred* - the mark lies where it should in the running game by
+every account, and how the object group's camera reconciles them was not read.
+
+### 13.5 Taken away
+
+Slots 10 (Render, rva 0x44D5F0, `ret 0x18`, six arguments of which only the graphics is read) and 11 (rva 0x44D570,
+`ret 8`) have one body: the draw (13.3, 13.4); then, where the byte +0x144 is set and the byte +0x50 is not, slot 17
+(GetScene) and VA 0xA76F50 on it - the scene's queued destruction - slot 14 (Hide), and +0x50 = 1. So a mark is drawn once
+a frame until its clock says it is over, and goes the frame after. Nothing else takes a click's mark away - a second click
+makes a second mark beside the first.
+
+### 13.6 Hardcoded or mod-able
+
+- [mod: `interface/*.gfx`, `projectionType`]: the picture, size, spin, pulsing, its lowest and speed, additive blending,
+  growing, duration and fading - and the names `legal_selection_projection` / `illegal_selection_projection` are looked up
+  by name [exe].
+- [mod: `gfx/FX/project.fx`]: the shader - its height, sampler and the alpha multiply; [exe] that it is that file.
+- [mod: `map/positions.txt`]: where the mark lies (the unit point, the naval base, the air base's `building_position`).
+- [exe]: the start at 0.1; 3.14; the pulse's form, and fading pulsing whatever `pulsating` says; the real-time clock; the
+  look from 50 to 49 up and the ortho's 1 and 70; land cut to the province and the sea's 20-unit square; the blend states;
+  that only a selected unit leaves one; which branches leave which.
+
+### 13.7 Not read
+
+- What `selection_projection`'s maker does (the constructor's other caller, VA 0x8408AE, inside a function `functionStart`
+  puts at ~CEU3Graphics, VA 0x840790 - more likely an abutting function, trap 2) - and so the selection mark is not built
+  in OpenHOI3.
+- The vertex declaration at VA 0x170ACD0 was not dumped; float2 POSITION is inferred from the stride of 8.
+- How the map object group's camera relates to the tile matrices' camera-relative space (13.4).
 
 ---
 

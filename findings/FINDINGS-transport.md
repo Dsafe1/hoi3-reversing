@@ -683,9 +683,29 @@ province. The row's tooltip is `CChildUnitEntry::BuildTooltip`, a shared body.
 **The window's tooltip**: `select_land`, `UW_SELECT_LAND` "Select all attached land units."; `select_air`,
 `UW_SELECT_AIR` "Select all CAG's attached to this fleet."; anything else is answered by the row under the mouse.
 
-**The two buttons** (update `0x7577B0`): `select_land` is enabled where anything is aboard; `select_air` is enabled, for
-a fleet, where any carrier has aircraft aboard, and hidden for an air unit. Clicking either clears the selection and
-selects every passenger (`0x758B00`), or every aircraft aboard the fleet's carriers (`0x758940`).
+**The two buttons** (update `0x7577B0`): `select_land` is enabled where anything is aboard, a fleet or an air unit;
+`select_air` is enabled, for a fleet, where any carrier has aircraft aboard, and hidden for an air unit.
+
+**Their clicks**, read whole 2026-11-14 by the `fleetpanel` agent (`0x758B00` on `select_land`, `0x758940` on
+`select_air`; the guard checked off both listings by the collecting session). Each first asks the panel's unit (`+0x28`)
+its slot 16, IsNaval, and **does nothing at all for anything but a fleet** - so an air unit's `select_land`, which the
+update enables over the paratroopers aboard, may be pressed and does nothing. For a fleet:
+
+1. the in-game screen (`g_CCurrentGameState +0xBE8`) is asked slot 43, `CInGameIdler::DeselectLater`, with null: every
+   thing now selected - the fleet among it - is queued, and let go at the end of the frame's panel pass
+   (`FINDINGS-selection.md`, B.2);
+2. `select_land`: each unit of the fleet's carrying list (AsNavy, slot 11, then `+0x2E4`), in list order; `select_air`:
+   ship by ship in the fleet's list (`+0x38`), for a ship whose definition's `carrier_size` (`+0x58` -> `+0x190`) is
+   above 0, each air unit of its `+0xDC` list in order - each handed to slot 38, `CInGameIdler::Select`, which appends it
+   without clearing and asks neither owner nor kind.
+
+So what is aboard replaces the selection. **Nothing else**: no call that centres the map, chooses a province, posts a
+command or plays a sound - each unit's own `CUnit::OnSelected` plays its kind's selection sound as any selection does
+(`FINDINGS-selection.md`, A.7). No custom-game lock is asked, unlike the strip's four carrying buttons. `confirmed`.
+
+**Corrected**: this said `select_land` worked "for a fleet or an air unit" and that the selection was "cleared"; the
+first is the update's test and not the click's, and the second is a deferred deselection, whose outcome is the same
+here.
 
 **Refresh.** Every frame each row updates itself. **Only an air unit's list is filled again** when its passenger count
 changes. `CSingleUnitPanel_RefreshIfChanged` (`0x7624F0`) rebuilds the panel only when the number of units above, the
