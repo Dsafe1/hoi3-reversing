@@ -1,0 +1,72 @@
+{
+  "agent": "main session",
+  "question": "Why OpenHOI3 halted an attacking headquarters and walked an attacker into an empty battle at full speed.",
+  "source": "reversing/findings/FINDINGS-liveread.md",
+  "structs": [],
+  "addresses": [
+    {
+      "rva": "0x49A840",
+      "kind": "function",
+      "name": "CEU3AI::MoveUnit",
+      "signature": "void __stdcall CEU3AI::MoveUnit(CEU3AI* this@ECX, CUnit* unit, int provinceId, int recordOnly, bool safe, bool verySafe, CAIAgent* agent)",
+      "no_signature": null,
+      "confidence": "confirmed",
+      "comment": "**Renamed from `CMoveCommand::IssueFromInterface`, which was wrong about the class and about the caller.** The luabind registration table - the same table the whole Lua API was recovered from - carries this pointer (9021504 = 0x89A840) as `class CAI`, `cpp CEU3AI::MoveUnit`, `void MoveUnit(CEU3AI&, CUnit*, int, int, bool, bool, CAIAgent*)`. So it is **the AI's own move entry point, exposed to the mod's Lua as `CAI.MoveUnit`**, and `CAIUnit` slot 32 (0x8B0E60) calls it. The old name survived despite its own comment noting that the receiver in ECX is not a CMoveCommand; the seventh argument, recorded as an unread `int unused`, is the CAIAgent*, which accounts for both observations. Kept as an alias.\n\n**The gates, in order (0x89A8D7-0x89A9BC, read 2026-10-19):** (1) a unit retreating (+0x158) is not moved - return; (2) the unit's virtual +0x8C (slot 35) refuses the province - return; (3) `recordOnly` > 0 - only +0x2CC is written; (4) the province is the one the unit stands in: where its +0x2CC is above 0 or 0x49AEC0 answers true, the stand-down CUnit::AIStandDown (0x49AAB0); otherwise nothing; (5) d = 0x49AF00(unit), the unit's destination: where d is the province, nothing is posted **unless the unit holds ground (CUnit::IsHoldingGround, `push 0`) - a unit in a battle is ordered again, and SetUnitPath then takes it out of every battle**; (6) with `safe` and CEU3AI_ShouldRedeployStrategically, the strategic-redeployment order (0x5A4) through 0x49ABD0; (7) otherwise a 0x70-byte CMoveCommand (constructor 0x5D87F0: unit, province, mode68 = 1, safe, very safe) posted. The receiver in ecx is not a CMoveCommand - it is only ever handed on, as the first argument of 0x49ABD0 and of 0x499E50, which does `add ecx,0x20; call 0x402610`, so the object carries a CCountryTag at +0x20: the per-player interface the order is issued through. Its class was not identified. **So a caller that does not want a fighting unit re-ordered has to skip it itself** - which CAIUnit_ManageLandUnits's commit loop does, passing over every attacker whose pending destination is an enemy's province, the target included (FINDINGS-aiconsumer.md). See FINDINGS-moving.md, section A.4c. **No range** (FINDINGS-liveread.md, section 84): nothing on its way asks COrder::IsTargetInRange - the CMoveCommand's execute does not - so the AI moves a fleet beyond its range from base: France's transport fleet, based at Bordeaux with a range of 2000, sent to Alger 2375 away on 2 January 1936. **Gate (2) seen in play 2026-11-14** (FINDINGS-liveread.md, section 88): CUnit::CanMoveTo refuses every province to a unit with a path, in battles and with a battle in its path's next province, its own included, so gate (4)'s stand-down never comes for a unit marching into a battle - Poland's Armia Modlin, attacking 1749 from 1809 at the start of Ireland1939_09_06_18, sent 1809 by the pull-in, answered 0 at 0x49A900 and kept its attack.",
+      "evidence": "MoveUnit's entry, the slot-35 answer at 0x49A900 and AIStandDown's entry logged for the unit on the running game, its +0x2CC read before.",
+      "source": "reversing/findings/FINDINGS-liveread.md",
+      "revises": "comment"
+    },
+    {
+      "rva": "0x1C2BA0",
+      "kind": "function",
+      "name": "CUnit::CanMoveTo",
+      "signature": "bool __thiscall CUnit::CanMoveTo(CUnit* this, CMapProvince* province)",
+      "no_signature": null,
+      "confidence": "confirmed",
+      "comment": "**Whether this unit may be sent to that province**, virtual slot 35 (CUnit, CArmy and CNavy share the body; CAir overrides it to gate on cloud and then tail-calls this). In order: no unless slot 34 (MayStandIn) says yes; no where a land unit at sea is sent to land that has no edge to its province (CProvinceTemplate::HasEdgeTo); no where it has battles and its CanRetreatToProvince slot refuses the province. A land unit: no where CCountry::IsEnemy(country[province.controller], &owner, province) (the province form, rva 0x2F210 - an undeclared war covering the province counts) and its strength over GetTotalStrengthCeiling is under CUnit::ShatterThreshold; no where it is carried by no fleet (CArmy +0x300 == 0), IsEnemy(..., province), supply_received_percentage 0 and SupplyConsumption > 0; no where FuelConsumption > 0, IsEnemy(..., province) and fuel_received_percentage 0. Every unit: no where it has a path, battles, and a battle in the next province of its path (HasCombatIn). Yes for anything but a fleet; a fleet yes where the province is SeaConnected to its own sea (its province, or the sea its port names) and one of its ships (CNavy +0x2E4 list) has +0x140 above nought. **It is the click's test** (CUnit::OrderToProvince: a refusal is the illegal_selection_projection and the error sound), not CMoveCommand::Execute's; the route (CPathFind::MayStep) then asks the same shatter, supply and fuel tests of every step with the tag form of IsEnemy and without the carried unit's exemption. So the shatter threshold does two jobs: below it a unit shatters when hurt, and below it a unit is neither sent nor routed into enemy ground. See reversing/findings/FINDINGS-shatter.md and reversing/findings/FINDINGS-movement.md, section 12.2. **Its battle clauses seen in play 2026-11-14** (FINDINGS-liveread.md, section 88): Armia Modlin, with the path 1749 and attacking there, refused its own province 1809. Slot 19, which the retreat clause asks, is CUnit::CanRetreatToProvince in CArmy's and CNavy's tables alike (read off both on the running game) and CAir::CanRetreatToProvince in CAir's.",
+      "evidence": "The answer read at 0x49A900 in MoveUnit; slot 19 of the CArmy, CNavy and CAir vftables read from memory.",
+      "source": "reversing/findings/FINDINGS-liveread.md",
+      "revises": "comment"
+    },
+    {
+      "rva": "0x16E9B0",
+      "kind": "function",
+      "name": "CCombat::PickTactics",
+      "signature": "void __stdcall CCombat::PickTactics(CCombat* combat)",
+      "no_signature": null,
+      "confidence": "confirmed",
+      "comment": "Land battles only, and only where both sides have a country. Each side's highest ranked leader gives a skill; **one local aggressiveness serves the pick**: the attacker's leader's unit's (CUnit::GetAggressiveness, 0x1D3F10, with the leader in ESI), **overwritten by the defender's leader's unit's** where the defender has one. The side with the lower skill picks first (CCombatant::PickTactic) favouring nothing; the other then picks **favouring the tactic that counters the first's** - the first's +0x78 - with the difference in skill. Equal skill: the attacker first, the defender second, favouring nothing. **Every branch passes the local to the attacker's pick and nought to the defender's** (the `mov [eax],0` before each defender call, 0x56EA7E, 0x56EAC1, 0x56EAE1), so the attacker picks with the defender's commander's aggressiveness where there is one and the defender never with its own. Then CCombat::SumTacticEffects. Four draws of the game's generator in all. The name is ours. See reversing/findings/FINDINGS-combatview.md, section 11, and reversing/findings/FINDINGS-liveread.md, section 28. **'A country' is the side's countries still in the fight** (FINDINGS-liveread.md, section 88): the tests at 0x16E9DB and 0x16E9E8 read +0x5C, the count of CCombatant +0x54 `countries`, not of +0x64 `own_countries`. So a battle whose defenders have all left picks no tactic for either side - both runs' saves of the war start show no `tactic=` in the battle at 2447 its defender had gone round, where every other battle has one.",
+      "evidence": "The listing read on the running game; the battle blocks of both runs' hourly saves.",
+      "source": "reversing/findings/FINDINGS-liveread.md",
+      "revises": "comment"
+    },
+    {
+      "rva": "0x16EB00",
+      "kind": "function",
+      "name": "CCombat::SumTacticEffects",
+      "signature": "void __stdcall CCombat::SumTacticEffects(CCombat* combat@EAX)",
+      "no_signature": null,
+      "confidence": "confirmed",
+      "comment": "Fills CCombat +0x34, +0x38, +0x3C and +0x40 from the two sides' tactics (+0xCC, +0xD0, +0xD4, +0xD8 of each), **leaving out a tactic the other side's counters** - the other's number (+0x80) equal to its `countered_by` (+0x78) - and only where both sides still have a country. The name is ours. See reversing/findings/FINDINGS-combatview.md, section 11. **The same list** (FINDINGS-liveread.md, section 88): 0x16EB1B and 0x16EB21 test each side's +0x5C, the count of `countries` (+0x54), so nothing is summed once a side has nobody left in the fight - the attacker then walks at the plain combat pace and its delay runs down 0.25 an hour.",
+      "evidence": "The listing read on the running game.",
+      "source": "reversing/findings/FINDINGS-liveread.md",
+      "revises": "comment"
+    }
+  ],
+  "struct_fields": [],
+  "vftable_slots": {
+    "CArmy": {
+      "19": "CanRetreatToProvince"
+    },
+    "CNavy": {
+      "19": "CanRetreatToProvince"
+    }
+  },
+  "frontier": [],
+  "slots_noted": {
+    "0x49A840": "Already recorded; this revises the comment only.",
+    "0x1C2BA0": "Already recorded; this revises the comment only.",
+    "0x16E9B0": "Already recorded; this revises the comment only.",
+    "0x16EB00": "Already recorded; this revises the comment only."
+  }
+}
