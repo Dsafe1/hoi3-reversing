@@ -272,6 +272,20 @@ and the step is only reached for an area asked about through somebody else's rec
 names a province that need not be that area's own depot, and a province given such an answer draws
 on a "depot" nothing is spread from (section 6). Not seen in any save.
 
+**Days out of supply** (added 2026-11-14, for OpenHOI3). `CProvince::UpdateSupplyDepot` ends by counting
+`out_of_supply_days` (`+0x20`) up where the depot it gave is 0 and to nought where it is not, so the count
+moves wherever a depot is given [exe]: in `RunDailyProvincePass` for every simulated province, after its revolt
+step; in `Province_SetController` on every change of controller; in `CProvinceBuilding_OnLevelChanged` where
+infrastructure crosses 100 or 200; in `CInGameIdler::Enter` for every province still at depot 0 (after a load,
+all of them, the depot not being saved); and in `RunDailyPass` **once**, on the province farthest from its
+depot after the farthest-first sort, where that distance is over 500 (the record said "in a loop" until
+today; `0x682D1D`..`0x682D3B`). The start save has 3,547 provinces at 3 - the sea and land nobody owns, counted
+at entering and on each of the two days - and 853 at 4, every one owned and controlled: one count more, which
+fits the history's `Province_SetController` as it gave each its controller (*inferred* from the save, the
+history's call not followed). `on_encirclement` (`FINDINGS-eventfire.md`, 1.6) asks for a count of exactly 1
+in the daily pass, so a province taken into a pocket - counted at the change of controller - is past 1 by its
+day and fires nothing; only land cut off by others' gains does.
+
 ## 6. How far
 
 `FINDINGS-supply.md` has the walk: `CSupply::RebuildSupplyNetwork` sets every labelled, simulated

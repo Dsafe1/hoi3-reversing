@@ -157,11 +157,16 @@ established.
 | `org_bar` | `CURR_COMB_ORG` + `§Y` + its organisation (`+0x60`) to 1 place + `§W\n` |
 | anything else | `BATTLE_ATTACKMOD` + `: §Y` + its attack product (`+0x50`) times 100, 2 places + `§W%\n`; `BATTLE_DEFENDMOD` the same (`+0x54`); its combat modifiers (`+0x40`); and the entry's tactic's figures (`+0x40` of the entry) with both halves |
 
-**A row with no wing** - the bombed side's buildings and goods in a bombing - says a figure: a
-building (`+0x30`) its level now to 2 places (`+0x24`), `/`, its most to 0 places (`+0x20`); a good
-(`+0x38` not 7) its production (`+0x164` of the province by the good) to 2 places; the good held
-(`+0x38` 7, `+0x34` not 7) the province's pool (`+0x270`) and `/` and its other figure (`+0x294`)
-- the order of the last two joins was not read. `inferred` for the rows with no wing.
+**A row with no wing** - the bombed side's buildings and goods in a bombing - says a figure, whatever
+the element. Read whole 2026-11-14, `confirmed`, correcting what this said of the goods:
+
+| row | text |
+| --- | --- |
+| a building (`+0x30`) | its present level (`+0x24`) to 2 places + `/` + its built level (`+0x20`) to 0 places |
+| a good held (`+0x38` not 7) | the province's **pool** (`+0x164`, the values of the `CGoodsPool` at `+0x15C`) by the good, 2 places |
+| a good made (`+0x38` 7, `+0x34` not 7) | `current_producing` (`+0x270`) + `/` + `max_producing` (`+0x294`), both 2 places |
+
+This said the `+0x38` row was a production and the `+0x34` row the pool: the two the other way round.
 
 ## 7. A tactic
 
@@ -219,11 +224,25 @@ Then **what the side has**, one line after `\n`, by the side's first unit:
 
 The counts are of every unit on the side, land and the rest alike. `confirmed`
 
-**What of the province is bombed** (`0x5713E0`; `(combat, out)`, `ret 8`): where the first bomber's
-mission (its unit's `+0xB0`) has something to bomb - the buildings its slot 30 takes that the
-province has (level above 0), named and joined with `, ` and ` and `, ending `.`; the goods its slot
-31 takes, after ` ` + `BOMB_PROD_OFF` + ` `; the goods its slot 32 takes that the province holds
-some of, after ` ` + `BOMB_POOL_OFF` + ` `. `inferred` for which slot is which list.
+**What of the province is bombed** (`0x5713E0`; `(combat, out)`, `ret 8`). Read whole 2026-11-14,
+`confirmed`. Nothing where the attacker has no units; else by the first attacker unit's order (`+0xB0`):
+
+    buildings: every building of the database in its order whose slot 8 answers true, that the
+               order's slot 30 bombs and that the province has built any of (Max above 0),
+               named by the definition's slot 6
+    list A:    goods 0 to 6 the order's slot 31 takes - no province test
+    list B:    goods 0 to 6 its slot 32 takes where the province's max_producing (+0x294) is above 0
+    each list joined: after a name ", " where two or more remain, " " + AND + " " where one does,
+               "." after the last
+    out = " " + buildings,  then " " + BOMB_PROD_OFF + " " + A,  then " " + BOMB_POOL_OFF + " " + B,
+          each only where its list is not empty
+
+The window's rows (`FINDINGS-combatview.md`, section 13) make a **held** row from slot 31 and a
+**made** row from slot 32 with the same province test, and OpenHOI3's reading of the bombing orders
+has slot 31 for the stockpiles a logistical strike takes and slot 32 for the production a strategic
+bombing takes. So **"Production of" (`BOMB_PROD_OFF`) heads the stockpiles and "Stockpiles of"
+(`BOMB_POOL_OFF`) the production** - each key over the other's goods. Kept as the original's in
+OpenHOI3 and listed in its `docs/enhanced.md`.
 
 ## Kept as read, though they look odd
 
@@ -238,7 +257,7 @@ some of, after ` ` + `BOMB_POOL_OFF` + ` `. `inferred` for which slot is which l
 
 - What a window's slot 17 does with an argument (`0xAC3C90`), which the router's first test asks.
 - Whether `naval_positioning_bonus` is the technology's `targeting_chance`.
-- The bombed side's rows' joins (section 6).
+- ~~The bombed side's rows' joins (section 6).~~ Read 2026-11-14.
 - A landing's progress lines (section 3).
 
 ## In the record

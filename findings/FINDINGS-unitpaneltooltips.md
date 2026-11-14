@@ -333,7 +333,14 @@ tooltip 0.43%.
 more where it is 1. Then, for each term that is not 1, `\n- ` and its line with `PERC`:
 `SPEED_MODIFIER_COMBAT`, `_FUEL`, `_TERRAIN`, `_TRAIT`, `_ADJACIENCY`, `_WEATHER`, `_LOCAL_MOD`,
 `_MOTORIZED_BONUS`, `_RETREATING`, each the term `MovementSpeedModifier` multiplies in, worked out
-again here the same way. `confirmed`. **A multiplier as a percentage** (`0xAB6FC0`): times 100 to 2
+again here. `confirmed`. **Not quite the same way** (read 2026-11-14): the combat term, asked while the
+unit has battles and a path, starts its pace at 1000 and takes `COMBAT_MOVEMENT_SPEED` + the tactic's speed
+only for a battle the unit attacks in, so a unit attacking in none gets `min(1000, (1000 + effects) x 1000 /
+1000)` - 1000 with no effect - where the modifier gives it 10; and the weather (`1000 +
+CWeather::MovementEffect`) and the province's `local_unit_speed` (`1000 +` modifier 0x6A) are two terms where
+the modifier adds them into one. The quickness both multiply by is `1000 +` the leader effect 5 + the
+country's `combat_movement_speed` + the technology's `attack_movement_speed` (TechnologyStatus `+0x54`). So
+the lines need not multiply to the whole. **A multiplier as a percentage** (`0xAB6FC0`): times 100 to 2
 places with `%§!`, `§G` above 1 and `§R` below; exactly 1 is `§Y100.00%§!`.
 
 ## 12. Combined arms (`CUnit::GetCombinedArmsBonus`)
