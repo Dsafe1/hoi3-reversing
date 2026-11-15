@@ -286,6 +286,12 @@ history's call not followed). `on_encirclement` (`FINDINGS-eventfire.md`, 1.6) a
 in the daily pass, so a province taken into a pocket - counted at the change of controller - is past 1 by its
 day and fires nothing; only land cut off by others' gains does.
 
+**At a later start the count shows that the history's `Province_SetController` counts on every change of controller, not
+once a province** (2026-11-15, `writegaps`): in `Ireland1941_06_22_00` and `Ireland1941_12_11_00` the land out of supply
+stands at 3 plus the changes of controller the province's history made by the date - a line naming the controller it has
+already is no change, and a province with two history files counts both. Karesuando 5, Kovdor 6, Gallabat 7. *Inferred*
+from the saves; the call is still not followed.
+
 ## 6. How far
 
 `FINDINGS-supply.md` has the walk: `CSupply::RebuildSupplyNetwork` sets every labelled, simulated

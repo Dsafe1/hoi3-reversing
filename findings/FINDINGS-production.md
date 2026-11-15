@@ -453,3 +453,28 @@ is the same two terms: `GetConsumerGoodsNeeded + MODIFIER_DISSENT`.
   still unread.
 - **Everything live.** The game was not running. Every number above is the image's, and
   nothing here has been watched actually happening.
+
+## The production need: who counts it
+
+*Read 2026-11-15 by `prodneed`; fragment `later-start-production-need.json`. Six of the call sites, and the law command's
+want of one (70 calls to its `ret` at VA 0x54F9F4, none to UpdateNeeded; positive control the building command's), checked
+off the listing by the collecting session.*
+
+`CDistributeProduction::UpdateNeeded` (VA 0x51A290) has **nine direct callers, not one**: the end of `Distribute`
+(0x51A265); `CCountry::EnqueueConstruction` twice (0x4F5688 and 0x4F569F, one an arm, after the node is appended - a
+construction already on the queue returns at 0x4F5632 without it); `CConstructBuildingCommand::Execute` 0x545153;
+`CConstructUnitCommand::Execute` 0x5461C5; `CConstructSingleUnitCommand::Execute` 0x547237;
+`CCancelUnitConstructionCommand::Execute` 0x54863B, after the unlink; `CConstructConvoyCommand::Execute` 0x549983; and
+`CUpgradeRegimentCommand::Execute` 0x5DAEBF. Each loads esi from `ProductionDistribution` (+0x5F4) element 2.
+**`CChangeLawCommand::Execute` and `ApplyCustomGameSettings` call every line's slot 14 and count nothing**, so after a
+change of law the slider's need is the queue at its old prices until the next midnight or order.
+
+With a pool at or below nought and the flag set - entering's run - `Distribute` goes from the slot-12 test straight to the
+next line (0x51A213, `cmp [ebp+0x14], 0; jne` to the loop's end): no AddProgress, no completion test. Entering's run
+therefore drops the lines that may no longer be built and counts the need, and nothing else. *Measured* on OpenHOI3: the
+1936 first screen's need Germany 13.984 and Britain 13.573, against 16.159 and 15.523 for the queue at the start save's
+prices.
+
+`CDistributeDiplomacy::GetNeeded` (slot 3, VA 0x51EA80) = GetInfluenceUpkeep x 1000 / [defines+0x9C]+4
+(LEADERSHIP_TO_DIPLOMACY), idiv-truncated, -1 where the define is nought, then x 32768 / 1000 into 48.15; worked out on
+each call.

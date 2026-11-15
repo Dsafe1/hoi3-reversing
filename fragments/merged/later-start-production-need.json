@@ -1,0 +1,62 @@
+{
+ "agent": "prodneed (OpenHOI3: the production slider's need at a game's entry, the diplomacy slider's need, and the economy ledger's Used by Industry row)",
+ "question": "What writes the production share's need and when - in particular whether entering a game counts it and whether a change of law does - and what the diplomacy slider's need is",
+ "source": "reversing/findings/FINDINGS-production.md",
+ "addresses": [
+  {
+   "rva": "0x11A290",
+   "kind": "function",
+   "name": "CDistributeProduction::UpdateNeeded",
+   "signature": "void __fastcall CDistributeProduction::UpdateNeeded(CDistributeProduction* this@ESI)",
+   "no_signature": null,
+   "comment": "Zeroes this->+0x20/+0x24 and adds every construction's cost (+0x30) into it, each turned into fpml::fixed_point<__int64,48,15> on its own (cost << 30 / (1000 << 15) by __alldiv, truncated) before it is added, walking the country's queue at CCountry +0xF40. So +0x20 is the queue's total daily IC appetite, and slot 3 GetNeeded (0x11A2E0) returns exactly that. **Nine direct callers, not one** (revised 2026-11-15; findRefs --callers 0x51A290): the end of CDistributeProduction::Distribute (0x51A265) - so the daily share and CInGameIdler::Enter's run of every share with nothing to spend both count it; CCountry::EnqueueConstruction twice (0x4F5688 appending to a non-empty queue, 0x4F569F to an empty one); CConstructBuildingCommand::Execute (0x545153); CConstructUnitCommand::Execute (0x5461C5); CConstructSingleUnitCommand::Execute (0x547237); CCancelUnitConstructionCommand::Execute (0x54863B, after the line is unlinked); CConstructConvoyCommand::Execute (0x549983); CUpgradeRegimentCommand::Execute (0x5DAEBF). Each command site loads esi from the country's ProductionDistribution (+0x5F4) element 2, the production share. **Not among them: CChangeLawCommand::Execute and ApplyCustomGameSettings**, which call every line's RecalculateCost (slot 14) and count nothing, so after a change of law the need is the queue at its old prices until the next midnight or the next order; and nothing in annexation or exile that empties a queue. `this` arrives in esi and the body is a bare `ret`. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-production.md",
+   "revises": "the comment only: it said 'Called once, from the end of CDistributeProduction::Distribute'. There are nine call sites; every queue command counts the need too, and a change of law does not.",
+   "evidence": "findRefs.py --callers 0x0051a290 gives nine direct calls; each was placed in its function by the nearest project.json entry (the commands' Execute extents) and the two in 0x4F5600..0x4F56A6 read on the listing (disasm.py 0x4F5600 0xB0): `mov eax,[edi+0x5f4]; mov esi,[eax+8]; call 0x51a290` after the node is appended, the early return at 0x4F5632 (construction already on the queue) skipping it. CCancelUnitConstructionCommand's read at 0x548620..0x54863B: the unlink (0x5D49D0) then the same esi load and call. No call site falls inside CChangeLawCommand::Execute (0x54EF60..0x54F9F4) or ApplyCustomGameSettings (0x41D560..0x41E33C). Shown wrong by an indirect call to 0x51A290 (it is in no vftable: vtable.py --holding finds none) or an inlined copy of the loop elsewhere writing a distributor's +0x20."
+  },
+  {
+   "rva": "0x11A2E0",
+   "kind": "function",
+   "name": "CDistributeProduction::GetNeeded",
+   "signature": "CFixedPoint* __thiscall CDistributeProduction::GetNeeded(CDistributeProduction* this, CFixedPoint* out)",
+   "no_signature": null,
+   "comment": "**Slot 3.** Six instructions: copies this->+0x20 and +0x24 into the out parameter and answers it in eax. The value is the cached total daily cost of the production queue, counted by CDistributeProduction::UpdateNeeded (0x11A290) at the end of every Distribute - the daily share and entering's run with nothing to spend - and by every command that puts a line on the queue or takes one off; not by a change of law, which prices the lines again without counting them (revised 2026-11-15). So a new game's first screen shows the second day's count, or a later order's, and a loaded game's the count entering's run makes of the queue as the save prices it. `this` in ecx, one stack argument, `ret 4`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-production.md",
+   "revises": "the comment only: 'rebuilt by 0x11A290 at the end of every Distribute' now names the queue commands that also count it and the change of law that does not",
+   "evidence": "As for UpdateNeeded: the nine call sites of 0x51A290, none in CChangeLawCommand::Execute. The first-screen consequence measured on OpenHOI3 only (no save keeps the figure): Germany 13.984 at 1936 where the queue at the start save's prices - 30 of 30 lines priced as the save - is 16.159. Shown wrong by a live read of the production share's +0x20 on a fresh 1936 Germany game's first screen that is 16.159 rather than about 13.98."
+  },
+  {
+   "rva": "0xF5600",
+   "kind": "function",
+   "name": "CCountry::EnqueueConstruction",
+   "signature": "void __fastcall CCountry::EnqueueConstruction(CConstruction* construction@EAX, CCountry* country@EDI)",
+   "no_signature": null,
+   "comment": "**Puts a finished CConstruction on the country's build queue.** It zeroes the construction's location (+0x44) - which is why that field reads null on every military and convoy item and holds a province only on building ones - calls virtual slot 8, copies the country's tag from CCountry +0xCA4/+0xCA8 into +0x48/+0x4C, and, **unless the construction is already on the queue** (a walk of +0xF40 that returns at once on finding it), appends a new 0x10-byte node (item, prev, next, byte) at the tail of the list at CCountry +0xF40/+0xF44, adds one to the count at +0xF48 and **ends by counting the production share's need** - CDistributeProduction::UpdateNeeded on ProductionDistribution (+0x5F4) element 2, from either arm (empty queue or not) (added 2026-11-15). **Both arguments arrive in registers**, the construction in eax and the country in edi, and there is no stack argument, so the convention is read off its own `ret` and its two call sites, 0x545D2B in CConstructUnitCommand::Execute and 0x5471E7 in CConstructSingleUnitCommand::Execute. It is the path taken when the command's instant-build flag is clear. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-production.md",
+   "revises": "the comment only: adds the already-queued test, the count at +0xF48 and the UpdateNeeded call at its end",
+   "evidence": "disasm.py 0x4F5600 0xB0: the walk at 0x4F5626..0x4F5639 (`cmp [eax],esi; je 0x4f56a4` - the plain return), `inc` of [edi+0xf48] by lea/mov at 0x4F5663..0x4F5672, and `mov eax,[edi+0x5f4]; mov esi,[eax+8]; call 0x51a290` at 0x4F567F and 0x4F5696, one per arm. Shown wrong by a different reading of +0xF48 (it is written as old+1 and its old value tested for an empty list)."
+  },
+  {
+   "rva": "0x11EA80",
+   "kind": "function",
+   "name": "CDistributeDiplomacy::GetNeeded",
+   "signature": "__int64* __thiscall CDistributeDiplomacy::GetNeeded(CDistributeDiplomacy* this, __int64* out)",
+   "no_signature": null,
+   "comment": "**Slot 3: the diplomacy slider's need**, a 48.15 fixed point written as two dwords through the out pointer; `ret 4`. upkeep = CCountry::GetInfluenceUpkeep(this->country (+0x18)) - INFLUENCE_UPKEEP for each country it influences, in thousandths; rate = LEADERSHIP_TO_DIPLOMACY (the defines block at +0x9C, its +4), thousandths. need = upkeep x 1000 / rate, truncated toward nought (32-bit idiv where upkeep is within (-0x1893A4, 0x20C49B), else the 64-bit helpers), or **-1 where rate is 0**; then turned into 48.15 (x << 30 / (1000 << 15), truncated). So the need is in leadership: the leadership whose influence would pay the day's upkeep. Worked out each time it is asked, from what the country holds then - nothing is cached. GetValueColour (slot 2) compares the share's influence with GetInfluenceUpkeep itself rather than calling this. The name is ours.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-production.md",
+   "evidence": "Read whole on the listing (disasm.py 0x51EA80 0xA0): `call 0x445d90` then `mov esi,[eax+0x9c]` and later `mov esi,[esi+4]` (the define, tested for zero: `or eax,-1`); `push &local; push [edi+0x18]; call 0x503d90` (GetInfluenceUpkeep, the country from this+0x18); the range test and `imul eax,eax,0x3e8; cdq; idiv esi`; the shld/shl by 0x1E and __alldiv by 0x1F40000; stored through [ebp+8], `ret 4`. vtable.py: slot 3 of CDistributeDiplomacy only (NCO and espionage hold the shared 0xABF870 there). The define is read as LEADERSHIP_TO_DIPLOMACY because CDistributeDiplomacy::GetValueColour multiplies by the same [defines+0x9C]+4 and the economy defines' block puts LEADERSHIP_TO_DIPLOMACY there (FINDINGS-productiontooltip.md). Shown wrong if [defines+0x9C]+4 is another define."
+  }
+ ],
+ "struct_fields": [
+  {"struct": "CCountry", "offset": "0x968", "name": "resources_needed", "type": "CGoodsPool",
+   "revises": "the comment only: it said 'each daily IC calculation'; the calculation on entering a game (UpdateIC with applyDailyEffects false) fills it too, its test jumping straight to UpdateIC_IndustryNeed, and the TotalIC it reads is the one before the resource cap and the lend-lease",
+   "comment": "**What a full day of the country's IC would cost in resources**, not what was used: UpdateIC_IndustryNeed (VA 0x4F13E8) writes TotalIC (+0x604) x 1000 to metal (+0x980), x 2000 to energy (+0x984) and TotalIC x 1000 / 2, truncated toward nought, to rare materials (+0x988). **Every IC calculation, the one on entering a game included**: with applyDailyEffects false the test at VA 0x4F106F jumps straight to it, and with it true it follows the energy-to-crude-oil block; either way **the TotalIC it reads is the total as scaled and floored at one, before the resource cap (0x4F14A6) and the lend-lease add (0x4F14C1)** that come after it (added 2026-11-15). CCountry::UpdateIC zeroes all seven goods first (VA 0x4F0D88..0x4F0DCF) and the constructor (0x4C91F4..) and CCountry_Reset (0x4D390D..) initialise it. The economy ledger's flow page shows it as LEDGER_USED_INDUSTRY (FINDINGS-topscreens.md, page 8), beside LEDGER_USED_TROOPS = usage. Not saved, and made again on entering. Measured on OpenHOI3's first screen (nothing keeps it): Germany 201 / 402 / 100.5 at 1936.",
+   "evidence": "disasm.py 0x4F1060 0x20: `cmp byte [ebp+0xc],0 ... je 0x4f13e8` at 0x4F106F; disasm.py 0x4F13E8 0xF0: the three stores from [ebx+0x604], then `cmp byte [ebp+0xc],0; je 0x4f15ab` at 0x4F145E, and only after it the cap's `mov [ebx+0x604],eax` at 0x4F14A6 and the lend-lease `add [ebx+0x604],esi` at 0x4F14C1. Shown wrong by another write of +0x604 between 0x4F0FEB and 0x4F13E8."}
+ ],
+ "vftable_slots": {"CDistributeDiplomacy": {"3": "GetNeeded"}, "CDistributeProduction": {"3": "GetNeeded"}},
+ "frontier": []
+}

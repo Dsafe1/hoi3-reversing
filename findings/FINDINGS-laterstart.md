@@ -516,3 +516,53 @@ game's that run's; neither is saved.
 Britain 20.871 and Ireland 0.148, and at 1941.12.11 Germany's 129.496, its divisions deep in the Soviet Union adding many
 hops each. With the carriage built, the 1936 new game's written `distribution` is the start save's for seven more countries
 (67 misses where there were 74), the AI's shares reading the supply need.
+
+**The production need is counted the same way** (`prodneed`; `FINDINGS-production.md`, *The production need: who counts
+it*). Enter's run with nothing to spend counts it at the end of `Distribute` for both kinds of game, a new game's days
+count it again, and the Lua `Laws()` changes run after Enter reprice every line without counting it. So a new game's first
+screen shows the second day's need at the second day's prices - Germany 13.984 at 1936, its queue then costing 16.159 -
+and a loaded game's shows Enter's count of the queue as saved. `resources_needed` (+0x968) is filled on the entry IC
+calculation too: the applyDailyEffects test at VA 0x4F106F jumps to `UpdateIC_IndustryNeed`, which reads TotalIC before
+the cap (0x4F14A6) and the lend-lease (0x4F14C1).
+
+## 19. The original capital is the declared one in a new game, and the supply loss's suppression
+
+*Read 2026-11-15 by `chinaloss`; fragment `later-start-original-capital.json`. GetOriginalCapital's walk of +0xCD8 and
+CCountry_Reset's call of CHistoryContainer::Reset checked off the listing by the collecting session.*
+
+**China's stockpile at 1939.9.1.** China's history puts `capital = 5494` (Nanjing) at the top of its file and `capital =
+9478` (Chongqing) at 1937.11.21. On the bookmark's first day China capitulates and becomes Japan's puppet, and MakeVassal
+gives Nanjing back to its control (the save's 5494 carries `1939.9.1.0 = { controller = "CHI" }`). The first hour's
+RunCountryHourlyPass runs CCountry::UpdateActingCapital for every country owning land, whose step 1 moves the government to
+GetOriginalCapital where that differs from the seat and the country holds it - yet the save keeps `acting_capital=9478`,
+with 771.250 crude oil, 837.034 metal and 3.200 money in Chongqing's pool. So GetOriginalCapital answers 9478.
+
+**Why.** GetOriginalCapital walks the list at CCountry +0xCD8, which belongs to the CCountryHistory embedded at +0xCCC:
+CCountry::CCountry builds it in place (`lea ecx, [ebx+0xccc]; call` the constructor at VA 0x5ECA30, owner at +0x20; the
+object is 0x24 bytes and ends at +0xCF0, OwnedProvinces), CCountry_Reset empties it (CHistoryContainer::Reset at VA
+0x4D46EA), and CGameState::ResetSession runs CCountry_Reset over every country before ResetGameStateToStartDate replays the
+history. **The history files are not in it**: HistoryDatabase_LoadFiles allocates a separate CCountryHistory for each country
+(`operator new(0x24)` and the constructor at VA 0x5F6FCE and 0x5F7FDB, then slot 3 with the parse) and keeps it in the
+registry, and CCountryCapitalChange::Apply sets the capital with logHistory 0. So the record holds only what play logged -
+CCountry_SetCapital with logHistory 1, from CCountry::EnsureCapital and CCapitalEffect::Execute (ReleaseProvinces passes 0),
+CCountry::ChangeNeutrality and the other AddEntry sites. **In a new game, and after a load, the original capital is
+therefore the declared capital** until the country first declares another, and that first declaration then stays the
+original capital, the list being walked from its head. The province containers behave alike: no province of the 1936 start
+save writes a history block, and every province history in the 1939 save is dated 1939.9.1.0, so the files' entries (5494's
+own `1937.12.13 = { controller = JAP }`) are not in them. No save of the maintainer's writes a country `history` block;
+whether the writer would write a non-empty one was not read. (`confirmed` for the walk, the embedded constructor, the reset
+and the registry's separate objects; *measured* for China.)
+
+*Measured*, OpenHOI3 with the history's first capital dropped: China's 1939 stockpile holds its supplies, fuel, money, metal
+and rare materials to the thousandth, where it read nought of every good. Its crude oil (+1.800) and energy (+270.000) still
+miss, beside a supply convoy Fuzhou - Tianmu Shan and 144 energy convoyed out in the save that OpenHOI3, grouping a new
+puppet with its master at once (its compatibility entry 9), does not make.
+
+**The suppression term of SupplyLoss** (VA 0x49DF1D..0x49DFD6). The figure is the province's own `suppression` (+0x28), the
+daily province pass's SuppressionNearProvince, held between two bounds built at run time from floats - floor((float)0.0005
+x 1000) = 0 and floor(1000.5f) = 1000. Where the controller is at war with the owner, the multiplier gains trunc(trunc(trunc(
+LOCAL_PARTISAN_SUPPORT x 1000 / 1000) x PARTISAN_EFFECT_ON_SUPPLY_TAX / 1000) x (1000 - suppression) / 1000). Being the
+province's day's figure, it is nought on a new game's first day and on a loaded game's. *Measured* in OpenHOI3, against no
+save (none keeps the loss): Germany's first-screen supply need (section 18) 12.288 at 1936 as before, 59.371 at 1941.6.22
+(64.716 before) and 77.882 at 1941.12.11 (129.496); the 1941.12.11 start save's brigades' strength 5513 of 5513 (5505), and
+Germany's fuel used the save's; `supplypass` 185 to 187 of 222 networks at 1941.6.22 and 180 to 188 of 224 at 1941.12.11.

@@ -168,7 +168,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CConvoyRaid` | `CNavalOrder` |  |  | 1/1 | 7 |  | 62 | placed |  |
 | `CCountry` | `CPersistent` |  | 284 + 71 lua | 69/126 | 171 | CCountry.hpp | 108 | read |  |
 | `CCountryDate` | `CPersistent` |  |  | 1/2 | 1 |  |  | placed |  |
-| `CCountryHistory` | `CHistoryContainer` |  |  |  | 1 | CCountryHistory.hpp | 108 | keys | **read**: `history/countries`, where a date is a key. See GameClasses/CCountryHistory.hpp |
+| `CCountryHistory` | `CHistoryContainer` |  |  |  | 2 | CCountryHistory.hpp | 108 | keys | **read**: `history/countries`, where a date is a key. See GameClasses/CCountryHistory.hpp |
 | `CCountryValue` | `CPersistent` | 0x14 | 2 | 1/2 | 1 |  | 9,078 | placed |  |
 | `CCountryWarTargetValue` | `CPersistent` | 0x20 | 5 | 2/5 | 1 |  | 1 | read |  |
 | `CCurrentGameState` | `CGameState` | 0xDA8 | 100 | 14/33 | 5 | CCurrentGameState.hpp | 1 | read |  |
@@ -503,7 +503,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CDiplomaticActionItem` | `CStandardlistboxItem` | 0x88 | 4 |  | 3 |  | 26 | part |  |
 | `CDirectSound` | `CSound` |  |  |  |  |  |  | RTTI |  |
 | `CDistributeConsumerGoods` | `CDistributionSetting` |  |  |  | 7 |  | 108 | RTTI |  |
-| `CDistributeDiplomacy` | `CDistributionSetting` |  |  |  | 5 |  | 108 | RTTI |  |
+| `CDistributeDiplomacy` | `CDistributionSetting` |  |  |  | 6 |  | 108 | RTTI |  |
 | `CDistributeEspionage` | `CDistributionSetting` | 0x38 | 4 |  | 3 |  | 108 | part |  |
 | `CDistributeLendLease` | `CDistributionSetting` |  |  |  | 7 |  | 108 | RTTI |  |
 | `CDistributeNCO` | `CDistributionSetting` |  |  |  | 3 |  | 108 | RTTI |  |

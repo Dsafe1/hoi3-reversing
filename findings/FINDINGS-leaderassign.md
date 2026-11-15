@@ -166,6 +166,15 @@ so every unit that holds the null leader is given one, **in the order of `countr
 inside the same new-game branch as the order of battle's loading, after it, and **it does not
 look at `auto_assign_leaders`**.
 
+**A country at a time, at a later start** (2026-11-15, `writegaps`; *measured*, no listing read). A new game's step 5 runs one
+country at a time (`FINDINGS-laterstart.md` section 2): `LoadOobFile` puts each `leader` line on as the file is read, taking
+the leader off whatever unit holds him, another country's included; the country's stockpile follows, then
+`CUnit::AssignBestLeader` for its unled units. So a later country's file takes a leader off an earlier country's unit after
+that country has chosen, and the unit is left with none: Italy's file names Rommel on its Afrika Korps, which leaves 9.
+Armee unled at 1941.6.22 with every German army's leader one place along; and a headquarters' own line is read before its
+subunits', so Finland's Heinrichs, named twice in its 1941.12.11 file, ends on the army. On the three later start saves
+every unit's leader agrees but one fleet a date, which the AI regroups before the first screen.
+
 ## 5. `CUnit::AssignBestLeader` (`0x1CD5B0`)
 
 The unit in `edi`, nothing on the stack, bare `ret`. Over the unit's country's

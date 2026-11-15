@@ -1,0 +1,77 @@
+{
+ "agent": "chinaloss (OpenHOI3: China's stockpile at the 1939.9.1 bookmark, and the supply loss's suppression term)",
+ "question": "Why a 1939.9.1 new game's China read nought of every good where the start save's two days in hold 771.250 crude oil, 837.034 metal and 3.200 money - what GetOriginalCapital answers in a new game - and the suppression term of SupplyLoss",
+ "source": "reversing/findings/FINDINGS-laterstart.md",
+ "addresses": [
+  {
+   "rva": "0xDDB30",
+   "kind": "function",
+   "name": "CCountry::GetOriginalCapital",
+   "revises": "comment only: the list it walks is the country's own record of play, not the history files', so in a new game and after a load it answers the declared capital",
+   "signature": "int __stdcall CCountry::GetOriginalCapital(CCountry* country)",
+   "no_signature": null,
+   "comment": "**A runtime reader of a country's history, and the shortest one in the image.** Walks the list at `country->history + 0xC` (country +0xCD8), asks each entry's slot 6 for its save token, and returns `entry->+0x10` for the first entry whose token is **0x1F9 = `capital`**; with no such entry it falls back to the live `capital_province_id` (+0xE20). `ret 4`, one stack argument. Four callers - 0xBF8BD, 0xC1680, 0xE0C6A and 0x14BED6 - and the same loop is inlined twice more, at 0xBF973 and 0xC1632, so the country history is consulted for the original capital in at least six places. The name is read off the token and the fallback. **The list it walks is not the history files'.** CCountry +0xCCC is a CCountryHistory built in place by CCountry::CCountry (0x4C961D) and emptied by CCountry_Reset (CHistoryContainer::Reset at 0x4D46EA), which CGameState::ResetSession runs before ResetGameStateToStartDate replays the history; the files go into separate CCountryHistory objects HistoryDatabase_LoadFiles allocates for the registry (0x5F6FCE, 0x5F7FDB), and CCountryCapitalChange::Apply sets the capital with logHistory 0. So the list holds only what was logged in play - CCountry_SetCapital with logHistory 1, from CCountry::EnsureCapital and CCapitalEffect::Execute - and **in a new game, and after a load (no save holds a country `history` block), the original capital is the declared one** until the country first declares another. Measured: China at the 1939.9.1 bookmark (capital = 5494 at the top of its file, 9478 from 1937.11.21), Nanjing back in its control as Japan's puppet on the first day, keeps acting_capital 9478 through the first hour; the history's first capital would have moved it to 5494. See reversing/findings/FINDINGS-laterstart.md, section 19.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-laterstart.md",
+   "evidence": "disasm 0x4DDB30: head-to-tail walk of [country+0xCD8], slot 6 == 0x1F9 -> [entry+0x10], else [country+0xE20]. 0x4C9617: lea ecx,[ebx+0xccc]; push ebx; call 0x5ECA30 (CCountryHistory ctor: CHistoryContainer ctor, vftable 0x15C9710, owner at +0x20) - an embedded object, not a pointer. 0x4D46D2..0x4D46EA in CCountry_Reset: lea edi,[ebx+0xccc]; call 0x5F4730 (CHistoryContainer::Reset). 0x5F6F90..0x5F6FCE in HistoryDatabase_LoadFiles: push 0x24; call new; CCountryHistory ctor with the database's country; appended to the registry vector; 0x5F7FDB the same then slot 3 (load) with the parse. The positive control is the save: Ireland1939_09_01_00's CHI has capital=9478, acting_capital=9478 with province 5494 owner and controller CHI (its province history 1939.9.1.0 controller=CHI), and UpdateActingCapital runs in the first hour's RunCountryHourlyPass for every owner; and no province of Germany1936_01_01_00 or Ireland1939_09_01_00 writes a history-file entry (every province history of the 1939 save is dated 1939.9.1.0), so the province containers too hold only what play logged. What would show it wrong: a copy of the registry's entries into CCountry +0xCCC somewhere in the lobby or CInGameIdler::Enter, or a save holding a country history block with a file-dated capital entry."
+  },
+  {
+   "rva": "0xE0B80",
+   "kind": "function",
+   "name": "CCountry::UpdateActingCapital",
+   "revises": "comment only: step 1's original capital is the first capital logged in play, not the history's first",
+   "signature": "void __stdcall CCountry::UpdateActingCapital(CCountry* country)",
+   "no_signature": null,
+   "comment": "**Where the government sits: the acting capital (+0xE24) chosen again.** 0x4E0B80 to the third `ret 4` at 0x4E1009 (three exits, one frame). Two callers: RunCountryHourlyPass at 0x4D914A, every hour for a country with `owned_province_count (+0xCF8) > 0`, and Province_SetController at 0x4A3560 on the **old** controller whenever `applyConsequences` is set. In order:\n\n1. **The acting capital is held by the country** (its controller id is the country's; the IsEnemyTag test beside it cannot be true for a country's own id): the original capital - CCountry::GetOriginalCapital, the first `capital` entry of the country's own record of its changes (logged in play by CCountry::EnsureCapital and the `capital` effect, never by the history files), else +0xE20 - becomes the acting capital where it differs and the country controls it; otherwise nothing. **A liberated original capital takes the government back at once.** In a new game the original capital is therefore the declared one: China at the 1939.9.1 bookmark keeps Chongqing with Nanjing back in its control (reversing/findings/FINDINGS-laterstart.md, section 19).\n2. **The acting capital is lost** and the country **controls no province** (`province_count +0xD08 == 0`): where its faction is real (slot 7) and its first member is not the country, the acting capital = that leader's acting capital (CCountry_SetActingCapital); otherwise nothing.\n3. **Otherwise the best province**: over OwnedProvinces (+0xCF0), those the country also controls and that lie in a real area (area slot 0):\n\n       score = trunc((victory_points (+0x34) * 1000 + values[15] (+0x114 -> +0x78)) * (area provinces_count (+0x2C) * 1000) / 1000)\n       score = score * 3000 / 1000 where the province's continent (+0x368) is the current acting capital's\n\n   strictly highest wins (start -1000, so the first of equals), all in 64-bit (__alldiv, __allmul). None: the same over ControlledProvinces (+0xD00), real area only, owner not asked. Still none: nothing. The pick is written raw to +0xE24.\n\nThe declared capital (+0xE20) is never touched here; CCountry::EnsureCapital moves that, daily, and only when the capital's owner changes.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-laterstart.md",
+   "evidence": "Step 1 re-read on the listing 0x4E0BA1..0x4E0CA9: GetActingCapital province's +0x338 == country id, 0x42F1B0 false, then GetOriginalCapital(country) -> provinces[eax]; equal +0xD0 to the acting province's -> exit; its +0x338 == id -> mov [ebx+0xE24], its +0xD0. Only the meaning of 'original capital' is revised, from the GetOriginalCapital entry's new reading. Would be wrong with GetOriginalCapital."
+  },
+  {
+   "rva": "0x9DE80",
+   "kind": "function",
+   "name": "SupplyLoss",
+   "revises": "comment only: the suppression term read whole - which field, the clamp's bounds and the order of the truncations",
+   "signature": "int* __stdcall SupplyLoss(CMapProvince* province@EAX, int* out@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "**What a load loses crossing a province**, thousandths, through `out`. SUPPLY_TAX, halved where the owner is the controller; times 1000 plus the mud term - muddyness (+0x84) x MUDDYNESSSUPPLYTAXMODIFIER / 1000 where the province is not frozen (+0x88 == 0) - plus, where the controller CCountry::IsEnemy of the owner, PARTISAN_EFFECT_ON_SUPPLY_TAX x the province's LOCAL_PARTISAN_SUPPORT modifier (id 0x4C) x (1000 - suppression held between 0 and 1000) / 1000; then the controller's technology supply_transfer_cost (+0xC) is added and the result floored at 0. **The suppression term, read whole 2026-11-15:** the figure is the province's own `suppression` (+0x28, the daily province pass's SuppressionNearProvince), clamped between floor(0.0005 x 1000) = 0 and floor(1000.5f) = 1000 (both built at run time from float constants at VA 0x160A460 and 0x160A610); the partisan term is trunc(trunc(trunc(partisan x 1000 / 1000) x PARTISAN_EFFECT_ON_SUPPLY_TAX / 1000) x (1000 - clamped) / 1000), each divide __alldiv, added to the multiplier. See reversing/findings/FINDINGS-supplynetwork.md, section 7, and reversing/findings/FINDINGS-laterstart.md, section 19.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-supplynetwork.md",
+   "evidence": "disasm 0x49DF1D..0x49DFD6: esi = ftol(floor(1000.5f)) = 1000, kept at [ebp-4]; eax = ftol(floor((float)(0 + 0.0005) x 1000.0)) = 0; ecx = [edi+0x28]; clamp: ecx < eax -> eax, ecx > esi -> esi, else ecx; esi -= clamped; [province+0x114]+0x260 (LOCAL_PARTISAN_SUPPORT, id 0x4C x 8) x [ebp-4] / 1000; x defines(+0xAC)+0x38 / 1000; x esi / 1000; ebx += it. 0x401FD0 wraps 0xC084B0 on the float (floor). What would show it wrong: +0x28 not being the suppression field - it is the field SuppressionNearProvince's only caller stores (FINDINGS-occupation.md B.2). Measured in OpenHOI3: the 1941.12.11 start save's brigades' strength 5513 of 5513 with the term (5505 without), Germany's fuel used the save's to the thousandth."
+  },
+  {
+   "rva": "0x1ECA30",
+   "kind": "function",
+   "name": "CCountryHistory::CCountryHistory",
+   "signature": "CCountryHistory* __thiscall CCountryHistory::CCountryHistory(CCountryHistory* this, CCountry* owner)",
+   "no_signature": null,
+   "comment": "**The country history container's constructor**, 0x5ECA30 to the `ret 4` at 0x5ECA57: CHistoryContainer::CHistoryContainer (0x1F45A0, receiver in EAX), then its own vftable 0x15C9710 at +0, and the owner at **+0x20** - so a CCountryHistory is 0x24 bytes, like CLeaderHistory. Three callers: CCountry::CCountry at 0x4C961D, building the country's **own** record in place at CCountry +0xCCC (owner = the country); and HistoryDatabase_LoadFiles at 0x5F6FCE and 0x5F7FDB, each after `operator new(0x24)`, for the registry's copies of the history files. So a country has two histories: the files', in the registry, which the lobby replays, and its own, which only play writes and CCountry::GetOriginalCapital reads. See reversing/findings/FINDINGS-laterstart.md, section 19.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-laterstart.md",
+   "evidence": "disasm 0x5ECA30: mov [ebp-4],ecx; call 0x5F45A0 with eax = this; mov [eax],0x15C9710; mov [ecx+0x20],[ebp+8]; ret 4. findRefs --address 0x015c9710: one code reference, this function. findRefs --callers 0x005eca30: 0x4C961D, 0x5F6FCE, 0x5F7FDB; the two latter preceded by push 0x24; call 0xB9602F (operator new). Would be wrong if the vftable at 0x15C9710 were a province history's - CProvinceHistory's constructor is 0x1FCBE0 and the province loader is slot 9 0x1FCED0, while CCountryHistory::LoadEntry 0x1ECA90 is the country one."
+  },
+  {
+   "rva": "0xD46EA",
+   "kind": "instruction",
+   "name": "CCountry_Reset_ClearOwnHistory",
+   "signature": null,
+   "no_signature": "an instruction inside CCountry_Reset",
+   "comment": "**CCountry_Reset empties the country's own history**: `lea edi,[ebx+0xccc]` then CHistoryContainer::Reset (0x1F4730, container in EDI) - its list freed and its date put back to g_NullDate. CCountry_Reset runs over every country in CGameState::ResetSession, which ResetGameStateToStartDate calls before it replays the history files from the registry; so a new game starts every country's own record of its changes empty, and CCountry::GetOriginalCapital answers the declared capital. See reversing/findings/FINDINGS-laterstart.md, section 19.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-laterstart.md",
+   "evidence": "disasm 0x4D46D2: lea edi,[ebx+0xccc]; mov [ebx+0xe00..0xe08],esi(0); call 0x5F4730. CHistoryContainer::Reset's own record (receiver in EDI) names this call site among its three. That ResetSession runs before the history replay rests on the record's ResetGameStateToStartDate (reset 0x23A505, ExecuteHistoryToDate 0x23A75E) - not re-read here."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CCountry",
+   "offset": "0xCCC",
+   "name": "history",
+   "revises": "comment only: an embedded CCountryHistory, the country's own record of play; the type is kept",
+   "type": "CPersistent*",
+   "comment": "named from the key CCountry::LoadKey reads it from, `history`, loaded by calling slot 3 on the object here. **Not a pointer: a CCountryHistory (0x24 bytes, through +0xEF) built in place** by CCountry::CCountry (0x4C961D, owner = the country), its list head at +0xCD8, tail +0xCDC, count +0xCE0. It is the country's **own** record of its changes - CCountry_SetCapital with logHistory, CCountry::ChangeNeutrality and the other AddEntry sites - emptied by CCountry_Reset and never given the history files' entries, which HistoryDatabase_LoadFiles keeps in separate CCountryHistory objects; CCountry::GetOriginalCapital reads it. The type is left as recorded until a CCountryHistory struct is declared (reversing/findings/FINDINGS-laterstart.md, section 19).",
+   "source": "reversing/findings/FINDINGS-laterstart.md",
+   "evidence": "0x4C9617: lea ecx,[ebx+0xccc]; push ebx; call 0x5ECA30 - the constructor runs on the address, so the object is embedded; the next field the constructor writes is +0xCF0 (OwnedProvinces head), 0xCCC + 0x24. Comment only revised; the type CPersistent* is kept because changing it needs a struct declaration this fragment does not make."
+  }
+ ]
+}

@@ -195,6 +195,10 @@ Fields: `expeditionary_owner` (+0x28C `CCountryTag`, +0x290 id half: the lender,
 - Row in `CSideMenuDeploy`/outliner: only the attach/disband restrictions above were found; no special display.
 - `CCountry::RecountUnitTotals`: lent units are not counted on the host's totals but are counted for the lender's. `CAIUnit::ManageExpeditions`, hourly, for AI hosts.
 
+**A unit an order of battle lends** (`expeditionary_owner`) **is made with its lender's brigade levels** - historical model
+and the doctrine fill (2026-11-15, `writegaps`; *measured*): the 1941.12.11 start save's Corp 5 Armata headquarters has
+Romania's `mobile_warfare` 0, not Germany's 5; 173 of 173 lent brigades agree so.
+
 ## 5. Save keys
 
 - On a unit: `expeditionary_owner` (save token 0x720, the lender's tag as a string) and `expeditionary_date` (0x721, a date), both written by `CUnit::SaveContents` only where `expeditionary_owner_id` is set; `CUnit::LoadKey` reads them, the former adding the unit to the lender's lent list.
