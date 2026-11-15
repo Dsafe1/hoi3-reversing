@@ -390,3 +390,32 @@ What the save shows by itself, with no replay:
 - **The drained capital** (section 3): Manchukuo's holds 7.837 supplies.
 - A week on, 582 provinces with no industry hold supplies nothing was asked of: parcels on their
   way in.
+
+## 10. The throw-back in a long war, in the original's own saves
+
+*Read again and measured 2026-11-15, by `supplycollapse`; nothing new entered in the record. The sweep-2 instructions
+checked off the listing by the collecting session.*
+
+**Sweep 2's share is taken off S whatever its sign.** In the sweep-2 loop the share is held to what the nearer province can
+still pass (`cmp ebx, ecx; cmovg ebx, ecx` at VA 0x687B78..0x687B7A), added to that province's asked figure only where it is
+above nought (`test ebx, ebx; jle` at 0x687B92), and then taken off S with no test (`sub [ebp-0x10], ebx` at 0x687B9F). A
+province asked for more than a nearer one can pass so has a share below nought, and S **grows** by the excess - once for
+that province, and once more for each nearer province after it, the share staying cut. Sweep 3 adds `min(S, capacity[N])` to
+each nearer N with no regard to what N is asked already, and phase 3 keeps `drawn + days x need` in every province.
+
+**So in a long war behind a narrow road the demand swells on its way in**, the provinces beside the capital - which pass
+without limit - take it, and the stockpile is parked in the provinces. Nothing is destroyed: the stockpile and the pools
+together go on growing. The maintainer's Ireland game shows it in Japan's network - stockpile against provinces 34,327
+against 6,026 in July 1937, 23,815 against 27,713 in December 1937, 14,462 against 65,844 in September 1939, and 527 against
+112,729 in May 1940, one province holding 60,414; in September 1939 forty Japanese provinces are drawn up to eight times the
+most they can pass. Britain's network in the 1941.6.22 bookmark's start save has 97 provinces drawn above one and a half
+times that. Germany's has none in any save of the game, and its stockpile stays over 30,000.
+
+OpenHOI3's game from the 1941.12.11 bookmark shows Germany's the same way - the eastern armies 30 to 39 provinces from
+Berlin behind occupied Polish provinces passing 473 a day: the stockpile 29,674 to 1,996 by 31 December, the provinces
+29,571 to 66,676 - and so does a game loaded from that start save. Whether the original's Germany empties from that
+bookmark is **not established**: only its first hour is saved.
+
+**The first pass after a load passes almost nothing** in the original's saves around a load: Japan 221 against 16,073 the
+day before, the Soviet Union 0 against 19,066, Germany 152 against 9,098 (`Ireland1941_07_16_07` to the 7.17.7 autosave) -
+consistent with `last_pool` not being restored on a load. *Inferred* from the saves; the loader was not read.
