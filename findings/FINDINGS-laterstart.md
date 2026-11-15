@@ -359,3 +359,132 @@ off when another country holds it: France, Denmark, Norway, Belgium and the Neth
 `SWE_DayOfInfamy.txt` and two `theatre {` in `JAP_DayOfInfamy.txt` are whole units, 232 unit numbers; and
 `FINDINGS-bookmarks.md` 2.4's rule that only an owning country or REB has its file read accounts for the 315 numbers of
 AUS, CZE and SPR at 1939.)
+
+## 13. A history war goal goes through `CWarGoal::AddToWar`
+
+*Read 2026-11-15 by `bm2-exile`; fragment `later-start-exiles.json`.* `CAddWarGoalChange::Apply` (rva 0x200170, slot 7)
+is a history file's `war_goal` entry. Forward it calls `CWarGoal::AddToWar` (rva 0x651FB0) with the goal embedded at
+`this+0x10` in EDI and the war at `[this+0xC]`; backward it erases the goal from the war's per-country bucket at
+`war+0x9C`. AddToWar's only gate is `CWarGoal::IsValidWithTrigger` - the type's `is_valid` in the recipient's scope, THIS
+the actor - and a goal that fails it is not added and stamps no cooldown.
+
+`ExecuteHistory` replays every country's history before the wars' (`FINDINGS-bookmarks.md` 2.2), so at a later start a
+goal on a country already in exile fails `conquer`'s `government_in_exile = no`, and France's `vichy_war_goal` fails once
+the history has set `fr_signs_peace`. *Measured*: World War II at 1941.6.22 keeps only Germany's goals on the Netherlands
+and the Soviet Union of the nine its file gives by then, and every `next_wargoal_date` of the four start saves is one goal
+added so, stamped 1936.2.1.0 at every bookmark - the defines' start date plus `WARGOAL_ADD_COOLDOWN`, the lobby's tick.
+Germany's goal on Belgium, had it stood, would have made `has_cb = { type = conquer }` hold for Belgium and kept France's
+and Britain's `puppet`, and so their `protect` of 50.
+
+## 14. `conquer_prov`'s own-land half is dead
+
+`CAIStrategy_CollectConquerProvinces` (rva 0x4A67B0) skips the area test for a province the country owns (VA 0x8A68D8:
+`cmp [province+0x330], [strategy+0xC]; je`). But `CAIStrategy::AddConquerProv` jumps to its epilogue at VA 0x8A5002 for
+any province whose owner is the strategy's country, before adding anything (both checked off the listing by the collecting
+session). So a country's own land held by an enemy is never on the list. *Measured*: no such entry for Norway's 810 or
+Poland's 2096 at either 1941 start, nor China's 5420 at 1939.9.1, nor the Soviet Union's own provinces held by Germany at
+1941.12.11.
+
+## 15. An exile's day at a later start
+
+Collected from `FINDINGS-surrender.md` C.5 and C.7, nothing read anew, and measured on the 1941 start saves:
+
+- `CollectDailyProduction` runs for a country that owns land **or is in exile**, and adds `BaseResourceIncome` (5 metal,
+  10 energy, 2.5 rare materials) whatever it holds: every exile's `home` in the 1941 saves is exactly that.
+- The hand-over of supplies and fuel comes after `ConvertCrudeOilToFuel`, so the day's fuel goes too, and the supplies its
+  shares make wait for the next day: the saves' exile pools hold no fuel, and their supplies are one day's `home`.
+- Belgium's first-day usage (2.023 of IC) needs `CDistributeUpgrade`'s exile rule, the faction leader's level where it is
+  higher.
+- `ConsumeSuppliesAndFuel` charges an exile nothing at a friend's depot (`FINDINGS-supplypass.md` 4); without that the new
+  game's filling of the provinces, which puts every stockpile back after each pass, piled about 2,000 of the exiles'
+  payments into London.
+
+## 16. What the two days post, the revert's walk, a pair block in an order of battle, and the enemies stamped
+
+*Read 2026-11-15 by `bm2-rest`; fragment `later-start-laws-and-pairs.json`. The list link, the landless removal's want
+of a diplomacy call (positive control: `CCountry_Capitulate`'s four) and the date loop checked off the listing by the
+collecting session.*
+
+- **The peace-time revert walks the law group backwards.** `CCountry_RevertDisallowedLaws` (VA 0x4D57D0) walks
+  `law->group (+0x50)`'s list at `+0xC` from its head, a node's +0 the law and +4 the next. `CLawGroup::LoadKey` links
+  each new law in front of the old head (VA 0x5297E5..0x529810), so the list runs opposite to `laws.txt`'s order and the
+  law posted is **the last allowed law in the file's order** - the record said the first. *Measured*: at 1939.9.1 China
+  (unity 69.998, effective neutrality 81.291), made Japan's puppet on the first day, holds `legalistic_restrictions`,
+  `volunteer_army` and `basic_mobilisation`, where the file's first allowed would be `limited_restrictions` and
+  `full_civilian_economy`. `confirmed`.
+- **The command is free and silent before in_game**: its constructor keeps neither flag before `in_game` is set, so a
+  revert posted in a new game's two days costs nothing and tells nobody. It waits in the session queue behind the
+  `Laws()` posts made in the set-up; the queue's draining was not traced, in-order draining *inferred* - and the save
+  fits it, China's laws being the revert's and not the look's.
+- **Not every leaving of a war is a change of diplomacy.** `CCountry::OnDiplomacyChanged` has twenty direct callers -
+  CustomGame_LeaveFaction 1; MakeVassal 2 (the overlord, then the vassal); CCountry_Capitulate 4; CFaction::AddCountry 1;
+  CLeaveFactionEffect 1; CEndWarEffect 3; CUndeclaredWarRegionEffect 2; CDeclareWarAction 2; CCallAllyAction 3;
+  CPeaceAction 1 - and none is in `CWar::RemoveAttacker`/`RemoveDefender`, `RemoveLandlessCountriesFromWars` or
+  `AnnexCountry`. So the entry's end reverts no law. *Measured*: Estonia, Latvia and Lithuania keep `repression`,
+  `service_by_requirement` and `total_economic_mobilisation` at both 1941 bookmarks.
+- **An order of battle can carry a pair block.** `CCountry::LoadKey`'s fallback for an unknown key (VA 0x4CF237) looks
+  the key up as a country tag (`CCountryDataBase::GetTag`); found, `diplomacy[id]` loads the block through its slot 3, so
+  `CDiplomacyStatus::LoadKey` takes it key by key. Not a tag, a technology (its level held to a define, into +0x698),
+  then a law. An order of battle goes through this loader (`CCountry::LoadOobFile`), so `SWE = { military_access = yes }`,
+  the first line of Their Finest Hour's `GER_1941`, `GER_DayOfInfamy`, `GER_TheTideHasTurned` and `GER_1944`, gives
+  Germany's record towards Sweden military access: both 1941 start saves hold it, the 1939 one does not, and no
+  diplomacy history gives it. `confirmed`.
+- **The history's wars stamp both sides.** In the lobby's replay `AddAttacker`/`AddDefender` update the joiner and each
+  country on the other side, so `last_war` is 1936.1.1 both ways. A save shows only the joiner's side where the other
+  owns no province by the date (SPR->SPA, CSX->JAP, IRQ->ENG, EST/LAT/LIT->SOV), because `CCountry::SaveContents` writes
+  no record towards a country owning none. `SetUpCountryForNewGame` also stamps `last_war` = now towards each active war's
+  enemies (VA 0x4D6912..0x4D69D5). *Measured*: all 52, 336, 503 and 2 pairs of the four start saves.
+- **New Zealand's 1941 posts** are `OfficeManagement`'s picks at war, made in the AI pass at hour 0, the frame after
+  Enter and before the first hour (`FINDINGS-government.md` E.1): NZL's gate (id + 17) mod 24 = 0 at id 79, the branch a
+  chance draw. *Measured*: all eight managed posts. *Inferred*: the id. Not built in OpenHOI3.
+- **The 1939 fronts**: China's cores given back as it becomes Japan's puppet go through `UpdateOwnerAreaOfProvince`,
+  whose re-flood of Japan's area is the *likely* cause of the save's order; where the re-flood starts (after VA 0x47F93F)
+  was not read.
+
+## 17. What leaves the stockpile in a new game's first hour
+
+*Read 2026-11-15 by `bm3-supplies`; fragment `later-start-supplies.json`. CarrySupplies' branches and ClearDailyPools'
+stores checked off the listing by the collecting session.*
+
+**A new headquarters brings its days.** `CCreateNewHQCommand::Execute` (rva 0x1E0BB0) places the new army with
+`CUnit::EnterProvince` twice - at VA 0x5E0F97, then `CUnit::RebuildAvatar`, then again at 0x5E0FAC. EnterProvince runs a
+gate before it writes `current_province_ptr`: the unit is not there already (`cmp [unit+0x130], province; je`), the
+province is land (template +0x22), the unit is land (slot 15), and its army's +0x300 and +0x304 are both null - it is
+aboard nothing. When all four hold it calls `CUnit::CarrySupplies(unit, province, 0, 0)` at VA 0x5BF313. A new unit's
+current province is null, so the first call carries and the second does not.
+
+With no previous province, CarrySupplies takes the owner's stockpile (`GetPool`) before the game is under way (`in_game`
++0xDA4, set at VA 0x65D126 after the first days). Under way (VA 0x5BEE6B..0x5BEEAA): where the province's `owner_id`
+(+0x330) is the unit's owner (+0x128), **the stockpile**, whoever holds the province; otherwise, where its
+`controller_id` (+0x338) is not the unit's owner either, **nothing**; otherwise - the unit's owner holding ground another
+owns - **the pool of the province's depot** (+0x48), nothing where it has none. The record had the last two arms the
+other way round. The unit's use is asked while it is still nowhere, so no commander's reach comes into it: for a fifth of
+an `hq_brigade` that is 15 x 0.67 / 5 = **2.010 supplies**.
+
+*Measured*: every country the AI gives a headquarters in the first hour has exactly that much less in its stockpile on
+the first screen than a new game that carried nothing - 27 countries of `Germany1936_01_01_00` (Ireland 69.506: Dublin
+2.010 less, Limerick 3.624 where it was 1.614); 1.800, 1.335 or 1.140 where `supply_consumption` laws apply; twice for
+Romania, which got two; Ireland at every later start. `CCreateHigherCommand::Execute` (rva 0x1DF600) does the same
+(EnterProvince at VA 0x5DFBE8, after the order-of-battle placing), and so do `CreateRebelsForFaction` (VA 0x4BAE8A,
+0x4BAE9F) and `CUnitDeployment::DeployAt`.
+
+**Its brigade holds no technology.** Both commands call `CSubUnit::SetType` (VA 0x5E0E11; 0x5DF91E), which builds the
+technology list at level nought, and `CSubUnit::ApplyTechnologies` follows (0x5E0F1E; 0x5DFA5A) with nothing between that
+sets a level: the figures are the type's template, and the upgrades raise them later. *Measured*: Ireland's Dublin
+headquarters in `Ireland1941_06_22_00` holds every doctrine at 0 where Ireland holds `mass_assault` 3. The record's
+"technologies applied" meant applied at nought.
+
+**The energy conversion balances on the day's own pools.** `CCountry::ClearDailyPools` (VA 0x4F28B0) runs for every
+country before the supply pass and zeroes `usage` (+0x994..+0x9AC), `sent_to`, `sent_back`, `tribute_received`,
+`received_from_exiles`, `unit_demand` and +0xA1C; `UpdateIC` zeroes `conversion_used` and `conversion_made` as it begins
+(VA 0x4F0CE4, 0x4F0D36), and `CollectDailyProduction` writes `home_produced` just before UpdateIC in
+`RunCountryDailyPass`. So when the conversion block reads its fifteen pools, usage holds nothing of energy or crude oil -
+industry is charged by the shares afterwards. *Measured*: with today's pools in place of yesterday's usage,
+`Germany1936_01_01_00`'s crude oil and energy agree for 77 of 77 countries where 69 did; the United States converts 38.25
+energy on both days. When the convoyed, traded, repaid and tribute-sent pools are cleared was not read.
+
+**An order of battle's `expeditionary_owner` makes its unit lent**, through `CUnit::LoadKey`, as from a save: Their Finest
+Hour's files lend 20 units by 1941.6.22 and 69 by 1941.12.11, each start save's count of the line, and the lender is then
+the payer at a friend's depot (`FINDINGS-supplypass.md` section 4). *Measured* at 1941.12.11, what each paid for its units
+drawing on friends' depots: Canada 11.872 against the save's 11.886, Hungary 12.103 against 11.588, Romania 39.799 against
+38.748 - all nothing or less before.

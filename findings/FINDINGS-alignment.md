@@ -266,6 +266,50 @@ SCH, BEL, TUR, LIT, HUN, ROM...); the saves do not record when an `align_towards
 ended. The threat term used max IC for TotalIC; threat towards faction members is under 0.3 in all
 these saves. 1 March - 1 April spans two games and was not used.
 
+### 2.5 The later bookmarks' start saves
+
+*Read and measured 2026-11-15 by `bm2-align`; fragment `later-start-alignment.json`.* At 1939.9.1, 1941.6.22 and
+1941.12.11 the section 1 rebuild missed the start saves for half the countries, while every input the drift reads that a
+save keeps agreed. Four things account for every miss; with them the first step agrees for 101 of 101 countries at all
+four dates, the 1936 start's one miss included (OpenHOI3's `diplomacy` check).
+
+**(1) A country's day reads the countries before it after their day, and those after it before theirs.** RunDailyPass's
+serial loop runs RunCountryDailyPass whole for each country in turn (section 3). The alignment phase precedes UpdateIC in
+a country's day and the surrender comes late in it, so a step sees the day's maxIC (+0x60C) of the countries earlier in
+the order and the previous figure for itself and the countries later. At 1941.6.22 Germany's maxIC falls on the first day
+from the entry's 217 to about 200, as the start's revolt risk enters the province modifiers: every country after Germany
+needs the day's figure, the landless most, since a conqueror's IC over their own 5 is what their proximity term weighs.
+Likewise at 1939.9.1 Nationalist China capitulates to Japan in its own day on the first day and joins the Axis as Japan's
+puppet: the countries after China in the order (the Americas, CSX, CXB, CYN, KOR, PRK, TIB, IDC, INO, PHI, SIA) step with
+China an Axis member, the countries before it (Europe) do not. A later country's RebuildStaticModifiers, at the head of its
+day, also reads the threat the enforced war goal spread, which moves the `neutrality` static's share of `drift_speed`
+(GUA, ECU, SIK by a thousandth).
+
+**(2) The `neutrality` static reads the day's most-threatening country.** RebuildStaticModifiers' `neutrality` term is
+neutrality less the threat from the cached most-threatening country (`FINDINGS-countrymodifier.md`), and the parallel
+pre-daily update rebuilds that cache before the serial loop. So Argentina at 1939.9.1 has 79.983, a `drift_speed` of
+0.039 against the entry's 0.040, and so do some twenty other countries whose ideology is in the fascism group.
+
+**(3) A puppet's automatic influence static does not count.** GetAlignTowardsTerm tests CountryHasModifier, which walks
+only active_modifiers (+0x648); RebuildStaticModifiers_SubjectInfluence adds the master's faction's static to the
+contributor vector, never to +0x648. Iran (Britain's puppet from 1941.5.31) and Siam (Japan's from 1941.6.22) step as the
+save has them only without the term - Siam's miss was exactly the term, 17.580 towards fascism. This settles section 6's
+"which list CountryHasModifier tests".
+
+**(4) The rebels measure from province 0, whose centre is (1, 1).** CMap_MeasureProvincePixels (rva 0x90D90, called from
+CMap::LoadMapFiles before ComputeProvinceGeometry) grows each template's box from the raster but skips id 0 (`add ecx,
+eax; je`), so province 0 keeps the constructor's zero box, and ComputeProvinceGeometry's guard puts a centre with a zero
+part at (1, 1). REB, with no capital - its acting capital 0, *inferred* from the fit - measures every proximity from that
+corner: every member past 4950 km and at the floor of 0.1, but Australia and New Zealand, which the x wrap brings near
+once they are in the Allies. The rebuild gives REB (-0.007, 0.495), (0.007, -0.330), (0.016, -0.313) and (0.043, -0.318),
+the four saves exactly; with province 0's box taken from its 14,188 pixels, (2866, 1201), it missed all four. This settles
+section 6's "why REB misses".
+
+Faction progress is still nought at the first step at every date: the revanchism of KOR, CSX and the rest agrees only
+with s = 0. Each faction's members stand in another order at a later start - the members on the defines' start date
+first, the bookmark pass's joins after, each group in country order - which leaves the alignment as it is (the leader is
+the same); OpenHOI3 sorts them all by country order.
+
 ## 3. The geometry threat's spread uses
 
 **The acting capital** (`+0xE24`, `CCountry::GetActingCapitalLocation`) is the capital (`+0xE20`) but
@@ -332,7 +376,7 @@ order decoded `0x682DDD`-`0x682E2A`. `0x4FA0B0` is already `CAlignment::BuildDri
 
 When the AI's law changes land against the first day's country pass (2.2); the writer of `CFaction
 +0xAC` and when it is first set (2.3); which post cabinet index 1 is (head of government, by the file's
-order - inferred); which list `CountryHasModifier` tests, which decides whether an unaligned subject's
-automatic `align_towards_*` makes the influence term fire; `0x42F1B0`; the nearest-group search for a
-country in no faction (recorded inside `ThreatFactorTowards` and `SpreadThreat`, not read again); why
-REB, JAP, EGY, NZL, DOM, HON, PAN and ECU miss.
+order - inferred); ~~which list `CountryHasModifier` tests, which decides whether an unaligned subject's
+automatic `align_towards_*` makes the influence term fire~~ (settled, 2.5: active_modifiers alone, so it does not); `0x42F1B0`; the nearest-group search for a
+country in no faction (recorded inside `ThreatFactorTowards` and `SpreadThreat`, not read again); ~~why
+REB, JAP, EGY, NZL, DOM, HON, PAN and ECU miss~~ (settled, 2.5: every country agrees at all four start dates).

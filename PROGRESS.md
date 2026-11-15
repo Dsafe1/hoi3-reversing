@@ -774,7 +774,7 @@ One class per effect, trigger, command and decision the event scripts can use. E
 | `CAddProvinceModifierEffect` | `CAddModifierEffect` |  |  | 1/2 | 2 |  | 57 | RTTI |  |
 | `CAddSubUnitEffect` | `CIntEffect` | 0x2C | 2 | 3/91 | 5 |  | 555 | part |  |
 | `CAddTheatreCommand` | `CCommand` |  |  | 2/2 | 2 |  | 1 | placed |  |
-| `CAddWarGoalChange` | `CWarHistoryEntry` |  |  |  |  |  |  | RTTI |  |
+| `CAddWarGoalChange` | `CWarHistoryEntry` |  |  |  | 1 |  |  | RTTI |  |
 | `CAirBattlesFoughtTrigger` | `CIntTrigger` | 0x44 |  | 2/153 | 2 |  | 34 | RTTI |  |
 | `CAllOrganisationPopularityEffect` | `CIntEffect` | 0x30 | 3 | 1/1 | 4 |  | 259 | placed |  |
 | `CAllOrganisationPopularityTrigger` | `CTrigger` | 0x4C | 3 | 1/1 | 4 |  | 35 | placed |  |

@@ -1,0 +1,34 @@
+{
+ "agent": "bookmarks round 2, agent A (OpenHOI3 alignment at a later start)",
+ "question": "Why the alignment triangle's first step missed the later bookmarks' start saves while everything it reads agreed: what an influence counts, and where a country with no capital measures from",
+ "source": "reversing/findings/FINDINGS-alignment.md",
+ "addresses": [
+  {
+   "rva": "0x90D90",
+   "kind": "function",
+   "name": "CMap_MeasureProvincePixels",
+   "signature": "void __stdcall CMap_MeasureProvincePixels(CMap* map)",
+   "no_signature": null,
+   "comment": "**Grows every province's pixel bounding box (CProvinceTemplate +0x80..+0x8C) from the province raster, and skips id 0.** One stack argument, the CMap, `ret 4` at 0x491125 (VA) with cold blocks after it; one caller, 0x48A50C in CMap::LoadMapFiles, before CMap::ComputeProvinceGeometry turns the boxes into centres. It allocates a byte per province id (CMap +0x21FC, on the stack, 0xA110CA7E guard words either side) and zeroes it, then walks the raster (CMap +0x20E0: rows at +8, columns at +4, row stride +0x18, element stride +0xC, data +0x20): each pixel's id is the 16-bit word there (VA 0x490E61-0x490E6B), and **`add ecx, eax` then `je 0x490F87` skips a pixel of id 0** - the `mov [ebp-0x2C], ecx` between them leaves the flags alone. For any other id, template t = CMap +0x2A60[id]: where CMap +0x28 is set the pixel pair is pushed onto t's pixel list (+0x6C..+0x70; a list past 0x13880 bytes takes another path, not read); then the first pixel of an id (its byte still 0) sets bbox_x = x, bbox_width = 1, bbox_y = y, bbox_height = 1 and the byte to 1, and every later one grows the box to take it in (VA 0x490F04-0x490F81). So **province 0's box is the constructor's** - CProvinceTemplate::CProvinceTemplate zeroes all four at 0x4A9344-0x4A9356 (VA) - and ComputeProvinceGeometry's guard then puts its centre at (1, 1). That is what a country whose capital is province 0 - the rebels - measures every distance from: the alignment's proximity term reproduces the rebels' first step in all four start saves (1936.1.1, 1939.9.1, 1941.6.22, 1941.12.11) only with the centre there, the floor of 0.1 for every member but Australia and New Zealand, which the x wrap brings within reach of the south-west corner. The name is ours, off the body.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-alignment.md",
+   "revises": null,
+   "evidence": "Listing VA 0x490D90-0x491125 read 2026-11-15: [ebp+8] is the CMap (+0x21FC, +0x20E0, +0x2A60, +0x28), `ret 4`; findRefs --callers 0x490D90 gives the one call at 0x48A50C. The id-0 skip is the je at 0x490E70 on the flags of `add ecx, eax` at 0x490E6B. The four stores of a first pixel at 0x490EDB-0x490EF1 and the growth at 0x490F04-0x490F81 are the only writers of +0x80..+0x8C in 0x488000-0x494000 besides the constructor's zeroing at 0x4A9344-0x4A9356 (a scan of every `mov dword [reg+0x80/0x84/0x88/0x8C], ...` there). Positive control: the rebels' first step in the four start saves, (-0.007, 0.495), (0.007, -0.330), (0.016, -0.313), (0.043, -0.318), reproduced to the thousandth with the centre at (1, 1) or (0, 0) and missed with province 0's box taken from its 14,188 pixels, (2866, 1201). What would show it wrong: a live read of template 0's +0x2C/+0x30 other than (1, 1); the rebels' capital (CCountry +0xE24) other than 0, which the fit implies and was not read."
+  },
+  {
+   "rva": "0xC3790",
+   "kind": "function",
+   "name": "CAlignment::GetAlignTowardsTerm",
+   "signature": "int* __fastcall CAlignment::GetAlignTowardsTerm(int* out@stack:4, CCountry* country@stack:8, CIdeologyGroup* group@EDI) @EAX",
+   "no_signature": null,
+   "comment": "`ret 8` and the group arrives in **edi**. The term the game's tooltip calls FACTION_DRIFT_INFLUENCE. Zero unless the country is in no faction, the group's faction has members, and the country **has the static modifier its faction's `influence` string names** (`align_towards_axis` and the rest, found by name through 0x523560 and tested with CountryHasModifier). Then, thousandths, truncating: v = that modifier's own ALIGN_TOWARDS value (values entry 47, +0x178; 20.000 for all three in Their Finest Hour's static_modifiers.txt); a = (100000 - max(leader's EffectiveNeutrality, 0)) x 1000 / 100000; b = (100000 - country's EffectiveNeutrality) x 1000 / 100000 + 250, **floored at 250**; out = b x (a x v / 1000) / 1000. The 250 is [0x1A87334]'s neighbour [0x1A8732C], floor(250.5f), set by InitAlignmentInfluenceFloor - so a fully neutral country still feels a quarter of the pull. The leader is the faction's first member.\n\n**What 'has' means** (2026-11-15): CountryHasModifier, called at 0x4C382C (VA) with the static in EDX, walks the country's **active_modifiers** (+0x648) - the event modifiers, where an influence or an alignment puts the static - and nothing else. The same static that RebuildStaticModifiers_SubjectInfluence adds to a puppet in no faction whose master is in one is pushed onto the contributor vector and never onto +0x648, so **a puppet's automatic `align_towards_*` gives no influence term**. Measured: Iran (Britain's puppet) and Siam (Japan's) at 1941.6.22 step as the start save has them only without it - Siam's miss was exactly the term, 17.580 towards fascism.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-alignment.md",
+   "revises": "comment only: adds which list CountryHasModifier walks and that a puppet's automatic static does not count, with the measurement",
+   "evidence": "CountryHasModifier VA 0x4D8040-0x4D8063 re-read 2026-11-15: `mov eax, [eax+0x648]`, a walk of {item, prev, next} comparing [item+8] with EDX, nothing else; the call at 0x4C382C inside GetAlignTowardsTerm after 0x523560 (the static by name) in EDX. RebuildStaticModifiers_SubjectInfluence's own record has it read +0x648 only to skip, and add to the contributor vector. Control: with the subject's static counted, Iran and Siam miss the 1941.6.22 start save by (2.4, 9.1) and (-9.5, -10.0); without it both agree, Siam's difference being the term to the unit. What would show it wrong: a country with an align_towards_* static in its contributor vector but not in +0x648 whose first step needs the term."
+  }
+ ],
+ "struct_fields": [],
+ "vftable_slots": {},
+ "frontier": []
+}
