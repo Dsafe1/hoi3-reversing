@@ -24,7 +24,7 @@ end
 function hoiSeries(n, prefix, doneFile)
   local k = 0
   local state = 'save'
-  local previous, lastSize, stableSince, startedAt
+  local previous, lastSize, stableSince, startedAt, retries
   local log = {}
   hoiSeriesLog = log
   local timer = createTimer(nil, false)
@@ -43,10 +43,18 @@ function hoiSeries(n, prefix, doneFile)
         previous = firstLine()
         startedAt = getTickCount()
         lastSize, stableSince = -1, getTickCount()
+        retries = 0
         hoiSave()
         state = 'waitsave'
       elseif state == 'waitsave' then
         local line, size = firstLine()
+        -- A save asked for at midnight can be lost (seen at 0:00 on 17 and 18 July 1941, the game's own daily autosave
+        -- due then); one asked again is honoured. So where the file has not moved in 15 seconds, ask again.
+        if line == previous and retries < 3 and getTickCount() - startedAt > 15000 * (retries + 1) then
+          retries = retries + 1
+          log[#log + 1] = string.format('%d save asked again', hoiTick())
+          hoiSave()
+        end
         if size ~= lastSize then lastSize = size; stableSince = getTickCount() end
         local expected = hoiTick()
         if line and line ~= previous and size > 1000000 and getTickCount() - stableSince > 2500 then

@@ -1,0 +1,114 @@
+-- The original's draws, recorded for a replay: every draw a country's AI makes, with the country it was made for.
+-- dofile() after hoi.lua (and hoiseries.lua). hoiDraws(folder) arms four hardware breakpoints - all of them:
+--
+--   the hour's pass (PASS)   a line `H <tick>`, and both generators dumped as the pass begins: gen_<tick>.txt (the
+--                            game's, as hoiDumpGenerator writes it) and ai_<tick>.txt (CGameState +0x124, the AI's
+--                            MT19937: its index, then its 624 words); and hoiRun's stop, which this replaces
+--   ProcessAI's entry        `E <esp> <tag>`: one country's whole AI pass begins on the thread whose stack this is
+--   the AI generator's draw  `A <esp> <index> <caller rva>`: MT19937Next entered with the AI's state, its index before
+--                            the draw (the value is worked out afterwards from the hour's dump); `... trade <tag>`
+--                            for the hourly trading's two draws (CCountry::RunHourlyAITrade), with the country
+--   Lua's math.random        `R <esp> <rand>`: the value MSVCR80's rand gave lua5.1.dll's math_random
+--
+-- A draw belongs to the country of the latest `E` of this hour whose esp is above it and within a stack's reach;
+-- one with none - the hourly trade, run inside the pass - belongs to nobody. Every rva is valid only for this build.
+local b = hoiB
+local PASS = b + 0x282630
+local PROCESS_AI = b + 0x4894E0
+local MT_NEXT = b + 0x6A2B90
+local LUA_RAND = getAddress('lua5.1.dll') + 0x198B2
+
+local function tagOf(id)
+  local arr = readInteger(readInteger(b + 0x16855A4) + 0x16C)
+  local c = arr and readInteger(arr + id * 4)
+  return (c and c ~= 0) and readString(c + 0x1E4, 3) or '?'
+end
+
+local function dumpAi(path)
+  local gen = hoiState() + 0x124
+  local f = io.open(path, 'w')
+  f:write(string.format('%d\n', readInteger(gen + 0x9C0)))
+  local words = readBytes(gen, 624 * 4, true)
+  for i = 0, 623 do
+    local v = words[i * 4 + 1] | (words[i * 4 + 2] << 8) | (words[i * 4 + 3] << 16) | (words[i * 4 + 4] << 24)
+    f:write(string.format('%08X\n', v))
+  end
+  f:close()
+end
+
+function hoiDraws(folder)
+  hdFolder = folder
+  hdOut = io.open(folder .. '/draws.txt', 'a')
+  hdCount = 0
+  hoiRunArmed = true -- hoiClearStop removes the hour's breakpoint, which is this one
+  debug_setBreakpoint(PASS, 1, bptExecute, bpmDebugRegister, function()
+    pcall(function()
+      local tick = hoiTick()
+      hdOut:write(string.format('H %d\n', tick))
+      hdOut:flush()
+      hoiDumpGenerator(string.format('%s/gen_%d.txt', folder, tick))
+      dumpAi(string.format('%s/ai_%d.txt', folder, tick))
+      if hoiTarget and tick >= hoiTarget and not hoiStopped then
+        hoiPause()
+        hoiStopped = true
+      end
+    end)
+    debug_continueFromBreakpoint(co_run)
+    return 1
+  end)
+  debug_setBreakpoint(PROCESS_AI, 1, bptExecute, bpmDebugRegister, function()
+    debug_getContext()
+    pcall(function()
+      local ai = readInteger(ESP + 4)
+      hdOut:write(string.format('E %X %s\n', ESP, tagOf(readInteger(ai + 0x24))))
+    end)
+    debug_continueFromBreakpoint(co_run)
+    return 1
+  end)
+  debug_setBreakpoint(MT_NEXT, 1, bptExecute, bpmDebugRegister, function()
+    debug_getContext()
+    pcall(function()
+      local gen = hoiState() + 0x124
+      if EAX == gen then
+        local caller = readInteger(ESP) - b
+        -- The hourly trade draws outside any country's job (CCountry::RunHourlyAITrade, stdcall, run inside the pass):
+        -- its country is that function's argument, [EBP+8] in its frame - MT19937Next has not touched EBP at its entry.
+        -- Written as the word `trade` and the tag, so that a reader of the log needs no address of this build.
+        local who = ''
+        if caller == 0xDC7AE or caller == 0xDC803 then
+          local t = readString(readInteger(EBP + 8) + 0x1E4, 3)
+          who = ' trade ' .. ((t and t:match('^[A-Z][A-Z0-9][A-Z0-9]$')) and t or '?')
+        end
+        hdOut:write(string.format('A %X %d %X%s\n', ESP, readInteger(gen + 0x9C0), caller, who))
+        hdCount = hdCount + 1
+      end
+    end)
+    debug_continueFromBreakpoint(co_run)
+    return 1
+  end)
+  debug_setBreakpoint(LUA_RAND, 1, bptExecute, bpmDebugRegister, function()
+    debug_getContext()
+    pcall(function()
+      hdOut:write(string.format('R %X %d\n', ESP, EAX))
+      hdCount = hdCount + 1
+    end)
+    debug_continueFromBreakpoint(co_run)
+    return 1
+  end)
+  return 'armed'
+end
+
+-- hoiRun as hoi.lua has it, but leaving the hour's breakpoint to hoiDraws: only the target is set.
+function hoiDrawsRun(n)
+  hoiTarget = hoiTick() + n
+  hoiStopped = false
+  hoiUnpause()
+  return hoiTarget
+end
+
+function hoiDrawsStop()
+  for _, a in ipairs({ PASS, PROCESS_AI, MT_NEXT, LUA_RAND }) do pcall(debug_removeBreakpoint, a) end
+  hoiRunArmed = false
+  pcall(function() hdOut:close() end)
+  return 'stopped'
+end
