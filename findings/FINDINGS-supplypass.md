@@ -419,3 +419,19 @@ bookmark is **not established**: only its first hour is saved.
 **The first pass after a load passes almost nothing** in the original's saves around a load: Japan 221 against 16,073 the
 day before, the Soviet Union 0 against 19,066, Germany 152 against 9,098 (`Ireland1941_07_16_07` to the 7.17.7 autosave) -
 consistent with `last_pool` not being restored on a load. *Inferred* from the saves; the loader was not read.
+
+## 11. The usage, as the save holds it
+
+*Read and measured 2026-11-15 by `usage`; fragment `later-start-usage.json`.* `usage` (`CCountry +0x98C`) is the one pool of
+what left the stockpile to be used. Zeroed by `ClearDailyPools` at the head of the day, it gets sweep 1's takes out of a
+nearer province that is its controller's acting capital (section 3), what a unit standing in the holder's acting capital is
+given - fuel only where it burns it (section 4) - and then industry's metal, energy and rare materials. The saves bear it
+out to the thousandth: in `Ireland1941_12_11_00.hoi3` Germany's `usage` supplies 697.444 are Berlin's `throughput` 689.784
+plus 7.660, and its `usage` fuel 8.379 is Berlin's fuel `throughput` exactly; in `Germany1936_01_01_00.hoi3` Germany's
+92.666 are Berlin's 76.192 plus what its units in Berlin drew, and OpenHOI3 booking both reproduces the start save's
+`usage` supplies for Germany, Britain and Ireland exactly. **The original keeps no second figure of these takes.**
+
+The pool beside it at `+0x968` is `resources_needed` - TotalIC x 1.000 metal, x 2.000 energy and x 0.500 rare materials,
+cut toward nought, written by `UpdateIC_IndustryNeed` after `UpdateIC` zeroes it - which the economy ledger's flow page
+shows as `LEDGER_USED_INDUSTRY` beside `LEDGER_USED_TROOPS` = `usage`: an industry need, not a split of `usage`. A
+displacement sweep of `.text` over `0x968..0x98B` found no other CCountry store there (an indexed store would escape it).

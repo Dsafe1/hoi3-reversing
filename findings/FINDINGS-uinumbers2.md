@@ -182,6 +182,10 @@ of the predecessor's file names, and a split of `usage` into two. **Which offset
 established** — the column names are not next to any load. This is the best remaining lead on
 `CCountry`'s goods block and it wants the row provider, not the page.
 
+*Settled since (2026-11-15)* for the first two: `LEDGER_USED_INDUSTRY` is `+0x968` `resources_needed` and
+`LEDGER_USED_TROOPS` is `+0x98C` `usage` (`FINDINGS-topscreens.md`, page 8; `FINDINGS-supplypass.md`, section 11). They do
+not split `RES_USED`: `RES_USED` is `usage` whole, and `resources_needed` is a need, not a use.
+
 ---
 
 ## 3. The `BUILD_*_IRO`/`_DRO` cluster is sort headers, and the suffix is a rule
@@ -648,7 +652,7 @@ exists; **!** additionally reads global UI state.
   `CGraphicalTableLedger` or `CPieChartLedgerGraphical`** — the ledger was closed, so the scan
   proves nothing either way. What would settle it: open the ledger in game and re-scan.
 - **Which `CCountry` offsets `LEDGER_USED_INDUSTRY`, `LEDGER_USED_TROOPS`, `LEDGER_FROM_EXILES`
-  and `LEDGER_STOCKPILE` are.** Section 2 establishes that four goods columns exist that the
+  and `LEDGER_STOCKPILE` are** - the first two settled since 2026-11-15 (section 2; `FINDINGS-supplypass.md`, section 11). Section 2 establishes that four goods columns exist that the
   `RES_*` tooltip does not show, and that `RES_USED` is a sum of two of them. The column names are
   not adjacent to any load. What would settle it: the ledger's row provider — the thing
   `0x7BEB80` registers a column against — or a savegame diff over a month.
