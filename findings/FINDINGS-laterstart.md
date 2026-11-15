@@ -98,6 +98,34 @@ table, loaded against new):
 10. The intelligence refresh, the units entered again, `in_game` = 1. The Lua `Laws(country)` posts made in step 5 run
     after this, outside Enter (`SetUpCountryForNewGame_CallLaws`).
 
+## 2a. One country at a time
+
+*Read 2026-11-15 by `bm-occupation`; fragment `later-start-occupation.json`.* **Steps 4 and 5 of section 2 are one loop
+over the countries.** It starts at VA 0x65B15B; its body runs both the step-4 calls (0x65B276..0x65B398) and, for a new
+game, the step-5 calls (0x65B4E1..0x65B64C), and it loops back from 0x65B7EA to 0x65B152. Each country is set up in turn,
+in id order, so what a country's turn reads of other countries is what the earlier turns made:
+
+- **A later country's IC is nought** while an earlier country's laws are moved. `UpdateIC` has exactly three callers
+  (0x4D633D, 0x4DB442, 0x65B2C5; `findRefs --callers`), none in the lobby, so `enemy_ic_ratio` - any enemy with max_ic 0
+  answers false - fails for a country with an enemy later in the order. The 1939.9.1 save's Germany, Britain, France and
+  Poland take `three_year_draft` and `war_economy` so (*measured*).
+- **Effective neutrality** is written at 0x65B3E3 in each country's turn, against `highest_threat_id` - a field last
+  elected by the lobby's `RefreshAllCountries` -> `RebuildNeighbours` when no threat existed, so it holds the first
+  eligible country, mostly Germany - with the threat the earlier turns spread already in it. The 1941.6.22 save's Sweden
+  moves to `three_year_draft` this way (*measured*).
+- **The history threat spread** (0x65B64C) ends each turn. A controller whose turn is still to come has a modifier not
+  yet rebuilt with its ministers, so its `threat_resistance` reads 0 - unless the history's wars mobilised it in the
+  lobby, because `CCountry_AddTimedModifier` calls `RebuildStaticModifiers`. *Measured*: every pair of all three saves
+  agrees; the USA resists Japan's spread and not Germany's.
+- **The lobby's war replay** runs with the clock at `start_date`: `AddAttacker`/`AddDefender` ->
+  `UpdateAtWarAndEnemies(0,0)` stamp the joiner's `last_war` at 1936.1.1 (the saves' `SPR->SPA`, `CSX->JAP`, `IRQ->ENG`)
+  and mobilise it with a 30-day modifier from 1936.1.1. At a later start that modifier has run out, so step 4 finds every
+  warring country mobilised already and gives no new one: no later save has `initial_mobilization`.
+- **The province history's `controller` and `owner` lines** are `CControllerChange::Apply` -> `Province_SetController(...,
+  0,0,0)` and `COwnerChange::Apply` -> `CMapProvince::ChangeOwner(..., 0,0,0)`. So every change of hands the replay makes
+  takes the occupation policy - that step lies outside `applyConsequences` - and an owner change sets nationalism.
+- **The Lua `Laws()` call** is made once per country during the entry: the 1939 save's Soviet Union is one step on.
+
 ## 3. The technology head start at a later date
 
 `SetUpCountryLawsAndTechnologyForNewGame` (rva `0xD59D0`, `FINDINGS-starttech.md` sections 3-4). Two of its terms read
@@ -186,6 +214,26 @@ Days, the stockpile (crude oil and metal MaxIC * days, energy twice, rare materi
 none, supplies and fuel `days` of the units' use, held to 1000 for a subject) and influence are as the record has
 them; only `days` depends on the war.
 
+**Measured on the maintainer's 1939.9.1, 1941.6.22 and 1941.12.11 start saves** (2026-11-15, by `bm-economy`; nothing
+read anew):
+
+1. **A goods line sets**, as `CGoodsChange::Apply` reads: Germany's 1939 stockpile has its 1939.9.1 block's
+   `rare_materials = 5000` plus 180 IC's half of 90 days (13,297.932 in the save), not the three lines' sum.
+2. **The set-up's stores go to the acting capital's province pool, not `GetPool`**: at 1941.6.22 London holds 1,520
+   IC-days (metal 1,520, rare materials 760) over England's 161 x 40 - Denmark's, Norway's, Poland's, Greece's and
+   Yugoslavia's 5 IC, Belgium's 6 and France's 7, each x 40, all exiles seated there by `SetGovernmentInExile` replayed
+   from the history key; each exile's own `pool` holds only two days of income. The Netherlands' 13 x 40 lies in
+   Amsterdam, its seat moved to Batavia afterwards.
+3. **The decisions' effects precede the stockpile** in `SetUpCountryForNewGame`, so France at 1939, given 35 money by
+   `popular_front`, gets no money for its IC (43.134 two days in).
+4. **The months at war count from the war's first dated entry**: the Soviet Union, Romania and Finland at 1941.6.22 keep
+   0.648 of their most, exact under the save's laws.
+5. **The per-country set-up is one loop, and a country's most manpower reads each owner's law as it stands at that
+   moment**: land owned by a country later in `countries.txt` is weighed by its history law - Japan's 130 Chinese
+   provinces give nothing under China's history `volunteer_army` at 1941.6.22, so 558.603. With the save's laws and
+   occupation policies every country's manpower is exact at both 1941 starts, 72 of 72. `likely` for the loop's shape
+   (`FINDINGS-savegame.md` A.5's single "per-country set-up" row), measured for the effect.
+
 ## 6. Wars standing at the date
 
 All in the record already; collected here because a 1936 start exercises them for one war (Italy and Ethiopia) and a
@@ -203,7 +251,7 @@ later start for many:
 - **Spies**: the first allocation gives +2 towards a country at war with this one.
 - **Landless countries**: `RemoveLandlessCountriesFromWars` (step 9) - at a 1940 or 1941 start, every country the
   history has left with no province is taken off its wars and out of its faction **unless the history made it a
-  government in exile** (`government_in_exile = yes`, in Their Finest Hour only France's and Poland's histories).
+  government in exile** (`government_in_exile = yes`). *Corrected 2026-11-15 (`bm-occupation`)*: the key is in ten base-game histories - ALB, BEL, DEN, FRA, GRE, HOL, NOR, PHI, POL, YUG - not France's and Poland's only; Their Finest Hour overrides those two. The 1941.12.11 start save has seven exiles.
 - **Strategic warfare**: the played country, if at war, gets a record per enemy (step 9).
 - **The AI's strategy and theatres** are rebuilt with the wars standing (step 7).
 - **No battle exists** when a game begins, whatever the date: the battles' walk in Enter finds none, and units of two
@@ -223,6 +271,8 @@ is written from the tick at `0x65B148` and nowhere between there and `0x65C003` 
 frame depth matches; not traced instruction by instruction).
 
 ## 8. What a live probe would need
+
+*Since 2026-11-15 the maintainer's folder has start saves of three later bookmarks* - `Ireland1939_09_01_00.hoi3`, `Ireland1941_06_22_00.hoi3`, `Ireland1941_12_11_00.hoi3`, each written at the bookmark's first hour - and OpenHOI3's start checks set a new game beside them (sections 2a, 5, 10 to 12 measure on them). What follows was the plan before they existed.
 
 None of the maintainer's saves (`Documents\Paradox Interactive\Hearts of Iron III\save games`, 45 files, and the
 BlackICE folders' ten) is the first hour of a later bookmark: the earliest of each later year is an autosave or a save
@@ -252,3 +302,60 @@ months-from-the-war's-start rule - landless countries and the two exiles, the Wi
 - What keeps a running war's `action` at the hour (the record's open question) - not this reading.
 - Whether any history gives `last_election` under a government with no term (the hang in section 4).
 - Every number in section 3's table and section 5's examples is the read arithmetic applied, not measured.
+
+## 10. Entering runs the shares with nothing to spend
+
+*Read 2026-11-15 by `bm-units`; fragment `later-start-units.json`.* In `CInGameIdler::Enter`'s per-country pass after
+the information caches (VA 0x65C170 on; the "6+4 distributions" of `FINDINGS-savegame.md` A.5), **for new and loaded
+games alike** - no `loaded_from_save` test guards it - each country gets, after 0x4E21E0, 0x4E39C0 and 0x4DDD80:
+
+- slot 0 of each of its six IC shares (+0x5F4, VA 0x65C1B0..0x65C1E5) with an allocation of **0** and flag **1**;
+- the same for its four leadership shares (+0x5E4, VA 0x65C1E9..0x65C21E);
+- where +0x640 > 0, `CDistributeResearch::ShareAmongProjects`;
+- then `CAIStrategy::Rebuild` for a strategy neither initialized nor static.
+
+A census of every `[ebp+0x14]` operand in the ten Distribute bodies finds two: `CDistributeConsumerGoods` at 0x518DE8 and
+`CDistributeProduction` at 0x51A213 (the positive control, already recorded). `CDistributeUpgrade` never reads the flag:
+with its budget at 0 no equipment moves, but **every doctrine a brigade is behind in moves a whole level**, before a new
+game's two days and again at every load. Reinforcement acts only with a budget above 0. A 1936 start, its models a level
+or two behind, cannot tell. Measured at the later starts:
+
+- three start saves have model-1 brigades three doctrine levels behind level with their country, and those four behind
+  a level short; two days alone leave 48, 775 and 856 levels a level further back;
+- Germany's 1939 reserves (organisation 35, own figure 45 at infantry_warfare 3, 50 at 4) gain a full hour's
+  organisation, 35.077, where the share 35/45 > 0.75 would have slowed them to 35.053.
+
+What consumer goods does with the flag, and what espionage and research do with nothing, was not followed.
+
+## 11. A country's list of the provinces it controls is in the order the history's passes reached them
+
+`CControllerChange::Apply` (slot 7, table 0x15CA124; VA 0x5FEB70..0x5FEED0) turns `XXX` into the null tag. Going forward,
+where the province has no owner and the tag is real, it logs "<province> has no owner set when <tag> is set as
+controller."; it keeps the province's controller at +0x18 and calls `Province_SetController(province, &tag, &date, 0, 0,
+0)`. Going backward it calls the same with the kept tag.
+
+So every controller entry the replay applies takes the province off the old controller's `ControlledProvinces` (+0xD00)
+and appends it to the new one's (`CCountry_AddControlledProvince`). The replay goes in passes - undated to 2.1.1, then to
+the defines' `start_date`, then `CSetHistoryDate` to the bookmark - each province by province. `RebuildOwnerAreas` (one
+caller, reached for new and loaded games, VA 0x648CD2 -> 0x648D48) floods areas from those lists in list order. **So at a
+later start, land the history gave a country after 1936 begins its areas after the rest**: Germany's Norway is its last
+area and its theatre the last of three (numbers 1, 2, 4) in both 1941 start saves; by province number it came first.
+Built that way, OpenHOI3 gives all 96 and 97 theatres of those saves. Two consequences:
+
+- `RunCountryHourlyPass` builds a country's theatres right after its own units, before the next country's units. Japan
+  takes Wake Island (10664) in the Day of Infamy's first hour after the United States' theatres were made with it: the
+  save's USA theatre 76 holds Alaska, Hawaii, the Pacific islands and Wake, 31 provinces.
+- A save writes only each province's controller, so after a load the lists are in province order (*inferred*).
+
+## 12. `CAIStrategy::AddDefendProv` takes only a province the country controls
+
+At VA 0x8A5139..0x8A5142, `mov edx, [ecx+0x338]; cmp edx, [esi+0xC]; jne` to the epilogue (checked off the listing by the
+collecting session). `AddConquerProv`'s test (0x8A4FF9) is the owner (+0x330) being the country's, returning; the
+record's "same shape, two differences" missed this third. So the declared capital the defend builder adds at 200 is left
+off when another country holds it: France, Denmark, Norway, Belgium and the Netherlands have no capital entry in the
+1941.12.11 start save. OpenHOI3 then gives `defend_prov` 73 of 73 at both 1941 bookmarks (60 and 65 before).
+
+(Measured too, no new reading: `ParseReadKeyValue` drops the token after a key that is not `=`, so `army {` in
+`SWE_DayOfInfamy.txt` and two `theatre {` in `JAP_DayOfInfamy.txt` are whole units, 232 unit numbers; and
+`FINDINGS-bookmarks.md` 2.4's rule that only an owning country or REB has its file read accounts for the 315 numbers of
+AUS, CZE and SPR at 1939.)

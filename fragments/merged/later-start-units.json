@@ -1,0 +1,98 @@
+{
+ "agent": "bm-units (OpenHOI3 bookmarked starts: units and the AI built on them)",
+ "question": "Why a later start's units, unit numbers, theatres and AI strategy differ from the start saves of the 1939.9.1, 1941.6.22 and 1941.12.11 bookmarks",
+ "source": "reversing/findings/FINDINGS-laterstart.md",
+ "addresses": [
+  {
+   "rva": "0x25C1A6",
+   "kind": "instruction",
+   "name": "CInGameIdler_Enter_RunDistributions",
+   "signature": null,
+   "no_signature": null,
+   "comment": "**Entering a game runs every country's ten shares with nothing to share out.** In CInGameIdler::Enter's per-country pass after the information caches (VA 0x65C170 on; FINDINGS-savegame.md A.5's \"the 6+4 distributions\"), for each country of the list, after 0x4E21E0, 0x4E39C0 and 0x4DDD80: the loop at VA 0x65C1B0..0x65C1E5 calls **slot 0 of each of the six IC shares** (CCountry +0x5F4, `cmp edi, 0x18`) with (&out, an __int64 available of **0**, flag **1**), and the loop at VA 0x65C1E9..0x65C21E the same on the four leadership shares (+0x5E4, `cmp edi, 0x10`); then, where +0x640 is above 0, slot 4 of the fourth leadership share (CDistributeResearch::ShareAmongProjects) at VA 0x65C237; then, for a country owning a province (+0xCF8) that is not REB and whose strategy is neither initialized (+0x48C+0x14) nor static (+0x15), CAIStrategy::Rebuild at VA 0x65C282. Nothing tests loaded_from_save here, so a loaded game runs it too. What the shares do with nothing: **the upgrade share moves every doctrine a brigade is behind in a level** (CDistributeUpgrade::Distribute reads no flag and a doctrine costs nothing); reinforcement does nothing (it acts only while its budget is above 0); production reads the flag and skips the AddProgress(0) a line would get with an empty pool (0x51A213). Of the ten bodies only CDistributeConsumerGoods (0x518DE8) and CDistributeProduction read the flag; what consumer goods does with it, and what espionage and research do with nothing, was not followed. See reversing/findings/FINDINGS-laterstart.md, section 10.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-laterstart.md",
+   "evidence": "Disassembled VA 0x65C150..0x65C290: two push-1 / two-dword-zero call sequences through [vftable+0] on the +0x5F4 and +0x5E4 arrays, bounds 0x18 and 0x10. The flag census: every operand naming [ebp+0x14] in the ten Distribute bodies (extents from the record, each ending ret 0x10 with no branch past it), two hits, production's already recorded as the positive control. Wrong if a slot-0 body reads the flag through another register, or if the loop is behind a loaded_from_save test I missed above VA 0x65C170. The upgrade consequence measured on three start saves (doctrine levels, and Germany's reserves' organisation at 35.077 in the 1939 save)."
+  },
+  {
+   "rva": "0x1FEB70",
+   "kind": "function",
+   "name": "CControllerChange::Apply",
+   "signature": "void __thiscall CControllerChange::Apply(CControllerChange* this, bool forward)",
+   "no_signature": null,
+   "comment": "**`controller = TAG` in a province's history goes through the game's own controller setter.** Slot 7 of the history entry, one holder (table 0x15CA124). VA 0x5FEB70 to the `ret 4` at 0x5FEED0. The tag at +0x10 is copied, `XXX` turned into the null tag (0x402300). **Forward**: where the province (+0xC) has no owner (+0x330 == 0) and the tag is real, a line `<province> has no owner set when <tag> is set as controller.` is logged (provincehistory.cpp, channel 0x10004); then the province's controller (+0x334/+0x338) is kept at +0x18/+0x1C and **Province_SetController(province, &tag, &date, 0, 0, 0)** called - no consequences, not peaceful, no regrouping, the date a fresh one from 0x44C6E0. **Backward**: Province_SetController(province, &kept (+0x18), &date, 0, 0, 0). So each replay of a controller entry takes the province off the old controller's ControlledProvinces (+0xD00) and puts it on the end of the new one's (CCountry_AddControlledProvince) - **a country's list is in the order the history's passes reached its provinces**: the undated pass and the pass to the defines' start date province by province, then, as a bookmark is chosen, the pass to its date. RebuildOwnerAreas walks those lists, so at a later start the land the history gave a country after 1936 starts its areas after the rest: Norway is the last of Germany's areas and theatres in the 1941 bookmarks' start saves. And because the occupation-policy step of Province_SetController lies outside its applyConsequences flag, every change of controller the replay applies takes the new controller's policy towards the old (read the same day by bm-occupation, whose reading agrees; FINDINGS-laterstart.md, section 2a). See reversing/findings/FINDINGS-laterstart.md, section 11.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-laterstart.md",
+   "evidence": "Slot 7 of the table at VA 0x15CA124 read off the image (slots 2, 6, 7 = 0x5FEEE0, 0x5FCB60, 0x5FEB70, as the RTTI export's introduces list); body disassembled whole, one ret 4, both arms ending in call 0x4A2400 with three pushed zeros. Slot 2 (0x5FEEE0) writes key 0x1ED, slot 6 answers it - the save side, not named here. The list consequence is Province_SetController's recorded steps 3 and 6. Wrong if the history's controller entries are applied through some other class than CControllerChange. The area order it implies reproduces all 96 theatres of the 1941.6.22 start save and 97 of 1941.12.11 in OpenHOI3."
+  },
+  {
+   "rva": "0x11CE60",
+   "kind": "function",
+   "name": "CDistributeUpgrade::Distribute",
+   "signature": "CFixedPoint* __thiscall CDistributeUpgrade::Distribute(CDistributeUpgrade* this@ECX, CFixedPoint* out@stack:4, __int64 available@stack:8, bool flag@stack:16) @EAX",
+   "no_signature": null,
+   "comment": "**Slot 0, read through**: 0x51CE60 to the `ret 0x10` at 0x51D5B5. budget = base_percentage x available x factor in thousandths; free = the same share of lend_lease_ic. It zeroes its own +0x20 (an __int64, the count of brigades upgrading in fixed 15, which the tooltip prints as UNITS) and CCountry +0xAA4, upgrade_cost. The list is the country's second unit list (+0xBBC, the units it lent out) **first** and then its own units (+0xBAC) less those with an expeditionary owner, each needing upgrade_active (+0xA5), a unit with +0xA4 set going to the front.\n\nFor every node of every brigade's `technologies` whose technology has canUpgrade (+0x314) and whose level is below the country's level_by_technology (or, for a government in exile, the first member of its faction's if higher): days = CCountry::GetBuildTime(country, the brigade's definition, 0); rate = max(1000000 / (days x 1000) x 2, g_UpgradeLeastRate) x the SHIP_/AIR_/LAND_UPGRADE_SPEED_MOD define, **thousandths of a level a day**. cost = BuildCostIC x (1000 + build_cost_by_unit_type - GetCategoryBuildDiscount) / 1000, x (1000 + RESERVES_PENALTY_SIZE) / 1000 for a reserve; daily = cost / the brigade's technology count x g_ReinforcementDailyShare / levels behind. **A technology whose `change` (+0x288) is clear - a doctrine - costs nothing and moves a whole level a day.** Where daily is more than the budget left, the progress is budget x 2 x rate / 1000 and the rest of the budget is paid; after that nothing more moves. progress is added to the node's +0x8; at 1000 it goes back to zero and the level goes up one, and **where the technology's `change` is set, the brigade's builder (CSubUnit +0x34/+0x38) becomes its owner (+0x94/+0x98)** - unless the unit's expeditionary_owner id (CUnit +0x290) is this country's id (+0xCA8), a unit the country lent out and is upgrading through +0xBBC (0x51D48F..0x51D4CD); a doctrine names nobody; and after the brigade's last technology CUnit::RebuildDefinition is called on its unit. upgrade_cost takes every `daily`, spent or not - the slider's need. Resources are charged once at the end for what was spent less `free`. It ignores the flag and returns zero.\n\n**Checked against a savegame two days in**: with the save's shares and the laws the day ran under, two days of this reproduce the `{level progress}` pair on all 1,469 of Germany's technology lines, including the wing the share ran out on (0.008 where its neighbours have 0.020) and the three after it with nothing. See reversing/findings/FINDINGS-unitdaily.md, section 5.\n\n**Also run once as a game is entered, with nothing to spend** (read 2026-11-15): CInGameIdler::Enter calls every country's six shares of IC with an allocation of 0 and the flag 1 (CInGameIdler_Enter_RunDistributions, rva 0x25C1A6). The flag is never read here - no operand of the body names `[ebp+0x14]`, where the same scan finds CDistributeProduction's at 0x51A213 - so with the budget at 0 no equipment moves (a `change` technology's daily cost is above the budget, and its progress `0 x 2 x rate` is 0), but **every doctrine a brigade is behind in moves a whole level**, before a new game's two days and at every load. Measured: a model-1 brigade three doctrine levels behind its country is level with it in the start saves of the 1939.9.1, 1941.6.22 and 1941.12.11 bookmarks, and one four behind a level short; two days alone would leave each a level further back. See reversing/findings/FINDINGS-laterstart.md, section 10.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-unitdaily.md",
+   "revises": "adds what the share does when CInGameIdler::Enter runs it with nothing to spend; the signature places this@ECX, as its siblings do",
+   "evidence": "As for CInGameIdler_Enter_RunDistributions: the flag census and the three start saves."
+  },
+  {
+   "rva": "0x4A5090",
+   "kind": "function",
+   "name": "CAIStrategy::AddDefendProv",
+   "signature": "void __fastcall CAIStrategy::AddDefendProv(CAIStrategy* this@ESI, int province_id@stack:0x4, int weight@stack:0x8)",
+   "no_signature": null,
+   "comment": "**The `defend_prov` adder**, the same shape as CAIStrategy::AddConquerProv (0x4A4F50) with three differences: **it takes only a province the strategy's country controls** - `cmp [province +0x338], [esi +0xC]; jne` the end, at 0x4A5139..0x4A5142, the controller id against the strategy's country id, where the conquer adder returns on the owner id being the country's (corrected 2026-11-15: this said \"two differences\"); the list is `defend_prov` at `+0x2C` (`lea eax,[esi+0x2c]` at 0x4A514C) and the cap is a flat **1000** (`cmp [esi+0x34], 0x3e8` at 0x4A5156 and 0x4A51A4), with no Personality test. 0x4A5090 to the `ret 8` at 0x4A51BC, receiver in ESI.\n\nThree callers and **none of them is a trigger**: MergeAIStrategy (0x4A3BF1), 0x4A69B5 and 0x4A6A93. So `defend_prov` is filled by the AI itself rather than by the trigger walk.\n\nAbutment note: it ends `ret 8` at 0x4A51BC with a **single `int3`** before CAIStrategy::AddBuildingProv at 0x4A51C0 - trap 2's shape, although `functionStart` happens to get it right here because the next function opens `push ebp`.\n\n**So a capital another country holds is not on the list**: the defend builder (rva 0x4A6980) adds the declared capital (+0xE20) at 200 through this adder, and a government in exile, its capital occupied, gets nothing for it - France, Denmark, Norway, Belgium and the Netherlands in the 1941.12.11 bookmark's start save, each with no 200 entry. See reversing/findings/FINDINGS-laterstart.md, section 12.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-triggereval.md",
+   "revises": "a third difference from AddConquerProv: the controller test, which the entry left out",
+   "evidence": "VA 0x8A5130..0x8A5142: `mov ecx,[eax+ebx*4]` (the province), `mov edx,[ecx+0x338]`, `cmp edx,[esi+0xc]`, `jne 0x8A51AD` (the epilogue). AddConquerProv's matching test at 0x8A4FF9 is `+0x330 ... je`. Measured: OpenHOI3 with the test gives defend_prov 73 of 73 at both 1941 bookmarks, where adding the capital regardless gave 60 and 65; the 1936 start save, every capital held, is unchanged."
+  }
+ ],
+ "structs": [
+  {
+   "name": "CControllerChange",
+   "size": "0x20",
+   "inherits": "CProvinceHistoryEntry",
+   "vftable_rva": "0x11CA124",
+   "comment": "`controller = TAG` in a province's history (FINDINGS-history.md's census: 4,011 of them, 0x20 bytes each). Apply is slot 7. See reversing/findings/FINDINGS-laterstart.md, section 11.",
+   "evidence": "RTTI: base CProvinceHistoryEntry at 0, table 0x015CA124 VA. Size from FINDINGS-history.md's table."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CControllerChange",
+   "offset": "0x10",
+   "name": "controller",
+   "type": "CCountryTag",
+   "comment": "The tag the entry gives the province; `XXX` is read as the null tag at Apply.",
+   "source": "reversing/findings/FINDINGS-laterstart.md",
+   "evidence": "Apply copies +0x10/+0x14 as a tag and passes its address to Province_SetController; slot 2 writes it."
+  },
+  {
+   "struct": "CControllerChange",
+   "offset": "0x18",
+   "name": "previous_controller",
+   "type": "CCountryTag",
+   "comment": "The controller the forward Apply found, which the backward Apply puts back.",
+   "source": "reversing/findings/FINDINGS-laterstart.md",
+   "evidence": "Written from the province's +0x334/+0x338 in the forward arm, passed to Province_SetController in the backward."
+  }
+ ],
+ "vftable_slots": {
+  "CControllerChange": {
+   "7": {
+    "name": "Apply",
+    "signature": "void __thiscall Apply(CControllerChange* this, bool forward)"
+   }
+  },
+  "CDistributeUpgrade": {
+   "0": "Distribute"
+  }
+ },
+ "frontier": [
+  "0x5FEEE0",
+  "0x44C6E0"
+ ]
+}

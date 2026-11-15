@@ -28,9 +28,9 @@ how many objects a census found (taken 2026-09-20).
 | `read` | 185 |
 | `placed` | 139 |
 | `keys` | 74 |
-| `part` | 182 |
+| `part` | 183 |
 | `named` | 5 |
-| `RTTI` | 556 |
+| `RTTI` | 555 |
 | **all** | **1141** |
 
 ## What to read next
@@ -887,7 +887,7 @@ One class per effect, trigger, command and decision the event scripts can use. E
 | `CContextTrigger` | `CAndTrigger` | 0x150 | 1 | 2/153 | 5 |  | 10,974 | part |  |
 | `CContinentTrigger` | `CTrigger` | 0x44 | 1 | 2/153 | 3 |  | 27 | part |  |
 | `CControlledByTrigger` | `CTrigger` | 0x4C | 2 | 2/153 | 3 |  | 3,138 | part |  |
-| `CControllerChange` | `CProvinceHistoryEntry` |  |  |  |  |  | 4,011 | RTTI |  |
+| `CControllerChange` | `CProvinceHistoryEntry` | 0x20 | 2 |  | 1 |  | 4,011 | part |  |
 | `CControlsTrigger` | `CIntTrigger` | 0x44 |  | 2/153 | 2 |  | 4,953 | RTTI |  |
 | `CCountryCapitalChange` | `CCountryHistoryEntry` |  |  |  | 1 |  | 2 | RTTI |  |
 | `CCountryDecisionChange` | `CCountryHistoryEntry` | 0x2C | 1 |  | 2 |  | 15,755 | part |  |
@@ -1064,7 +1064,7 @@ One class per effect, trigger, command and decision the event scripts can use. E
 | `COrganizationChange` | `CCountryHistoryEntry` |  |  |  | 1 |  |  | RTTI |  |
 | `COutOfSupplyDaysTrigger` | `CIntTrigger` | 0x44 |  | 2/153 | 2 |  |  | RTTI |  |
 | `COwnedByTrigger` | `CTrigger` |  |  | 2/153 | 3 |  | 266 | RTTI |  |
-| `COwnerChange` | `CProvinceHistoryEntry` |  |  |  |  |  | 2,107 | RTTI |  |
+| `COwnerChange` | `CProvinceHistoryEntry` |  |  |  | 1 |  | 2,107 | RTTI |  |
 | `COwnsTrigger` | `CIntTrigger` | 0x44 |  | 2/153 | 3 |  | 74 | RTTI |  |
 | `CPerformCoupCommand` | `CCommand` |  |  | 2/2 | 5 |  | 1 | placed |  |
 | `CPointsChange` | `CProvinceHistoryEntry` |  |  |  |  |  |  | RTTI |  |
