@@ -105,6 +105,8 @@ A parent precedes its children. `confirmed`.
 - An object with no effect is drawn with the WORLD transform at its `+0x94` instead.
 - Where the object's byte `+0xF0` is set, SCISSORTESTENABLE with the graphics' rectangle `+0x6BCE0` is on
   around it.
+  - and never in practice: the rectangle is only ever zeroed and no store sets the byte (read 2026-11-15,
+    `FINDINGS-listbox.md` section 4).
 - Then **slot 10** with (graphics, device, `&world`, slot 22's float). Slots 26 and 22 end in bare `ret`s,
   so the state and a nought they were pushed stay on the stack as Render's fifth and sixth arguments.
 

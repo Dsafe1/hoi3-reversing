@@ -1,0 +1,111 @@
+{
+ "agent": "rowclip",
+ "question": "How the original clips a list row wider than its list box or its window - the technology panel's effect rows, laid out to 330 less an O in a 310-wide list.",
+ "source": "reversing/findings/FINDINGS-listbox.md",
+ "structs": [],
+ "addresses": [
+  {
+   "rva": "0x673390",
+   "kind": "function",
+   "name": "CGraphics_DrawObjectList",
+   "signature": "void __stdcall CGraphics_DrawObjectList(CGraphics* graphics)",
+   "no_signature": null,
+   "comment": "**Draws the draw list in batches by effect and technique.** For each object: effect = its +4, else its type's (+0x24 -> +0x24); technique name = its +8 string, or where that is empty its type's +0x28. No effect: any open batch ended (EndPass, End) and the WORLD transform set to the object's +0x94. Otherwise, unless the effect is the open one and the name equal to the last: the open batch ended, **SetTechnique(the name as a string), Begin(&passes, 0), BeginPass(0)** - one pass only. Where the object's byte +0xF0 is set, SCISSORTESTENABLE 1 with SetScissorRect(graphics +0x6BCE0) around the draw. Then **the object's slot 10 with (graphics, device, &world +0x94, slot 22's float)**, slot 26 and slot 22 having left the state and a nought on the stack. The last batch ended. `ret 4`. **No list box, window or text box clips through it** (read 2026-11-15, FINDINGS-listbox.md section 4): the rectangle at graphics +0x6BCE0 is written only by the CGraphics constructor, which zeroes all four dwords (0xA6F1BB..0xA6F1CD) - every displacement +0x6BCD8..+0x6BCF4 was scanned; its neighbours are the present parameters handed to Reset (+0x6BCA4), a byte (+0x6BCDC) and object_types_by_name (+0x6BCF0) - so a flagged object would be scissored to an empty rectangle and draw nothing; and the flag (C2dObject +0xF0, the CSprite record's `scissored`) is set by no store in the image: the draw objects' base constructor (0xA600E0) zeroes it and two set-sprite routines (CIcon::SetSpriteType 0xAA29B0, GuiButton_SetSpriteType 0xB40710) copy the old display object's byte onto its replacement. A CGuiText's glyphs are drawn inside this loop, by its slot 10.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-buttonstatefx.md",
+   "evidence": "findRefs --address over +0x6BCD8..+0x6BCF4: +0x6BCE0 two references (the constructor's zeroing at 0xA6F1C1 and the push at 0xA7357E), +0x6BCE4 one, +0x6BCE8 one real (0xA6F1C7; three others are call targets that happen to contain the bytes), +0x6BCEC two (0xA6F1BB and 0xA70FAC, the latter (CGraphics+4)+0x6BCEC = the hash table at +0x6BCF0, which the record already explains). A store to +0xF0 of a draw object: every instruction in .text whose first operand is memory at a register + 0xF0 (scanw.py, 165 sites, 8 byte stores with a base other than esp/ebp) - CAIStrategy, four in ClientCommandChannel, 0xB0E065 in a .gfx sub-block loader whose object has CColors at +0x90/+0xAC (not a 2D object), and the two copies. Positive control: the same scan finds the base constructor's `mov word [esi+0xF0], 0x100` at 0xA6018D. Wrong if a store through a computed pointer (no displacement 0xF0) sets the byte, or a write to +0x6BCE0 through a pointer to a structure starting below +0x6BCD8 exists - neither seen, not excluded.",
+   "revises": "comment: no clipping in practice, with the scans"
+  },
+  {
+   "rva": "0x7326C0",
+   "kind": "function",
+   "name": "CGuiText::Draw",
+   "signature": "void __thiscall CGuiText::Draw(CGuiText* this, CGraphics* graphics, void* device, float* world, float scale, int state, void* texture)",
+   "no_signature": null,
+   "comment": "Draws the text: font slot 15 with the colour block at +0x16C, then **font slot 8** - CEU3BitmapFont::DrawText - with the text, the format, the orientation, the rectangle {x, y, maxWidth, maxHeight} by value, border x, border y and a pointer to +0x1B0. The text box places nothing itself. The name is ours. **It is CGuiText's slot 10** (vftable 0x1606C70, slot 10 = 0xB326C0), so CGraphics_DrawObjectList calls it with (graphics, device, &world, scale) and the state and a nought left on the stack, as CSprite's render - world's +0x30/+0x34 are its translation. The text it hands DrawText is drawn there and then, whole: DrawText tests no glyph against the box or any rectangle (FINDINGS-listbox.md section 4).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-textdraw.md",
+   "evidence": "vftable 0x1606C70 slot 10 read off the image = 0xB326C0; `ret 0x18` = six stack dwords, the four CGraphics_DrawObjectList pushes for slot 10 plus the two that slots 26 and 22 leave by their bare `ret`s, as already recorded for CSprite::Render. param_3 +0x30/+0x34 read as floats = the world matrix's _41/_42 that CGraphics_CollectObjects writes. Wrong if CGuiText's slot 10 were reached from elsewhere with other arguments; the first two arguments and the last two are not read in the body.",
+   "revises": "signature (was no_signature) and comment"
+  },
+  {
+   "rva": "0x6FC070",
+   "kind": "function",
+   "name": "CEU3BitmapFont::DrawText",
+   "signature": "void __thiscall CEU3BitmapFont::DrawText(CEU3BitmapFont* this, Hoi3CString* text, int format, int orientation, int x, int y, int maxWidth, int maxHeight, int borderX, int borderY, int* areaSize)",
+   "no_signature": null,
+   "comment": "**Slot 8 of CEU3BitmapFont: lays a text out, places it and draws it.** `ret 0x28`. Keeps a cache of forty laid-out texts keyed by a hash of the string and every argument. A line's width is the sum of its glyphs' xadvance plus kerning; a7 and the character after it add nothing. **The line breaking** (read 2026-11-14): the limit is maxWidth, 0x140 where it is 0; **maxHeight is read only into the cache's hash**, so a text breaks to the box's width whatever its height and its lines run on down past it, each a line height (+0x494) below the last. Char by char, a word is gathered up to and with its space; at a glyph of no height (the space) the line and the word, the space's advance in, plus twice borderX are tested against the limit and, where wider, a newline is put before the word, the line broken off keeping its trailing space in its width and the word beginning the next; a visible glyph with something already laid out, the line plus twice borderX at the limit or past it and the word over 50, breaks the word there; at the end the last word is tested without a space - and not at all where it alone is wider than the limit, the line's width then taken as that word's. A newline or carriage return ends a line; after 55 lines (cmp 0x37) the rest of the text is dropped. Each line is then placed as the first is - set centre, the border plus maxWidth/2 less its own width/2. The first line is placed by a jump table on the orientation, in a space centred on the area with **y upwards**. For UPPER_LEFT: lineY = areaHeight/2 - y - borderY; x0 = x - areaWidth/2; **format 0 (left) x0 + borderX; format 2 (centre) x0 + borderX + maxWidth/2 - lineWidth/2, each half its own integer division; format 1 (right) x0 + maxWidth - lineWidth, with no border.** For UPPER_RIGHT the origin is areaWidth/2 + x + borderX and the same three follow, so left and centre have the border twice. **Every corner of every glyph quad then has 0.5 added to x and to y** - half a pixel right and, y being upwards, half a pixel up; beside the game's pictures the maintainer's screenshot shows that as one whole pixel each way. The colour escapes are resolved here too: a7 and a letter index a table in the font at +0x4A8, 32 bytes an entry - what the `colorcodes` block fills - falling back to a table at the global 0x1B211A8; a7 '!' restores the font's own colour at +0x38. The name is ours. For CENTER (orientation 4, 0xAFCC16) x is from the middle of the area and lineY = -(y + borderY); left and right both start at x + borderX, and centre at x + borderX - widest/2 + maxWidth/2 - lineWidth/2, widest being the block's widest line (the register holding it at the switch, 0xAFCA3B), so that a single line ENDS at the middle of the box instead of being centred in it. See reversing/findings/FINDINGS-textdraw.md, section 2. **Nothing is clipped** (read 2026-11-15): every glyph with a height is written as two triangles into the shared batch at VA 0x1B1A118 with no test of its corners against the box, maxWidth, maxHeight or the area, and drawn through the device's DrawPrimitiveUP (slot 83, D3DPT_TRIANGLELIST) - 0xC2 glyphs at a time and the rest at the end - before it returns; so a line laid out wider than the box, or than a list or window round it, is drawn past their edges (FINDINGS-listbox.md section 4).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-textdraw.md",
+   "evidence": "Full decompile of the quad loop (0xAFD0ED..0xAFD144 and the emission after it): the only branches on a glyph are its height (< 1: advance only), the escape characters and the batch count `0xC1 < n / 6`; the DrawPrimitiveUP calls are `call [vftable+0x14C]` with (4, n/3, 0x1B1A118, 0x18). Wrong if a scissor or viewport set by a caller around slot 8 limits it - none is set by CGuiText::Draw or CGraphics_DrawObjectList (whose scissor flag is never set).",
+   "revises": "comment: no clipping"
+  },
+  {
+   "rva": "0x6600E0",
+   "kind": "function",
+   "name": "DrawObjectBase_Construct",
+   "signature": null,
+   "no_signature": "this in ESI, no stack arguments, a bare `ret`, answers this in EAX - a register convention",
+   "confidence": "inferred",
+   "comment": "**The base constructor every 2D draw object goes through** (the 2D object's constructor 0xAB2770 calls it, and so through it CSprite and CGuiText; 18 direct callers). vftable 0x15FC890 (no RTTI) at +0; +4 nought; a string at +8; CColor at +0x30 white with its flag +0x48 = 1; the frame +0x4E = -1; +0x4C = 0x101; local (+0x54) and world (+0x94) identity through Matrix4x4_Diagonal; raises a count at VA 0x1A857B0; +0xD4..+0xE8 nought (sibling +0xD8, child +0xDC, parent +0xE4), +0xEC = -1, and **+0xF0 = 0, +0xF1 = 1** (one `mov word`, 0x100) - the scissored byte CGraphics_DrawObjectList tests, which no other store sets. The record's Matrix4x4_Diagonal comment calls it C3dObject's constructor; the table it writes is not C3dObject's (0x15B49E4), so the name here is ours and neutral. See reversing/findings/FINDINGS-listbox.md, section 4.",
+   "source": "reversing/findings/FINDINGS-listbox.md",
+   "evidence": "Disassembled 0xA600E0..0xA60199 (int3 run before it, `ret` at 0xA60199). Callers by findRefs --callers: 0xAB278C (the 2D object's constructor, which CGuiText's constructor 0xB32350 calls at 0xB3239D), 0xA8D78D (on a new 0x12C object, not the list box widget), 0x4011CE and 15 more. Wrong if it is the C3dObject constructor with a second table written later - the name is the only thing that would change."
+  },
+  {
+   "rva": "0x6A29B0",
+   "kind": "function",
+   "name": "CIcon::SetSpriteType",
+   "signature": "void __thiscall CIcon::SetSpriteType(CIcon* this, char* name)",
+   "no_signature": null,
+   "confidence": "inferred",
+   "comment": "**Gives an icon another sprite by name**: where the name is in the graphics' template hash (+0x90 -> +0xA0, StringHashFind), keeps the old display object's (+0x88) scissored byte (+0xF0), destroys it (0xA6FCA0), makes a new one by name under the parent (+0x8C) through 0xA6FE30, **copies the byte onto it**, and gives it the icon's state and frame (its slots 23 and 24) and position (slot 50). `ret 4`. Slot 57 of CEU3Minimap's table, which holds CIcon's bodies (slots 26, 45, 53 are CIcon's), and it sits after CIcon::SetCountry; that it is CIcon's own is inferred from both. See reversing/findings/FINDINGS-listbox.md, section 4.",
+   "source": "reversing/findings/FINDINGS-listbox.md",
+   "evidence": "Decompiled whole; vtable.py --holding 0xAA29B0: CEU3Minimap slot 57 only (the icon has no RTTI table). `ret 4` at 0xAA2AA1. Wrong if CEU3Minimap overrides slot 57 with a body of its own - then the name moves to it."
+  },
+  {
+   "rva": "0x740710",
+   "kind": "function",
+   "name": "GuiButton_SetSpriteType",
+   "signature": "void __stdcall GuiButton_SetSpriteType(void* button@ECX, char* name@stack:4)",
+   "no_signature": null,
+   "confidence": "inferred",
+   "comment": "**Gives a button another sprite by name**, as GuiButton_Construct makes its first: where the name is in the template hash, keeps the old display object's (+0x94) +0xD4, +0xE4 and scissored byte (+0xF0), destroys it (0xA6FCA0), and - where the button has a text (+0xF4) and a font (+0x110) - makes a text sprite through 0xA6FFB0 (format 2, the parent +0x114), else a plain one through 0xA6FE30; **copies the byte onto the new one**, calls the new one's slot 31 where the old +0xD4 was set, else its slot 30 where the old +0xE4 was (neither read), then its slots 23 and 24 (state and frame); then the button's slot 50. `ret 4`. No virtual table was found holding it (the button has no RTTI). See reversing/findings/FINDINGS-listbox.md, section 4.",
+   "source": "reversing/findings/FINDINGS-listbox.md",
+   "evidence": "Decompiled whole; the +0xF4/+0x110/+0x114 and the 0xA6FFB0-or-0xA6FE30 branch are GuiButton_Construct's (FINDINGS-textdraw.md section 1). `ret 4` at 0xB4097D. It sits before GuiButton_ShowUp (0xB40CB0). Wrong if the object is not a GuiButton - the fields and the branch say it is. The record writes the button's thiscall functions as GuiButton_* with the button @ECX, and this follows."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CSprite",
+   "offset": "0xF0",
+   "name": "scissored",
+   "type": "uint8_t",
+   "comment": "Where set, CGraphics_DrawObjectList draws it with SCISSORTESTENABLE and the graphics' scissor rectangle (+0x6BCE0). **Nothing sets it** (read 2026-11-15): the draw objects' base constructor DrawObjectBase_Construct zeroes it, and CIcon::SetSpriteType and GuiButton_SetSpriteType only copy an old display object's byte onto its replacement; no other store at +0xF0 reaches a draw object. And the rectangle is only ever zeroed, so a set flag would draw nothing - it is not a list box's clip, and nothing in the interface is clipped by it.",
+   "source": "reversing/findings/FINDINGS-listbox.md",
+   "evidence": "As CGraphics_DrawObjectList's entry: a scan of every store at a register + 0xF0 in .text, positive control the constructor's word store at 0xA6018D. Wrong if a store through a computed pointer sets it.",
+   "revises": "comment: who sets it (nobody), and the empty rectangle"
+  },
+  {
+   "struct": "CGraphics",
+   "offset": "0x6BCE0",
+   "name": "scissor_rect",
+   "type": "int[4]",
+   "comment": "The rectangle CGraphics_DrawObjectList hands SetScissorRect (device slot 75) for an object whose +0xF0 byte is set - left, top, right, bottom. Zeroed by the constructor (0xA6F1BB..0xA6F1CD) and written nowhere else, so it is empty, and with the flag set by nothing it never takes part. See reversing/findings/FINDINGS-listbox.md, section 4.",
+   "source": "reversing/findings/FINDINGS-listbox.md",
+   "evidence": "findRefs --address over every dword +0x6BCD8..+0x6BCF4; only the constructor and the push at 0xA7357E reach +0x6BCE0..+0x6BCEC. Wrong if code writes it through a pointer to a structure below it - its neighbours are the Reset parameters (+0x6BCA4..) and a byte at +0x6BCDC."
+  }
+ ],
+ "vftable_slots": {
+  "CEU3Minimap": {
+   "57": "CIcon::SetSpriteType"
+  }
+ },
+ "frontier": [
+  "0x66FCA0",
+  "0x66FE30"
+ ],
+ "slots_noted": {
+  "0x7326C0": "CGuiText (vftable 0x1606C70) slot 10; the class has no RTTI table, so no vftable_slots record.",
+  "0x6A29B0": "Recorded on CEU3Minimap slot 57, the one RTTI table that holds it."
+ }
+}

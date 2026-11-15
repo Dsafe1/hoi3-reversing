@@ -274,9 +274,33 @@ as SIA, ALB, MEX; no IRE). `confirmed`
 
 - **The icon is not tested for a miss.** A mod shipping `topbar_<TAG>.dds` while renaming the icon `topbar_bg` would have
   slot 56 called on null (no test between the slot 17 call at `0x66275C` and the slot 56 call).
-- **Nothing sets it again.** `findRefs --callers 0x662430` gives one call, `0x66153B` in `CInGameIdler::Enter`; no other
-  reference, and it is in no virtual table. So a played country changed in play (the `tag` console command) keeps the
-  first country's bar picture - `inferred` from the one caller; the command's `Execute` was not read.
+- **Nothing sets it again, and a `tag` does not** (read 2026-11-15, the `tagskin` agent; the one caller checked by the collecting session). `findRefs --callers 0x662430`
+  gives one call, `0x66153B` in `CInGameIdler::Enter`; no other reference, and it is in no virtual table. The `tag`
+  console command (`ConsoleCmd_Tag`, `0x43C9F0`) posts a `CSetCountryControllerCommand` and answers; it calls nothing
+  else. That command's `Execute` (`0x6D3390`, bare `ret` at `0x6D42E5`) was read whole, and after the arms the
+  frontend reading describes its tail does three things and no more:
+  1. where the session's `lobby_reopened` (`+0x236`) is set, `CGameState::TurnOffCountryAi` (`0x683830`, `ret 0xC`):
+     `played_countries[id]` = 1 for this machine's human or 2 for another's, and on a session with `may_post_commands`
+     the country's `CEU3AI` erased from `ai_agents` and its `ai` pointer nulled - `AI has been turned off for <name>`;
+  2. the lobby's `CLobbyInterface` (the persistent id at `0x171042C`, as `CSetGamePlayOptions::Execute` finds it), where
+     it exists, asked its slot 11 (`0x714100`) with the new country - the multiplayer list's row, `player_shield` and
+     `name (tag)`;
+  3. the in-game screen's slot 65, the top bar, and its outliner's `force_rebuild` (`CTopBar +0x378`, `COutLiner +0x7C`)
+     set (`0x6D42B3`..`0x6D42CD`).
+  Every direct call in the body is `FindHumanById`, the logging, the game state's lazy constructor, `CountryNameOfTag`,
+  `FindPersistentById` and `0x683830`; every indirect one a stream, the deleting destructor, `GetSession`, the lobby's
+  slot 11 or the top bar's getter. **So neither the bar nor the country views are given a picture**, and a `tag` keeps
+  the first country's. `confirmed`
+- **And nothing else asks the views for theirs.** Of the 1007 slot-9 call sites in the image (`scripts/slotcalls.py 9`),
+  the only one through the idler's views (`+0xD00`) is `ApplyCountrySkins`'s own; the five inside the six view classes'
+  table functions (`CEspionageView::BuildTooltip`, `CDiplomacyView::BuildTooltip` three times, `CProductionView::IsShown`)
+  each push an argument, where `UpdateCountrySkin` takes none, so they are other objects' slot 9. `CProductionView`'s own
+  slot 9 (`0x8053B0`) is a bare `jmp 0x6EB4F0`, the base's body. `likely` - a view reached through a pointer neither scan
+  sees would escape it. The statistics ledger is different: `CStatisticsLedger_ApplyCountrySkin` runs from its
+  constructor, which runs at each opening (`0x673575`), so the ledger's `country_bg` follows the country played.
+
+Evidence: the decompile and the listing as above; the call list off `scripts/disasm.py 0x6D3390 0xF80`. Hardcoded: all of
+it.
 
 Evidence: decompiled whole, and the listing `0x662697`..`0x6627A1`: `'GFX_topbar_bg'` pushed at `0x662699` (one
 reference), `call 0x9C7D60` on `[esi+0xA0]`, `call 0xABA9A0`; `'topbar_bg'` at `0x662733` (one reference), `mov

@@ -91,6 +91,28 @@ fx]. The colour carries the land province's id: COLOR0 = (id & 0xFF, id >> 8, 0,
 triangles in 941 tiles: 54% of their middles on sea zones (default.map `sea_starts`), 40% on the province named, 1.3% on
 another land province and 4% on pixels with no definition.csv colour - a strip laid along the coast, mostly over the sea.
 
+**Where a province's pictures stand, in the world** (put together 2026-11-15 by the `buildingpos` agent from records already read, `confirmed`).
+Every picture hung on a province - a building's (`ProvinceGraphics_UpdatePictures`), the `capital` marker (the same),
+`large_air_base` and `large_naval_base`, a ring of range (`AirBaseCircles`), a resource icon - is translated (slot 33) by
+its point less the label point, `(float)point.x - (float)label_x` and the same for y (the capital's in double, narrowed),
+and then hung on the province's anchor by ProvinceGraphics_PlacePicture, world = local x the anchor's world. The anchor of
+a land province is translated to its template centre (CProvinceTemplate +0x2C/+0x30), of which the label point
+(+0x5C/+0x60) is a copy; a sea zone's anchor stands at its label point. So the picture stands at **the point itself,
+(x, raise, y)** - positions.txt's figures exactly, up to a float's rounding - and since a pixel's middle is on whole world
+coordinates (section A.1, the vertex shaders' 0.5), a building at `x=2934.300049` stands 0.3 east of the middle of
+pixel 2934, not 0.3 east of its west edge. The strategic resource icon, given no translation, stands on the anchor - the
+label point, a pixel's middle.
+
+What it corrected: OpenHOI3 had drawn a building that positions.txt places at the file's figures taken as 2D pixel
+coordinates (a pixel spanning [x, x+1]), half a pixel west and south of the original's, while it drew the capital marker,
+the counters and a building the file does not place at the world point. Seen on screen at Kiel and Berlin: every placed
+building's picture moved half a map pixel east and north with the mend, and a click on Kiel's port and Berlin's airfield
+still picks their fleet and air unit.
+
+Not established: the 1.0 raise and a picture's height make no difference to where it shows only while the camera looks
+straight down on it; the original's own camera aim with counters on was not found to meet the scene camera
+(A.6), so how far a raised billboard's projection moves it on screen in the original was not measured.
+
 ### A.2 What the terrain effect is given
 
 The handles fetched by name in CProvinceManager_ReloadResources (0x468530) on the effect registered as `TerrainShader`

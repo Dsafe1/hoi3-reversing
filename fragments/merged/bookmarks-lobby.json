@@ -1,0 +1,247 @@
+{
+ "agent": "bookmarks-lobby, 2026-11-15",
+ "question": "How the original offers a later start: common/bookmarks.txt's grammar and lists, what choosing a bookmark sets and where the date is kept, the Quick Start panel's four buttons, and how the history files are applied at a later date - which entries, in what order, which order of battle a country gets, and whether anything marks events before the date as fired. Stops where the history has been applied; the new-game pass is bookmarks-newgame's.",
+ "source": "reversing/findings/FINDINGS-bookmarks.md",
+ "addresses": [
+  {
+   "rva": "0x1F52A0",
+   "kind": "function",
+   "name": "ExecuteHistoryToDate",
+   "revises": true,
+   "signature": "void __stdcall ExecuteHistoryToDate(void* registry@stack:4, int* from@stack:8, int* to@EDX)",
+   "no_signature": null,
+   "comment": "**Moves the world from the date at `from` to the date at `to` by replaying the history registry.** Read whole 2026-11-15 (FINDINGS-bookmarks.md, section 2). The registry is the first stack argument, the date the world stands at the second, the date wanted in EDX (VA 0x5F52BE-0x5F52D6: `[ebp+0xC]` dereferenced as the start, `[edx]` as the target; the final ExecuteHistory call at VA 0x5F5411 passes them as from and to). In order: the game state made where there is none (loaded_from_save, tutorial_id and in_game cleared on the new one); the scenario held in the game state (+0x0 of the scenario field read as `scenario`) noted; **where the registry's +0x58 holds a scenario whose history was applied before**, ExecuteHistory from `from` back to the defines' start_date with that scenario's history (HistoryDatabase_GetScenarioHistory), +0x58 cleared and the start taken as start_date; then **with no scenario, where the target is before the start, ExecuteHistory back to the defines' start_date and the start taken as start_date** - a move backwards is always a rewind to start_date followed by a replay forwards, never a direct undo to the target; with a scenario, the same rewind where start_date is before the start; then **ExecuteHistory from the start to the target** (with the scenario's history where there is one), and +0x58 = the scenario where the move went forwards, else 0. Two `ret 8`. Callers: CEU3Application::LoadEverything twice in its `history execute` stage (0x232882: from g_HistoryDate_YearMinus1 `-1.1.1` to g_HistoryDate_Year2 `2.1.1`, which applies every undated history entry - they keep the null date, year 0; 0x2328EF: from `2.1.1` to state->tick, which is start_date), ResetGameStateToStartDate the same pair after re-reading the history files (0x23A75E, 0x23A825), CSetHistoryDate::Execute (0x2D619C, the state's tick to the bookmark's date), the four quick starts (0x2F4361, 0x2F49B1, 0x2F4FB1, 0x2F5611, the state's tick to their dates), CGameSetup::SelectDefaultBookmark (0x307E18, the state's tick to start_date) and 0x31D9AC (the tutorial screen). See reversing/findings/FINDINGS-history.md and reversing/findings/FINDINGS-bookmarks.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-bookmarks.md",
+   "evidence": "Decompiled whole and the entry and the last call checked on the listing: `mov eax,[ebp+0xC]; mov ecx,[eax]` (the start) and `mov eax,[edx]` (the target) at VA 0x5F52BE-0x5F52C3; at VA 0x5F5411 `push scenario; lea edx,[esp+0x18] (target); push edx; lea ecx,[esp+0x14] (start); mov edx,ebx (registry)` into ExecuteHistory. The two static dates read from their initialisers' strings at VA 0x15B4EA8 '-1.1.1' and 0x15B4EB0 '2.1.1'. LoadEverything's two calls decoded at VA 0x632872-0x632887 and 0x6328DE-0x6328F4 (EDX = 0x170DD3C then &state->tick; the stack argument 0x170DD38 then 0x170DD3C, left behind by GetHistoryDatabase, which takes nothing). Wrong if GetHistoryDatabase cleaned a stack argument - it ends in a bare `ret` at VA 0x5FA83C."
+  },
+  {
+   "rva": "0x1F4C20",
+   "kind": "function",
+   "name": "ExecuteHistory",
+   "revises": true,
+   "signature": "void __fastcall ExecuteHistory(int* from@ECX, void* registry@EDX, int* to@stack:4, void* scenarioHistory@stack:8)",
+   "no_signature": null,
+   "comment": "**The engine's `history execute` stage, and the only bulk reader of the history.** Logs `Executing History from <from> to <to>` on `history.cpp:11` and, when the two dates differ, replays **the history registry, which is EDX** (not the fourth argument, as this entry said until 2026-11-15): (1) every container of the registry's vector at +0x0 (the provinces' histories, inferred from LoadFiles reading provinces first) through CHistoryContainer::ApplyRange - forwards the registry's then the scenario's at scenarioHistory+0x10, backwards the scenario's first; (2) for every country history of the registry's vector at +0x10 (indexed by country id): that history, and where a scenario is given its history for the same tag (ExecuteHistory_ApplyScenarioCountry, after the country's forwards, before it backwards), **then the history (+0x84) of every leader in that country's `leaders` list (+0xE10)** - so a leader's rank changes ride with his country; (3) the registry's CDiplomaticHistory (+0x30) and CWarHistory (+0x34); (4) the registry's list of wars at +0x48: each war with at least one attacker and one defender moved to the list at +0x38, then each war of +0x38 left with an empty side moved back to +0x48. ApplyRange applies an entry dated in (from, to] going forwards and undoes one in (to, from] going backwards. **Whatever the dates, it ends by deleting and rebuilding the area groups and the supply groups.** The fourth argument is a scenario's history (HistoryDatabase_GetScenarioHistory) or null: its vector at +0x0 holds country histories found by tag, its +0x10 province histories. Extent 0x1F4C20..0x1F5298, one `ret 8`. Four call sites, all in ExecuteHistoryToDate (0x1F52A0). HistoryDatabase_PlaceWars (0x1F5450) later puts +0x38 on active_war and +0x48 on previous_war. See reversing/findings/FINDINGS-history.md and reversing/findings/FINDINGS-bookmarks.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-bookmarks.md",
+   "evidence": "Decompiled whole. The reads at +0x30, +0x34, +0x38, +0x48 are off `containers` (EDX) - `*(containers + 0x30)` at the two ApplyRange calls after the loops - and the fourth argument is only ever read at +0x10/+0x14 and handed to 0x1F4B60; ExecuteHistoryToDate passes it as null or as HistoryDatabase_GetScenarioHistory's answer, never the registry. The country loop's FUN_005ec730 (the history's owner at +0x20), +0xCA4 (CCountry tag) and +0xE10 (CCountry leaders, a CList<CLeader*>) and +0x84 (CLeader's CLeaderHistory) identify vector +0x10 as countries. Wrong if a caller were found passing the registry as the fourth argument."
+  },
+  {
+   "rva": "0x2D60C0",
+   "kind": "function",
+   "name": "CSetHistoryDate::Execute",
+   "revises": true,
+   "signature": "void __thiscall CSetHistoryDate::Execute(CSetHistoryDate* this)",
+   "no_signature": null,
+   "comment": "Slot 6 of the lobby's start-date command, posted by CGameSetup::SelectBookmark with the bookmark's date held to the defines' start_date..end_date. Read whole 2026-11-15: the history registry made where there is none; **ExecuteHistoryToDate from the game state's tick to the command's date (+0x3C)** - forwards a replay of the entries after the tick up to the date, backwards a rewind to start_date and a replay forwards (ExecuteHistoryToDate); **state->tick = the date** - this is where a bookmark's date is kept, the game state's clock, and the defines' start_date is left as it was; RefreshAllCountries; the in-game screen's map overlays hidden (province objects, air and naval icons, air-base circles) and its colours redrawn in the lobby's political loop, the colour textures refreshed; the game settings' +0xF0 = 0xFF9A and +0xF4 = 2 (the map's layer mask and style, as CFrontEnd::Enter sets them); **both game_finished bytes of the victory conditions cleared, and the victory conditions chosen: VictoryConditions_ChoosePrimaries in a scenario, VictoryConditions_ChooseRandomly without one** - the only caller of ChooseRandomly in the image, so a Quick Start game, which posts no CSetHistoryDate, never has it run. Bare `ret` at 0x6D64A5 (VA); a cold arm past it runs to VA 0x6D6535 (trap 3). See reversing/findings/FINDINGS-bookmarks.md and reversing/findings/FINDINGS-factionplay.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-bookmarks.md",
+   "evidence": "Decompiled whole: `ExecuteHistoryToDate(registry, &state->tick, this + 0x3C)` then `g_CCurrentGameState->tick = *(this + 0x3C)`. The one caller of VictoryConditions_ChooseRandomly (0x144370) found by findRefs --callers: a single call from VA 0x6D6517, inside this function. Wrong if ChooseRandomly were reached through a pointer - no data reference to it was searched."
+  },
+  {
+   "rva": "0x2EC6F0",
+   "kind": "function",
+   "name": "CBookmark::LoadKey",
+   "revises": true,
+   "signature": "void __thiscall CBookmark::LoadKey(CBookmark* this, CParseContext* parse, SaveToken key)",
+   "no_signature": null,
+   "comment": "One `bookmark = { }` of a bookmarks file, slot 4 of CPersistent for CBookmark. **Its seven keys, and what each holds** (read whole 2026-11-15): `name` - the key kept as written (name_key, +0x40) and, where it is not empty, **localised at load** into `name` (+0x8, GetText and Render with the settings' colours); `desc` - the same into desc_key (+0x5C) and `desc` (+0x24); `icon` - a string, the sprite of the lobby row's button (+0x78); `date` - `year.month.day.hour` through Date_SetFromString into +0xA4, **the hour 0 when left out** (sscanf leaves it nought); `country` - a tag looked up in the country database and **appended to the bookmark's list of countries** (+0x94, a node of tag, id, previous, next; tail +0x98, count +0x9C), a tag that is no country logged `Bad tag <X> in bookmark <name>` (bookmarks.cpp line 0x4F) and left out, the bookmark kept; `is_cgm` - a yes/no (+0xA8), the custom games' list instead of the historical one; `cgm_folder` - a string (+0xAC), the custom game's folder. **Anything else goes to ReportUnknownKey, which adds a message to the parse context - and CBookmarkList_Load then stops reading the whole file at that bookmark.** See reversing/findings/FINDINGS-bookmarks.md and reversing/findings/FINDINGS-frontend.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-bookmarks.md",
+   "evidence": "Decompiled whole; the seven cases agree with the switch definitions.py read. The unknown-key arm calls ReportUnknownKey (0x67A7B0), whose record says it appends to the list at CParseContext +4 - the list whose count (+0xC) CBookmarkList_Load tests. The hour default is Date_SetFromString's sscanf with its fourth variable zeroed first. Wrong if ReportUnknownKey did not count into +0xC."
+  },
+  {
+   "rva": "0x2ECFB0",
+   "kind": "function",
+   "name": "CBookmarkList_Load",
+   "revises": true,
+   "signature": "void __stdcall CBookmarkList_Load(void* list, void* files)",
+   "no_signature": null,
+   "comment": "**Reads the bookmark files into the two lists** of the 0x20-byte holder at [0x1A8A874] (VA): both emptied first; for each path of the vector (0x1C bytes a path), in order: a path that is empty or names no file logs `Failed to open file <path>` (bookmarks.cpp line 0x8B) and is passed over; otherwise each top-level block is parsed into a CBookmark (CPersistent::Load) and, **where the parse left no message**, copied into a new 0xD4-byte CBookmark **appended at the tail** of the historical list (holder +0) or, when is_cgm, of the custom-game list (holder +0x10) - so both lists are in file order. **The first bookmark whose parse leaves a message - an unknown key - logs `Failed to read bookmark in <path>` (line 0x9D) and ends that file: it and every bookmark after it in the file are lost**, the next file still read. One caller, 0x232AC6 in CEU3Application::LoadEverything, after the `history execute` stage and so after the country database exists (the tags of `country` are looked up here); the path vector is built at the top of LoadEverything (0x22FBDA-0x230124): **two paths, each `/bookmarks.txt` under a directory of its own, each the mod's copy where one exists and the game's otherwise** - inferred to be `common/` and `cgm/` from the install, whose cgm/bookmarks.txt is the one marked is_cgm (the directories' settings fields were not identified). So a mod's bookmarks file replaces the game's; the two are not merged. `ret 8`. See reversing/findings/FINDINGS-bookmarks.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-bookmarks.md",
+   "evidence": "Decompiled whole: the `if (parse->messages_count != 0) break;` exits the per-file loop to the `Failed to read bookmark in ` log and the parse context's release, then the outer loop goes on to the next path. findRefs --callers 0x6ECFB0: one call, from VA 0x632AC6. The path vector at [ebp-0xB8] gets exactly two push_backs (VA 0x630124 and 0x63012F) of [ebp-0x310] and [ebp-0x2D8], each built from `/bookmarks.txt` (0x15CC4F8) with a FileExists test choosing the mod root. The common/cgm identification is inferred and so is said as such."
+  },
+  {
+   "rva": "0x2F4250",
+   "kind": "function",
+   "name": "CFrontEnd::OnQuickStartGer",
+   "revises": true,
+   "signature": "void __thiscall CFrontEnd::OnQuickStartGer(CFrontEnd* this)",
+   "no_signature": null,
+   "comment": "quickstart_ger (easymode_panel), through the glue at +0x770. **Starts a game at once, with no lobby and no bookmark**: the date `1939.9.1.1` - **hour 1**, where a bookmark of the same day starts at hour 0 - and **no hold to the defines' start_date..end_date** (a mod with a single bookmark still has the panel start 1939); ExecuteHistoryToDate from the state's tick to it and state->tick = the date - **no CSetHistoryDate**, so the victory conditions are not chosen and game_finished is not cleared here; RefreshAllCountries; a player record made with CHuman_ConstructNamed (`Human`, the session's local id); a fresh seed from the platform clock, the draw count nought, posted as a CSetRandomSeed on the session; `GER` made the played country (played_countries_array, the state's and the map's player) with its CAI's +0x2C cleared, controllers_changed set; **the player record's automation[0..4] = 1 - Diplomacy, Production, Technology, Politics and Intelligence to the AI - automate_tech_sliders (+0x30) = 1 (the tech minister on sliders and research) and primary_local (+0x28) = 1**, automate_sliders and the Armies level left at their defaults; the record appended to the state's humans (CGameState_AddHuman); **launch_requested (+0x765) = 1** - LaunchGame starts the game on the next frame. OnQuickStartUsa, Jap and Sov are this body with `1936.1.1.1` USA, `1941.12.7.1` JAP (no bookmark has that date; Day of Infamy is 1941.12.11) and `1941.6.22.1` SOV. VA 0x6F4250 to the bare `ret` at 0x6F489A. See reversing/findings/FINDINGS-bookmarks.md and reversing/findings/FINDINGS-frontend.md, section A.4.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-bookmarks.md",
+   "evidence": "Decompiled whole and the player record's writes checked on the listing: the record is at [esp+0x40] (VA 0x6F44BC `lea edx,[esp+0x4c]` after three pushes); `mov byte [esp+0x68],1` (VA 0x6F44EE) is +0x28; `mov [esp+0x70],esi` with esi 1 (VA 0x6F47A0) is +0x30; the five guarded stores through [esp+0x78] (VA 0x6F4761-0x6F47BE) are automation[0..4]; CGameState_AddHuman is called with EDI = [esp+0x44] after one push, the same record (VA 0x6F483E). The other three dates read off their `push` of 0x15D4564, 0x15D4570, 0x15D457C. Wrong if the vector at +0x38 held fewer than five entries (each store is guarded on its size; CHuman_ConstructNamed sizes it through 0x444040, the same call CHuman::CHuman's record reads as seven)."
+  },
+  {
+   "rva": "0x2D59B0",
+   "kind": "function",
+   "name": "CResetGame::Execute",
+   "signature": "void __thiscall CResetGame::Execute(CResetGame* this)",
+   "no_signature": null,
+   "comment": "CCommand slot 6 of CResetGame, the command CGameSetup::OnNewGameTab posts when the state came from a save. It finds a persistent object by a fixed id pair held in two globals (rva 0x131042C/0x1310430; the file's static values 0x20 and 0x1C) - the low or high id table by the 0x1268 split - and calls **its slot 12 with (the command's `clear` byte at +0x3C, a copy of the null date)**. The slot is CGameSetup::RevertToStartDate on the lobby's CLobbyInterface table, the only holder of that body - so the object is the lobby (inferred from the slot it reaches; the id registration was not traced). Bare `ret` at VA 0x6D5A14. See reversing/findings/FINDINGS-bookmarks.md.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-bookmarks.md",
+   "evidence": "Disassembled and decompiled whole (VA 0x6D59B0-0x6D5A14): the id pair loaded from [0x171042C]/[0x1710430], FindPersistentById (VA 0xA9DA00) in [0x1A857F4] or [0x1A857F0], then `call [edx+0x30]` with `movzx ecx, byte [esi+0x3C]` and a pointer to a copy of [0x170C2B8]. vtable.py --holding 0x714750: CGameSetup slot 12 of the table at object offset 12 alone. Inferred, not confirmed, because which object owns the id was not traced - a different class registered under it whose slot 12 is another body would make this wrong."
+  },
+  {
+   "rva": "0x314750",
+   "kind": "function",
+   "name": "CGameSetup::RevertToStartDate",
+   "signature": "void __thiscall CGameSetup::RevertToStartDate(CLobbyInterface* this, bool clearPlayers, int* date)",
+   "no_signature": null,
+   "comment": "Slot 12 of CGameSetup's CLobbyInterface table (object offset 0xC), reached from CResetGame::Execute: **the lobby put back to the defines' start_date after a loaded save**. The front end's loading indicator (its +0xE4 slot 4) shown; **ResetGameStateToStartDate(clearPlayers)** - every history file read again and replayed from `-1.1.1` to start_date (see that entry); the indicator hidden; the chosen save (+0x6AC of the CGameSetup) freed and cleared, a pending large-file transfer cancelled where one is running, the save's name emptied and its row index -1; RefreshAllCountries; the map's overlays hidden and its colours redrawn as CSetHistoryDate does, the settings' +0xF0 = 0xFF9A and +0xF4 = 2; the chat line REVERT_SAVE_CAL. **No bookmark is chosen** - the Historical Start tab then waits for a click, Play's reason being CANT_START_REASON_SELECT_BOOKMARK. The date argument is not read. `ret 8`. See reversing/findings/FINDINGS-bookmarks.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-bookmarks.md",
+   "evidence": "Decompiled whole; the only argument read is [ebp+8] (VA 0x7147A3, into ResetGameStateToStartDate) - a scan of the body for [ebp+0xC] finds none; `ret 8` at VA 0x714AC9. vtable.py --holding: one table, CGameSetup at object offset 12, slot 12. The table at VA 0x15D5A0C read: slot 12 = 0x714750. This is the call site ResetGameStateToStartDate's record lists as 0x3147A7, 'CGameSetup slot 11'."
+  },
+  {
+   "rva": "0x3A5B0",
+   "kind": "function",
+   "name": "CHuman_ConstructNamed",
+   "signature": "CHuman* __stdcall CHuman_ConstructNamed(CHuman* this, Hoi3CString* name, int id, bool flag35)",
+   "no_signature": null,
+   "comment": "**A player record with a name and an id**, CHuman::CHuman's sibling: name = the string, id (+0x1C) = the argument, country (+0x20) `---` with id 0, +0x28 the word 0x100, automate_sliders and automate_tech_sliders 0, automate_trade 0, +0x35 = the last argument, the automation vector emptied and sized through 0x444040, mp_tick (+0x4C) the null date, army_automation (+0x48) 7. Answered in EAX; `ret 0x10`. Callers include the four quick starts (the name `Human`, the session's local id) and ConsoleCmd_MoreHumans. See reversing/findings/FINDINGS-bookmarks.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-bookmarks.md",
+   "evidence": "Decompiled whole; `ret 0x10` (four stack arguments) at VA 0x43A65B. The stores match CHuman's recorded fields one for one. Wrong if 0x444040 did something but size the vector - not read here."
+  },
+  {
+   "rva": "0x285D80",
+   "kind": "function",
+   "name": "CGameState_AddHuman",
+   "signature": "void __stdcall CGameState_AddHuman(CGameState* state@stack:4, CHuman* human@EDI)",
+   "no_signature": null,
+   "comment": "Appends a copy of the player record in EDI to the game state's humans chain: a 0x5C-byte node made by CHuman_Copy (0x246D90) from EDI, previous (+0x50) the old tail, next (+0x54) 0, +0x58 0, hung off the tail (state +0x64) or the head (+0x60), the count (+0x68) raised; then controllers_changed (+0xC0) = 1. `ret 4`. Called by the quick starts. See reversing/findings/FINDINGS-bookmarks.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-bookmarks.md",
+   "evidence": "Decompiled and the call checked: VA 0x685DBE pushes the new node to 0x646D90 with EDI untouched since the caller's `lea edi,[esp+0x44]` (VA 0x6F483E); 0x646D90 reads [edi+0x1C], [edi+0x20], [edi+0x24], [edi+0x28] into the node. `ret 4`. The chain's layout agrees with ConsoleCmd_MoreHumans's record."
+  },
+  {
+   "rva": "0x246D90",
+   "kind": "function",
+   "name": "CHuman_Copy",
+   "signature": "CHuman* __stdcall CHuman_Copy(CHuman* this@stack:4, CHuman* source@EDI) @EAX",
+   "no_signature": null,
+   "comment": "CHuman's copy constructor: the name assigned from the source's, then id (+0x1C), country (+0x20/+0x24) and primary_local (+0x28) copied, the rest of the record after them (read only that far). The source in EDI, the new record on the stack, `ret 4`. Callers CGameState_AddHuman and ConsoleCmd_MoreHumans. See reversing/findings/FINDINGS-bookmarks.md.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-bookmarks.md",
+   "evidence": "Disassembled from VA 0x646D90 to 0x646DDF: `mov esi,[ebp+8]`, the string assign (0x401BD0) with EDI as the source, then [edi+0x1C], [edi+0x20], [edi+0x24], [edi+0x28] copied into the same offsets of ESI. Inferred because the body past +0x28 was not read; `ret 4` per retsBefore."
+  },
+  {
+   "rva": "0x1F4B60",
+   "kind": "function",
+   "name": "ExecuteHistory_ApplyScenarioCountry",
+   "signature": "void __stdcall ExecuteHistory_ApplyScenarioCountry(void* scenarioHistory, CCountryTag* tag, int* from, int* to)",
+   "no_signature": null,
+   "comment": "ExecuteHistory's step for a scenario's history of one country: finds the country history in the scenario's vector at +0x0 whose owner's tag id (+0xCA8) is the tag's, and replays it as ApplyRange does - forwards each entry dated in (from, to] with 1, head to tail; backwards each in (to, from] with 0, tail to head. None found, nothing. `ret 0x10`. Scenarios are out of OpenHOI3's scope. See reversing/findings/FINDINGS-bookmarks.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-bookmarks.md",
+   "evidence": "Decompiled whole; three `ret 0x10` exits. The walk is ApplyRange's (entry date at +8, slot 7 through +0x1C) inlined. Wrong if the vector at +0x0 were provinces - but the owner's +0xCA8 is CCountry's tag id."
+  },
+  {
+   "rva": "0x1FA7E0",
+   "kind": "function",
+   "name": "GetHistoryDatabase",
+   "signature": "void* __cdecl GetHistoryDatabase(void)",
+   "no_signature": null,
+   "comment": "The history registry's get-or-create: where [0x1A88BC0] (VA) is null, a 0x5C-byte registry made by HistoryDatabase_Construct and installed with HistoryDatabase_SetGlobal; answers [0x1A88BC0]. No arguments, bare `ret` - which is why the caller's preceding push stays on the stack as ExecuteHistoryToDate's second argument in LoadEverything. Named in HistoryDatabase_Construct's record, recorded nowhere until now. See reversing/findings/FINDINGS-bookmarks.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-bookmarks.md",
+   "evidence": "Decompiled whole; bare `ret` at VA 0x5FA83C, three int3 before 0x5FA840."
+  },
+  {
+   "rva": "0x1FA840",
+   "kind": "function",
+   "name": "HistoryDatabase_GetScenarioHistory",
+   "signature": "void* __fastcall HistoryDatabase_GetScenarioHistory(void* scenario@EDX, void* map@EDI) @EAX",
+   "no_signature": null,
+   "comment": "Find-or-insert in the registry's std::map (the object at registry +0x20, its head at +0x24) keyed by a scenario pointer read through EDX: where no node holds the key, one is made with two empty vectors; answers the node's value (+0x10), the scenario's history - a vector of country histories at +0x0 and one of province histories at +0x10, as ExecuteHistory reads it. Bare `ret`. Scenarios are out of OpenHOI3's scope. See reversing/findings/FINDINGS-bookmarks.md.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-bookmarks.md",
+   "evidence": "Decompiled; the tree walk on node +0xC against *EDX and the 0x31 sentinel byte are the MSVC std::map shape; the caller loads `lea edi,[ebx+0x20]` and `lea edx,[esp+0x18]` (the scenario) at VA 0x5F53AC-0x5F53AF; `lea eax,[esi+0x10]; ret` at VA 0x5FA933-0x5FA942. Inferred: the two inserted vectors' meaning rests on ExecuteHistory's use, and the insert helpers 0x1FB420 and 0x1FB030 were not read."
+  },
+  {
+   "rva": "0x1EF450",
+   "kind": "function",
+   "name": "CAddGlobalFlagChange::Apply",
+   "signature": "void __thiscall CAddGlobalFlagChange::Apply(CAddGlobalFlagChange* this, bool forward)",
+   "no_signature": null,
+   "comment": "Slot 7, one holder: **`set_global_flag = <name>` in a country's history sets a global flag** - forwards CFlags_SetFlag on the game state's global flags (through 0x286F40) with the name at +0x10, backwards CFlags_ClearFlag. The game state made where there is none. `ret 4`. Not used by Their Finest Hour's or BlackICE's history files. See reversing/findings/FINDINGS-bookmarks.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-bookmarks.md",
+   "evidence": "Decompiled whole; the two arms call CFlags_SetFlag and CFlags_ClearFlag on 0x686F40's answer with CString::GetCharPtr(this+0x10). vtable.py --holding 0x5EF450: CAddGlobalFlagChange slot 7 alone. That 0x286F40 answers the global flags is inferred from the CFlags it hands over - it was not read."
+  },
+  {
+   "rva": "0x1EFE60",
+   "kind": "function",
+   "name": "CHistoricalFriendChange::Apply",
+   "signature": "void __thiscall CHistoricalFriendChange::Apply(CHistoricalFriendChange* this, bool forward)",
+   "no_signature": null,
+   "comment": "Slot 7, one holder: `historical_friend = <TAG>` in a country's history. Backwards removes the tag (+0x10/+0x14) from the country's historical_friends list (+0x10A4); forwards calls 0x1EC940 with the country, the add (not read). `ret 4`. See reversing/findings/FINDINGS-bookmarks.md.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-bookmarks.md",
+   "evidence": "Decompiled whole; the backward arm's CList_CCountryTag_RemoveById on country +0x10A4 with the entry's tag is plain. Inferred because the forward helper 0x1EC940 was not read."
+  },
+  {
+   "rva": "0x1F17C0",
+   "kind": "function",
+   "name": "CCountryManpowerChange::Apply",
+   "signature": "void __thiscall CCountryManpowerChange::Apply(CCountryManpowerChange* this, bool forward)",
+   "no_signature": null,
+   "comment": "Slot 7, one holder: `manpower = N` in a country's history. Forwards: **+0x14 = the country's officers (+0xC4)** - not its manpower - then manpower (+0xBCC) = the entry's figure (+0x10), floored at 0. Backwards: manpower = +0x14, floored at 0 - **so undoing a manpower entry writes the officers figure into manpower**, a fault of the original that a lobby rewind (a later bookmark chosen, then an earlier one) can reach; harmless in practice, since SetUpCountryForNewGame overwrites manpower with max_manpower. `ret 4`. See reversing/findings/FINDINGS-bookmarks.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-bookmarks.md",
+   "evidence": "Decompiled whole: the forward arm copies `*(country + 0xC4)` into this+0x14 (FUN_00417990 is a four-byte copy) before writing +0xBCC. CCountry +0xC4 is recorded as `officers` and +0xBCC as `manpower`. Wrong if FUN_00417990 converted rather than copied - it was not read, but its other uses copy fixed-point figures."
+  },
+  {
+   "rva": "0x130DD38",
+   "kind": "global",
+   "name": "g_HistoryDate_YearMinus1",
+   "signature": null,
+   "no_signature": "data",
+   "comment": "VA 0x170DD38, a date: `-1.1.1`, set by a static initialiser (VA 0xCCD890) through Date_SetFromString. **The date the history is replayed from at startup and on a reset**: ExecuteHistoryToDate from here to g_HistoryDate_Year2 applies every undated history entry, which keeps the null date (year 0). See reversing/findings/FINDINGS-bookmarks.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-bookmarks.md",
+   "evidence": "The initialiser at VA 0xCCD890 pushes the string 0x15B4EA8 ('-1.1.1') and calls Date_SetFromString with ESI = 0x170DD38. Three references: that one, LoadEverything and ResetGameStateToStartDate."
+  },
+  {
+   "rva": "0x130DD3C",
+   "kind": "global",
+   "name": "g_HistoryDate_Year2",
+   "signature": null,
+   "no_signature": "data",
+   "comment": "VA 0x170DD3C, a date: `2.1.1`, set by a static initialiser (VA 0xCCD8B0) through Date_SetFromString. The end of the undated pass and the start of the dated one: startup and a reset replay `-1.1.1` to here, then here to start_date. See reversing/findings/FINDINGS-bookmarks.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-bookmarks.md",
+   "evidence": "The initialiser at VA 0xCCD8B0 pushes the string 0x15B4EB0 ('2.1.1') and calls Date_SetFromString with ESI = 0x170DD3C. Five references: that one, two in LoadEverything, two in ResetGameStateToStartDate."
+  }
+ ],
+ "structs": [],
+ "struct_fields": [],
+ "vftable_slots": {
+  "CResetGame": {"6": "Execute"},
+  "CSetHistoryDate": {"6": "Execute"},
+  "CBookmark": {
+   "4": {"name": "LoadKey", "signature": "void __thiscall LoadKey(CBookmark* this, CParseContext* parse, SaveToken key)"}
+  },
+  "CGameSetup@0xC": {
+   "12": {
+    "name": "RevertToStartDate",
+    "signature": "void __thiscall RevertToStartDate(CLobbyInterface* this, bool clearPlayers, int* date)"
+   }
+  },
+  "CAddGlobalFlagChange": {
+   "7": {"name": "Apply", "signature": "void __thiscall Apply(CAddGlobalFlagChange* this, bool forward)"}
+  },
+  "CHistoricalFriendChange": {
+   "7": {"name": "Apply", "signature": "void __thiscall Apply(CHistoricalFriendChange* this, bool forward)"}
+  },
+  "CCountryManpowerChange": {
+   "7": {"name": "Apply", "signature": "void __thiscall Apply(CCountryManpowerChange* this, bool forward)"}
+  }
+ },
+ "frontier": ["0x286F40", "0x1EC940", "0x1FB420", "0x1FB030", "0x1FAEE0", "0x44040", "0x2ECF60"]
+}

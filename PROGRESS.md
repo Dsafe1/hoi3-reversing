@@ -195,11 +195,11 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CGameLaunchInterface` | `CReferenceObject` |  |  |  |  |  |  | RTTI |  |
 | `CGameList` | `CGameHandlerInterface` `VCStandardlistboxItem::__CChoiceObserver` |  |  |  |  |  |  | RTTI |  |
 | `CGamePlaySettings` | `CPersistent` |  | 2 |  | 2 |  | 1 | keys |  |
-| `CGameSetup` | `CFrontEndView` `CSessionInfoObserver` `CLobbyInterface` `CLargefileHandlerInterface` `CReloadableInterface` |  | 24 |  | 34 |  |  | read |  |
-| `CGameState` | `CPersistent` |  | 74 | 14/33 | 15 |  |  | read |  |
+| `CGameSetup` | `CFrontEndView` `CSessionInfoObserver` `CLobbyInterface` `CLargefileHandlerInterface` `CReloadableInterface` |  | 24 |  | 35 |  |  | read |  |
+| `CGameState` | `CPersistent` |  | 74 | 14/33 | 16 |  |  | read |  |
 | `CGoodsPool` | `CPersistent` |  | 8 | 7/7 | 6 | CGoodsPool.hpp | 132,054 | read |  |
 | `CGraphStatistics` | `CPersistent` |  |  |  | 2 |  | 3 | keys |  |
-| `CGraphics` | `CFactory` `CPersistent` |  | 29 |  | 4 |  |  | read |  |
+| `CGraphics` | `CFactory` `CPersistent` |  | 30 |  | 4 |  |  | read |  |
 | `CGroundAttackOrder` | `CAirOrder` |  |  |  | 6 |  | 6 | RTTI |  |
 | `CGroundBombing` | `CBombing` |  |  | 4/6 | 3 |  |  | RTTI |  |
 | `CGroundTargetCombatant` | `CBombTargetCombatant` |  |  | 4/6 | 1 |  | 1 | RTTI |  |
@@ -277,7 +277,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CReopenLobby` | `CCommand` |  |  |  | 1 |  | 1 | RTTI |  |
 | `CRequestLendLeaseAction` | `CDiplomaticAction` |  |  | 5/6 | 7 |  | 1,753 | RTTI |  |
 | `CReserveOrder` | `CNavalOrder` |  |  |  | 5 |  |  | RTTI |  |
-| `CResetGame` | `CCommand` |  |  |  | 1 |  | 1 | keys |  |
+| `CResetGame` | `CCommand` |  |  |  | 2 |  | 1 | keys |  |
 | `CSelectBookmark` | `CCommand` |  |  |  | 2 |  | 1 | keys |  |
 | `CSelectScenario` | `CCommand` |  |  |  | 1 |  | 1 | keys |  |
 | `CSelectionGroupWriter` | `CPersistent` |  |  |  | 1 |  |  | RTTI |  |
@@ -541,7 +541,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CHoiAvatar` | `CSmallAvatarBase` | 0x154 | 8 |  | 4 |  | 8,642 | read |  |
 | `CHumanItem` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
 | `CICCostComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
-| `CIcon` | `CButton` |  |  |  | 4 |  |  | RTTI |  |
+| `CIcon` | `CButton` |  |  |  | 5 |  |  | RTTI |  |
 | `CIdler` |  |  |  |  |  |  |  | RTTI |  |
 | `CInGameIdler` | `CEU3Idler` `CLostDeviceInterface` `CReloadDispatcher` |  | 135 |  | 120 | CInGameIdler.hpp | 3 | read |  |
 | `CIngameSettingsScreen` | `CSettingsScreen` | 0x3E0 | 1 |  | 2 |  | 1 | part |  |
@@ -769,7 +769,7 @@ One class per effect, trigger, command and decision the event scripts can use. E
 | `CAddCountryModifierEffect` | `CAddModifierEffect` |  |  | 1/2 | 3 |  | 4,420 | placed |  |
 | `CAddDefenderChange` | `CWarHistoryEntry` |  |  |  | 1 |  | 54 | RTTI |  |
 | `CAddDivisionEffect` | `CEffect` |  |  |  | 3 |  |  | keys |  |
-| `CAddGlobalFlagChange` | `CCountryHistoryEntry` |  |  |  |  |  |  | RTTI |  |
+| `CAddGlobalFlagChange` | `CCountryHistoryEntry` |  |  |  | 1 |  |  | RTTI |  |
 | `CAddModifierEffect` | `CEffect` |  | 2 |  |  |  |  | part |  |
 | `CAddProvinceModifierEffect` | `CAddModifierEffect` |  |  | 1/2 | 2 |  | 57 | RTTI |  |
 | `CAddSubUnitEffect` | `CIntEffect` | 0x2C | 2 | 3/91 | 5 |  | 555 | part |  |
@@ -892,7 +892,7 @@ One class per effect, trigger, command and decision the event scripts can use. E
 | `CCountryCapitalChange` | `CCountryHistoryEntry` |  |  |  | 1 |  | 2 | RTTI |  |
 | `CCountryDecisionChange` | `CCountryHistoryEntry` | 0x2C | 1 |  | 2 |  | 15,755 | part |  |
 | `CCountryEventEffect` | `CIntEffect` |  |  | 3/91 | 2 |  | 4,636 | RTTI |  |
-| `CCountryManpowerChange` | `CCountryHistoryEntry` |  |  |  |  |  |  | RTTI |  |
+| `CCountryManpowerChange` | `CCountryHistoryEntry` |  |  |  | 1 |  |  | RTTI |  |
 | `CCountryRemoveDecisionChange` | `CCountryHistoryEntry` | 0x2C | 1 |  | 2 |  |  | part |  |
 | `CCountryTargetEffect` | `CEffect` |  | 1 |  |  |  |  | part |  |
 | `CCountryUnitsInProvinceTrigger` | `CTagTrigger` |  |  | 2/153 | 2 |  | 52 | RTTI |  |
@@ -967,7 +967,7 @@ One class per effect, trigger, command and decision the event scripts can use. E
 | `CHasRemovableMinisterTrigger` | `CBoolTrigger` | 0x44 |  | 2/153 | 2 |  | 2 | RTTI |  |
 | `CHasStrategicResourceTrigger` | `CBoolTrigger` | 0x44 |  | 2/153 | 2 |  | 23 | RTTI |  |
 | `CHasWarGoalTrigger` | `CTrigger` | 0x48 | 1 | 2/153 | 2 |  | 16 | part |  |
-| `CHistoricalFriendChange` | `CCountryHistoryEntry` |  |  |  |  |  | 1 | RTTI |  |
+| `CHistoricalFriendChange` | `CCountryHistoryEntry` |  |  |  | 1 |  | 1 | RTTI |  |
 | `CHourlyTickCommand` | `CCommand` |  | 3 |  | 7 |  | 1 | keys |  |
 | `CIdeologyChange` | `CCountryHistoryEntry` | 0x18 | 2 |  | 2 |  | 38 | part |  |
 | `CIdeologyGroupTrigger` | `CTrigger` | 0x44 | 1 | 2/153 | 3 |  | 55 | part |  |

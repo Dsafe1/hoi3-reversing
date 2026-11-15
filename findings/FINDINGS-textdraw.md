@@ -357,6 +357,49 @@ too**. `\n` and `\r` add a line and zero both counts. Where the lines counted ar
 at a full line only where i > 3, else `"..."` (from `0x15B5C6C`, the construction not read). **The cut runs before the
 breaking.**
 
+### 2.5 The TrueType font's slot 6, `0xB1B9C0` (rva `0x71B9C0`): a `font = { }` entry's text box (read 2026-11-15, the `tagskin` agent)
+
+**A text box or an edit box whose font is a `font = { }` entry is not drawn by section 2.2.** `CTextSprite::RenderText`
+calls slot 6 of whatever font the box names (`0xAB58FF`, `call [edx+0x18]`), and the font a `font = { }` block makes
+(`TrueTypeFont_Construct`, table VA `0x1606118`, no RTTI) has its own slot 6, `TrueTypeFont_DrawTextToTexture`, with the
+same twelve arguments - RenderText pushes, last to first, `!fixedsize`, `1`, `fixedsize`, the format, `&border`, the
+height, the width, the background, the text and the three outputs (`0xAB58BB`..`0xAB58FF`). `ret 0x30`. The base game's
+`font = { }` entries are `FPS_Font` (Arial 14), `Loading_Font`, `list`, `Micro` and `Micro_white`; `FPS_Font` is the
+console's `console_edit`, `ChatMemberText`, `FPS_Counter` and four boxes of `metaserver.gui`.
+
+It draws with Direct3D's `ID3DXFont::DrawTextA` (the font's `+0x30`, slot 14) into a texture of its own:
+
+- **The flags** start at nought (`0xB1B9EE`). Width and height both given: `DT_WORDBREAK | DT_NOCLIP` (`0x110`) and `fit`
+  forced on (`0xB1BA05`/`0xB1BA09`). A width of nought becomes `border.x + 1`; a height of nought `border.y + 1`, flags
+  `0x110`. `fit` given: `0x110`. **`notFixedSize` false - a `fixedsize` box: `0x115`**, adding `DT_CENTER | DT_VCENTER`
+  (`0xB1BA36`). Then the format: 0 clears the two low bits (left), 1 sets `DT_RIGHT`, 2 `DT_CENTER` (`0xB1BA3E`..`0xB1BA6B`).
+- With `DT_WORDBREAK` and a byte set (cleared only where the width was nought), the text is first laid out by
+  `CTextLayout` at `width - 3 * border.x` (*inferred* from the decompile, `0xB1BADF`).
+- **The rectangle** (`0xB1BBC0`..`0xB1BBF8`): left `border.x`, top `border.y`, right `width - border.x`, bottom
+  `height - border.y`. With text, a `DT_CALCRECT` pass (flags `| 0x400`) on a copy (`0xB1BC57`).
+  - not `fit`: the shown size (the third argument) is the measured right `+ 2 * border.x` by the measured bottom
+    `+ 2 * border.y`, and the rectangle the measured one widened to it;
+  - `fit`: the shown size is `width - border.x` by `height - border.y` - or `border.y` + the measured bottom where that
+    is more, and a measured top above the border moves it down - and the rectangle's right and bottom that less the
+    border again (`0xB1BC75`..`0xB1BCEB`).
+- The texture is the shown size rounded up to powers of two, its width times `passes` (the eleventh argument,
+  RenderText's 1) where `notFixedSize`. A background is drawn first, by `0xB1D5C0` (with the shown size and the border)
+  where `notFixedSize` and `0xB1CA50` otherwise - neither read. Then `DrawTextA(font, no sprite, text, length,
+  &rectangle, flags, colour +0x70)`, `passes` times, the rectangle moved the width right each time (`0xB1BEDF` without a
+  background, `0xB1C39F` with one).
+
+**So the line's cell stands at the rectangle's top, the border down, set left by the format, and is centred up and down
+only in a `fixedsize` box** - and an edit box passes `fixedsize` 0 (`EditBox_RefreshText`, `0xA90140`, section 2.2.2).
+With its display object put the border in from the box's corner (`GuiObject_editBoxType::PlaceAt`), **an edit box's line
+in such a font has its cell's upper left corner the border twice in each way** - `console_edit`, 500 by 40 with a border
+of 10, at 20 and 20, where section 2.2.1's arithmetic for a bitmap font would centre it at `10 + (40 - 14) / 2`. The
+glyphs are Direct3D's, with no half pixel of the game's own added (section 2's `+ 0.5` is the bitmap font's). The cell is
+the entry's `height` (Direct3D takes a positive height as the cell's, as `TrueTypeFont_CreateDeviceFont` hands it).
+`likely` - the arithmetic is read off the listing; whether `ID3DXFont` honours `DT_VCENTER` without `DT_SINGLELINE` is
+Direct3D's and not this executable's, and no screenshot of the original's console was set beside it.
+
+Hardcoded: all of it; mod-able: which font a box names, and a `font = { }` entry's typeface, height and colour.
+
 ## 3. What that comes to on screen
 
 `measured`, on the maintainer's screenshot of the running game. In the panel for one
@@ -439,3 +482,5 @@ table the other fonts fall back to was not read.
   RenderText taken where the template counts more than one frame.
 - Whether an instant box cuts again when its text is set after it was made: no `CGuiText` virtual reads `+0x1B8`.
 - Who writes slot 19's byte (the escape switch), slot 6's last two arguments, and what `¤` draws.
+- The two background routines of the TrueType font's slot 6 (`0xB1D5C0`, `0xB1CA50`), and where the original's
+  console line stands on screen - no screenshot (section 2.5).

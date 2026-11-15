@@ -125,6 +125,63 @@ So either `gap` is not the box's `spacing` or the reading of where each entry go
 the `(gap - 1) * entries` in the total is at least a sign that the gap is not simply added.
 Not followed up in the bytes. OpenHOI3 lays that list out touching, from the screenshot.
 
+## 4. What is cut at the box's edge, across: nothing (read 2026-11-15, the `rowclip` agent; the base constructor's `mov word [esi+0xF0], 0x100` at `0xA6018D` checked off the listing by the collecting session)
+
+*Read for the rewrite's technology panel: its `effects` list is 310 wide, each `detail_entry` row is resized to
+180, and the row's `instantTextBoxType` lays its text out to 330 less one `O` (`FINDINGS-countryviews.md`,
+section 5.5) - so a line can be wider than the row and than the list. The question was what of it the original
+shows.*
+
+**Nothing clips a list box's rows, or any interface object, to the box or to its window.** Section 2 already had
+it that a row with no place is hidden whole; this is the other direction. Three readings, each with its scan:
+
+1. **The draw list's scissor is never in force.** `CGraphics_DrawObjectList` (`0xA73390`) turns on
+   SCISSORTESTENABLE (render state `0xAE`) and calls the device's `SetScissorRect` (slot 75) with the graphics'
+   `+0x6BCE0` around an object whose byte `+0xF0` is set. Neither half is ever live:
+   - **The rectangle is all nought.** `findRefs --address` over every dword from `+0x6BCD8` to `+0x6BCF4`: the
+     four dwords `+0x6BCE0..+0x6BCEC` are reached only by the CGraphics constructor, which zeroes them
+     (`0xA6F1BB`..`0xA6F1CD`), and by the draw's push (`0xA7357E`). (`0xA70FAC` adds `0x6BCEC` to `CGraphics+4`,
+     which is the `objectTypes` hash table at `+0x6BCF0`, as the record already says; three further "hits" on
+     `+0x6BCE8` are call targets whose bytes happen to match.) Its neighbours are the present parameters handed
+     to `Reset` (`+0x6BCA4`, device slot 16), a byte at `+0x6BCDC` and that hash table - nothing that would write
+     it through a structure pointer. A rectangle `{0, 0, 0, 0}` passes no pixel, so **a flagged object would draw
+     nothing at all** - not a clip to a list.
+   - **No store sets the flag.** Every instruction in `.text` whose destination is memory at a register plus
+     `0xF0`, of any width: 165 sites; 8 are byte stores through a base other than `esp`/`ebp`. Four are in
+     `ClientCommandChannel`, one in `CAIStrategy`'s constructor, one (`0xB0E065`) in a `.gfx` sub-block loader
+     whose object carries CColors at `+0x90` and `+0xAC` and is no draw object, and **two copy the byte from a
+     display object onto its replacement** - `CIcon::SetSpriteType` (`0xAA29B0`) and `GuiButton_SetSpriteType`
+     (`0xB40710`), each when the sprite is changed by name. **Positive control**: the same scan finds the draw
+     objects' base constructor (`0xA600E0`, called by the 2D object's constructor `0xAB2770`, hence by `CSprite`
+     and `CGuiText`), whose `mov word [esi+0xF0], 0x100` at `0xA6018D` makes the flag 0 (and `+0xF1` 1). So
+     every draw object starts at 0 and only ever inherits another's 0. `inferred` as a whole only because a store
+     through a computed pointer (no displacement `0xF0`) cannot be ruled out by a scan; every direct one is
+     accounted for.
+2. **An `instantTextBoxType` draws its text whole, then and there.** `CGuiText` (`0x1D4` bytes, vftable
+   `0x1606C70`) is itself a draw object - its constructor calls `0xAB2770` - and its slot 10 is `CGuiText::Draw`
+   (`0xB326C0`), so `CGraphics_DrawObjectList` reaches it as it reaches a sprite. It calls the font's slot 8,
+   `CEU3BitmapFont::DrawText`, whose glyph loop (`0xAFD0ED`..) writes every glyph with a height into the shared
+   batch at `0x1B1A118` with **no test of its corners against the box, maxWidth, maxHeight or the area**, and
+   draws the batch with the device's `DrawPrimitiveUP` (slot 83, a triangle list) - 194 glyphs at a time and the
+   rest before it returns. So a line laid out wider than its box is drawn to its last glyph, past the box, the row,
+   the list and the window alike. The only branches on a glyph are its height (none: advance only), the escape
+   characters and the batch count.
+3. **The list box neither crops nor redirects.** `GuiListBox::Layout` hides or shows whole rows (section 2);
+   `CGraphics_CollectObjects` puts every visible object and its children on the draw list with only a
+   translation, no bounds; and no call of a display object's crop slots (56, 57 - `CSprite +0x178`,
+   `CTextSprite +0x17A..`) was found in the list box's or the window's code (`slotcalls.py 56` and `57`, filtered
+   to `0xA7E000`..`0xA92000`: one hit, `0xA90F4E`, which is a field read of `+0xE0` and no call). No render target is made for a list.
+
+**The one cut there is** is the picture a `textBoxType` is drawn into (`FINDINGS-textdraw.md`, section 2.2.1),
+which shows only its `maxWidth` less its border across; and a `fixedsize` box is cut to `" ..."` before it is
+laid out (section 2.4). Both are the box's own, not its list's. An `instantTextBoxType` has neither.
+
+**What that gives the technology panel**: the `detail_entry` rows are instant text boxes, so a line up to 330
+less an `O` wide - about 321 in Arial12 - stands whole in a list 310 wide, up to about 11 units past the list's
+right edge, over whatever is drawn there; on the 1120-wide `tech_details` window the list ends at 990, so the
+line stays inside the window. Where the list's scrollbar is shown, a long line runs under or over it by the
+draw order, which was not read (the scrollbar's place is section *Not established*).
+
 ## Not established
 
 - **Which list `CInGameIdler::Enter`'s call of `UseEntryHeights` is for.** It is made as the
@@ -148,6 +205,12 @@ Not followed up in the bytes. OpenHOI3 lays that list out touching, from the scr
 | `0x279320` | `GuiListBox::UseEntryHeights` | new | inferred | sets the mode; two callers |
 | `0x68C0E0` | `GuiListBoxBase_Construct` | new | inferred | clears the mode |
 | `0x72BDC0` | `GuiType_listboxType_Create` | new | inferred | the declaration's factory |
+| `0x673390` | `CGraphics_DrawObjectList` | revised | confirmed | comment: the scissor is never live, with the scans (section 4, 2026-11-15) |
+| `0x7326C0` | `CGuiText::Draw` | revised | confirmed | a signature (slot 10 of CGuiText) where it had none; draws whole |
+| `0x6FC070` | `CEU3BitmapFont::DrawText` | revised | confirmed | comment: no glyph is tested against any rectangle |
+| `0x6600E0` | `DrawObjectBase_Construct` | new | inferred | the draw objects' base constructor; +0xF0 = 0 |
+| `0x6A29B0` | `CIcon::SetSpriteType` | new | inferred | copies the scissored byte onto the new sprite; CEU3Minimap slot 57 |
+| `0x740710` | `GuiButton_SetSpriteType` | new | inferred | the same for a button's display object |
 
 | struct | offset | name | type | new or revised |
 | --- | --- | --- | --- | --- |
@@ -160,3 +223,5 @@ Not followed up in the bytes. OpenHOI3 lays that list out touching, from the scr
 | `GuiListBox` | `0x13E` | `uses_entry_heights` | `bool` | new |
 | `GuiListBox` | `0x144` | `entry_count` | `int` | new |
 | `GuiListBox` | `0x148` | `rows` | `int` | new |
+| `CSprite` | `0xF0` | `scissored` | `uint8_t` | revised (comment: nobody sets it; the rectangle is empty) |
+| `CGraphics` | `0x6BCE0` | `scissor_rect` | `int[4]` | new |

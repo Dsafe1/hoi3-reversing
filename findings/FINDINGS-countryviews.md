@@ -507,14 +507,18 @@ level local pushed into the call at `0x81E83C`, and `0x81ECA4 cmp [esp+0x110],2`
   panel. `CProductionView`'s slot 3 sets its own `+0xCC` the same way.
 - **Whether `+0xB8` is a `CCountryView` byte**; `CDiplomacyView` uses the offset as a rebuild flag.
 - **Whether emptying the list resets its scroll.**
-- **Clipping.** The wrap allows lines up to 330 less one `O`, the list box is 310 wide and each row
+- ~~**Clipping.** The wrap allows lines up to 330 less one `O`, the list box is 310 wide and each row
   is resized to 180; how a row wider than its list or its window is clipped was not read. The draw list's scissor
   (`CGraphics_DrawObjectList`, an object's byte `+0xF0`, the graphics' rectangle `+0x6BCE0`): `findRefs --address
   0x6BCE0` gives two references, the graphics' constructor zeroing all four of `+0x6BCE0..+0x6BCEC`
   (`0xA6F1BB`..`0xA6F1CD`) and the draw pushing its address for the device's `SetScissorRect` (slot 75, `0xA7357C`).
   With the rectangle never written elsewhere a scissored object would draw nothing, so nothing seems to set the flag in
   practice - `inferred` (2026-11-14); a write through a computed pointer was not excluded, and a byte scan for `mov byte
-  [reg+0xF0], ...` gives 132 sites that were not sorted.
+  [reg+0xF0], ...` gives 132 sites that were not sorted.~~ **Nothing clips
+  it** (read 2026-11-15, `FINDINGS-listbox.md` section 4): the scissor's rectangle is only ever zeroed and its
+  flag is set by no store - the 132 byte stores at `+0xF0` are 124 to the stack and 8 to other objects or copies
+  of a display object's own nought - and an `instantTextBoxType`'s glyphs are drawn with no test against any
+  rectangle. A row's line stands whole, up to about 11 units past the 310-wide list.
 - **Which button event of a tree entry or queue line reaches its handler**; the tree entry's second
   handler (`0x818170`) was not read.
 - **The six CCgm commands' `Execute` bodies** beyond their call to slot 102.
