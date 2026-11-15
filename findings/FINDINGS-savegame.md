@@ -230,6 +230,19 @@ whose thirteen tests of `loaded_from_save` are [exe] unless marked:
 **So a loaded game's first hour is simply the hour after `date`.** Nothing runs in place of the two days but the
 re-derivations above and one AI pass.
 
+**`home_produced` (`CCountry +0x778`) is written by nothing in Enter**, for a new game or a loaded one (2026-11-15,
+`homeproduction`; nothing read anew). Its writers are `CCountry::CollectDailyProduction`, which zeroes it and adds the
+day's resources, gated in RunCountryDailyPass on `owned_province_count` > 0 or government_in_exile;
+`CDistributeConsumerGoods::Distribute`, which adds GetMoneyIncome where `available` is not nought; and
+`CDistributeSupply::Distribute`, which adds GetSuppliesMade. Enter's per-country distributions pass `available` 0
+(`FINDINGS-laterstart.md` section 10), so they add nothing. So a new game's first screen and its start save hold the
+second day's pool, and a loaded game keeps the saved `home`. A country with neither land nor exile never has the pool
+cleared while its shares still run, so its money and supplies gather from day to day - two days' worth in a start save.
+*Inferred* from the record's writers, and *measured*: OpenHOI3's second day gives every country's `home` supplies and money
+in `Germany1936_01_01_00` to the thousandth, the 22 countries that do not exist and their two days of money among them,
+and every country's but one in each of the three later start saves (`Ireland1939_09_01_00`, `Ireland1941_06_22_00`,
+`Ireland1941_12_11_00`).
+
 ### A.5.1 Every battle's modifiers on entering, and what they draw
 
 *Read 2026-11-14 for OpenHOI3's reload check (the `loadgaps` agent), statically; the walk checked off the listing by the
