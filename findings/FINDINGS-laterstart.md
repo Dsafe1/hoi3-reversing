@@ -488,3 +488,31 @@ Hour's files lend 20 units by 1941.6.22 and 69 by 1941.12.11, each start save's 
 the payer at a friend's depot (`FINDINGS-supplypass.md` section 4). *Measured* at 1941.12.11, what each paid for its units
 drawing on friends' depots: Canada 11.872 against the save's 11.886, Hungary 12.103 against 11.588, Romania 39.799 against
 38.748 - all nothing or less before.
+
+## 18. What the first screen shows of the units' demand and the reinforcement and upgrade needs
+
+*Read 2026-11-15 by `unitdemand`; fragment `later-start-unit-demand.json`. The carriage loop checked off the listing by the
+collecting session.* A sweep of `.text` for every operand with displacement 0xA40..0xA5C, 0xA98 or 0xAA4 finds all the
+writers.
+
+**`unit_demand` (+0xA40):** `CCountry::CCountry` and `CCountry_Reset` set it to nought from the zero global 0x1A87818;
+`CCountry::ClearDailyPools` zeroes it at the head of the day; `CUnit::ConsumeSuppliesAndFuel` adds each unit's ask at six
+sites, the waiting units' included; and **the carriage**, at VA 0x4DB311..0x4DB3FA in RunCountryDailyPass straight after the
+waiting units draw, walks the country's `ControlledProvinces` (+0xD00) and, for each province whose `units_count` (+0x2C0)
+is above nought - or else whose naval base's `level_max` (+0x300 then +0x20) is above nought and today's throughput of
+supplies (+0x1F8 then +0x8) is nought - adds `supply_depot_hops` (+0x50) x 1000 x SupplyLoss(province) / 1000 to
+`unit_demand.supplies` (+0xA48): hops times loss. Fuel is left alone. **Nothing in Enter writes it, and no save keeps it**,
+so a new game's first screen shows the second day's and a loaded game's nought until the first midnight;
+`CDistributeSupply::GetNeeded` reads +0xA48.
+
+**`reinforcement_cost` (+0xA98) and `upgrade_cost` (+0xAA4)** are written in play only by their shares' Distribute, each
+zeroing the figure and adding every brigade's day of cost whether or not anything is spent (VA 0x51BBF6 and 0x51C5FC;
+0x51CF4C and 0x51D4E1); the constructor and Reset set them to nought. Enter's run with nothing to spend (section 10) counts
+them - the record's "reinforcement does nothing" there means it moves nothing - but for a new game the block at VA 0x65C7F0
+comes after it, and its days count them again. So a new game's first screen shows the second day's needs, and a loaded
+game's that run's; neither is saved.
+
+*Measured* with OpenHOI3's second day, against no save, none keeping them: at 1936 the supply need is Germany 12.288,
+Britain 20.871 and Ireland 0.148, and at 1941.12.11 Germany's 129.496, its divisions deep in the Soviet Union adding many
+hops each. With the carriage built, the 1936 new game's written `distribution` is the start save's for seven more countries
+(67 misses where there were 74), the AI's shares reading the supply need.

@@ -327,6 +327,21 @@ So a cut-off area's resources are in its loading port's pool by the end of each 
 what `CLASSES.md` saw from outside ("in 53 of the 58 resource ports the stock is exactly one
 day's load"). An area with no port keeps them province by province.
 
+**`CMapProvince::ResourceYield` (`0x4A6EB0`), read whole 2026-11-15** (`homeyield`; the instructions checked by the collecting
+session). `out = current_producing[g]`, nothing more where it is 0. For metal, rare materials and energy alone, `out = out x
+(1000 + the controller's technology_status +0xAC / +0xB0 / +0xB4) / 1000`, 64-bit and truncated. Then for every good
+`f = 1000 + province.modifier[T1[g]] + controller.modifier[T2[g]] + province.modifier[85 LOCAL_RESOURCES] +
+controller.modifier[84 GLOBAL_RESOURCES]`, set to 0 where below it (`jns`), and `out = out x f / 1000`, truncated. T1
+(`0x1713F40`) is LOCAL_SUPPLIES, LOCAL_FUEL, LOCAL_MONEY, LOCAL_CRUDE_OIL, LOCAL_METAL, LOCAL_ENERGY, LOCAL_RARE_MATERIALS;
+T2 (`0x1713F5C`) is GLOBAL_SUPPLIES, **GLOBAL_MONEY, GLOBAL_FUEL**, GLOBAL_CRUDE_OIL, GLOBAL_METAL, GLOBAL_ENERGY,
+GLOBAL_RARE_MATERIALS - fuel's and money's country modifiers swapped, which nothing shows, no province yielding either.
+**So the four modifiers add and scale the yield once, after the technology**: an occupied province at `non_core`'s -0.5
+under laws worth +10% yields 0.6 of itself, not 0.55, and one with `non_core`'s -0.5 and a collaboration government's -0.75
+yields nothing whatever the laws. *Measured* in OpenHOI3 on 2026-11-15: with this rule every country's home production of the
+four resources is the save's in the 1936, 1939.9.1, 1941.6.22 and 1941.12.11 start saves - Germany's metal 332.084 at
+1941.6.22 and 382.316 at 1941.12.11, China's 44.990 at 1939.9.1, where multiplying the factors gave 312.093, 353.181 and
+41.399. The 1936 start cannot tell the two rules apart: no province joined to a capital there has a modifier of its own.
+
 **`CCountry::MaintainResourceConvoys` (`0x4FE7E0`)** - one stack argument; the same two early
 outs as section 2. For every area of the country that is not the capital's and has a port: with
 `P` the area's **first port**, where `P.pool` holds any crude oil, metal, energy or rare

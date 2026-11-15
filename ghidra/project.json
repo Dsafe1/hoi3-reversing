@@ -28741,7 +28741,7 @@
    "name": "CMapProvince::ResourceYield",
    "signature": "int* __fastcall CMapProvince::ResourceYield(CMapProvince* province@ESI, int* out@stack:4, int goods@stack:8)",
    "no_signature": null,
-   "comment": "What a province yields of one good in a day: current_producing[goods], times 1 + the controller's technology for metal (+0xAC), rare materials (+0xB0) or energy (+0xB4), times 1 + a province modifier and a country modifier chosen by the good from two tables (0x1713F40, 0x1713F5C) + the province's modifier 85 + the country's modifier 84, that sum not below nothing. See reversing/findings/FINDINGS-supplyconvoys.md, section 8.",
+   "comment": "What a province yields of one good in a day. Read whole 2026-11-15. `out` = current_producing[goods] (+0x270 + goods*4); nothing more where that is 0. For metal (4), rare materials (6) and energy (5) only: out = out * (1000 + the controller's technology_status +0xAC / +0xB0 / +0xB4) / 1000, 64-bit, truncated (0xB99980). Then for every good: f = 1000 + province modifier[T1[goods]] + controller modifier[T2[goods]] + province modifier 85 (MODIFIER_LOCAL_RESOURCES) + controller modifier 84 (MODIFIER_GLOBAL_RESOURCES), f = 0 where negative (jns), out = out * f / 1000, truncated. The controller is the province's controller tag (+0x334) through CCountryTag::GetCountry, its modifier values at +0xDA8; the province's at +0x114. T1 (0x1713F40, by goods 0..6) = 26 LOCAL_SUPPLIES, 28 LOCAL_FUEL, 30 LOCAL_MONEY, 18 LOCAL_CRUDE_OIL, 22 LOCAL_METAL, 20 LOCAL_ENERGY, 24 LOCAL_RARE_MATERIALS; T2 (0x1713F5C) = 27 GLOBAL_SUPPLIES, **31 GLOBAL_MONEY for fuel and 29 GLOBAL_FUEL for money** - the two swapped against T1 - 19, 23, 21, 25. So the four modifiers **add** and scale the yield once, after the technology; an occupied province at non_core's -0.5 under +10% laws yields 0.6 of itself, not 0.55. Measured: with this rule OpenHOI3's home production of every resource is the save's for every country in the 1936, 1939.9.1, 1941.6.22 and 1941.12.11 start saves - Germany's metal 332.084 at 1941.6.22, where multiplying gave 312.093. Callers: CCountry::CollectDailyProduction, ProvinceView_ResourceText. See reversing/findings/FINDINGS-supplyconvoys.md, section 8.",
    "confidence": "confirmed",
    "source": "reversing/findings/FINDINGS-supplyconvoys.md"
   },
@@ -77370,8 +77370,8 @@
    "kind": "instruction",
    "name": "CInGameIdler_Enter_RunDistributions",
    "signature": null,
-   "no_signature": null,
-   "comment": "**Entering a game runs every country's ten shares with nothing to share out.** In CInGameIdler::Enter's per-country pass after the information caches (VA 0x65C170 on; FINDINGS-savegame.md A.5's \"the 6+4 distributions\"), for each country of the list, after 0x4E21E0, 0x4E39C0 and 0x4DDD80: the loop at VA 0x65C1B0..0x65C1E5 calls **slot 0 of each of the six IC shares** (CCountry +0x5F4, `cmp edi, 0x18`) with (&out, an __int64 available of **0**, flag **1**), and the loop at VA 0x65C1E9..0x65C21E the same on the four leadership shares (+0x5E4, `cmp edi, 0x10`); then, where +0x640 is above 0, slot 4 of the fourth leadership share (CDistributeResearch::ShareAmongProjects) at VA 0x65C237; then, for a country owning a province (+0xCF8) that is not REB and whose strategy is neither initialized (+0x48C+0x14) nor static (+0x15), CAIStrategy::Rebuild at VA 0x65C282. Nothing tests loaded_from_save here, so a loaded game runs it too. What the shares do with nothing: **the upgrade share moves every doctrine a brigade is behind in a level** (CDistributeUpgrade::Distribute reads no flag and a doctrine costs nothing); reinforcement does nothing (it acts only while its budget is above 0); production reads the flag and skips the AddProgress(0) a line would get with an empty pool (0x51A213). Of the ten bodies only CDistributeConsumerGoods (0x518DE8) and CDistributeProduction read the flag; what consumer goods does with it, and what espionage and research do with nothing, was not followed. See reversing/findings/FINDINGS-laterstart.md, section 10.",
+   "no_signature": "an instruction inside CInGameIdler::Enter",
+   "comment": "**Entering a game runs every country's ten shares with nothing to share out.** In CInGameIdler::Enter's per-country pass after the information caches (VA 0x65C170 on; FINDINGS-savegame.md A.5's \"the 6+4 distributions\"), for each country of the list, after 0x4E21E0, 0x4E39C0 and 0x4DDD80: the loop at VA 0x65C1B0..0x65C1E5 calls **slot 0 of each of the six IC shares** (CCountry +0x5F4, `cmp edi, 0x18`) with (&out, an __int64 available of **0**, flag **1**), and the loop at VA 0x65C1E9..0x65C21E the same on the four leadership shares (+0x5E4, `cmp edi, 0x10`); then, where +0x640 is above 0, slot 4 of the fourth leadership share (CDistributeResearch::ShareAmongProjects) at VA 0x65C237; then, for a country owning a province (+0xCF8) that is not REB and whose strategy is neither initialized (+0x48C+0x14) nor static (+0x15), CAIStrategy::Rebuild at VA 0x65C282. Nothing tests loaded_from_save here, so a loaded game runs it too. What the shares do with nothing: **the upgrade share moves every doctrine a brigade is behind in a level** (CDistributeUpgrade::Distribute reads no flag and a doctrine costs nothing); reinforcement moves nothing (it acts only while its budget is above 0); production reads the flag and skips the AddProgress(0) a line would get with an empty pool (0x51A213). **But reinforcement and upgrade both zero and count again their needs** - reinforcement_cost (+0xA98), reinforcement_manpower_needed (+0xA9C), reinforcement_manpower_used (+0xAA0, left at 0) and upgrade_cost (+0xAA4) - which they do whether or not anything is spent. In a new game the block at VA 0x65C7F0 (the two days) comes after this, and each day's shares count them again, so **a new game's first screen shows the second day's needs** and a loaded game's this run's; neither is saved. unit_demand is written by no share and by nothing in Enter (RunCountryDailyPass_CarriageDemand). Of the ten bodies only CDistributeConsumerGoods (0x518DE8) and CDistributeProduction read the flag; what consumer goods does with it, and what espionage and research do with nothing, was not followed. See reversing/findings/FINDINGS-laterstart.md, sections 10 and 18.",
    "confidence": "confirmed",
    "source": "reversing/findings/FINDINGS-laterstart.md"
   },
@@ -77414,6 +77414,16 @@
    "comment": "Whether a unit's order (CUnit +0xB0) is one a halt should cancel: false for a support attack (slot 16 = 0x4E5) and carrier protection (0x56C), else the order's slot 24 (under way). Read whole, 0x89AEC0 to the bare `ret` at 0x89AEFD. Asked by CEU3AI::MoveUnit at 0x89A92B when a unit is sent to the province it stands in with +0x2CC at 0: a yes stands it down (CUnit::AIStandDown), a no leaves it. The name is ours. See reversing/findings/FINDINGS-liveread.md, section 101.",
    "confidence": "confirmed",
    "source": "reversing/findings/FINDINGS-liveread.md"
+  },
+  {
+   "rva": "0xDB311",
+   "kind": "instruction",
+   "name": "RunCountryDailyPass_CarriageDemand",
+   "signature": null,
+   "no_signature": "an instruction inside RunCountryDailyPass",
+   "comment": "**The carriage of supplies out to a country's provinces, added to what its units asked for.** In RunCountryDailyPass, straight after RunCountryDailyPass_WaitingUnitsDrawSupplies (and the free of the list at +0xD20), the loop VA 0x4DB311..0x4DB3FA walks the country's ControlledProvinces (CCountry +0xD00, each node {province id, ?, next}), looks each id up in g_CurrentGameState +0xB8C, and where **units_count (CMapProvince +0x2C0) > 0**, or else where the naval base's level_max (+0x300 -> CProvinceBuilding +0x20) > 0 **and** today's throughput of supplies (+0x1F8 -> CGoodsPool +0x8) is 0, adds supply_depot_hops (+0x50) x 1000 x SupplyLoss(province) / 1000 - the hops times the loss, thousandths, the divide by __alldiv - to unit_demand.supplies (CCountry +0xA48). Nothing else is added; fuel is untouched. So the supply share's need (CDistributeSupply::GetNeeded reads +0xA48) carries the network's carriage to every held province with anybody's unit in it, and to an idle harbour. No gate of its own: it runs wherever the country's unit block runs. See reversing/findings/FINDINGS-laterstart.md, section 18.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-laterstart.md"
   }
  ],
  "structs": [
@@ -79019,7 +79029,7 @@
      "offset": "0xA40",
      "name": "unit_demand",
      "type": "CGoodsPool",
-     "comment": "What the units drawing on this country asked for today, before any shortfall - supplies accumulate at +0xA48 and fuel at +0xA4C on every path through CUnit::ConsumeSuppliesAndFuel, including the one where the pool cannot pay. Distinct from CCountry::usage (+0x98C), which only gets what was actually handed over.",
+     "comment": "What the units drawing on this country asked for today, before any shortfall - supplies accumulate at +0xA48 and fuel at +0xA4C on every path through CUnit::ConsumeSuppliesAndFuel, including the one where the pool cannot pay. Distinct from CCountry::usage (+0x98C), which only gets what was actually handed over. **Every writer** (revised 2026-11-15): CCountry::CCountry and CCountry_Reset set it to nought, CCountry::ClearDailyPools zeroes it at the head of each day before the supply pass, CUnit::ConsumeSuppliesAndFuel adds each unit's ask (the units waiting to be placed included, RunCountryDailyPass_WaitingUnitsDrawSupplies), and RunCountryDailyPass_CarriageDemand adds the carriage - each held province with a unit in it, or an idle harbour, its supply_depot_hops times SupplyLoss - to the supplies. **Nothing in CInGameIdler::Enter writes it**, and it is not saved: a new game's first screen shows the second day's, a loaded game's nought until the first midnight. CDistributeSupply::GetNeeded makes the supply share's need from +0xA48. See reversing/findings/FINDINGS-laterstart.md, section 18.",
      "source": "reversing/findings/FINDINGS-manpower.md"
     },
     {
@@ -79047,7 +79057,7 @@
      "offset": "0xA98",
      "name": "reinforcement_cost",
      "type": "int",
-     "comment": "what reinforcement currently costs; the spare IC calculation subtracts it from what the reinforcement slider allocates",
+     "comment": "what reinforcement currently costs; the spare IC calculation subtracts it from what the reinforcement slider allocates. Thousandths of IC; CDistributeReinforcement::GetNeeded is it. **Written** (2026-11-15) by CDistributeReinforcement::Distribute alone in play - zeroed at VA 0x51BBF6 and every brigade's day of IC added at 0x51C5FC whether or not the budget allows anything - and set to nought by CCountry::CCountry and CCountry_Reset. Not saved: entering a game runs the share with nothing to spend (CInGameIdler_Enter_RunDistributions), so a loaded game's first screen shows that run's need, and a new game's the second day's, its days coming after. See reversing/findings/FINDINGS-laterstart.md, section 18.",
      "source": "BiceLib/GameClasses/CCountry.hpp:81"
     },
     {
@@ -79068,7 +79078,7 @@
      "offset": "0xAA4",
      "name": "upgrade_cost",
      "type": "int",
-     "comment": "what upgrading currently costs; the spare IC calculation subtracts it from what the upgrade slider allocates",
+     "comment": "what upgrading currently costs; the spare IC calculation subtracts it from what the upgrade slider allocates. Thousandths of IC; CDistributeUpgrade::GetNeeded is it. **Written** (2026-11-15) by CDistributeUpgrade::Distribute alone in play - zeroed at VA 0x51CF4C and every outstanding level's daily cost added at 0x51D4E1, spent or not - and set to nought by CCountry::CCountry and CCountry_Reset. Not saved: entering a game runs the share with nothing to spend (CInGameIdler_Enter_RunDistributions), so a loaded game's first screen shows that run's need, and a new game's the second day's, its days coming after. See reversing/findings/FINDINGS-laterstart.md, section 18.",
      "source": "BiceLib/GameClasses/CCountry.hpp:82"
     },
     {
@@ -91583,7 +91593,7 @@
      "offset": "0x50",
      "name": "supply_depot_hops",
      "type": "int",
-     "comment": "the plain hop count to the depot, as against the weighted cost at +0x4C. Zeroed for every province by CSupply::RebuildSupplyNetwork and set to the parent's value plus one each time CSupply::SpreadFromDepot relaxes a neighbour. CSupply::DailySupplyPass never reads it; the only other reader found is 0xDB3CC.",
+     "comment": "the plain hop count to the depot, as against the weighted cost at +0x4C. Zeroed for every province by CSupply::RebuildSupplyNetwork and set to the parent's value plus one each time CSupply::SpreadFromDepot relaxes a neighbour. CSupply::DailySupplyPass never reads it; its other reader, VA 0x4DB3CC, is RunCountryDailyPass_CarriageDemand, which adds it times SupplyLoss to the controller's unit_demand.supplies for a held province with a unit in it or an idle harbour (FINDINGS-laterstart.md, section 18).",
      "source": "reversing/findings/FINDINGS-supply.md"
     },
     {
