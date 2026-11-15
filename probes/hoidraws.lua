@@ -5,9 +5,9 @@
 --                            game's, as hoiDumpGenerator writes it) and ai_<tick>.txt (CGameState +0x124, the AI's
 --                            MT19937: its index, then its 624 words); and hoiRun's stop, which this replaces
 --   ProcessAI's entry        `E <esp> <tag>`: one country's whole AI pass begins on the thread whose stack this is
---   the AI generator's draw  `A <esp> <index> <caller rva>`: MT19937Next entered with the AI's state, its index before
---                            the draw (the value is worked out afterwards from the hour's dump); `... trade <tag>`
---                            for the hourly trading's two draws (CCountry::RunHourlyAITrade), with the country
+--   the AI generator's draw  `A <esp> <index> <caller rva> =<value>`: MT19937Next on the AI's state, the index it drew
+--                            at and the value it returns; `... trade <tag> =<value>` for the hourly trading's two
+--                            draws (CCountry::RunHourlyAITrade), with the country
 --   Lua's math.random        `R <esp> <rand>`: the value MSVCR80's rand gave lua5.1.dll's math_random
 --
 -- A draw belongs to the country of the latest `E` of this hour whose esp is above it and within a stack's reach;
@@ -15,7 +15,11 @@
 local b = hoiB
 local PASS = b + 0x282630
 local PROCESS_AI = b + 0x4894E0
-local MT_NEXT = b + 0x6A2B90
+-- MT19937Next's last store, `mov [edi+0x9C0], edx`: the value it returns in EAX, the state in EDI, the new index in EDX.
+-- Its entry would give only the index, and the AI's generator is drawn on unlocked from several threads at once - two
+-- that enter at one index can come out with different values (seen: Japan's, the Soviet Union's and France's trading,
+-- all at 263 at 01:00 on 17 July 1941).
+local MT_STORE = b + 0x6A2BDC
 local LUA_RAND = getAddress('lua5.1.dll') + 0x198B2
 
 local function tagOf(id)
@@ -65,21 +69,22 @@ function hoiDraws(folder)
     debug_continueFromBreakpoint(co_run)
     return 1
   end)
-  debug_setBreakpoint(MT_NEXT, 1, bptExecute, bpmDebugRegister, function()
+  debug_setBreakpoint(MT_STORE, 1, bptExecute, bpmDebugRegister, function()
     debug_getContext()
     pcall(function()
       local gen = hoiState() + 0x124
-      if EAX == gen then
-        local caller = readInteger(ESP) - b
+      if EDI == gen then
+        -- Two pushes in: the caller's return address at [ESP+8]. EAX is the value it returns, EDX the index it stores.
+        local caller = readInteger(ESP + 8) - b
         -- The hourly trade draws outside any country's job (CCountry::RunHourlyAITrade, stdcall, run inside the pass):
-        -- its country is that function's argument, [EBP+8] in its frame - MT19937Next has not touched EBP at its entry.
+        -- its country is that function's argument, [EBP+8] in its frame - MT19937Next never touches EBP.
         -- Written as the word `trade` and the tag, so that a reader of the log needs no address of this build.
         local who = ''
         if caller == 0xDC7AE or caller == 0xDC803 then
           local t = readString(readInteger(EBP + 8) + 0x1E4, 3)
           who = ' trade ' .. ((t and t:match('^[A-Z][A-Z0-9][A-Z0-9]$')) and t or '?')
         end
-        hdOut:write(string.format('A %X %d %X%s\n', ESP, readInteger(gen + 0x9C0), caller, who))
+        hdOut:write(string.format('A %X %d %X%s =%d\n', ESP, (EDX + 623) % 624, caller, who, EAX))
         hdCount = hdCount + 1
       end
     end)
@@ -107,7 +112,7 @@ function hoiDrawsRun(n)
 end
 
 function hoiDrawsStop()
-  for _, a in ipairs({ PASS, PROCESS_AI, MT_NEXT, LUA_RAND }) do pcall(debug_removeBreakpoint, a) end
+  for _, a in ipairs({ PASS, PROCESS_AI, MT_STORE, LUA_RAND }) do pcall(debug_removeBreakpoint, a) end
   hoiRunArmed = false
   pcall(function() hdOut:close() end)
   return 'stopped'
