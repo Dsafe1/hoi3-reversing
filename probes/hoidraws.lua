@@ -17,15 +17,15 @@
 -- A draw belongs to the country of the latest `E` of this hour whose esp is above it and within a stack's reach;
 -- one with none - the hourly trade, run inside the pass - belongs to nobody. Every rva is valid only for this build.
 --
--- With hoiDrawsGameCallers set before hoiDraws, ProcessAI's entry is a software breakpoint instead and the debug register
+-- With hoiDrawsGameCallers set before hoiDraws, the hour's pass is a software breakpoint instead and the debug register
 -- it frees watches the game's generator's index (g_random_index, 0x1311940) for writes, which every one of its draws makes
 -- (19 functions draw inline): a line `D <rva after the store> <caller rva>` each - the caller [ESP+8] where the store is
 -- MT19937Next's (0x6A2BE2), Random (0x6A2F80) tail-jumping into it - and `B <tick> <province>` as each battle's hour begins
 -- (CCombat::Tick, 0x16EBE0, int3), and `F ...` for each land unit's shots in an hour (CLandCombatant::FireUnit, int3,
--- below). The playback's reader passes over all three. **But in this mode the AI's draws are not filed reliably**: with
--- ProcessAI on an int3 some passes' draws land under another country, `---` among them (two recordings of 2026-11-16,
--- where Germany's `destiny` decision draw went astray and its +20% attack with it), so such a recording measures the
--- game's generator and the battles and not the AI; record the AI's draws with the default four debug registers.
+-- below). The playback's reader passes over all three. **ProcessAI must stay on a debug register**: on an int3, which is
+-- lifted while each hit is handled, passes entered together on the worker threads went unlogged and their draws were filed
+-- under the pass before - Germany's `destiny` decision draw among them, in two recordings of 2026-11-16 made so. The
+-- software breakpoints here are on what the main thread alone runs: the hour's pass, CCombat::Tick, FireUnit.
 local b = hoiB
 local PASS = b + 0x282630
 local PROCESS_AI = b + 0x4894E0
@@ -64,7 +64,9 @@ function hoiDraws(folder)
   hdOut = io.open(folder .. '/draws.txt', 'a')
   hdCount = 0
   hoiRunArmed = true -- hoiClearStop removes the hour's breakpoint, which is this one
-  debug_setBreakpoint(PASS, 1, bptExecute, bpmDebugRegister, function()
+  -- With hoiDrawsGameCallers the hour's pass, which only the main thread runs, is the software breakpoint: an int3 is lifted
+  -- while each hit is handled, so one on ProcessAI, which the worker threads enter together, lets passes through unlogged.
+  debug_setBreakpoint(PASS, 1, bptExecute, hoiDrawsGameCallers and bpmInt3 or bpmDebugRegister, function()
     pcall(function()
       local tick = hoiTick()
       hdOut:write(string.format('H %d\n', tick))
@@ -79,7 +81,7 @@ function hoiDraws(folder)
     debug_continueFromBreakpoint(co_run)
     return 1
   end)
-  debug_setBreakpoint(PROCESS_AI, 1, bptExecute, hoiDrawsGameCallers and bpmInt3 or bpmDebugRegister, function()
+  debug_setBreakpoint(PROCESS_AI, 1, bptExecute, bpmDebugRegister, function()
     debug_getContext()
     pcall(function()
       local ai = readInteger(ESP + 4)
