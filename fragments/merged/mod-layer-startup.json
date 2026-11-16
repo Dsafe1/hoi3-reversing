@@ -1,0 +1,691 @@
+{
+ "agent": "mod-layer reading (OpenHOI3 mod layer brief)",
+ "question": "How hoi3_tfh.exe is told to play a mod, and how it lays the mod over the install",
+ "source": "reversing/findings/FINDINGS-modlayer.md",
+ "summary": "WinMain's command line, the two-stage PhysFS set-up, the .mod/.dlc descriptor and its reader, the mount order, user_dir, and replace_path's reach (listing only).",
+ "addresses": [
+  {
+   "rva": "0x656470",
+   "kind": "function",
+   "name": "WinMain",
+   "signature": "int __stdcall WinMain(void* hInstance, void* hPrevInstance, char* lpCmdLine, int nShowCmd)",
+   "no_signature": null,
+   "comment": "**The game's WinMain, and where the command line and the file system are set up.** Called once, by the CRT start-up at VA 0xB9882F with 0x400000, 0, _wincmdln's answer and the show flag. **The command line**: lpCmdLine (the program name already stripped) is cut at every `-` (String_Split, 0x65B520), the piece before the first `-` is skipped, and each later piece is trimmed of space, tab, CR and LF (TrimWhitespace) - no quote is removed. Each piece is then tested, case-sensitively, against: `threads=` (atoi into g_ThreadCount), `logpostfix=` (g_LogPostfix), `settings=` (the settings file's name), `exclude_dlc=` (each one trimmed and collected), `mod=` (each one trimmed and collected), `userdir=`, and the whole pieces `noasserts` (g_AssertsEnabled cleared later, 0x65A102), `randomlog` (g_log_command_execution set) and `dlcmod`. A prefixed switch matches only where the piece is longer than the prefix, so an empty value is ignored; a single-valued switch takes the last; a `-` inside a value cuts it. **Stage one** (0x656DE0): PHYSFS_init, PHYSFS_mount(getBaseDir) and PHYSFS_mount(\"tfh\") with append 0, g_PhysfsSearchPath refreshed; the user folder is ReadUserDirTxt (0x66ADB0), else GetDefaultUserDir, and `-userdir=` replaces either; it is mounted in front (0x656EDA) and made the write directory (0x656EE0). GetDlcModSettings (0x6AD8C0) and DlcModSettings_Scan (0x6ADE70) list every `dlc/*.dlc` and `mod/*.mod` over that search path. With `-dlcmod` it writes DlcModSettings_ListForLauncher's text to the parent console (AttachConsole(-1), GetStdHandle(-11), WriteFile) and returns 0 (0x65709D) - no game. **Stage two** (0x6570A0): DlcModSettings_VerifySignatures (0x6AF210), SetTestDlcFlags (0x45D0F0), **Physfs_Shutdown (0x66B310) - PHYSFS_deinit, which drops stage one's mounts and write directory** - then PHYSFS_init, mount(getBaseDir), mount(\"tfh\"); the `-exclude_dlc=` values go to settings +0x38 and the `-mod=` values to +0x48; DlcModSettings_MountSelected (0x6AD930) mounts the chosen DLCs and mods and registers their replace_paths; then the user folder is mounted in front and made the write directory again (0x6572FD/0x657303): the stage-one folder as it was, or, where the selection named a user_dir (settings +0x74), that folder + `/` + user_dir, made by CreateDirectoryOrExit (0x66B0D0). Then the TBB scheduler, the two intro movies (RunBinkMovie, unconditional), the logs (logs/<name>.log or logs/<name>_<postfix>.log through VirtualFile_Open, so under the write directory), the settings (0x6B1E80 with `settings.txt` or the `-settings=` name, 0x658E7C), the CDirectorySettings singleton (0x44B9C0) and ReadOldStyleModSwitch (0x656320), whose answer is never read. 0xA56470 to the `ret 0x10` at 0xA5A2E5 (VAs), an early `ret 0x10` at 0xA5709D for `-dlcmod`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "The CRT caller at VA 0xB98829-0xB9882F pushes nShow, _wincmdln's result (0xBA56B6), 0 and 0x400000; `ret 0x10` at 0xA5709D and 0xA5A2E5. Each switch string is referenced exactly once in .text, from this function (strs.py: 'threads=' 0xA565F1, 'logpostfix=' 0xA56718, 'settings=' 0xA5683C, 'exclude_dlc=' 0xA56961, 'mod=' 0xA56ACB, 'noasserts' 0xA56BF9, 'userdir=' 0xA56C99, 'dlcmod' 0xA56D7C, 'randomlog' 0xA56C48). The split character is the `push 0x2d` at 0xA564D6; the loop index starts at 1 (0xA56591). GetCommandLineA has two users, the CRT and 0x656320. Would be wrong if a second parser of the command line existed elsewhere - the GetCommandLineA census (two references) and the single reference of each switch string argue against it."
+  },
+  {
+   "rva": "0x65B520",
+   "kind": "function",
+   "name": "String_Split",
+   "signature": "void* __stdcall String_Split(void* out@stack:4, char separator@stack:8, Hoi3CString* text@ESI) @EAX",
+   "no_signature": null,
+   "comment": "`out` (a vector of Hoi3CString, 0x1C each) = `text` cut at every `separator`: find from the position after the last cut (0x50E4C0), push the piece (String_Substr) and, when nothing more is found, the rest - so n separators give n+1 pieces, empty ones included. Nothing is trimmed here. WinMain cuts the command line at `-` with it (0x6564E8). `ret 8`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "Read whole 0xA5B520-0xA5B5EE (`ret 8`); the loop pushes substr(pos, found) and, on find == -1, substr(pos, size). Would be wrong if 0x50E4C0 were not a find-character - its result is compared with -1 and used as an end index."
+  },
+  {
+   "rva": "0x65B600",
+   "kind": "function",
+   "name": "String_Substr",
+   "signature": "Hoi3CString* __stdcall String_Substr(int end@stack:4, int start@ECX, Hoi3CString* text@EDX, Hoi3CString* out@EDI) @EAX",
+   "no_signature": null,
+   "comment": "`out` = the characters of `text` from `start` up to `end` (clamped to the length), copied through a C string - so an embedded NUL would end it. Used by WinMain's switch tests (prefix = substr(0, length of the prefix), value = substr(length of the prefix, length)) and by String_Split. `ret 4`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "0xA5B61F-0xA5B627: `min(end, size) - start` as the length, 0xA5BAF0 builds the piece, assigned into EDI with strlen; returns EDI at 0xA5B68A, `ret 4`. Wrong if the stack argument were a length rather than an end - the clamp against size and the subtraction of ECX say end."
+  },
+  {
+   "rva": "0x66ADB0",
+   "kind": "function",
+   "name": "ReadUserDirTxt",
+   "signature": "Hoi3CString* __cdecl ReadUserDirTxt(Hoi3CString* out)",
+   "no_signature": null,
+   "comment": "**`userdir.txt`**: where PHYSFS_exists(\"userdir.txt\") - over stage one's search path, so tfh/ before the install root - it is read (at most 511 bytes), trimmed, and, where not empty, made a directory (MultiByteToWideChar from UTF-8, CreateDirectoryW; a failure with ERROR_PATH_NOT_FOUND shows `Could not create or read directory: <path>` and calls exit(0)) and answered as GetFullPathNameW of it - so a relative path is taken against the current directory. No file, an empty one, or an exception gives an empty `out`. WinMain calls it at 0x656E60 and falls back on GetDefaultUserDir when it is empty; `-userdir=` overrides both and is used as given. Bare `ret`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "Read whole 0xA6ADB0-0xA6B0C8. 'userdir.txt' (VA 0x15FBFCC) is referenced only at 0xA6ADDA and 0xA6ADFC. Wrong if the read size were not capped - `cmp esi, 0x200` at 0xA6AE89."
+  },
+  {
+   "rva": "0x66B0D0",
+   "kind": "function",
+   "name": "CreateDirectoryOrExit",
+   "signature": "void __cdecl CreateDirectoryOrExit(const char* path@ECX)",
+   "no_signature": null,
+   "comment": "CreateDirectoryW of `path` (UTF-8 to wide); where that fails with ERROR_PATH_NOT_FOUND (3) - the parent is missing; an existing folder is fine - a message box `Could not create or read directory: <path>` and exit(0). Only the last level is made. WinMain makes a mod's user folder with it (0x6572C6). Bare `ret`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "Read whole 0xA6B0D0-0xA6B1FC; GetLastError compared with 3 at 0xA6B12B, exit at 0xA6B1E8 (0xB98689 is the CRT exit: it calls doexit(code, 0, 0)). Wrong if another error also aborted - only 3 is tested."
+  },
+  {
+   "rva": "0x66B310",
+   "kind": "function",
+   "name": "Physfs_Shutdown",
+   "signature": "int __cdecl Physfs_Shutdown()",
+   "no_signature": null,
+   "comment": "Frees g_PhysfsSearchPath (PHYSFS_freeList), empties g_ReplacePathTable (ReplacePathTable_Assign from an empty vector) and calls PHYSFS_deinit, answering 1 where it succeeded. **WinMain calls it between its two stages (0x6570AB)**, so the user folder stage one mounted and made the write directory is gone, and only what stage two mounts is on the search path. Bare `ret`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "Read whole 0xA6B310-0xA6B393: PHYSFS_freeList at 0xA6B339, 0xA6D4E0 with ESI a zeroed local vector at 0xA6B356, PHYSFS_deinit (export 0xB85720) at 0xA6B379. Wrong if PHYSFS_deinit kept the search path - in PhysicsFS 2.0.2 (PHYSFS_getLinkedVersion answers 2.0.2) it frees every search-path entry and the write directory."
+  },
+  {
+   "rva": "0x66B910",
+   "kind": "function",
+   "name": "RegisterReplacePath",
+   "signature": "void __cdecl RegisterReplacePath(const char* mountDir@ECX, const char* replacePath@EDX)",
+   "no_signature": null,
+   "comment": "Appends {mountDir, replacePath} to g_ReplacePathTable, **every backslash in each turned into a slash** (ReplaceAllInString, `\\\\` to `/`). Nothing else is normalised: no case folding, no trailing slash removed. One caller, DlcModSettings_MountSelected, once per `replace_path` line of each selected descriptor, with the descriptor's archive or else its path. Bare `ret`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "Read whole 0xA6B910-0xA6B9F0: two strings built from EDX and ECX at ebp-0x28 and ebp-0x44 (contiguous, so one 0x38 record), ReplaceAllInString with EDI = VA 0x15B5190 (`\\\\`) and `/` (0x15B5180) on both, then ReplacePathTable_PushBack(ECX = the pair). Wrong if 0xA6D410 took only the first string - it copies through 0xB0B010 and steps the end by 0x38."
+  },
+  {
+   "rva": "0x66D410",
+   "kind": "function",
+   "name": "ReplacePathTable_PushBack",
+   "signature": "void __cdecl ReplacePathTable_PushBack(ReplacePathEntry* entry@ECX)",
+   "no_signature": null,
+   "comment": "`std::vector<ReplacePathEntry>::push_back` on g_ReplacePathTable (begin VA 0x1B165D4, end +4, capacity end +8, 0x38-byte records), growing through 0xA6D550 and handling an entry that lies inside the vector. Bare `ret`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "Read whole 0xA6D410-0xA6D4DD; the stride 0x38 from the `imul 0x92492493; sar 5` divisions and `add edi, 0x38` at 0xA6D4C8. Wrong if the records were 0x1C - the divisor would then be sar 4."
+  },
+  {
+   "rva": "0x66D4E0",
+   "kind": "function",
+   "name": "ReplacePathTable_Assign",
+   "signature": "void __cdecl ReplacePathTable_Assign(void* source@ESI)",
+   "no_signature": null,
+   "comment": "Move-assigns the vector at ESI into g_ReplacePathTable: destroys and frees the table's records and takes `source`'s three pointers, zeroing them. Physfs_Shutdown passes an empty local, which empties the table. Bare `ret`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "Read whole 0xA6D4E0-0xA6D54F; one caller, 0xA6B356."
+  },
+  {
+   "rva": "0x66AD60",
+   "kind": "function",
+   "name": "ReplacePathTable_Destroy",
+   "signature": "void __cdecl ReplacePathTable_Destroy()",
+   "no_signature": null,
+   "comment": "Destroys g_ReplacePathTable's records, frees the block and zeroes the three pointers - the shape of the static vector's destructor (no direct caller; inferred to be run at exit). Bare `ret`.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "Read whole 0xA6AD60-0xA6ADAE. No call or reference in .text or .rdata was found, so how it runs (atexit registration in an initialiser) was not confirmed."
+  },
+  {
+   "rva": "0x66B3D0",
+   "kind": "function",
+   "name": "VirtualFile_MakeParentDirs",
+   "signature": "void __cdecl VirtualFile_MakeParentDirs(const char* path@EDX)",
+   "no_signature": null,
+   "comment": "**Makes every parent folder of `path` under PhysFS's write directory**: walks the path at each `/` (or, where it holds none, each `\\\\`) and PHYSFS_mkdir's the prefix before it. VirtualFile_Open calls it for every file opened for writing (0x66C248), before PHYSFS_openWrite/openAppend - so writing `save games/x.hoi3` or `map/cache/time` into a fresh user folder makes the folder first. Three more callers at VAs 0x64E384, 0x64F0CF and 0x6F2199 (not read). Bare `ret`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "Read 0xA6B3D0-0xA6B542: find '/' (0x2F) then '\\\\' (0x5C) through 0x50E4C0, substr, PHYSFS_mkdir (export 0xB84480) at 0xA6B4D2 in the loop. PHYSFS_mkdir has only two callers in the image, this and one inside PhysFS. Wrong if the call at 0xA6C248 were on the read branch - it follows `cmp al, bl; je 0xA6C4E9` on the write flag."
+  },
+  {
+   "rva": "0x6AD8C0",
+   "kind": "function",
+   "name": "GetDlcModSettings",
+   "signature": "CDlcModSettings* __cdecl GetDlcModSettings()",
+   "no_signature": null,
+   "comment": "The DLC-and-mod settings singleton g_DlcModSettings (VA 0x1A8580C), made on first use (operator new 0xB0, CDlcModSettings_Construct). One caller, WinMain (0x656EE8); everything after takes the pointer WinMain keeps. Bare `ret`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "Read whole; the global is referenced only here and in SetTestDlcFlags (0x45D133, 0x45D18D)."
+  },
+  {
+   "rva": "0x6AD410",
+   "kind": "function",
+   "name": "CDlcModSettings_Construct",
+   "signature": "CDlcModSettings* __stdcall CDlcModSettings_Construct(CDlcModSettings* this)",
+   "no_signature": null,
+   "comment": "Empties the two folder strings (+0, +0x1C) and the two vectors (+0x38, +0x48), sets +0x58 to `hoi3`, empties +0x74, and makes the two map headers (+0x94, +0xA4; 0x12C-byte nodes, sizes +0x98, +0xA8). No vftable. `ret 4`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "Read whole 0xAAD410-0xAAD53C."
+  },
+  {
+   "rva": "0x6AD840",
+   "kind": "function",
+   "name": "DlcModSettings_IsDlcEnabled",
+   "signature": "bool __stdcall DlcModSettings_IsDlcEnabled(Hoi3CString* name@stack:4, CDlcModSettings* settings@EDI) @AL",
+   "no_signature": null,
+   "comment": "Whether the DLC map (+0x90) holds `name` (map find by the descriptor's `name`), `name` is not on the excluded list (+0x38) and the descriptor's +0xFC is set. Note the exclusion test here is by the **name asked for**, where the mounting (DlcModSettings_MountSelected) tests the descriptor's **file path**. One caller, SetTestDlcFlags. `ret 4`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "Read whole 0xAAD840-0xAAD8B8: 0xAB00F0 lower bound, 0xA5CC10 the key test, std::find (0x794A40) over +0x38..+0x3C with the stack argument, node +0x124 (= descriptor +0xFC) answered."
+  },
+  {
+   "rva": "0x6ADE70",
+   "kind": "function",
+   "name": "DlcModSettings_Scan",
+   "signature": "void __stdcall DlcModSettings_Scan(CDlcModSettings* this)",
+   "no_signature": null,
+   "comment": "**Lists the DLC and mod descriptors** (dlc.cpp). Sets +0 to `dlc` and +0x1C to `mod` and empties both maps; then ListFilesWithExtension(\"dlc\", \".dlc\") and ListFilesWithExtension(\"mod\", \".mod\") over the search path stage one built (the user folder, tfh/, the install root - so `mod/*.mod` in any of the three). Each file is read into a CModDescriptor through a Tokenizer on `<folder>/<file>` (stored at +0x24) and CPersistent::Load. **A mod descriptor's kind (+0xD4) is then forced to 4.** It is kept only where `name` is not empty and `archive` or `path` is not; a DLC must also have a kind 1 to 4 with that kind's id (steam_id non-zero, pdx_id non-empty, gamersgate_id non-zero, or 4). A kept one goes into the map keyed by its `name` - a later file of the same name is dropped (map insert keeps the first). A refused one is logged `Incorrect DLC descriptor: \"<file>\"` or `Incorrect MOD descriptor: \"<file>\"` (dlc.cpp:328 and 350) and left out. `ret 4`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "Read whole 0xAADE70-0xAAE83D: strings 'dlc' 0x15FBFDC, 'mod' 0x15FBFD8, '.dlc' 0x1600A64, '.mod' 0x15BB398 each referenced once, here; validity tests at 0xAAE621-0xAAE63A (mods) and 0xAAE184-0xAAE1D8 with the jump table at 0xAAE840 (DLC); `mov [esp+0x164], 4` at 0xAAE616; insert 0xAB02C0 returns {iterator, inserted}. Wrong if the map were keyed by file - 0xAB0250 builds the pair from descriptor +8 (name)."
+  },
+  {
+   "rva": "0x6AD930",
+   "kind": "function",
+   "name": "DlcModSettings_MountSelected",
+   "signature": "void __stdcall DlcModSettings_MountSelected(CDlcModSettings* this)",
+   "no_signature": null,
+   "comment": "**Chooses, orders and mounts the DLCs and mods, then registers their replace_paths.** (1) A list of {order, descriptor}: every DLC whose +0xFC is set and whose file path (`dlc/<file>`, descriptor +0x24) is not among the `-exclude_dlc=` values (+0x38), at order 0; every mod whose file path (`mod/<file>.mod`) equals one of the `-mod=` values (+0x48) byte for byte, at order -1000. (2) Dependencies: for each entry and each name in its `dependencies` block, every entry whose `name` equals it and whose order is not above the dependent's has its order raised by 1; repeated until a pass changes nothing (a cycle would not end). An unselected dependency is not added. (3) MountList_Sort: higher order first, equal orders by `name` with the byte-greater first. (4) In that order, PHYSFS_mount(archive if not empty, else path, NULL, append 0), **the answer ignored**, g_PhysfsSearchPath refreshed after each - so the last mounted, the lowest order, is searched first: a mod before the DLCs, a mod before what it depends on. (5) +0x74 = the user_dirs of the list in that order, joined with `_`. (6) For each entry, RegisterReplacePath(archive-or-path, each `replace_path` line). `ret 4`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "Read whole 0xAAD930-0xAADE69: selection 0xAAD976-0xAADB4E (node +0x124 = descriptor +0xFC, node +0x4C = descriptor +0x24, 0xFFFFFC18 = -1000), dependency loop 0xAADB63-0xAADC58, sort 0xAADC6B, mount 0xAADCA0-0xAADD33 (PHYSFS_mount 0xAADCC7, '_' VA 0x15C1814), replace_path 0xAADD50-0xAADE41 (RegisterReplacePath 0xAADE14). The tie direction is from the comparator in 0xAB12B0 (setg on the order, then 0xA5CC10 which answers EDX-string < EAX-string). Wrong if the mount used append 1 - both pushes are 0."
+  },
+  {
+   "rva": "0x6AF210",
+   "kind": "function",
+   "name": "DlcModSettings_VerifySignatures",
+   "signature": "void __stdcall DlcModSettings_VerifySignatures(CDlcModSettings* this)",
+   "no_signature": null,
+   "comment": "Run by WinMain just before Physfs_Shutdown (0x6570A1), and only where the DLC map is not empty: reads `dlc_signature` through PhysFS where it exists and checks the DLCs against it - inferred to be what sets a DLC descriptor's +0xFC. Not read beyond its first 0x200 bytes. `ret 4` at 0xAAF745.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "Read 0xAAF210-0xAAF3F6 only: the +0x98 test at 0xAAF239, 'dlc_signature' (VA 0x1600B74) through PHYSFS_exists and VirtualFile_Open. That it writes +0xFC was not seen - nothing else writes it that was found either. The install holds no dlc folder, so no DLC is on the maintainer's machine."
+  },
+  {
+   "rva": "0x6AF7F0",
+   "kind": "function",
+   "name": "DlcModSettings_ListForLauncher",
+   "signature": "void __stdcall DlcModSettings_ListForLauncher(CDlcModSettings* this, Hoi3CString* out)",
+   "no_signature": null,
+   "comment": "**What `-dlcmod` prints for the launcher**: `DLC:\\n`, then a line for each DLC (built the same way, `<name>|<file>`, inferred), then `Mod:\\n` and a line `<name>|mod/<file>.mod` for each mod - the descriptor's `name` (node +0x30) and its file path (node +0x4C), each line ending `\\n`, in map order (by name). The launcher reads it (its strings `-dlcmod`, `DLC:`, `Mod:`) and passes the part after `|` back as `-mod=`. `ret 8`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "Read 0xAAF7F0-0xAAFB66: 'DLC:\\n' VA 0x1600BA8, 'Mod:\\n' VA 0x1600BB4, '|' VA 0x15FE174, '\\n' VA 0x15B57D0; the Mod line built from edi+0x30 and edi+0x4C at 0xAAFA03-0xAAFA22. The DLC line's fields were not checked as closely."
+  },
+  {
+   "rva": "0x6AD1D0",
+   "kind": "function",
+   "name": "CModDescriptor_Construct",
+   "signature": "void __cdecl CModDescriptor_Construct(CModDescriptor* this@EAX)",
+   "no_signature": null,
+   "comment": "A .dlc or .mod descriptor's constructor: table VA 0x1600BBC (no RTTI; slot 0 0xAAD280, slots 1, 2 and 5 the shared empty stubs, 3 CPersistent::Load, 4 CModDescriptor::LoadKey), +4 = 0x18D, every string and vector empty, affects_checksum (+0xD0) 1, kind 0, +0xFC 0. Bare `ret`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "Read whole 0xAAD1D0-0xAAD27B; the table's slots read directly (vftable meta word 0xA, not a complete-object locator, so no RTTI name). The size 0x100 follows from the map node of 0x12C: key at +0xC, value at +0x28, colour byte +0x128."
+  },
+  {
+   "rva": "0x6AD5F0",
+   "kind": "function",
+   "name": "CModDescriptor::LoadKey",
+   "signature": "void __thiscall CModDescriptor::LoadKey(CModDescriptor* this, CParseContext* parse, SaveToken key)",
+   "no_signature": null,
+   "comment": "**The grammar of a `.mod` (and `.dlc`) file.** Eleven keys: `name` +8, `path` +0x40, `archive` +0x5C, `user_dir` +0x98, `checksum` +0xB4 (each ParseString - a later line overwrites), `dependencies` (a `{ \"a\" \"b\" }` block, ParseStringListBlock, +0x78), `replace_path` (each line appended to +0x88), `affects_checksum` (ParseBool, +0xD0), `steam_id` (ParseInt +0xD8, kind 1), `pdx_id` (ParseString +0xE0, kind 2), `gamersgate_id` (ParseInt +0xDC, kind 3). Anything else - the base game's `replace` and `extend` among it - goes to ReportUnknownKey and is dropped without a log. **Not the old-style reader**: CDirectorySettings::LoadKey is a different class and is never run. Slot 4 of the table at VA 0x1600BBC. `ret 8`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "Read whole 0xAAD5F0-0xAAD7FE; token ids from ghidra/saveTokens.json: 0x1A name, 0x19C path, 0x19D dependencies, 0x19E steam_id, 0x19F pdx_id, 0x1A0 archive, 0x1A1 checksum, 0x1A2 affects_checksum, 0x1A7 gamersgate_id, 0x1A8 replace_path, 0x1A9 user_dir; the jump table at 0xAAD804 sends 0x1A3-0x1A6 to the default. Wrong if the token table differed in this build - the committed saveTokens.json is this build's compiled table."
+  },
+  {
+   "rva": "0x5D0F0",
+   "kind": "function",
+   "name": "SetTestDlcFlags",
+   "signature": "void __cdecl SetTestDlcFlags()",
+   "no_signature": null,
+   "comment": "Sets the bytes at VA 0x1A862BD and 0x1A862BC where DlcModSettings_IsDlcEnabled answers yes for `TestDLC1` and `TestDLC2`. Neither byte has a reader in .text (one reference each, the write here). Called by WinMain at 0x6570A6. Bare `ret`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "Read whole 0x45D0F0-0x45D1C7; findValue of each byte gives only 0x45D160 and 0x45D1B5."
+  },
+  {
+   "rva": "0x656320",
+   "kind": "function",
+   "name": "ReadOldStyleModSwitch",
+   "signature": "Hoi3CString* __cdecl ReadOldStyleModSwitch(Hoi3CString* out)",
+   "no_signature": null,
+   "comment": "The base game's `-mod <file>` switch: strstr(GetCommandLineA(), \"-mod \"), and `out` = everything after `-mod`, trimmed. **WinMain calls it (0x658E8D) and never reads the answer** - the local is only freed - so in hoi3_tfh.exe the old switch selects nothing, and nothing loads a CDirectorySettings. Bare `ret`.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "Read whole 0xA56320-0xA563D6. The answer's slot ebp-0x154 appears in WinMain only at 0xA58E86 (passed), 0xA59DC3/0xA59DE3 (freed on an error path) and 0xA5A26D (an unwind funclet). '-mod ' (VA 0x15FBF3C) has one reference. Wrong if the string were reached through another pointer - nothing copies it before it is freed."
+  },
+  {
+   "rva": "0x798380",
+   "kind": "function",
+   "name": "strstr",
+   "signature": "char* __cdecl strstr(const char* str, const char* substr)",
+   "no_signature": null,
+   "comment": "The C runtime's strstr (statically linked). ListFilesWithExtension uses it for its replace_path test, and ReadOldStyleModSwitch for `-mod `. Bare `ret`.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "The body is the MSVC CRT strstr's shape (first-character scan with a two-byte fast path, then a compare), second argument the needle; not compared against a CRT copy byte for byte."
+  },
+  {
+   "rva": "0x6B0790",
+   "kind": "function",
+   "name": "MountList_Sort",
+   "signature": "void __cdecl MountList_Sort(void* first, void* last, int depth, char pred)",
+   "no_signature": null,
+   "comment": "std::sort's loop over DlcModSettings_MountSelected's {int order, CModDescriptor*} pairs (8 bytes each): partitions through 0xAB0A10 while more than 32 remain, then insertion sort 0xAB12B0. **The order**: a before b where a.order > b.order; equal orders where b's `name` is byte-less than a's (so the byte-greater name first). Not stable. Bare `ret`, the caller drops 0x10.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "Read 0xAB0790-0xAB0839 and the comparator inside 0xAB12B0 (setg at 0xAB1302 and 0xAB139D, 0xA5CC10 at 0xAB12F5, the inline compare 0xAB1341-0xAB1398). The partition 0xAB0A10 was not read; it is assumed to use the same predicate."
+  },
+  {
+   "rva": "0x16857C0",
+   "kind": "global",
+   "name": "g_PhysfsSearchPath",
+   "signature": null,
+   "no_signature": null,
+   "comment": "char**, the list PHYSFS_getSearchPath answered, refreshed (old one PHYSFS_freeList'd) after every mount at start-up. Front first: index 0 is the directory searched first. ListFilesWithExtension's replace_path test indexes it.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "Written after each mount at 0xA56E18, 0xA56E5B, 0xA570FE and 0xAADCF0; read by ListFilesWithExtension at 0xA6BD6E and 0xA6C020."
+  },
+  {
+   "rva": "0x168580C",
+   "kind": "global",
+   "name": "g_DlcModSettings",
+   "signature": null,
+   "no_signature": null,
+   "comment": "CDlcModSettings*, made by GetDlcModSettings.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "Referenced only in GetDlcModSettings and SetTestDlcFlags."
+  },
+  {
+   "rva": "0x17165D4",
+   "kind": "global",
+   "name": "g_ReplacePathTable",
+   "signature": null,
+   "no_signature": null,
+   "comment": "Begin of the replace_path table, a std::vector of ReplacePathEntry (0x38 each: mount directory, replace path; end at VA 0x1B165D8, capacity end 0x1B165DC). Filled by RegisterReplacePath, emptied by Physfs_Shutdown. **Read only by ListFilesWithExtension** - every reference to the three words is in the vector's own push_back, grow, assign and destructor or in ListFilesWithExtension (0xA6BCFA, 0xA6BD00).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "findValue over .text of 0x1B165D4/D8/DC: 0xA6AD60, 0xA6BCB0, 0xA6D410, 0xA6D4E0, 0xA6D5C0, 0xA6D6F0 and nothing else; the same scan finds ListFilesWithExtension, the known reader (positive control)."
+  },
+  {
+   "rva": "0x130ABB0",
+   "kind": "global",
+   "name": "g_ThreadCount",
+   "signature": null,
+   "no_signature": null,
+   "comment": "int, -1 in the image; `-threads=<n>` sets it (atoi). The start-up's task_scheduler_init takes it (1 where -1), and the AI's parallel_for grain and the intelligence rebuild's ask whether it is 1.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "Written at 0xA566E3; read at 0xA57308, 0x6827C6, 0x6829B1, 0x682DA2, 0x6830CE, 0x688D9E, 0x689235 (VAs)."
+  },
+  {
+   "rva": "0x1310D60",
+   "kind": "global",
+   "name": "g_LogPostfix",
+   "signature": null,
+   "no_signature": null,
+   "comment": "Hoi3CString, the `-logpostfix=` value; where not empty each log is `logs/<name>_<postfix>.log` instead of `logs/<name>.log` (game, ai, setup, error, system, memory, time, message, text, random, system_error).",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "Written at 0xA56802; its length (+0x10, VA 0x1710D70) tested at 0xA573CA and the string appended at 0xA57467 and the other log sites."
+  },
+  {
+   "rva": "0x66B2B0",
+   "kind": "function",
+   "name": "GetDefaultUserDir",
+   "signature": "Hoi3CString* __fastcall GetDefaultUserDir(Hoi3CString* out@ESI) @EAX",
+   "no_signature": null,
+   "comment": "`out` = GetDocumentsGameFolder(\"Hearts of Iron III\"), or empty when that fails. WinMain (0x656470) calls it at 0x656E77 only where ReadUserDirTxt (0x66ADB0) answered nothing, and a `-userdir=` switch replaces either. The folder is mounted at the front of the search path (0x656EDA) and made PhysFS's write directory (0x656EE0) - but that first set-up is torn down by Physfs_Shutdown before the game proper and the folder mounted and made the write directory again at 0x6572FD/0x657303: as it is when no selected mod or DLC names a `user_dir`, and as `<folder>/<user_dir>` (made by CreateDirectoryOrExit) when one does. So `save games/` is `Documents\\Paradox Interactive\\Hearts of Iron III\\save games` without a mod and `...\\Hearts of Iron III\\BlackICE GitHub\\save games` with BlackICE, **and with such a mod the plain folder is not on the search path at all**. Bare `ret`. See reversing/findings/FINDINGS-modlayer.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "WinMain read 0xA56DE0-0xA57303: the user-folder string ebp-0x1B8 is ReadUserDirTxt's (0xA56E60), else this (0xA56E77), then the `userdir=` value ebp-0x244 (0xA56EBD); stage two concatenates it with `/` (0x15B5180) and settings +0x74 at 0xA571D4-0xA57236. Wrong if PHYSFS_deinit kept mounts - it does not in PhysicsFS 2.0.2.",
+   "revises": "the 'inferred to be the mod's own user folder' is now read: <userdir>/<user_dir>; adds userdir.txt's reader and the shutdown between the stages"
+  },
+  {
+   "rva": "0x66BCB0",
+   "kind": "function",
+   "name": "ListFilesWithExtension",
+   "signature": "void __cdecl ListFilesWithExtension(const char* directory, void* out, const char* extension)",
+   "no_signature": null,
+   "comment": "The directory enumerator the engine uses whenever a stage reads a whole folder rather than a named file: called twice with '.gfx' (0x631321, 0x631370), twice with '.gui' (0x631CFC, 0x631D45), twice with '.txt' by technology phase 2 (0x540FD8, 0x541027), and once each for music/ (0x638B7F) and scenarios/ (0x63941D); and with \"hoi3\" through ListFilesWithExtensionSorted for the save dialog. The paired calls list a CDirectorySettings slot's base folder and its override directory (technology phase 2 reads +0x1B4 and +0x358); nothing in this build loads a CDirectorySettings, so the override is always empty. 0x794A40, which the mode-2 callers use, is std::find over a vector of strings, not a merge. **The body**: `out` (a vector of Hoi3CString) is emptied and given room for 1024. **First the replace_path limit**: for every entry of g_ReplacePathTable whose replace path equals `directory` byte for byte (strcmp - case, slash and any trailing `/` all count, and a subfolder is not covered), the index of its mount directory in g_PhysfsSearchPath (front = 0, strcmp) is found; the smallest such index is the limit. Then PHYSFS_enumerateFiles(directory), each name once over the whole search path; for each name - **kept only where it ends in `extension`** (a byte compare of the tail, case and all, no dot implied), **a name with any byte of 0x80 or more is logged `Invalid filename found: <name>` and left out**, `directory/name` must not be a directory (PHYSFS_isDirectory); with no limit the bare name is pushed, and with one only where strstr(PHYSFS_getRealDir(`directory/name`), searchPath[i]) holds for some i from 0 to the limit inclusive - the file's first copy lies in the replacing mod's mount or in front of it (the user folder, index 0, always counts). **The only reader of the replace_path table**: with ListSubdirectories it is the only caller of PHYSFS_enumerateFiles outside PhysFS, and nothing that opens a file by name consults the table. Its first argument is a C string: every call site passes a literal or a string's c_str. Bare `ret`. See reversing/findings/FINDINGS-modlayer.md and FINDINGS-ingamemenu.md, section C.2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "Read whole 0xA6BCB0-0xA6C1AF: the limit loop 0xA6BD36-0xA6BDF6 (strcmp of entry +0x1C with `directory`, then of entry +0 with each search-path entry), the keep test 0xA6BF84-0xA6C039 (PHYSFS_getRealDir 0xA6BFFD, strstr 0xA6C02A, `cmp esi, ebx; jle`). PHYSFS_enumerateFiles (export 0xB85900) callers: 0xA6BA49, 0xA6BE02, 0xB85BBE (in PhysFS). 0x794A40 read: a loop comparing each element with the value. Wrong if a file opened by name went through the table - no reader of 0x1B165D4 outside the vector's own code and this.",
+   "revises": "the replace_path test is now read whole (exact strcmp, limit by search-path index, strstr on the real dir); '0x794A40 merges' corrected to std::find; 'the mod's and vanilla's' corrected to the CDirectorySettings base and override"
+  },
+  {
+   "rva": "0x66BA00",
+   "kind": "function",
+   "name": "ListSubdirectories",
+   "signature": "void __cdecl ListSubdirectories(char* directory, void* out)",
+   "no_signature": null,
+   "comment": "ListFilesWithExtension's twin for folders: `out` (a vector of std::string) emptied and given room for 1024, PHYSFS_enumerateFiles(directory), and each name for which PHYSFS_isDirectory(`directory/name`) is pushed bare - a name with a byte >= 0x80 is logged `Invalid directoryname found: ` (virtualfilesystem.cpp:412) and left out. No extension, **no replace_path test**: a replaced folder's subfolders are listed from every layer. Callers: CVersion::ChecksumFolder (0x6B4058) and HistoryDatabase_LoadFiles (0x1F5F70, 0x1F63B2, 0x1F8269), which lists `history/provinces`'s subfolders and then each as `history/provinces/<name>` through ListFilesWithExtension - so a mod has to name each subfolder in replace_path to replace it.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-checksum.md",
+   "evidence": "findRefs --callers 0xA6BA00: 0x5F5F70, 0x5F63B2, 0x5F8269, 0xAB4058 (VAs). The `/provinces` (VA 0x15C9D6C) prefix at 0x5F5E85, and the per-subfolder directory = provinces folder + `/` + name passed to ListFilesWithExtension at 0x5F60E2.",
+   "revises": "adds the history loader's callers and what the missing replace_path test means"
+  },
+  {
+   "rva": "0x4BCD0",
+   "kind": "function",
+   "name": "CDirectorySettings::LoadKey",
+   "signature": "void __thiscall CDirectorySettings::LoadKey(CDirectorySettings* this, CParseContext* parse, SaveToken key)",
+   "no_signature": null,
+   "comment": "The path table the loader fills. `replace` and `extend` are how a mod says whether its folder replaces the base game's or adds to it. **The keys its switch names**, 2 of them, one case each: `extend`, `replace`. Read from the switch by reversing/scripts/definitions.py. A loader may resolve further keys as names out of a database - CGovernment and CMinister both do - but anything that is neither is dropped in silence. **Nothing in hoi3_tfh.exe runs it**: no function referencing g_CDirectorySettings calls CPersistent::Load or a slot through its table (the same scan finds the nine ListFilesWithExtension readers of the global), the table at VA 0x15BB3D8 is referenced only by the constructor, and the old `-mod <file>` switch is read by ReadOldStyleModSwitch (0x656320) into a string WinMain never reads. So every folder mode stays 0 and every override empty; the base game's descriptors (`name`, `replace`, `extend`) are refused by the .mod reader, CModDescriptor::LoadKey. See reversing/findings/FINDINGS-modlayer.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-definitions.md",
+   "evidence": "Scan (scratch dsload.py): for each function holding a reference to 0x1A85558, any call to 0xA7C050 - none; with 0xA6BCB0 added, nine functions including LoadEventFolder 0x9C0520 and the technology loader 0x540E90 (positive control). A second scan of the 14 instructions after each reference for a call through [reg+0xC]/[reg+0x10]/[reg+4] - none. findValue(0x15BB3D8) = 0x44BA56 only. Wrong if a register held the object across a function boundary and some other function loaded it - not excluded by these scans.",
+   "revises": "comment only: adds that nothing in this build runs it, and why"
+  },
+  {
+   "rva": "0x66C1B0",
+   "kind": "function",
+   "name": "VirtualFile_Open",
+   "signature": "void* __stdcall VirtualFile_Open(void* file@stack:4, Hoi3CString* path@stack:8, bool write@stack:0xC, Hoi3CString mode@stack:0x10, int text@ECX) @EAX",
+   "no_signature": null,
+   "comment": "**The game's file object over PhysFS** (virtualfilesystem.cpp; table VA 0x15FD378, no RTTI name), 0x3C bytes: +0x11 = `write`, **+0x13 = (text == 0)** - the byte CSaveWriter takes as `binary` - and +0x30 the PHYSFS_File*: for writing, **VirtualFile_MakeParentDirs (0x66B3D0) first makes every parent folder under the write directory**, then PHYSFS_openAppend where `mode` holds a `+`, else **PHYSFS_openWrite** (under the write directory, truncating); for reading PHYSFS_openRead (not read here). +0x34 = PHYSFS_getRealDir(path). A file that will not open is logged 'Could not open file: <path>, error: <PhysFS's error>' (unless the name holds `.log`) and **thrown** as an exception object (table VA 0x1607F74). SaveGameFromDialog passes write 1, mode \"\", text 1; the Lua runner and the tokenizer open with text 0. `ret 0x28`. Inferred in part: the read branch and the exception's class were not read.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-ingamemenu.md",
+   "evidence": "0xA6C231 tests the write byte and jumps to 0xA6C4E9 when it is 0; on the write path 0xA6C248 calls 0xA6B3D0 with EDX = the path's characters, before the '+' scan and PHYSFS_openAppend (0xA6C288).",
+   "revises": "adds that a write makes its parent folders first"
+  },
+  {
+   "rva": "0x16857BE",
+   "kind": "global",
+   "name": "g_log_command_execution",
+   "signature": null,
+   "no_signature": null,
+   "comment": "byte. When non-zero, Session::PumpCommands writes 'Executing command ' <type id> <serial> to the log for every command it runs (tested at rva 0x689855). **Set to 1 - never cleared - by the `randomlog` console command** (ConsoleCmd_RandomLog, `mov byte [0x1A857BE],1` at 0x43B1A7, 'Random Logging started'), although its help text says it toggles, **and by `-randomlog` on the command line** (WinMain, VA 0xA56C7A, the whole piece compared). See reversing/findings/FINDINGS-console.md and reversing/findings/FINDINGS-commands.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-console.md",
+   "evidence": "`mov byte ptr [0x1a857be], 1` at 0xA56C7A after String_Equals with 'randomlog' (VA 0x15B77DC).",
+   "revises": "adds the command-line switch that sets it"
+  }
+ ],
+ "structs": [
+  {
+   "name": "CDlcModSettings",
+   "size": "0xB0",
+   "comment": "The DLC-and-mod settings singleton (dlc.cpp; name ours, no vftable, no RTTI): the descriptors found, the ones chosen on the command line, and the user folder they name. Made by GetDlcModSettings, filled by DlcModSettings_Scan and DlcModSettings_MountSelected.",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "operator new 0xB0 at 0xAAD8E2; constructor 0xAAD410 read whole."
+  },
+  {
+   "name": "CModDescriptor",
+   "size": "0x100",
+   "comment": "One `.mod` or `.dlc` file (dlc.cpp; name ours - its table at VA 0x1600BBC has no RTTI locator). CPersistent-shaped: slot 3 CPersistent::Load, slot 4 CModDescriptor::LoadKey. Kept by value in CDlcModSettings's two maps, keyed by `name`.",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "constructor 0xAAD1D0; map node 0x12C = 0xC links + 0x1C key + 0x100 value, colour byte at node +0x128."
+  },
+  {
+   "name": "ReplacePathEntry",
+   "size": "0x38",
+   "comment": "One record of g_ReplacePathTable: the directory a mod was mounted from and one of its replace_path lines, both with backslashes made slashes.",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "RegisterReplacePath builds the two strings contiguously at ebp-0x44/ebp-0x28; the table's stride is 0x38."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CDlcModSettings",
+   "offset": "0x0",
+   "name": "dlc_folder",
+   "type": "Hoi3CString",
+   "comment": "`dlc`, set by DlcModSettings_Scan; the descriptors' file paths are `dlc/<file>`.",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "0xAADE97-0xAADEA0."
+  },
+  {
+   "struct": "CDlcModSettings",
+   "offset": "0x1C",
+   "name": "mod_folder",
+   "type": "Hoi3CString",
+   "comment": "`mod`, set by DlcModSettings_Scan; the descriptors' file paths are `mod/<file>`, which is what `-mod=` is compared with.",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "0xAADEA5-0xAADEB3; the path built at 0xAAE446-0xAAE48B."
+  },
+  {
+   "struct": "CDlcModSettings",
+   "offset": "0x38",
+   "name": "excluded_dlcs",
+   "type": "Hoi3CString*",
+   "comment": "Begin of a vector of strings (end +0x3C, capacity end +0x40): every `-exclude_dlc=` value, trimmed. Compared with a DLC's file path when mounting and with the name asked for in DlcModSettings_IsDlcEnabled.",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "Filled at 0xA5711A-0xA57133; read at 0xAAD97F and 0xAAD88C."
+  },
+  {
+   "struct": "CDlcModSettings",
+   "offset": "0x48",
+   "name": "selected_mods",
+   "type": "Hoi3CString*",
+   "comment": "Begin of a vector of strings (end +0x4C, capacity end +0x50): every `-mod=` value, trimmed. A mod is chosen where its file path (`mod/<file>.mod`) equals one byte for byte.",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "Filled at 0xA5715B-0xA5717D; read at 0xAAD9E0-0xAAD9EE."
+  },
+  {
+   "struct": "CDlcModSettings",
+   "offset": "0x58",
+   "name": "game_key",
+   "type": "Hoi3CString",
+   "comment": "`hoi3`, set by the constructor; its reader was not looked for.",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "0xAAD45E-0xAAD474."
+  },
+  {
+   "struct": "CDlcModSettings",
+   "offset": "0x74",
+   "name": "user_dir",
+   "type": "Hoi3CString",
+   "comment": "The `user_dir`s of the chosen DLCs and mods in mount order, joined with `_`; WinMain mounts `<user folder>/<this>` in front and makes it the write directory where it is not empty.",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "Built at 0xAADC76-0xAADD25; read at 0xA57188 (VA)."
+  },
+  {
+   "struct": "CDlcModSettings",
+   "offset": "0x94",
+   "name": "dlcs_head",
+   "type": "void*",
+   "comment": "Header node of the std::map<std::string, CModDescriptor> of DLC descriptors, keyed by `name` (0x12C-byte nodes: key +0xC, descriptor +0x28); the map object starts at +0x90.",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "Constructor 0xAAD497-0xAAD4D4; walked at 0xAAD966."
+  },
+  {
+   "struct": "CDlcModSettings",
+   "offset": "0x98",
+   "name": "dlc_count",
+   "type": "int",
+   "comment": "Size of the DLC map. DlcModSettings_VerifySignatures does nothing when 0.",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "0xAAD491, 0xAAF239."
+  },
+  {
+   "struct": "CDlcModSettings",
+   "offset": "0xA4",
+   "name": "mods_head",
+   "type": "void*",
+   "comment": "Header node of the map of mod descriptors, keyed by `name`; the map object starts at +0xA0.",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "Constructor 0xAAD4E4-0xAAD526; walked at 0xAAD9CE and by DlcModSettings_ListForLauncher."
+  },
+  {
+   "struct": "CDlcModSettings",
+   "offset": "0xA8",
+   "name": "mod_count",
+   "type": "int",
+   "comment": "Size of the mod map.",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "0xAAD4E4."
+  },
+  {
+   "struct": "CModDescriptor",
+   "offset": "0x8",
+   "name": "name",
+   "type": "Hoi3CString",
+   "comment": "`name`. The map key, what `dependencies` names, and the tie-break of the mount order. Required.",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "LoadKey token 0x1A at 0xAAD624."
+  },
+  {
+   "struct": "CModDescriptor",
+   "offset": "0x24",
+   "name": "file",
+   "type": "Hoi3CString",
+   "comment": "The descriptor's own path, `mod/<file>.mod` or `dlc/<file>.dlc` - the folder and the bare name the listing gave, never `tfh/`. What `-mod=` and `-exclude_dlc=` are compared with, and what `-dlcmod` prints after `|`.",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "Assigned at 0xAAE47C (mods) and 0xAADFEA (DLC) before the Tokenizer is built on it."
+  },
+  {
+   "struct": "CModDescriptor",
+   "offset": "0x40",
+   "name": "path",
+   "type": "Hoi3CString",
+   "comment": "`path`: the folder mounted (PHYSFS_mount, as written - so relative to the current directory) where `archive` is empty. Either it or `archive` is required.",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "LoadKey token 0x19C at 0xAAD644; mounted at 0xAADCB7."
+  },
+  {
+   "struct": "CModDescriptor",
+   "offset": "0x5C",
+   "name": "archive",
+   "type": "Hoi3CString",
+   "comment": "`archive`: mounted in preference to `path`.",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "LoadKey token 0x1A0 at 0xAAD679; preferred at 0xAADCA6."
+  },
+  {
+   "struct": "CModDescriptor",
+   "offset": "0x78",
+   "name": "dependencies",
+   "type": "Hoi3CString*",
+   "comment": "Begin of a vector of strings (end +0x7C): the `dependencies = { ... }` block, names of other descriptors that are mounted behind this one when both are chosen.",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "LoadKey token 0x19D, ParseStringListBlock at 0xAAD6A1; read at 0xAADB8B."
+  },
+  {
+   "struct": "CModDescriptor",
+   "offset": "0x88",
+   "name": "replace_paths",
+   "type": "Hoi3CString*",
+   "comment": "Begin of a vector of strings (end +0x8C): each `replace_path` line, appended. Registered against the mount directory by DlcModSettings_MountSelected.",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "LoadKey token 0x1A8 at 0xAAD6E2-0xAAD70A; read at 0xAADD56."
+  },
+  {
+   "struct": "CModDescriptor",
+   "offset": "0x98",
+   "name": "user_dir",
+   "type": "Hoi3CString",
+   "comment": "`user_dir`: the folder under the user folder that becomes the write directory and the front of the search path.",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "LoadKey token 0x1A9 at 0xAAD729; read at 0xAADCF5."
+  },
+  {
+   "struct": "CModDescriptor",
+   "offset": "0xB4",
+   "name": "checksum",
+   "type": "Hoi3CString",
+   "comment": "`checksum`; no reader was looked for.",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "LoadKey token 0x1A1 at 0xAAD7A3."
+  },
+  {
+   "struct": "CModDescriptor",
+   "offset": "0xD0",
+   "name": "affects_checksum",
+   "type": "bool",
+   "comment": "`affects_checksum`, 1 by default; no reader was looked for.",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "Constructor 0xAAD24A; LoadKey token 0x1A2 at 0xAAD7C6."
+  },
+  {
+   "struct": "CModDescriptor",
+   "offset": "0xD4",
+   "name": "kind",
+   "type": "int",
+   "comment": "1 after `steam_id`, 2 after `pdx_id`, 3 after `gamersgate_id`; DlcModSettings_Scan sets 4 on every .mod after loading it. A DLC needs 1 to 4 with that kind's id.",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "0xAAD6C7, 0xAAD788, 0xAAD75B; 0xAAE616."
+  },
+  {
+   "struct": "CModDescriptor",
+   "offset": "0xD8",
+   "name": "steam_id",
+   "type": "int",
+   "comment": "`steam_id` (ParseInt).",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "0xAAD6B8."
+  },
+  {
+   "struct": "CModDescriptor",
+   "offset": "0xDC",
+   "name": "gamersgate_id",
+   "type": "int",
+   "comment": "`gamersgate_id` (ParseInt).",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "0xAAD74C."
+  },
+  {
+   "struct": "CModDescriptor",
+   "offset": "0xE0",
+   "name": "pdx_id",
+   "type": "Hoi3CString",
+   "comment": "`pdx_id`.",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "0xAAD776."
+  },
+  {
+   "struct": "CModDescriptor",
+   "offset": "0xFC",
+   "name": "dlc_enabled",
+   "type": "bool",
+   "comment": "0 from the constructor; a DLC is mounted only where it is set, and DlcModSettings_IsDlcEnabled answers it. Its writer was not found - inferred to be DlcModSettings_VerifySignatures. Not tested for mods.",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "Constructor 0xAAD275; read as node +0x124 at 0xAAD976 and 0xAAD8A3."
+  },
+  {
+   "struct": "ReplacePathEntry",
+   "offset": "0x0",
+   "name": "mount_dir",
+   "type": "Hoi3CString",
+   "comment": "The archive or path the descriptor was mounted from, backslashes made slashes; matched with strcmp against g_PhysfsSearchPath's entries, which hold the path as mounted - so a `path` written with backslashes never matches and its replace_paths do nothing.",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "RegisterReplacePath 0xA6B964-0xA6B9A4; ListFilesWithExtension 0xA6BD81-0xA6BDBD."
+  },
+  {
+   "struct": "ReplacePathEntry",
+   "offset": "0x1C",
+   "name": "replace_path",
+   "type": "Hoi3CString",
+   "comment": "One `replace_path` line, backslashes made slashes; compared with ListFilesWithExtension's `directory` by strcmp.",
+   "source": "reversing/findings/FINDINGS-modlayer.md",
+   "evidence": "RegisterReplacePath 0xA6B949-0xA6B991; ListFilesWithExtension 0xA6BD36-0xA6BD6A."
+  },
+  {
+   "struct": "GameSettings",
+   "offset": "0xC0",
+   "name": "file_name",
+   "type": "Hoi3CString",
+   "comment": "The name settings.txt is read from and written to: `settings.txt` from the constructor; main.cpp's load (VA 0xAB1E80, called at 0xA58E7C) assigns the name WinMain gives it - **the value of a `-settings=` switch where there was one**, else `settings.txt`. It is read through PhysFS (FileExists, then VirtualFile_Open) over the whole search path - the user folder first, then any mod, tfh/ and the install root - and CSystemSettings_SaveToFile opens it under PhysFS's write directory. See reversing/findings/FINDINGS-settingswindow.md, section C.4, and FINDINGS-modlayer.md.",
+   "source": "reversing/findings/FINDINGS-settingswindow.md",
+   "evidence": "WinMain 0xA58E3A-0xA58E6E: ebp-0x228 (the `settings=` value, assigned at 0xA56927) when its length is above 0, else 'settings.txt'; 0xAB1EE3 PHYSFS_exists, 0xAB1F8A VirtualFile_Open.",
+   "revises": "the 'string main holds' is the -settings= switch; adds that it is read over the search path"
+  }
+ ],
+ "vftable_slots": {
+  "CDirectorySettings": {
+   "4": "LoadKey"
+  }
+ },
+ "frontier": [
+  "0x6AD280",
+  "0x6AD2B0",
+  "0x6B0250",
+  "0x6B02C0",
+  "0x6B06B0",
+  "0x6B0420",
+  "0x6B0010",
+  "0x6B00F0",
+  "0x6B0A10",
+  "0x6B12B0",
+  "0x6AEA90",
+  "0x66C880",
+  "0x66C7D0",
+  "0x66D550",
+  "0x6AF3CB",
+  "0x10E4C0"
+ ]
+}

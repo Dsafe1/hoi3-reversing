@@ -66,7 +66,9 @@ back by subtracting 65,535 once when it passes 65,535, answered as `(a << 16) | 
 plain ASCII, so it makes no difference there. A file that does not exist adds nought.
 
 **The search path** decides which copy of a name is read: with a mod, its user folder and the mod, then `tfh/`, then the
-install, then the Documents folder (`FINDINGS-luahost.md`, section 2; the user folder's place *inferred*). The map cache
+install, then the Documents folder (`FINDINGS-luahost.md`, section 2; the user folder's place *inferred*) - **corrected
+2026-11-16** (`FINDINGS-modlayer.md`): with a mod the plain Documents folder is not mounted at all, and without one it is
+in front of `tfh/`; the user folder is `<Documents game folder>/<user_dir>`. The map cache
 lives in the Documents folder - the base game's in `Hearts of Iron III/map/cache`, a mod's in its own user folder - so
 **the checksum takes in the cache the original built**, through `time` and `adjacencies.bin`.
 

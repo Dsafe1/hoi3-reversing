@@ -58,6 +58,8 @@ append 0, so each later mount goes in front: base and `tfh` at `0xA570C1`/`0xA57
 `0xA572FD` - **the search order is the mod, then TFH, then the base game** (confirmed for the mod,
 `esi` cleared just before; for base and TFH inferred, `edi` being that function's zero register
 along the paths followed). So `script/autoexec.lua` is the mod's, else TFH's, else the base game's.
+**Corrected 2026-11-16** (`FINDINGS-modlayer.md`): the mod's user folder is mounted in front of the mod after these, so
+the order is the mod's user folder, the mod, TFH, the base game.
 
 **`require`**: the engine's searcher (`Lua_PhysfsLoader`, rva `0x4F0FE0`) at position 2, ahead of
 Lua's own path searcher, tries `script/<name>.lua`, then `script/country/<name>.lua`, then

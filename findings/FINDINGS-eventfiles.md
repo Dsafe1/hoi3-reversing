@@ -77,6 +77,10 @@ path at `scenario +0xB0` and no folder (`inferred` to be a scenario file's `even
 Decisions: `LoadDecisions` `0x998E30` has one caller, in the database stage after the casus belli
 types and the missions - read once per process.
 
+**Settled 2026-11-16** (`FINDINGS-modlayer.md`, sections 5 to 7): they do not map onto it at all - nothing in this build
+loads CDirectorySettings, `tfh/` and a mod are PhysFS mounts, and `replace_path` is a table of its own that only
+`ListFilesWithExtension` reads. What follows is the question as it stood.
+
 *Not established:* how `tfh\` and a TFH-style mod's `replace_path` map onto base, override and
 mode. The descriptor's `replace_path` token (`0x1A8`) has no compare in `.text` found by a scan
 that does find the `path` token's (`0x19C`) as a positive control - a jump-table compare would be

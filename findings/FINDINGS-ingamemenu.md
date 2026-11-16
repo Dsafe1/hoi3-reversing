@@ -443,7 +443,8 @@ where the maintainer's saves are. With a mod a second directory is mounted and m
 was found - the next 14 instructions after all 3,129 `GetGameSettings` calls and all 359 direct references to the
 singleton were searched, the same scan finding the `0x40C600` readers - and neither user folder has a `mod` subfolder, so
 on this machine the branch has not been taken. *Inferred*: were it taken, writing would fail, PhysFS's openWrite making
-no folders.
+no folders - **wrong, 2026-11-16**: VirtualFile_Open makes a write's parent folders first, and the mod's user folder is
+read, `<userdir>/<user_dir>` (`FINDINGS-modlayer.md`, sections 3 and 8).
 
 **Which files**: `ListFilesWithExtensionSorted("save games/", "hoi3", newestFirst=true)`, through
 `PHYSFS_enumerateFiles` over the whole search path - the user folder and, by PhysFS's semantics (*inferred*), the

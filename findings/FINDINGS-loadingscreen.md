@@ -158,7 +158,7 @@ height) with `DT_CENTER | DT_VCENTER`. When each is up was not read. The map edi
 - When the overlay lines show; whether a `font` block's `charset` key is read.
 - The two `CGraphics` calls in `CInGameIdler::Enter` between LOAD_GFX and LOAD_EVENTS (0x670D80, 0x670C50).
 - A lead for `FINDINGS-startup.md` §12: Ghidra puts the movie calls and `main.cpp`'s log sites in one function from VA
-  0xA56470, perhaps `main`'s entry; not recorded.
+  0xA56470, perhaps `main`'s entry; not recorded - `WinMain`, recorded since 2026-11-16 (`FINDINGS-modlayer.md`).
 
 Frontier: 0x44AFB0, 0x6B8CD0, 0x4417E0, 0x670D80, 0x670C50, 0x30D3E0, 0x240600, 0x656470.
 
