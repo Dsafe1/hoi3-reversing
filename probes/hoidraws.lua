@@ -40,6 +40,9 @@ local LUA_RAND = getAddress('lua5.1.dll') + 0x198B2
 local GAME_INDEX = b + 0x1311940
 local COMBAT_TICK = b + 0x16EBE0
 local FIRE_SHOTS = b + 0x16AF96
+-- Just after the naval patrol's centre is drawn (CAIUnit_ManageNavalUnits, `call rand` at 0x4D33E6 into the C runtime's
+-- rand at 0x797F3F, the one caller of it in the AI's code): the value in EAX, the list's size in ESI.
+local PATROL_RAND = b + 0x4D33EB
 
 local function tagOf(id)
   local arr = readInteger(readInteger(b + 0x16855A4) + 0x16C)
@@ -66,7 +69,10 @@ function hoiDraws(folder)
   hoiRunArmed = true -- hoiClearStop removes the hour's breakpoint, which is this one
   -- With hoiDrawsGameCallers the hour's pass, which only the main thread runs, is the software breakpoint: an int3 is lifted
   -- while each hit is handled, so one on ProcessAI, which the worker threads enter together, lets passes through unlogged.
-  debug_setBreakpoint(PASS, 1, bptExecute, hoiDrawsGameCallers and bpmInt3 or bpmDebugRegister, function()
+  if hoiDrawsGameCallers and hoiDrawsPatrol then
+    return 'hoiDrawsGameCallers and hoiDrawsPatrol each want the fourth debug register: set one'
+  end
+  debug_setBreakpoint(PASS, 1, bptExecute, (hoiDrawsGameCallers or hoiDrawsPatrol) and bpmInt3 or bpmDebugRegister, function()
     pcall(function()
       local tick = hoiTick()
       hdOut:write(string.format('H %d\n', tick))
@@ -132,6 +138,16 @@ function hoiDraws(folder)
     debug_continueFromBreakpoint(co_run)
     return 1
   end)
+  if hoiDrawsPatrol then
+    -- `P <esp> <rand> <list size>`: the C runtime rand() each patrol centre was drawn with. It is per thread, and the main
+    -- thread's has run since the process began, so a playback cannot make it again (FINDINGS-liveread.md, section 112).
+    debug_setBreakpoint(PATROL_RAND, 1, bptExecute, bpmDebugRegister, function()
+      debug_getContext()
+      pcall(function() hdOut:write(string.format('P %X %d %d\n', ESP, EAX, ESI)) end)
+      debug_continueFromBreakpoint(co_run)
+      return 1
+    end)
+  end
   if hoiDrawsGameCallers then
     debug_setBreakpoint(GAME_INDEX, 4, bptWrite, bpmDebugRegister, function()
       debug_getContext()
@@ -174,7 +190,7 @@ function hoiDrawsRun(n)
 end
 
 function hoiDrawsStop()
-  for _, a in ipairs({ PASS, PROCESS_AI, MT_STORE, LUA_RAND, STAGING, GAME_INDEX, COMBAT_TICK, FIRE_SHOTS }) do pcall(debug_removeBreakpoint, a) end
+  for _, a in ipairs({ PASS, PROCESS_AI, MT_STORE, LUA_RAND, STAGING, GAME_INDEX, COMBAT_TICK, FIRE_SHOTS, PATROL_RAND }) do pcall(debug_removeBreakpoint, a) end
   hoiRunArmed = false
   pcall(function() hdOut:close() end)
   return 'stopped'
