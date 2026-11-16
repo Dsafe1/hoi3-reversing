@@ -1,0 +1,282 @@
+{
+ "agent": "an OpenHOI3 session building the parts of the original's Lua API that BlackICE's scripts call and the base game's do not",
+ "question": "What each Lua method BlackICE's AI scripts reach and OpenHOI3 lacked answers: the country's variables and CSetVariableCommand, its unit list and the list's counts, its shares (CDistributionSetting) and CFixedPoint64, its free spies, subject flag and cabinet, CModifier::GetValue, the minister type database, CProvinceBuilding::GetCurrent, CSubUnitDefinition::IsTransport, CDiplomacyStatus::HasAnyAgreement, and CAIAgent::GetCountry.",
+ "source": "reversing/findings/FINDINGS-luaapi.md",
+ "addresses": [
+  {
+   "rva": "0x6B450",
+   "kind": "function",
+   "name": "CFixedPoint64::Get",
+   "signature": "float __thiscall CFixedPoint64::Get(CFixedPoint64* this)",
+   "no_signature": null,
+   "comment": "Lua `CFixedPoint64:Get()` (luabind: `float Get(fpml::fixed_point<__int64,48,15> const&)`). `fild qword [ecx]; fmul qword [0x160A2E0]` - the double 2^-15 (3.0517578125e-05) - then stored to a float on the stack and reloaded, so **the 48.15 value times 2^-15, rounded to single precision**. Bare `ret` at 0x46B465. What a share of IC or leadership reads as in a script. See reversing/findings/FINDINGS-luaapi.md, section 11.",
+   "confidence": "confirmed",
+   "evidence": "Read end to end, 0x46B450..0x46B465, int3 after; the constant at 0x160A2E0 read as a double gives 3.0517578125e-05. luabind.json pairs the Lua name Get on CFixedPoint64 with pointer 0x46B450. Wrong if the stored float were a double (the store is `fstp dword`)."
+  },
+  {
+   "rva": "0x6B470",
+   "kind": "function",
+   "name": "CFixedPoint64::GetTruncated",
+   "signature": "int __thiscall CFixedPoint64::GetTruncated(CFixedPoint64* this)",
+   "no_signature": null,
+   "comment": "Lua `CFixedPoint64:GetTruncated()` **and `GetRounded()` - one body registered under both names**: `mov eax,[ecx]; mov ecx,[ecx+4]; shrd eax,ecx,0xF; sar ecx,0xF; ret`, the value shifted down 15 places arithmetically - **toward minus infinity**, so -1/32768 gives -1 - and its low 32 bits answered. So `GetRounded` does not round. See reversing/findings/FINDINGS-luaapi.md, section 11.",
+   "confidence": "confirmed",
+   "evidence": "Five instructions read, 0x46B470..0x46B47C. luabind.json gives pointer 0x46B470 for both GetTruncated and GetRounded on CFixedPoint64. Wrong if either registration resolved elsewhere."
+  },
+  {
+   "rva": "0x14F70",
+   "kind": "function",
+   "name": "VirtualThunkSlot3",
+   "signature": null,
+   "no_signature": "A pointer-to-virtual-member thunk: `mov eax,[ecx]; jmp dword ptr [eax+0xC]` tail-jumps into slot 3 of whatever `this` is, the caller's stack and return untouched, so its signature is the slot's.",
+   "comment": "`mov eax,[ecx]; jmp dword ptr [eax+0xC]` - the pointer-to-virtual-member thunk for **slot 3**, beside VirtualThunkSlot13/14/17/18. Three references (0x40E21B, 0x466125, 0x8EC708), so class-free per trap 4. At 0x8EC707 it is pushed beside the string 'GetNeeded' (0x15EF130) in CDistributionSetting's luabind chain, with CDistributionSetting::GetBasePercentage (0x4C8920) beside 'GetPercentage' - so **Lua `CDistributionSetting:GetNeeded()` is slot 3**, each distributor's own GetNeeded (CDistributeProduction::GetNeeded 0x11A2E0 and its siblings; lend-lease, officers and espionage hold the folded WriteZeroInt64Out). See reversing/findings/FINDINGS-luaapi.md, section 11.",
+   "confidence": "confirmed",
+   "evidence": "Two instructions read; findRefs --address gives three references, the luabind one pushing it next to 'GetNeeded'. vtable.py --holding: in no table. Wrong if the string beside it at 0x8EC70C were another name."
+  },
+  {
+   "rva": "0x6BF870",
+   "kind": "function",
+   "name": "WriteZeroInt64Out",
+   "signature": "__int64* __stdcall WriteZeroInt64Out(__int64* out)",
+   "no_signature": null,
+   "comment": "`*out = 0` (both dwords) and `ret 4`, with `this` in ECX ignored - **slot 3 of 17 tables**, folded: C3dObject and its kin, CCounterObject, CUnitArrow, and the three distributors with no need, CDistributeLendLease, CDistributeNCO and CDistributeEspionage. So `GetNeeded()` on the lend-lease, officer and espionage shares is nought. Class-free per trap 4. See reversing/findings/FINDINGS-luaapi.md, section 11.",
+   "confidence": "confirmed",
+   "evidence": "Read 0xABF870..0xABF884; vtable.py --holding 0xABF870 lists 17 tables, all slot 3. Written __stdcall because nothing reads ECX; as a slot it is reached as a __thiscall with the out pointer its one stack argument. Wrong if any holder's slot 3 were not this body."
+  },
+  {
+   "rva": "0xE06A0",
+   "kind": "function",
+   "name": "CCountry::GetProductionDistributionAt",
+   "signature": "CDistributionSetting* __thiscall CCountry::GetProductionDistributionAt(CCountry* this, int index)",
+   "no_signature": null,
+   "comment": "Lua `country:GetProductionDistributionAt(i)`: `[this+0x5F4][i]`, the production share at that index in ProductionCategory's order - **unchecked**. GetLeadershipDistributionAt (0xE06C0) is the same body on +0x5E4. `ret 4`. See reversing/findings/FINDINGS-luaapi.md, section 11.",
+   "confidence": "confirmed",
+   "evidence": "Read 0x4E06A0..0x4E06B0; luabind.json gives its pointer for CCountry::GetProductionDistributionAt. Wrong if +0x5F4 were not the production vector (CLASSES.md reads it live)."
+  },
+  {
+   "rva": "0xE06E0",
+   "kind": "function",
+   "name": "CCountry::GetUnits",
+   "signature": "CUnitList* __thiscall CCountry::GetUnits(CCountry* this)",
+   "no_signature": null,
+   "comment": "Lua `country:GetUnits()`: `lea eax,[ecx+0xBAC]; ret` - the country's unit list itself, every level of it (CCountry +0xBAC units), by reference. See reversing/findings/FINDINGS-luaapi.md, section 11.",
+   "confidence": "confirmed",
+   "evidence": "Two instructions read. luabind.json: `CUnitList& GetUnits(CCountry&)` at this pointer. Wrong if +0xBAC were not the units list (FINDINGS-liveread.md section 165 reads it live)."
+  },
+  {
+   "rva": "0xCCD40",
+   "kind": "function",
+   "name": "CCountry::GetVariables",
+   "signature": "CVariables* __thiscall CCountry::GetVariables(CCountry* this)",
+   "no_signature": null,
+   "comment": "Lua `country:GetVariables()`: `lea eax,[ecx+0x1AC]; ret` - the country's CVariables, by reference, beside CCountry::GetFlags (0xCCD30, +0x180). Named in FINDINGS-commands.md's prose and not recorded until now. See reversing/findings/FINDINGS-luaapi.md, section 11.",
+   "confidence": "confirmed",
+   "evidence": "Two instructions read; luabind.json: `CVariables& GetVariables(CCountry&)` at this pointer. Wrong if luabind's pointer for GetVariables differed."
+  },
+  {
+   "rva": "0x1187E0",
+   "kind": "function",
+   "name": "CCountry::GetNumberOfFreeSpies",
+   "signature": "int __thiscall CCountry::GetNumberOfFreeSpies(CCountry* this)",
+   "no_signature": null,
+   "comment": "Lua `country:GetNumberOfFreeSpies()`: spy_pool (+0x1170, thousandths) divided by 1000 by the magic 0x10624DD3 with `sar 6` and the sign bit added - **whole spies, cut toward nought**. Bare `ret`. See reversing/findings/FINDINGS-luaapi.md, section 11.",
+   "confidence": "confirmed",
+   "evidence": "Read 0x5187E0..0x5187F7; 0x10624DD3 >> 38 is the signed division by 1000. luabind.json pointer. Wrong if +0x1170 were not the pool (project.json names it spy_pool off CDistributeEspionage::Distribute)."
+  },
+  {
+   "rva": "0xEDEA0",
+   "kind": "function",
+   "name": "CCountry::IsSubject",
+   "signature": "bool __thiscall CCountry::IsSubject(CCountry* this)",
+   "no_signature": null,
+   "comment": "`mov al,[ecx+0xF34]; ret` - isSubject. **Registered to Lua twice, as `IsSubject` and as `IsPuppet`**: the same body, so the two answer the same everywhere. See reversing/findings/FINDINGS-luaapi.md, section 11.",
+   "confidence": "confirmed",
+   "evidence": "Two instructions; luabind.json gives pointer 0x4EDEA0 for both CCountry IsSubject and CCountry IsPuppet. Wrong if one of the two registrations resolved elsewhere."
+  },
+  {
+   "rva": "0x105CF0",
+   "kind": "function",
+   "name": "CCountry::GetMinisters",
+   "signature": "CMinister** __thiscall CCountry::GetMinisters(CCountry* this)",
+   "no_signature": null,
+   "comment": "Lua `country:GetMinisters()`, an iterator: `lea eax,[ecx+0x618]; ret` - the cabinet, one CMinister* per government position by the position's index, walked in that order. What stands at index 0, the null post, was not read; BlackICE's ai_variable.lua skips it as `noMinisterType` (inferred: a minister object, since the iterator stops at a null). See reversing/findings/FINDINGS-luaapi.md, section 11.",
+   "confidence": "confirmed",
+   "evidence": "Two instructions; luabind.json: `CArray<CMinister *>& GetMinisters(CCountry&)`, return_clausewitz_iterator. The body is confirmed; the content of slot 0 is not."
+  },
+  {
+   "rva": "0xC8360",
+   "kind": "function",
+   "name": "CSubUnitDefinition::IsTransport",
+   "signature": "bool __thiscall CSubUnitDefinition::IsTransport(CSubUnitDefinition* this)",
+   "no_signature": null,
+   "comment": "Lua `subunit:IsTransport()`: `mov al,[ecx+0x30]; ret` - is_transport, the units file's `transport = yes`. CUnitList::GetTotalNumOfWarShips and GetTotalNumOfTransports test the same byte inline. See reversing/findings/FINDINGS-luaapi.md, section 11.",
+   "confidence": "confirmed",
+   "evidence": "Two instructions; luabind.json pointer; in no vftable. Wrong if luabind's pointer for IsTransport differed."
+  },
+  {
+   "rva": "0x17A60",
+   "kind": "function",
+   "name": "CProvinceBuilding::GetCurrent",
+   "signature": "CFixedPoint* __thiscall CProvinceBuilding::GetCurrent(CProvinceBuilding* this, CFixedPoint* out)",
+   "no_signature": null,
+   "comment": "Lua `provinceBuilding:GetCurrent()`: `*out = this->level_current (+0x24)`, `ret 4` - **the working level**, what bombs have left; the next body, 0x17A70, reads +0x20, the level built, which luabind registers as GetMax. See reversing/findings/FINDINGS-luaapi.md, section 11.",
+   "confidence": "confirmed",
+   "evidence": "Read 0x417A60..0x417A6C; luabind.json pointer. Wrong if +0x24 were not level_current (FINDINGS-bombing.md)."
+  },
+  {
+   "rva": "0x179E0",
+   "kind": "function",
+   "name": "CModifier::GetValue",
+   "signature": "CFixedPoint* __thiscall CModifier::GetValue(CModifier* this, CFixedPoint* out, int type)",
+   "no_signature": null,
+   "comment": "Lua `modifier:GetValue(type)`: `*out = [this+0x18][type * 8]` (trap 5: an 8-byte entry per kind), `ret 8`, **no range check**. The number is the kind's place in the original's list of modifier kinds - the `ModifierType` enum registered on CModifier, `_MODIFIER_MINIMUM_REVOLT_RISK_` 0 to `_MODIFIER_OFFICER_RECRUITMENT_` 82, **57 (threat_resistance) left out of the registration** and 79 spelled `_MODIFIER_PARTISAN_EFFICENCY_`. See reversing/findings/FINDINGS-luaapi.md, section 11.",
+   "confidence": "confirmed",
+   "evidence": "Read 0x4179E0..0x4179F2; luabind.json pointer and the CModifier enum (82 names, 0..82 without 57). Wrong if a kind's place in the startup list differed from its enum value - checked against the 83 kinds in order, each name matching but 57 and the misspelt 79."
+  },
+  {
+   "rva": "0x4EA500",
+   "kind": "function",
+   "name": "CMinisterTypeDataBase::GetMinisterTypeList",
+   "signature": "void* __cdecl CMinisterTypeDataBase::GetMinisterTypeList(void)",
+   "no_signature": null,
+   "comment": "Lua `CMinisterTypeDataBase.GetMinisterTypeList()`, an iterator: makes g_minister_types (0x16879D0) where it is null, as GetMinisterTypes (0x12B140) does, and answers its +0xC array - the types in database order, the null type `noMinisterType` first. Bare `ret`. See reversing/findings/FINDINGS-luaapi.md, section 11.",
+   "confidence": "confirmed",
+   "evidence": "Read 0x8EA500..0x8EA562; the lazy-make block is GetMinisterTypes' instruction for instruction. luabind.json: `CArray<CMinisterType *>& GetMinisterTypeList()`. The null type at index 0 rests on GetMinisterTypes' record (read live), not on this reading."
+  },
+  {
+   "rva": "0x4EA570",
+   "kind": "function",
+   "name": "CMinisterTypeDataBase::GetMinisterType",
+   "signature": "CMinisterType* __cdecl CMinisterTypeDataBase::GetMinisterType(char* name)",
+   "no_signature": null,
+   "comment": "Lua `CMinisterTypeDataBase.GetMinisterType(name)`: the name made a string, the database made where null, and CNameDataBase::GetByName (0x12A5F0) - a hash of the bytes and an exact compare, **case and all** - answering the type or null. Bare `ret`. See reversing/findings/FINDINGS-luaapi.md, section 11.",
+   "confidence": "confirmed",
+   "evidence": "Read 0x8EA570..0x8EA61E; GetByName's loop `add eax, byte; imul eax, 0x3D` over the raw bytes and its compare read at 0x52A5F0..0x52A66E. Wrong if GetByName folded case somewhere past the compare."
+  },
+  {
+   "rva": "0x4EA620",
+   "kind": "function",
+   "name": "CMinisterTypeDataBase::GetNumberOfMinisterTypes",
+   "signature": "int __cdecl CMinisterTypeDataBase::GetNumberOfMinisterTypes(void)",
+   "no_signature": null,
+   "comment": "Lua `CMinisterTypeDataBase.GetNumberOfMinisterTypes()`: the database made where null, then (+0x10 - +0xC) >> 2 - the count of its array, the null type included. See reversing/findings/FINDINGS-luaapi.md, section 11.",
+   "confidence": "confirmed",
+   "evidence": "Read 0x8EA620..0x8EA687. luabind.json pointer."
+  },
+  {
+   "rva": "0x49C700",
+   "kind": "function",
+   "name": "CAIAgent::GetCountry",
+   "signature": "CCountry* __thiscall CAIAgent::GetCountry(CAIAgent* this)",
+   "no_signature": null,
+   "comment": "Lua `agent:GetCountry()`, on every minister the scripts are handed (each a CAIAgent): `add ecx,0x34; call CCountryTag::GetCountry` - the country of the agent's own tag (+0x34, which GetCountryTag 0x487FA0 copies). See reversing/findings/FINDINGS-luaapi.md, section 11.",
+   "confidence": "confirmed",
+   "evidence": "Five instructions read; luabind.json registers it on CAIAgent, the base of the politics, espionage, tech, production and foreign ministers. Wrong if 0x402610 were not CCountryTag::GetCountry."
+  },
+  {
+   "rva": "0x64A620",
+   "kind": "function",
+   "name": "CDiplomacyStatus::HasAnyAgreement",
+   "signature": "bool __thiscall CDiplomacyStatus::HasAnyAgreement(CDiplomacyStatus* this)",
+   "no_signature": null,
+   "comment": "Lua `status:HasAnyAgreement()`: true at the first of alliance (+0x14), military access (+0x4C), a vassal bond with the target second (0x648A80) or first (0x648AD0), guaranteeing (0x648730), guaranteed (0x648760) - HasFriendlyAgreement's five tests - **and a war (+0x20)**. So a pair at war has an agreement. Bare `ret`. See reversing/findings/FINDINGS-luaapi.md, section 11.",
+   "confidence": "confirmed",
+   "evidence": "Read 0xA4A620..0xA4A673, every test and both exits. Wrong if +0x20 were not the war pointer (SetPairWar writes it)."
+  },
+  {
+   "rva": "0x64A730",
+   "kind": "function",
+   "name": "CDiplomacyStatus::IsAligning",
+   "signature": "bool __thiscall CDiplomacyStatus::IsAligning(CDiplomacyStatus* this)",
+   "no_signature": null,
+   "comment": "Lua `status:IsAligning()`: `+0x30 != 0` - the holder runs an alignment drift against the other (CDiplomacyStatus +0x30 align, one direction only). Read on the way; BlackICE's IsAligning is a Lua helper of its own and does not call it. See reversing/findings/FINDINGS-luaapi.md, section 11.",
+   "confidence": "confirmed",
+   "evidence": "Four instructions read; luabind.json pointer."
+  },
+  {
+   "rva": "0x1D5C20",
+   "kind": "function",
+   "name": "CUnitList::GetTotalAmountOfDivisions",
+   "signature": "int __thiscall CUnitList::GetTotalAmountOfDivisions(CUnitList* this)",
+   "no_signature": null,
+   "comment": "Lua `units:GetTotalAmountOfDivisions()`: over the list, the units whose slot 15 (IsLand) answers true **and whose regiments_count (+0x40) is above 1** - a land unit of two brigades or more, at whatever level; a one-brigade division and a headquarters of only its own brigade are not counted. Bare `ret`. See reversing/findings/FINDINGS-luaapi.md, section 11.",
+   "confidence": "confirmed",
+   "evidence": "Read 0x5D5C20..0x5D5C52: `cmp [edi+0x40],1; jle` after the slot 15 call. Wrong if the compare were against another field."
+  },
+  {
+   "rva": "0x1D5C60",
+   "kind": "function",
+   "name": "CUnitList::GetTotalAmountOfArmies",
+   "revises": "luabind.json registers this body as CUnitList:GetTotalAmountOfArmies, the game's own name, which settles the record's 'likely' name CountLandUnitsInList; the body's reading is unchanged - the count of the list's land units, every level - and the convention is __thiscall like its siblings",
+   "signature": "int __thiscall CUnitList::GetTotalAmountOfArmies(CUnitList* this)",
+   "no_signature": null,
+   "comment": "Lua `units:GetTotalAmountOfArmies()` - **whatever the name, the count of every land unit in the list** (slot 15, IsLand), divisions and headquarters alike. Body 0x5D5C60-0x5D5C89, bare ret, receiver in ECX. One direct caller, CProvince::HasHostileLandNeighbour (0x4A5793), which hands it &neighbour->units (CProvince +0x2B8). Was CountLandUnitsInList, a name of ours, until luabind.json gave the game's. See reversing/findings/FINDINGS-luaapi.md, section 11.",
+   "confidence": "confirmed",
+   "evidence": "luabind.json: GetTotalAmountOfArmies on CUnitList at pointer 0x5D5C60. The body re-read: slot 0x3C call, `inc edi` on true. Wrong if luabind's pointer resolved elsewhere."
+  },
+  {
+   "rva": "0x1D5CC0",
+   "kind": "function",
+   "name": "CUnitList::GetTotalNumOfShips",
+   "signature": "int __thiscall CUnitList::GetTotalNumOfShips(CUnitList* this)",
+   "no_signature": null,
+   "comment": "Lua `units:GetTotalNumOfShips()`: regiments_count (+0x40) summed over the list's units answering slot 16 (IsNaval) - every ship of every fleet. Bare `ret`. See reversing/findings/FINDINGS-luaapi.md, section 11.",
+   "confidence": "confirmed",
+   "evidence": "Read 0x5D5CC0..0x5D5CEE; luabind.json pointer."
+  },
+  {
+   "rva": "0x1D5CF0",
+   "kind": "function",
+   "name": "CUnitList::GetTotalNumOfPlanes",
+   "revises": "luabind.json registers this body as CUnitList:GetTotalNumOfPlanes, the game's own name, replacing ours (UnitList_CountAirSubUnits); and the comment's 'the next function, 0x1D5D20, opens as its naval twin' is corrected - the naval twin is the function before it, 0x1D5CC0 GetTotalNumOfShips, and 0x1D5D20 is GetTotalNumOfWarShips, which counts ships one by one",
+   "signature": "int __thiscall CUnitList::GetTotalNumOfPlanes(CUnitList* this)",
+   "no_signature": null,
+   "comment": "Lua `units:GetTotalNumOfPlanes()`. **The wings of the air units in a list**: walks a CList<CUnit*> (ECX the list; nodes {unit, -, next at +8}) and sums regiments_count (+0x40) over every unit answering slot 17 (IsAir). Bare `ret`. Seven callers; CUnit_CanTakeSubUnit asks it of a carrier's base (CUnitBaseCarrier +4) for the wings already on the carrier. Its naval twin is the function before it, GetTotalNumOfShips (0x1D5CC0); the next, 0x1D5D20, is GetTotalNumOfWarShips. Was UnitList_CountAirSubUnits until luabind.json gave the game's name. See reversing/findings/FINDINGS-reorgwindow.md, section B, and reversing/findings/FINDINGS-luaapi.md, section 11.",
+   "confidence": "confirmed",
+   "evidence": "luabind.json: GetTotalNumOfPlanes on CUnitList at pointer 0x5D5CF0; body re-read, slot 0x44. Wrong if luabind's pointer resolved elsewhere."
+  },
+  {
+   "rva": "0x1D5D20",
+   "kind": "function",
+   "name": "CUnitList::GetTotalNumOfWarShips",
+   "signature": "int __thiscall CUnitList::GetTotalNumOfWarShips(CUnitList* this)",
+   "no_signature": null,
+   "comment": "Lua `units:GetTotalNumOfWarShips()`: over the list's units answering slot 16 (IsNaval), each of the unit's own regiments (+0x38) that answers CSubUnit slot 10 (IsNaval) and whose definition (+0x58) has is_transport (+0x30) clear. Bare `ret`. GetTotalNumOfTransports (0x1D5DA0) is the same with is_transport set. See reversing/findings/FINDINGS-luaapi.md, section 11.",
+   "confidence": "confirmed",
+   "evidence": "Read 0x5D5D20..0x5D5D92: `cmp byte [ecx+0x30],0; jne` skips a transport. Wrong if +0x58 were not the definition."
+  },
+  {
+   "rva": "0x1D5DA0",
+   "kind": "function",
+   "name": "CUnitList::GetTotalNumOfTransports",
+   "signature": "int __thiscall CUnitList::GetTotalNumOfTransports(CUnitList* this)",
+   "no_signature": null,
+   "comment": "Lua `units:GetTotalNumOfTransports()`: GetTotalNumOfWarShips (0x1D5D20) with the test turned round - the naval regiments of naval units whose definition has is_transport (+0x30) set. Bare `ret`. See reversing/findings/FINDINGS-luaapi.md, section 11.",
+   "confidence": "confirmed",
+   "evidence": "Read 0x5D5DA0..0x5D5E12: `cmp byte [ecx+0x30],0; je` skips a warship."
+  },
+  {
+   "rva": "0x1D6380",
+   "kind": "function",
+   "name": "CUnitList::GetCount",
+   "signature": "int __thiscall CUnitList::GetCount(CUnitList* this, CSubUnitDefinition* definition)",
+   "no_signature": null,
+   "comment": "Lua `units:GetCount(definition)`: over every unit of the list, whatever its kind, the regiments (+0x38) whose definition (+0x58) is the one given, compared by pointer. `ret 4`. See reversing/findings/FINDINGS-luaapi.md, section 11.",
+   "confidence": "confirmed",
+   "evidence": "Read 0x5D6380..0x5D63B9."
+  },
+  {
+   "rva": "0x76F60",
+   "kind": "function",
+   "name": "CVariables::GetValue",
+   "revises": "The comment said the create-on-read reaches the game only through CVariableTrigger::Evaluate because there are no direct callers; luabind.json registers this body as Lua `CVariables:GetVariable`, so every script read of a variable makes it too - a reach the comment denied",
+   "signature": "int* __thiscall CVariables::GetValue(CVariables* this, int* out, Hoi3CString* name)",
+   "no_signature": null,
+   "comment": "**The generic read of a script variable, and it creates the variable it fails to find.** 0x476F60 to two `ret 8` at 0x476F81 and 0x476F9F, 21 instructions read end to end, eleven int3 before and fourteen after.\n\n    v = this->slot1(name)                 ; GuiTypeTree_FindByString\n    if (v) { *out = v->value (+0x1C); return out }\n    CVariables::AddVariable(this@EDI, name, 0)\n    *out = 0; return out\n\n**It is Lua's `CVariables:GetVariable(name)`** (luabind.json), so it has no direct callers in the image and is reached by every script that reads a country's variable - BlackICE's AI reads them by the hundred. Corrected 2026-11-16: this said the create-on-read reached the game only through `CVariableTrigger::Evaluate`, which does the same thing inline. A variable made so is at 0 and CVariables::SaveContents leaves a 0 out, so nothing in the game or the save tells it from one never made. See reversing/findings/FINDINGS-luaapi.md, section 11.",
+   "confidence": "confirmed",
+   "evidence": "luabind.json: GetVariable on CVariables at pointer 0x476F60. Wrong if that pointer were another body."
+  }
+ ],
+ "struct_fields": [],
+ "frontier": []
+}

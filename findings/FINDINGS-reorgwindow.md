@@ -361,6 +361,6 @@ said "with a base, the same base".
 
 - Whether a carrier's air groups are on its own `CUnitBaseCarrier +4` list, which is what makes the double count real.
 - The split helper `0x1EB620`, `0x339CA0` (the drop handler's caller), `0x739BC0`, `0x336810`, `0x33BAF0`, and `0x1D5D20`
-  (the naval twin of `UnitList_CountAirSubUnits`) - all in the fragment's `frontier`.
+  (`UnitList_CountAirSubUnits`, now `CUnitList::GetTotalNumOfPlanes`, whose naval twin is in fact `0x1D5CC0`, `FINDINGS-luaapi.md` section 11) - all in the fragment's `frontier`.
 - `CUnit +0x98 home_base_ptr`'s comment still says "its class has not been identified"; it is a `CUnitBase*`, a province
   base or a carrier base, and the record has no `CUnitBase` struct to type it with.

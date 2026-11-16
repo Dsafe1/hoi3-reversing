@@ -741,7 +741,7 @@ The record's `CProvince::HasHostileLandNeighbour` (`likely`) under its Lua name,
 - The first neighbour left whose controller is an enemy of this province's controller answers **true** - an enemy by
   `CCountry::IsEnemy` (rva `0x2F210`): at war; either side `REB`; or an undeclared war between the two whose regions
   include **this** province.
-- With the flag set, that neighbour must also hold at least one land unit, anybody's (`CountLandUnitsInList`), or the walk
+- With the flag set, that neighbour must also hold at least one land unit, anybody's (`CUnitList::GetTotalAmountOfArmies`), or the walk
   goes on.
 
 The script passes `false`, so to it a front province is one touching enemy-held land by land or by a strait, held or not.

@@ -232,3 +232,69 @@ being "instruction for instruction" it, `FINDINGS-survivors.md`); a `CFixedPoint
 `CFixedPoint(float)` constructor; the policy `apply` functions beyond the closure each pushes; the
 `CResourceValues` constructor; which registration uses which of the 21 `next` closures beyond the
 four named.
+
+## 11. What BlackICE's scripts reach besides
+
+*Read 2026-11-16 for OpenHOI3, from BlackICE's AI scripts against `luabind.json`; fragment `lua-api-blackice.json`. Every
+pointer from the registration, every body read. `GetUnits`, `IsSubject`/`IsPuppet` and the unit list's counts were checked
+off the listing by the collecting session. Addresses are virtual unless marked rva.*
+
+**The country's variables.** `CCountry::GetVariables` (rva `0xCCD40`) is `lea eax,[ecx+0x1AC]`. Lua's
+`CVariables:GetVariable(name)` is `CVariables::GetValue` (rva `0x76F60`), which has no direct caller in the image and
+**creates a variable it does not find, at 0** - so every script read creates the variable, not `check_variable` alone. A 0
+is never saved (`CVariables::SaveContents`), so nothing can tell a created variable from an absent one.
+`CSetVariableCommand(tag, CString const&, CFixedPoint)` is the command `FINDINGS-commands.md` reads: it finds the variable,
+setting `+0x1C` on a hit and calling `AddVariable` on a miss.
+
+**The unit list.** `CCountry::GetUnits` (rva `0xE06E0`) is `lea eax,[ecx+0xBAC]`: the country's list at every level. Its
+counts ask each unit only its own slot and its own `regiments_count` (+0x40):
+
+| method | rva | counts |
+| --- | --- | --- |
+| GetTotalAmountOfDivisions | 0x1D5C20 | land units with +0x40 **> 1** (one-brigade divisions left out, headquarters of several in) |
+| GetTotalAmountOfArmies | 0x1D5C60 | every land unit |
+| GetTotalNumOfRegiments | 0x1D5C90 | the +0x40 of the land units, summed |
+| GetTotalNumOfShips | 0x1D5CC0 | the +0x40 of the naval units, summed |
+| GetTotalNumOfPlanes | 0x1D5CF0 | the +0x40 of the air units, summed |
+| GetTotalNumOfWarShips / ...Transports | 0x1D5D20 / 0x1D5DA0 | the naval units' regiments that are naval (CSubUnit slot 10) and whose definition's is_transport (+0x30) is clear / set |
+| GetCount(def) | 0x1D6380 | every unit's regiments whose definition (+0x58) is that pointer |
+| GetTotalStrength | 0x1D6420 | recorded already |
+
+**The shares.** `GetProductionDistributionAt` (rva `0xE06A0`) reads `[+0x5F4][i]` unchecked, the twin of
+`GetLeadershipDistributionAt` on +0x5E4. `GetPercentage` is `GetBasePercentage` (+8). `GetNeeded` is `VirtualThunkSlot3`
+(rva `0x14F70`), which luabind pairs with the string 'GetNeeded' - each distributor's slot 3, all recorded already; lend-lease,
+NCO and espionage hold the folded `WriteZeroInt64Out` (rva `0x6BF870`, 17 tables). Every need in thousandths is converted by
+`x << 30 / 0x1F40000` - `x * 32768 / 1000`, truncated by `__alldiv` - and research's is `count << 15`.
+
+**CFixedPoint64**, the 48.15 kind: `Get` (rva `0x6B450`) is `fild qword; fmul 2^-15` (the double at `0x160A2E0`), stored as a
+float; `GetTruncated` and **`GetRounded` are one body** (rva `0x6B470`), `shrd/sar 15`, toward minus infinity - `GetRounded`
+does not round.
+
+**Others.**
+- `GetNumberOfFreeSpies` (rva `0x1187E0`): spy_pool (+0x1170) / 1000 by the magic `0x10624DD3`, toward zero.
+- **`IsSubject` and `IsPuppet` are one body** (rva `0xEDEA0`): `+0xF34`.
+- `GetMinisters` (rva `0x105CF0`): `lea +0x618`; element 0 not read.
+- `CSubUnitDefinition::IsTransport` (rva `0xC8360`): `+0x30`.
+- `CProvinceBuilding::GetCurrent` (rva `0x17A60`): `+0x24`, the working level; `0x17A70` is GetMax at +0x20.
+- `CModifier::GetValue` (rva `0x179E0`): `[+0x18][type*8]`, unchecked. The `ModifierType` enum is the place in the start-up
+  list of modifier kinds, 0..82; **57 (`threat_resistance`) is not registered**, and 79 is spelled
+  `_MODIFIER_PARTISAN_EFFICENCY_`.
+- `CMinisterTypeDataBase`: GetMinisterTypeList, GetMinisterType and GetNumberOfMinisterTypes (rva `0x4EA500`, `0x4EA570`,
+  `0x4EA620`) each make `g_minister_types` on first use, as `GetMinisterTypes` does, and answer its +0xC array, null type
+  first, and its count. `GetMinisterType` is `CNameDataBase::GetByName`: a byte hash (x61) and an exact compare, case and all.
+- `CAIAgent::GetCountry` (rva `0x49C700`) is `CCountryTag::GetCountry` on +0x34, and every minister has it.
+- `CDiplomacyStatus::HasAnyAgreement` (rva `0x64A620`) is `HasFriendlyAgreement`'s five tests **or `+0x20`, the war**;
+  `IsAligning` (rva `0x64A730`) is `+0x30 != 0`.
+
+**A null definition is not refused.** `IsUnitAvailable` (rva `0x133020`), `CountMaxUnitsStillBuildable` (rva `0xE13A0`) and
+`CCountry::GetBuildCostIC` (rva `0xE18F0`) read `def->+0x24` (and `+0xF8`) at once, so a script that passes nil - which
+luabind turns into a null pointer - faults the process. BlackICE's production scripts name four unit types it does not
+declare (`armored_engineers_brigade` and its `ss_` kind, `improved_police_brigade`, `mot_aa_brigade`).
+
+**Corrections to the record:** `0x76F60`'s comment had create-on-read reach the game only through `CVariableTrigger` - Lua
+reaches it too; `0x1D5C60` and `0x1D5CF0` take the game's Lua names (`CUnitList::GetTotalAmountOfArmies`,
+`CUnitList::GetTotalNumOfPlanes`, from `CountLandUnitsInList` and `UnitList_CountAirSubUnits`); `0x1D5CF0`'s naval twin is
+`0x1D5CC0`, not `0x1D5D20`.
+
+**Not read:** what `GetMinisters`' element 0 holds; luabind's own nil-to-pointer conversion (taken from luabind 0.8's pointer
+converter, not from the bytes).

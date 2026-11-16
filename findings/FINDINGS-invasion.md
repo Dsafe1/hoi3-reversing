@@ -392,7 +392,7 @@ for each edge e {
     if (!IsEnemy(countries[nb->controller_id]@ESI, &this->controller@EDX, this@EDI))
                                                   continue
     if (!requireGarrison)                        return true
-    if (CountLandUnitsInList(&nb->units (+0x2B8)) > 0)  return true
+    if (CUnitList::GetTotalAmountOfArmies(&nb->units (+0x2B8)) > 0)  return true
 }
 return false
 ```
@@ -407,7 +407,7 @@ The `mov esi, [esp+0x1C]` at `0x4A579C` is a reload of the clobbered loop bound,
 | `!0x4A56B0(province, 0)` required for the four hardcoded theatre seats in `BuildTheatres` | a theatre HQ does not sit on the front line |
 | false is an early `false` in `CAIInvasion::UnitCanReachObjectiveOverland` | a unit not in contact with any enemy by land is not going to march to the objective |
 
-`CountLandUnitsInList` (`0x5D5C60`, rva `0x1D5C60`, bare `ret`, receiver in `ECX`) is its one helper and has exactly one caller: it walks the list and counts members whose `[vft+0x3C]` answers true, and `project.json`'s `vftable_slots` has `CUnit` slot 15 as `IsLand`. So the second argument means **"and that neighbour must have a land unit standing in it"**. `0x5D5C90` is a separate function of the same shape.
+`CUnitList::GetTotalAmountOfArmies` (named `CountLandUnitsInList` until 2026-11-16, `FINDINGS-luaapi.md` section 11; `0x5D5C60`, rva `0x1D5C60`, bare `ret`, receiver in `ECX`) is its one helper and has exactly one caller: it walks the list and counts members whose `[vft+0x3C]` answers true, and `project.json`'s `vftable_slots` has `CUnit` slot 15 as `IsLand`. So the second argument means **"and that neighbour must have a land unit standing in it"**. `0x5D5C90` is a separate function of the same shape.
 
 `CCountry::IsEnemy` at the call site takes its receiver in `ESI`, the tag in `EDX` and — the operand `FINDINGS-theatre2.md` noted but did not identify — **a `CProvince*` in `EDI`**, which here is `this`. Reading `0x42F210` through settles that third operand for good: it is only used in the undeclared-war branch of §4, and `project.json` already has the convention right.
 
