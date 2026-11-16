@@ -21,7 +21,11 @@
 -- it frees watches the game's generator's index (g_random_index, 0x1311940) for writes, which every one of its draws makes
 -- (19 functions draw inline): a line `D <rva after the store> <caller rva>` each - the caller [ESP+8] where the store is
 -- MT19937Next's (0x6A2BE2), Random (0x6A2F80) tail-jumping into it - and `B <tick> <province>` as each battle's hour begins
--- (CCombat::Tick, 0x16EBE0, int3). The playback's reader passes over both.
+-- (CCombat::Tick, 0x16EBE0, int3), and `F ...` for each land unit's shots in an hour (CLandCombatant::FireUnit, int3,
+-- below). The playback's reader passes over all three. **But in this mode the AI's draws are not filed reliably**: with
+-- ProcessAI on an int3 some passes' draws land under another country, `---` among them (two recordings of 2026-11-16,
+-- where Germany's `destiny` decision draw went astray and its +20% attack with it), so such a recording measures the
+-- game's generator and the battles and not the AI; record the AI's draws with the default four debug registers.
 local b = hoiB
 local PASS = b + 0x282630
 local PROCESS_AI = b + 0x4894E0
@@ -35,6 +39,7 @@ local STAGING = b + 0x496FBC
 local LUA_RAND = getAddress('lua5.1.dll') + 0x198B2
 local GAME_INDEX = b + 0x1311940
 local COMBAT_TICK = b + 0x16EBE0
+local FIRE_SHOTS = b + 0x16AF96
 
 local function tagOf(id)
   local arr = readInteger(readInteger(b + 0x16855A4) + 0x16C)
@@ -141,6 +146,19 @@ function hoiDraws(folder)
       debug_continueFromBreakpoint(co_run)
       return 1
     end)
+    -- Each land unit's shots for the hour, once CLandCombatant::FireUnit has worked them out (0x16AF96, the count in EDI
+    -- after the chance at one more): the attacker (ESI), the target it drew ([ESP+8]), the shots, and the attacker's two
+    -- attack products (+0xEC, +0xF4). `F <tick> <attacker +0x14> <target +0x14> <shots> <+0xEC> <+0xF4>`.
+    debug_setBreakpoint(FIRE_SHOTS, 1, bptExecute, bpmInt3, function()
+      debug_getContext()
+      pcall(function()
+        local t = readInteger(ESP + 8)
+        hdOut:write(string.format('F %d %d %d %d %d %d\n', hoiTick(), readInteger(ESI + 0x14) or -1,
+          (t and t ~= 0) and readInteger(t + 0x14) or -1, EDI, readInteger(ESI + 0xEC) or -1, readInteger(ESI + 0xF4) or -1))
+      end)
+      debug_continueFromBreakpoint(co_run)
+      return 1
+    end)
   end
   return 'armed'
 end
@@ -154,7 +172,7 @@ function hoiDrawsRun(n)
 end
 
 function hoiDrawsStop()
-  for _, a in ipairs({ PASS, PROCESS_AI, MT_STORE, LUA_RAND, STAGING, GAME_INDEX, COMBAT_TICK }) do pcall(debug_removeBreakpoint, a) end
+  for _, a in ipairs({ PASS, PROCESS_AI, MT_STORE, LUA_RAND, STAGING, GAME_INDEX, COMBAT_TICK, FIRE_SHOTS }) do pcall(debug_removeBreakpoint, a) end
   hoiRunArmed = false
   pcall(function() hdOut:close() end)
   return 'stopped'
