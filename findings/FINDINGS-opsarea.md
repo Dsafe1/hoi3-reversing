@@ -521,7 +521,7 @@ three passes:
 
 `GetSubUnitDefinitionCombatValue` (rva `0x1A8690`) is already `confirmed` in the record as "**what one brigade type is worth to the AI**", out of the definition's own stats. So:
 
-- **`CCountry +0xCC` is the country's total brigade combat value**, summed over every brigade, ship and wing it commands including expeditionary units lent to it and finished-but-unplaced deployments, in the same units `GetSubUnitDefinitionCombatValue` produces — thousandths.
+- **`CCountry +0xCC` is the country's total brigade combat value**, summed over every brigade, ship and wing it commands - not the expeditionary units lent to it, but those it has lent to a member of its own faction (corrected 2026-11-16, FINDINGS-liveread.md section 107) - and finished-but-unplaced deployments, in the same units `GetSubUnitDefinitionCombatValue` produces — thousandths.
 - `CCountry +0xC8` is the total number of regiments/ships/wings, x1000 (`CUnit +0x40` is the record's `regiments_count`).
 - `CCountry +0xD0` is the **officers those brigades require**, the sum of each definition's `officers`, which puts it directly beside the `officers` pool at `+0xC4`.
 - `CCountry +0x108C` counts the land brigades in service — those under a unit the land predicate (unit slot 15) accepts, counting reserves only while the country is mobilised.
