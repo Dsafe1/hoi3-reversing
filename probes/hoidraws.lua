@@ -69,9 +69,10 @@ function hoiDraws(folder)
   hoiRunArmed = true -- hoiClearStop removes the hour's breakpoint, which is this one
   -- With hoiDrawsGameCallers the hour's pass, which only the main thread runs, is the software breakpoint: an int3 is lifted
   -- while each hit is handled, so one on ProcessAI, which the worker threads enter together, lets passes through unlogged.
-  if hoiDrawsGameCallers and hoiDrawsPatrol then
-    return 'hoiDrawsGameCallers and hoiDrawsPatrol each want the fourth debug register: set one'
-  end
+  -- With both modes the game generator's watch takes the fourth debug register and the patrol's draw is an int3: whole for
+  -- the passes the main thread runs (Germany, Britain, the Soviet Union, the United States), possibly short a draw for a
+  -- country whose pass enters on a worker thread while another's is being logged.
+  local patrolMode = (hoiDrawsGameCallers and hoiDrawsPatrol) and bpmInt3 or bpmDebugRegister
   debug_setBreakpoint(PASS, 1, bptExecute, (hoiDrawsGameCallers or hoiDrawsPatrol) and bpmInt3 or bpmDebugRegister, function()
     pcall(function()
       local tick = hoiTick()
@@ -141,7 +142,7 @@ function hoiDraws(folder)
   if hoiDrawsPatrol then
     -- `P <esp> <rand> <list size>`: the C runtime rand() each patrol centre was drawn with. It is per thread, and the main
     -- thread's has run since the process began, so a playback cannot make it again (FINDINGS-liveread.md, section 112).
-    debug_setBreakpoint(PATROL_RAND, 1, bptExecute, bpmDebugRegister, function()
+    debug_setBreakpoint(PATROL_RAND, 1, bptExecute, patrolMode, function()
       debug_getContext()
       pcall(function() hdOut:write(string.format('P %X %d %d\n', ESP, EAX, ESI)) end)
       debug_continueFromBreakpoint(co_run)
