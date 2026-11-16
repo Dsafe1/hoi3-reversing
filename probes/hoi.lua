@@ -156,7 +156,9 @@ function hoiNewGame(provinceId)
   return 'play pressed, player id ' .. player
 end
 
--- From the main menu to a game of the named save. Returns when Play has been pressed.
+-- From the main menu to a game of the named save. Returns when Play has been pressed. A function in hoiBeforePlay is
+-- called once the save is loaded and before Play, with the game standing in the lobby (hoimodelcache.lua's dump, or
+-- hoiDraws armed so that entering is recorded).
 function hoiLoadSave(name)
   hoiFindFrontEnd()
   if hoiCurrentView() ~= 3 then hoiCall(b + 0x2FCA40, hoiView(0)); pump(600) end
@@ -171,6 +173,7 @@ function hoiLoadSave(name)
   repeat pump(200) until (readBytes(v + 0x6C4, 1) == 0 and readBytes(v + 0x6C7, 1) == 1) or getTickCount() - t > 60000
   if readBytes(v + 0x6C7, 1) ~= 1 then return 'not loaded' end
   pump(500)
+  if hoiBeforePlay then hoiBeforePlay() end
   hoiCall(b + 0x30E5B0, v)
   return 'play pressed'
 end

@@ -16,6 +16,12 @@
 --
 -- A draw belongs to the country of the latest `E` of this hour whose esp is above it and within a stack's reach;
 -- one with none - the hourly trade, run inside the pass - belongs to nobody. Every rva is valid only for this build.
+--
+-- With hoiDrawsGameCallers set before hoiDraws, ProcessAI's entry is a software breakpoint instead and the debug register
+-- it frees watches the game's generator's index (g_random_index, 0x1311940) for writes, which every one of its draws makes
+-- (19 functions draw inline): a line `D <rva after the store> <caller rva>` each - the caller [ESP+8] where the store is
+-- MT19937Next's (0x6A2BE2), Random (0x6A2F80) tail-jumping into it - and `B <tick> <province>` as each battle's hour begins
+-- (CCombat::Tick, 0x16EBE0, int3). The playback's reader passes over both.
 local b = hoiB
 local PASS = b + 0x282630
 local PROCESS_AI = b + 0x4894E0
@@ -27,6 +33,8 @@ local MT_STORE = b + 0x6A2BDC
 -- The staging step's inline copy of the draw, just after its last tempering step: the value in EAX, the state in EDI.
 local STAGING = b + 0x496FBC
 local LUA_RAND = getAddress('lua5.1.dll') + 0x198B2
+local GAME_INDEX = b + 0x1311940
+local COMBAT_TICK = b + 0x16EBE0
 
 local function tagOf(id)
   local arr = readInteger(readInteger(b + 0x16855A4) + 0x16C)
@@ -66,7 +74,7 @@ function hoiDraws(folder)
     debug_continueFromBreakpoint(co_run)
     return 1
   end)
-  debug_setBreakpoint(PROCESS_AI, 1, bptExecute, bpmDebugRegister, function()
+  debug_setBreakpoint(PROCESS_AI, 1, bptExecute, hoiDrawsGameCallers and bpmInt3 or bpmDebugRegister, function()
     debug_getContext()
     pcall(function()
       local ai = readInteger(ESP + 4)
@@ -117,6 +125,23 @@ function hoiDraws(folder)
     debug_continueFromBreakpoint(co_run)
     return 1
   end)
+  if hoiDrawsGameCallers then
+    debug_setBreakpoint(GAME_INDEX, 4, bptWrite, bpmDebugRegister, function()
+      debug_getContext()
+      pcall(function() hdOut:write(string.format('D %X %X\n', EIP - b, (readInteger(ESP + 8) or 0) - b)) end)
+      debug_continueFromBreakpoint(co_run)
+      return 1
+    end)
+    debug_setBreakpoint(COMBAT_TICK, 1, bptExecute, bpmInt3, function()
+      debug_getContext()
+      pcall(function()
+        local p = readInteger(ECX + 0x18)
+        hdOut:write(string.format('B %d %d\n', hoiTick(), (p and p ~= 0) and readInteger(p + 0xD0) or 0))
+      end)
+      debug_continueFromBreakpoint(co_run)
+      return 1
+    end)
+  end
   return 'armed'
 end
 
@@ -129,7 +154,7 @@ function hoiDrawsRun(n)
 end
 
 function hoiDrawsStop()
-  for _, a in ipairs({ PASS, PROCESS_AI, MT_STORE, LUA_RAND, STAGING }) do pcall(debug_removeBreakpoint, a) end
+  for _, a in ipairs({ PASS, PROCESS_AI, MT_STORE, LUA_RAND, STAGING, GAME_INDEX, COMBAT_TICK }) do pcall(debug_removeBreakpoint, a) end
   hoiRunArmed = false
   pcall(function() hdOut:close() end)
   return 'stopped'
