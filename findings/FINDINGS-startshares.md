@@ -107,6 +107,28 @@ save has the flag `nd`, the modifier `us_new_deal` and manpower 254.936 (its mos
 `SetUpCountryForNewGame`'s stockpile amount is held to 1000 for a subject (`+0xF34`). OpenHOI3's spec had this,
 measured on Manchukuo (1000 / 500 / 2.5 in place of 1890 / 945 / 4.725), but its code did not.
 
+## 6. The IC the set-up works out at its head, measured at the later starts (2026-11-16)
+
+*Measured by `leftsupply` against the 1938 to 1944 start saves with `OpenHOI3.SaveCheck firstdays` and `write ... new`; no
+new reading. That `UpdateIC(country, 0)` comes first - VA 0x4D633D, before the taken decisions are walked and long before
+`CCountry_FillMinisterPosts` - is the record's, checked off the listing by the collecting session.* Two consequences:
+
+- **The shares of section 1 divide the standing army by that IC.** Nothing works it out again between the head and
+  `Enter_SetNewGameShares`, so a history decision's dissent, which costs IC through the `dissent` static modifier
+  (global_ic -0.01 a point), is not in it. The Soviet Union at 1939.9.1: `great_officer_purge` (1937.12.1) gives 5 dissent;
+  its 388 brigades in service at effective neutrality 17.11 are over 132 IC, not 124 - a term of 0.125, consumer goods
+  0.275 (9011/32768) and five shares of 4751. Its second day's supplies come to 163.604, the save's `home`, and the 1938.9.1
+  save agrees the same way. Its IC on day one is 124 again.
+- **A country owning no province keeps that IC: its history's ministers counted, the filled posts' not.** The daily
+  `UpdateIC` is gated on owning a province or being in exile (`FINDINGS-distribute.md` section 1), so the head's figure is
+  the one such a country keeps. Estonia, owning nothing from 1941, has its history's armament minister 26001, an
+  `administrative_genius` (+0.1), and uses resources as for IC 8 = 5 x 1.6 in the 1941.6.22, 1941.12.11, 1943.2.1 and
+  1944.6.20 saves; its `home` supplies are 22.914, two days of 11.457. This replaces `FINDINGS-supplyconvoys.md` section 8's
+  "the entry calculation ran before the ministers' effects were in the country's modifier": Guyana and the Italian Social
+  Republic at 1936 have no minister in their history, so all theirs are filled after the head. Among the 205 rows of
+  landless countries in the eight start saves, Estonia is the only one where the two readings differ.
+- Not explained: Italy at 1944.6.20, owning nothing, has IC 6 in the save where war economy and its technology give 7.
+
 ## What was not settled
 
 - Where the session drains the command queue, read off the bytes.

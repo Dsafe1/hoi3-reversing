@@ -566,3 +566,40 @@ province's day's figure, it is nought on a new game's first day and on a loaded 
 save (none keeps the loss): Germany's first-screen supply need (section 18) 12.288 at 1936 as before, 59.371 at 1941.6.22
 (64.716 before) and 77.882 at 1941.12.11 (129.496); the 1941.12.11 start save's brigades' strength 5513 of 5513 (5505), and
 Germany's fuel used the save's; `supplypass` 185 to 187 of 222 networks at 1941.6.22 and 180 to 188 of 224 at 1941.12.11.
+
+## 20. Land in no area goes to the enemy around it, every hour
+
+*Read 2026-11-16 by `leftcontrol`; fragment `later-start-stranded-land.json`. The head's two tests and the call with its three
+flags checked off the listing by the collecting session.* The middle of `RunHourlyProvincePass` (rva 0x9E600, VA
+0x49E664..0x49EA42) - the `(1, 1, 1)` caller of `Province_SetController` that `FINDINGS-surrender.md` D.4 listed as not
+read. It runs for an owned province (`+0x330` not nought) whose area (`+0x2B4`) is the `CNullOwnerArea` - one level of
+infrastructure or none (`FINDINGS-supplynetwork.md` section 2). C is the controller's country.
+
+1. The province's template edges are walked in order: an impassable edge (kind 3) is skipped, and so is a neighbour whose
+   template is not `is_land` (+0x22); every other neighbour counts as land.
+2. **A neighbour in a real area**: where `CCountry::CanOperateIn(C, neighbour's controller)`, nothing happens and the walk
+   stops; otherwise, where `IsEnemyTag(C, it)` and C is not REB, it becomes the candidate - the last such neighbour wins.
+3. **A neighbour in no area** is collected into a list.
+4. **Where no land neighbour was in a real area**, the list is walked: `first` is the first neighbour's controller (`---`
+   with none); the province stays where a neighbour's controller (not `---`, not REB) is `IsSameSide` with C, or is
+   co-belligerent with C (`diplomacy[+0xE28]->+0x58`) and no enemy; an enemy neighbour becomes the candidate, and where it is
+   not `first` the candidate is cleared and the walk stops.
+5. Where the candidate is set: `Province_SetController(province, candidate, tick, 1, 1, 1)` (VA 0x49EA3D) - with
+   consequences, an area rebuild, and peaceful: nothing damaged, production not zeroed, no capital looted. The
+   CControllerChange it logs is the province `history` block a save writes at the hour.
+
+It runs in a new game's hour before the first screen, so at a later start **it gives the start saves' controllers where the
+history does not** (*measured*, OpenHOI3 built to this reading, 2026-11-16): Cyp (32) Finland's at 1941.12.11, 1943.2.1 and
+1944.6.20, its land neighbours Finland's Pecenga and Finland-held Titovka, two levels each; Wadi al Hamim (5554) Britain's at
+1941.12.11, beside British-held Bahi (two levels), its four Italian neighbours of one level; at 1943.2.1 four Algerian
+desert provinces Germany's, Daraj (9307) back to Italy and Apamama (10637), whose one land neighbour is across a strait,
+Japan's; at 1944.6.20 Munda and Buala Japan's and three provinces of New Guinea the United States' - fifteen in all. With
+them every province's owner and controller is the save's at all eight start dates, 1936 to 1944; the save's other
+start-hour entries are first-hour captures or the day's return.
+
+*Looks wrong, is the bytes*: land changes hands with no unit near; beside an area the last enemy takes it and a neutral is
+passed over; with no area beside it, a neutral holding the first neighbour keeps it in place.
+
+And the base game's dated entries are not applied under a `tfh` province file of the same path: province 4979's base
+`1938.9.1 owner = JAP` is absent from the 1938 save, and Cyp's base file gives no Finnish core at 1936 - so Cyp's Finnish
+controller is not the base file's `1941.3.12` entry.

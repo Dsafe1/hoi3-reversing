@@ -1031,7 +1031,7 @@ Known passes (apply, rebuild, peaceful):
 | the peace's returns, the capitulation's returns, `po_demand_region` | (1, 0, 0) |
 | `MakeVassal` step 3 | (1, 0, 1), section B |
 | `SetOwner`'s own call | (0, 0, 1) |
-| `0x49EA3D` (rva `0x9E600`, not read) | (1, 1, 1) |
+| the hourly hand-over of land in no area (`0x49EA3D`, `FINDINGS-laterstart.md` section 20) | (1, 1, 1) |
 
 ### D.5 A capital lost
 
@@ -1133,7 +1133,7 @@ within the hour; the declared capital moves only if ownership is lost, at the ne
 - Whether a game-made `CCountryCapitalChange` can become `GetOriginalCapital`'s answer.
 - `RebelFaction_TakeProvince` stays inferred: its type offsets were matched to `siege_won_trigger` and
   `siege_won_effect` by shape.
-- `0x49E600`'s (1, 1, 1) call, and whether the loaders pass `skipCountryLists` 1.
+- Whether the loaders pass `skipCountryLists` 1. (`0x49E600`'s (1, 1, 1) call is read since 2026-11-16: `FINDINGS-laterstart.md` section 20.)
 - No save holds an occupied capital.
 
 ### D.9 Frontier (rvas)

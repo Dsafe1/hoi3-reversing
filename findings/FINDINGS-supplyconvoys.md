@@ -404,6 +404,9 @@ minister worth a twentieth less - as for 5 where 5 x 0.95 cuts to 4. Leaving the
 the ministers' effects were in the country's modifier - or something to the same end; what
 was not read. It is the IC alone: the same countries' money, officers, influence and spies
 agree with the save only with their ministers counted.
+**Settled 2026-11-16** (`FINDINGS-startshares.md` section 6): the IC kept is the one `SetUpCountryForNewGame`
+works out at its head, which counts the ministers the history names and not the posts filled after it - Guyana's
+and the Italian Social Republic's are all filled so; Estonia from 1941, whose history names one, has him counted.
 
 Then for every vassal (`CCountry +0xF78`) whose capital's area has no convoy starting in it:
 unless one of the areas touching the vassal's capital's area is the country's own, a convoy from
