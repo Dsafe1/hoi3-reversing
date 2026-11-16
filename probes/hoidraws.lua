@@ -1,5 +1,5 @@
 -- The original's draws, recorded for a replay: every draw a country's AI makes, with the country it was made for.
--- dofile() after hoi.lua (and hoiseries.lua). hoiDraws(folder) arms four hardware breakpoints - all of them:
+-- dofile() after hoi.lua (and hoiseries.lua). hoiDraws(folder) arms four hardware breakpoints - all of them - and one software one:
 --
 --   the hour's pass (PASS)   a line `H <tick>`, and both generators dumped as the pass begins: gen_<tick>.txt (the
 --                            game's, as hoiDumpGenerator writes it) and ai_<tick>.txt (CGameState +0x124, the AI's
@@ -9,6 +9,10 @@
 --                            at and the value it returns; `... trade <tag> =<value>` for the hourly trading's two
 --                            draws (CCountry::RunHourlyAITrade), with the country
 --   Lua's math.random        `R <esp> <rand>`: the value MSVCR80's rand gave lua5.1.dll's math_random
+--   the inline draw          `A <esp> <index> 496FBC =<value>`: the one draw on the AI's generator not made through
+--                            MT19937Next, CEU3AI_RankInvasionAreas' staging step (0x496F5A-0x496FBA) - a software
+--                            breakpoint (int3), the four hardware ones being taken; a scan of .text for the generator's
+--                            index (+0xAE4) finds no other reader but its constructor and loader
 --
 -- A draw belongs to the country of the latest `E` of this hour whose esp is above it and within a stack's reach;
 -- one with none - the hourly trade, run inside the pass - belongs to nobody. Every rva is valid only for this build.
@@ -20,6 +24,8 @@ local PROCESS_AI = b + 0x4894E0
 -- that enter at one index can come out with different values (seen: Japan's, the Soviet Union's and France's trading,
 -- all at 263 at 01:00 on 17 July 1941).
 local MT_STORE = b + 0x6A2BDC
+-- The staging step's inline copy of the draw, just after its last tempering step: the value in EAX, the state in EDI.
+local STAGING = b + 0x496FBC
 local LUA_RAND = getAddress('lua5.1.dll') + 0x198B2
 
 local function tagOf(id)
@@ -100,6 +106,17 @@ function hoiDraws(folder)
     debug_continueFromBreakpoint(co_run)
     return 1
   end)
+  debug_setBreakpoint(STAGING, 1, bptExecute, bpmInt3, function()
+    debug_getContext()
+    pcall(function()
+      if EDI == hoiState() + 0x124 then
+        hdOut:write(string.format('A %X %d 496FBC =%d\n', ESP, (readInteger(EDI + 0x9C0) + 623) % 624, EAX))
+        hdCount = hdCount + 1
+      end
+    end)
+    debug_continueFromBreakpoint(co_run)
+    return 1
+  end)
   return 'armed'
 end
 
@@ -112,7 +129,7 @@ function hoiDrawsRun(n)
 end
 
 function hoiDrawsStop()
-  for _, a in ipairs({ PASS, PROCESS_AI, MT_STORE, LUA_RAND }) do pcall(debug_removeBreakpoint, a) end
+  for _, a in ipairs({ PASS, PROCESS_AI, MT_STORE, LUA_RAND, STAGING }) do pcall(debug_removeBreakpoint, a) end
   hoiRunArmed = false
   pcall(function() hdOut:close() end)
   return 'stopped'
