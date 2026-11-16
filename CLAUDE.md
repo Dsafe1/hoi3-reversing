@@ -37,9 +37,9 @@ to both.
 
 The last line is the one worth stating, because the tempting shortcut - "the DLL already worked
 this out, read its header" - imports build-specific offsets into a project whose whole premise
-is its own technology. (One exception since 2026-11-16: OpenHOI3 may read BiceLib's README and
-source for what a Lua function BlackICE calls does, to give it natively - never an offset;
-OpenHOI3's `CLAUDE.md` has the terms.)
+is its own technology. (2026-11-16: OpenHOI3's normal engine gives none of BiceLib's functions;
+its patches belong to OpenHOI3's planned enhanced engine, and how they may be read is decided
+then.)
 
 **The seam with BiceLib:** a fact found here becomes code by being written **twice** - once into
 `ghidra/project.json`, so the record and Ghidra agree, and once into a
