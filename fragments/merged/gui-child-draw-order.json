@@ -1,0 +1,304 @@
+{
+ "agent": "guiorder agent, 2026-11-16, for OpenHOI3's BlackICE diplomacy screen",
+ "question": "In which order does the original draw a CFixedWindow's children - the +0x64 list of declared elements against the +0x74 list of attached children - and do windows clip? Asked because BlackICE's three faction sort buttons stand over the country list in OpenHOI3 and not in the original, and the right-hand column's background was missing.",
+ "source": "reversing/findings/FINDINGS-guistatic.md",
+ "addresses": [
+  {
+   "rva": "0x6602B0",
+   "kind": "function",
+   "name": "CGraphicalObject::AttachLast",
+   "signature": "void __thiscall CGraphicalObject::AttachLast(CGraphicalObject* this, CGraphicalObject* parent)",
+   "no_signature": null,
+   "comment": "**Puts a drawn object at the END of a parent's children**, after taking it off wherever it was (its own slot 32, CGraphicalObject::Detach). With the parent's last child (+0xE0) set: last->next (+0xD8) = this, this->prev (+0xD4) = last, parent->last = this; with none, parent->first (+0xDC) = parent->last = this. Then this->parent (+0xE4) = parent. Slot 29 of every graphics class (C2dObject, C3dObject and their heirs, 16 tables - one family, inheritance not folding). CGraphics_CollectObjects walks first child to last, a parent before its children, so **what is attached last is drawn last, over everything attached before it** under the same parent. Every re-parenting in the interface goes through here: a window's elements as its constructor resolves them, a list box's rows and scrollbar in GuiListBox::Layout, a window AttachSubWindow attaches, a display object Graphics_MakeSpriteObject makes. See reversing/findings/FINDINGS-guistatic.md, section 6.",
+   "confidence": "confirmed",
+   "evidence": "Read whole, 0xA602B0..0xA60304: `call [eax+0x80]` (slot 32) first; `mov ecx,[eax+0xe0]; test; je` choosing the arm; stores `[ecx+0xd8]=esi`, `[esi+0xd4]=ecx`, `[eax+0xe0]=esi`, `[esi+0xe4]=eax`; the empty arm `[eax+0xdc]=esi`, `[eax+0xe0]=esi`. Held at slot 29 by C2dObject 0x15DB304, C3dObject 0x15B49E4 and 14 heirs (vtable.py --holding). Wrong if CollectObjects walked +0xE0/+0xD4 (it walks +0xDC then +0xD8, 0xA73ADC/0xA73AEF)."
+  },
+  {
+   "rva": "0x660310",
+   "kind": "function",
+   "name": "CGraphicalObject::AttachFirst",
+   "signature": "void __thiscall CGraphicalObject::AttachFirst(CGraphicalObject* this, CGraphicalObject* parent)",
+   "no_signature": null,
+   "comment": "Slot 30: the mirror of CGraphicalObject::AttachLast - detached first (slot 32), then put at the FRONT of the parent's children (+0xDC first, the old first's +0xD4 prev = this, this->next +0xD8 = old first), drawn before its siblings. GuiButton_SetSpriteType uses it for a replacement picture whose old one had no previous sibling, so the new one keeps the old one's place. See reversing/findings/FINDINGS-guistatic.md, section 6.",
+   "confidence": "confirmed",
+   "evidence": "0xA60310..0xA60364 read whole: `mov ecx,[eax+0xdc]` and the two arms storing [ecx+0xd4], [esi+0xd8], [eax+0xdc], [esi+0xe4]; empty arm [eax+0xe0] and [eax+0xdc]. Slot 30 of the same 16 tables."
+  },
+  {
+   "rva": "0x660370",
+   "kind": "function",
+   "name": "CGraphicalObject::InsertAfter",
+   "signature": "void __thiscall CGraphicalObject::InsertAfter(CGraphicalObject* this, CGraphicalObject* sibling)",
+   "no_signature": null,
+   "comment": "Slot 31: puts the object straight after `sibling` among sibling's parent's children (this->parent = sibling->parent; linked between sibling and sibling's next; the parent's last (+0xE0) moved on where sibling was last). Does not detach first - the caller has. GuiButton_SetSpriteType uses it so that a replacement picture stands where the old one stood. See reversing/findings/FINDINGS-guistatic.md, section 6.",
+   "confidence": "confirmed",
+   "evidence": "0xA60370..0xA603C7 read whole: `mov edx,[eax+0xe4]; mov [ecx+0xe4],edx`; the four link stores; `cmp [edx+0xe0],eax; jne; mov [edx+0xe0],ecx`. No call to slot 32 in it. Slot 31 of the 16 tables."
+  },
+  {
+   "rva": "0x660230",
+   "kind": "function",
+   "name": "CGraphicalObject::Detach",
+   "signature": "bool __thiscall CGraphicalObject::Detach(CGraphicalObject* this)",
+   "no_signature": null,
+   "comment": "Slot 32: takes the object out of its parent's children - the siblings re-linked (+0xD4 prev, +0xD8 next), the parent's first (+0xDC) and last (+0xE0) moved where they were this - and clears its parent and links. Answers 1. AttachLast and AttachFirst call it first, so a re-attach is a move to the end (or front). See reversing/findings/FINDINGS-guistatic.md, section 6.",
+   "confidence": "confirmed",
+   "evidence": "0xA60230..0xA602AC read whole, bare `ret` after `mov al,1`. Slot 32 of 15 graphics tables (vtable.py --holding)."
+  },
+  {
+   "rva": "0x6C34C0",
+   "kind": "function",
+   "name": "CFixedWindow::SetParentNode",
+   "signature": "void __thiscall CFixedWindow::SetParentNode(CGuiObject* this, CGraphicalObject* parentNode)",
+   "no_signature": null,
+   "comment": "**CGuiObject slot 25 as a window answers it: moves the window's render node (complete +0x484, which this sees at +0x46C - THE RECEIVER IS THE CGuiObject SUBOBJECT, complete + 0x18) to the end of `parentNode`'s children** - slot 32 (Detach) and a tail jump to slot 29 (AttachLast). Slot 25 is what every container calls on a child to put it under its own node: CFixedWindow::CFixedWindow's resolve loop on each declared child, CFixedWindow::AttachChild, CFixedWindow::BringChildToFront, and a list box's entry through 0x68BCC0. So a window drawn inside another is drawn where it was last attached. See reversing/findings/FINDINGS-guistatic.md, section 6.",
+   "confidence": "confirmed",
+   "evidence": "0xAC34C0..0xAC34E3 read whole: `mov ecx,[esi+0x46c]`, `call [eax+0x80]`, `mov eax,[eax+0x74]; jmp eax`. CEU3DialogGui slot 25 of the CGuiObject-subobject table 0x15CD494 (object offset 24), the only holder. Wrong if +0x46C were not the render node: CFixedWindow::GetRenderNode on the complete object reads +0x484 = 0x18 + 0x46C."
+  },
+  {
+   "rva": "0x68DFD0",
+   "kind": "function",
+   "name": "GuiListBox_SetParentNode",
+   "signature": "void __fastcall GuiListBox_SetParentNode(void* listSubobject@ECX, CGraphicalObject* parentNode@stack:4)",
+   "no_signature": null,
+   "comment": "CGuiObject slot 25 of the list box (GuiListBox_SetParentNode; the receiver is that subobject, complete + 4, so the signature types it plainly) (its CGuiObject table 0x15FE758, at complete +4 - the receiver is that subobject): moves the box's own render node (complete +0xB4, seen here at +0xB0) to the end of `parentNode`'s children. **The box's rows and its scrollbar are children of that node** (GuiListBox::Layout re-attaches each row and then the scrollbar to +0xB4), so they are drawn where the box stands among its window's elements - with the scrollbar after the rows, over them. See reversing/findings/FINDINGS-guistatic.md, section 6.",
+   "confidence": "confirmed",
+   "evidence": "0xA8DFD0..0xA8DFF3: `mov ecx,[esi+0xb0]`, slot 32 call, tail jump to slot 29. Slot 25 of 0x15FE758 (vt dump). The box allocates a 0x12C-byte C2dObject (vftable 0x15DB304) in its base's base at 0xA8D737..0xA8D7AD; that this is the +0xB4 node is from Layout's and InsertEntry's use of [box+0xB4] as the parent handed to an entry's slot 17."
+  },
+  {
+   "rva": "0x6C33D0",
+   "kind": "function",
+   "name": "CFixedWindow::AttachSubWindow",
+   "signature": "void __thiscall CFixedWindow::AttachSubWindow(CFixedWindow* this, Hoi3CString* name, CFixedWindow* window)",
+   "no_signature": null,
+   "comment": "**Primary slot 47: makes a window code built a sub-window of this one.** The name onto +0x30C, the window's CGuiObject (window + 0x18) onto +0x2FC and onto the end of the attached-children list +0x74, the pair into the sub-window map +0x414 (0xAC44F0) so GetSubWindow finds it; then the window's render node (its primary slot 21) detached and **attached last under this window's node (+0x484)**, and slot 38 (takes the mouse) given +0x60. So such a window is drawn after - over - every element the file declared and everything attached before it. CDiplomacyView::BuildWidgets attaches each `diplomacy_faction_sort_window` this way (as key + `_sort`), and its faction boxes. The receiver is the complete object. See reversing/findings/FINDINGS-guistatic.md, section 6.",
+   "confidence": "confirmed",
+   "evidence": "0xAC33D0..0xAC34B8 read whole, `ret 8`. CEU3DialogGui primary table 0x15CD3C4 slot 47 and CFixedWindow's 0x1601F88 slot 47 both 0xAC33D0. Caller 0x781E7B in BuildWidgets: `mov eax,[edx+0xbc]` on the main window (+0xA8) with (name + '_sort', window)."
+  },
+  {
+   "rva": "0x6C2F40",
+   "kind": "function",
+   "name": "CFixedWindow::GetRenderNode",
+   "signature": "void* __thiscall CFixedWindow::GetRenderNode(CFixedWindow* this)",
+   "no_signature": null,
+   "comment": "Primary slot 21: `mov eax,[ecx+0x484]; ret` - the window's render node, a C2dObject. CFixedWindow::AttachSubWindow asks the attached window for it. See reversing/findings/FINDINGS-guistatic.md, section 6.",
+   "confidence": "confirmed",
+   "evidence": "Two instructions at 0xAC2F40. CEU3DialogGui slot 21 (0x15CD3C4), the only table holding it; no luabind registration names the address."
+  },
+  {
+   "rva": "0x6C1200",
+   "kind": "function",
+   "name": "CFixedWindow::BringChildToFront",
+   "signature": "void __thiscall CFixedWindow::BringChildToFront(CFixedWindow* this, CGuiObject* child)",
+   "no_signature": null,
+   "comment": "Primary slot 43: the child's slot 25 with this window's node (+0x484) - detached and attached LAST, so drawn over its siblings. CDiplomacyView::SelectCountry and OnAlignmentMarkerClicked call it (on `alignment`) to put the chosen country's marker on top: the game's own use of 'last attached = on top', the positive control for the draw order. See reversing/findings/FINDINGS-guistatic.md, section 6.",
+   "confidence": "confirmed",
+   "evidence": "0xAC1200..0xAC1215 read whole, `ret 4`. Slot 43 of 0x1601F88 and of CEU3DialogGui's 0x15CD3C4. The record's SelectCountry comment already says 'brings its alignment marker to the front of `alignment` (slot 43)'."
+  },
+  {
+   "rva": "0x6C4FE0",
+   "kind": "function",
+   "name": "GuiType_windowType_CreateWindow",
+   "signature": "CFixedWindow* __stdcall GuiType_windowType_CreateWindow(CGraphics* graphics@stack:4, CGui* gui@stack:8, void* owner@stack:0xC, void* parentNode@stack:0x10, int screenWidth@stack:0x14, int screenHeight@stack:0x18, CWindowType* type@ESI) @EAX",
+   "no_signature": null,
+   "comment": "**The window factory**: operator new(0x4C8) and CFixedWindow::CFixedWindow with the type's declarations, `owner` handed on (kept at +0x48C) and `parentNode` as the constructor's parent node. The constructor first attaches the new window's node to the screen's scene root (graphics +0x6B9E0) and then, where `parentNode` is set, moves it under that node. CGui::CreateWindow passes 0, so **a window code makes by name is first a top-level window, drawn over every window made before it, until it is attached to another**. See reversing/findings/FINDINGS-guistatic.md, section 6.",
+   "confidence": "confirmed",
+   "evidence": "0xAC4FE0..0xAC50E4, `ret 0x18`, the type in ESI (`mov cx,[esi+0xa0]` etc.). The constructor's [ebp+0x64] is this function's [ebp+0x14]; it is tested at 0xAC0D8E (`mov esi,[ebp+0x64]; test esi,esi; je`), followed by the node's slots 32 and 29 with it; the root attach is at 0xAC0112..0xAC0124 (`add edi,0x6b9e0`, slot 29)."
+  },
+  {
+   "rva": "0x67CEA0",
+   "kind": "function",
+   "name": "CGui::CreateWindow",
+   "signature": "CFixedWindow* __thiscall CGui::CreateWindow(CGui* this, Hoi3CString* name, void* owner)",
+   "no_signature": null,
+   "comment": "CEU3Gui slot 11: **makes a window by its type name** - the type looked up in the gui-type tree (+0x34, slot 1), GuiType_windowType_CreateWindow with the screen's size and **no parent node**, and the window's CGuiObject pushed on the gui's window vector (+0x5C). How every list entry and every widget a view builds at run time is made (CCountrylistItem's `diplomatic_country_entry`, the diplomacy view's faction sort windows and faction boxes). See reversing/findings/FINDINGS-guistatic.md, section 6.",
+   "confidence": "confirmed",
+   "evidence": "0xA7CEA0..0xA7CF06 read whole, `ret 8`; the pushes `[ecx+0x6b9c0]`, `[ecx+0x6b9bc]`, `0`, owner, gui, graphics before `call 0xac4fe0`. CEU3Gui table 0x15CD754 slot 11, the only holder."
+  },
+  {
+   "rva": "0x65EC50",
+   "kind": "function",
+   "name": "C2dObject::SetScreenPosition",
+   "signature": "void __thiscall C2dObject::SetScreenPosition(C2dObject* this, const int* point)",
+   "no_signature": null,
+   "comment": "Slot 51: places a 2D object from a point in screen pixels, y down - the point a window's constructor and CFixedWindow::SetPosition hand over as (screen width / 2 + x, screen height / 2 + y). Keeps the point at +0xFC/+0x100 and rebuilds the local matrix (+0x54) with the translation **x - size.x / 2** and **size.y / 2 - h - y**, size the object's own (+0x104/+0x106, the screen's for a window's node) and h the height slot 54 answers (0 for a window's node, 0xA604E0). So the half-screen added by the caller cancels, and a window's node stands at (x, -y) from its parent's origin in a y-up world - a child window at its file's position from its parent's corner, as the files are written. See reversing/findings/FINDINGS-guistatic.md, section 6.",
+   "confidence": "confirmed",
+   "evidence": "0xA5EC50..0xA5ED6F, `ret 4`: cvtdq2ps of [edi] and [edi+4] into +0xFC/+0x100; +0x104/+0x106 times [0x160A368] (-1.0) and [0x160A308] (0.5); slot 54 (`[edx+0xd8]`) and `movsx eax,word ptr [eax+2]`; the 16 dwords copied to +0x54. C2dObject 0x15DB304 and CShieldObject 0x15E3A8C slot 51 (an heir)."
+  },
+  {
+   "rva": "0x6B5B80",
+   "kind": "function",
+   "name": "CTextSprite_Draw",
+   "signature": "void __stdcall CTextSprite_Draw(CTextSprite* sprite, float* world)",
+   "no_signature": null,
+   "comment": "**What CTextSprite::Render ends in, and it draws only a rendered text sprite.** Where the sprite has no texture (+0x1F8 null) it sets the shown size (+0x1FC/+0x200) to its size (+0x1AC/+0x1AE) - nought for one RenderText never ran on - rebuilds the quad (CTextSprite_BuildQuad) and returns: **no effect is begun and nothing is drawn**. Only with a texture does it set the world-view-projection, `vXOffset`, `Color` and the texture and draw. So a text sprite whose text was never rendered - one made from the sprite alone with no font, as Graphics_MakeSpriteObject makes it - is invisible, and its shown size stays nought. See reversing/findings/FINDINGS-guistatic.md, section 6.",
+   "confidence": "confirmed",
+   "evidence": "0xAB5B80..0xAB5BBF is the whole no-texture arm (`cmp dword ptr [ebx+0x1f8],0; jne 0xab5bc2` ... `call 0xab61f0` ... `ret 8`); the effect calls begin at 0xAB5BC2. Called by CTextSprite::Render (0xAB4F4A). The constructor zeroes +0x1AC (0xAB4B6B) and +0x1F8/+0x1FC/+0x200 (0xAB4BCE..0xAB4BDA)."
+  },
+  {
+   "rva": "0x6B4AA0",
+   "kind": "function",
+   "name": "CTextSprite_Construct",
+   "signature": "void* __stdcall CTextSprite_Construct(void* this, int packedScreenSize, void* type)",
+   "no_signature": null,
+   "comment": "The constructor of the object a textSpriteType draws through (0x310 bytes, vftable 0x1600F58, no RTTI): the 2D object's constructor, the type at +0x150, the text (+0x1BC) and font name (+0x1D8) empty, the size (+0x1AC), the texture (+0x1F8) and the shown size (+0x1FC/+0x200) nought. Nothing here renders: CTextSprite::RenderText (slot 60) is what makes the texture. One caller, TextSpriteType_CreateInstance. See reversing/findings/FINDINGS-guistatic.md, section 6.",
+   "confidence": "confirmed",
+   "evidence": "0xAB4AA0..0xAB4EA5, `ret 0xc`; `mov dword ptr [esi],0x1600f58` at 0xAB4AF2; stores at 0xAB4B6B and 0xAB4BCE..0xAB4BE0. findRefs --callers: one, 0xB2651D."
+  },
+  {
+   "rva": "0x7264E0",
+   "kind": "function",
+   "name": "TextSpriteType_CreateInstance",
+   "signature": "void* __fastcall TextSpriteType_CreateInstance(void* type@ECX, int packedScreenSize@stack:4) @EAX",
+   "no_signature": null,
+   "comment": "Slot 23 of the text sprite template (vftable 0x1606708): operator new(0x310) and CTextSprite_Construct - so **every display object made from a `textSpriteType` is a CTextSprite**, whichever route makes it. See reversing/findings/FINDINGS-guistatic.md, section 6.",
+   "confidence": "confirmed",
+   "evidence": "0xB264E0..0xB26530, `ret 4`, `push 0x310`, `call 0xab4aa0` with the template (ESI = ECX). The only .rdata reference is 0x1606764 = 0x1606708 + 23 x 4."
+  },
+  {
+   "rva": "0x726550",
+   "kind": "function",
+   "name": "TextSpriteType_Construct",
+   "signature": "void* __stdcall TextSpriteType_Construct(void* this, CGraphics* graphics)",
+   "no_signature": null,
+   "comment": "**Makes a `textSpriteType`**: ObjectType_CreateByToken's case for token 0x46 (VA 0xA7074C; the token table registers 'textSpriteType' with 0x46 at 0xCF5B0D..0xCF5B1F), 0x144 bytes, the same vftable 0x1606708 as TextSpriteTemplate_Construct's default template. Token +4 = 0x18D, empty strings, the template's texture name +0x74. See reversing/findings/FINDINGS-guistatic.md, section 6.",
+   "confidence": "confirmed",
+   "evidence": "0xB26550..0xB266A4, `ret 8`; `mov dword ptr [esi],0x1606708` at 0xB265A3. Jump table: byte table 0xA70A9C[0x46 - 0x1D] = 7, jump table 0xA70A5C[7] = 0xA7074C, which calls 0xB26550 after operator new(0x144). Positive control: token 0x45 (resizeableSpriteType, registered just before) lands on a different case, 0xA7061E."
+  },
+  {
+   "rva": "0x66FE30",
+   "kind": "function",
+   "name": "Graphics_MakeSpriteObject",
+   "signature": "void* __fastcall Graphics_MakeSpriteObject(CGraphics* graphics@ECX, Hoi3CString* name@stack:4, void* parentNode@stack:8, Hoi3CString* font@stack:0xC) @EAX",
+   "no_signature": null,
+   "comment": "**The graphics' plain make-display-object**, the counterpart of 0x66FFB0 (which makes a text sprite with a text): the template looked up by name (+0xA0), its slot 23 (the object), kept in the graphics' list (+0xB8); then **only where `font` is not the empty string** the object's slot 60 (RenderText) with an empty text and that font; then the object attached last under `parentNode`, or under the scene root (+0x6B9E0) where none. GuiButton_Construct's sprite-only route passes the button's `buttonFont` name; GuiButton_SetSpriteType's passes an empty string (the global at 0x1712150). **So a button on a textSpriteType whose buttonFont is empty gets a CTextSprite that is never rendered, and draws nothing** (CTextSprite_Draw) - BlackICE's `faction_symbol_big_button`, its file's 'effectively disables it without a trace'. See reversing/findings/FINDINGS-guistatic.md, section 6.",
+   "confidence": "confirmed",
+   "evidence": "0xA6FE30..0xA6FFAD read whole, `ret 0xc`: `call [edx+0x5c]` (slot 23); the compare `mov edx,[ebp+0x10]; mov eax,0x1710e10; call 0x4173c0; test al,al; jne 0xa6ff80` (0x4173C0 answers al = 1 where the two strings are equal; 0x1710E10 is a std::string with size 0 and capacity 15 in the image); slot 60 at `call [edx+0xf0]`; the tail `cmp eax,ebx; jne` choosing parentNode or esi + 0x6B9E0, then slot 29. That the global stays empty at run time is inferred (no writer looked for)."
+  },
+  {
+   "rva": "0x740B00",
+   "kind": "function",
+   "name": "GuiButton_SetText",
+   "signature": "void __fastcall GuiButton_SetText(void* button@ECX, Hoi3CString* text@stack:4, void* font@stack:8)",
+   "no_signature": null,
+   "comment": "The button's primary slot 51 (table 0x1607698): the text kept at +0xF4; `font` where given, else the button's own (+0x110, its buttonFont looked up when it was made); **only where there is a font** the display object's slot 59 renders the text with it (and slot 62 after). With no font nothing is rendered - so a button made with an empty buttonFont stays as it was however its text is set: CDiplomacyView::BuildWidgets sets each faction sort button's text this way, with no font. See reversing/findings/FINDINGS-guistatic.md, section 6.",
+   "confidence": "confirmed",
+   "evidence": "0xB40B00..0xB40B66 read whole, `ret 8`: `test edi,edi; jne; mov edi,[esi+0x110]`; the string assign to +0xF4; `test edi,edi; je 0xb40b62` skipping `call [eax+0xec]` and `call [eax+0xf8]`. Slot 51 of 0x1607698 (vt dump). GuiButton_Construct sets +0x110 from the font name's lookup in graphics +0x88 then +0x94, or 0 (0xB40557..0xB4057C)."
+  },
+  {
+   "rva": "0x68ED30",
+   "kind": "function",
+   "name": "GuiListBox_AppendEntry",
+   "signature": "void __fastcall GuiListBox_AppendEntry(GuiListBox* list@ECX, void* entry@stack:4, int arg@stack:8)",
+   "no_signature": null,
+   "comment": "What GuiListBox::AddEntry (slot 4) runs after handing the row the box's mouse flag: the entry count (+0x144) raised, the rows worked out again (rows mode, as InsertEntry) or the heights mode's selection kept, the entry linked at the end (0x68C7A0); then, **where the box's +0xF5 byte is set and it has a node (+0xB4)**, the entry moved under that node at once (its slots 18 and 17). +0xF5 is cleared by the base and set by no store found, so in every list the rows reach the box's node in GuiListBox::Layout instead, which moves them there when +0xF5 is clear. See reversing/findings/FINDINGS-guistatic.md, section 6.",
+   "confidence": "confirmed",
+   "evidence": "0xA8ED30..0xA8EE5C read whole, `ret 8`; the branch `cmp byte ptr [edi+0xf5],0; je; cmp dword ptr [edi+0xb4],0; je` at 0xA8EE19..0xA8EE29 and the entry's slots 0x48 and 0x44 with [edi+0xb4]. +0xF5 writes: none in the list box's code; a whole-.text scan of byte stores to [reg+0xF5] found four, none on a list box (0x64C1CD CInGameIdler::StartGame's map object, 0x694A11, 0x736997 and 0x736BE2 in COOBUnitEntry::OnClick); positive control, the same scan for word stores at +0xF4 finds the base's `mov word [ebx+0xf4],1` at 0xA8D720, which leaves +0xF5 nought."
+  },
+  {
+   "rva": "0x68C7A0",
+   "kind": "function",
+   "name": "GuiListBox_LinkEntry",
+   "signature": "void __fastcall GuiListBox_LinkEntry(GuiListBox* list@ECX, void* entry@stack:4, bool layout@stack:8)",
+   "no_signature": null,
+   "comment": "Links an entry (its +0x1C part) at the end of the box's entries (+0x54, a 0x10-byte node), tells the object at +0x64 (its slot 4 with the entry and 1), and where `layout` is set calls the box's slot 27, GuiListBox::Layout. So rows show in the order added. See reversing/findings/FINDINGS-guistatic.md, section 6.",
+   "confidence": "confirmed",
+   "evidence": "0xA8C7A0..0xA8C817 read whole, `ret 8`; tail stores [esi+0x58], [esi+0x5C], [esi+0x54]; `cmp byte ptr [ebp+0xc],0` before `call [edx+0x6c]`."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "C3dVisibleObject",
+   "offset": "0xD4",
+   "name": "prev_sibling",
+   "type": "void*",
+   "comment": "The drawn object before this one under the same parent. The tree is CGraphicalObject's, so it is at this offset in every graphics object, a window's C2dObject node too: CGraphicalObject::AttachLast/AttachFirst/InsertAfter/Detach (slots 29-32).",
+   "source": "reversing/findings/FINDINGS-guistatic.md",
+   "evidence": "The links are read in CGraphicalObject::AttachLast/AttachFirst/InsertAfter/Detach (0xA602B0, 0xA60310, 0xA60370, 0xA60230), every one storing and reading +0xD4/+0xD8/+0xDC/+0xE0/+0xE4 as prev/next/first/last/parent; CGraphics_CollectObjects walks +0xDC then +0xD8 (0xA73ADC, 0xA73AEF) and C3dVisibleObject::UpdateTransform uses +0xE4/+0xDC/+0xD8 the same way (its record). DrawObjectBase_Construct zeroes +0xD4..+0xE8. Wrong if a graphics class overrode slots 29-32 with another layout: all 16 tables hold the same four bodies."
+  },
+  {
+   "struct": "C3dVisibleObject",
+   "offset": "0xD8",
+   "name": "next_sibling",
+   "type": "void*",
+   "comment": "The drawn object after this one under the same parent - drawn after it, CGraphics_CollectObjects following +0xD8.",
+   "source": "reversing/findings/FINDINGS-guistatic.md",
+   "evidence": "The links are read in CGraphicalObject::AttachLast/AttachFirst/InsertAfter/Detach (0xA602B0, 0xA60310, 0xA60370, 0xA60230), every one storing and reading +0xD4/+0xD8/+0xDC/+0xE0/+0xE4 as prev/next/first/last/parent; CGraphics_CollectObjects walks +0xDC then +0xD8 (0xA73ADC, 0xA73AEF) and C3dVisibleObject::UpdateTransform uses +0xE4/+0xDC/+0xD8 the same way (its record). DrawObjectBase_Construct zeroes +0xD4..+0xE8. Wrong if a graphics class overrode slots 29-32 with another layout: all 16 tables hold the same four bodies."
+  },
+  {
+   "struct": "C3dVisibleObject",
+   "offset": "0xDC",
+   "name": "first_child",
+   "type": "void*",
+   "comment": "The first of this object's children, drawn first of them, after this object itself.",
+   "source": "reversing/findings/FINDINGS-guistatic.md",
+   "evidence": "The links are read in CGraphicalObject::AttachLast/AttachFirst/InsertAfter/Detach (0xA602B0, 0xA60310, 0xA60370, 0xA60230), every one storing and reading +0xD4/+0xD8/+0xDC/+0xE0/+0xE4 as prev/next/first/last/parent; CGraphics_CollectObjects walks +0xDC then +0xD8 (0xA73ADC, 0xA73AEF) and C3dVisibleObject::UpdateTransform uses +0xE4/+0xDC/+0xD8 the same way (its record). DrawObjectBase_Construct zeroes +0xD4..+0xE8. Wrong if a graphics class overrode slots 29-32 with another layout: all 16 tables hold the same four bodies."
+  },
+  {
+   "struct": "C3dVisibleObject",
+   "offset": "0xE0",
+   "name": "last_child",
+   "type": "void*",
+   "comment": "The last of this object's children, where CGraphicalObject::AttachLast puts a new one - drawn last, over its siblings.",
+   "source": "reversing/findings/FINDINGS-guistatic.md",
+   "evidence": "The links are read in CGraphicalObject::AttachLast/AttachFirst/InsertAfter/Detach (0xA602B0, 0xA60310, 0xA60370, 0xA60230), every one storing and reading +0xD4/+0xD8/+0xDC/+0xE0/+0xE4 as prev/next/first/last/parent; CGraphics_CollectObjects walks +0xDC then +0xD8 (0xA73ADC, 0xA73AEF) and C3dVisibleObject::UpdateTransform uses +0xE4/+0xDC/+0xD8 the same way (its record). DrawObjectBase_Construct zeroes +0xD4..+0xE8. Wrong if a graphics class overrode slots 29-32 with another layout: all 16 tables hold the same four bodies."
+  },
+  {
+   "struct": "C3dVisibleObject",
+   "offset": "0xE4",
+   "name": "parent",
+   "type": "void*",
+   "comment": "The object this one is a child of; C3dVisibleObject::UpdateTransform multiplies its world by the parent's.",
+   "source": "reversing/findings/FINDINGS-guistatic.md",
+   "evidence": "The links are read in CGraphicalObject::AttachLast/AttachFirst/InsertAfter/Detach (0xA602B0, 0xA60310, 0xA60370, 0xA60230), every one storing and reading +0xD4/+0xD8/+0xDC/+0xE0/+0xE4 as prev/next/first/last/parent; CGraphics_CollectObjects walks +0xDC then +0xD8 (0xA73ADC, 0xA73AEF) and C3dVisibleObject::UpdateTransform uses +0xE4/+0xDC/+0xD8 the same way (its record). DrawObjectBase_Construct zeroes +0xD4..+0xE8. Wrong if a graphics class overrode slots 29-32 with another layout: all 16 tables hold the same four bodies."
+  },
+  {
+   "struct": "GuiListBox",
+   "offset": "0xB4",
+   "name": "render_node",
+   "type": "void*",
+   "comment": "The box's own C2dObject (0x12C bytes, vftable 0x15DB304): its rows and then its scrollbar are attached under it by GuiListBox::Layout, and it under the window's node by GuiListBox_SetParentNode - so the rows are drawn where the box was declared.",
+   "source": "reversing/findings/FINDINGS-guistatic.md",
+   "evidence": "GuiListBox::Layout hands [esi+0xb4] to each entry's slot 17 (0xA8E76D, 0xA8E8F2) and the scrollbar's slot 25 (0xA8E925); GuiListBox_SetParentNode moves [sub+0xb0] = complete +0xB4; GuiListBox::Show calls its slot 13 (0xA8E219). The base's base allocates a 0x12C-byte object with vftable 0x15DB304 (C2dObject) at 0xA8D737..0xA8D7AD. That the allocation is what lands at +0xB4 is from these uses, the store itself not being in the lines read."
+  },
+  {
+   "struct": "GuiListBox",
+   "offset": "0xF5",
+   "name": "rows_attached_on_insert",
+   "type": "uint8_t",
+   "comment": "Where set, GuiListBox_AppendEntry moves a new row under the box's node at once and GuiListBox::Layout's rows mode does not. Cleared by the base (the word store `mov word [ebx+0xF4],1` at 0xA8D720) and set by no store found, so Layout does it in every list.",
+   "source": "reversing/findings/FINDINGS-guistatic.md",
+   "evidence": "Reads at 0xA8E102 (Show), 0xA8E8DC (Layout) and 0xA8EE19 (AppendEntry); no store in 0xA8B000..0xA90000 (dispscan, which finds those three reads); a whole-.text scan of byte stores to [reg+0xF5] finds four, none on a list box. Positive control: the word-store scan at +0xF4 finds 0xA8D720. A store through a computed pointer cannot be ruled out by a scan."
+  }
+ ],
+ "vftable_slots": {
+  "CEU3DialogGui@0x18": {
+   "25": "CFixedWindow::SetParentNode"
+  },
+  "CEU3DialogGui": {
+   "21": "CFixedWindow::GetRenderNode",
+   "43": "CFixedWindow::BringChildToFront",
+   "47": "CFixedWindow::AttachSubWindow"
+  },
+  "CEU3Gui": {
+   "11": "CGui::CreateWindow"
+  },
+  "C2dObject": {
+   "51": "SetScreenPosition"
+  }
+ },
+ "slots_noted": "CGraphicalObject's slots 29-32 sit in 16 graphics tables of one family (C2dObject, C3dObject and heirs); the class that declares them, CGraphicalObject, has no table of its own, so they are named for it and recorded under no table. The list box and the button have no RTTI, so GuiListBox_SetParentNode (slot 25 of 0x15FE758) and GuiButton_SetText (slot 51 of 0x1607698) are keyed by no class; the slots are in their comments.",
+ "frontier": [
+  {
+   "rva": "0x6B5D60",
+   "why": "CTextSprite slot 20, the under-the-mouse test: reads the shown size (+0x200) and slot 53's; that a never-rendered text sprite is never under the mouse rests on it and was not read to the end"
+  },
+  {
+   "rva": "0x6C0DF0",
+   "why": "inside CFixedWindow::CFixedWindow: what step 9 of the resolve loop (+0x2FC) finds at construction - declared child windows are in the sub-window map +0x414 (step 12), so +0x2FC is likely empty then"
+  },
+  {
+   "rva": "0x6C2690",
+   "why": "CFixedWindow::Show shows the node only where complete +0xC is set (`cmp [esi-0xc],0`); what +0xC is was not read"
+  }
+ ],
+ "notes": "click_to_front (CWindowType +0x255) only attaches an observer to the window's background button (0xAC01EC..0xAC0208); no file of the base game, Their Finest Hour or BlackICE sets it. Nothing clips a window's children to the window (FINDINGS-listbox.md section 4 already: the draw list's scissor rectangle is never in force)."
+}

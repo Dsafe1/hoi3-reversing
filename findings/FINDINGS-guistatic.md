@@ -470,6 +470,78 @@ against the `ret`: `DetachChildren` is `__thiscall` with no stack argument and e
 at `0xAC1279`; `AttachChild` is `__thiscall` with two stack dwords and ends `ret 8` at `0xAC3016`.
 Both agree. The merge and the Ghidra apply were **not** run by the agent.
 
+## 6. The draw order, and two pictures that draw otherwise than they read (read 2026-11-16)
+
+*Asked for OpenHOI3: with BlackICE the diplomacy screen's three faction sort buttons stood over the country list there and
+not in the original, and the right-hand column had no background. Section 1's two lists were suspected of being two draw
+passes; they are not. Fragment `gui-child-draw-order.json`. The empty-font test at `0xA6FEB1` and `CTextSprite_Draw`'s
+texture test at `0xAB5B8D` were checked off the listing by the collecting session.*
+
+### 6.1 What draws is a tree, not the window's lists
+
+Every interface object that draws is a `CGraphicalObject` (the root of C2dObject and C3dObject) with tree links at +0xD4
+prev, +0xD8 next, +0xDC first child, +0xE0 last child and +0xE4 parent, kept by four bodies all 16 graphics tables share:
+slot 29 `AttachLast` (`0xA602B0`, detach and append at the end), slot 30 `AttachFirst`, slot 31 `InsertAfter`, slot 32
+`Detach`. `CGraphics_CollectObjects` (`0xA73890`) walks from +0xDC along +0xD8, a parent before its children: **under one
+parent what was attached last is drawn last, over the rest**, and attaching again moves an object to the end. `confirmed`.
+A window's node is the C2dObject at complete +0x484 (`GetRenderNode`, slot 21); CGuiObject slot 25 puts a widget under a
+given node - `CFixedWindow::SetParentNode` (`0xAC34C0`, receiver complete + 0x18), `GuiListBox_SetParentNode` (`0xA8DFD0`,
+receiver complete + 4).
+
+The constructor (`0xABF8E0`) attaches the window's node to the scene root (graphics +0x6B9E0, at `0xAC0112`), then under
+its parent node if one was given (`0xAC0D8E`); then its background (+0x238, `0xAC0DC3`); then **every declared child, in
+declared order, through slot 25**: section 1's resolve loop calls each child's slot 25 with +0x484 before pushing it onto
++0x64 (`0xAC0E0B` and the shared tail `0xAC1050`). Declared child windows come out of the sub-window map, step 12, so they
+stand in their declared place. What is attached afterwards goes after all of that: `AttachChild` (slot 22) calls the child's
+slot 25 with +0x484; `AttachSubWindow` (slot 47, `0xAC33D0`) moves the window's node under +0x484; `BringChildToFront`
+(slot 43, `0xAC1200`) calls the child's slot 25 again - `CDiplomacyView::SelectCountry` uses it to put the chosen marker on
+top, the game's own use of "last is on top" and the positive control here. **So +0x64 and +0x74 are lists to look up and
+show, not draw passes**: on screen it is the background, the declared children in the file's order, then attachments in the
+order made.
+
+`CGui::CreateWindow` (CEU3Gui slot 11, `0xA7CEA0`) calls `GuiType_windowType_CreateWindow` (`0xAC4FE0`) with no parent node,
+so a window code makes by name starts as a top-level window, over every window made before it, until attached somewhere. A
+list box has a node of its own (+0xB4): `GuiListBox::Layout` attaches every row to it (`0xA8E757`, and `0xA8E8D3` in the
+rows mode where +0xF5 is clear) and then the scrollbar (`0xA8E905`), so the rows draw at the box's declared place and the
+scrollbar over them. +0xF5 is cleared by the base (the word store at `0xA8D720`) and has no byte store in `.text` - four
+hits, none on a list box, the +0xF4 word scan the positive control - so `GuiListBox_AppendEntry`'s immediate attach never
+happens. `C2dObject::SetScreenPosition` (slot 51) turns a screen point (W/2 + x, H/2 + y) into the local translation
+(x, -y) for a window's node, whose slot 54 answers a size of 0: a child window stands at its file position from its parent's
+corner. `click_to_front` (CWindowType +0x255) only attaches an observer to the background button (`0xAC01EC`), and no file
+of the base game, Their Finest Hour or BlackICE sets it. **Nothing clips** (`FINDINGS-listbox.md` section 4): BlackICE's
+`bg_diplomacy`, 1280 wide at -85 in a 1120-wide window, is drawn whole.
+
+### 6.2 Why BlackICE's faction sort buttons are not on screen
+
+`CDiplomacyView::BuildWidgets` makes each `diplomacy_faction_sort_window` with `CGui::CreateWindow`, places it and attaches
+it with `AttachSubWindow` - by 6.1 over the country list. It shows nothing for its button. `GFX_sort_<key>` is a
+`textSpriteType` (token 0x46, `TextSpriteType_Construct` `0xB26550`, vftable `0x1606708`, whose slot 23 makes a CTextSprite,
+`0xB264E0` -> `0xAB4AA0`). BlackICE's `faction_symbol_big_button` has `buttonFont = ""`, so `GuiButton_Construct` takes the
+sprite-only route, `Graphics_MakeSpriteObject` (`0xA6FE30`), with the button's font name - which renders the object's text
+(slot 60) **only where the font name is not empty** (the compare with the empty global `0x1710E10` at `0xA6FEB1`). With ""
+the CTextSprite has no texture, and `CTextSprite_Draw` (`0xAB5B80`) then only sets the shown size to the object's size, 0,
+rebuilds the quad and returns (the texture test at `0xAB5B8D`): no effect begun, nothing drawn. `GuiButton_SetSpriteType`
+makes the object again the same way, and `GuiButton_SetText` (slot 51, `0xB40B00`) renders only with a font, the button's
+(+0x110) being null. `confirmed` for the drawing; that the button is never under the mouse is `inferred` from the shown size
+staying 0 (slot 20, `0xAB5D60`, not read to its end). In the base game and Their Finest Hour all 309 buttons on text sprites
+have a font; with BlackICE this is the one without - "effectively disables it without a trace", as its file says. In the
+base game `buttonText = "AXIS"` and the font is set, so the buttons draw. **Corrects** `FINDINGS-textdraw.md`'s "text or
+font empty: the display object is made from the sprite alone" for a text sprite.
+
+### 6.3 A picture code gives an icon is drawn in its sprite's box
+
+`CCountryView::UpdateCountrySkin` - and the ledger at `0x7C5F1E`, the top bar at `0x6626FC`, the portraits over
+`GFX_empty_position`, the terrain, tactic, ship and technology pictures, 20 callers in all - makes a `PictureSprite_Construct`
+over the sprite type with the file as its texture, and `PictureSprite_Render` draws it with the type's quad and texture
+coordinates: the type's own file size W x H, u up to W / P(W) and v up to H / P(H), P the next power of two, laid on the
+picture's texture, which the handler pads to its own power of two. In the base game every skin is the size of its generic
+(1024 x 680 and 1024 x 80), so nothing shows of it. BlackICE's `GFX_country_bg` is 1280 x 736 and it ships no country skins,
+so the base game's `country_bg_GER.dds` (1024 x 680) is drawn across 1280 from its first 640 columns, 680 rows down, with 56
+rows of padding below - over the whole width of the diplomacy and politics windows, where at its own size it would end at
+window x 939. The original's screenshot shows the German helmet's arc stretched at the header's right-hand end, as this
+says. That the padding is transparent rests on "pads to a power of two" (`FINDINGS-buttonstatefx.md`) and D3DX's usual
+no-filter fill (`inferred`).
+
 ## What is not established
 
 1. **Six of the twelve widget classes still have no name, and the static routes are exhausted.**

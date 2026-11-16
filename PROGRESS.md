@@ -416,7 +416,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | class | derives from | size | fields | placed | fn | doc | live | state | notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `C3dObject` | `CGraphicalObject` |  |  |  | 1 |  | 22 | RTTI |  |
-| `C3dVisibleObject` | `C3dObject` |  | 7 |  | 11 |  |  | read |  |
+| `C3dVisibleObject` | `C3dObject` |  | 12 |  | 11 |  |  | read |  |
 | `CAccessAreaCostCallback` | `CAreaCostCallback` |  |  |  |  |  |  | RTTI |  |
 | `CAdjMember` | `CStandardlistboxItem` | 0x34 | 4 |  | 2 |  | 12 | part |  |
 | `CAirAttackComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
@@ -535,7 +535,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CGoalEntry` | `CStandardlistboxItem` |  |  |  | 1 |  |  | RTTI |  |
 | `CGotoBox` | `CUpdateable` |  |  |  | 1 |  | 1 | RTTI |  |
 | `CGotoProvinceItem` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
-| `CGraphicalObject` |  |  |  |  |  |  |  | RTTI |  |
+| `CGraphicalObject` |  |  |  |  | 4 |  |  | RTTI |  |
 | `CGraphicalTableLedger` | `CGuiObject` | 0x150 |  |  | 4 |  |  | RTTI |  |
 | `CHardAttackComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CHoiAvatar` | `CSmallAvatarBase` | 0x154 | 8 |  | 4 |  | 8,642 | read |  |
@@ -1240,7 +1240,7 @@ Windows, pages, sprites and the map's own drawing.
 
 | class | derives from | size | fields | placed | fn | doc | live | state | notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `C2dObject` | `CGraphicalObject` |  |  |  | 1 |  | 1,087 | RTTI |  |
+| `C2dObject` | `CGraphicalObject` |  |  |  | 2 |  | 1,087 | RTTI |  |
 | `C2dObjectType` | `CObjectType` |  |  |  |  |  |  | RTTI |  |
 | `C2dVisibleObject` | `C2dObject` |  |  |  |  |  |  | RTTI |  |
 | `CButton` | `TButton` |  |  |  | 1 |  |  | RTTI |  |
@@ -1251,9 +1251,9 @@ Windows, pages, sprites and the map's own drawing.
 | `CEU3Dialog` | `CUpdateable` |  | 3 |  | 8 |  |  | part |  |
 | `CEventWindow` | `CUpdateable` | 0xA0 | 12 |  | 4 |  |  | read |  |
 | `CExpeditionaryForceDialog` | `CEU3Dialog` |  | 5 |  | 11 |  |  | read |  |
-| `CFixedWindow` | `TWindow` |  | 34 |  | 20 |  |  | read |  |
+| `CFixedWindow` | `TWindow` |  | 34 |  | 24 |  |  | read |  |
 | `CFont` | `CPersistent` |  |  |  |  |  |  | RTTI |  |
-| `CGui` | `TGui` `CPersistent` `CFactory` |  | 12 |  | 2 |  |  | read |  |
+| `CGui` | `TGui` `CPersistent` `CFactory` |  | 12 |  | 3 |  |  | read |  |
 | `CGuiObject` | `TCollisionObserver` |  | 9 |  | 2 |  |  | read |  |
 | `CGuiType` | `CPersistent` |  | 3 |  | 1 |  |  | keys |  |
 | `CLawChangeConfirmDialog` | `CEU3Dialog` | 0x74 | 3 |  | 4 |  |  | part |  |

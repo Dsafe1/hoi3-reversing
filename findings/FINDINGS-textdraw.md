@@ -95,7 +95,8 @@ button with no sprite.
   once**, cuts the text with slot 12 (the height is not nought), and slot 6 breaks it (section 2.2), centres each line in
   the width with no border and centres the lines up and down (a background is present), and shows the picture less the
   border. A plain `spriteType`'s template makes no text object, so its caption is never drawn.
-- Text or font empty: the display object is made from the sprite alone.
+- Text or font empty: the display object is made from the sprite alone - **and on a `textSpriteType` with the font
+  empty it draws nothing at all**, its text never rendered (`FINDINGS-guistatic.md` section 6.2, corrected 2026-11-16).
 
 Of 329 `guiButtonType`s with both a text and a font in the base game and Their Finest Hour, 299 are on a text sprite, 27
 on a plain sprite, 2 have none, 1 names a sprite no `.gfx` declares. **No button gives a `borderSize`**, though the
