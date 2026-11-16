@@ -1,0 +1,153 @@
+{
+ "agent": "agent 2 (script war record and last battles), 2026-11-16",
+ "question": "What makes total_offensives, total_defensives, total_sea_battles, total_we_bomb and lost_IC, when, and what writes CCombatant +0xA8 for the last_*_losses figures",
+ "source": "reversing/findings/FINDINGS-triggerleaves.md",
+ "addresses": [
+  {
+   "rva": "0xE2771",
+   "kind": "instruction",
+   "name": "RebuildNeighbours_CountWarRecord",
+   "signature": null,
+   "no_signature": null,
+   "comment": "**The war record: total_offensives (+0x1074), total_defensives (+0x1078), total_sea_battles (+0x1070) and total_we_bomb (+0x107C).** CCountry::RebuildNeighbours zeroes the four at 0x4E24A3-0x4E24B5, then from here walks units (+0xBAC, every unit at every level) with a local list of battles already counted (built empty at 0x4E2758, freed at 0x4E398E). Per unit: **an air unit** (slot 17) whose order (+0xB0) answers true to COrder slot 26 (BombsGround), 27 (GoesForShips) or 28 (GoesForLandUnits) adds one to +0x107C (0x4E2805) and is done - the slot 26 holders are the strategic, logistical, runway, installation, naval-strike and port-strike orders, slot 27 naval strike, port strike and carrier protection, slot 28 ground attack and interdiction; the air convoy raid, intercept, superiority, rebase, paradrop, supply and nuke answer false to all three. It is the order alone: an air unit at its base under one counts. **Else a fleet** (slot 16) with combats_count (+0x11C) > 0 adds one to +0x1070 (0x4E2826) - one per fleet, not per battle. **Else a land unit** (slot 15) with combats_count > 0: for each battle on its combats list (+0x114) not already on the local list, the battle is appended and its province (CCombat +0x18) asked: controller_id (+0x338) the country's own id -> +0x1078; else the controller's CDiplomacyStatus towards the country (+0xE28[our id]) has a war (+0x20), or the country is REB, or the controller is REB -> +0x1074 (0x4E293E); else -> +0x1078 (0x4E2946). So a battle is counted once for the country however many of its units fight it, offensive where an enemy (CCountry::IsEnemy's test, inlined) holds its ground. Rebuilt wherever RebuildNeighbours runs - daily before the countries' day (ProcessCountriesPreDailyUpdate), at entering a new or loaded game (CInGameIdler::Enter), at a change of hands (CMapProvince::TakeControl) and in 30-odd diplomatic commands and effects; never saved. Zeroed too by CCountry_Reset (0x4D3EC0-0x4D3ED2), which CCountry::CCountry's tail and a session reset run. See reversing/findings/FINDINGS-triggerleaves.md, section 4.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "Decoded 0x4E21E0-0x4E39BA whole (one ret 4, as the record says); the only writes of +0x1070..+0x107C in .text are these, CCountry_Reset's and nothing else (a resumed chunk sweep of [reg+disp] writes; positive control: it found CCombat::Conclude's two land_battles_fought writes at 0x576A04/0x576B1B). Unit slots 15/16/17 = CArmy/CNavy/CAir by vtable.py (each answers mov al,1 only in its own class). COrder slots 26-28 read off every COrder-derived table (0xA92590 = mov al,1; 0x592360 = xor al,al). Wrong if a derived order class overrides slot 26-28 with a body of its own that is not one of the two stubs - none does in the 36 tables read."
+  },
+  {
+   "rva": "0xE370D",
+   "kind": "instruction",
+   "name": "RebuildNeighbours_CountLostIc",
+   "signature": null,
+   "no_signature": null,
+   "comment": "**What lost_IC (+0x1158) compares - the share HELD, not lost.** factor = technology_status (+0xDF8) ->ic_bonus (+0x90) + 1000; +0x1158 = 0; for each province id of OwnedProvinces (+0xCF0): w = province modifiers (+0x114) entry 16 MODIFIER_LOCAL_IC (+0x80) x factor / 1000 (64-bit, 0xB99AF0/0xB99980, cut toward nought); total += w; where the province's controller_id (+0x338) is the country's id, +0x1158 += w (0x4E381C). Then, only where total > 0, +0x1158 = +0x1158 x 1000 / total (0x4E3860); otherwise it stays the raw held sum. Two oddities, both read off the instructions: the test keeps the provinces it **holds** (jne past the add), where lost_national beside it (0x4E3866..0x4E3981) counts the cores it does **not**; and each province weighs its LOCAL_IC *modifier* - a fraction such as non_core's -0.5 - not its IC (+0x78, entry 15). In the base game every local_ic is a penalty (non_core, revolt_risk, the occupation policies), so total <= 0 and the figure is the summed penalties of the owned provinces it holds, never above nought: lost_IC = N with N > 0 never holds unless a mod gives a positive local_ic. See reversing/findings/FINDINGS-triggerleaves.md, section 4.2.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "Decoded 0x4E370D-0x4E3866. Entry 16 = MODIFIER_LOCAL_IC by scripts/modifierIds.py (0x0F IC, 0x10 LOCAL_IC); CTechStatistics +0x90 is ic_modifier/ic_bonus in the record. The only writers of +0x1158 in .text are CCountry::CCountry's zero (0x4C9AB3) and these three (resumed sweep). The 'held' reading rests on `cmp [esi+0x338], ecx; jne 0x4E3828` with ecx = CCountry +0xCA8; wrong only if +0x338 were not the controller id (it is, by MakeScope's and IsEnemy's readers)."
+  },
+  {
+   "rva": "0xE21E0",
+   "kind": "function",
+   "name": "CCountry::RebuildNeighbours",
+   "signature": "void __stdcall CCountry::RebuildNeighbours(CCountry* country)",
+   "no_signature": null,
+   "comment": "**A country's whole daily rebuild of who stands where - nine CCountryLists, two byte sets and a block of counters, not just the neighbours the name promises.** 0x4E21E0 to the single `ret 4` at 0x4E39B9, 8 int3 before and 4 after; `retsBefore(0x4E21E0, 0x4E39BA)` returns that one `ret` and nothing else, so the whole 0x17DC bytes are one body.\n\n**Signature**: __stdcall, not __thiscall - the country is [ebp+8], ecx is never read, and the single `ret 4` is the callee cleaning it.\n\nIt opens by clearing everything it is about to fill (0x4E2206-0x4E24B5), then runs two passes:\n\n**1. The province walks** (0x4E2421-0x4E2E52) - the part the old comment described. It walks `OwnedProvinces (+0xCF0)` marking the owner of every adjacent province whose owner and controller agree (so not one somebody is occupying) into `neighbours (+0xF58)` and `+0xFD8`, then walks `ControlledProvinces (+0xD00)` marking the controller of every adjacent province owned by somebody else into `controller_neighbours (+0xF68)` and `+0xFE8`. It is what says which set means what.\n\n**2. A loop over the whole country database** (0x4E318E-0x4E3566), one `CDiplomacyStatus* = country->+0xE28[other]` per other country that has owned provinces, appending to a different list per predicate:\n\n| list | gate |\n| --- | --- |\n| `Allies +0xF88` (and `++NumOfAllies +0x1064`) | `CDiplomacyStatus +0x14` (`alliance`) non-null - the same field CDiplomacyStatus::HasAlliance tests and `alliance_with` evaluates |\n| `non_hostile_countries +0xF98` | `+0x58` (`co_belligerent`), then the REB and `war` exclusions already recorded there |\n| `+0xFC8` | `+0x1C` (`guarantee`) non-null, with a direction test on the relation's `+0xC` |\n| `Vassals +0xF78` (and `++ +0x1068`) | `+0x18` non-null **and** its slot 7 answering token 0x298 (`vassal`), with a direction test |\n| `+0xFA8` | `+0x14` or `+0x18` non-null, **or** the other country sharing our faction (`+0xD8`) - a \"friendly\" set; the else-arm of this test is where `highest_threat (+0x11D8/+0x11DC)` is chosen, by maximum `+0x5C` |\n| `SpyingOnUs +0x1028` | the other country's `espionage (+0x1160)[our id]` having a positive allocation |\n\n**3. A pass over the allies list it has just built** (0x4E3616-0x4E370D) appending to `+0xFB8` every ally that is not a government in exile (`+0x95`), whose acting capital is on the same continent as ours (`CCountry::GetActingCapitalLocation` then `CProvince +0x368`), whose `+0x60C` is at least half of ours, and which is itself at war (`at_war +0xACC`).\n\n**And the allies list has a second source** (0x4E356C-0x4E360B): after the database loop it walks `country->faction (+0xD8) ->members (+0x28)` and appends every member but itself, skipping any tag already in the list. So `Allies (+0xF88)` is **everyone we have a bilateral alliance with, plus every member of our faction** - which is the list `CEventScope::MakeScope`'s `ally` context (token 0x359) picks a random entry from, and the reason that scope is about allies and not about borders.\n\nIt also recomputes a block of per-country counters in the +0x1048..+0x107C range: `NumOfPorts (+0x105C)`, `NumOfAllies (+0x1064)`, and **the war record** +0x1070..+0x107C (total_sea_battles, total_offensives, total_defensives, total_we_bomb) in the walk of the country's units - RebuildNeighbours_CountWarRecord (0x4E2771) - and, at its end, **lost_ic (+0x1158)** and lost_national_provinces (+0x115C) - RebuildNeighbours_CountLostIc (0x4E370D). See reversing/findings/FINDINGS-triggerleaves.md, section 4.\n\n**In arcade mode** (CCurrentGameState +0xC9C above 0, tested at 0x4E26F7): the country's `usage` pool's seven goods (+0x994..+0x9AC) are set to a never-written static (zero) and, in the walk of the country's units (+0xBAC), each unit's CUnit::SupplyConsumption is added to usage.supplies (+0x994) and its CUnit::FuelConsumption to usage.fuel (+0x998), positive values only. So in arcade a country's daily use of supplies and fuel is its units' own need, there being no supply network to draw it.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-frontend.md",
+   "revises": true,
+   "evidence": "The replaced sentence's 'not individually identified' is closed by the two new instruction entries, each read off the listing; nothing else in the comment changes."
+  },
+  {
+   "rva": "0xD2B60",
+   "kind": "function",
+   "name": "CCountry_Reset",
+   "signature": "void __stdcall CCountry_Reset(CCountry* country)",
+   "no_signature": null,
+   "comment": "A long reset of a country's state - frees and empties several lists (+0xBAC, +0xBBC, +0x119C ...), zeroes the `tech_decay_modifier` vector (+0x1174) for every technology category, and sets **neutrality (+0xA8C) to g_CountryDefaultNeutrality, 50.000** (0x4D307F). Called from the tail of CCountry::CCountry (0x4CA64E) and from ResetSession_ClearLoadedFromSave (0x67BDFC) over the country vector. 0x4D2B60 to the `ret 4` at 0x4D4B88, 10 int3 above. Only the stretch 0x4D2F80-0x4D30D0 was read; the name is from its shape and its two callers. **Espionage** (read 2026-10-14, reversing/findings/FINDINGS-espionage.md section A; esi is the function's zero, `xor esi, esi` at 0x4D2B84 and again at 0x4D4396): spy_pool (+0x1170) = 0 (0x4D2EBA) and spiescaught (+0x11D4) = 0 (0x4D2BA7); every presence through CSpyPresence::Reset (0x4D48C0); then the country's own presence, when its id is inside the vector, gets priority 1 and SetMissionAllocation(counter-espionage, 1) (0x4D4927-0x4D493D) - the same as InitCountryPerCountryArrays' tail. Called from CCountry::CCountry before the vector exists (so that part does nothing there) and over every country on a session reset. **The IC shares and the slider locks** (read 2026-11-13, reversing/findings/FINDINGS-countryviews.md section 6; 0x4D471D-0x4D47B1): every ProductionDistribution's base_percentage (+8) is set to 2^30 / (count << 15) - an equal share in fixed 15 - with the setting's slot 4 called where that changed it, and slider_locks (+0x1090) entry i set to 0 for each, written in place without a bound test. **The war record** (read 2026-11-16, reversing/findings/FINDINGS-triggerleaves.md section 4.1): land_battles_fought (+0x1080) and air_battles_fought (+0x1084) are zeroed at 0x4D2EC6/0x4D2ECC, and the four war-record counters total_sea_battles, total_offensives, total_defensives and total_we_bomb (+0x1070..+0x107C) at 0x4D3EC0-0x4D3ED2 (esi zero since 0x4D3DC1; 0x4E63A0 between keeps it) - the only writer of those four besides CCountry::RebuildNeighbours.",
+   "confidence": "inferred",
+   "source": "reversing/findings/FINDINGS-espionage.md",
+   "revises": true,
+   "evidence": "Decoded the stretch 0x4D3DB0-0x4D3EE0 and 0x4D2EB0-0x4D2ED0; esi's xor at 0x4D3DC1 and no write of esi before 0x4D3ED2 but a callee-saved call. The constructor writes none of the four itself (resumed sweep), so it is this function, called from its tail, that zeroes them for a new country."
+  },
+  {
+   "rva": "0x174879",
+   "kind": "instruction",
+   "name": "CCombat_Conclude_RecordLastBattleLosses",
+   "signature": null,
+   "no_signature": null,
+   "comment": "**Where the six `last_*_battle_*_losses` figures are written** - the only writes of CGameState +0x30..+0x44 in the image, all inside CCombat::Conclude (0x174580), before its relation change, counters, on-actions and messages. Each side's figure is `losses (CCombatant +0x84) / 1000`, cut toward nought - **in men on land** (CCombatant::ApplyLosses adds CUnit::SettleCombatDamage's strength lost, a brigade's strength x CRegiment::MenPerStrength 100); **in whole strength points in the air** (a wing's men per strength is CSubUnit slot 14's floorf(1000.5f) = 1, so the strength lost as it is); **in ships at sea** (ApplyLosses' naval arm adds 1000 for each ship whose pending strength damage is more than its strength, strictly, before anything is settled - a ship left with under 0.1 and sunk all the same is not counted) - plus, only where the side's byte +0xA8 is set (the one HasLost treats as an immediate loss; **nothing but CCombatant::CCombatant's zero writes it, read 2026-11-16, so these terms are dead in this build**): for a land battle `GetTotalStrength(side units) * floorf(100000.5f) / 1000 / 1000` - the strength still standing times 100, i.e. men at MenPerStrength 100 (inferred); for a naval one `GetTotalNumOfShips(units)`; for an air one `SumSubUnitCounts(units)`. Then `attackerLost` picks the sides: loser = attacker's figure when the attacker lost, else the defender's. Land (GetKind 1) writes +0x34 loser at 0x174879 and +0x30 winner at 0x17491C; naval (2) +0x44/+0x40; air (3) +0x3C/+0x38; other kinds write nothing. Skipped entirely when Conclude returns early (already concluded, convoy battle) or when either side's `countries` count (+0x5C) is 0. See reversing/findings/FINDINGS-triggerleaves.md.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "revises": true,
+   "evidence": "The +0x84 writers in .text are the constructor (0x5645BC), CCombatant::LoadKey (0x564E36) and ApplyLosses' two arms (0x5661C8 the summed SettleCombatDamage, 0x56627C +1000 a ship) - a resumed sweep; ApplyLosses runs from CCombat::Tick, which the naval and air ticks call first. CSubUnit slot 14's default body (0x482890) is floorf(1000.5f), CRegiment's (0x5AC870) 100000. The +0xA8 byte: a resumed sweep of every byte-wide write to [reg+0xA8] gives 21 sites in .text, of which the only one in a CCombatant method is the constructor's `mov byte ptr [edi+0xa8], bl` with ebx zeroed (0x5645FC); the old list 0x57F700/0x7049E0/0x703BF0 is a destructor of a string-holding class and CSavegameItem's setter and constructor. A write through a computed address (lea of +0xA8 into a register) would not show - the 58 lea sites were each attributed and none is in combat code."
+  },
+  {
+   "rva": "0x1656F0",
+   "kind": "function",
+   "name": "CCombatant::HasLost",
+   "signature": "bool __thiscall CCombatant::HasLost(CCombatant* this)",
+   "no_signature": null,
+   "comment": "CCombatant slot 16, what CCombat::Tick asks of each side from the fourth hour: true where the byte +0xA8 is set (**never in this build**: nothing but CCombatant::CCombatant's zero writes it, so the test is dead - reversing/findings/FINDINGS-triggerleaves.md section 4.3), or the side's total strength is under 10, or - the combat's slot 12 saying so, which every kind's does - `this->IsSpent()` (slot 23). The name is ours. See reversing/findings/FINDINGS-landbattle.md, section 4.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-landbattle.md",
+   "revises": true,
+   "evidence": "Same sweep as CCombat_Conclude_RecordLastBattleLosses' revision: one byte write to a CCombatant's +0xA8 in .text, the constructor's zero."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CCountry",
+   "offset": "0x1070",
+   "name": "total_sea_battles",
+   "type": "int",
+   "comment": "**The country's fleets in a battle** - one for each fleet (unit slot 16) whose combats_count (+0x11C) is above nought, not one per battle. Recounted from nought by CCountry::RebuildNeighbours (RebuildNeighbours_CountWarRecord, 0x4E2771), zeroed by CCountry_Reset, never saved. Read by `total_sea_battles` (CTotalSeaBattlesTrigger::Evaluate, 0x600060), `>=` the operand divided by 1000 and cut. See reversing/findings/FINDINGS-triggerleaves.md, section 4.1.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "revises": true,
+   "evidence": "RebuildNeighbours_CountWarRecord (0x4E2771): its sole writers in .text are RebuildNeighbours' zero and inc and CCountry_Reset's zero, and its sole reader the keyword's Evaluate."
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0x1074",
+   "name": "total_offensives",
+   "type": "int",
+   "comment": "**The land battles the country's units fight on ground an enemy holds**, each battle once for the country: the battle's province controller is not the country and is at war with it (the controller's CDiplomacyStatus towards it has a war, +0x20), or either is REB. Recounted by CCountry::RebuildNeighbours (RebuildNeighbours_CountWarRecord, 0x4E2771), zeroed by CCountry_Reset, never saved. Read by `total_offensives` (CTotalOffensivesTrigger::Evaluate, 0x600610), `>=` the operand / 1000 cut; TFH's music/songs.txt asks it in its song chances. See reversing/findings/FINDINGS-triggerleaves.md, section 4.1.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "revises": true,
+   "evidence": "RebuildNeighbours_CountWarRecord (0x4E2771): its sole writers in .text are RebuildNeighbours' zero and inc and CCountry_Reset's zero, and its sole reader the keyword's Evaluate."
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0x1078",
+   "name": "total_defensives",
+   "type": "int",
+   "comment": "**The land battles the country's units fight on any other ground** - its own, an ally's, a neutral's - each battle once for the country. Recounted by CCountry::RebuildNeighbours (RebuildNeighbours_CountWarRecord, 0x4E2771), zeroed by CCountry_Reset, never saved. Read by `total_defensives` (CTotalDefensivesTrigger::Evaluate, 0x601170), `>=` the operand / 1000 cut. See reversing/findings/FINDINGS-triggerleaves.md, section 4.1.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "revises": true,
+   "evidence": "RebuildNeighbours_CountWarRecord (0x4E2771): its sole writers in .text are RebuildNeighbours' zero and inc and CCountry_Reset's zero, and its sole reader the keyword's Evaluate."
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0x107C",
+   "name": "total_we_bomb",
+   "type": "int",
+   "comment": "**The country's air units under an order that bombs** - COrder slot 26, 27 or 28 true: the eight bombing orders and carrier protection, not the air convoy raid - whether flying or at their base, one each. Recounted by CCountry::RebuildNeighbours (RebuildNeighbours_CountWarRecord, 0x4E2771), zeroed by CCountry_Reset, never saved. Read by `total_we_bomb` (CTotalWeBombTrigger::Evaluate, 0x600BC0), `>=` the operand / 1000 cut. See reversing/findings/FINDINGS-triggerleaves.md, section 4.1.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "revises": true,
+   "evidence": "RebuildNeighbours_CountWarRecord (0x4E2771): its sole writers in .text are RebuildNeighbours' zero and inc and CCountry_Reset's zero, and its sole reader the keyword's Evaluate."
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0x1158",
+   "name": "lost_ic",
+   "type": "int",
+   "comment": "Thousandths - **unlike `total_ic`, which is whole IC**. The `lost_IC` keyword's field, read by `CLostICTrigger::Evaluate` (0x5F86D0), `>=` the operand in thousandths. **Made by CCountry::RebuildNeighbours (RebuildNeighbours_CountLostIc, 0x4E370D) as the share HELD**: of the owned provinces' LOCAL_IC modifier x (1 + technology IC bonus), the part on provinces the country controls, x 1000 / the whole - and the raw held part where the whole is not above nought, which in the base game (local_ic only ever a penalty) is always: the figure is then the penalties on the provinces it holds, never above nought. Zeroed by CCountry::CCountry (0x4C9AB3); never saved. See reversing/findings/FINDINGS-triggerleaves.md, section 4.2.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "revises": true,
+   "evidence": "RebuildNeighbours_CountLostIc (0x4E370D), decoded; the old comment's 'Likely in name' stands for the name and the computation is now read."
+  },
+  {
+   "struct": "CCombatant",
+   "offset": "0xA8",
+   "name": "lost_outright",
+   "type": "bool",
+   "comment": "**A byte HasLost (slot 16) takes as an immediate loss and CCombat::Conclude reads to add each side's standing strength x 100, ships or wings to its last-battle figure - and nothing sets it.** In this build its only writer is CCombatant::CCombatant's zero (0x5645FC); it is neither saved nor loaded (CCombatant::LoadKey's keys are sunk_ship, dice, losses, tactic, size, unit). So HasLost's first test and Conclude's outright terms are dead. The name is from its readers. See reversing/findings/FINDINGS-triggerleaves.md, section 4.3.",
+   "source": "reversing/findings/FINDINGS-triggerleaves.md",
+   "evidence": "Readers: HasLost 0x5656F7 and Conclude 0x5746FA/0x57475F/0x574939/0x574953/0x574AE1/0x574AFB, all through combat +0x10/+0x14 or the slot's this. Writers: a resumed sweep of byte-wide writes to [reg+0xA8] - 21 sites, the constructor's the only one in combat code (positive control: it found that write and every read listed). Wrong if a write goes through a computed address; the 58 `lea r,[r+0xA8]` sites were attributed and none is in a CCombatant method."
+  }
+ ],
+ "vftable_slots": {
+  "COrder": {
+   "26": "BombsGround",
+   "27": "GoesForShips",
+   "28": "GoesForLandUnits"
+  },
+  "CCombatant": {
+   "16": {
+    "name": "HasLost",
+    "signature": "bool __thiscall HasLost(CCombatant* this)"
+   }
+  }
+ },
+ "slots_noted": "CCombatant::HasLost's slot 16 is already recorded on CCombatant, whose record reaches the four derived tables (CAirCombatant, CBomberCombatant, CLandCombatant, CNavalCombatant); this file revises only the entry's comment and repeats the base record unchanged.",
+ "frontier": []
+}

@@ -65,7 +65,7 @@ only that, because where a loader abuts the next function the count runs into it
 | `0x19E640` | 721 | `CNavalSortieOrder` | a save block |  |  |  |
 | `0x147410` | 680 | `CConstructSingleUnitCommand` | event script |  |  |  |
 | `0x1ADBF0` | 651 | `CShip` | a save block |  | 30 |  |
-| `0x169040` | 648 | `CLandCombatant` | a save block |  | 26 |  |
+| `0x169040` | 648 | `CLandCombatant` | a save block |  | 27 |  |
 | `0x5BCC70` | 642 | `CUndeclaredWarRegionEffect` | event script |  | 7 |  |
 | `0x59620` | 601 | `CModifier` | a file | 6 | 19 | one loader shared by `CProvinceModifier`, `CStaticModifier`, `CFactionModifier` and two more - `static_modifiers.txt` and `event_modifiers.txt`, which reach everything |
 | `0x1DEFC0` | 547 | `CAttachUnitCommand` | event script |  | 7 |  |
@@ -160,7 +160,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CCombatHistory` | `CPersistent` |  | 4 |  | 4 | CCombatManager.hpp | 1 | keys |  |
 | `CCombatHistoryEntry` | `CPersistent` |  | 10 | 5/6 | 3 |  | 413 | read |  |
 | `CCombatManager` | `CPersistent` |  | 3 | 1/7 | 9 | CCombatManager.hpp | 1 | placed |  |
-| `CCombatant` | `CPersistent` |  | 23 | 4/6 | 21 | CCombat.hpp |  | read |  |
+| `CCombatant` | `CPersistent` |  | 24 | 4/6 | 21 | CCombat.hpp |  | read |  |
 | `CConstruction` | `CReferenceObject` |  | 13 + 2 lua |  | 6 | CConstruction.hpp |  | read |  |
 | `CConvoy` | `CReferenceObject` |  | 22 + 3 lua | 6/13 | 19 | CConvoy.hpp | 839 | read |  |
 | `CConvoyConstruction` | `CConstruction` |  | 1 | 1/1 | 6 | CConstruction.hpp | 40 | placed |  |

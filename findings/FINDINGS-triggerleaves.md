@@ -76,11 +76,11 @@ one, and otherwise the country itself, which is where counter-espionage lives: i
 diplomatic status in the country's own array (`+0xE28[n] -> threat +0x5C`) is at least N. Only
 neighbours count.
 
-**`total_sunk_by_us` and `total_of_ours_sunk`** walk the game state's list of sunk ships (`+0x20`),
-each a ship's sub unit. The first counts those whose owner (`+0x98`) is the country; the second
-resolves each ship's sinker (`+0x9C`/`+0xA0`, an id pair, through `FindPersistentByIdPair`) and
-counts those whose owner is the country - **a sinker that no longer resolves is not counted**, so
-the figure can fall.
+**`total_of_ours_sunk`** walks the game state's list of sunk ships (`+0x20`), each a ship's sub unit, and counts
+those whose owner (`+0x98`) is the country. **`total_sunk_by_us`** resolves each ship's sinker (`+0x9C`/`+0xA0`, an id
+pair, through `FindPersistentByIdPair`) and counts those whose sinker's owner is the country now - **a sinker that no
+longer resolves is not counted**, so that figure can fall. *Corrected 2026-11-16*: this paragraph had the two the wrong
+way round; its table and `FINDINGS-savedbattle.md` B.4 were right.
 
 **`month`, `year`, `date`.** Days are `(tick - 43800000) / 24`, a year 365 days with no leap years.
 `month` takes the day of the year and subtracts the month lengths (the table at VA `0x1713294`)
@@ -143,7 +143,7 @@ condition. Its THIS/FROM branch is unreachable, as `FINDINGS-triggergrammar.md` 
 
 - Whether anything stores a database definition in a sub unit's `+0x58` (1.3).
 - What an empty cabinet post holds (1.2).
-- `CCombatant +0xA8`.
+- ~~`CCombatant +0xA8`~~ - never set (section 4.3).
 - Whether a sunk ship's sinker stays registered after it is lost, and whether the sunk list is ever
   pruned.
 
@@ -446,8 +446,9 @@ change; BiceLib's `CCountry.hpp` still uses the old names.
 - Whether a fleet entering or leaving a port's sea zone reaches the controller setter (`0xA2400`),
   and so how stale `is_blockaded` is in play; and whether every path through the setter reaches
   the call.
-- The unit of `CCombatant +0x84`, and so of the `last_*` figures; and what sets `CCombatant +0xA8`
-  (writers `0x17F700` and `0x3049E0`, unread).
+- ~~The unit of `CCombatant +0x84`, and so of the `last_*` figures; and what sets `CCombatant +0xA8`
+  (writers `0x17F700` and `0x3049E0`, unread)~~ - settled in section 4.3: men, strength points and ships, and the byte is
+  never set (the two "writers" are not combat code).
 - Whether `on_battle_won`/`on_battle_lost` events evaluate their triggers before another battle
   overwrites the figures. Only the order of the writes inside `Conclude` was read.
 - What the `last_*` figures hold before the first battle.
@@ -465,3 +466,81 @@ change; BiceLib's `CCountry.hpp` still uses the old names.
 consumer), `0x5C7150` and `0xD4BE0` (the blank mission state `CancelMission` copies in), `0xDB7EE`
 and `0x2D9264` (`CancelMission`'s two callers), `0x17F700` and `0x3049E0` (the writers of
 `CCombatant +0xA8`), and the `remove_fow` loader and effect.
+
+## 4. The war record, `lost_IC` and the lost-outright byte
+
+*Read 2026-11-16 for OpenHOI3's war-record conditions; fragment `script-war-record-counters.json`. Addresses are rvas
+unless they say VA. The two old "writers" of `+0xA8`, the counters' zeroing and `lost_IC`'s controller test were checked off
+the listing by the collecting session.*
+
+### 4.1 The war record
+
+`CCountry::RebuildNeighbours` (`0xE21E0`) zeroes `total_sea_battles`, `total_offensives`, `total_defensives` and
+`total_we_bomb` (`+0x1070`..`+0x107C`) at VA `0x4E24A3`-`0x4E24B5`, then walks `units` (`+0xBAC`) from VA `0x4E2771` with a
+local list of battles already counted. For each unit:
+
+    air (slot 17) and order (+0xB0) slot 26 || 27 || 28   -> +0x107C++ ; next unit
+    navy (slot 16) and combats_count (+0x11C) > 0         -> +0x1070++ ; next unit
+    army (slot 15) and combats_count > 0: for each battle on combats (+0x114) not yet on the list:
+        add it; c = controller of battle->province (+0x18, +0x338)
+        c == us                                                   -> +0x1078++
+        c's CDiplomacyStatus towards us (+0xE28[our id]) has war (+0x20), or we are REB, or c is REB  -> +0x1074++
+        else                                                      -> +0x1078++
+
+COrder slot 26 is true (the stub `mov al,1`, VA `0xA92590`) for CStrategicBombOrder, CBombLogisiticsOrder,
+CBombRunwayOrder, CBombInstallationOrder, CNavalStrikeOrder and CPortStrikeOrder; slot 27 for CNavalStrikeOrder,
+CPortStrikeOrder and CCarrierProtection; slot 28 for CGroundAttackOrder and CAirInterdictionOrder. Every other COrder-derived
+table (36 read) holds `xor al,al` (VA `0x592360`) in all three - the same three questions the bombing code asks: ground,
+ships, land units. The test is the order alone, so an air unit at its base under such an order counts; a fleet counts once
+whatever its number of battles; a land battle counts once for the country however many of its units fight it.
+
+**Writers.** The only writers in `.text` are RebuildNeighbours and `CCountry_Reset` (VA `0x4D3EC0`-`0x4D3ED2`, esi nought
+since `0x4D3DC1`), which also zeroes `land_battles_fought` / `air_battles_fought` (`0x4D2EC6` / `0x4D2ECC`); it runs from the
+tail of `CCountry::CCountry` and on a session reset. The constructor writes `+0x1080` and `+0x1158` itself but none of the
+four. From a resumed chunk sweep of `[reg+disp]` writes; positive control, the sweep finds `CCombat::Conclude`'s two
+`land_battles_fought` writes (VA `0x576A04` / `0x576B1B`).
+
+**When.** Daily in `ProcessCountriesPreDailyUpdate`; twice in `CInGameIdler::Enter` - VA `0x65C195`, and `0x65D173` after the
+new-game and loaded arms rejoin at `0x65CD19`, so a loaded game counts again; and at `CMapProvince::TakeControl` and some 30
+diplomatic commands, effects and console commands (65 call sites in all). Nothing saves the counters.
+
+**Conditions.** All four are `CValueTrigger` leaves comparing `field >= operand / 1000`, truncated (e.g. VA `0xA00610`).
+TFH's `music/songs.txt` asks them 20 times in song chances, BlackICE's music 4 more.
+
+### 4.2 `lost_IC` is the share held
+
+VA `0x4E370D`-`0x4E3866`:
+
+    factor = technology_status (+0xDF8)->ic_bonus (+0x90) + 1000
+    for each id of OwnedProvinces (+0xCF0): w = modifiers (+0x114)[16 LOCAL_IC] * factor / 1000   (64-bit, toward 0)
+        total += w;  if controller_id (+0x338) == our id: +0x1158 += w
+    if total > 0: +0x1158 = +0x1158 * 1000 / total
+
+The share **held** - the add is skipped with `jne` where the controller is not us (VA `0x4E3814`-`0x4E381C`) - where
+`lost_national` beside it (VA `0x4E3866`-`0x4E3981`) counts the cores *not* held. And the weight is the LOCAL_IC modifier
+(entry 16), not IC (entry 15). In TFH every `local_ic` is a penalty (`non_core` -0.5, `revolt_risk` -0.02, the occupation
+policies), so the total is at most nought, the figure is the raw summed penalties of the owned provinces held, never above
+nought, and `lost_IC = N` with N > 0 never holds. BlackICE has positive `local_ic` entries (buildings, occupation policies),
+but nothing in either tree asks `lost_IC`. Both oddities read off the instructions.
+
+### 4.3 `CCombatant +0xA8` is never set; the units of `+0x84`
+
+A resumed sweep of byte-wide writes to `[reg+0xA8]` finds 21 sites in `.text`; the only one in combat code is
+`CCombatant::CCombatant`'s zero (VA `0x5645FC`, ebx zeroed at `0x56456D`). The same sweep finds all seven reads - HasLost
+`0x5656F7`, Conclude `0x5746FA`, `0x57475F`, `0x574939`, `0x574953`, `0x574AE1`, `0x574AFB` (positive control). The byte is
+not saved (`CCombatant::LoadKey` reads only sunk_ship, dice, losses, tactic, size and unit), and the 58 `lea r,[r+0xA8]`
+sites were each attributed, none in combat code. **The earlier writer lists were wrong**: VA `0x57F700` is a destructor that
+owns strings; `0x7049E0` (rva `0x3049E0`) is `CSavegameItem::SetLoaded`; `0x703BF0` is CSavegameItem's constructor. So
+HasLost's first test and Conclude's outright terms are dead. *Likely*: a write through a computed address would not show.
+
+`+0x84` writers: the constructor, LoadKey (`0x564E36`), and `CCombatant::ApplyLosses`'s two arms, run from `CCombat::Tick`,
+which the naval and air ticks call first.
+- **Naval arm**, taken for kind 2, or kind 6 where slot 9 says so: 1000 per sub unit whose `strength - pending < 0`, tested
+  before any settling - a ship left under 0.1 and sunk anyway is not counted.
+- **Other arm** (VA `0x5661C8`): `CUnit::SettleCombatDamage`'s strength lost, which `CSubUnit::SettleDamage` scales by slot
+  14 - 100 for `CRegiment` (`0x5AC870`), `floorf(1000.5f)` = 1 by the CSubUnit default (`0x482890`) for wings and ships.
+
+So the last-battle figures (losses / 1000, truncated) are men on land, strength points in the air and ships at sea.
+Conclude writes them after its early returns (already concluded, a convoy battle) and only when both sides' `countries`
+counts are not nought: loser = the attacker's figure if the attacker lost, then winner, both before the relation change and
+the on_actions. `LocaliseEventText` gives the six as `$LAND_/AIR_/NAVAL_` + `LOSER_/WINNER_LOSSES$` through `IntToString`.

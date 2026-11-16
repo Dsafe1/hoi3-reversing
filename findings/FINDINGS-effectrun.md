@@ -714,3 +714,47 @@ For the 18 rows marked *yes*, the record's account was checked and the bodies we
 
 **Frontier:** `0xBE590`, `0xC1430`, `0xBE150`, `0xE39C0`, `0xF06D0`, `0xE0460`, `0xE6640`,
 `0xDD450`, `0x284CE0`, `0xBC800`, `0x59C450`, `0x59C480`, `0x5AF740`.
+
+### 3.11 `remove_brigade`'s last regiment, the drain, and `RemoveUnit`'s officers
+
+*Read 2026-11-16 for OpenHOI3's `remove_brigade`; fragment `script-build-remove-brigade.json`. The one-regiment test, the
+drain's flags and the children loop were checked off the listing by the collecting session. Addresses are VAs.*
+
+`CRemoveBrigadeEffect::Execute` (`0x9BBF10`, rva `0x5BBF10`) walks `CCountry +0xBAC` node by node (+0 the unit, +8 the next)
+and each unit's `+0x38` regiments the same way, comparing slot 8's name with the effect's text (memcmp and a length test);
+the first match in list order wins.
+- `regiments_count (+0x40) == 1` (`0x9BC045`) takes the queue arm: the regiment is not unlinked, the unit's id pair
+  (+0x10/+0x14) is pushed onto `+0xBF4` (`0x9BC0CC`-`0x9BC11D`), and nothing more. So until the hour's end `brigade_exist`
+  still finds the brigade, and a second line of the same name finds it again and queues the unit again.
+- Otherwise `RemoveRegimentFromUnit`, the unit in EDI (loaded at `0x9BC033`), then `CGameState::DisposeSubUnit(state,
+  regiment)` (`0x9BC1C5`), which keeps a ship on the sunk list (+0x20) - so it counts for `total_of_ours_sunk` - and deletes
+  anything else.
+- Neither arm reads or writes officers or manpower; positive control, the officer store in RemoveUnit below.
+
+**The drain** (`0x682230`-`0x6822B7`, the end of `RunHourlyTick`) pops each pair and looks it up through `0xA9DA00`, in
+`[0x1A857F4]` for a type at or under 0x1268, else `[0x1A857F0]`; a pair that no longer resolves is passed over (the tests at
+`0x6822A1` and `0x6822A8`), so a unit queued twice is removed once; a live one goes to `RemoveUnit(state, unit, 0, 1)`
+(`0x6822AC`-`0x6822B2`).
+
+**`CGameState::RemoveUnit`** (`0x684E40`): with the first flag clear (`0x684E87`), O = the regiments' definitions'
+`officers` (+0x58 -> +0x118) summed, S = their `strength` (+0x5C) summed, M = slot 23 `GetTotalMaxStrength`; nothing where
+M <= 0, else share = S x 1000 / M (`__allmul` / `__alldiv`, cut to 32 bits) and lost = share x O / 1000. The country is
++0x28C (the expeditionary owner) where +0x290 is set, else +0x124 (the owner); its `officers` (+0xC4) fall by lost x
+`OfficerRatio` (+0xD4) / 1000, floored at nought - **so a lent unit removed costs its lender, not its host**. The children
+loop (`0x684FEE`-`0x685014`) is `CUnit_LeaveParent(child, 1)` for each child, `orphaned` (+0x50) set where the removed
+unit's oob_level (+0x1F4) is 0 - children go to the top and are never handed to the removed unit's superior, as
+`FINDINGS-transport.md` D.1 has it.
+
+**`AnnexCountry`'s surrender arm** (`0x4E833A`-`0x4E8597`), checked again against `FINDINGS-surrender.md` A.3: only in the
+"held by the annexed or REB" branch, the province's own area's `+0x34` links are walked, each neighbouring area's holder its
+first province's controller (`---` for an empty area), and each holder that is a candidate goes into a local list once. One
+candidate is chosen; with several, the links are walked again and `COwnerArea_DistanceToProvince` taken for each
+candidate-held area, from 1,000,000 with strictly less replacing. Then `ChangeOwner(p, annexer)` and, with a chosen id,
+`Province_SetController(p, chosen)`. The unit loop (`0x4E86EC`-`0x4E88BE`) is A.3 step 8: the controller test for a unit not
+in the air, an air unit by its base province, a fleet at sea the first candidate; one `Random()` per unit with a candidate -
+even, LeaveParent of the unit and of each child, unlinked, `CCountry::AddUnit(candidate)`; odd, `RemoveUnit(..., 0, 1)`.
+
+**`CAddDivisionEffect::Execute`** (`0x9B57F0`), seen and not read whole: the one store to the new sub unit's `strength`
+(+0x5C), at `0x9B5AF8`, is min(slot 12 `GetMaxStrength`(1, 0), `GetMaxStrength`(0, 0)) floored at nought, and
+`strength_ceiling` (+0x30) is raised to it; organisation from `GetMaxOrganisation`(1, 0) (`0x9B5B0C`), `home` (+0x64) set just
+before. What GetMaxStrength's two flags mean was not read.

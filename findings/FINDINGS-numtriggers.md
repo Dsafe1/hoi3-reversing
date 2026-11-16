@@ -286,6 +286,8 @@ and `mov reg, [ebp+8]` and nothing harder, so both reader lists are floors, not 
 - **Which end of `surrender_progress`'s 0..1000 range means "about to surrender".** The scale is
   read off the clamp; the direction is not. `0xFCC60`, the divisor inside
   `CCountry::GetSurrenderProgress`, is unnamed and is on the frontier.
+- **Settled 2026-11-16** (`FINDINGS-triggerleaves.md` section 4): the four counters are counts of what is going on, made
+  again each day in `CCountry::RebuildNeighbours`, and `lost_IC` is the share of LOCAL_IC held. What stood here:
 - **The four `total_*` war-statistics fields** `CCountry +0x1070`/`+0x1074`/`+0x1078`/`+0x107C`. The
   bodies are certain and the operand is divided by 1000, so the fields are whole numbers; the
   *names* rest only on the keyword of their single reader and on their sitting in a run immediately

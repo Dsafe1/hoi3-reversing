@@ -442,7 +442,7 @@ named since the organisation reading: `t = min(1000 - 500 * officerRatio / 1000,
 
 Slot 16, `0x5656F0`:
 
-    the byte CCombatant +0xA8 is set                     -> lost     (set by 0x57F700, 0x7049E0
+    the byte CCombatant +0xA8 is set                     -> lost     (never set: its one writer is CCombatant::CCombatant's zero, FINDINGS-triggerleaves.md 4.3; this said: set by 0x57F700, 0x7049E0
                                                                        and cleared by 0x703BF0;
                                                                        not read - a withdrawal
                                                                        ordered from outside)
