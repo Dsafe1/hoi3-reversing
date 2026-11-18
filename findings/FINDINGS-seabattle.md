@@ -68,6 +68,14 @@ fleet in port is not reached by one outside it.
 A fleet on a defensive patrol is only made the defender of a battle by a weaker fleet, and
 raiders and transports never are. `CUnit::GetPower` is slot 27, already recorded.
 
+**Corrected 2026-11-18 (FINDINGS-liveread.md, section 126): the registers are the other way round.** StartCombat
+loads EAX with its own unit (`mov eax,[ebp+10]` at 0x307F9) and EDI with the unit found (`mov edi,ebx` at 0x307FC), and
+StartBombing the bomber and the target (0x3042D-0x3042F). So the order read is the **asker's**: a patrol starts a battle
+always when aggressive, never when passive, and otherwise only with a fleet whose GetPower is under its own; a raider
+or a transport starts none; anything else, a bomber's mission among them, goes for whatever it found. The found unit's
+order asks nothing - a raider or a transport is fought like any fleet when found. The record names it
+UnitMayStartBattleWith now.
+
 `ShouldStartNavalCombat` is in `FINDINGS-navaldetection.md` in full. Three things about it bear
 repeating, because they decide who ever fights:
 

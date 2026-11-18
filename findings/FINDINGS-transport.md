@@ -156,7 +156,9 @@ orders are section B's.
 
 **The fleet while carrying.** **It may not move while any passenger has a path** (`CUnit::CanMoveTo`, 0x5C2E41). It
 may take any naval order: no `MayBeGiven` but the invasion's reads the cargo. Under a `transport` order it is never made
-the defender of a battle (`DefenderAcceptsBattle`, `FINDINGS-seabattle.md`), and an AI fleet under `transport` starts
+the defender of a battle (`DefenderAcceptsBattle`, `FINDINGS-seabattle.md` - *corrected 2026-11-18,
+FINDINGS-liveread.md, section 126: the test reads the asking fleet's order, so a fleet under `transport` starts no battle
+and one found is fought like any other*), and an AI fleet under `transport` starts
 no battle. A fleet whose passenger is moving or fighting is found without a sighting roll (`FINDINGS-navaldetection.md`).
 
 ### A.5 A sea battle with passengers, and the fleet's end

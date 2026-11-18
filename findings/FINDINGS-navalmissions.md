@@ -303,7 +303,8 @@ the move `0x5A0390` in place of `0x59CA40`:
 No shadowing. And `ShouldStartNavalCombat` answers no for a fleet whose order is a raid, and
 `DefenderAcceptsBattle` no for one found under it: **a raider starts no battle between fleets
 and is never made the defender of one.** It can still be offered to a battle already being
-fought in its province.
+fought in its province. *(Corrected 2026-11-18, FINDINGS-liveread.md, section 126: that test reads the asking
+unit's order, not the found one's - a raider starts no battle, but one found is fought like any fleet.)*
 
 ## 6. `CNavalInterceptOrder`
 

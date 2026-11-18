@@ -248,6 +248,8 @@ land unit of a country at war with it **has a path**. So those two bomb on the w
         a fleet at sea: the bomber has a wing and ShouldStartNavalCombat(bomber, fleet)
         CUnit::CanEngage(bomber, it, bombing, province) and
         DefenderAcceptsBattle(it, bomber)                              -> kind 6 for a fleet, else 5
+        (corrected 2026-11-18, FINDINGS-liveread.md section 126: the test reads the bomber's
+        order, a bombing mission, so it always says yes)
     none                                                               -> 0
     the province has no bombing: CCombatManager::CreateCombat(province, kind, bomber, target)
         and for a strategic bombing (0x6F9): BOMBING_THREAT_IMPACT on the owner's threat with

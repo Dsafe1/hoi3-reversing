@@ -1258,3 +1258,23 @@ Done on 2026-11-18. After section 124, `wr18`'s draws part at 20:00 on 16 July 1
 **The running game**: a probe at 0x31A5E (the gates passed, before the intelligence test) on a load of the same save logged, for the 9th Air wing, intelligence 2 at 11449 every hour, no battles of the fleet's, no carried unit, the fog of war on - and from 20:00 theirs +0x110 holding a CCombat (RTTI) of kind 4. The same strike fell in that run.
 
 **With it**: OpenHOI3 asks the fleet's bombing as well as its battles. On `wr19`, recorded the same evening with every probe (48 hours, 49 saves - `wr18` was damaged by the probe run), the same strike falls in the same hours, and hour 13's draws before its battles are all the original's, where without it OpenHOI3 makes the same six extra rolls at the hour's draw 97. `wr19` scores 466 of 469 land orders the original's with none given by OpenHOI3 alone, and its battles' dice agree to hour 45, with or without it, the playback putting the generator back at each battle.
+
+## 126. A battle is started by the asker's order, not the found unit's: a raider found is fought (confirmed, a recording, the listing and the running game)
+
+Done on 2026-11-18. Set beside `wr19` draw for draw, hour by hour (the playback puts the generator back at each battle, so the dice alone hide a shift before the battles), the first hour after section 125 whose draws part before its first battle is 07:00 on 17 July 1941 (tick 60807894): at the hour's draw 93 the original makes 15 sighting rolls, OpenHOI3 9. The six are the British 3rd Navy, on patrol, looking at the German 4th Navy, under `convoy_raid`, both in 11418: two calls of two rolls in that hour, then one call an hour while both stay (60807895 to 60807898), and again two on the hour the patrol reaches 11421 where the raider is (60807918). `wr18`'s own run has the same calls. OpenHOI3 made none in the hour of the meeting.
+
+**The running game**: a probe on ShouldStartNavalCombat for the 3rd Navy on a load of the same save gave, at 60807894, two calls returning to 0x30866 - CCombatManager::StartCombat - with the 4th Navy as the unit found, and from 60807895 one an hour returning to 0x19D131, CPatrolOrder::UpdateShadow.
+
+**The listing**: StartCombat asks, of each unit CUnit::CanEngage passes, the test the record had as DefenderAcceptsBattle (0x1CE000), with its own unit in EAX (`mov eax,[ebp+10]` at 0x307F9) and the unit found in EDI (`mov edi,ebx` at 0x307FC). The test reads the order of EAX's unit. So it is the **asker's** order that decides, not the found unit's, as the record and FINDINGS-seabattle.md, section 1, had it:
+
+    the asker on patrol:   aggressive (stance 0)  -> yes
+                           passive (stance 2)     -> no
+                           otherwise              -> the found unit's GetPower < the asker's
+    the asker raiding convoys or under transport  -> no
+    anything else                                 -> yes
+
+StartBombing calls it with the bomber in EAX and the target in EDI (0x3042D-0x30431): a bomber's mission is none of the three, so there it always says yes. The record's signature had the registers the other way round; the entry is renamed UnitMayStartBattleWith.
+
+**So**: a raider or a transport starts no battle (ShouldStartNavalCombat's convoy-raid gate already says so for a raider), but one found by an enemy fleet is fought like any fleet; a patrol neither aggressive nor passive goes only for a fleet weaker than itself; and a bomber goes for a raider, a transport or a patrol it has found. OpenHOI3 had all three the other way.
+
+**With it**: every hour of `wr19` but 41 and 45 to 48 agrees draw for draw before its first battle (hour 1 and the battles' own draws apart, which differ only by the names the comparison gives them). Land orders: `wr19` 466 of 469, `wr15` 466 of 467 and `wr14` 465 of 484 unchanged; fleets `wr14` 155 of 163 (152). `wr11`, whose dice part in its first hour, 451 of 488 land orders (454) and 142 of 167 fleets (145).
