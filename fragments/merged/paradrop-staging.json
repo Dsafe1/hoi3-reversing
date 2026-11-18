@@ -1,0 +1,55 @@
+{
+  "agent": "main session",
+  "question": "What CAIUnit_PlanParadrops stages an airborne army at, what the weak-port list holds, and whether a plane's passenger walks.",
+  "source": "reversing/findings/FINDINGS-liveread.md",
+  "structs": [],
+  "vftable_slots": {},
+  "frontier": [],
+  "slots_noted": {},
+  "struct_fields": [
+    {
+      "struct": "CArmy",
+      "offset": "0x304",
+      "name": "carried_by_air",
+      "type": "CAir*",
+      "comment": "The air unit carrying this land unit, or null. Set by CAir::Board, cleared by CAir::ReleaseCarried. While set: the unit moves with the plane (CUnit::EnterProvince of an air unit enters each passenger into the same province), is never engaged (CUnit::CanEngage), is not reinforced (CanReinforce), is shown with the red cross of a unit that may not act (CUnit::IsFreeToAct), and draws its supplies at the plane's base (CUnit::ConsumeSuppliesAndFuel). The sibling of +0x300 carried_by (a fleet). See reversing/findings/FINDINGS-transport.md, section D.2. **It does not hold the unit back**: nothing in CEU3AI::MoveUnit's gates or the march asks it, so a passenger given a way walks, still aboard - the July 1941 save's 1. Fallschirmjager Division stands in Berlin aboard the 14th Air wing based at Oslo (+0x304 the plane, the plane's +0x2EC 1, read live 2026-11-18), and CAIUnit_PlanParadrops marches it to Oslo, the saves writing it inside the plane's block all the way (FINDINGS-liveread.md, section 127).",
+      "source": "reversing/findings/FINDINGS-liveread.md",
+      "revises": "comment - a passenger given a way walks, still aboard",
+      "evidence": "Read live 2026-11-18 on the running game (pid 45356) at tick 60807897; the wr19 saves 60807916-60807919."
+    },
+    {
+      "struct": "CAIUnit",
+      "offset": "0x16C",
+      "name": "role8_armies_first",
+      "type": "CArmy**",
+      "comment": "The land units whose CArmy +0x2FC role is 8 (end +0x170) - **airborne**: CAIUnit_PlanParadrops loads them onto the air transports (+0x10C) with CLoadOnPlaneCommand and sends the planes on paradrop_mission; slot 78, the air-transport skip, the air body's transport-plane rebase and the line and garrison steps (which leave them out while transports exist) treat them alike. Filled by slot 78 in the agent's land order, before slot 86's claim; there a staging (CArmy +0x2E4) whose province's air base has level_max/1000 < 1 is cleared and CSetAIParamCommand(unit, +0x2E8, 0) posted (0x4B24CB). CAIUnit_PlanParadrops stages each at its target's air base (FINDINGS-liveread.md, section 127).",
+      "source": "reversing/findings/FINDINGS-liveread.md",
+      "revises": "comment - its filling and the staging check",
+      "evidence": "Decompiled slot 78 (0x8B1D10) headless 2026-11-18, the role-8 branch ending in the post at 0x8B24CB."
+    }
+  ],
+  "addresses": [
+    {
+      "rva": "0x4CC690",
+      "kind": "function",
+      "name": "CAIUnit_PlanParadrops",
+      "signature": "bool __stdcall CAIUnit_PlanParadrops(CAIUnit* agent)",
+      "no_signature": null,
+      "confidence": "confirmed",
+      "comment": "**The airborne planner**, called by CAIUnit::Tick between CAIUnit_FallBackFromLosingDefences and CAIUnit_CheckLandMarches only while the agent has air transports (+0x10C; 0x8B0BCD), its answer unread. 0x4CC690 to the `ret 4` at 0x4CD86F. k = min(|role-8 armies +0x16C|, |air transports|); nothing where k is 0 or CAIUnit::GetArea answers null. (1) **Targets and their bases**: down the weak enemy ports on the CEU3AI's +0xD8 list while fewer than k, each takes the nearest air base (COwnerArea +0x58) of any area of any country on CCountry +0xF98 (non_hostile_countries, the country itself first) by CMap::DistanceBetweenProvinces, an int from 1000000, strictly nearer - with frontier_at_war set, another country's bases only where the target is on the headquarters' continent (+0x368) - kept where distance x 1000 <= the first transport's cached definition's range (CUnit +0xC8 -> CSubUnitDefinition +0x148). The target goes on one vector and **its base on a second**. (2) **Staging, round the bases** (the second vector): each takes the nearest role-8 army not aboard a fleet (+0x300), not holding ground and not given a base this pass - one whose GetMovementDestinationProvince (else its province) is the base at once - by float distance from the army's province, +100000.0 where CCountry_ProvincesConnectedByArea(country, base, army's province, true) is false, from 1e6f. **Its staging (CArmy +0x2E4) becomes the base**, written directly and CSetAIParamCommand(unit, +0x2E8, base) posted where it changed. Bound there already, nothing; connected, MoveUnit(base, 0, true, true, null) (0x4CCE17); else, where the army's province has an area, the nearest of that area's air bases to the army's province, moved to unless bound there (0x4CCEC7); else, with +0x2E8 still 0, the base's area's nearest port to the base becomes +0x2E8 and CSetAIParamCommand(unit, port, base) is posted - a request for sealift. A base finding nobody ends the round; rounds repeat while one gave somebody and armies remain. (3) **Boarding**: each role-8 army not aboard a fleet and not holding ground whose destination (else province) has an air base of level_max/1000 > 0 and a controller it may operate in (not REB; IsSameSide, or fighting together and not IsEnemy) takes the nearest transport with nothing aboard (+0x2EC <= 0) not yet taken, measured from the transport's base to the army's province. Based elsewhere: IssueUnitOrder(rebase_air 0x574) at that province (0x4CD293). Based there: unless the army's staging is that province, the army stands elsewhere or CAir::MayLoad refuses, CLoadOnPlaneCommand(unit, air) and IssueUnitOrder(paradrop_mission 0x570) **at the army's staging** (EDI = [army+0x2E4], 0x4CD3C3). (4) **Dropping**: for each slot whose target's controller is not us and is at war with us, or REB, or we are REB, or an undeclared war covers the province: every transport based at the slot's base with no destination and an order of support_attack (0x4E5), carrier_protection (0x56C) or none (slot 24 false): empty, it loads the first role-8 army not aboard anything, standing at the base, not yet loaded this pass, not holding ground and accepted by MayLoad, and is sent on paradrop_mission at the target (0x4CD7BD); carrying, with no order, in no battle and in its base's province, it is sent. The name is ours.",
+      "evidence": "Decompiled headless 2026-11-18 and the vectors' pushes and the walk's start checked on the listing (0x8CC8F6 distance, 0x8CCDFA connected flag, 0x8CCE17/0x8CCEC7 MoveUnit, 0x8CD293/0x8CD3C3/0x8CD7BD the EDIs, 0x8CD14D the +0x2EC test). The wr19 recording: the 1. Fallschirmjager Division's staging_province 5138 -> 812 at 03:00 on 18 July 1941 and the move 1861 -> 812 from 0x4CCE1C; OpenHOI3 built so gives the same move. Wrong if a staging ever held an enemy province.",
+      "revises": "comment - the staging is the target's air base, not the target; every step's tests and posts"
+    },
+    {
+      "rva": "0x4972E0",
+      "kind": "function",
+      "name": "CEU3AI_RebuildWeakEnemyPorts",
+      "signature": "void __fastcall CEU3AI_RebuildWeakEnemyPorts(CEU3AI* ai@ECX)",
+      "no_signature": null,
+      "confidence": "confirmed",
+      "comment": "ProcessAI at hour id%24 for an AI-run country (0x489AA2), after RankInvasionAreas and before GenerateUnitObjectives; Ghidra's RTTI pass labels it a CProvinceFloat constructor, which it is not. Read whole, bare `ret` at 0x8976D3. Clears CEU3AI +0xD8 and refills it with CProvinceFloat {province id +8, score +0xC} records through CList_InsertByDescendingFloatAtC (0x89C330: highest first, a new one after its equals), over our enemies (+0x1008, in the database's order) followed by our strategy's WarTargets (+0x5D4) - not deduplicated - each in_scenario target's capital, tested and scored at GetCapitalLocation and stored as capital_province_id (+0xE20), when no land brigade of anybody stands in it, and every port of each of its areas (+0xD30) of at most 5 provinces where none stands. Score, in single precision: (float)((naval base level_max / 1000, an int) x 100.0) + (float)(air base level_current / 1000.0) x 10.0, + 1000.0 where the province's supply depot (+0x48) is itself; kept where above 0.0. **Its reader is 0x4CC690**, the paradrop planner - not the invasion planner: no read of +0xD8 occurs in 0x492190, 0x494CC0 or 0x495530. Not saved, so a loaded game has none until its hour.",
+      "evidence": "Decompiled headless 2026-11-18; constants read from the image: 0x160A358 = 100.0, 0x160A300 = 1000.0, 0x160A340 = 10.0, 0x15BED10 = 0.0f. OpenHOI3 built so puts Oslo (812, Norway's capital, empty, at war from exile) at the head of Germany's list at 03:00 on 18 July 1941, the hour the original's planner staged on it. Wrong if a province with a land brigade or an area of six provinces ever appears on the list.",
+      "revises": "comment - the capital's two fields, the score's precision, the insert's order, when it runs"
+    }
+  ]
+}
