@@ -1192,3 +1192,11 @@ Done on 2026-11-18. With section 117 the battles' draws of `wr15` agreed to 16:0
 A live run of the same load (not the recording) also sent the 64. at tick 104, its +0x2CC nought until MoveUnit wrote 1810 (0x49AA9B): a write breakpoint hit only CEU3AI_RefreshUnitDestinations (0x49A800, the third step of the country's AI pass) every hour, setting every unit's +0x2CC from its path - the path's first stored province where it has one, nought where it has none - so the blocking test did not keep the 64. in.
 
 **With it**: `wr15`'s land orders are 460 of 467 the original's, none given by OpenHOI3 alone (459 and 2), and the battles' dice agree to hour 37 (33).
+
+## 119. A raid's convoy ship is never found again as a remembered target (confirmed, a recording and the listing)
+
+Done on 2026-11-18. At 10:00 on 18 July (tick 60807908) Italy's 3rd Navy, patrolling round 11456, tries the convoys of 10571 and fights a French one, four ships against the convoy's one transport, five rounds. Both games reach the finding rolls at the hour's draw 325 and roll the same seven convoys (Britain's four, France's, Australia's and Canada's, in the province's convoy vector's order), and both fight - but in the second round the original's first raider makes **three** draws picking its target (CSubUnit::PickTarget's +0x1F0, +0x2CE, +0x2FB - the fresh pick's, the same three as in round one) where OpenHOI3 made two (the remembered target's `% 50` and the night's `% 100`, then kept it as another country's ship across the way).
+
+**On the listing** (0x1675D0-0x1676E0): the remembered target is the pair at +0xB8/+0xBC, written from the target's own +8/+0xC when a pick is kept (0x167778); it is looked up through one of two registries chosen by the pair's first word against 0x1268 (`[0x23D57F0]` or `[0x23D57F4]`, the call at 0x1676D1), and a lookup that answers nothing goes straight to the fresh pick (`je 0x1677BB`). The convoy's throwaway fleet (ResolveConvoyRaid, byte +0x48 set) is evidently never put in those registries, so a raider's target among its ships is never found again and every round is a fresh pick. *Inferred* from the recording's draws and the lookup: the throwaway fleet's construction was not read for whether it registers.
+
+**With it**: the battles' dice of `wr15` agree to hour 43 instead of 37.
