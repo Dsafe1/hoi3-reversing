@@ -49,6 +49,7 @@ pass of the hour, and the rows for it are gone from this table. One dump of the 
 | later | Placing a finished unit (province 1626 against ours 1861) | `CEU3AI::DeployFinishedUnits` 0x48B300 |
 | later | AI Lua scores at 24 bits? | `GetDiploScoreFromLua` 0x60DC70 at `ret` |
 | later | Daily revolt roll | `RunDailyRevoltRoll` 0xC07C0 |
+| later | Which of twenty defines.lua fields are read at all - `SURPRISE_BONUS` and the others the record calls readerless, and nine nobody looked for. Queued 2026-11-18: the static scans' zeros are weak (91 of 110 zero-hit names are in fact read; the weather block's copy into globals and the inlined `GetDefines` hide readers) | data breakpoints on each field, four at a time, from the main menu on: `probes/hoidefwatch.lua`, `defGroups` 1-6, `BASE_NIGHT_PENALTY` the control |
 | later | Does war set `CRegion +0x6D`? | paused read of the regions in a 1941 save |
 | later | Moscow's network, a fleet's refused patrol, resource levels lowered, a new building's first days, spy catches | `RunSupplyAndConvoyIterations` 0x278AB0; `CUnit::CanMoveTo` 0x1C2BA0; `CCountry +0x678`; `CSpyPresence::CatchSpies` 0x12E3A0 |
 
@@ -1434,7 +1435,7 @@ of it.
 
 ## What has already been read
 
-239 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
+240 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
 header lives. This replaces the `Done` archive: the archive restated each file's headline and named
 only 40 of the 67 there were then, so it was both longer and less useful than a complete list.
 
@@ -1720,6 +1721,7 @@ the six it was missing were wave 15's.
 | `findings/FINDINGS-unitrename.md` | **renaming a unit (2026-11-12)**: the unit panel's `unitname` box filled once and sent only as its header is destroyed, trimmed, changed and not empty, as a CRenameUnitCommand that tests nothing, the unit renamed locally too; the per-country names-in-use set, duplicates kept and every copy unregistered; the one-line cap of every edit box's fit loop |
 | `findings/FINDINGS-modlayer.md` | **a mod's start-up (2026-11-16)**: WinMain's command line cut at every `-` (`mod=mod/<file>.mod`, byte for byte), the `.mod` grammar of CModDescriptor, PhysFS mounted twice with a deinit between - with a mod its user folder, the mod, `tfh`, the install, the plain Documents folder not mounted - and `replace_path` a table only ListFilesWithExtension reads: an exact folder, no subfolder, a file opened by name falling through; CDirectorySettings never loaded |
 | `findings/FINDINGS-subunitorder.md` | **a unit's sub units in `priority` order (2026-11-18)**: every way into a unit goes through one insert, after the last of no lower priority - so highest first, equals in arrival order, `atoi`'s whole number - and the counter shows the head; the unit panel sorts a copy the same way; every reader of the field; 50 base-game and 19 BlackICE saves in that order |
+| `findings/FINDINGS-definesuse.md` | **which defines.lua entries the executable reads, and where (2026-11-18)**: nothing reads a define by name outside `CDefines::Load`; the top level's five strings at `+0x10`, `+0x2C`, `+0x48`, `+0x64`, `+0x80`; `GainPractical` read whole - the category looked up by name, the side's standing countries, the four battle kinds; a brigade's supply on a strategic redeployment; shore bombardment's side test, by the side's first unit's owner; an exile's partisans tested on their own figures; demobilising's manpower loop, unread, correcting `CToggleMobilizationCommand::Execute`; why a static reader scan's zero is weak, and the twenty defines queued for the running game |
 | `findings/FINDINGS-soundeffects.md` | **the sound effects (2026-11-12)**: interface/sound.sfx's five keys, names case-insensitive, 64 voices or `single`; "unless already playing"; the effects volume linear in dB; a button's click on release and a checkbox's on press with their fallbacks to `click`; every effect the game's own events play, and the battle window's chain |
 
 ## A method worth reusing

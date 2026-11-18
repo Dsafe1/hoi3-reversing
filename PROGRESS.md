@@ -346,7 +346,7 @@ Definitions out of `common/` and the rest of the mod. Their `LoadKey` is the gra
 | `CCounterType` | `C3dObjectType` |  | 31 | 11/18 | 3 |  | 2 | read | **read**: how a map counter is drawn, 18 keys |
 | `CCountryHistoryEntry` | `CHistoryEntry` |  | 1 |  | 1 |  |  | part |  |
 | `CCovertOpsMission` | `CPersistent` |  | 4 | 1/4 | 1 |  | 39 | placed |  |
-| `CDefines` | `CPersistent` |  | 11 | 1/11 | 1 | CDefines.hpp | 1 | read | **read**: the nine top-level blocks of `defines.lua` |
+| `CDefines` | `CPersistent` |  | 15 | 1/11 | 1 | CDefines.hpp | 1 | read | **read**: the nine top-level blocks of `defines.lua` |
 | `CDirectorySettings` | `CPersistent` | 0x3C8 | 5 |  | 2 |  | 1 | read | **read**: the path table; `replace` and `extend` are how a mod says whether its folder replaces the base game's |
 | `CDivisionTemplate` | `CPersistent` |  |  |  | 2 |  | 1,955 | RTTI |  |
 | `CEU3Application` | `CApplication` |  | 5 |  | 8 |  | 2 | read | plumbing: the settings file |
