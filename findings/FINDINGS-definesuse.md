@@ -105,17 +105,33 @@ definition, which `CSubUnit::ApplyTechnologies` rebuilds with its technologies -
 `g_CSubUnitDataBase` (VA `0x1A886F0`) by its hash at `+0x10` (`0x9C7D60`, VA `0x503319`); no type of the name, no
 conversion.
 
-## 7. Demobilising returns manpower - the part not read
+## 7. Demobilising returns manpower
 
-**`CToggleMobilizationCommand::Execute` (`0x151490`) does more than its record said.** After the threat it reads
-`DEMOBILIZATION_FACTOR` (country `+0x64`, VA `0x5520AC`) and walks the country's units (`+0xBAC`) and each unit's
-regiments. For each regiment it takes its `+0x5C` less what its vftable slot 12 (`+0x30`) answers; where that is
-above nought, scales it by the define and by two more thousandths factors (VA `0x552131`-`0x552169`), sets the
-regiment's field `+0x30` to nought, asks slot 12 again, holds that answer between nought and the first, stores it at
-`+0x5C` and raises `+0x30` to it (VA `0x55217E`-`0x5521B7`); and adds the scaled figure to the country's manpower
-(`+0xBCC`, VA `0x5521D6`), floored at nought. *Inferred* from the loop's shape alone: which figures, which cap and whether it runs only on demobilising
-are not read. The file's own comment on the define says "The amount of manpower you get back from units when
-demobilizing".
+**`CToggleMobilizationCommand::Execute` (`0x151490`) does more than its record said**, and only on standing down:
+`cmp byte [ecx+0x44], bl; je 0x551C9A` at VA `0x5518DF` sends a mobilise order to its message and out at VA `0x5521FE`,
+and an order to stand down - whether or not the country was mobilised - through its message and into this loop
+(VA `0x552083`-`0x5521F8`). `CCountry_SetMobilised` (`0x107A20`) has already cleared the flag at its head.
+
+    factor = DEMOBILIZATION_FACTOR (country block +0x64)                            ; VA 0x5520AC
+    for each unit of the country's Units (+0xBAC), every level, list order:
+        for each sub unit of unit +0x38:
+            excess = strength (+0x5C) - GetMaxStrength(out, 0, 0)               ; slot 12, VA 0x552104
+            if excess <= 0: next                                                 ; VA 0x55210C
+            def = the sub unit's own definition (+0x58)
+            men = excess * 1000 / def->max_strength (+0xEC)                     ; __allmul, __alldiv
+            men = men * def->build_cost_manpower (+0xFC) / 1000
+            men = men * factor / 1000                                            ; to VA 0x552174
+            strength_ceiling (+0x30) = 0                                         ; VA 0x55217E
+            m = min(GetMaxStrength(out, 0, 0), GetMaxStrength(out, 0, 0)), not below nought
+            strength = m;  strength_ceiling raised to m                         ; VA 0x5521AF-0x5521B7
+            the country's manpower (+0xBCC) += men, not below nought             ; VA 0x5521D6
+
+`GetMaxStrength` (`0x1AB680`) reads nothing the zeroing touches, so the three answers are one: the definition's
+`max_strength`, cut by `RESERVES_PENALTY_SIZE` for a reserve whose owner - `CSubUnit::GetOwner`, the lender for a lent
+unit - is neither mobilised (`+0x94`) nor at war (`+0xACC`). So a reserve filled up while mobilised is cut back to its
+peacetime share, its ceiling lowered with it, and `DEMOBILIZATION_FACTOR` of the men of the cut, priced at
+`build_cost_manpower` a full brigade, come home. The file's own comment on the define says as much: "The amount of
+manpower you get back from units when demobilizing".
 
 ## 8. What a static reader scan can and cannot say
 
@@ -146,6 +162,57 @@ game is to settle them**: `probes/hoidefwatch.lua`, queued in `CANDIDATES.md`, *
 
 `PRIDE_SUNK_DISSENT_IMPACT` and `GFX_RAINIMPACT_LIMIT` are in Their Finest Hour's file and not pushed by `Load` at all,
 so nothing can read them.
+
+## 9. Strategic warfare's allies term, in `CLandCombatant::Attack` (`0x16B340`)
+
+`FINDINGS-government.md` C.5 gives its shape and leaves "strong allies at war" unsaid. It is a field, not a call. After
+the side's units have fired (VA `0x56B3C5`), once a day:
+
+    if (tick (game state +0xBDC) - 43800000) % 24 != 0: done                    ; VA 0x56B444-0x56B459
+    p = combat (+0x3C)->province (+0x18);  C = p's controller (+0x334 / +0x338)
+    if the side has units (+0x40) and is the attacker (+0x38):
+        first = the side's first unit
+        if IsFriend(countries[p's owner id (+0x330)], first's owner (+0x124), 1):  ; VA 0x56B4BC
+            p = first's current province (+0x130);  C = p's controller          ; VA 0x56B4C9
+    if p's area (+0x2B4) != the area of GetActingCapitalLocation(C): done         ; VA 0x56B4F6-0x56B507
+    if !IsFriend(countries[p's owner id], C, 1): done                            ; VA 0x56B532
+    if C's strong_allies_at_war count (+0xFC0) <= 0, or the side has no units: done   ; VA 0x56B551-0x56B560
+    for each unit of the side, in order:
+        n = (int)floorf((float)((float)regiments_count (+0x40) + 0.0005) * 1000)  ; 0x160A460, 0x160A300
+        if the unit's owner id (+0x128) is C's:  v = n * STRAT_NO_ALLIES_HELP_PENALTY (+0x140) / 1000
+        else if its owner id is on C's strong_allies_at_war (+0xFB8; id at +4, next at +0xC):
+                                                 v = n * STRAT_ALLIES_HELP (+0x144) / 1000
+        else: next
+        CStrategicWarfare::AddAlliesImpact(C's StrategicWarfare (+0x1184), &v)  ; VA 0x56B7A6
+
+`(tick - 43800000) % 24` is the hour of the day: 43,800,000 is a whole number of days. **The province the area and the
+friend tests ask of is the one C was taken from**, which for a friendly attacker is where its first unit stands. A
+unit's owner here is its plain owner (`+0x124`/`+0x128`), not its lender. `strong_allies_at_war` (`CCountry +0xFB8`,
+its count at `+0xFC0`) is the list `CCountry::RebuildNeighbours` makes from `Allies (+0xF88)` (VA
+`0x4E3616`-`0x4E370D`, `FINDINGS-factbase.md`): each ally whose `+0x95` (in exile) is clear, whose acting capital's
+`CProvince +0x368` (continent) is ours, whose `max_ic (+0x60C)` is at least ours halved toward nought
+(`cdq; sub eax, edx; sar eax, 1`, then `jl` skips), and whose `at_war (+0xACC)` is set - in the allies' order.
+
+*Measured* through OpenHOI3, a look: `Ireland1939_09_01_00.hoi3` played to `_09_06_18` gives Poland, and only Poland,
+entries in both, small charges at midnight - 23 summing to -0.020 in the save, 32 to -0.016 in the rebuild, whose
+battles are its own AI's.
+
+## 10. A lend-lease convoy's efficiency is not saved
+
+`CConvoy +0xAC`, `lend_lease_efficiency`, is what `LL_CONVOY_EFF_IMPACT` and `LL_CONVOY_EFF_REGAIN` move
+(`FINDINGS-convoys.md`; the field's record). **Neither the convoy's writer nor its reader touches it**: no
+instruction of `CConvoy::SaveContents` (`0xC5600`) or `CConvoy::LoadKey` (`0xC5320`) addresses `+0xAC`, and
+LoadKey's thirteen keys are `convoys`, `daily`, `end`, `escorts`, `id`, `last_attack`, `lend_lease`,
+`lendlease_targets`, `path`, `ship`, `start`, `start_date`, `trade`. A convoy read from a save is made by
+`CConvoy::CConvoy` (from `CCountry::LoadKey`, VA `0x4CDB29`), which sets the field to 1000 (VA `0x4C518D`), so **a load
+gives every lend-lease convoy its whole efficiency back**.
+
+The save does hold a key of a like name, `lendlease_effectiveness` (string VA `0x15E4258`), made into the key object at
+VA `0x1B11540` with id `0x83C` by a static initialiser not recorded (VA `0xD0B943`-`0xD0B95A`), one of a run that
+makes the save's key objects one after another, each `mov edx, <string>; ...; mov ecx, <id>; mov esi, <global>`. It is not the convoy's: the id
+is used in `CCountry::SaveContents` (VA `0x4D2254`), so it is a country's figure; which one was not read. Beside it,
+`lendlease_targets` is id `0x806` (VA `0x1B0DE68`), which both of the convoy's routines use (VA `0x4C544F`,
+`0x4C58FC`).
 
 ## Corrections to the record
 

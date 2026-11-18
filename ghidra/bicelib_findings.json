@@ -111934,7 +111934,7 @@
    "namespace": "CToggleMobilizationCommand",
    "name": "Execute",
    "confidence": "CERTAIN",
-   "evidence": "Slot 6 of CToggleMobilizationCommand (see CCommand::Execute). 0x551490 to the bare `ret` at 0x55221C; slot 7 begins at 0x552220. The command carries the country at +0x3C/+0x40 and the mobilise flag at +0x44. It calls 0x507A20(flag, country) - the mobilisation itself, not read - then CCountry::RebuildNeighbours and 0x4E39C0 on the country, then **SpreadThreat(country, &MOBILIZE_THREAT_IMPACT (country defines +0x50), &scale, the country's acting capital)** at 0x551565 with scale = (flag ? 2 : 0) - 1 thousand, i.e. +1000 to mobilise and **-1000 to demobilise**, so demobilising takes the threat back off (floored at 0 per pair). A COUNTRY message for the player follows, and then **a loop that gives manpower back** (0x5520A1-0x5521F8, not read whole): DEMOBILIZATION_FACTOR (country defines +0x64) read at 0x5520AC, every unit of the country's Units (+0xBAC) and each one's regiments walked, a regiment's +0x5C less its slot 12 (+0x30) answer scaled by the define where above nought, the regiment's +0x5C and +0x30 set again from a second slot 12 answer, and the sum added to the country's manpower (+0xBCC, 0x5521D6), floored at nought. Which figures, which cap, and whether the loop runs only on demobilising are not read. See reversing/findings/FINDINGS-definesuse.md, section 7.\n(reversing/findings/FINDINGS-diplostate.md)",
+   "evidence": "Slot 6 of CToggleMobilizationCommand (see CCommand::Execute). 0x551490 to the bare `ret` at 0x55221C; slot 7 begins at 0x552220. The command carries the country at +0x3C/+0x40 and the mobilise flag at +0x44. It calls 0x507A20(flag, country) - CCountry_SetMobilised - then CCountry::RebuildNeighbours and 0x4E39C0 on the country, then **SpreadThreat(country, &MOBILIZE_THREAT_IMPACT (country defines +0x50), &scale, the country's acting capital)** at 0x551565 with scale = (flag ? 2 : 0) - 1 thousand, i.e. +1000 to mobilise and **-1000 to demobilise**, so demobilising takes the threat back off (floored at 0 per pair). Then a COUNTRY message for the player, its text by the flag (0x5518DF): a mobilise order ends there (0x5521FE), and **an order to stand down, mobilised or not, gives manpower back** in CToggleMobilizationCommand_DemobiliseManpower (0x5520A1-0x5521F8). See reversing/findings/FINDINGS-definesuse.md, section 7.\n(reversing/findings/FINDINGS-diplostate.md)",
    "signature": {
     "convention": "__thiscall",
     "return": "void",
@@ -243440,6 +243440,15 @@
    "type": null
   },
   {
+   "rva": 1384609,
+   "namespace": "",
+   "name": "CToggleMobilizationCommand_DemobiliseManpower",
+   "kind": "instruction",
+   "confidence": "CERTAIN",
+   "evidence": "**What standing down gives back**, to 0x5521F8. factor = DEMOBILIZATION_FACTOR (country defines +0x64, 0x5520AC). For each unit of the command's country's Units (+0xBAC, every level) and each sub unit of its +0x38: excess = strength (+0x5C) - *GetMaxStrength(&out, 0, 0) (slot 12, 0x552104); nothing more where excess <= 0 (0x55210C). Else, def = the sub unit's own definition (+0x58): men = excess * 1000 / def->max_strength (+0xEC), then * def->build_cost_manpower (+0xFC) / 1000, then * factor / 1000 (__allmul / __alldiv, to 0x55216E); strength_ceiling (+0x30) = 0 (0x55217E); m = the lesser of two more GetMaxStrength(&out, 0, 0) answers, not below nought; strength = m, strength_ceiling raised to m (0x5521AF-0x5521B7); the country's manpower (+0xBCC) += men, floored at nought (0x5521D6). GetMaxStrength reads neither field set, so all three answers are one: max_strength, cut by RESERVES_PENALTY_SIZE for a reserve whose owner (CSubUnit::GetOwner, the lender for a lent unit) is neither mobilised (+0x94, already cleared by CCountry_SetMobilised) nor at war (+0xACC). See reversing/findings/FINDINGS-definesuse.md, section 7.\n(reversing/findings/FINDINGS-definesuse.md)",
+   "type": null
+  },
+  {
    "rva": 1445188,
    "namespace": "",
    "name": "BombFire_ReadTargetAirDefence",
@@ -243707,6 +243716,15 @@
    "kind": "instruction",
    "confidence": "CERTAIN",
    "evidence": "`mov ecx, dword ptr [ecx+0x15C]` - **LAND_COMBAT_ORG_ARMOR_ON_SOFT_DICE_SIZE** (military +0x15C), divided by 1000 two instructions later, and the only reader of that define. It overwrites the LAND_COMBAT_ORG_DICE_SIZE value taken at 0x16B01F. Both of these were a false zero for fieldchain.py --holder because its default window is 0x40 bytes and the block pointer is loaded 0x53 bytes earlier.\n(reversing/findings/FINDINGS-combat3.md)",
+   "type": null
+  },
+  {
+   "rva": 1487940,
+   "namespace": "",
+   "name": "CLandCombatant_AlliesImpactDaily",
+   "kind": "instruction",
+   "confidence": "CERTAIN",
+   "evidence": "**Strategic warfare's allies term**, at the end of CLandCombatant::Attack after the side has fired, to 0x56B7B6. Only where (tick (game state +0xBDC) - 43800000) % 24 == 0, the first hour of a day. p = the battle province (combat +0x3C -> +0x18), C its controller (+0x334/+0x338); for an attacking side (+0x38) with units (+0x40), where IsFriend(the province owner's country (+0x330), the first unit's owner (+0x124), 1) (0x56B4BC), p = that unit's current province (+0x130) and C its controller. Nothing where p's area (+0x2B4) is not the area of GetActingCapitalLocation(C) (0x56B507), where IsFriend(p's owner's country, C, 1) fails (0x56B532), where C's strong_allies_at_war count (+0xFC0) is not above nought or the side has no units (0x56B551-0x56B560). Then for each unit of the side: n = (int)floorf(((float)regiments_count (+0x40) + 0.0005f) * 1000); a unit whose owner id (+0x128) is C's adds n x STRAT_NO_ALLIES_HELP_PENALTY (military +0x140) / 1000, one whose owner id is on C's strong_allies_at_war (+0xFB8; id at +4, next at +0xC) n x STRAT_ALLIES_HELP (+0x144) / 1000, through CStrategicWarfare::AddAlliesImpact on C's StrategicWarfare (+0x1184, 0x56B7A6). See reversing/findings/FINDINGS-definesuse.md, section 9.\n(reversing/findings/FINDINGS-definesuse.md)",
    "type": null
   },
   {
@@ -249206,6 +249224,24 @@
    "kind": "global",
    "confidence": "CERTAIN",
    "evidence": "**The id generator.** One ULONG counter every runtime-created persistent takes its id from, stamped with id type 0x29 (41): CUnit::AfterLoad and CSubUnit::AfterLoad when a block carried no id, CAddDivisionEffect::Execute for everything it builds, and ten other sites including CGameState and the AI. A loaded id does not use it but does push it forward, so it always sits above every id in play. In a 1936 autosave type 41 is the second commonest id type - 15751 against 4713's 19689, those being the ids that came out of files. The name is BiceLib's.\n(reversing/findings/FINDINGS-oob.md)",
+   "type": null
+  },
+  {
+   "rva": 24174184,
+   "namespace": "",
+   "name": "g_SaveKey_lendlease_targets",
+   "kind": "global",
+   "confidence": "CERTAIN",
+   "evidence": "The save's key object for `lendlease_targets` (string VA 0x15E4610), id 0x806, made by the same run of static initialisers (VA 0xD0AFFB-0xD0B012). Used by CConvoy::LoadKey (VA 0x4C544F) and CConvoy::SaveContents (VA 0x4C58FC), and by CCountry::SaveContents (VA 0x4D2232). See reversing/findings/FINDINGS-definesuse.md, section 10.\n(reversing/findings/FINDINGS-definesuse.md)",
+   "type": null
+  },
+  {
+   "rva": 24188224,
+   "namespace": "",
+   "name": "g_SaveKey_lendlease_effectiveness",
+   "kind": "global",
+   "confidence": "CERTAIN",
+   "evidence": "The save's key object for `lendlease_effectiveness` (string VA 0x15E4258), id 0x83C, made by a static initialiser at VA 0xD0B943-0xD0B95A. The id is used in CCountry::SaveContents (VA 0x4D2254), so it is a country's figure - which one was not read - and **not a convoy's**: neither CConvoy::SaveContents nor CConvoy::LoadKey uses it, and a convoy's lend_lease_efficiency (+0xAC) is not saved. See reversing/findings/FINDINGS-definesuse.md, section 10.\n(reversing/findings/FINDINGS-definesuse.md)",
    "type": null
   },
   {
