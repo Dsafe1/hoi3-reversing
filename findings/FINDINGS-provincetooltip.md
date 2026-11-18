@@ -116,6 +116,16 @@ The two `"\n"` leave a blank line between the line on infrastructure and the one
 The constants are `floorf(10.5)` and `floorf(10000.5)`; "trimmed" is `FormatFixedPointTrimmed`.
 No test is made that the province has a depot.
 
+The id is the played country's (read 2026-11-18, fragment `supply-map-intel.json`): ProvinceTooltip_Build keeps
+CCurrentGameState +0xC30 / +0xC34 (`player`) at [esp+0x38] / [esp+0x3C] (VA 0x497EF7..0x497F11), and at VA 0x4994DF that
+id is read back at the same stack depth - both sites write the EH state byte at [esp+0x2244], and the call at 0x4994DA, to
+0x49DD00, cleans its own two arguments with `ret 8`. It is tested against intel_country_count at VA 0x4994E3, the rest of
+the supply part skipped past the count; the byte is read at VA 0x4994F5, and `cmp eax, 6; jl` at VA 0x4994F9 is the
+"above 5" (checked off the listing by the collecting session). **TOOLOWINFRA is tested before any of it** (VA
+0x4993EA..0x4994CC), so it is said whatever the player knows. The "above 8" compare lies past the window read and rests on
+the reading above. `confirmed`, but that a linear grep of the function's [esp+0x3C] writes, 0x4973E0..0x4994DF, found none
+after 0x497F11 - a listing, not a walk of every path.
+
 And where that intelligence is **above 8**:
 
     "\n" + LOGTT_3 + (pool supplies < need ? "§R" : "§G") + pool supplies + "§W"

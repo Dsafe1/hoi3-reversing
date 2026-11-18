@@ -448,6 +448,17 @@ simulated), `grey = 0.4 x b`, and `P` pool, `LP` last_pool, `T` throughput, `D` 
 The second colour is the stripes: **a province asked for more than it can pass is striped red.**
 `CColor::Set` (`0xA627A0`, colour in EAX, the four floats in XMM0-3) is new to the record.
 
+**Whose intelligence** (read 2026-11-18 for OpenHOI3's supply mode, which had stood in "9 of land the player holds,
+nothing elsewhere"; fragment `supply-map-intel.json`; the three compares checked off the listing by the collecting session).
+The viewer is the **map's player**: at VA 0x8669C5 the loop takes the id half of CMap +0x2A88 (`player`, a CCountryTag)
+from the colour table's map (+0x40) and keeps it at [ebp-0x2C]. Per province it indexes CMapProvince::intel_by_country_ptr
+(+0x370) twice - at VA 0x866A32 for `b`, and again at VA 0x866AE4 for the thresholds - each time testing the id against
+intel_country_count (+0x374) first, an id at or past the count reading 0. The thresholds are `cmp ecx, 6; jl` (VA
+0x866B54), which stops at the grey, and `cmp ecx, 8; jge` (VA 0x866BEF) into the figures, so 6 and 7 are the flat green.
+Black is decided at VA 0x866AEC, before the intelligence matters. Nothing in the loop asks the controller: a foreign
+province the player knows by 9 is coloured by its supplies as his own is. With the console's `debug fow` off every country
+knows every province by 9 (`FINDINGS-espionage.md`), so the whole map is coloured. `confirmed` off the listing.
+
 **The tooltip** (`ProvinceTooltip_Mode4`, the branch at `0x4993DB`; read for what it says, not
 for every string operation). On **sea**: for each convoy of the player's on the province's list,
 `LOGTT_8` + the start's name + `LOGTT_9` + the end's name + `LOGTT_10`, and a `CONV_SHIP_IRO`

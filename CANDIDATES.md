@@ -1434,7 +1434,7 @@ of it.
 
 ## What has already been read
 
-238 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
+239 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
 header lives. This replaces the `Done` archive: the archive restated each file's headline and named
 only 40 of the 67 there were then, so it was both longer and less useful than a complete list.
 
@@ -1719,6 +1719,7 @@ the six it was missing were wave 15's.
 | `findings/FINDINGS-provincenamepoint.md` | **a province name's point without a text_position (2026-11-12)**: CMap::ComputeProvinceGeometry writes the bounding box's centre less 2.0 in y - two map pixels south - before positions.txt is read; corrects FINDINGS-farmap.md B.7.1's centre |
 | `findings/FINDINGS-unitrename.md` | **renaming a unit (2026-11-12)**: the unit panel's `unitname` box filled once and sent only as its header is destroyed, trimmed, changed and not empty, as a CRenameUnitCommand that tests nothing, the unit renamed locally too; the per-country names-in-use set, duplicates kept and every copy unregistered; the one-line cap of every edit box's fit loop |
 | `findings/FINDINGS-modlayer.md` | **a mod's start-up (2026-11-16)**: WinMain's command line cut at every `-` (`mod=mod/<file>.mod`, byte for byte), the `.mod` grammar of CModDescriptor, PhysFS mounted twice with a deinit between - with a mod its user folder, the mod, `tfh`, the install, the plain Documents folder not mounted - and `replace_path` a table only ListFilesWithExtension reads: an exact folder, no subfolder, a file opened by name falling through; CDirectorySettings never loaded |
+| `findings/FINDINGS-subunitorder.md` | **a unit's sub units in `priority` order (2026-11-18)**: every way into a unit goes through one insert, after the last of no lower priority - so highest first, equals in arrival order, `atoi`'s whole number - and the counter shows the head; the unit panel sorts a copy the same way; every reader of the field; 50 base-game and 19 BlackICE saves in that order |
 | `findings/FINDINGS-soundeffects.md` | **the sound effects (2026-11-12)**: interface/sound.sfx's five keys, names case-insensitive, 64 voices or `single`; "unless already playing"; the effects volume linear in dB; a button's click on release and a checkbox's on press with their fallbacks to `click`; every effect the game's own events play, and the battle window's chain |
 
 ## A method worth reusing
