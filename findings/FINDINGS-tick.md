@@ -26,6 +26,28 @@ The five thresholds are loaded onto the stack from `0x160A2EC`, `0x1718064`, `0x
 lookup and not arithmetic on one constant. If the accumulator has not reached the threshold
 for the current speed the function does nothing else.
 
+**The five values, read 2026-11-18** (`confirmed`), in real seconds per hour:
+
+| `+0xBEC` | threshold | hours a second |
+| --- | --- | --- |
+| 0 | 5.0 | 0.2 |
+| 1 | 2.0 | 0.5 |
+| 2 | 1.0 | 1 |
+| 3 | 0.5 | 2 |
+| 4 | 0.0001 | one every frame |
+
+They are compiled-in float literals of the shared constant pool (`0x1718064` is also the AI's
+`fAiPowerRatio_2_0`), not defines, so no mod can change them. **The unit is the second**: the
+delta `CInGameIdler::Update` passes is the idler's clock (`+0x192C`, a `CHighPerfWinClock`)
+read through slot 5, `GetSeconds` - the performance counter times one over its frequency - less
+the last frame's reading, kept at `+0x1930` and stored again after the call (`0x655FEA` to
+`0x65601B`). The test is `accumulator >= threshold`, in double (`comisd; jb` at `0x6811D2`).
+**None of the five is pause.** The accumulator is zeroed and not reduced by the threshold, so
+the excess over it is dropped, and with one hour in flight at a time there is at most one hour
+a frame: at index 4 the game runs an hour every frame, as fast as the frames come. The live run
+of 2026-11-10 (`FINDINGS-liveread.md`) agrees: index 0 advanced no hour in four seconds, index 2
+about one a second, index 4 about fifty.
+
 **`+0xBF0` is the interlock, and the tick body is what sets it.** `AdvanceClock` tests it at
 `0x68114F` and jumps past the whole posting path when it is set; `RunHourlyTick` sets it to 1
 in its third instruction (`0x681425`). So while an hour is being processed no further hour can
@@ -244,7 +266,8 @@ need to stay in step. That reading is inference; nothing here traced the command
 - Which of the daily pass's unnamed callees does what, beyond the two called out above.
 - `0x174DA94`, the second dword the hourly snapshot records.
 - `0x1A8560C`, incremented once per tick.
-- The five speed thresholds' values, and which index is pause.
+- ~~The five speed thresholds' values, and which index is pause.~~ Read 2026-11-18, above: 5, 2,
+  1, 0.5 and 0.0001 seconds an hour, and none is pause.
 - Whether the `+0xC58` snapshot is actually sent to peers, or only kept for the save.
 - What `in_game_screen` slot 18 returns, and what class holds the `+0x38` the command is
   posted to. That is the choke point every `CCommand` passes through and it is the obvious
