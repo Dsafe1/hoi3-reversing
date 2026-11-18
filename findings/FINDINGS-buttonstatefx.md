@@ -188,6 +188,28 @@ type's** (36×50 within 64×64), so a portrait is drawn into empty_position's bo
 changes either over time was found, and callers of SetAlpha were not looked for. `confirmed` except where
 marked.
 
+## 7. The tile sprite
+
+*Read 2026-11-18 by the collecting session for OpenHOI3's `topcolor` backdrop; fragment `tile-sprite-type.json`.
+Addresses are VAs.* `tileSpriteType` (token 0x178) is a `CSpriteType` with one key and one quad of its own, its table at
+`0x1605D00` (no RTTI); the base game uses it only for the six `topcolor_*` strips behind the country screens and the
+ledger, 64 x 512 files declared `size = { x = 2048 y = 512 }`.
+
+- **`LoadKey`** (`0xB16D40`): token 0x2E, `size`, read by `ParseIntPairXY` (`0xA7B670`) into `+0x1A0` (x) and `+0x1A4` (y) -
+  the two ints past the 0x1A0-byte `CSpriteType`; every other token goes to `CSpriteType::LoadKey` (`0xAB7A00`).
+- **`LoadResources`** (`0xB16D30`) tail-jumps to `CSpriteType::LoadResources` (`0xAB7B00`): the texture, the effect file
+  and the file's width and height (`+0xA4`/`+0xA8`) are a plain sprite's.
+- **`BuildQuad`** (`0xB16D70`): the quad is `size.x` by `size.y`, and its texture coordinates run to
+  **u = size.x / width and v = size.y / height, each an integer division** (`idiv`, truncated) made a float afterwards. So
+  the file is repeated a whole number of times each way and each copy stretched to fill the quad: the base game's strips
+  32 times across and once down at their own scale; BlackICE's, declared `size = { x = 2048 y = 1000 }`, 32 times across
+  and once down - 1000 / 512 being 1 - so its strip is stretched to 1000 high. The mesh (`+0xEC`) is filled through its
+  slot 11 with the flag 0x2000 where `+0x101` is set and `+0x102` is not. *Not followed*: the vertex writes after
+  `0xB16E14` past the two extents' use.
+
+So the backdrop is spread by the sprite, at the icon's own position: the window behind a country screen is drawn at its
+declared size, and BlackICE's `LOWER_LEFT` icon at y = -195 stands 195 above that window's declared bottom.
+
 ## Not established
 
 - **How a widget fills an object's `+0x84`/`+0x88`** from the element's position and orientation, i.e. the
@@ -205,8 +227,8 @@ marked.
   slot 24, SetFrame, and the technology view's update calls it on every `techtree_` button, 2 for the chosen
   folder and 1 for the rest (VA 0x81B2A0-0x81B2B1, `FINDINGS-countryviews.md` section 5). A set frame
   overrides the state's column, so a tab keeps its picture under the mouse and when pressed. `confirmed`.
-- `textSpriteType` (48 name buttonstate.fx), `corneredTileSpriteType`, and `tileSpriteType`'s own LoadKey,
-  LoadResources and BuildQuad (VA 0xB16D40, 0xB16D30, 0xB16D70). It inherits Draw and the constructor's
+- `textSpriteType` (48 name buttonstate.fx) and `corneredTileSpriteType`; `tileSpriteType`'s own LoadKey,
+  LoadResources and BuildQuad (VA 0xB16D40, 0xB16D30, 0xB16D70) are section 7 since 2026-11-18. It inherits Draw and the constructor's
   default.
 - The pass after the interface (VA 0xA73630); the setters of the crop shorts and of `+0xF0`; the float
   `+0x154` passed to Draw and never read.
