@@ -474,6 +474,9 @@ For each kind: the title, slot 13 (decides), slot 14 (greys), slot 11 (tooltip, 
 **Allow / Revoke Debt.**
 - **Slot 13:** neither in exile.
 - **Slot 14:**
+  - Not itself; no diplomat en route (0x4E3ED0); neither in exile (+0x95); **the actor not a subject (+0xF34), the
+    recipient not a subject or the actor's own (+0xF3C)** - left out of this list until 2026-11-19, though the
+    record had them (`FINDINGS-liveread.md`, section 133).
   - Allowing: `actor->+0xE28[recipient]->allowDebts` clear. Revoking: `recipient->+0xE28[actor]->allowDebts` set.
   - Influence ≥ **both** ALLOW_DEBT_INFLUENCE_COST and REVOKE_DEBT_INFLUENCE_COST.
   - No war.
