@@ -1411,7 +1411,7 @@ Done on 2026-11-19. At 05:00 on 18 July 1941 OpenHOI3 sent the Soviet Cernoje Fl
 
 **With it**: OpenHOI3 takes the order away with its way kept and marks the rendezvous as where the AI sends the fleet; `wr19`, `wr15` and `wr14` have no fleet order of ours alone left, `wr11` 10 (11).
 
-## 140. The trade routes run inside each country's own day, so a country's money of the day is there for the countries after it (confirmed, the running game; not yet built in OpenHOI3)
+## 140. The trade routes run inside each country's own day, so a country's money of the day is there for the countries after it (confirmed, the running game)
 
 Done on 2026-11-19, for the draws `wr15`, `wr14` and `wr11` take one beyond in `CPactPasses.Answer`. In `wr15` at 07:00 on 17 July OpenHOI3's Germany answers a Hungarian trade offer the original never got: OpenHOI3's Hungary, at its trading hour, had 5.415 supplies fewer and 0.990 money more than the original's, which is one route - Hungary sells the Soviet Union 5.415 supplies a day for 0.990 money - run at the midnight in OpenHOI3 and not in the original.
 
@@ -1419,4 +1419,14 @@ Done on 2026-11-19, for the draws `wr15`, `wr14` and `wr11` take one beyond in `
 
 **What it shows**: the Soviet routes give 5.819 in both; the original's further 5.000 come from the rest of the Soviet Union's own day - its money income, which the original makes in the country's day after its trade (the record: RunDailyTradeRoutes sits between CollectDailyProduction and UpdateIC in RunCountryDailyPass, the production after) and OpenHOI3 makes in `CProduction.RunDaily` after every country's trade. With it, the original's Soviet Union pays all six of its Italian purchases (10.908) in Italy's day and has 0.356 left when Hungary's supplies route asks 0.990, which fails; OpenHOI3's cannot pay two Italian purchases and so pays Hungary's.
 
-**Not built**: running each country's trade, IC and production as one block, in the countries' order, is a restructure of OpenHOI3's daily pass; it is on OpenHOI3's worklist.
+**With it** (built 2026-11-19): OpenHOI3 runs each country's production, dues, cut-off land, debts, trade, IC and shares as one block in the countries' order; `wr15`'s draws are the original's for all 48 hours, and every `CPactPasses.Answer` draw of `wr14` and `wr11` too.
+
+## 141. The sliders are weighed inside each country's own day, before the later countries trade with it (confirmed, the running game)
+
+Done on 2026-11-19, for the one `math.random` draw `wr14` takes beyond the original at 09:00 on 17 July: the Soviet production minister makes ten units where the original makes nine, each `Support.CreateUnit` drawing once. OpenHOI3's Soviet sliders had come out of the midnight's balance at 0.70291 production and 0.10193 supplies, the original's at 0.68362 and 0.12134 - the supply share's need, which `BalanceProductionSliders` halves for a major holding over 40,000 supplies, 0.2038 of the IC in OpenHOI3 against about 0.2427.
+
+**The running game**, `CDistributeSupply::GetNeeded`'s entry at the first midnight after loading the original's own save of 16 July 23:00 (a software breakpoint, the country at `[ecx+0x18]`): one call for the Soviet Union, returning into `RunCountryDailyPass_BalanceProductionSliders`, with `unit_demand.supplies` 832.786, `traded_away` 0, both tributes 0 and **`traded_for.supplies` 0.814** - the save written at the end of that day holds 145.633. 831.972 over 9.1 supplies an IC is 91.43 IC of 376, 0.2432, halved 0.1216 and normalised 0.12134, the save's slider.
+
+**What it shows**: the balance stands last in the country's own day, as the record has it, so a route another country runs in its later day - in `from`'s day, which for most Soviet purchases is the seller's - has not reached `traded_for` when the Soviet need is weighed; 0.814 is what Germany's and Britain's days traded it. OpenHOI3 weighed every country's sliders after every country's day, the whole 145.633 subtracted.
+
+**With it**: OpenHOI3 weighs each country's sliders at the end of its economy in its own day; `wr14`'s draws are the original's past hour 26, and the four recordings' orders unchanged.
