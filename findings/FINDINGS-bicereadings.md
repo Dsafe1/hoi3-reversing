@@ -65,7 +65,9 @@ matters here: every one of its 44 numeric stores, `+0xE4` to `+0x1BC` - `build_c
 `repair_cost_multiplier` (`+0x104`) among them - takes its value from a `call 0xa69550` straight before it (a decode of the
 function from its entry, each call paired with the store after it). `CBuilding::LoadKey`'s `effect_size` and
 `CSubUnitAmphibiousMult::LoadKey` were already recorded as reading with it. A technology's block for a unit type is read
-through the unit files' own lookup (`CTechnology::LoadKey`), so `likely` the same.
+through the unit files' own lookup (`CTechnology::LoadKey`), and **observed so in the running game** (2026-11-19, the
+maintainer): BlackICE's division-size technology with `build_cost_ic = 0.3375` in a unit block shows **3.37** in its
+tooltip - the 3.375 this reading gives, written to two places - where a cut to three digits would show 0.34.
 
 **What it touches**: Their Finest Hour writes no figure of more than three decimals in `common`, `technologies` or
 `units`. BlackICE writes three in a unit block - `build_cost_ic = 0.3375` and `-0.3375` in its division-size technologies -
