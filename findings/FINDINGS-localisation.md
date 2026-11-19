@@ -40,8 +40,14 @@ rule as one given twice in a file.
 **A key keeps the first non-empty text it is given in the language read; every later line of it is logged as a
 duplicate and dropped.** A line with no text in that language gives none, so a placeholder `KEY;;;...;x` - the `x`
 column notwithstanding - leaves the key to a later line. *Not read*: what the line's `+0x20` field is (very likely the
-English, for a line too short for the language), how `0x686DA0` hashes a key, and where the two logs go - no log of the
-player's has either line.
+English, for a line too short for the language), and where the two logs go - no log of the player's has either line.
+
+**A key is matched case and all.** `TextTable_FindOrMakeEntry` (`0x686DA0`) answers `+0x24` of the table for an empty
+key; otherwise it asks `StringHashSet_Find` (`0x686F70`) of the table's set at `+0x48`, and where the key is not there
+makes its entry (`0x686CE0`) and asks again; it answers the entry's `+0x1C`. `StringHashSet_Find` is already recorded
+as **exact and case-sensitive** - the same length and the same bytes. So `MANPOWER` and `manpower` are two keys with two
+texts, and the base game has 17 such pairs (six with different English: `MANPOWER`, `WAR_EXHAUSTION`, `ALLIES`,
+`OPTIONS`, `industry`, `NONE`), none of them a duplicate.
 
 ## 3. PhysFS lists a folder's names sorted by byte
 
