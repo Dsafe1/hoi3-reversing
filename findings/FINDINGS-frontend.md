@@ -414,6 +414,14 @@ The technology screen goes by the Technology setting itself, not by flag 2, and 
 queue stay usable and the detail panel does not. The intelligence screen likewise has `unit_queue` and
 `country_info_sections` - the Production and Ministers buttons - take it again inside the panel it stops.
 
+**A list's scrollbar is never stopped** (added 2026-11-19). A list box's slot 38 (`GuiListbox_SetTakesMouse`, rva
+`0x68BF20`) hands the setting to its rows and stores it in its own byte `+0x154` - it never calls its scrollbar. And
+nothing reads that byte: a scan of `.text` for byte reads of a `+0x154` displacement finds five, four in other classes'
+functions and one a stack slot. So on every screen in the table a list's bar and its wheel still move it - the build
+queue, the convoys and the trade routes on a production screen the AI runs. The maintainer saw the original's production
+queue scroll under Ai Control the same day. A scrollbar that is the window's own child - a slider - is stopped, through
+`GuiScrollbar_SetTakesMouse` on its four parts.
+
 ### C.5 What looks wrong and is the original's
 
 1. A press applies at once, not at Play, and posts even when nothing changed.
