@@ -1,0 +1,45 @@
+{
+ "agent": "BlackICE stage-2 readings, 2026-11-19",
+ "question": "Two questions BlackICE's 1936 saves raised: what bucket count orders a save's fired_events, and why a figure of four decimals reads differently by loader.",
+ "source": "reversing/findings/FINDINGS-bicereadings.md",
+ "addresses": [
+  {
+   "rva": "0x669550",
+   "kind": "function",
+   "name": "TokenToFixedPoint",
+   "signature": "int* __stdcall TokenToFixedPoint(CToken* token, int* out) @EAX",
+   "no_signature": null,
+   "comment": "Turns a `CToken`'s text into the engine's thousandths fixed point: `*out = atoi(text) * 1000 + fraction`, where `fraction` is **every** digit after the first `.` read as one number, padded with zeros where there are fewer than three and **never cut where there are more** - `1.5` gives 1500, `1.25` gives 1250, `2` gives 2000 and a token with no `.` a fraction of 0, but `0.3375` gives 3375 and `0.0025` gives 25, ten and more times too large (0xA69591..0xA695A1 read each digit; `cmp edi,3; jge` at 0xA695A3 skips the padding). The fraction is negated whenever `text[0]` is `-`, whatever `atoi` returned, so `-0.5` is -500 and `-1.5` -1500. **Every numeric figure of CSubUnitDefinition::LoadKey** (rva 0x1A3C80, its 44 stores +0xE4..+0x1BC) is read with this, so a unit file's or a technology's unit block's figure of more than three decimals comes out inflated; modifiers are read by ParseThousandths (0x6696A0), which cuts to three. See reversing/findings/FINDINGS-bicereadings.md, section 2.\n\nThe `imul 1000` / `__allmul(x,1000)` / `__alldiv(x,1000000)` round trip in the middle is a 64 bit overflow guard on a large fraction, not a second scaling - and so the fraction is never brought back to three places - `lea edx,[eax+0x189373]; cmp edx,0x39580D` picks the 32 bit path only when `eax*1000` cannot overflow, and both paths hand the same fraction back. The fast path's `0x431BDE83` with `sar edx,0x12` is the standard divide-by-1000000 magic (2^50/10^6 = 1125899906.8).\n\n**188 direct call sites, all loaders**, and the argument is `parse + 0x228` (`CParseContext::value`, the CToken) at every one looked at. It takes the token, not the context, so it reports nothing: a token that is not a number simply gives 0. It answers `out` in eax so the caller can read the value straight back - `call; mov eax,[eax]; mov [ebx+0xC4],eax` at 0x4CDE8B, and `call; movd xmm0,[eax]; cvtdq2ps; divsd [0x160A300]` (1000.0) at 0x4B1F93, which is the float the loader actually wanted.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-script.md; reversing/findings/FINDINGS-bicereadings.md",
+   "revises": "The fraction was said to be padded to exactly three places, implying a longer one is cut; it is padded and never cut, so a figure of four or more decimals is read ten or more times too large. And the sign: the fraction is negated for any leading '-', not only when atoi answered 0 - the old wording left -1.5 open.",
+   "evidence": "Decoded 0xA69550 to the ret 8 at 0xA6962D from its entry. The digit loop 0xA69591..0xA695A1 has no count limit; the padding loop 0xA695A8..0xA695B6 runs only below three digits (0xA695A3 cmp edi,3; jge 0xA695B8); 0xA695B8..0xA695CB negate when the first byte is 0x2D, by both arms (atoi negative: jns not taken; atoi zero: jmp 0xA695CB). The multiply at 0xA695CD and the fast or slow *1000/1000000 that follow are an identity. WHAT WOULD SHOW IT WRONG: a caller cutting the text to three decimals before the call, or a loaded unit figure of 0.3375 reading 0.337 in the running game."
+  },
+  {
+   "rva": "0x59620",
+   "kind": "function",
+   "name": "CModifier::LoadKey",
+   "signature": "void __thiscall CModifier::LoadKey(CModifier* this, CParseContext* parse, SaveToken key)",
+   "no_signature": null,
+   "comment": "**Two arms, and the second is how every modifier block is read.** Token 0xB2 (`icon`): the value text (parse +0x22C) through 0xB969F1 into `icon` (+0x28). **Every other key** is looked up in the modifier-definition vector (0x1A86194 begin, 0x1A86198 end; ModifierDefinitionDatabase::Add fills it) by the definition's `token` (+0x20), the first match by position; the value is read as ParseFixedPoint reads it, inlined - `sscanf(\"%i\")` straight when the tokenizer's slot 2 says binary, else 0xA696A0 (ParseThousandths - thousandths, at most three decimals, a fourth dropped; not TokenToFixedPoint, which keeps them all) with ReportParseError (0xA7A960) on failure - and stored in the low dword of `values (+0x18)[position * 8]`. So the key a script writes is the definition's token (the `push <token>` in each InitModifierDefinitions block), and the slot is the definition's position in the vector, which is its id below 102: `espionage_bonus` (token 0x4C4) -> 42 -> +0x150, `counter_intelligence` (0x4EA) -> 54 -> +0x1B0, `counter_espionage` (0x4EB) -> 55 -> +0x1B8. A key that matches no definition is logged - `unknown modifier '<key>' in file <file>` (modifier.cpp, line 0x111, channel 0x10004) - and dropped. Inherited by 6 classes in all. **Corrected 2026-10-14**: this said that a key other than `icon` was dropped in silence; the switch reader (reversing/scripts/definitions.py) sees only the switch's one case and not the fall-through. See reversing/findings/FINDINGS-occupation.md, section F.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-occupation.md; reversing/findings/FINDINGS-bicereadings.md",
+   "revises": "The inlined reader was named TokenToFixedPoint; the call is to 0xA696A0, ParseThousandths, which cuts a fraction to three places, where TokenToFixedPoint (0xA69550) keeps every digit. So a modifier's 0.0025 is 0.002.",
+   "evidence": "The address the comment gives, 0xA696A0, is the recorded ParseThousandths entry (rva 0x6696A0), decoded again: it copies up to three characters after the '.' into the template 0x303030 (0xA69707..0xA6972F). TokenToFixedPoint is 0xA69550. WHAT WOULD SHOW IT WRONG: the inlined call being to 0xA69550 after all."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CCurrentGameState",
+   "offset": "0xC3C",
+   "name": "fired_once_bucket_count",
+   "type": "unsigned int",
+   "comment": "The fired_once_events registry's bucket count, **511**, written by CGameState::CGameState at 0x67D41C and never changed; a key goes to bucket ((id_type << 16) + id) % this, so a save's fired_events - the buckets walked 0..510, each chain from its head - come out in ascending ((40 << 16) + id) % 511, the latest of a bucket first. Measured on three BlackICE saves of 1936 (10, 12 and 22 events), whose order fits 511 and no other count from 2 to 4999. See reversing/findings/FINDINGS-bicereadings.md, section 1.",
+   "source": "reversing/findings/FINDINGS-eventfire.md; reversing/findings/FINDINGS-bicereadings.md",
+   "revises": "The value was not recorded: 511 (0x1FF), set by the base constructor.",
+   "evidence": "CGameState::CGameState decoded in place: 0x67D417 mov eax,0x1FF; 0x67D41C mov [ebx+0xC3C],eax; the bucket array new'd at 0x67D437 for 0x1FF*4 bytes and cleared by 0xB99220 at 0x67D454 into +0xC40; no other write to +0xC3C in the constructor. Measured: three BlackICE saves' fired_events orders fit N=511 alone. WHAT WOULD SHOW IT WRONG: a save of more than 511 fired events, or a write of +0xC3C elsewhere (a rehash)."
+  }
+ ],
+ "frontier": [],
+ "slots_noted": "CModifier::LoadKey is slot 4 of six vftables (CFactionModifier, CModifier, CNullStrategicResource, CProvinceModifier, CStaticModifier, CStrategicResource); only its comment is revised here, its slots already recorded with it."
+}
