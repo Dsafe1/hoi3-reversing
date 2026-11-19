@@ -180,7 +180,36 @@ laid out (section 2.4). Both are the box's own, not its list's. An `instantTextB
 less an `O` wide - about 321 in Arial12 - stands whole in a list 310 wide, up to about 11 units past the list's
 right edge, over whatever is drawn there; on the 1120-wide `tech_details` window the list ends at 990, so the
 line stays inside the window. Where the list's scrollbar is shown, a long line runs under or over it by the
-draw order, which was not read (the scrollbar's place is section *Not established*).
+draw order, which was not read (the scrollbar's place is section 5).
+
+## 5. Where the scrollbar stands, and `offset` (read 2026-11-19)
+
+Read after BlackICE was found setting `offset` on seven list boxes, with comments that it was needed to line things
+up, and OpenHOI3 accepting the key and doing nothing with it.
+
+**The declaration's grammar** is `GuiType_listboxType_LoadKey` (`0xB2B660`, slot 4 of the declaration's table
+`0x1606A64`): sixteen keys, the rest to `CGuiType::LoadKey`. `offset` (token 353) is an `{x y}` pair at the
+declaration's `+0xFC`, read by the same routine as `position` (`+0xF4`), `size` (`+0x104`) and `borderSize`
+(`+0x10C`). The whole map is the record's entry. Two things in it look odd and are left as read: `step` and `spacing`
+both write `+0x158`, by two readers; and `parent` goes to `+0x84` and `background` to `+0xA0`, where the record's
+`GuiType_listboxType_Create` entry calls `+0x84` the background - what the create hands on was not checked against it.
+
+**The scrollbar is placed by `GuiListBoxBase_Construct`**, which keeps the declaration at the box's `+0x140`
+(`0xA8C1E6`, its argument at `[ebp+0x30]`, which the create pushes as `esi`). Where the box has a scrollbar
+(`+0xF8`):
+
+    x = the box's width (+0xDC, a short) + offset.x      (the declaration's +0xFC)
+    y = offset.y                                           (the declaration's +0x100)
+
+stored as floats at the scrollbar's `+0x74` and `+0x78` (`0xA8C28F`..`0xA8C2F1`). **With no `offset` the bar stands at
+the box's right edge, at its top** - which is where OpenHOI3 put it before this reading. `confirmed`. What the
+constructor goes on to do with the screen's size straight after (`+0x6B9BC`, `+0x6B9C0`, halved) was not read; it
+does not touch the two figures before they are stored.
+
+**`offset` is therefore the scrollbar's offset from the box's top right**, not the rows'. In the base game five list
+boxes set it, all `{ x = 0 y = 0 }`; BlackICE sets it on thirteen, seven of them otherwise -
+`country_diplomacy.gui` (y 1, -14 and -6), `country_politics.gui` (y -4), `outliner.gui` (x -16),
+`single_unitpanel.gui` (y 1) and `unitpanel.gui` (y 5).
 
 ## Not established
 
@@ -194,7 +223,8 @@ draw order, which was not read (the scrollbar's place is section *Not establishe
   not read, so that they are `spacing` and `borderSize` is from their use.
 - **The wheel.** Slot 1 of the second table (`0xA8EA70`) takes it and moves the scrollbar;
   by how much was not worked out.
-- **Where the scrollbar stands** beside the box.
+- ~~**Where the scrollbar stands** beside the box.~~ Section 5.
+- **What the base constructor does with the screen's size** after placing the scrollbar (section 5).
 
 ## In the record
 
@@ -211,6 +241,8 @@ draw order, which was not read (the scrollbar's place is section *Not establishe
 | `0x6600E0` | `DrawObjectBase_Construct` | new | inferred | the draw objects' base constructor; +0xF0 = 0 |
 | `0x6A29B0` | `CIcon::SetSpriteType` | new | inferred | copies the scissored byte onto the new sprite; CEU3Minimap slot 57 |
 | `0x740710` | `GuiButton_SetSpriteType` | new | inferred | the same for a button's display object |
+| `0x72B660` | `GuiType_listboxType_LoadKey` | new | confirmed | the declaration's sixteen keys, `offset` at +0xFC (section 5, 2026-11-19) |
+| `0x68C0E0` | `GuiListBoxBase_Construct` | revised | inferred | comment: the declaration at +0x140 and the scrollbar placed by `offset` (section 5) |
 
 | struct | offset | name | type | new or revised |
 | --- | --- | --- | --- | --- |
@@ -223,5 +255,7 @@ draw order, which was not read (the scrollbar's place is section *Not establishe
 | `GuiListBox` | `0x13E` | `uses_entry_heights` | `bool` | new |
 | `GuiListBox` | `0x144` | `entry_count` | `int` | new |
 | `GuiListBox` | `0x148` | `rows` | `int` | new |
+| `GuiListBox` | `0x140` | `declaration` | `void*` | new (2026-11-19, section 5) |
+| `GuiListBox` | `0xDC` | `width` | `short` | new (2026-11-19, section 5) |
 | `CSprite` | `0xF0` | `scissored` | `uint8_t` | revised (comment: nobody sets it; the rectangle is empty) |
 | `CGraphics` | `0x6BCE0` | `scissor_rect` | `int[4]` | new |

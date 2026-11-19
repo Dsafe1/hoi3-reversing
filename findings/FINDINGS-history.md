@@ -268,6 +268,32 @@ zero. A leader whose history carries no `rank` entry therefore has an activation
 live tick can equal, and **is never activated**. That closes
 `FINDINGS-leaders.md`'s open item about this global without guessing "campaign start".
 
+## 7. A key with no `=` takes the value before it (read 2026-11-19)
+
+Read because BlackICE writes `manpower 0.66` - no `=` - in eight province files (Kiskunhalas, and seven in Sardinia:
+Olbia, Sassari, Oristano, Nuoro, Laconi, Iglesias, Tortoli), and OpenHOI3 dropped the line where the original reads
+something.
+
+Both of `CHistoryContainer::LoadKey`'s paths take their pairs from **`ParseReadKeyValue`** (`0xA7ACB0`): a dated block's
+loop calls it before each pair (`0x5FCD1C`), and an undated key arrives from `CPersistent::Load`, which calls it before
+every slot 4. That routine copies the key, takes **one** token, and reads a value only when that token is `=` (kind 1,
+`0xA7AD11`). Otherwise the token is consumed and lost, and the value slot (`+0x228`) is left as the previous pair set it.
+`confirmed` off the listing, and the same as `FINDINGS-triggergrammar.md` section 2 found for script.
+
+So `CProvinceHistory::LoadEntry` gets `manpower` with **the value of the line before**:
+
+| file | the line before | the original's manpower | written |
+| --- | --- | --- | --- |
+| 3436 Kiskunhalas | `infra = 5` | 5 | 0.66 |
+| 4658 Olbia | `rail_terminus = 1` | 1 | 0.56 |
+
+(the other six by the same rule, read off their files by OpenHOI3's validation log). The same rule elsewhere, all in
+Their Finest Hour's own files: `type = hq_brigade name "15th Corps HQ"` names an HQ brigade `hq_brigade` (the Soviet
+orders of battle of 1938 and 1939, four brigades); `controller = SOV` then `add_core SOV` gives the core by luck (two
+base province files, both replaced by Their Finest Hour's copies); and `theatre {` / `army {` in the Day of Infamy
+orders of battle load their units whole, the `{` taken where the `=` belongs and the unit's own `Load` reading to its
+`}`.
+
 ## What is not established
 
 - **Which stack argument of `ExecuteHistoryToDate` (`0x1F52A0`) is which.** `ret 8` on both
