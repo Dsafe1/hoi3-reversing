@@ -486,10 +486,10 @@ Each of the four buttons has a handler of its own, all one shape (`0x8022F0 / 0x
 for `build_division_button`):
 
     CProductionView::HideDialogs()          ; 0x802260: slot 3 of all seven dialogs
-    hide the screen's own window            ; +0xA8, slot 14 of its CGuiObject
+    hide the screen's main window           ; +0xA8, slot 14 of its CGuiObject
     CProductionView::ShowFrame()            ; 0x801F80
     show the dialog                         ; its slot 2
-    jump to the view's own slot 5
+    jump to the view's own slot 5           ; CProductionView::FlushSliders, 0x7FFA80
 
 | button | handler | dialog |
 | --- | --- | --- |
@@ -501,23 +501,51 @@ for `build_division_button`):
 `confirmed` for the shape and the dialog each shows; which button each is attached to is
 `inferred` from the order of the names in `CProductionView::AttachButtons`.
 
-**`ShowFrame`** shows eight elements of the screen's own window again, by name: the icons
+**`ShowFrame`** shows eight elements of the screen's main window again, by name: the icons
 `bg_countryskin`, `bg_mainshadow` and `production_topitem`, the button `close_button`, the
 texts `headline_prod` and `automation_setting`, and the buttons `mode_arrow_right` and
-`mode_arrow_left`. **So a builder window stands on the production screen's frame and the
-country's picture, with everything else of that screen put away** - which is what its own
-art is drawn for: 5.6% of `production_divdesign_bg.dds` is opaque. `bg_prod`, the screen's
-background, is not brought back.
+`mode_arrow_left`. **They stay unseen**: they are shown inside a window that has just been
+hidden, and nothing shows that window again. So **a builder window stands alone, with
+nothing of the production screen behind it**. `confirmed`, and seen: the maintainer's
+screenshot of the original's division designer under BlackICE, 2026-11-19, has the builder
+over the map and no production frame. Why `ShowFrame` is called at all is not known.
 
-`cancel` and a finished `accept` hide the dialog and call the game screen's slot 37 with 1
-(`0x7D9890`); that this is what brings the whole production screen back was not read.
+*Corrected 2026-11-19.* This section said until then that a builder stood on the screen's
+frame and the country's picture, reading the eight elements as seen, and the rewrite built
+it so. The screenshot is what showed it wrong; the bytes had said nothing either way about
+whether a hidden window's child is drawn.
+
+What else stays as it was, because nothing on the way touches it:
+
+- **The `topcolor_production` window** (`+0xAC`) - only the main window (`+0xA8`) is hidden.
+  BlackICE's is the veil the screenshot shows over the map.
+- **The screen counts as up.** `CProductionView::IsShown` (slot 7) answers yes while any of
+  its dialogs is open, so `CInGameIdler_AnyCountryViewOpen` still does: the outliner stays
+  shut (`FINDINGS-outliner.md`), and the minimap stays hidden and `bg_main_menus` shown
+  (`FINDINGS-minimap.md`) - of the three places that show the minimap (`0x41DF9A`,
+  `0x65F9E4`, `0x66524D`, by a scan of `.text` for the displacement `0x1920`), none is on the
+  way. **So in the base game a builder stands on `bg_main_menus`, the old map, and in
+  BlackICE on the map itself**: BlackICE's `gfx/interface/background_map.dds` is DXT5 with
+  alpha nought in every block.
+
+**Closing a builder** - `cancel`, or `accept` once the order is given - is
+**`CloseBuilderWindow`** (`0x7D9890`). Outside custom game mode it calls the in-game screen's
+**slot 94** (`+0x178`), `CInGameIdler::ShowCountryViewAgain` (`0x6750E0`), with 1, then the
+window's own slot 3 (hide). Slot 94, where a country view is up, calls that view's slot 2 -
+`CProductionView::Show`, both windows shown and the lists built again; with 0 it would call
+the view's slot 3 first (not read). In custom game mode it hides the window and calls
+`CInGameIdler_CloseCountryView` with 1, which shuts the production screen. `confirmed`. This
+section said slot 37 until 2026-11-19, which is `BuildMessageDialogTooltip`.
 
 ## What is not established
 
 - **Which key makes a step ten** in the code. The step buttons' own tooltip says Ctrl
   (`FINDINGS-buildertooltips.md`, section 2).
-- **`CProductionView` slot 5** (`0x7FFA80`), which each of the four handlers ends on, and
-  the game screen's slot 37.
+- ~~**`CProductionView` slot 5** (`0x7FFA80`), which each of the four handlers ends on, and
+  the game screen's slot 37.~~ Read 2026-11-19 (section 7): slot 5 sends the sliders, and the
+  slot is 94, not 37.
+- **A country view's slot 3** (`0x7FFA70` for production), which slot 94 calls first when
+  given nought; and why `ShowFrame` is called at all.
 - ~~The four tooltip builders (slot 6), beyond their keys.~~ Read in `FINDINGS-buildertooltips.md`.
 - **`CCountry::CountMaxUnitsStillBuildable` past its early returns** in the listing, and
   what `0x5ADF70` groups brigades by when it counts "of the type's branch".
@@ -546,6 +574,12 @@ were being built: seven more functions - the four handlers of section 7,
 the first fragment's own entries revised, `CDivisionDesigner::AddBrigade` for the
 comparator it inserts by and `CPossibleBrigadeEntry`'s constructor for the sprite of its
 button.
+
+And by `fragments/merged/builders-put-away.json` (2026-11-19): two new functions,
+`CInGameIdler::ShowCountryViewAgain` (slot 94) and `CProductionView::FlushSliders` (slot 5),
+with their slots; and six revised - `CProductionView::ShowFrame` (its elements stay unseen,
+`inferred` to `confirmed`), the four handlers' comments, and `CloseBuilderWindow` (slot 94
+and not 37, `inferred` to `confirmed`).
 
 Three addresses carried constructor labels from Ghidra's RTTI pass that their bodies do not
 bear out, and are named here for what they do: `0x7EA880` (`CDivisionDesigner::AddBrigade`,
