@@ -250,6 +250,12 @@ What each zero is worth:
   was not found), `MAX_PROVINCE_SELL_PRICE`, `ROUGH_COUNTRY_RUIN_EST_MODIFIER`, and `UNDERGROUND_PARTISAN_STRENGTH` (no
   control of its own, and partisans not seen rising). A scripted play - a capitulation, a declaration, a rising - would settle
   them; the bridge's allowed writes (pause, speed, save, the menus) cannot make one.
+- **`PURCHASE_INFLUENCE_COST`, `RELATION_INFLUENCE_COST` and `MAX_PROVINCE_SELL_PRICE` are likely leftovers of the
+  engine's Europa Universalis III parts** - the maintainer's account, 2026-11-20 - and so read by nothing: buying, improving
+  relations with influence and selling a province are EU3's diplomacy, Hearts of Iron 3 has no action for any of them (its
+  licence is charged `LICENCE_INFLUENCE_COST`), and the AI's own class is still `CEU3AI`. *Inferred*: the watch saw no
+  read, and no action that could read them is known; that the defines came over from EU3 with `CDefines::Load` is the
+  account, not a reading.
 - The diplomacy and alignment blocks have no struct in the record, so `NAP_INFLUENCE_COST`, `PURCHASE_INFLUENCE_COST`,
   `RELATION_INFLUENCE_COST`, `JOINBLOCK_INFLUENCE_COST`, `MILACC_CANCEL_RELATION_CHANGE` and `WAR_THREAT` are written here
   alone; the other fourteen's field comments carry the result.
