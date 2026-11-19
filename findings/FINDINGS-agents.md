@@ -1192,7 +1192,7 @@ the unit holds a transport plane or a paratrooper brigade, it moves, with no tal
 five listed types the unit holds, the sum of (A.diff - A.tally - T) - (cur.diff + T - cur.tally), diff being
 `plan_subunit_group_difference` (`CUnit +0x6C`), aircraft their own group, every cur.diff -1000 with no current agent; it
 moves where the gain > 1, or where it holds a tactical bomber and the receiver is a war candidate while its current agent
-is not. Interceptors, multi-role fighters and CAS never move. (3) The tally (`CAIUnit +0x23C`) is kept for every type on
+is not. Interceptors, multi-role fighters and CAS count for nothing in the gain - they are not listed - and **nothing bars them from the war-candidate move**: a unit holding a tactical bomber beside them goes (corrected 2026-11-19, FINDINGS-liveread.md, section 136, where this read "never move"). The current agent is the topmost up the parent chain, a unit with an agent of its own is passed over, and the current agent must answer slot 65 to give a unit up. (3) The tally (`CAIUnit +0x23C`) is kept for every type on
 each move.
 
 ### F.5 `CEU3AI_GatherTransportsForTheatres` (`0x490DB0`)
