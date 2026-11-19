@@ -1515,3 +1515,42 @@ Done on 2026-11-19, for the first order the new war-start recording `wz3` (48 ho
 **The probe** (the kit's `pulltest.lua`: at 0x4CA58C, the fuller test's comparison, and at 0x4CA758, a candidate taken into the keyed set; on a fresh entering): for T = 2443 both picks take the 71. with no test line at all, logged `have 0 standing 0` and then `have 1 standing 0`. On the listing (0x4CA515-0x4CA543): a unit standing where it is bound goes to the test with D's standing as its count; one standing elsewhere is taken without the test where `[ebp-0x48]` is under 1 and it stands in T. `[ebp-0x48]` is T's standing as the pull began - the booking raises the record's `+0x14` (0x4CA961) and not that copy - so a division standing in T, pulled to T and still bound elsewhere, is taken again.
 
 **OpenHOI3** tested the record's standing, raised to 1 by its first pick, so the 71. went to the fuller test and was refused, and took no account of a unit standing at its own destination. With the standing as the pull began and the rule only for a unit standing elsewhere than it is bound: `wz3`'s land orders 238 of 241 (237), 2 of OpenHOI3's alone (8); fleets 128 of 137 (124); the July 1941 recordings unchanged.
+
+## 150. A BlackICE new game in the running game: Britain's stockpile, a fleet's base as it is read, and the naval base the history does not give (confirmed and measured, the running game)
+
+Done on 2026-11-19 for OpenHOI3's BlackICE stage 2, whose new game left Britain 163 supplies and 182 fuel above the start
+save `Ireland1936_01_01_00.hoi3` of BlackICE GitHub. The original was launched with `-mod=mod/BlackICE GitHub.mod` (the
+switch parsed raw, no quotes) with the mod's BiceLib on only `fixMaxInfrastructure`, as when the save was made, and a new
+game started as Ireland (`hoiNewGame(1563)`, the played id 20).
+
+**Britain's stockpile** (`probes/hoiday.lua`): logged at the head of the day (RunDailyPass, 0x282C20), at the start of
+the filling (RunSupplyAndConvoyIterations, 0x278AB0) and at RunCountryDailyPass's last block (0x4DBEA8, the country in
+EBX). Supplies / fuel: day 1's head 51,386.130 / 58,381.560; its last block 51,304.980 / 58,271.312; the filling's start
+51,307.398 / 58,273.625 (friends' units paying it in the later countries' days); day 2's head 51,518.658 / 58,513.675;
+day 2's last block 50,406.876 / 58,349.753. Across the filling its traded_away added up to 30,193.334 / 45,684.348 and its
+unit_demand to 237,685.511 / 262,836.028: the pass counters are not cleared between the filling's passes, and a payment
+by a country later in the order than Britain lands after Britain's stockpile is put back, so it is kept from pass to pass.
+OpenHOI3 agreed at the filling's start to a third of a unit and was 163.475 / 182.589 higher at day 2's head, exactly its
+excess of unit_demand: 0.325 / 0.363 a pass - a French fleet at Djibouti paying Britain a quarter over for drawing on
+British Somaliland's depot, where the original's fleet draws on its base.
+
+**The fleet's base** (`probes/hoinavybase.lua`): CNavy::LoadKey's `base` key for the block of `base = 9867` caught, and a
+write breakpoint put on that fleet's +0x98. Two writes, both in CNavy::CheckBase with CUnit::AfterLoad's return address
+0x5B8163 on the stack: 0 at 0x5D025E and then Guadeloupe's naval base object at 0x5D02BF; the base unchanged at the head
+of day 1. The listing gives the rest (project.json, CNavy::CheckBase): the owner's NavalBases measured by
+NavalDistanceTo from the fleet's location, the first strictly below 999,999,000 winning, and 0 for every base from a
+province with no sea index - so the first of France's list, Guadeloupe (485), as the save has it. Japan's "11 Kaigun",
+whose file bases it in a Chinese province, is given 5425, where it lies, as the save has it.
+
+**Why 9867 has no naval base**: its history file says `naval_base = 5`, and the start save has none. A write breakpoint on
+province 9867's naval base level_max (+0x300 -> +0x20) put at the main menu, where it already read 0, saw no write through
+Play, entering and the two days (`probes/hoibuildingwatch.lua`). So the history's naval base is never given to that province - **measured**: of the 753
+provinces BlackICE's history gives a port building, the nine with no CPort (+0x354) are 1736, 3350, 3445, 6617, 6836,
+6992, 8447, 9867 and 14180; the three of them given a naval base (6617 New Zealand's, 9867 France's, 14180 Oman's) keep
+none, and the six given shipyards - also `port = yes` - keep them. So the rule is the naval base's, not the port flag's.
+Where the line is dropped was not found: neither CProvince::LoadKey's building arm nor SetProvinceBuildingLevel tests a
+port, and the history's dated lines are applied by another path, not read.
+
+**OpenHOI3**, given both - the history's naval base refused where there is no port, and the base check as a fleet block
+closes - has Britain's stockpile the original's at day 2's head to the thousandth and the save's at the end to 0.065;
+the start's supply stockpiles 54 of 79 (44), fuel 70 (69), brigades' strength 10,918 of 10,918 (10,916).
