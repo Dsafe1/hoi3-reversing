@@ -1382,3 +1382,13 @@ Done on 2026-11-19. At 8:00 on 17 July 1941 the original rebased Germany's 26th 
 **The listing** (0x48F2B0-0x48F9A0): of the type database (`[0x1A886F0]`) the pass reads the five listed slots (+0x58, +0x64, +0x68, +0x74, +0x48) and nothing else; the war-candidate test (0x48F8DE-0x48F8FF) asks the tactical bomber's count, the receiver's `+0x365` and the current agent's. Nothing asks an interceptor, a multi-role or a CAS. `FINDINGS-agents.md` F.4 and the record had said they "never move", which is true only of the gain. Read on the way: the current agent is the topmost up the parent chain (0x48F5CD-0x48F5F7), a unit with an agent of its own is passed over (0x48F5C2), the current agent must answer slot 65 (0x48F60E), and the tally is kept over every type index the unit holds (0x48F94A-0x48F994).
 
 **With it**: the 26th goes to Königsberg as the original's; wr19's air orders 26 of 26, one more of the original's in each of wr15, wr14 and wr11.
+
+## 137. A submarine fleet sent raiding, or to a better port, is neither counted nor free (confirmed, the running game and the listing)
+
+Done on 2026-11-19. At 9:00 on 17 July 1941 OpenHOI3 turned Britain's 31st Navy, on its way to 5586, to join the 41st Navy at 5511, where the original left it on its way. OpenHOI3's Middle East Command had given the 41st, a submarine flotilla of power 1.956, a raid at 10590 in phase 7 and then, finding it free, sent it to intercept the Italian 11th Navy at 10572 with the 31st to join it, 1.956 being short of twice the need of 12.655.
+
+**The running game**, phase 9 (0x4D3950: the enemy at `[esp+0x54]`, the free list from `[esp+0x154]` to `[esp+0x40]`; 0x4D3AC2: the fleet picked at `[esp+0x64]`): the Middle East Command's free fleets at that pass are the 23rd, 28th, 29th, 31st and 32nd Navy - not the 41st - and the 31st is picked alone, 58.053 against twice the need, 25.310.
+
+**The listing** (phase 7, 0x4D2880-0x4D3240): the raid's `CreateUnitOrder(convoy_raid 0x6E9)` at 0x4D2CA5 and the relocation's `IssueUnitOrder(rebase 0x6DE)` at 0x4D2AE7 each end in `jmp 0x8D3227` (0x4D2D1C, 0x4D2B54), the loop's end, past the count and the free list - as section 128 has for the surface rebase.
+
+**With it**: the 31st and 41st Navies as the original's; fleets `wr19` 164 of 165 (163), ours alone 3 (5); `wr15` 163 of 164 (162), `wr11`'s ours alone 13 (16); and air `wr15` 28 of 28 (25), `wr14` 27 of 27 (25), `wr11` 26 of 26 (25), the raid's fleet no longer drawing a different intercept and its patrol.
