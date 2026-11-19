@@ -197,6 +197,21 @@ aboard a fleet or an air transport takes the carrier's base.
 for supplies and for fuel apart. So a friend's unit pays between a little under and **a quarter
 over** what it asks for, the more the emptier the province it draws in.
 
+**Ground that draws on nothing is paid for, into nowhere** (read 2026-11-19). The depot is
+`provinces[province +0x48]`, so province 0 where the province draws on nothing, and the paying test at `0x5BBD5C`-`0x5BBD98`
+asks only three things: the depot's controller id (`+0x338`) is not the payer's (`+0xCA8`); `GetCountry(depot +0x334)` -
+`countries_first[id]`, so `countries[0]`, the null country, for province 0 - answers `IsFriend(payer, true)`; and the
+payer is no exile. `CCountry::IsFriend`'s second arm compares the payer's overlord id (`+0xF3C`) with the asking
+country's id (`0x4EF7F9`-`0x4EF80F`), and a country with no overlord holds 0 there, the null country's id: **the null
+country is a friend of every country with no overlord.** So such a country's unit pays at the price below, booked as
+`TradedAway` - which `CDistributeSupply::GetNeeded` adds to the supply need - and out of its stockpile into the null
+country's, and nothing of it goes on its `unit_demand`. A puppet, whose overlord id is somebody's, is no friend of the
+null country by any arm and pays nothing. The depot test further down is skipped for province 0, so the province's pool
+gives the unit what it holds either way. *Measured*: BlackICE GitHub's new game of 1936, where Shanxi's government sits
+in China's Beiping through the two days and Shanxi's landlocked land therefore draws on nothing, writes Shanxi's
+`traded_away` as supplies 1.701 and fuel 0.065, its stockpile with no supplies and nobody's `traded_for` with them;
+OpenHOI3, given the rule, gives all three.
+
 **A fleet under a rebase order** (`GetTypeId() == 0x6DE`) has both province and depot replaced
 by its owner's acting capital - after the price was worked out from the old ones.
 
