@@ -1435,7 +1435,7 @@ of it.
 
 ## What has already been read
 
-241 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
+243 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
 header lives. This replaces the `Done` archive: the archive restated each file's headline and named
 only 40 of the 67 there were then, so it was both longer and less useful than a complete list.
 
@@ -1632,6 +1632,8 @@ the six it was missing were wave 15's.
 | `findings/FINDINGS-transparencecheck.md` | **a sprite's `transparencecheck` (2026-11-03)**: `CSpriteType::LoadKey`'s seven keys, the test `IsTransparentAt` - see-through where the frame's pixel has no alpha, everywhere for `allwaystransparent`, nowhere without the key - the default a caller may set where the file is silent, and DXT1 and DXT5 refused as the texture loads; who asks the test was not found |
 | `findings/FINDINGS-history.md` | the history subsystem: a do/undo replay log, read every day, and what it costs |
 | `findings/FINDINGS-guicontainers.md` | the subwindow map, and every `CWindowType::LoadKey` token's container |
+| `findings/FINDINGS-guikeys.md` | seven `.gui` keys: a button's `parent` (field-wise inheritance of its sprite and tooltips), its `scale` (only a swapped-in picture), `buttonMesh` (`spriteType` again), and the scrollbar's and list box's `priority`, `step` and `allwaystransparent`; the scrollbar's whole grammar |
+| `findings/FINDINGS-fontterrain.md` | the fonts' `color_override` (each font's own) and `colorcodes` (one shared table), terrain.txt's `has_texture` and `altitude` (read by nothing), `country_colors.txt` (stored, read by nothing) and `graphicalculturetype.txt` (the 3D figures only) |
 | `findings/FINDINGS-guistatic.md` | the GUI read statically: the child lists, the empty registries, the ledger's class |
 | `findings/FINDINGS-listbox.md` | how a list box lays out what is in it: rows, as many as go whole into the box's height, an entry with no row hidden and none cut off, `spacing` unused, scrolling by the row - and the two lists that go by their entries' heights instead |
 | `findings/FINDINGS-deploymenu.md` | how a finished unit gets to the map: the sixteen alerts and the one that opens the deploy menu, the menu's two lists - the units waiting, then the units one of them may join - what a click on a line of each posts, and what joining is: one brigade moved into the target, anything larger put under it |

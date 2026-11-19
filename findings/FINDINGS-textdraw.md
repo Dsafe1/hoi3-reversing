@@ -19,8 +19,9 @@ them - set left at the border, **centred in the whole box from the border** with
 half cut to a whole number, set right against the box's right edge **with no border at
 all** - and then draws every glyph with **half a pixel added to both coordinates** of
 every corner, which beside the game's pictures is one pixel right and one up; and the
-colours of the `§` escapes are not in the executable but in each font's own
-`colorcodes` block.
+colours of the `§` escapes are not in the executable but in the fonts' blocks - each
+font's own `color_override`, then one table every font's `colorcodes` fills
+(corrected 2026-11-19, `FINDINGS-fontterrain.md`, section 1).
 
 ---
 
@@ -426,15 +427,18 @@ half pixel on the text side is in the bytes and the whole pixel is on the screen
 In the quad loop, `0xAFCDA3`: the byte `0xA7` takes the next character as an index, times
 32, into a table **inside the font** at `+0x4A8`; if the entry there is not set (its first
 byte is `0xA7`) the same index is tried in a table at the global `0x1B211A8`; `§!` goes
-back to the font's own colour (`+0x38`). The font's table is what its `colorcodes` block
-in the `.gfx` file fills - `FINDINGS-definitions.md` already lists `colorcodes` among
-`CEU3BitmapFont`'s keys. Seven `bitmapfont` entries of `core.gfx` have one, all the same:
+back to the font's own colour (`+0x38`). ~~The font's table is what its `colorcodes` block
+in the `.gfx` file fills.~~ **Corrected 2026-11-19** (`FINDINGS-fontterrain.md`, section 1): the
+font's table at `+0x4A8` is what its **`color_override`** fills, and every font's
+`colorcodes` fills the global table, the first value given for a letter winning in each.
+Seven `bitmapfont` entries of `core.gfx` have a `colorcodes`, all the same:
 
     W = { 255 255 255 }   B = { 0 0 255 }    G = { 0 255 0 }    R = { 255 50 50 }
     r = { 160 50 50 }     b = { 0 0 0 }      g = { 176 176 176 }  Y = { 255 189 0 }
 
-**So the colours are data, and a mod's to change**, font by font. What fills the global
-table the other fonts fall back to was not read.
+**So the colours are data, and a mod's to change.** What fills the global table the other
+fonts fall back to: every font's `colorcodes`, in the order the `.gfx` files are parsed
+(`FINDINGS-fontterrain.md`, section 1).
 
 ---
 
@@ -447,7 +451,8 @@ table the other fonts fall back to was not read.
   text, `0xA4` adding 16 to the width at `0xAFC5E1`, and `@` in the quad loop at `0xAFCE0F`.
 - ~~**`textBoxType`**, the other kind of text box: assumed to reach the same slot 8~~ - it does not: it renders through
   slot 6 into a texture of its own (section 1, section 2.2), read 2026-11-14.
-- **The global colour table** at `0x1B211A8`: who fills it and with what.
+- ~~**The global colour table** at `0x1B211A8`: who fills it and with what.~~ Every font's `colorcodes`
+  (`FINDINGS-fontterrain.md`, section 1, 2026-11-19).
 - ~~**Button captions.**~~ The box `GuiButton_Construct` passes is read since 2026-11-14 (section 1): the button's `size`
   with no border on a button with no sprite, and on a sprite a `textBoxType`'s display object laid out in the sprite's
   picture.

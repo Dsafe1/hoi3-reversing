@@ -1,0 +1,446 @@
+{
+ "agent": "font-terrain-colours agent, 2026-11-19",
+ "question": "what the original does with a bitmap font's color_override and colorcodes, terrain.txt's has_texture and altitude, common/country_colors.txt and common/graphicalculturetype.txt",
+ "source": "reversing/findings/FINDINGS-fontterrain.md",
+ "addresses": [
+  {
+   "rva": "0x6FC070",
+   "kind": "function",
+   "name": "CEU3BitmapFont::DrawText",
+   "signature": "void __thiscall CEU3BitmapFont::DrawText(CEU3BitmapFont* this, Hoi3CString* text, int format, int orientation, int x, int y, int maxWidth, int maxHeight, int borderX, int borderY, int* areaSize)",
+   "no_signature": null,
+   "comment": "**Slot 8 of CEU3BitmapFont: lays a text out, places it and draws it.** `ret 0x28`. Keeps a cache of forty laid-out texts keyed by a hash of the string and every argument. A line's width is the sum of its glyphs' xadvance plus kerning; a7 and the character after it add nothing. **The line breaking** (read 2026-11-14): the limit is maxWidth, 0x140 where it is 0; **maxHeight is read only into the cache's hash**, so a text breaks to the box's width whatever its height and its lines run on down past it, each a line height (+0x494) below the last. Char by char, a word is gathered up to and with its space; at a glyph of no height (the space) the line and the word, the space's advance in, plus twice borderX are tested against the limit and, where wider, a newline is put before the word, the line broken off keeping its trailing space in its width and the word beginning the next; a visible glyph with something already laid out, the line plus twice borderX at the limit or past it and the word over 50, breaks the word there; at the end the last word is tested without a space - and not at all where it alone is wider than the limit, the line's width then taken as that word's. A newline or carriage return ends a line; after 55 lines (cmp 0x37) the rest of the text is dropped. Each line is then placed as the first is - set centre, the border plus maxWidth/2 less its own width/2. The first line is placed by a jump table on the orientation, in a space centred on the area with **y upwards**. For UPPER_LEFT: lineY = areaHeight/2 - y - borderY; x0 = x - areaWidth/2; **format 0 (left) x0 + borderX; format 2 (centre) x0 + borderX + maxWidth/2 - lineWidth/2, each half its own integer division; format 1 (right) x0 + maxWidth - lineWidth, with no border.** For UPPER_RIGHT the origin is areaWidth/2 + x + borderX and the same three follow, so left and centre have the border twice. **Every corner of every glyph quad then has 0.5 added to x and to y** - half a pixel right and, y being upwards, half a pixel up; beside the game's pictures the maintainer's screenshot shows that as one whole pixel each way. The colour escapes are resolved here too: a7 and a letter index the font's own table at +0x4A8, 32 bytes an entry - what the font's `color_override` block fills - and, where that letter is not set there, the table at the global 0x1B211A8 (g_FontColorCodes), which **every** font's `colorcodes` block fills, the first font to give a letter keeping it; a letter set in neither leaves the colour as it is; a7 '!' restores the font's own colour at +0x38. The name is ours. For CENTER (orientation 4, 0xAFCC16) x is from the middle of the area and lineY = -(y + borderY); left and right both start at x + borderX, and centre at x + borderX - widest/2 + maxWidth/2 - lineWidth/2, widest being the block's widest line (the register holding it at the switch, 0xAFCA3B), so that a single line ENDS at the middle of the box instead of being centred in it. See reversing/findings/FINDINGS-textdraw.md, section 2. **Nothing is clipped** (read 2026-11-15): every glyph with a height is written as two triangles into the shared batch at VA 0x1B1A118 with no test of its corners against the box, maxWidth, maxHeight or the area, and drawn through the device's DrawPrimitiveUP (slot 83, D3DPT_TRIANGLELIST) - 0xC2 glyphs at a time and the rest at the end - before it returns; so a line laid out wider than the box, or than a list or window round it, is drawn past their edges (FINDINGS-listbox.md section 4).",
+   "confidence": "confirmed",
+   "evidence": "The escape at VA 0xAFCDA3-0xAFCE0A: movsx of the letter, shl 5, `cmp byte [eax+ebx+0x4A8], 0xA7` then `cmp byte [eax+0x1B211A8], 0xA7`, each set entry packed by CColor::ToPackedArgb (0xA628B0) into the current colour; the unset case jumps to 0xAFD57B, which only steps the index. Which key fills which table is CEU3BitmapFont::LoadKey's: token 0x150 (`colorcodes`) hands BitmapFont_ReadColorCodes EDI = 0x1B211A8 (VA 0xAF9D57) and token 0x19A (`color_override`) EDI = this + 0x4A8 (VA 0xAF9DB7). Wrong if switchmap's token names for 0x150 and 0x19A were swapped.",
+   "source": "reversing/findings/FINDINGS-fontterrain.md",
+   "revises": "comment: the font's own table at +0x4A8 is `color_override`'s, not `colorcodes`'; `colorcodes` fills the global table, first font wins; an unset letter changes nothing"
+  },
+  {
+   "rva": "0x6F9CF0",
+   "kind": "function",
+   "name": "CEU3BitmapFont::LoadKey",
+   "signature": "void __thiscall CEU3BitmapFont::LoadKey(CEU3BitmapFont* this, CParseContext* parse, SaveToken key)",
+   "no_signature": null,
+   "comment": "**The `bitmapfont` grammar of a .gfx file**, slot 4 of CEU3BitmapFont. `ret 8`. Six keys, the rest to the shared fallback 0xA7A7B0: `name` (0x1A) -> +0xC and `fontName` (0x21) -> +0x78, strings through ParseString (0xA7AFB0); `effect` (0x58) -> +0x8, yes/no through 0xA7B410; `color` (0x55) -> +0x38, the token's text through sscanf \"%x\", so a packed 0xAARRGGBB (a text that does not scan goes to 0xA7A960); **`colorcodes` (0x150) -> the global table g_FontColorCodes (0x1B211A8), shared by every font, and `color_override` (0x19A) -> this font's own table at +0x4A8**, both through BitmapFont_ReadColorCodes, which keeps the first value a letter is given. So a font's `colorcodes` block is not its own: it adds the letters no earlier-parsed font has given to the table every font falls back on, and only `color_override` colours one font. See reversing/findings/FINDINGS-fontterrain.md, section 1.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled VA 0xAF9CF0-0xAF9DC7 case by case; tokens named by scripts/switchmap.py from the compiled tokens (410 = color_override, 336 = colorcodes). The two table arms are `mov edi, 0x1B211A8` (0xAF9D57) and `lea edi, [ecx+0x4A8]` (0xAF9DB7) before the same call 0xAF9DD0. Wrong if ECX were not the font in the `color_override` arm - nothing between the entry and 0xAF9DB7 writes it.",
+   "source": "reversing/findings/FINDINGS-fontterrain.md",
+   "revises": "comment: where each of the six keys lands, and that `colorcodes` fills a global table"
+  },
+  {
+   "rva": "0x6F9DD0",
+   "kind": "function",
+   "name": "BitmapFont_ReadColorCodes",
+   "signature": "void __stdcall BitmapFont_ReadColorCodes(FontColorCode* table@EDI, CParseContext* parse@ESI)",
+   "no_signature": null,
+   "comment": "**Reads a `{ X = { r g b } ... }` block into a 256-entry table of FontColorCode**, one entry per byte, until the closing brace (token type 4). For each line: the **first byte** of the key's text (lexer +0x10) is the letter, the value a CColor read by CColor::Load (0xA62960: each of r g b above 1.0 divided by 255, alpha 1.0 unless a fourth number is given); entry = table + (signed char)letter * 32, and it is written - letter at +0, the CColor's token, four floats and opaque byte at +8..+0x1C - **only while its first byte is still 0xA7**, the unset mark. So the first value a letter is given stays, later ones are read and dropped, and a byte above 0x7F indexes before the table. Called by CEU3BitmapFont::LoadKey for `colorcodes` (table = g_FontColorCodes) and `color_override` (table = the font's +0x4A8). Bare `ret`. The name is ours. See reversing/findings/FINDINGS-fontterrain.md, section 1.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled VA 0xAF9DD0-0xAF9E94: the loop on [esi+0x1C]'s slot 1, `cmp dword [eax+0xC], 4`, the byte at [ecx+0x10], CColor slot 3 (vftable 0x15B6914 +0xC), `movsx; shl 5; add eax, edi; cmp byte [eax], 0xA7; jne` before the stores. Wrong if the lexer's +0x10 were not the key's text - which token it is of is the one step not traced (the walk reads two tokens between the key and the value).",
+   "source": "reversing/findings/FINDINGS-fontterrain.md",
+   "revises": null
+  },
+  {
+   "rva": "0x6F97E0",
+   "kind": "function",
+   "name": "FontColorCode_Construct",
+   "signature": "FontColorCode* __stdcall FontColorCode_Construct(FontColorCode* entry@ECX) @EAX",
+   "no_signature": null,
+   "comment": "One FontColorCode as unset: letter byte 0xA7 (the mark every reader of the table tests for), its CColor at +4 built in place - CColor's table 0x15B6914, token 0x18D, r g b a 1.0, opaque 1. The element constructor the vector-constructor iterator (0xB96170) runs over g_FontColorCodes (InitGlobalFontColorCodes) and over each font's +0x4A8 (the bitmap font's base constructor, VA 0xAF994F), 256 entries of 0x20. The name is ours. See reversing/findings/FINDINGS-fontterrain.md, section 1.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled VA 0xAF97E0-0xAF9813 whole; pushed as the element constructor with 0x20 and 0x100 at VA 0xD1EFA1 and 0xAF992E. Wrong if 0xB96170 were not the vector-constructor iterator - its argument order (array, size, count, ctor, dtor) is the MSVC one.",
+   "source": "reversing/findings/FINDINGS-fontterrain.md",
+   "revises": null
+  },
+  {
+   "rva": "0x91EF90",
+   "kind": "function",
+   "name": "InitGlobalFontColorCodes",
+   "signature": "void __cdecl InitGlobalFontColorCodes(void)",
+   "no_signature": null,
+   "comment": "A static initializer: builds g_FontColorCodes (0x1B211A8) as 256 unset FontColorCode of 0x20 bytes (FontColorCode_Construct, destructor the shared stub 0xABF890) and registers its teardown (VA 0xD293C0) with atexit. Nothing else clears the table, so what the first font to name a letter in `colorcodes` gave it lasts the whole process. The name is ours. See reversing/findings/FINDINGS-fontterrain.md, section 1.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled VA 0xD1EF90-0xD1EFB6 whole. The six code references to 0x1B211A8 (findRefs --address) are this, the teardown 0xD293C0, LoadKey's `colorcodes` arm and the three draw slots 6, 7 and 8 - none writes the table but through BitmapFont_ReadColorCodes. Wrong if a reference reached it by a computed address, which a value search cannot see.",
+   "source": "reversing/findings/FINDINGS-fontterrain.md",
+   "revises": null
+  },
+  {
+   "rva": "0x6FE5B0",
+   "kind": "function",
+   "name": "CEU3BitmapFont::DrawTextWithAlpha",
+   "signature": null,
+   "no_signature": "ten stack arguments by `ret 0x28`; read: the text first, a format second (2 centres the line on x), maxWidth third (0 becomes 0x140), an alpha float eighth ([ebp+0x24]); the rest not traced",
+   "comment": "**Slot 7 of CEU3BitmapFont: draws a text at a given opacity.** The base colour is the font's `color` (+0x38) with its alpha byte replaced by (int)(alpha x 255), truncated (fistp under a control word or'd with 0xC00); **a colour escape keeps that alpha** - the escape's packed colour is and'd with 0xFFFFFF and or'd with it - where slots 6 and 8 take the escape's whole colour, alpha and all. The escape looks a letter up in the font's +0x4A8 (color_override) and then g_FontColorCodes, like the other two; a7 '!' gives back the font's colour, again at the call's alpha. A text of 100 characters or more is cut first (a substring of 99 at VA 0xAFE60B, inferred). Its callers were not looked for (a virtual call). The name is ours. See reversing/findings/FINDINGS-fontterrain.md, section 1.",
+   "confidence": "inferred",
+   "evidence": "Body 0xAFE5B0 to the `ret 0x28` at VA 0xAFF5D7 (int3 after it; BitmapFont_LayOutTextQuads begins 0xAFF5E0), slot 7 of table 0x15E13D4 by vtable.py --holding, in no other table. The alpha at VA 0xAFEABC-0xAFEB05 (`fld [ebp+0x24]; fmul 255.0; fistp; shl 0x18`), the escapes at 0xAFEB73-0xAFEC0A. Inferred for the name and the arguments not traced; wrong if [ebp+0x24] were scaled elsewhere before this - it is read only here.",
+   "source": "reversing/findings/FINDINGS-fontterrain.md",
+   "revises": null
+  },
+  {
+   "rva": "0x118200",
+   "kind": "function",
+   "name": "LoadCountryColors",
+   "signature": "void __stdcall LoadCountryColors(CCountryDataBase* database, CParseContext* context)",
+   "no_signature": null,
+   "comment": "Reads `common/country_colors.txt`, resolved-path slot [ebp-0x628], called once at 0x638417 on g_CCountryDataBase. Extent 0x518200..0x518470, `ret 8`. Runs immediately after countries.txt (whose reader is CCountryDataBase::AddCountry, 0x515CC0, already in the record and with exactly one caller, 0x63832C); one `CountryDatabase Initialized` line at eu3application.cpp:1130 covers both. Both blocks create the singleton inline - `if ([0x16855A4] == 0) [0x16855A4] = new(0x57C)` then CCountryDataBase::CCountryDataBase - which agrees with that entry's recorded 0x57C. **What it stores** (read 2026-11-19): for each `TAG = { color1 = { r g b } color2 = { ... } color3 = { ... } }` the tag is found by CCountryDataBase::GetTag (0x118480; an unknown tag answers `---`, id 0, and its colours go on the placeholder country) and each colour, read by CColor::Load, is copied into **CCountry +0xC50, +0xC6C and +0xC88** (unit_color1..3, three CColor of 0x1C). The keys are tested in that fixed order, each optional (token 0x3E3, 0x3E4, 0x3E5). **Nothing reads the three colours** - every displacement from +0xC50 to +0xCA0 has its only uses here, in CCountry::CCountry, its unwind and CCountry::LoadKey. See reversing/findings/FINDINGS-fontterrain.md, section 3.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled VA 0x518200-0x51846F: the three `cmp dword [ebx+0x20], 0x3E3/0x3E4/0x3E5` arms, each storing the CColor's token at +0xC54/+0xC70/+0xC8C, floats at +0xC58/+0xC74/+0xC90 and byte at +0xC68/+0xC84/+0xCA0. The negative: fieldchain --field over every dword from 0xC50 to 0xCA0 and findRefs --address on 0xC50, 0xC6C, 0xC88; the same scan on 0xC38 finds both getters of the country colour (VA 0x4CCCC1, 0x4CCD0E), which is the control. Wrong if a reader walked the array from a pointer to +0xC30 with small displacements.",
+   "source": "reversing/findings/FINDINGS-fontterrain.md",
+   "revises": "comment: what it stores and where, and that nothing reads it"
+  },
+  {
+   "rva": "0x685B0",
+   "kind": "function",
+   "name": "CColor_CopyValue",
+   "signature": "void __stdcall CColor_CopyValue(CColor* destination@EAX, CColor* source@ECX)",
+   "no_signature": null,
+   "comment": "Copies a CColor's value - token +4, r g b a +8..+0x14, opaque +0x18 - leaving the destination's table pointer. Bare `ret`. CCountry::LoadKey uses it for `color` (the country colour +0xC30 copied into unit_color1, +0xC50) and `color2` (a parsed temporary into unit_color2, +0xC6C). The name is ours. See reversing/findings/FINDINGS-fontterrain.md, section 3.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled VA 0x4685B0-0x4685D0 whole; the two call sites VA 0x4CCE9F and 0x4CD4A4 (findRefs --callers: 2). Wrong if another structure of the same layout shares the body - in no virtual table; the name is for the only use seen.",
+   "source": "reversing/findings/FINDINGS-fontterrain.md",
+   "revises": null
+  },
+  {
+   "rva": "0x449750",
+   "kind": "function",
+   "name": "LoadGraphicalCultureTypes",
+   "signature": "void __stdcall LoadGraphicalCultureTypes(void* database, CParseContext* parse)",
+   "no_signature": null,
+   "comment": "**Reads `common/graphicalculturetype.txt`**: a plain list of names, one per token, no keys. First puts the shared CNullGraphicalCultureType (g_NullGraphicalCultureType, `noCultureType`, index 0, made on first use) into the database's hash (0xA78690) and its vector (+0xC); then for each token until end of file a new CGraphicalCultureType (0x2C bytes, table 0x15E173C): its name (+0xC) the token's text, its hash (+8) by 0xA69CA0, **its index (+0x28) 1, 2, 3 ... in file order**, hashed and appended. A name given twice is not refused here (not followed into the hash insert). Deletes the parse context at the end. Called once, VA 0x6311E8 in CEU3Application::LoadEverything, on the path built at 0x62FBDA from the common folder. The name is ours. See reversing/findings/FINDINGS-fontterrain.md, section 4.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled VA 0x849750-0x8499DE (`ret 8`); the call site VA 0x6311D8-0x6311E8 pushes the parse context made from [ebp-0x2F4], the '/graphicalculturetype.txt' path of 0x62FC03, and GetGraphicalCultureTypeDataBase's answer. Wrong if 0xA78690 refused a duplicate name - it was not read.",
+   "source": "reversing/findings/FINDINGS-fontterrain.md",
+   "revises": null
+  },
+  {
+   "rva": "0x4496F0",
+   "kind": "function",
+   "name": "GetGraphicalCultureTypeDataBase",
+   "signature": "void* __cdecl GetGraphicalCultureTypeDataBase(void) @EAX",
+   "no_signature": null,
+   "comment": "The graphical culture database singleton (g_GraphicalCultureTypeDataBase, 0x1A8C71C), made on first use: operator new(0x1C), constructor VA 0x45BD30, stored by SetGraphicalCultureTypeDataBase. Two callers: LoadEverything (before LoadGraphicalCultureTypes) and CCountry::LoadKey's `graphical_culture` arm; CCountry::AfterLoad inlines the same. The name is ours. See reversing/findings/FINDINGS-fontterrain.md, section 4.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled VA 0x8496F0-0x84974F whole; findRefs --callers 0x8496F0 gives VA 0x4CCF2E and 0x6311E2. Wrong if the 0x1C-byte object were not the one the lookups take - CCountry::LoadKey hands this answer straight to StringHashFind_AtC.",
+   "source": "reversing/findings/FINDINGS-fontterrain.md",
+   "revises": null
+  },
+  {
+   "rva": "0x4499F0",
+   "kind": "function",
+   "name": "SetGraphicalCultureTypeDataBase",
+   "signature": "void** __stdcall SetGraphicalCultureTypeDataBase(void* database) @EAX",
+   "no_signature": null,
+   "comment": "Stores the graphical culture database in g_GraphicalCultureTypeDataBase, first destroying (VA 0x9C55F0) and freeing a different one already there; answers the global's address. `ret 4`. The name is ours. See reversing/findings/FINDINGS-fontterrain.md, section 4.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled VA 0x8499F0-0x849A3B whole. Wrong if 0x9C55F0 were not a destructor - it is called on the old object before operator delete (0xB95F9B).",
+   "source": "reversing/findings/FINDINGS-fontterrain.md",
+   "revises": null
+  },
+  {
+   "rva": "0x4495F0",
+   "kind": "function",
+   "name": "CNullGraphicalCultureType::CNullGraphicalCultureType",
+   "signature": "CNullGraphicalCultureType* __stdcall CNullGraphicalCultureType::CNullGraphicalCultureType(CNullGraphicalCultureType* this) @EAX",
+   "no_signature": null,
+   "comment": "The null graphical culture: CPersistent token 0x18D at +4, name `noCultureType` at +0xC, index 0 at +0x28, the name's hash (0xA69CA0) at +8, then CNullGraphicalCultureType's table (0x15E175C) over the base's (0x15E173C). Made once, as g_NullGraphicalCultureType, by LoadGraphicalCultureTypes; it sits in the database under its name, so `graphical_culture = noCultureType` would find it. The name is RTTI's class. See reversing/findings/FINDINGS-fontterrain.md, section 4.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled VA 0x8495F0-0x849698 (`ret 4`, `this` from [ebp+8]); the string 'noCultureType' at 0x15E1728; the tables' classes from the RTTI export. Wrong if +0x28 were not the index - LoadGraphicalCultureTypes writes its counter, starting at 1, to the same offset.",
+   "source": "reversing/findings/FINDINGS-fontterrain.md",
+   "revises": null
+  },
+  {
+   "rva": "0x1BDBE0",
+   "kind": "function",
+   "name": "CUnit_PictureCultureName",
+   "signature": null,
+   "no_signature": "__fastcall with the unit in EDX and ECX unused; answers a Hoi3CString* in EAX",
+   "comment": "**The name of the graphical culture a unit's 3D figure is drawn in** - not its counter, whose sprite (`GFX_small_counter_` / `GFX_map_counter_` + the counter type key) has no culture in it. The country: the first brigade's builder (+0x34/+0x38, else its owner +0x94/+0x98), overridden by the unit's expeditionary owner (+0x290) where set - a lent division wears its lender's figures; with no brigade, or no country id, the global string `Generic` (g_GenericCultureName). Otherwise **&country->graphical_culture (+0xF20)->name (+0xC)**, with no test of the pointer (CCountry::AfterLoad sees that it is set). One caller, CUnit::RebuildAvatar (VA 0x5BDD21), which hands it to CUnit::CreateAvatar and to the gun and helmet attachments (CHoiAvatar_SetCulturePart). The name is ours. See reversing/findings/FINDINGS-fontterrain.md, section 4.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled VA 0x5BDBE0-0x5BDC66 whole; the fallback `mov eax, 0x170D8C8` is the std::string the static initializer InitGenericCultureName fills with 'Generic'. The caller's use at VA 0x5BDD21-0x5BDDCE. Wrong if +0xC of the culture were not its name - CNullGraphicalCultureType's constructor writes 'noCultureType' there.",
+   "source": "reversing/findings/FINDINGS-fontterrain.md",
+   "revises": "comment: the figure, not the counter; the fallback to `Generic`; the field it reads; confidence inferred -> confirmed"
+  },
+  {
+   "rva": "0x1BC550",
+   "kind": "function",
+   "name": "CUnit::CreateAvatar",
+   "signature": "CHoiAvatar* __thiscall CUnit::CreateAvatar(CUnit* this, Hoi3CString* culture, Hoi3CString* sprite, CSubUnit* firstBrigade, bool* out)",
+   "no_signature": null,
+   "comment": "Finds the figure for a unit - `<tag>_<type>_<model>_actor`, falling back through earlier models, then **`<culture><sprite>`** (the first argument, CUnit_PictureCultureName's answer, joined to the second, the first brigade's unit type `sprite` (CSubUnitDefinition +0x198) - so `GermanInfantry`, as tfh/interface/avatars.gfx declares), then `Generic<sprite>`, then `GenericInfantry` with the log line 'Missing avatar graphics for type' - each looked up in the graphics' object types (+0x6BCF0) - and makes its CHoiAvatar with CUnit::GetCounterSize. A sprite of `Infantry` first sets a float of its own (VA 0x5BC5C9, the global 0x1BEA440; not followed). See reversing/findings/FINDINGS-counters.md and reversing/findings/FINDINGS-fontterrain.md, section 4.",
+   "confidence": "inferred",
+   "evidence": "The culture-and-sprite string is built at VA 0x5BC5D7-0x5BC5E5 (arg1 + arg2 through 0xA5B0D0) and looked up at 0x5BCC3C-0x5BCC49; `Generic` + arg2 at 0x5BCD84-0x5BCDBE. RebuildAvatar pushes the culture name and 0x5BDB90's answer (first brigade's definition +0x198) at 0x5BDDC2-0x5BDDCE. The order of the first tries is still read from the literals; wrong if the tag-and-model tries came after the culture's.",
+   "source": "reversing/findings/FINDINGS-fontterrain.md",
+   "revises": "signature: the two strings named culture and sprite; comment: the `<culture><sprite>` try"
+  },
+  {
+   "rva": "0x44A990",
+   "kind": "function",
+   "name": "CHoiAvatar_SetCulturePart",
+   "signature": null,
+   "no_signature": "five stack arguments by `ret 0x14`: the avatar, the culture name, the part's name, the part's slot (index into the avatar's +0x12C vector), the node it hangs on",
+   "comment": "**A gun or helmet on a unit's figure, by culture**: drops what the slot held, then looks up `<culture><part>` (e.g. `GermanGun2`) in the graphics' object types (+0x6BCF0) and, where there is none, `Generic<part>`, and attaches what it finds at the named node. Called by the two wrappers at VA 0x84A890 (slot 1, `GunNode`) and VA 0x84A910 (slot 0, `HelmetNode`) and RebuildAvatar (VA 0x5BDFED), the culture always CUnit_PictureCultureName's. The attaching after the lookup was not read. The name is ours. See reversing/findings/FINDINGS-fontterrain.md, section 4.",
+   "confidence": "inferred",
+   "evidence": "Read VA 0x84A990-0x84AACA: the slot vector grown and cleared, culture + part through 0xA5B0D0, the lookup 0x9C7D60 on +0x6BCF0, and 'Generic' + part on a miss; the two wrappers' pushes. tfh/interface/avatars.gfx declares GermanGun1/2, GenericGun1-3, GermanCavalryHelmet1 and the like. Wrong in its tail, which was not read.",
+   "source": "reversing/findings/FINDINGS-fontterrain.md",
+   "revises": null
+  },
+  {
+   "rva": "0x8C4590",
+   "kind": "function",
+   "name": "InitGenericCultureName",
+   "signature": "void __cdecl InitGenericCultureName(void)",
+   "no_signature": null,
+   "comment": "A static initializer: g_GenericCultureName (0x170D8C8) = std::string `Generic`, its teardown (VA 0xD22B20) registered with atexit. What CUnit_PictureCultureName answers for a unit with no country to ask. The name is ours. See reversing/findings/FINDINGS-fontterrain.md, section 4.",
+   "confidence": "confirmed",
+   "evidence": "Disassembled VA 0xCC4590-0xCC45AC whole. Wrong if 0x40A160 were not std::string::assign(const char*, n) - it is called the same way for every literal string in this image.",
+   "source": "reversing/findings/FINDINGS-fontterrain.md",
+   "revises": null
+  },
+  {
+   "rva": "0x17211A8",
+   "kind": "global",
+   "name": "g_FontColorCodes",
+   "signature": null,
+   "no_signature": null,
+   "comment": "**The colour escapes every bitmap font falls back on**: 256 FontColorCode of 0x20 bytes, indexed by the letter after a7. Filled by every font's `colorcodes` block (CEU3BitmapFont::LoadKey), the first font parsed to give a letter keeping it; read by slots 6, 7 and 8 where the font's own color_override (+0x4A8) does not have the letter. See reversing/findings/FINDINGS-fontterrain.md, section 1.",
+   "confidence": "confirmed",
+   "evidence": "Six code references (findRefs --address 0x1B211A8): InitGlobalFontColorCodes, its teardown, LoadKey's arm at VA 0xAF9D57 and the three readers VA 0xAFB5EC, 0xAFCDEE, 0xAFEBE4. Wrong if it were reached through a computed pointer, which a value search cannot see.",
+   "source": "reversing/findings/FINDINGS-fontterrain.md",
+   "revises": null,
+   "type": "FontColorCode[256]"
+  },
+  {
+   "rva": "0x168C71C",
+   "kind": "global",
+   "name": "g_GraphicalCultureTypeDataBase",
+   "signature": null,
+   "no_signature": null,
+   "comment": "The graphical culture database (0x1C bytes: a name hash, and at +0xC a vector of CGraphicalCultureType* in index order, the null type first). Made by GetGraphicalCultureTypeDataBase, filled by LoadGraphicalCultureTypes, asked by name (StringHashFind_AtC) by CCountry::LoadKey and CCountry::AfterLoad. See reversing/findings/FINDINGS-fontterrain.md, section 4.",
+   "confidence": "confirmed",
+   "evidence": "findRefs --address 0x1A8C71C: the getter, the setter, CCountry::AfterLoad's inlined copy and CEU3Application's destructor (VA 0x62F539), and nothing else. Wrong if the vector were not at +0xC - LoadGraphicalCultureTypes appends through [db+0x10] and [db+0xC].",
+   "source": "reversing/findings/FINDINGS-fontterrain.md",
+   "revises": null,
+   "type": "void*"
+  },
+  {
+   "rva": "0x1685638",
+   "kind": "global",
+   "name": "g_NullGraphicalCultureType",
+   "signature": null,
+   "no_signature": null,
+   "comment": "The one CNullGraphicalCultureType (`noCultureType`, index 0), made on first use by LoadGraphicalCultureTypes and put first in the database. See reversing/findings/FINDINGS-fontterrain.md, section 4.",
+   "confidence": "confirmed",
+   "evidence": "Read and written at VA 0x849770 and 0x8497A2 in LoadGraphicalCultureTypes, operator new(0x2C) then the constructor 0x8495F0. Other readers were not looked for.",
+   "source": "reversing/findings/FINDINGS-fontterrain.md",
+   "revises": null,
+   "type": "CNullGraphicalCultureType*"
+  },
+  {
+   "rva": "0x170D8C8",
+   "kind": "global",
+   "name": "g_GenericCultureName",
+   "signature": null,
+   "no_signature": null,
+   "comment": "std::string `Generic`, set by InitGenericCultureName; CUnit_PictureCultureName's answer where a unit has no country to take a culture from. See reversing/findings/FINDINGS-fontterrain.md, section 4.",
+   "confidence": "confirmed",
+   "evidence": "`mov ecx, 0x170D8C8` before the assign at VA 0xCC4597; `mov eax, 0x170D8C8` at VA 0x5BDC5E. Other readers were not looked for.",
+   "source": "reversing/findings/FINDINGS-fontterrain.md",
+   "revises": null,
+   "type": "Hoi3CString"
+  }
+ ],
+ "structs": [
+  {
+   "name": "FontColorCode",
+   "size": "0x20",
+   "comment": "One colour escape of a bitmap font: the letter after a7, or 0xA7 while unset, and its CColor. Tables of 256: g_FontColorCodes and CEU3BitmapFont +0x4A8. The name is ours. See reversing/findings/FINDINGS-fontterrain.md, section 1.",
+   "evidence": "FontColorCode_Construct writes +0, +4..+0x1C; the readers index by letter * 32 and pass entry + 4 to CColor::ToPackedArgb as a CColor.",
+   "source": "reversing/findings/FINDINGS-fontterrain.md"
+  },
+  {
+   "name": "CGraphicalCultureType",
+   "size": "0x2C",
+   "inherits": "CPersistent",
+   "vftable_rva": "0x11E173C",
+   "comment": "One name of common/graphicalculturetype.txt. A country's `graphical_culture` points at one (CCountry +0xF20); a unit's figure and its gun and helmet are looked up by its name. See reversing/findings/FINDINGS-fontterrain.md, section 4.",
+   "evidence": "operator new(0x2C) and the stores at VA 0x849853-0x8498AF in LoadGraphicalCultureTypes; the table is the RTTI export's for the class.",
+   "source": "reversing/findings/FINDINGS-fontterrain.md"
+  },
+  {
+   "name": "CNullGraphicalCultureType",
+   "size": "0x2C",
+   "inherits": "CGraphicalCultureType",
+   "vftable_rva": "0x11E175C",
+   "comment": "The null graphical culture, `noCultureType`, index 0. See reversing/findings/FINDINGS-fontterrain.md, section 4.",
+   "evidence": "operator new(0x2C) at VA 0x84977D and its constructor 0x8495F0; base and table from the RTTI export.",
+   "source": "reversing/findings/FINDINGS-fontterrain.md"
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "FontColorCode",
+   "offset": "0x0",
+   "name": "letter",
+   "type": "char",
+   "comment": "The letter after a7 this entry is for; 0xA7 while the entry is unset, which every reader tests.",
+   "evidence": "`mov byte [eax], 0xA7` in FontColorCode_Construct; `cmp byte [...], 0xA7` at VA 0xAF9E5D, 0xAFB5CE, 0xAFCDCF, 0xAFEBBB.",
+   "source": "reversing/findings/FINDINGS-fontterrain.md",
+   "revises": null
+  },
+  {
+   "struct": "FontColorCode",
+   "offset": "0x4",
+   "name": "color",
+   "type": "CColor",
+   "comment": "The colour, a CColor held by value (table, token, r g b a 0-1, opaque); white until set. Packed by CColor::ToPackedArgb when the escape is met.",
+   "evidence": "`lea ecx, [eax+ebx+0x4AC]; call 0xA628B0` at VA 0xAFCDD9: the entry plus 4 is the CColor's this.",
+   "source": "reversing/findings/FINDINGS-fontterrain.md",
+   "revises": null
+  },
+  {
+   "struct": "CEU3BitmapFont",
+   "offset": "0x8",
+   "name": "effect",
+   "type": "bool",
+   "comment": "The `effect` key, yes/no through 0xA7B410; 1 from the base constructor.",
+   "evidence": "`add ecx, 8; push ecx; call 0xA7B410` at VA 0xAF9D8D; `mov byte [esi+8], 1` at VA 0xAF9889.",
+   "source": "reversing/findings/FINDINGS-fontterrain.md",
+   "revises": null
+  },
+  {
+   "struct": "CEU3BitmapFont",
+   "offset": "0xC",
+   "name": "name",
+   "type": "Hoi3CString",
+   "comment": "The `name` key - what a .gui's `font =` names - through ParseString.",
+   "evidence": "`add ecx, 0xC; push 0; push ecx; call 0xA7AFB0` at VA 0xAF9D9E.",
+   "source": "reversing/findings/FINDINGS-fontterrain.md",
+   "revises": null
+  },
+  {
+   "struct": "CEU3BitmapFont",
+   "offset": "0x38",
+   "name": "color",
+   "type": "uint",
+   "comment": "The `color` key, the token's text scanned with \"%x\": a packed 0xAARRGGBB, 0 until given. The colour a text starts in and that a7 '!' gives back (slots 6, 7, 8).",
+   "evidence": "sscanf(parse +0x22C, \"%x\" at 0x15FD154, this + 0x38) at VA 0xAF9D0E-0xAF9D21; `mov [esi+0x38], edi` (0) at VA 0xAF98C0; read as the reset colour at VA 0xAFCDBD and 0xAFB5BF.",
+   "source": "reversing/findings/FINDINGS-fontterrain.md",
+   "revises": null
+  },
+  {
+   "struct": "CEU3BitmapFont",
+   "offset": "0x4A8",
+   "name": "color_override",
+   "type": "FontColorCode[256]",
+   "comment": "**This font's own colour escapes**, filled by its `color_override` block (first value of a letter kept). Asked first by slots 6, 7 and 8; a letter it does not have is taken from g_FontColorCodes, which the `colorcodes` blocks of all fonts fill.",
+   "evidence": "`lea edi, [ecx+0x4A8]` before BitmapFont_ReadColorCodes at VA 0xAF9DB7; the vector-constructor over +0x4A8, 0x20 x 0x100, at VA 0xAF9929-0xAF994F; read at VA 0xAFB5CE, 0xAFCDCF, 0xAFEBBB.",
+   "source": "reversing/findings/FINDINGS-fontterrain.md",
+   "revises": null
+  },
+  {
+   "struct": "CTerrainGraphical",
+   "offset": "0x40",
+   "name": "has_texture",
+   "type": "bool",
+   "comment": "terrain.txt's `has_texture`, yes/no through 0xA7B410, default 1. **Read by nothing**: the palette entries are reached only through CMap +0x2220 (by palette index) and +0x2A20 (the list), and no use of either reads +0x40 - the same search finds every known reader of +0xC, +0x2C/+0x30, +0x44, +0x64 and +0x68. See reversing/findings/FINDINGS-fontterrain.md, section 2.",
+   "evidence": "All 27 disp32 sites of 0x2220 and the 19 of 0x2A20..0x2A28 (fieldchain --field), each read in place: CMap's constructor and destructor, CMap_LoadTerrainDefinitions, VA 0x48A99F and 0x4AA1EE (+0xC only), MapTrees_BuildTilePoints (+0x68, +0x2C/+0x30), CreateTerrainOffsetTexture (+0xC, +0x64); the rest are other structures. Wrong if an entry pointer were copied somewhere else first - none of those sites stores one.",
+   "source": "reversing/findings/FINDINGS-fontterrain.md",
+   "revises": "comment: read by nothing, with the search that shows it"
+  },
+  {
+   "struct": "CTerrainGraphical",
+   "offset": "0x3C",
+   "name": "altitude",
+   "type": "float",
+   "comment": "terrain.txt's `altitude`, sscanf \"%f\", 0 from the constructor. **Read by nothing** - the same search as has_texture (+0x40). See reversing/findings/FINDINGS-fontterrain.md, section 2.",
+   "evidence": "As for +0x40; the +0x3C reads in CreateTerrainOffsetTexture (VA 0x8691A9, 0x8694FD) are off the graphics object in EDI, not a palette entry.",
+   "source": "reversing/findings/FINDINGS-fontterrain.md",
+   "revises": "comment: read by nothing"
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0xC50",
+   "name": "unit_color1",
+   "type": "CColor",
+   "comment": "`color1` of common/country_colors.txt (LoadCountryColors), and before it a copy of the country file's `color` (CCountry::LoadKey). The first of three CColor built together by CCountry::CCountry. **Read by nothing.** See reversing/findings/FINDINGS-fontterrain.md, section 3.",
+   "evidence": "Stores at VA 0x518344-0x51836B; the vector constructor (3 x 0x1C) at VA 0x4C9580-0x4C95C5 and the unwinds' `add eax, 0xC50` at VA 0xC24315 and 0xC9C7D0; no other use of 0xC50..0xC68 on a CCountry.",
+   "source": "reversing/findings/FINDINGS-fontterrain.md",
+   "revises": null
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0xC6C",
+   "name": "unit_color2",
+   "type": "CColor",
+   "comment": "`color2` of common/country_colors.txt, and of the country file (CCountry::LoadKey, token 0x3E4). **Read by nothing.**",
+   "evidence": "Stores at VA 0x518391-0x5183B8 and the copy at VA 0x4CD49A; every other use of 0xC6C..0xC84 is on CGameState or the stack.",
+   "source": "reversing/findings/FINDINGS-fontterrain.md",
+   "revises": null
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0xC88",
+   "name": "unit_color3",
+   "type": "CColor",
+   "comment": "`color3` of common/country_colors.txt. **Read by nothing.**",
+   "evidence": "Stores at VA 0x5183DE-0x518404; every other use of 0xC88..0xCA0 is on CCurrentGameState (difficulty +0xC98, arcade_mode +0xC9C and the like) or the stack.",
+   "source": "reversing/findings/FINDINGS-fontterrain.md",
+   "revises": null
+  },
+  {
+   "struct": "CCountry",
+   "offset": "0xF20",
+   "name": "graphical_culture",
+   "type": "CGraphicalCultureType*",
+   "comment": "The country file's `graphical_culture`, looked up by exact, case-sensitive name in the graphical culture database (an unknown name leaves it as it was, without a word); CCountry::AfterLoad puts `Generic` here where it is still null, logging 'No gfxculturetype set for <tag>'. Read by CUnit_PictureCultureName alone, for the figures. Not saved. See reversing/findings/FINDINGS-fontterrain.md, section 4.",
+   "evidence": "The five disp32 sites of 0xF20: CCountry::CCountry (0), CCountry::LoadKey (VA 0x4CCF4F, after StringHashFind_AtC and a null test), AfterLoad's test and store, CUnit_PictureCultureName's read.",
+   "source": "reversing/findings/FINDINGS-fontterrain.md",
+   "revises": "type: void* -> CGraphicalCultureType*; comment: the lookup, the silence on an unknown name, the one reader"
+  },
+  {
+   "struct": "CGraphicalCultureType",
+   "offset": "0x8",
+   "name": "name_hash",
+   "type": "int",
+   "comment": "The name's hash, by 0xA69CA0.",
+   "evidence": "`mov [esi+8], eax` after `call 0xA69CA0` at VA 0x8498AF.",
+   "source": "reversing/findings/FINDINGS-fontterrain.md",
+   "revises": null
+  },
+  {
+   "struct": "CGraphicalCultureType",
+   "offset": "0xC",
+   "name": "name",
+   "type": "Hoi3CString",
+   "comment": "The name as the file gives it - `German`, `Generic` - and the key the database finds it by (StringHashFind_AtC).",
+   "evidence": "Assigned at VA 0x849891 from the token's text; read as +0xC by CUnit_PictureCultureName (VA 0x5BDC57).",
+   "source": "reversing/findings/FINDINGS-fontterrain.md",
+   "revises": null
+  },
+  {
+   "struct": "CGraphicalCultureType",
+   "offset": "0x28",
+   "name": "index",
+   "type": "int",
+   "comment": "Its place in the file, from 1; 0 for the null type. Readers not looked for.",
+   "evidence": "`mov [esi+0x28], ecx` with ecx the counter from 1 at VA 0x8498A1; 0 in the null type's constructor.",
+   "source": "reversing/findings/FINDINGS-fontterrain.md",
+   "revises": null
+  }
+ ],
+ "vftable_slots": {
+  "CEU3BitmapFont": {
+   "4": "LoadKey",
+   "7": "DrawTextWithAlpha",
+   "8": "DrawText"
+  }
+ },
+ "frontier": [
+  "0x449510",
+  "0x5BD30",
+  "0x678690",
+  "0x5C55F0",
+  "0x6F9860",
+  "0x44A890",
+  "0x44A910"
+ ]
+}

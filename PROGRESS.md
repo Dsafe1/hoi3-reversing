@@ -25,12 +25,12 @@ how many objects a census found (taken 2026-09-20).
 
 | | classes |
 | --- | --- |
-| `read` | 185 |
-| `placed` | 139 |
+| `read` | 186 |
+| `placed` | 138 |
 | `keys` | 74 |
-| `part` | 183 |
+| `part` | 184 |
 | `named` | 5 |
-| `RTTI` | 555 |
+| `RTTI` | 554 |
 | **all** | **1141** |
 
 ## What to read next
@@ -166,7 +166,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CConvoyConstruction` | `CConstruction` |  | 1 | 1/1 | 6 | CConstruction.hpp | 40 | placed |  |
 | `CConvoyEscortOrder` | `CNavalOrder` |  |  | 1/3 | 8 |  |  | placed |  |
 | `CConvoyRaid` | `CNavalOrder` |  |  | 1/1 | 7 |  | 62 | placed |  |
-| `CCountry` | `CPersistent` |  | 284 + 71 lua | 69/126 | 177 | CCountry.hpp | 108 | read |  |
+| `CCountry` | `CPersistent` |  | 287 + 71 lua | 69/126 | 177 | CCountry.hpp | 108 | read |  |
 | `CCountryDate` | `CPersistent` |  |  | 1/2 | 1 |  |  | placed |  |
 | `CCountryHistory` | `CHistoryContainer` |  |  |  | 2 | CCountryHistory.hpp | 108 | keys | **read**: `history/countries`, where a date is a key. See GameClasses/CCountryHistory.hpp |
 | `CCountryValue` | `CPersistent` | 0x14 | 2 | 1/2 | 1 |  | 9,078 | placed |  |
@@ -350,7 +350,7 @@ Definitions out of `common/` and the rest of the mod. Their `LoadKey` is the gra
 | `CDirectorySettings` | `CPersistent` | 0x3C8 | 5 |  | 2 |  | 1 | read | **read**: the path table; `replace` and `extend` are how a mod says whether its folder replaces the base game's |
 | `CDivisionTemplate` | `CPersistent` |  |  |  | 2 |  | 1,955 | RTTI |  |
 | `CEU3Application` | `CApplication` |  | 5 |  | 8 |  | 2 | read | plumbing: the settings file |
-| `CEU3BitmapFont` | `CBitmapFont` |  | 4 | 1/6 | 12 |  | 126 | placed |  |
+| `CEU3BitmapFont` | `CBitmapFont` |  | 8 | 1/6 | 13 |  | 126 | read |  |
 | `CEU3DialogGuiType` | `CWindowType` |  |  | 1/1 | 1 |  | 30 | placed |  |
 | `CEU3Graphics` | `CGraphics` |  |  |  | 6 |  | 2 | keys |  |
 | `CEU3Gui` | `CGui` |  |  |  | 2 |  | 3 | RTTI |  |
@@ -361,7 +361,7 @@ Definitions out of `common/` and the rest of the mod. Their `LoadKey` is the gra
 | `CGainableTrait` | `CPersistent` |  | 5 | 4/4 | 1 | CTrait.hpp | 463 | read | `gainable_traits.txt`; its trigger grammar belongs to CTrigger, unread |
 | `CGovernment` | `CModifier` | 0x80 | 11 | 1/2 | 8 | CGovernment.hpp | 18 | read | `governments.txt`, a CModifier. Where the **null at index 0** of a name database was found |
 | `CGovernmentPosition` | `CModifier` |  | 4 + 3 lua |  | 1 |  | 11 | keys | one government position, a CModifier; its key and index are read |
-| `CGraphicalCultureType` | `CPersistent` |  |  |  |  |  | 8 | RTTI |  |
+| `CGraphicalCultureType` | `CPersistent` | 0x2C | 3 |  |  |  | 8 | part |  |
 | `CHasCombinedArmsBonus` | `CBoolTrigger` |  |  | 2/153 | 1 |  |  | RTTI |  |
 | `CHistoricalModel` | `CPersistent` | 0x30 | 6 |  | 4 | CHistoricalModel.hpp | 2,484,216 | read | the unit models. **2.48 million objects, 114 MB** - every country keeps a set per unit type. The picker they feed is where `historicalModelLogicFix` patches |
 | `CHistoryContainer` | `CPersistent` |  |  |  | 10 | CCountryHistory.hpp | 251 | keys |  |
@@ -729,7 +729,7 @@ One per name database, sitting at index 0 so that a lookup can fail without a nu
 | `CNullFaction` | `CFaction` |  |  | 7/8 |  |  | 1 | RTTI |  |
 | `CNullGovernment` | `CGovernment` |  |  | 1/2 | 1 |  | 1 | RTTI |  |
 | `CNullGovernmentPosition` | `CGovernmentPosition` |  |  |  |  |  | 1 | RTTI |  |
-| `CNullGraphicalCultureType` | `CGraphicalCultureType` |  |  |  |  |  | 1 | RTTI |  |
+| `CNullGraphicalCultureType` | `CGraphicalCultureType` | 0x2C |  |  | 1 |  | 1 | RTTI |  |
 | `CNullIdeology` | `CIdeology` |  |  |  |  |  | 1 | RTTI |  |
 | `CNullIdeologyGroup` | `CIdeologyGroup` |  |  | 1/2 |  |  | 1 | RTTI |  |
 | `CNullLaw` | `CLaw` |  |  | 1/2 |  |  | 1 | RTTI |  |
@@ -1253,7 +1253,7 @@ Windows, pages, sprites and the map's own drawing.
 | `CExpeditionaryForceDialog` | `CEU3Dialog` |  | 5 |  | 11 |  |  | read |  |
 | `CFixedWindow` | `TWindow` |  | 34 |  | 24 |  |  | read |  |
 | `CFont` | `CPersistent` |  |  |  |  |  |  | RTTI |  |
-| `CGui` | `TGui` `CPersistent` `CFactory` |  | 12 |  | 3 |  |  | read |  |
+| `CGui` | `TGui` `CPersistent` `CFactory` |  | 12 |  | 4 |  |  | read |  |
 | `CGuiObject` | `TCollisionObserver` |  | 9 |  | 2 |  |  | read |  |
 | `CGuiType` | `CPersistent` |  | 3 |  | 1 |  |  | keys |  |
 | `CLawChangeConfirmDialog` | `CEU3Dialog` | 0x74 | 3 |  | 4 |  |  | part |  |
