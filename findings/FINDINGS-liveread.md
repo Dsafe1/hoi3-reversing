@@ -1430,3 +1430,16 @@ Done on 2026-11-19, for the one `math.random` draw `wr14` takes beyond the origi
 **What it shows**: the balance stands last in the country's own day, as the record has it, so a route another country runs in its later day - in `from`'s day, which for most Soviet purchases is the seller's - has not reached `traded_for` when the Soviet need is weighed; 0.814 is what Germany's and Britain's days traded it. OpenHOI3 weighed every country's sliders after every country's day, the whole 145.633 subtracted.
 
 **With it**: OpenHOI3 weighs each country's sliders at the end of its economy in its own day; `wr14`'s draws are the original's past hour 26, and the four recordings' orders unchanged.
+
+## 142. A raid lying at its own base with no way is cancelled by the next pass (confirmed, the running game)
+
+Done on 2026-11-19, for the one draw of the AI's generator `wr11` makes beyond OpenHOI3 at 19:00 on 17 July 1941: the raid's draw (phase 7, the call returning to 0x4D2BC4) for the Soviet 4th Navy, a submarine flotilla at its base 782. In all four recordings the 4th is given a raid at 10:00 - five Soviet raid draws in that hour, OpenHOI3's too - and the hourly saves have none on it from 11:00, the flotilla staying at 782 for the 48 hours; OpenHOI3 kept the raid, so at 19:00, where `wr11`'s pass draws for the 13th and the 4th Navy (the other runs' pass draws for neither), the 4th was busy.
+
+**The running game**, loaded from `Ireland1941_07_16_07` and run unbroken (a load from one of the recording's own later saves did not show it: from 09:00 the 4th is given no raid at 10:00, and from the 16 July 23:00 save it keeps its raid and finds a way), hardware write watches on the 4th's order (`+0xB0`), pending destination (`+0x2CC`) and path count (`+0x140`):
+
+- 10:00: `+0x2CC` = 10519 from `CreateUnitOrder`'s tail (0x49AEA8, called from the raid at 0x4D2CAA), then the order objects none and `CConvoyRaid` from the command queue's stack - **the AI's order takes effect when its command runs, after the pass**.
+- 11:00: `+0x2CC` = 0 from `CEU3AI_RefreshUnitDestinations` (0x49A838) at the head of the pass, the flotilla having no path; then 782 and 0 again from phase 4's cancel - `IssueUnitOrder(none)` returning to 0x4D19AD and `MoveUnit` to its base returning to 0x4D19C2 - and the order objects replaced by none from the command queue.
+
+**What it shows**: phase 4's last test (0x4D1953: keep with a pending destination; cancel at its own base, `CUnit_IsAtOwnBase`; cancel an intercept) is reached by a convoy raid at war - only a patrol at war and an escort whose convoy still resolves are kept before it (0x4D1916, 0x4D18D4) - so a raid lying at its own base with no way is taken away at the next pass. Phase 7 of that same pass finds the fleet's order still the raid (slot 24) and draws nothing, which is why no run draws at 11:00; at the next pass that reaches phase 7 it is free, and is drawn for. OpenHOI3 kept a raid out of that test, with reserve, rebase, escort, patrol, invasion and transport.
+
+**With it**: OpenHOI3 lets a raid reach the test; `wr11`'s draws are the original's for all 48 hours, and with `wr19`, `wr15` and `wr14` every draw of the four recordings is the original's but the two patrol draws `wr19` lost (section 134). The orders unchanged. The other five orders kept out of the test were not looked at here.
