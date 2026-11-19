@@ -68,9 +68,10 @@ TFH's `tfh/interface/core.gfx` has seven `colorcodes` blocks and four `color_ove
 same eight colours (W B G R r b g Y), and `color_override` is on the four `_black` fonts. `tfh/interface/chatfonts.gfx`
 also has two `colorcodes` blocks, which differ: G = { 0 159 3 }, no `r`, and an extra P = { 200 30 170 }.
 
-**Which file is parsed first decides the global table** (inferred). `.gfx` files are taken in folder-listing order.
-That listing is sorted byte by byte, which is confirmed in `FINDINGS-localisation.md` section 3. So `chatfonts.gfx`
-comes before `core.gfx`. That the two files fall in the same listing, and so in that order, is not read. If so:
+**Which file is parsed first decides the global table** (confirmed live, 2026-11-19; inferred until then). `.gfx`
+files are taken in folder-listing order. That listing is sorted byte by byte, which is confirmed in
+`FINDINGS-localisation.md` section 3. So `chatfonts.gfx` comes before `core.gfx`. That the two files fall in the same
+listing, and so in that order, was not read from the code; the live read below shows it. So:
 
 - **TFH's global table:** W, B, R, b, g, Y as core.gfx; **G = (0, 159, 3)** and **P = (200, 30, 170)** from
   chatfonts.gfx; `r` from core.gfx's first font.
@@ -83,6 +84,23 @@ comes before `core.gfx`. That the two files fall in the same listing, and so in 
 
 The check: in BlackICE, a `§Y` in a tooltip is (255, 189, 0) if this reading holds, and (37, 37, 15) if core.gfx is
 parsed first.
+
+**Done 2026-11-19, live.** BlackICE was running, with BiceLib.dll loaded and the image at 0xD50000. Cheat Engine read
+g_FontColorCodes at `base - 0x400000 + 0x1B211A8 + letter * 0x20`. Each entry has the letter at +0, the CColor's table
+at +4 (0x15B6914 rebased), its token 0x18D at +8, the floats r g b a at +0xC to +0x18, and the opaque byte at +0x1C:
+
+| letter | read | as bytes | from |
+| --- | --- | --- | --- |
+| `Y` | 1.0 0.741 0 | 255 189 0 | TFH (chatfonts.gfx and core.gfx agree) |
+| `G` | 0 0.624 0.012 | 0 159 3 | TFH's chatfonts.gfx |
+| `P` | 0.784 0.118 0.667 | 200 30 170 | TFH's chatfonts.gfx |
+| `R` | 1.0 0.196 0.196 | 255 50 50 | TFH |
+| `r` | 0.627 0.196 0.196 | 160 50 50 | TFH's core.gfx, its first font |
+| `W` | 1.0 1.0 1.0 1.0 | 255 255 255 | every block (the positive control) |
+
+None of these is one of BlackICE's own `colorcodes` (Y 37 37 15, G 13 128 13, R 179 32 32). So the files are parsed
+in one byte-sorted listing over the whole search path, and BlackICE's `colorcodes` edits do nothing, as predicted.
+OpenHOI3 builds it so (its `docs/mechanics/interface.md`, section 6).
 
 ### What a reimplementation needs
 
@@ -218,8 +236,8 @@ patterns and the `Generic` fallback]
 
 ## Not established
 
-- That chatfonts.gfx and core.gfx fall in the same folder listing, and so the global table's contents in TFH and
-  BlackICE (section 1). The BlackICE `§Y` check above settles it.
+- ~~That chatfonts.gfx and core.gfx fall in the same folder listing, and so the global table's contents in TFH and
+  BlackICE (section 1). The BlackICE `§Y` check above settles it.~~ Settled live on 2026-11-19 (section 1).
 - DrawTextWithAlpha's callers and its arguments other than text, format, maxWidth and alpha.
 - CGraphicalCultureType's slot 6 (VA 0x849510), which builds some text from the name; it was not read to its end.
 - What 0xA78690 does with a name given twice in graphicalculturetype.txt.
