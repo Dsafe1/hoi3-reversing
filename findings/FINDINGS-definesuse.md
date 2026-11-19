@@ -214,6 +214,46 @@ is used in `CCountry::SaveContents` (VA `0x4D2254`), so it is a country's figure
 `lendlease_targets` is id `0x806` (VA `0x1B0DE68`), which both of the convoy's routines use (VA `0x4C544F`,
 `0x4C58FC`).
 
+## 11. The twenty, watched in the running game (2026-11-20)
+
+`probes/hoidefwatch.lua` run on the base game: an access breakpoint on each field's address, at most four at a time, each
+stretch of play beside a **positive control** - a define the same play is known to read - so that a zero says something.
+The game was loaded at `Ireland1941_07_16_07.hoi3` with the first three fields armed from the main menu, so its load and
+entering were watched too, and played at speed 4 in stretches of about 220 hours, the fields swapped between stretches;
+then a new game of 1 January 1936 was started with `CORE_LOSE`, `CORE_GAIN` and `REBEL_ACCEPTANCE_MONTHS` armed from the
+main menu, its set-up, its two days and 232 hours more watched. **None of the twenty was read.**
+
+| stretch | watched (none read) | the control and where it was read |
+| --- | --- | --- |
+| load, entering, 24 h of July 1941 | `SURPRISE_BONUS`, `MINIMUM_STRENGTH` | `BASE_NIGHT_PENALTY` 474 times: `BombCombatWeatherModifier`, `CTargetCombatant::ApplyCombatModifiers`, `LandCombatWeatherModifier` |
+| 320 h | `COMBAT_EVENT_DURATION`, `NAVAL_STACKING_PENALTY`, `UNDERGROUND_PARTISAN_STRENGTH`, `IC_TO_CONSUMER_GOODS` | none - repeated below with one, but for the partisans |
+| 199 h, across 1 August | `CORE_LOSE`, `CORE_GAIN`, `REBEL_ACCEPTANCE_MONTHS` | `BASE_NIGHT_PENALTY` 6,359 times at five sites, `NavalCombatWeatherModifier` and `AirCombatWeatherModifier` among them |
+| 221 h | `ROUGH_COUNTRY_RUIN_EST_MODIFIER`, `MAX_PROVINCE_SELL_PRICE`, `WAR_THREAT`, `MINIMUM_STRENGTH` | none in the stretch; the war's battles ran on |
+| 220 h | `SPY_MISSION_CHANGE_DAYS`, `SPY_CONNECTION_DETECTION_CHANCE`, `SPY_BASE_CONNECTION_DETECTION_CHANCE` | `SPY_DETECTION_CHANCE` 2,709 times, all in `CSpyPresence::CatchSpies` (VA `0x52E473`) |
+| 219 h, across 1 September | `NAP_INFLUENCE_COST`, `PURCHASE_INFLUENCE_COST`, `RELATION_INFLUENCE_COST` | `INFLUENCE_INFLUENCE_COST` twice: `CInfluenceNation::Apply` and `::IsSelectable` |
+| 220 h | `JOINBLOCK_INFLUENCE_COST`, `MILACC_CANCEL_RELATION_CHANGE` | `GUARANTEE_INFLUENCE_COST` 5,203 times in `CGuaranteeAction::IsSelectable` (VA `0xA1DB81`); `NAP_JOIN_INFLUENCE_COST` 1,916 times in `CNapAction::IsSelectable` (VA `0xA2D831`); `MILACCESS_INFLUENCE_COST` 122 times in `CMilitaryAccessAction::IsSelectable` and `COfferMilitaryAccessAction::IsSelectable`; `JOIN_FACTION_INFLUENCE_COST` not at all |
+| 219 h | `COMBAT_EVENT_DURATION`, `NAVAL_STACKING_PENALTY`, `IC_TO_CONSUMER_GOODS` again | `BASE_NIGHT_PENALTY` 5,434 times at five sites, the naval one 144 |
+| a new game: set-up, two days, 232 h | `CORE_LOSE`, `CORE_GAIN`, `REBEL_ACCEPTANCE_MONTHS` | - |
+
+What each zero is worth:
+
+- **Settled, the play that would read them having run**: `SURPRISE_BONUS`, `MINIMUM_STRENGTH` and `COMBAT_EVENT_DURATION`
+  (land battles every hour); `NAVAL_STACKING_PENALTY` (sea battles fought); `IC_TO_CONSUMER_GOODS` (every country's shares
+  of IC run daily); the three spy defines (spies caught thousands of times); `NAP_INFLUENCE_COST` - **the AI asked whether
+  each pact could be offered 1,916 times in one stretch, and that test reads `NAP_JOIN_INFLUENCE_COST`**, as does the
+  pact's charge (`CNapAction::Apply`, already recorded). `MILACC_CANCEL_RELATION_CHANGE` is settled by the listing rather
+  than by play: the cancel arm of `CMilitaryAccessAction::Apply` takes `MILACC_DECLINE_RELATION_CHANGE`.
+- **Watched where their play did not happen, so still open**: `CORE_LOSE` and `CORE_GAIN` (no change of owner in either
+  stretch), `REBEL_ACCEPTANCE_MONTHS` (no rising holding land seen), `WAR_THREAT` (no declaration), `JOINBLOCK_INFLUENCE_COST`
+  (no faction join weighed - its sibling `JOIN_FACTION_INFLUENCE_COST` was not read either), `PURCHASE_INFLUENCE_COST` and
+  `RELATION_INFLUENCE_COST` (a licence is charged `LICENCE_INFLUENCE_COST`; what "purchase" and "relation" would be asked by
+  was not found), `MAX_PROVINCE_SELL_PRICE`, `ROUGH_COUNTRY_RUIN_EST_MODIFIER`, and `UNDERGROUND_PARTISAN_STRENGTH` (no
+  control of its own, and partisans not seen rising). A scripted play - a capitulation, a declaration, a rising - would settle
+  them; the bridge's allowed writes (pause, speed, save, the menus) cannot make one.
+- The diplomacy and alignment blocks have no struct in the record, so `NAP_INFLUENCE_COST`, `PURCHASE_INFLUENCE_COST`,
+  `RELATION_INFLUENCE_COST`, `JOINBLOCK_INFLUENCE_COST`, `MILACC_CANCEL_RELATION_CHANGE` and `WAR_THREAT` are written here
+  alone; the other fourteen's field comments carry the result.
+
 ## Corrections to the record
 
 - `CToggleMobilizationCommand::Execute`: "The rest is a COUNTRY message for the player" was wrong - section 7.
