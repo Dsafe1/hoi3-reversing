@@ -14,6 +14,10 @@
 --                            breakpoint (int3), the four hardware ones being taken; a scan of .text for the generator's
 --                            index (+0xAE4) finds no other reader but its constructor and loader
 --
+-- **Arming it changes what the original does on entering**: with its breakpoints holding the threads, a theatre's area of
+-- operations takes its fronts in another order than an unprobed entering gives (Smolensk HQ's 779 first in July 1941), which
+-- moves the land attack's ramp (FINDINGS-liveread.md, section 147). A playback parts there; that is the probe's, not a rule.
+--
 -- A draw belongs to the country of the latest `E` of this hour whose esp is above it and within a stack's reach;
 -- one with none - the hourly trade, run inside the pass - belongs to nobody. Every rva is valid only for this build.
 --
