@@ -368,6 +368,13 @@ and it is one of four in a row in the same body (`0x496480`): `+0x300` from `db-
 are already named in `project.json` from `CBuildingDataBase_RoleByModifierId`: `+0x1C` is the
 building whose modifier is `MODIFIER_AIR_CAPACITY` (`0x2E`), which is `air_base`.
 
+**In BlackICE GitHub the air-base slot is `fake_air_base`** (2026-11-19). The slots follow the modifier and not the
+name: that mod's `air_base` carries no modifier key at all, and `fake_air_base` carries `air_capacity = 1`, so the ladder
+puts `fake_air_base` at `+0x1C` and every province's `+0x304` is its `fake_air_base`. The other four slots are vanilla's
+buildings there too. *Measured*: in that mod's start save the AI's `defend_prov` lists leave out every province the
+history gives an `air_base` and no `fake_air_base` - Britain's 6159, France's 2251 and 4164, the Netherlands' 6500,
+Spain's 4910 - which an air base read by name would have put on them.
+
 So `CAIUnit` slot 78's test at `0x4B245F`–`0x4B2482` —
 `provinces[army->ai_param_b]->+0x304->+0x20 / 1000 >= 1` — reads: **"does that province still have an
 air base of at least level 1"**, and `CArmy +0x2E4 ai_param_b` is the id of a province an air-base
