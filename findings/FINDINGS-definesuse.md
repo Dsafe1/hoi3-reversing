@@ -275,12 +275,12 @@ state was read as it ran - who owns how many provinces (`+0xCF8`), who is at war
 | `WAR_THREAT` | entering to 13 October 1939 | Germany declared war on Poland and Britain and France on Germany | settled: an AI's declaration does not read it |
 | `REBEL_ACCEPTANCE_MONTHS` | the set-up to April 1941 | no rising was seen holding land (the rebels held none at the end) | open |
 | `ROUGH_COUNTRY_RUIN_EST_MODIFIER` | 31 March 1938 to April 1941 | Austria, Czechoslovakia and Poland annexed, the war begun | open, its play unknown; likely unread |
-| `JOINBLOCK_INFLUENCE_COST` | 31 March 1938 to April 1941 | whether any country weighed joining a faction was not read off the game | open; likely unread |
+| `JOINBLOCK_INFLUENCE_COST` | 31 March 1938 to April 1941 | whether any country weighed joining a faction was not read off the game | settled by the listing: the faction action asks and charges `JOIN_FACTION_INFLUENCE_COST` (+0x8C) for a join and `INVITE_FACTION_INFLUENCE_COST` (+0x90) for an invite, so nothing that joins a faction reads it; a "block" likely another Europa Universalis III leftover, the maintainer's account |
 | `UNDERGROUND_PARTISAN_STRENGTH` | 13 October 1939 to April 1941 | the war's occupations; one underground standing, Norway's | open: no partisans seen rising |
 
-So of the twenty, eleven are settled as unread (section 11 and this), three are likely Europa Universalis III leftovers,
-and six stay open on play this run did not bring - a rising holding land, an underground raising partisans, a faction
-join weighed - and `ROUGH_COUNTRY_RUIN_EST_MODIFIER`, whose play nobody has named.
+So of the twenty, twelve are settled as unread (section 11 and this), three more are likely Europa Universalis III
+leftovers, and three stay open on play this run did not bring - a rising holding land, an underground raising partisans -
+and `ROUGH_COUNTRY_RUIN_EST_MODIFIER`, whose play nobody has named.
 
 ## Corrections to the record
 
