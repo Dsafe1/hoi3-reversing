@@ -218,7 +218,7 @@ Who is told which key (actor / recipient / anyone else; the texts confirm the or
 
 **With no convoy** where one is needed - never made, or removed later - the next RunDailyTradeRoutes destroys the route: no message, no relation change, and the +15 and the influence already spent are not returned.
 
-The daily look at a country's convoys (RunCountryDailyPass, 0x4DABDF on) removes a trade convoy when no route of the pair refers to it any more; or either end is held by a country at war with the owner, or by rebels. A cancelled route's convoy has its `is_trade` cleared by CTradeRoute::Deactivate (rva 0x64D400). The same daily look then removes it the next day, because it carries money and is not trade.
+The daily look at a country's convoys (RunCountryDailyPass, 0x4DABDF on) removes a trade convoy when no route of the pair refers to it any more - **the pair being the owner and whoever holds the convoy's far end** (or its start, where the owner holds the far end), not the route's other country, so a harbour the partner has lost to a third country takes the convoy away (added 2026-11-20, `FINDINGS-liveread.md`, section 152); or either end is held by a country at war with the owner, or by rebels. A cancelled route's convoy has its `is_trade` cleared by CTradeRoute::Deactivate (rva 0x64D400). The same daily look then removes it the next day, because it carries money and is not trade.
 
 ### A.8 The day - `CCountry::RunDailyTradeRoutes` (0x4FEE70, rva 0xFEE70)
 

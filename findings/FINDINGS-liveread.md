@@ -1606,3 +1606,64 @@ and the handler's error was swallowed by its own `pcall`. `probes/hoidraws.lua` 
 `num_of_allies` read the alliances and then the faction again, and a command's post asks `CCommand.MayPost`, which a
 proposal of an offer that waits for a diplomat answers false while one is on his way. The seven recordings `wr11`,
 `wr14`, `wr15` and `wr19` to `wr22` play back as before, `wr20` 523 of 523 land orders and `wr22` 468 of 468.
+
+## 152. The AI's Lua at 24 bits, a trade convoy's partner by its far end, and a day a country at a time (confirmed, the running game, the listing and a recording)
+
+Done on 2026-11-20 on the war-start recording `wz3` (48 hours from `Ireland1939_09_06_18`), whose draws parted in
+OpenHOI3 at hour 19, Germany answering an offer that the original's Yugoslavia answered, and at 26.
+
+**Turkey's offer.** At 12:00 on 7 September Turkey's trading script (`ProposeTrades`, `ai_trade.lua`) sells rare
+materials. The original sends its diplomat to Yugoslavia (`last_send_diplomat` 14 September 12:00 in the hour's save), the
+rewrite offered Germany. Scored live with a probe on `CTradeAction::GetAIAcceptance` (rva `0x638B00`, the route at
+`+0x28`, its blocks at `+0x34` and `+0x44`) in a run of the same save, at Turkey's pass of 8 September: Germany 0,
+Yugoslavia 133, Greece and New Zealand 0, for the rewrite's 172 and 0. Turkey sells; each buyer's money asked must not
+exceed `MONEY.CanSpend`, its money balance less 0.1. Yugoslavia, by its ledgers in the save, has a balance of 0.269 and is
+asked 0.169, the quantity having been scaled to what it may spend: in double precision `0.269 - 0.1` is 0.16899999380 and
+the float 0.169 handed in as `voTradedTo.vMoney` is 0.16899999976, so the test fails by a hair.
+
+**The x87.** Turkey's pass runs on a TBB worker (its `E` line's ESP in the recording). With a breakpoint on `ProcessAI`
+and each thread's `WOW64_CONTEXT` read through `Wow64GetThreadContext` inside Cheat Engine's own process, every one of the
+31 workers caught entering `ProcessAI` holds the control word **0x007F**: 24-bit precision, as Direct3D 9 leaves the device's
+thread (`FINDINGS-luahost.md`, section 6, which left the workers unread; the game ships TBB 3.0 of 2011). 44 of the
+process's 76 threads hold the default 0x027F. So the AI's Lua rounds every arithmetic result to a float's mantissa:
+`0.269 - 0.1` is the float 0.169, and Yugoslavia passes. With the rewrite's Lua 5.1.4 rounding so - its `luaconf.h`
+`luai_num*` and its `math.random`'s two steps - hour 19 came out as the original's draw for draw.
+
+**Why Germany scores 0.** Not the comparison of tags: `CCountryTag`'s `__eq` (rva `0x502A60`) compares ids, so
+`HumanSelling` holds in both. Germany's existing rare-materials route with Turkey runs the other way round, which
+`AlreadyTradingDisabledResource` (VA `0x89B3E0`) does not match - it compares block with block by place, as the rewrite
+does. What differed was the harbour search: Germany is the buyer, and the convoys it already holds to Turkey, from 1742 to
+4561, have **no path** in the original's save while Turkey's own between the same coasts have one. `COwnerArea::NearestPortTo`
+asks `SeaConnected` for the country (`FINDINGS-supplyconvoys.md`, section 4), so Gibraltar and Suez, held by Germany's
+enemies, shut the Mediterranean to a German convoy: `IsConvoyPossible` false and the score 0 before Lua is asked. The
+rewrite had asked only whether a way by sea exists.
+
+**Haiti's offer at hour 26.** South Africa offered Haiti supplies in the rewrite and nobody in the original. Haiti's money
+spent was 1.047 in the rewrite and 1.037, exactly its three routes' due, in the original: the rewrite still paid Poland
+0.010 a day on a route the original dropped at the 7 September midnight. Its convoy, Haiti's, ends at Gdynia (1626), Polish
+and held by Germany since before the save; Germany is at war with nobody Haiti is. **The daily look at a country's convoys**
+(`RunCountryDailyPass`, VA `0x4DABDF` on) finds a trade convoy's partner **by who holds its far end** - or its start, where
+the owner holds the far end - and keeps the convoy only where one of the owner's routes with that country names it; Haiti
+has no route with Germany, so the convoy goes and the route after it. With Haiti's balance 0.197, `r24(0.197 - 0.1)` is
+0.0969999954 against a money asked of 0.0970000029, so the original's Haiti scores 0 and South Africa offers nobody.
+
+**A day a country at a time.** Two more partings followed the rule, and both were the order of the day. Saudi Arabia's
+energy route from Poland, on Saudi Arabia's convoy to Gdynia, **was paid** at that midnight (its traded-for energy 5.311 =
+1.700 + 3.611) and gone after: Poland's day comes first and runs the exchange, and Saudi Arabia's own look then takes the
+convoy away. And Australia's fuel route to Germany on German convoy 33540 was paid though the convoy had no transports until
+that midnight: Germany's day, before Australia's, mans it in its convoy maintenance (the pass's step 10). The rewrite had
+run every country's convoy look before any trade and every country's maintenance after all of it; it now runs a country's
+trade convoys' look at the head of its economy and its maintenance at the end, so the countries after it trade with what
+it left. Then a harbour ranking the Soviet Union's: `CMapProvince::UsableNavalBaseLevel` counts a Baltic port as nought
+while the Danish straits are held by an enemy of its owner, and the region its global names is `baltic_sea_region`, the
+water `BALTIC` (rva `0x4A7EE0`, read 2026-11-20) - so Ecuador's offer to the Soviet Union in `wr19` at 23:00 on 17 July
+finds a harbour outside the Baltic.
+
+**What stays.** `wz3` now parts only at hours 16 and 43 (the Belgian and Luxembourg politics ministers, an open item); the
+July recordings and `wz3` keep every land, fleet and air score. Cuba's two routes with Canada and Italy, cancelled in the
+original's first two hours, survive in the rewrite and were not looked into.
+
+**The probes**, in `probes/`: `hoitradewatch.lua` (GetAIAcceptance with its blocks and answer), `hoitradegates.lua`
+(IsConvoyPossible and AlreadyTradingDisabledResource with their answers), `hoiresvalues.lua` (GetResourceValues' six
+floats) and `hoix87.lua` (every thread's control word). All four keep their lines in memory and fetch the hit thread's
+context first, as section 151 found they must.

@@ -154,7 +154,9 @@ arithmetic on the x87 (no SSE2), so **Lua's arithmetic on the device's thread ra
 mantissas** - that this is the thread running `CInGameIdler` and the main state is inferred (BiceLib
 sees `Present` and the game's Lua share a thread). For `AI_GenerateNonHistoricalRelation` it changes
 nothing: every value is a small integer, exact either way. Whether TBB's workers inherit the control
-word was not read.
+word was not read. **They run at 24 bits too** (the running game, 2026-11-20): each of the 31 worker threads caught
+entering `ProcessAI` holds the control word 0x007F, read through `Wow64GetThreadContext` (`FINDINGS-liveread.md`, section
+152) - and there a buyer's `CanSpend` worked out in single precision decides a trade.
 
 ## 7. What looks wrong and is what the bytes do
 
@@ -170,8 +172,8 @@ word was not read.
 
 ## 8. Not read
 
-What `cast_failed` escaping `CInGameIdler::Enter` does; whether TBB carries the control word to its
-workers; `make_pointer_instance` (`0x514550`), `get_instance_value` (`0xB7E5C0`) and `SetupAI` beyond
+What `cast_failed` escaping `CInGameIdler::Enter` does; ~~whether TBB carries the control word to its
+workers~~ (it does: section 6); `make_pointer_instance` (`0x514550`), `get_instance_value` (`0xB7E5C0`) and `SetupAI` beyond
 what `luabindExtract` already emulates; the whole of `0xAA3DD0`; the other writers of `CCountry
 +0xDFC`; the loop that calls `SetUpCountryForNewGame` beyond its `+0xD9C` guard; whether every posted
 `CChangeLawCommand` takes effect, which bears on `FINDINGS-unitstart.md`'s training law; MSVCR80's
