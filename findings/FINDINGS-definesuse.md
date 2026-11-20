@@ -260,6 +260,28 @@ What each zero is worth:
   `RELATION_INFLUENCE_COST`, `JOINBLOCK_INFLUENCE_COST`, `MILACC_CANCEL_RELATION_CHANGE` and `WAR_THREAT` are written here
   alone; the other fourteen's field comments carry the result.
 
+### 11.1 A test game from 1936 (2026-11-20)
+
+The seven still open, watched through a base-game new game played as Ireland from 1 January 1936 to the end of April
+1941, every major run by its own AI, at full speed - about fifty game hours a second with four access breakpoints armed.
+Four debug registers are all there are: page-guard breakpoints were tried for three more and froze the game at the main
+menu, every access to those busy pages trapping, so the fields were swapped as the years brought their play. The game's
+state was read as it ran - who owns how many provinces (`+0xCF8`), who is at war (`+0xACC`), the undergrounds (`+0xD68`).
+**None was read.**
+
+| field | watched | what happened in it | verdict |
+| --- | --- | --- | --- |
+| `CORE_LOSE`, `CORE_GAIN` | the new game's set-up to 31 March 1938 | Nationalist Spain annexed the Republic, all 286 provinces; Italy and Ethiopia made peace, Ethiopia keeping 21; 27 months' turns | settled: not read on a whole country's change of owner nor at a month's turn |
+| `WAR_THREAT` | entering to 13 October 1939 | Germany declared war on Poland and Britain and France on Germany | settled: an AI's declaration does not read it |
+| `REBEL_ACCEPTANCE_MONTHS` | the set-up to April 1941 | no rising was seen holding land (the rebels held none at the end) | open |
+| `ROUGH_COUNTRY_RUIN_EST_MODIFIER` | 31 March 1938 to April 1941 | Austria, Czechoslovakia and Poland annexed, the war begun | open, its play unknown; likely unread |
+| `JOINBLOCK_INFLUENCE_COST` | 31 March 1938 to April 1941 | whether any country weighed joining a faction was not read off the game | open; likely unread |
+| `UNDERGROUND_PARTISAN_STRENGTH` | 13 October 1939 to April 1941 | the war's occupations; one underground standing, Norway's | open: no partisans seen rising |
+
+So of the twenty, eleven are settled as unread (section 11 and this), three are likely Europa Universalis III leftovers,
+and six stay open on play this run did not bring - a rising holding land, an underground raising partisans, a faction
+join weighed - and `ROUGH_COUNTRY_RUIN_EST_MODIFIER`, whose play nobody has named.
+
 ## Corrections to the record
 
 - `CToggleMobilizationCommand::Execute`: "The rest is a COUNTRY message for the player" was wrong - section 7.

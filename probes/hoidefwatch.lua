@@ -85,3 +85,25 @@ function defReport()
   if f then f:write(table.concat(lines, "\n") .. "\n"); f:close() end
   return table.concat(lines, "\n")
 end
+
+-- defWatchAdd(name, blk, off, method): one more field, without clearing the others - for swapping fields mid-game as
+-- the years bring their play (FINDINGS-definesuse.md, section 11.1). Use bpmDebugRegister: there are four, and
+-- hoiNewGame/hoiLoadSave need one for the front end while they run. bpmException (a page guard) has no such limit
+-- but traps every access to the field's page; on 2026-11-20 three of them froze the game at the main menu for good.
+function defWatchAdd(name, blk, off, method)
+  local defs = readInteger(base() + 0x1686040)
+  local addr = readInteger(defs + blk) + off
+  defHits[name] = defHits[name] or {}
+  local hits = defHits[name]
+  local ok = debug_setBreakpoint(addr, 4, bptAccess, method or bpmDebugRegister, function()
+    pcall(function()
+      local prev = getPreviousOpcode(EIP)
+      local rva = (prev or EIP) - base()
+      hits[rva] = (hits[rva] or 0) + 1
+    end)
+    debug_continueFromBreakpoint(co_run)
+    return 1
+  end)
+  defBps[#defBps + 1] = addr
+  return string.format("%s @%08X = %d %s", name, addr, readInteger(addr) or -1, tostring(ok))
+end
