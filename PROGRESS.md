@@ -25,12 +25,12 @@ how many objects a census found (taken 2026-09-20).
 
 | | classes |
 | --- | --- |
-| `read` | 186 |
-| `placed` | 138 |
+| `read` | 188 |
+| `placed` | 137 |
 | `keys` | 74 |
-| `part` | 184 |
+| `part` | 185 |
 | `named` | 5 |
-| `RTTI` | 554 |
+| `RTTI` | 552 |
 | **all** | **1141** |
 
 ## What to read next
@@ -392,7 +392,7 @@ Definitions out of `common/` and the rest of the mod. Their `LoadKey` is the gra
 | `CRule` | `CPersistent` |  |  | 1/2 | 4 |  | 112 | placed | plumbing |
 | `CScenario` | `CPersistent` |  |  | 12/21 | 1 |  |  | placed | **read**: a scenario - selectable countries, camera, victory conditions |
 | `CSelectionGroupReader` | `CPersistent` |  |  |  | 1 |  |  | keys | plumbing |
-| `CSessionConfiguration` | `CPersistent` |  |  | 5/7 | 1 |  | 3 | placed |  |
+| `CSessionConfiguration` | `CPersistent` | 0xA4 | 9 | 5/7 | 2 |  | 3 | read |  |
 | `CSong` | `CPersistent` | 0x40 | 2 |  | 1 |  | 91 | keys |  |
 | `CStaticModifier` | `CModifier` | 0x48 | 1 | 1/2 | 2 |  | 31,318 | part |  |
 | `CStrategicResource` | `CModifier` | 0x50 | 3 | 1/2 |  |  | 337 | part |  |
@@ -526,12 +526,12 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CEspionageView` | `CCountryView` | 0x37C | 27 |  | 55 |  | 1 | read |  |
 | `CFactory` |  |  |  |  |  |  |  | RTTI |  |
 | `CForeignMinisterItem` | `CStandardlistboxItem` | 0x38 | 4 |  | 1 |  |  | part |  |
-| `CFrontEnd` | `CEU3Idler` `CReloadDispatcher` |  | 22 |  | 18 |  |  | read |  |
+| `CFrontEnd` | `CEU3Idler` `CReloadDispatcher` |  | 25 |  | 18 |  |  | read |  |
 | `CFrontEndState` | `CFrontEndView` | 0x274 | 1 |  | 14 |  |  | part |  |
 | `CFrontEndView` |  |  | 1 |  | 2 |  | 2 | part |  |
 | `CFrontendSettingsScreen` | `CSettingsScreen` `CFrontEndView` | 0x3E8 | 1 |  | 3 |  |  | part |  |
 | `CFuelConsumptionComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
-| `CGameNameMember` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
+| `CGameNameMember` | `CStandardlistboxItem` | 0x140 | 2 |  | 1 |  |  | part |  |
 | `CGoalEntry` | `CStandardlistboxItem` |  |  |  | 1 |  |  | RTTI |  |
 | `CGotoBox` | `CUpdateable` |  |  |  | 1 |  | 1 | RTTI |  |
 | `CGotoProvinceItem` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
@@ -574,7 +574,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CModifierEntry` |  | 0x8 | 2 |  |  |  |  | part |  |
 | `CMultiCancelPrompt` | `CEU3Dialog` |  |  |  |  |  |  | RTTI |  |
 | `CMultiplayerHandler` | `CSessionInfoObserver` |  |  |  |  |  |  | RTTI |  |
-| `CMultiplayerMenuView` | `CFrontEndView` `CSessionInfoObserver` |  |  |  |  |  |  | RTTI |  |
+| `CMultiplayerMenuView` | `CFrontEndView` `CSessionInfoObserver` | 0x350 | 17 |  | 16 |  |  | read |  |
 | `CMusic` |  |  |  |  |  |  |  | RTTI |  |
 | `CNavalCombatMember` | `COutLinerMember` |  | 6 |  | 6 |  |  | read |  |
 | `CNavalOrdersView` | `COrdersView` |  |  |  | 6 |  |  | RTTI |  |
