@@ -543,7 +543,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CICCostComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CIcon` | `CButton` |  |  |  | 5 |  |  | RTTI |  |
 | `CIdler` |  |  |  |  |  |  |  | RTTI |  |
-| `CInGameIdler` | `CEU3Idler` `CLostDeviceInterface` `CReloadDispatcher` |  | 136 |  | 121 | CInGameIdler.hpp | 3 | read |  |
+| `CInGameIdler` | `CEU3Idler` `CLostDeviceInterface` `CReloadDispatcher` |  | 153 |  | 131 | CInGameIdler.hpp | 3 | read |  |
 | `CIngameSettingsScreen` | `CSettingsScreen` | 0x3E0 | 1 |  | 2 |  | 1 | part |  |
 | `CLandOrdersView` | `COrdersView` | 0x198 | 10 |  | 10 |  |  | read |  |
 | `CLawEntry` | `CStandardlistboxItem` | 0x88 | 4 |  | 3 |  | 16 | part |  |
@@ -573,7 +573,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CModifierDefinition` |  |  | 5 |  |  | CModifier.hpp | 143 | read |  |
 | `CModifierEntry` |  | 0x8 | 2 |  |  |  |  | part |  |
 | `CMultiCancelPrompt` | `CEU3Dialog` |  |  |  |  |  |  | RTTI |  |
-| `CMultiplayerHandler` | `CSessionInfoObserver` |  |  |  |  |  |  | RTTI |  |
+| `CMultiplayerHandler` | `CSessionInfoObserver` |  |  |  | 1 |  |  | RTTI |  |
 | `CMultiplayerMenuView` | `CFrontEndView` `CSessionInfoObserver` | 0x350 | 16 |  | 16 |  |  | read |  |
 | `CMusic` |  |  |  |  |  |  |  | RTTI |  |
 | `CNavalCombatMember` | `COutLinerMember` |  | 6 |  | 6 |  |  | read |  |
@@ -865,7 +865,7 @@ One class per effect, trigger, command and decision the event scripts can use. E
 | `CChannelSelectionOption` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
 | `CChooseVictoryConditionsCommand` | `CCommand` | 0x50 | 2 | 1/2 | 4 |  | 1 | placed |  |
 | `CClearAllControllersCommand` | `CCommand` |  |  | 1/3 |  |  | 1 | RTTI |  |
-| `CClientPingCommand` | `CCommand` |  |  | 1/2 | 1 |  | 1 | placed |  |
+| `CClientPingCommand` | `CCommand` |  |  | 1/2 | 2 |  | 1 | placed |  |
 | `CClrCountryFlagEffect` | `CFlagEffect` |  |  | 3/91 | 1 |  | 9,057 | RTTI |  |
 | `CClrGlobalFlagEffect` | `CFlagEffect` |  |  | 3/91 | 1 |  | 80 | RTTI |  |
 | `CClrProvinceFlagEffect` | `CFlagEffect` |  |  | 3/91 | 1 |  | 31 | RTTI |  |
