@@ -194,3 +194,5 @@ The default port, **1638 (0x666)** [exe], is a pushed constant in OnHostOk, OnJo
 | `0x6CF1C0` | CSessionConfiguration::CSessionConfiguration | confirmed |
 
 Structs declared: `CMultiplayerMenuView` (0x350), `CGameNameMember` (0x140), `CSessionConfiguration` (0xA4: `session_name` +8, `game_name` +0x24, `string_address` +0x40, `address` +0x5C, `type` +0x60, `status` +0x64, `port` +0x68, `basic_type` +0x6C, `version` +0x70). `CFrontEnd` gains `local_player_name` +0xC0, `session_configuration` +0xDC and `is_host` +0x180.
+
+**Corrected by the apply, 2026-11-20.** The fragment also declared a field `session_info_observer` at `CMultiplayerMenuView +0x8`. That offset is the class's second table pointer, which the apply places itself as `vftable_at8`, and the two fought: the headless apply placed two struct fields on every pass and never settled. The field was deleted from `project.json` by hand; the apply then gave `failed: 0`, `replaced: 0` and `struct fields: 0` on its second pass. A secondary base's table pointer is not a field to declare.

@@ -574,7 +574,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CModifierEntry` |  | 0x8 | 2 |  |  |  |  | part |  |
 | `CMultiCancelPrompt` | `CEU3Dialog` |  |  |  |  |  |  | RTTI |  |
 | `CMultiplayerHandler` | `CSessionInfoObserver` |  |  |  |  |  |  | RTTI |  |
-| `CMultiplayerMenuView` | `CFrontEndView` `CSessionInfoObserver` | 0x350 | 17 |  | 16 |  |  | read |  |
+| `CMultiplayerMenuView` | `CFrontEndView` `CSessionInfoObserver` | 0x350 | 16 |  | 16 |  |  | read |  |
 | `CMusic` |  |  |  |  |  |  |  | RTTI |  |
 | `CNavalCombatMember` | `COutLinerMember` |  | 6 |  | 6 |  |  | read |  |
 | `CNavalOrdersView` | `COrdersView` |  |  |  | 6 |  |  | RTTI |  |

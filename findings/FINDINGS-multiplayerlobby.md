@@ -253,3 +253,5 @@ The reason is shown nowhere else: Play's tooltip is the only place. A client hov
 Read again and unchanged: `CGameSetup::Prepare`, `Show`, `Update`, `BuildBookmarkLists`, `OnProvinceClicked`, `GetElementTooltip`, `OnPlay`, `CGameSetup_CanStart`, `CGameSetup_StartGame` (each in brief, for its multiplayer tests).
 
 Struct declared: `CHumanItem` (0xD0: `window` +0x20, `human` +0x28, `transfer` +0x78, `shield_observer` +0x80). `CGameSetup` gains `kick_observer` +0x90, `ban_observer` +0xE0, `connected` +0x180, `chat_buffer` +0x3BC, `chat_observer` +0x3E0, `chat_edit_observer` +0x3F0, `save_data` +0x6B8, `online_link` +0x6C8, `incoming_transfer` +0x6D8, `lit_country` +0x968; `CHuman` gains `name` +0; `Session` gains `local_human_id` +0x6C.
+
+**Noticed at the apply, 2026-11-20, and left.** `CHumanItem +0x28 human` is declared a `CHuman` by value, which the record has at 0x58 bytes, so it runs to +0x80 and takes in `+0x78 transfer`: the apply folds `transfer` into `human` and places no field for it. One of the three is off - the copy kept is not a whole `CHuman`, or `CHuman` is 0x50, or the transfer is elsewhere - and it was not settled. *inferred*, all three.
