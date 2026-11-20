@@ -1435,7 +1435,7 @@ of it.
 
 ## What has already been read
 
-245 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
+246 findings files, which is where the evidence for anything in `project.json` or a `GameClasses`
 header lives. This replaces the `Done` archive: the archive restated each file's headline and named
 only 40 of the 67 there were then, so it was both longer and less useful than a complete list.
 
@@ -1728,6 +1728,7 @@ the six it was missing were wave 15's.
 | `findings/FINDINGS-localisation.md` | **how the localisation tables are read (2026-11-19)**: every table read whole into one buffer in listing order, a line break after any that lacks one; **the first text a key is given stands** - a later line logged `Duplicate text-key` and dropped, a line empty in the language logged `Empty key` and leaving the key to a later one; PhysFS's listing of a folder **sorted by byte with case**, each name once over the whole search path - an inlined `strcmp` in a binary search, not layer by layer; BlackICE's `TECH_INVEST` and 101 other keys |
 | `findings/FINDINGS-bicereadings.md` | **readings for BlackICE's 1936 saves (2026-11-19)**: the fire-once registry has **511 buckets**, set by `CGameState::CGameState`, so a save's `fired_events` come out by `((40 << 16) + id) % 511`, the latest of a bucket first - measured on three saves; **`TokenToFixedPoint` keeps every digit after the point** (`0.3375` is 3.375), and every numeric figure of `CSubUnitDefinition::LoadKey` is read with it, where modifiers go through `ParseThousandths` and are cut to three - `CModifier::LoadKey`'s record had the two swapped; Ethiopia's starting manpower and a thousandth of organisation not settled; and what the saves measured with nothing read - a province's history, a brigade's `home`, the rebels' counter, `prov_vp`, `nocategory`, a history post seating another country's minister |
 | `findings/FINDINGS-soundeffects.md` | **the sound effects (2026-11-12)**: interface/sound.sfx's five keys, names case-insensitive, 64 voices or `single`; "unless already playing"; the effects volume linear in dB; a button's click on release and a checkbox's on press with their fallbacks to `click`; every effect the game's own events play, and the battle window's chain |
+| `findings/FINDINGS-unknownkeys.md` | **a key the original does not know, by kind of file (2026-11-20)**: `ParseSkipValue` has one caller in the image, `CCountry::LoadKey`, so everywhere else an unknown `key = scalar` is passed over cleanly and an unknown `key = { block }` is read as the enclosing object's own keys; `scripts/loaderarms.py`'s survey of the 320 loaders; the default arms of `CTechnology`, `CTechStatistics` and `CSubUnitDefinition::LoadKey` read, correcting all three records; `defines.lua` safe both ways, being fetched by name through Lua; and which folders are listed - a new file in `common/` is summed and never parsed |
 
 ## A method worth reusing
 
