@@ -28,9 +28,9 @@ how many objects a census found (taken 2026-09-20).
 | `read` | 188 |
 | `placed` | 137 |
 | `keys` | 74 |
-| `part` | 185 |
+| `part` | 186 |
 | `named` | 5 |
-| `RTTI` | 552 |
+| `RTTI` | 551 |
 | **all** | **1141** |
 
 ## What to read next
@@ -111,7 +111,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CAITechMinister` | `CAIAgent` | 0x80 | 3 + 3 lua |  | 9 |  | 107 | part |  |
 | `CAIUnit` | `CAIAgent` |  | 105 |  | 47 |  | 99 | read |  |
 | `CActiveMission` | `CPersistent` |  | 6 | 4/5 | 2 | CActiveMission.hpp | 108 | read |  |
-| `CAddPlayer` | `CCommand` |  |  |  | 1 |  | 1 | keys |  |
+| `CAddPlayer` | `CCommand` |  |  |  | 2 |  | 1 | keys |  |
 | `CAddTraitEntry` | `CLeaderHistoryEntry` |  |  |  | 2 |  |  | RTTI |  |
 | `CAddWarGoalAction` | `CWarGoalBaseAction` |  |  |  | 5 |  |  | RTTI |  |
 | `CAir` | `CUnit` |  |  |  | 13 |  | 2,052 | keys |  |
@@ -195,7 +195,7 @@ These carry a game in progress. Their `LoadKey` is the grammar of a save block.
 | `CGameLaunchInterface` | `CReferenceObject` |  |  |  |  |  |  | RTTI |  |
 | `CGameList` | `CGameHandlerInterface` `VCStandardlistboxItem::__CChoiceObserver` |  |  |  |  |  |  | RTTI |  |
 | `CGamePlaySettings` | `CPersistent` |  | 2 |  | 2 |  | 1 | keys |  |
-| `CGameSetup` | `CFrontEndView` `CSessionInfoObserver` `CLobbyInterface` `CLargefileHandlerInterface` `CReloadableInterface` |  | 24 |  | 35 |  |  | read |  |
+| `CGameSetup` | `CFrontEndView` `CSessionInfoObserver` `CLobbyInterface` `CLargefileHandlerInterface` `CReloadableInterface` |  | 34 |  | 46 |  |  | read |  |
 | `CGameState` | `CPersistent` |  | 74 | 14/33 | 16 |  |  | read |  |
 | `CGoodsPool` | `CPersistent` |  | 8 | 7/7 | 6 | CGoodsPool.hpp | 132,054 | read |  |
 | `CGraphStatistics` | `CPersistent` |  |  |  | 2 |  | 3 | keys |  |
@@ -539,7 +539,7 @@ Objects the game makes and never persists: managers, caches, the AI.
 | `CGraphicalTableLedger` | `CGuiObject` | 0x150 |  |  | 4 |  |  | RTTI |  |
 | `CHardAttackComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CHoiAvatar` | `CSmallAvatarBase` | 0x154 | 8 |  | 4 |  | 8,642 | read |  |
-| `CHumanItem` | `CStandardlistboxItem` |  |  |  |  |  |  | RTTI |  |
+| `CHumanItem` | `CStandardlistboxItem` | 0xD0 | 4 |  | 2 |  |  | part |  |
 | `CICCostComparator` | `CBrigadeSortInterface` |  |  |  |  |  |  | RTTI |  |
 | `CIcon` | `CButton` |  |  |  | 5 |  |  | RTTI |  |
 | `CIdler` |  |  |  |  |  |  |  | RTTI |  |

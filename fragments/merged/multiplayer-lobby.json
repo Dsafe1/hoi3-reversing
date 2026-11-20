@@ -1,0 +1,460 @@
+{
+ "agent": "multiplayer-lobby reader, 2026-11-20",
+ "question": "What the lobby (CGameSetup, view 3) does differently when several machines share it: the players' box, choosing a country, what is the host's alone, Play, the chat, leaving.",
+ "source": "reversing/findings/FINDINGS-multiplayerlobby.md",
+ "addresses": [
+  {
+   "rva": "0x3095E0",
+   "kind": "function",
+   "name": "CHumanItem_Construct",
+   "signature": null,
+   "no_signature": "register convention: the object, the CHuman and the type-name string are on the stack (ret 0xC), the gui factory arrives in ECX and a second gui pointer in EDX, which is pushed on",
+   "comment": "**Builds a row of the lobby's players' list** (`multiplayer_list`), a CHumanItem (0xD0 bytes, RTTI base CStandardlistboxItem). VA 0x7095E0 to `ret 0xC` at 0x7096FA. The row's window (+0x20) is made from the gui factory in ECX by the type name on the stack - `multiplayer_entry_server` or `multiplayer_entry`, chosen by CGameSetup::OnPlayerAdded; a copy of the player's CHuman is kept by value at +0x28 (CHuman_Copy), the transfer pointer +0x78 cleared, and a CButtonObserverGlue<CHumanItem> made at +0x80 with CHumanItem::OnShieldClicked and attached to the row's `player_shield`. Nothing else of the row is named here: `name`, `save_progress`, `button_kick` and `button_ban` are written or wired by the lobby. See reversing/findings/FINDINGS-multiplayerlobby.md, section 1.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x7095E0..0x7096FA read whole: vftables 0x15D5D40/0x15D5D74 (RTTI CHumanItem) written, `call [ecx+0x2C]` with the name string gives +0x20, CHuman_Copy into +0x28, handler immediate 0x709B40, the string 'player_shield' and the observer-list add (button +0x48 slot 1). Two callers, both in OnPlayerAdded (0x712DDE, 0x712FA1), each after `push 0xD0; call operator new`. Wrong if another caller passes a different size."
+  },
+  {
+   "rva": "0x309700",
+   "kind": "function",
+   "name": "CHumanItem::~CHumanItem",
+   "signature": "void __thiscall CHumanItem::~CHumanItem(CHumanItem* this)",
+   "no_signature": null,
+   "comment": "The row's destructor, VA 0x709700 to the bare `ret` at 0x7097D3; called by the scalar deleting destructor, slot 0 (0x709C60). Deletes the transfer at +0x78 where there is one (its slot 0 with 1), frees the CHuman copy's automation vector and name, destroys the row's window (+0x20, slot 20) and ends in the list item base's destructor. See reversing/findings/FINDINGS-multiplayerlobby.md, section 1.",
+   "confidence": "confirmed",
+   "evidence": "Listing read whole; 0x709C60 calls it and frees on bit 0. Wrong if +0x78 is not owned (it is deleted here and in CHumanItem_SetTransfer before being replaced)."
+  },
+  {
+   "rva": "0x3097E0",
+   "kind": "function",
+   "name": "CHumanItem_SetTransfer",
+   "signature": "void __fastcall CHumanItem_SetTransfer(void* transfer@ECX, CHumanItem* item@EDX)",
+   "no_signature": null,
+   "comment": "**Gives a players' row its save transfer and writes its `save_progress`.** VA 0x7097E0 to the bare `ret` at 0x709B3D. The row's old transfer (+0x78) is deleted and the new one stored; the fraction is the transfer's +0x80 over its +0x7C (0 where +0x7C is not above 0); the text is `§Y` + SAVE_PROG (\"Save progress: $VALUE$ %\") with VALUE = the fraction times 100, truncated + `§W`, written to the row window's `save_progress`. Two callers: CGameSetup::OnPlayerAdded (a player joining while a save is chosen) and CGameSetup::BeginSaveTransfer (one transfer a row). See reversing/findings/FINDINGS-multiplayerlobby.md, section 3.",
+   "confidence": "confirmed",
+   "evidence": "Listing read whole: `mov edi,edx; mov esi,ecx`, the delete of [edi+0x78], the divide of [esi+0x80] by [esi+0x7C], the strings SAVE_PROG, VALUE, save_progress, the two 2-byte strings at 0x15B5C54 (A7 59) and 0x15B6700 (A7 57), the double 100.0 at 0x160A358. Callers by a scan for `call 0x7097E0`: 0x71367D and 0x717661."
+  },
+  {
+   "rva": "0x309B40",
+   "kind": "function",
+   "name": "CHumanItem::OnShieldClicked",
+   "signature": "void __thiscall CHumanItem::OnShieldClicked(CHumanItem* this)",
+   "no_signature": null,
+   "comment": "**A click on a players' row's `player_shield`**: where the row's player has a country (the CHuman copy's id at +0x4C not 0) and that country has a capital, the current screen's (state +0xBE8) slot 48 with the capital province - the same call the `singleplayer` panel's shield makes, inferred to centre the map. Bare `ret` at 0x709C50. It is the only handler a row has: nothing answers a right click. See reversing/findings/FINDINGS-multiplayerlobby.md, section 1.",
+   "confidence": "inferred",
+   "evidence": "Listing 0x709B40..0x709C50 read whole; the handler immediate is stored by CHumanItem_Construct. 'Centres the map' is inferred from slot 48's other caller (CGameSetup::OnPlayerShieldClicked); the slot's body was not read."
+  },
+  {
+   "rva": "0x308190",
+   "kind": "function",
+   "name": "CGameSetup_AnnounceLocalPlayer",
+   "signature": "void __stdcall CGameSetup_AnnounceLocalPlayer(CGameSetup* setup)",
+   "no_signature": null,
+   "comment": "**The lobby joining its session, called once by CGameSetup::Prepare** (0x707BAC). VA 0x708190 to `ret 4` at 0x70855D. The lobby's CSessionInfoObserver (+8) is added to the session's observers (session slot 1); where the session's state (+0x2C) is not 0xB **a CAddPlayer(add) for the local player** - the name of the record at +0x410, the session's local human id (+0x6C) - is posted; the local record rebuilt; with the online link (+0x6C8) on a machine that may not post, an online message; **the chat line CONNECTED (\"Connected.\")**; **+0x180 = 1**; the persistent id space set from the local human id; and settings.txt written where the player's name differs from `lastplayer` (settings +0x104) or, on a client (mode 2), the host's address from `lasthost` (+0x120). See reversing/findings/FINDINGS-multiplayerlobby.md, section 1.",
+   "confidence": "confirmed",
+   "evidence": "Brief listing 0x708190..0x70855D: the session's slot 1 with `lea esi,[ebx+8]`, the CAddPlayer constructor (0x6D6770) with pushes 0, 1, [session+0x6C], lea [ebx+0x410]; the string CONNECTED and CGameSetup::AddChatLine; `mov dword ptr [ebx+0x180], 1`; the two String_Equals against settings +0x104 and +0x120 and CSystemSettings_SaveToFile. The online arm was not read. FINDINGS-multiplayermenu.md calls this 'the lobby's CONNECTED handler'."
+  },
+  {
+   "rva": "0x30C360",
+   "kind": "function",
+   "name": "CGameSetup::OnSessionInfo",
+   "signature": "void __thiscall CGameSetup::OnSessionInfo(CSessionInfoObserver* this, int event)",
+   "no_signature": null,
+   "comment": "Slot 1 of CGameSetup's CSessionInfoObserver table (+8; ECX is the lobby + 8, every offset in the body 8 low). VA 0x70C360, exits `ret 4` at 0x70C8EC, 0x70CDDE, 0x70CF6C and 0x70D004. **Event 0** nothing. **Event 5 (players lost)**: for each dropped connection the session lists (0xA8AC50), the human found (0x685E10) and, where its id is not -1, **a CAddPlayer(remove) for it and a chat command saying LOST_PLR (\"Lost Player\") + a space + the player's name** are posted. **Event 9 (this machine thrown out)**: the chat line YOUKICKED; +0x180 = 0; a `DefaultInfoDialog` whose text is **BANNED where the session's state is 9, else YOUKICKED**, with the lobby's back_button glue (+0x188, CGameSetup::OnBack) added to its button, queued on the screen; with the online link, an online message. **Event 3 (the server lost)**, only while +0x180 is 1: the chat line SERVER_LOST (\"The server was lost.\"), +0x180 = 0, and with the online link an online message - **no view change: the client stays in the lobby**. Event 8 nothing. Anything else logs `Unhandled network notification <n>`. See reversing/findings/FINDINGS-multiplayerlobby.md, section 6.",
+   "confidence": "inferred",
+   "evidence": "Brief listing 0x70C360..0x70D004 read: the compares with 5, 9, 3, 8; the strings LOST_PLR, YOUKICKED, BANNED, SERVER_LOST, DefaultInfoDialog, 'Unhandled network notification '; the CAddPlayer constructor with pushes 0, 0, id, name; `lea eax,[ebx+0x180]` (ebx the +8 pointer, so +0x188) added to the dialog button's observer list; `cmp dword ptr [ecx+0x178], 1`. What the events mean on the wire is inferred from the texts. The dialog's constructor (0x63D4B0) and which of its buttons gets the glue (0x63D980) were not read."
+  },
+  {
+   "rva": "0x30DD00",
+   "kind": "function",
+   "name": "CGameSetup::OnChatEditEnter",
+   "signature": "void __thiscall CGameSetup::OnChatEditEnter(CGameSetup* this)",
+   "no_signature": null,
+   "comment": "**`lobby_chat_edit`'s listener** (the CTextBufferObserverGlue at +0x3F0, attached by the constructor): the box's text (its layout's slot 19) with white space taken off both ends; **nothing where that is empty**; otherwise a chat command (ChatLineCommand_Construct) carrying a player message - the text and the local player's name (the record at +0x410) - for the lobby's chat buffer (+0x3BC) is posted, and the box emptied (slot 16 with an empty string). No slash commands, no length test. Bare `ret` at 0x70DF7B. That the listener's event is Enter is from FINDINGS-editbox.md (a box tells its listeners on Enter). See reversing/findings/FINDINGS-multiplayerlobby.md, section 5.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x70DD00..0x70DF7B read whole: 'lobby_chat_edit', the layout's slot 19 (+0x4C), TrimWhitespace, the compare with the empty string, `push 0x68; operator new`, 0xAC9490 (message: text, name from lea [edi+0x410]), 0xACB210 with [edi+0x3BC], the channel's slot 6, then slot 16 (+0x40) with an empty string. The handler immediate 0x70DD00 is stored at +0x3F8 by the constructor (0x704E7F) and the glue attached after 'lobby_chat_edit' (0x705E93..0x705ED3)."
+  },
+  {
+   "rva": "0x30E3D0",
+   "kind": "function",
+   "name": "CGameSetup_RestoreInitialSession",
+   "signature": "void __stdcall CGameSetup_RestoreInitialSession(CGameSetup* setup)",
+   "no_signature": null,
+   "comment": "Puts the startup session back, as CMultiplayerMenuView_RestoreInitialSession does. VA 0x70E3D0 to `ret 4` at 0x70E5A5; one caller, CGameSetup::OnBack, in multiplayer only. Where the application's session is not named `InitialSession` (session +0xBC): the channel's slot 3 with 3000, and a new Session(\"InitialSession\", \"NoAdress\", ..., 0x29A, 0x20) made the application's (the front end's slot 19). See reversing/findings/FINDINGS-multiplayerlobby.md, section 6.",
+   "confidence": "confirmed",
+   "evidence": "Brief listing read: the strings InitialSession and NoAdress, String_Equals against [session+0xBC], `push 0xBB8` before the channel's +0xC, `push 0x260; operator new`, Session::Session, the front end's +0x4C. Caller by a scan for `call 0x70E3D0`: 0x70D2E9 only."
+  },
+  {
+   "rva": "0x311500",
+   "kind": "function",
+   "name": "CGameSetup_KickPlayer",
+   "signature": "void __stdcall CGameSetup_KickPlayer(CGameSetup* setup, CHuman* player)",
+   "no_signature": null,
+   "comment": "**Throws a player out of the lobby (host).** VA 0x711500 to `ret 8` at 0x711838. In order: the channel's slot 16 with the player's id (the connection dropped, inferred); **a CAddPlayer(remove) for the player posted**; **a chat command posted whose line is PLAYER_KICKED, \"$NAME$ was kicked by the host.\"**, NAME the player's name, as a system message for the lobby's chat buffer (+0x3BC) - so every machine's chat shows it. Called by CGameSetup::OnKickButton. See reversing/findings/FINDINGS-multiplayerlobby.md, section 1.",
+   "confidence": "confirmed",
+   "evidence": "Brief listing 0x711500..0x711838: `call [channel+0x40]` with [player+0x1C]; the CAddPlayer constructor with pushes 0, 0, id, name; PLAYER_KICKED and NAME; the 0x24-byte system message (table 0x1602408) and 0xACB210 with [esi+0x3BC]; two posts through the channel's slot 6. What slot 16 does on the wire is inferred from the kicked machine's event 9."
+  },
+  {
+   "rva": "0x311840",
+   "kind": "function",
+   "name": "CGameSetup::OnKickButton",
+   "signature": "void __thiscall CGameSetup::OnKickButton(CGameSetup* this, void* button)",
+   "no_signature": null,
+   "comment": "**A players' row's `button_kick`** (the glue at +0x90, added to the button by CGameSetup::OnPlayerAdded): walks `multiplayer_list` for the row whose window's `button_kick` is the button pressed and calls CGameSetup_KickPlayer with that row's player. `ret 4` at 0x7119B5. No question is asked. See reversing/findings/FINDINGS-multiplayerlobby.md, section 1.",
+   "confidence": "confirmed",
+   "evidence": "Brief listing 0x711840..0x7119B5: multiplayer_list / multiplayer, the walk, 'button_kick' looked up in each row's +0x20, `cmp [ebp+8], eax`, `call 0x711500`. Handler immediate 0x711840 at the constructor's 0x704C4E."
+  },
+  {
+   "rva": "0x3119C0",
+   "kind": "function",
+   "name": "CGameSetup_BanPlayer",
+   "signature": "void __stdcall CGameSetup_BanPlayer(CGameSetup* setup, CHuman* player)",
+   "no_signature": null,
+   "comment": "**Bans a player (host).** VA 0x7119C0 to `ret 8` at 0x711D19. As CGameSetup_KickPlayer with one step in front - the session's ban routine (0xA8AD10) with the player's id, inferred to remember the address for this session (TIP_BAN: \"Ban player for the duration of this session\") - and the chat line **PLAYER_BANNED, \"$NAME$ was banned by the host.\"**. Called by CGameSetup::OnBanButton. See reversing/findings/FINDINGS-multiplayerlobby.md, section 1.",
+   "confidence": "confirmed",
+   "evidence": "Brief listing 0x7119C0..0x711D19: `call 0xA8AD10` with the id in ESI and the session, then the same slot 16, CAddPlayer(remove), PLAYER_BANNED / NAME, chat command and two posts as the kick. 0xA8AD10 was not read."
+  },
+  {
+   "rva": "0x311D20",
+   "kind": "function",
+   "name": "CGameSetup::OnBanButton",
+   "signature": "void __thiscall CGameSetup::OnBanButton(CGameSetup* this, void* button)",
+   "no_signature": null,
+   "comment": "**A players' row's `button_ban`** (the glue at +0xE0): finds the row whose `button_ban` was pressed and calls CGameSetup_BanPlayer with its player. `ret 4` at 0x711E95. See reversing/findings/FINDINGS-multiplayerlobby.md, section 1.",
+   "confidence": "confirmed",
+   "evidence": "Brief listing 0x711D20..0x711E95: the same walk as OnKickButton with 'button_ban' and `call 0x7119C0`. Handler immediate 0x711D20 at the constructor's 0x704C9D."
+  },
+  {
+   "rva": "0x311EA0",
+   "kind": "function",
+   "name": "CGameSetup::PostStart",
+   "signature": "void __thiscall CGameSetup::PostStart(CLobbyInterface* this)",
+   "no_signature": null,
+   "comment": "Slot 8 of CGameSetup's CLobbyInterface table (+0xC): the seed taken from the clock and the draw count zeroed, then **a CSetRandomSeed and a CLobbyStartGame posted** - the tail of CGameSetup::OnPlay without the options, the victory conditions or any test. Bare `ret` at 0x71202D. Its caller was not found (inferred the online link's start, which OnPlay leaves to a message). See reversing/findings/FINDINGS-multiplayerlobby.md, section 4.",
+   "confidence": "inferred",
+   "evidence": "Brief listing 0x711EA0..0x71202D: g_PlatformClock slot 5, g_random_draws = 0, g_random_init_seed written, the CSetRandomSeed (0x6D7AD0) and CLobbyStartGame (0x6D4B70) constructors and two posts. The name and the caller are inferred; no call of slot 8 through the interface was looked for."
+  },
+  {
+   "rva": "0x312030",
+   "kind": "function",
+   "name": "CGameSetup::OnTransferProgress",
+   "signature": "void __thiscall CGameSetup::OnTransferProgress(CLargefileHandlerInterface* this, int humanId, float percent, bool done)",
+   "no_signature": null,
+   "comment": "Slot 8 of CGameSetup's CLargefileHandlerInterface table (+0x3C): **a save transfer's progress for one player**. Finds the `multiplayer_list` row whose player's id is `humanId` and writes its `save_progress`: SAVE_PROG with VALUE = `percent` truncated, between **`§Y` while under way, `§G` once `done`**, and `§W`. Where `done`: the row's transfer (+0x78) marked complete (+0x80 = +0x7C) and, on a machine that may post (the host), the transfer's slot 10. `ret 0xC` at 0x71257C. So `save_progress` is empty until a save is chosen and then reads \"Save progress: N %\" for each player. See reversing/findings/FINDINGS-multiplayerlobby.md, section 3.",
+   "confidence": "inferred",
+   "evidence": "Brief listing 0x712030..0x71257C: the walk comparing [row+0x44] with the first argument, SAVE_PROG, VALUE, `cvttss2si` of the second argument, the strings at 0x15B5C54 (A7 59), 0x15B5C50 (A7 47) chosen on [ebp+0x10], 0x15B6700 (A7 57), 'save_progress'. Who calls it, and so whose rows a client sees move, was not read (the large-file layer); that the value is already a percentage is from its being written with no multiply."
+  },
+  {
+   "rva": "0x312580",
+   "kind": "function",
+   "name": "CGameSetup::OnTransferStarted",
+   "signature": "void __thiscall CGameSetup::OnTransferStarted(CLargefileHandlerInterface* this, void* transfer)",
+   "no_signature": null,
+   "comment": "Slot 9 of the CLargefileHandlerInterface table (+0x3C): **a save transfer arriving, on a client.** The transfer is kept at +0x6D8 and its file name (+0x94) becomes the chosen save (+0x698); the client's own `save games/` copy of that name (or `mod/<mod>/save games/`) is checksummed (ChecksumFile) into +0x6B4. **Where that equals the transfer's checksum (+0xB0)** and the session's state is not 0xB, the transfer is marked complete without the bytes (0xAD34A0) and the chat says **LOADING_LOCAL_SAVE, \"Loading local savegame copy...\"**; **otherwise TRANSERING_SAVE, \"Savegame transfer started...\"**. Then +0x6C4 (load pending) = 1. `ret 4` at 0x712BFB. The load itself is CGameSetup::Update's client arm. See reversing/findings/FINDINGS-multiplayerlobby.md, section 3.",
+   "confidence": "confirmed",
+   "evidence": "Brief listing 0x712580..0x712BFB: `mov [edi+0x69C], eax` (edi the +0x3C pointer), 'save games/', '/save games/', 'mod/', ChecksumFile into [edi+0x678], `cmp [edi+0x678], [transfer+0xB0]`, `cmp eax, 0xB`, LOADING_LOCAL_SAVE, TRANSERING_SAVE, two AddChatLine calls with `lea ecx,[edi-0x3C]`, `mov byte ptr [ecx+0x688], 1`."
+  },
+  {
+   "rva": "0x312C00",
+   "kind": "function",
+   "name": "CGameSetup::GetTransferSession",
+   "signature": "void* __thiscall CGameSetup::GetTransferSession(CLargefileHandlerInterface* this)",
+   "no_signature": null,
+   "comment": "Slot 10 of the CLargefileHandlerInterface table (+0x3C): the front end's (+4 of the lobby) slot 18, the session, by a tail jump. Three instructions at 0x712C00. See reversing/findings/FINDINGS-multiplayerlobby.md.",
+   "confidence": "confirmed",
+   "evidence": "`mov ecx,[ecx-0x38]; mov eax,[ecx]; mov edx,[eax+0x48]; jmp edx` - the whole body; +0x3C - 0x38 is the lobby's +4, the front end, and its slot 18 is the session getter every lobby routine uses."
+  },
+  {
+   "rva": "0x312C10",
+   "kind": "function",
+   "name": "CGameSetup::OnPlayerAdded",
+   "signature": "void __thiscall CGameSetup::OnPlayerAdded(CLobbyInterface* this, CHuman* player)",
+   "no_signature": null,
+   "comment": "Slot 9 of CGameSetup's CLobbyInterface table (+0xC), called by CAddPlayer::Execute on every machine: **a row for the player is added to `multiplayer_list`.** The row's window is **`multiplayer_entry_server` where this machine is not a client (mode global not 2) and the player is not its own (id not +0x42C), else `multiplayer_entry`**; on the server row `button_kick` gets the glue +0x90 (OnKickButton) and `button_ban` +0xE0 (OnBanButton). `name` = the player's name alone; `player_shield`'s slot 53 with 0 (no country); the row added to the list (slot 4 with 1) and its tooltip group set `gamesetup`. Then `num_players` = FE_NUM_PLAYERS, \"Number of Players: $NUM$\", NUM the list's row count; the chat line **PLR_CONNECT, \"Player §Y$NAME$§W joined the game.\"**; and, **on a machine that may post with a save already chosen (+0x6B8)**, a 0xF4-byte transfer of that save made for the new row (CHumanItem_SetTransfer), TRANSERING_SAVE said and +0x6C4 = 1. `ret 4` at 0x713902. See reversing/findings/FINDINGS-multiplayerlobby.md, section 1.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x712C10..0x713902 read (the row part whole, the tail in brief): `cmp dword ptr [0x1A85618], 2` and `cmp [player+0x1C], [esi+0x420]` (esi the +0xC pointer) choose the type string; `lea edx,[esi+0x84]` and `add esi, 0xD4` are the two glues; the player pointer itself is the source of the `name` assign (its name is at +0); FE_NUM_PLAYERS / NUM / _itoa of the list's +8; PLR_CONNECT / NAME; `cmp byte ptr [session+0x34]` and `cmp [edi+0x6AC]`. That slot 53 sets the shield's country is inferred (OnPlayerCountryChanged calls it with the tag and id). The online-link test in front of the transfer (0x7135F5..0x713620) was not decoded."
+  },
+  {
+   "rva": "0x313910",
+   "kind": "function",
+   "name": "CGameSetup::OnPlayerRemoved",
+   "signature": "void __thiscall CGameSetup::OnPlayerRemoved(CLobbyInterface* this, CHuman* player)",
+   "no_signature": null,
+   "comment": "Slot 10 of the CLobbyInterface table (+0xC), called by CAddPlayer::Execute's remove arm on every machine: the `multiplayer_list` row whose player's id is the leaver's is taken out of the list and deleted; the chat line **PLR_DISC, \"Player §Y$NAME$§W left the game.\"**; `num_players` written again with the new count. Nothing where no row has that id. `ret 4` at 0x713A72 and 0x7140F8. See reversing/findings/FINDINGS-multiplayerlobby.md, section 6.",
+   "confidence": "confirmed",
+   "evidence": "Brief listing 0x713910..0x7140F8: the walk comparing [row+0x44] with [player+0x1C], the list's slot 8 and the row's slot 0, PLR_DISC / NAME, FE_NUM_PLAYERS / NUM, 'num_players', AddChatLine."
+  },
+  {
+   "rva": "0x314100",
+   "kind": "function",
+   "name": "CGameSetup::OnPlayerCountryChanged",
+   "signature": "void __thiscall CGameSetup::OnPlayerCountryChanged(CLobbyInterface* this, CHuman* player)",
+   "no_signature": null,
+   "comment": "Slot 11 of the CLobbyInterface table (+0xC), called from CSetCountryControllerCommand::Execute's tail with the human whose country changed: on the `multiplayer_list` row of that player, **`player_shield` set to the country (slot 53 with tag and id), the row's CHuman copy given it, and `name` = the player's name + \" (\" + the country's name + \")\"**. **Where the player is this machine's** (id = +0x42C): every province the previously chosen country (+0x968) owns has is_selected cleared, +0x968 = the new country, every province it owns has is_selected set, and the map's colour textures are redrawn - the chosen country is lit on the map, on its player's machine only. `ret 4` at 0x71474D. See reversing/findings/FINDINGS-multiplayerlobby.md, section 2.",
+   "confidence": "confirmed",
+   "evidence": "Brief listing 0x714100..0x71474D with 0x714270..0x7143A0 whole: `cmp [row+0x44], [edi+0x1C]`, 'player_shield' and `call [edx+0xD4]` with [edi+0x20]/[edi+0x24], the stores to the row's +0x48/+0x4C, 'name', the strings at 0x15BDBE4 (' (') and 0x15B6C98 (')') around CountryNameOfTag, `cmp eax,[ecx+0x420]`, the two walks of CCountry +0xCF0 writing byte +0xC of each province 0 and 1, Map_RefreshColourTextures. This replaces the 'read only in outline' of CSetCountryControllerCommand::Execute's comment."
+  },
+  {
+   "rva": "0x2D6770",
+   "kind": "function",
+   "name": "CAddPlayer_Construct",
+   "signature": "CAddPlayer* __stdcall CAddPlayer_Construct(CAddPlayer* this, Hoi3CString* name, int id, bool add, bool flag)",
+   "no_signature": null,
+   "comment": "CAddPlayer's constructor, the object on the stack: VA 0x6D6770 to `ret 0x14` at 0x6D6828. Command type 0x18D (+4); the player's name copied to +0x3C, the id to +0x58, `add` to +0x5C and a second byte to +0x5D. **`add` 1 adds the player, 0 removes it** (CAddPlayer::Execute). The lobby's callers: add - CGameSetup_AnnounceLocalPlayer; remove - CGameSetup::OnBack (the local player), CGameSetup_KickPlayer, CGameSetup_BanPlayer and CGameSetup::OnSessionInfo's event 5. Every one of them passes 0 for the last byte. See reversing/findings/FINDINGS-multiplayerlobby.md, section 1.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0x6D6770..0x6D6828: the CCommand and CAddPlayer (0x15D3334) tables written, `mov [esi+4], 0x18D`, the assign into +0x3C from [ebp+0xC], [ebp+0x10] to +0x58, the bytes [ebp+0x14] and [ebp+0x18] to +0x5C and +0x5D. What +0x5D means was not found: Execute passes it to CHuman_ConstructNamed."
+  },
+  {
+   "rva": "0x2D6890",
+   "kind": "function",
+   "name": "CAddPlayer::Execute",
+   "signature": "void __thiscall CAddPlayer::Execute(CAddPlayer* this)",
+   "no_signature": null,
+   "comment": "CCommand slot 6 of CAddPlayer. **`add` (+0x5C) set**: a CHuman made from the name, the id and the +0x5D byte (CHuman_ConstructNamed) and appended to the state's humans (CGameState_AddHuman), then the lobby - the persistent found by the id pair the lobby's CLobbyInterface registered - has its **slot 9 (CGameSetup::OnPlayerAdded)** called with the record. **Clear**: the state's human with that id is unlinked (0x68D930), controllers_changed (+0xC0) set, and the lobby's **slot 10 (CGameSetup::OnPlayerRemoved)** called. Where no lobby object exists (in a running game) neither slot is called. Bare `ret` at 0x6D6CD0. See reversing/findings/FINDINGS-multiplayerlobby.md, section 1.",
+   "confidence": "inferred",
+   "evidence": "Brief listing 0x6D6890..0x6D6CD0: `cmp byte ptr [ecx+0x5C], bl`, CHuman_ConstructNamed, CGameState_AddHuman, FindPersistentById twice an arm, `call [edx+0x24]` in the add arm and `call [edx+0x28]` in the other, the walk of state +0x60 on +0x54 comparing +0x1C, `mov byte ptr [esi+0xC0], 1`. That the persistent is the lobby is from the slots reached, as CResetGame::Execute's record has it; which id globals are read was not decoded here."
+  },
+  {
+   "rva": "0x6CB210",
+   "kind": "function",
+   "name": "ChatLineCommand_Construct",
+   "signature": "void* __stdcall ChatLineCommand_Construct(void* this, void* message, void* chatBuffer, Hoi3CString* channel)",
+   "no_signature": null,
+   "comment": "The constructor of the 0x68-byte command that carries one chat line to every machine (table VA 0x16024F4, 15 slots, command type 0x14B; the RTTI export has no class at that table, so the name is ours). The object on the stack, `ret 0x10` at VA 0xACB351; the message object goes to +0x64, the chat buffer's persistent id pair to +0x40/+0x44. Its Execute is ChatLineCommand_Execute. The lobby posts one for a typed line (OnChatEditEnter), for PLAYER_KICKED / PLAYER_BANNED and for LOST_PLR. See reversing/findings/FINDINGS-multiplayerlobby.md, section 5.",
+   "confidence": "inferred",
+   "evidence": "Listing 0xACB210 read at its head: the CCommand table, then 0x16024F4, written to [esi]; `mov [esi+0x64], ecx`; four stack arguments read ([ebp+8..0x14]). The table's slot 6 is 0xACB500 and slot 7 returns 0x14B. The class name and the meaning of the fourth argument (an empty string at every lobby call) are not established."
+  },
+  {
+   "rva": "0x6CB500",
+   "kind": "function",
+   "name": "ChatLineCommand_Execute",
+   "signature": null,
+   "no_signature": "a virtual of a class the RTTI export does not name; ECX is the command, no stack arguments (bare ret)",
+   "comment": "Slot 6 (Execute) of the chat-line command's table (VA 0x16024F4): the chat buffer found by the id pair at +0x40/+0x44 (FindPersistentById) and, where it exists and the message (+0x64) is not null, the message handed to the buffer (0xACB070), which tells the buffer's observers - in the lobby the CChatMessageObserverGlue at +0x3E0, whose handler is CGameSetup::AddChatLine. So a chat line reaches `chatlog` on every machine only by this command; a line the lobby writes with AddChatLine directly is local. Bare `ret`s at 0xACB592, 0xACB5B0, 0xACB5C1. See reversing/findings/FINDINGS-multiplayerlobby.md, section 5.",
+   "confidence": "inferred",
+   "evidence": "Listing 0xACB500..0xACB5C1 read whole. That 0xACB070 notifies the observers was not read: it is inferred from the glue registered with the buffer by the lobby's constructor (0x705CDC, handler immediate 0x70D3E0 at 0x704E5E)."
+  },
+  {
+   "rva": "0x6C9830",
+   "kind": "function",
+   "name": "ChatPlayerMessage_GetText",
+   "signature": null,
+   "no_signature": "a virtual of a class the RTTI export does not name; ECX is the message, one stack argument (the string to fill), ret 4",
+   "comment": "Slot 8 of the player chat message's table (VA 0x160242C; a 0x40-byte object made by 0xAC9490 with the text at +8 and the sender's name at +0x24): **the line as the chat shows it - `§Y` + the name + `§!: ` + the text**, or the text alone where the name is empty. CGameSetup::AddChatLine reads a message through this slot. The system message (table 0x1602408, 0x24 bytes) answers its text alone (0xAC9360). `ret 4`. See reversing/findings/FINDINGS-multiplayerlobby.md, section 5.",
+   "confidence": "confirmed",
+   "evidence": "Listing 0xAC9830..0xAC9A11: String_Equals of +0x24 with the empty string; the strings at 0x15B5C54 (A7 59) and 0x16023D0 (A7 21 3A 20), and three operatorPlus calls in the order colour + name, + separator, + text."
+  },
+  {
+   "rva": "0x30D010",
+   "kind": "function",
+   "name": "CGameSetup::OnBack",
+   "signature": "void __thiscall CGameSetup::OnBack(CGameSetup* this)",
+   "no_signature": null,
+   "comment": "**`back_button`'s handler** (glue +0x188). Where +0x6C8 (the online link) is set, the online leave messages first. Then **a CAddPlayer(remove) for the local player record (+0x410, the session's local human id) posted** - every machine that executes it drops the player's row and says PLR_DISC; Session::PumpCommands; the lobby's observer taken off the session (slot 2) and the channel's slot 3 with 3000; the options window (+0x700) hidden; CGameSetup_PostOptionChoices (the panel's choices written to the local CHuman and, in single player or as host, a CSetGamePlayOptions posted); **in multiplayer, host and client alike (mode global not 0), CGameSetup_RestoreInitialSession** (0x70E3D0); **ResetGameStateToStartDate(true)**; +0x180 = 0; and the front end switched **to view 0** (the settings' +0x174 cleared) in a plain game, **or to view 5** where the online link is set - the old view's slot 3, the new one's slots 1 and 2, as CFrontEnd's switch does; the victory conditions window hidden. So Back throws away a loaded save or the chosen start, **and from a multiplayer lobby it lands on the main menu, not the multiplayer menu**. A host's Back closes the channel under its clients, who get CGameSetup::OnSessionInfo's event 3. Bare ret. See reversing/findings/FINDINGS-multiplayerlobby.md, section 6.",
+   "confidence": "inferred",
+   "evidence": "Brief listing 0x70D010..0x70D3D3 read again 2026-11-20: the CAddPlayer constructor with pushes 0, 0, [session+0x6C], lea [ebx+0x410] (add = 0); `cmp dword ptr [0x1A85618], edi` (edi 0) / `je` over `call 0x70E3D0`; `mov [ebx+0x180], edi`; the stores of 5 and 0 to the front end's +0x760. The online arm was not read.",
+   "revises": "The record said the CAddPlayer was 'for the local player record' without saying it is the removal (add = 0), and 'on a client (mode not 0) 0x70E3D0': the test is mode not 0, which is host and client both, and 0x70E3D0 now has a name."
+  }
+ ],
+ "structs": [
+  {
+   "name": "CHumanItem",
+   "size": "0xD0",
+   "vftable_rva": "0x11D5D40",
+   "comment": "A row of the lobby's players' list `multiplayer_list` (window `multiplayer_entry` or `multiplayer_entry_server` of temp_frontend.gui). RTTI base CStandardlistboxItem at +0, not declared here, so `inherits` is left out; second table at +0x1C. See reversing/findings/FINDINGS-multiplayerlobby.md, section 1.",
+   "evidence": "RTTI: CHumanItem, tables 0x15D5D40 (12 slots) and 0x15D5D74 at +0x1C. `push 0xD0; call operator new` before both constructor calls in CGameSetup::OnPlayerAdded (0x712D56, 0x712F19)."
+  }
+ ],
+ "struct_fields": [
+  {
+   "struct": "CHumanItem",
+   "offset": "0x20",
+   "name": "window",
+   "type": "void*",
+   "comment": "The row's window, made by the gui factory from the type name the constructor is given; `name`, `player_shield`, `save_progress`, `button_kick` and `button_ban` are looked up in it.",
+   "evidence": "CHumanItem_Construct: `call [ecx+0x2C]` result stored at +0x20; every lobby routine reads [row+0x20] before a name lookup."
+  },
+  {
+   "struct": "CHumanItem",
+   "offset": "0x28",
+   "name": "human",
+   "type": "CHuman",
+   "comment": "A copy of the player's record, by value: the row is found by its id (+0x44 of the row) and CGameSetup::OnPlayerCountryChanged writes its country (+0x48/+0x4C of the row).",
+   "evidence": "CHuman_Copy into `lea ecx,[esi+0x28]` in the constructor; `cmp [row+0x44], id` in OnPlayerRemoved, OnPlayerCountryChanged and OnTransferProgress; the stores to +0x48/+0x4C at 0x714295/0x7142A6."
+  },
+  {
+   "struct": "CHumanItem",
+   "offset": "0x78",
+   "name": "transfer",
+   "type": "void*",
+   "comment": "The save transfer to this player (a 0xF4-byte object of the large-file layer: total +0x7C, done +0x80, name +0x94, checksum +0xB0), or null. Owned: deleted by the destructor and when replaced.",
+   "evidence": "CHumanItem_SetTransfer stores ECX here after deleting the old; CGameSetup::Update's server arm calls its slots 11 and 13 through [row+0x78]; the destructor deletes it."
+  },
+  {
+   "struct": "CHumanItem",
+   "offset": "0x80",
+   "name": "shield_observer",
+   "type": "void*",
+   "comment": "A CButtonObserverGlue<CHumanItem> held by value (0x50 bytes), handler CHumanItem::OnShieldClicked; on the row's `player_shield`.",
+   "evidence": "Constructor: `lea edi,[esi+0x80]`, handler immediate 0x709B40, added to the button's list after 'player_shield'."
+  },
+  {
+   "struct": "CGameSetup",
+   "offset": "0x90",
+   "name": "kick_observer",
+   "type": "void*",
+   "comment": "A CButtonObserverGlue<CGameSetup> by value, handler CGameSetup::OnKickButton; added to `button_kick` of every `multiplayer_entry_server` row.",
+   "evidence": "OnPlayerAdded: `lea edx,[esi+0x84]` with esi the +0xC pointer, pushed to the button's observer list after 'button_kick'; the constructor makes the glue with 0x711840 first of all."
+  },
+  {
+   "struct": "CGameSetup",
+   "offset": "0xE0",
+   "name": "ban_observer",
+   "type": "void*",
+   "comment": "Glue by value, handler CGameSetup::OnBanButton; added to `button_ban` of every server row.",
+   "evidence": "OnPlayerAdded: `add esi, 0xD4` (+0xC) pushed after 'button_ban'; constructor handler 0x711D20."
+  },
+  {
+   "struct": "CGameSetup",
+   "offset": "0x180",
+   "name": "connected",
+   "type": "int",
+   "comment": "1 from CGameSetup_AnnounceLocalPlayer (the lobby entered, CONNECTED said) until Back, a kick or the server lost clears it; OnSessionInfo acts on a lost server only while it is 1.",
+   "evidence": "`mov dword ptr [ebx+0x180], 1` at 0x70849E; `mov [ebx+0x180], edi` (0) in OnBack 0x70D305; `cmp dword ptr [ecx+0x178], 1` and the two stores of 0 in OnSessionInfo, whose ECX is the lobby + 8."
+  },
+  {
+   "struct": "CGameSetup",
+   "offset": "0x3BC",
+   "name": "chat_buffer",
+   "type": "void*",
+   "comment": "The lobby's chat buffer (a 0xB8-byte persistent made by the constructor, 0xACAC30): chat-line commands name it by id, and its observers are told of each line. Its +0x4C (a short) is the row limit AddChatLine keeps `chatlog` to.",
+   "evidence": "Constructor: `push 0xB8; operator new` ... `mov [ebx+0x3BC], eax` at 0x705C92; passed to ChatLineCommand_Construct by OnChatEditEnter, KickPlayer and BanPlayer."
+  },
+  {
+   "struct": "CGameSetup",
+   "offset": "0x3E0",
+   "name": "chat_observer",
+   "type": "void*",
+   "comment": "A CChatMessageObserverGlue<CGameSetup> (table 0x15D5C50), handler CGameSetup::AddChatLine, registered with the chat buffer: how a posted chat line reaches `chatlog`.",
+   "evidence": "Constructor 0x704E5E..0x704E79: table 0x15D5C50, owner, handler immediate 0x70D3E0; `lea eax,[ebx+0x3E0]` before 0x6792C0 with the buffer in ECX (0x705CD2)."
+  },
+  {
+   "struct": "CGameSetup",
+   "offset": "0x3F0",
+   "name": "chat_edit_observer",
+   "type": "void*",
+   "comment": "A CTextBufferObserverGlue<CGameSetup> (table 0x15D5C3C), handler CGameSetup::OnChatEditEnter; on `lobby_chat_edit`.",
+   "evidence": "Constructor 0x704E7F..0x704E9A: handler immediate 0x70DD00, table 0x15D5C3C; `lea eax,[ebx+0x3F0]` added after 'lobby_chat_edit' (0x705EC9)."
+  },
+  {
+   "struct": "CGameSetup",
+   "offset": "0x6B8",
+   "name": "save_data",
+   "type": "void*",
+   "comment": "The chosen save's bytes: on the host the file as read by BeginSaveTransfer (what a late joiner is sent), on a client the received buffer the load parses. Freed and nulled by BuildBookmarkLists and after a client's load.",
+   "evidence": "OnPlayerAdded tests [edi+0x6AC] (+0xC) before making a transfer; Update's client arm stores the transfer's slot 12 result here (0x70B891) and logs 'Received '; BuildBookmarkLists frees it."
+  },
+  {
+   "struct": "CGameSetup",
+   "offset": "0x6C8",
+   "name": "online_link",
+   "type": "void*",
+   "comment": "The application's +0x130 copied by Prepare: null in a LAN or direct game. Where set, Play, Back and the session events send online messages and Back returns to view 5. Not read further.",
+   "evidence": "Prepare 0x707663: `mov eax,[app+0x130]; mov [ebx+0x6C8], eax`; tested by OnPlay, OnBack, OnSessionInfo."
+  },
+  {
+   "struct": "CGameSetup",
+   "offset": "0x6D8",
+   "name": "incoming_transfer",
+   "type": "void*",
+   "comment": "A client's save transfer under way, set by CGameSetup::OnTransferStarted and deleted once Update's client arm has loaded the save.",
+   "evidence": "`mov [edi+0x69C], eax` in OnTransferStarted (edi the +0x3C pointer); Update's 0x70B50D..0x70BE0C reads its slots 11, 12, 13 and deletes it."
+  },
+  {
+   "struct": "CGameSetup",
+   "offset": "0x968",
+   "name": "lit_country",
+   "type": "CCountryTag",
+   "comment": "The local player's chosen country as the map last lit it (tag, id at +0x96C): OnPlayerCountryChanged clears is_selected on its provinces before lighting the new one's, and CGameSetup_StartGame clears them at launch.",
+   "evidence": "OnPlayerCountryChanged: [ecx+0x95C]/[ecx+0x960] with ECX the +0xC pointer read then written; StartGame `lea ecx,[esi+0x968]` before CCountryTag::GetCountry and the walk writing province byte +0xC = 0."
+  },
+  {
+   "struct": "CHuman",
+   "offset": "0x0",
+   "name": "name",
+   "type": "Hoi3CString",
+   "comment": "The player's name, as typed in the multiplayer menu's `playername`: what a players' row's `name` shows and what a chat line is signed with.",
+   "evidence": "CGameSetup::OnPlayerAdded assigns the `name` text box from the CHuman pointer itself; the lobby passes `lea [setup+0x410]` (its local record) as CAddPlayer's name string; FINDINGS-multiplayermenu.md compares 'the string at its +0'. The id follows at +0x1C, the size of the string."
+  },
+  {
+   "struct": "Session",
+   "offset": "0x6C",
+   "name": "local_human_id",
+   "type": "int",
+   "comment": "This machine's human id in the session: the id the lobby announces its player with and CSetCountryController is posted for.",
+   "evidence": "`mov eax,[session+0x6C]` pushed as CAddPlayer's id in CGameSetup_AnnounceLocalPlayer (0x70820A) and OnBack (0x70D1D8), and as the human in OnProvinceClicked (0x70C1BA)."
+  }
+ ],
+ "vftable_slots": {
+  "CGameSetup@0x8": {
+   "1": {
+    "name": "OnSessionInfo",
+    "signature": "void __thiscall OnSessionInfo(CSessionInfoObserver* this, int event)"
+   }
+  },
+  "CGameSetup@0xC": {
+   "8": {
+    "name": "PostStart",
+    "signature": "void __thiscall PostStart(CLobbyInterface* this)"
+   },
+   "9": {
+    "name": "OnPlayerAdded",
+    "signature": "void __thiscall OnPlayerAdded(CLobbyInterface* this, CHuman* player)"
+   },
+   "10": {
+    "name": "OnPlayerRemoved",
+    "signature": "void __thiscall OnPlayerRemoved(CLobbyInterface* this, CHuman* player)"
+   },
+   "11": {
+    "name": "OnPlayerCountryChanged",
+    "signature": "void __thiscall OnPlayerCountryChanged(CLobbyInterface* this, CHuman* player)"
+   }
+  },
+  "CGameSetup@0x3C": {
+   "8": {
+    "name": "OnTransferProgress",
+    "signature": "void __thiscall OnTransferProgress(CLargefileHandlerInterface* this, int humanId, float percent, bool done)"
+   },
+   "9": {
+    "name": "OnTransferStarted",
+    "signature": "void __thiscall OnTransferStarted(CLargefileHandlerInterface* this, void* transfer)"
+   },
+   "10": {
+    "name": "GetTransferSession",
+    "signature": "void* __thiscall GetTransferSession(CLargefileHandlerInterface* this)"
+   }
+  },
+  "CAddPlayer": {
+   "6": {
+    "name": "Execute",
+    "signature": "void __thiscall Execute(CAddPlayer* this)"
+   }
+  }
+ },
+ "frontier": [
+  "0x6CAC30",
+  "0x6CB070",
+  "0x6C9490",
+  "0x6D35C0",
+  "0x6D34A0",
+  "0x68AC50",
+  "0x68AD10",
+  "0x285E10",
+  "0x28D930",
+  "0x3191C0",
+  "0x23D4B0",
+  "0x23D980",
+  "0x6E19C0",
+  "0x2D6030"
+ ],
+ "slots_noted": "CHumanItem's slot 0 (0x709C60, the scalar deleting destructor) and the thunks at slot 0 of CGameSetup's four secondary tables are left unrecorded. Slots 12 and 13 of the CLobbyInterface table are CGameSetup::RevertToStartDate and RefreshOptionsWindow, already recorded as functions; their slot records are left to whoever owns those entries. The chat-line command (table 0x16024F4) and the two chat message classes (0x1602408, 0x160242C) have no class in the RTTI export, so their functions carry no class and no slot record. The session channel's slots (3, 6, 16) and the large-file transfer's (10, 11, 12, 13) belong to the network layer, which was not wanted."
+}
