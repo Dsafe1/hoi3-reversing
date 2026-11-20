@@ -914,7 +914,7 @@ One class per effect, trigger, command and decision the event scripts can use. E
 | `CDecreaseGameSpeedCommand` | `CCommand` |  |  | 1/3 |  |  | 1 | RTTI |  |
 | `CDeployUnitCommand` | `CCommand` |  |  | 2/4 | 4 |  | 1 | placed |  |
 | `CDetachUnitCommand` | `CCommand` |  |  | 1/1 | 2 |  | 1 | RTTI |  |
-| `CDiplomaticActionCommand` | `CCommand` |  |  |  | 3 |  | 6 | keys |  |
+| `CDiplomaticActionCommand` | `CCommand` |  |  |  | 4 |  | 6 | keys |  |
 | `CDiplomaticEffect` | `CEffect` |  | 1 |  |  |  |  | part |  |
 | `CDisbandCommand` | `CCommand` |  |  | 1/1 | 3 |  | 1 | placed |  |
 | `CDisbandRegimentCommand` | `CCommand` |  |  | 1/1 | 1 |  | 1 | RTTI |  |

@@ -22695,9 +22695,9 @@
    "name": "CEU3AI::PostAction",
    "signature": "void __thiscall CEU3AI::PostAction(CEU3AI* this, CDiplomaticAction* action)",
    "no_signature": null,
-   "comment": "**The one route from a script to a diplomatic action, and it has no gate of its own.** Already named by the Lua half (`void PostAction(CEU3AI&, CDiplomaticAction&)`) and already mentioned in `CAIForeignMinister::DoWork`'s comment as \"handing it to 0x89A750 with the OwnerAI\"; this adds the body. 0x49A750 to the `ret 4` at 0x49A788, `this` in ECX and the action on the stack.\n\nFour steps, every one of them a virtual call:\n\n    ecx = this + 0x20; call 0x2610      ; a shared accessor thunk -> the CCountry\n    esi = country->+0xF1C               ; the network/session manager\n    edi = action->slot 6                ; CDiplomaticAction::MakeCommand (0x60E890)\n    eax = manager->slot 18              ; the session\n    (session->+0x38)->slot 6 (edi)      ; the channel's Post\n\nSo it is **exactly** what the hourly AI pass at 0x682BC2 does with the result of `MakeCommand` - the same two slots in the same order - and it does **not** go through `CCountry::AddPendingDiplomaticAction` (0xE61C0). The command is posted straight onto the session channel, drained by the pump, and `CDiplomaticActionCommand::Execute` (0x60E120) runs it; that function's slot 13 `IsValid` test is therefore the only thing between a script and the action's own slot 7. `country+0xF1C` and `session+0x38` are the pair `CDiplomaticAction::MakeCommand`'s entry already names.",
+   "comment": "**The one route from a script to a diplomatic action. It has no gate of its own, but the channel it posts to has one.** Already named by the Lua half (`void PostAction(CEU3AI&, CDiplomaticAction&)`) and already mentioned in `CAIForeignMinister::DoWork`'s comment as \"handing it to 0x89A750 with the OwnerAI\"; this adds the body. 0x49A750 to the `ret 4` at 0x49A788, `this` in ECX and the action on the stack.\n\nFour steps, every one of them a virtual call:\n\n    ecx = this + 0x20; call 0x2610      ; a shared accessor thunk -> the CCountry\n    esi = country->+0xF1C               ; the network/session manager\n    edi = action->slot 6                ; CDiplomaticAction::MakeCommand (0x60E890)\n    eax = manager->slot 18              ; the session\n    (session->+0x38)->slot 6 (edi)      ; the channel's Post\n\nSo it is **exactly** what the hourly AI pass at 0x682BC2 does with the result of `MakeCommand` - the same two slots in the same order - and it does **not** go through `CCountry::AddPendingDiplomaticAction` (0xE61C0). The command is posted straight onto the session channel, drained by the pump, and `CDiplomaticActionCommand::Execute` (0x60E120) runs it. `country+0xF1C` and `session+0x38` are the pair `CDiplomaticAction::MakeCommand`'s entry already names.\n\n**Corrected 2026-11-20: Execute's slot 13 is not the only test.** LoopbackCommandChannel::Post first asks the command's slot 14, CDiplomaticActionCommand::IsValid (0x60E3F0), and deletes a command that fails it: the action's IsValid, and for a proposal whose slot 21 holds, no diplomat of the actor's on his way to the recipient. Lua's `IsSelectable` reaches only the action's slot 14, so a script can post a call to arms that its own test passes and the post then throws away (FINDINGS-liveread.md, section 151).",
    "confidence": "confirmed",
-   "source": "reversing/findings/FINDINGS-diploaction.md"
+   "source": "reversing/findings/FINDINGS-liveread.md"
   },
   {
    "rva": "0x639260",
@@ -78808,6 +78808,16 @@
    "comment": "**The `iconType` grammar of a .gui file**, slot 4 of GuiType_iconType (0x12021B0). `ret 8`. Seven keys of its own, the rest to CGuiType::LoadKey (0xAC8710): **`spriteType` (0x35) and `buttonMesh` (0xA9) share one case body - ParseString into +0x6C** - so `buttonMesh` is a second spelling of `spriteType` and the later of the two in a block wins; `position` (0x4B) +0x94 through ParseIntPairXY, setting the byte +0x9C to 1; `3dposition` (0xAC) +0x88 through ParseVector3, setting +0x9C to 0; `scale` (0x5C) +0xA0 through ParseFloat; `orientation` (0xBF) +0xA4 as ParseGuiOrientation of the text; `frame` (0x123) +0xA8 by sscanf `%i`; `rotation` (0x17E) +0xAC by sscanf `%f`. An iconType has no `parent`: the token falls to CGuiType::LoadKey and slot 7 is the folded `ret 4` (0x20CD50). The name is ours. See reversing/findings/FINDINGS-guikeys.md, section 4.",
    "confidence": "confirmed",
    "source": "reversing/findings/FINDINGS-guikeys.md"
+  },
+  {
+   "rva": "0x60E3F0",
+   "kind": "function",
+   "name": "CDiplomaticActionCommand::IsValid",
+   "signature": "bool __thiscall CDiplomaticActionCommand::IsValid(CDiplomaticActionCommand* this)",
+   "no_signature": null,
+   "comment": "**Slot 14 of CDiplomaticActionCommand, the command test LoopbackCommandChannel::Post asks before it takes a command - false and the command is deleted unposted.** False where the held action (+0x3C) is null, or its slot 13 (IsValid) is false; then, **for a PROPOSE (action +0x18 == 0) whose slot 21 is true, false while CCountry::HasDiplomatEnroute(actor, recipient)** (0xA0E44A); otherwise true. 0xA0E3F0 to the `ret` at 0xA0E459/0xA0E460. Slot 21 is ReturnTrue in every action class but three: CTradeAction and CSendExpeditionaryForceAction answer `value` (ReturnByteAt24), COfferLendLeaseAction answers COfferLendLeaseAction::GreyedWhileDiplomatEnroute. So **a proposal is thrown away at its post while a diplomat the actor sent to the recipient is on his way** (CDiplomacyStatus +0x50 not yet passed, inclusive) - **a call to arms among them**, which CDiplomaticActionCommand::Execute never stamps itself, and a guarantee, an influence or a trade offer, whose IsSelectable asks no diplomat. An answer (type 1 or 2) is never stopped. The test is made at the post, so two proposals to one country posted in one AI pass both pass it, though the first one's Execute stamps the diplomat. FINDINGS-liveread.md, section 151.",
+   "confidence": "confirmed",
+   "source": "reversing/findings/FINDINGS-liveread.md"
   }
  ],
  "structs": [
@@ -127081,6 +127091,7 @@
    "6": "CDiplomaticAction::MakeCommand"
   },
   "CDiplomaticActionCommand": {
+   "14": "CDiplomaticActionCommand::IsValid",
    "0": "CDiplomaticActionCommand::~CDiplomaticActionCommand",
    "4": "CDiplomaticActionCommand::LoadKey",
    "6": "CDiplomaticActionCommand::Execute"
@@ -127302,6 +127313,7 @@
    "6": "Execute"
   },
   "CCommand": {
+   "14": {"name": "IsValid", "signature": "bool __thiscall IsValid(CCommand* this)"},
    "6": {
     "name": "Execute",
     "signature": "void __thiscall Execute(CCommand* this)"

@@ -42,6 +42,8 @@ In an ordinary game the clear at `0x682B1D` runs instead, and offers are answere
 
 So an offer to an AI is answered in the first AI pass after `CDiplomaticActionCommand::Execute` queues it, within the hour. ProcessAI's own gates still apply: CEU3AI `+0x128`, `theatres_dirty` (`+0x580`), and "no provinces and not a government in exile".
 
+**An offer can be lost before it is queued** (added 2026-11-20). The channel's post asks the command's slot 14, `CDiplomaticActionCommand::IsValid` (rva `0x60E3F0`), and deletes a command that fails it: the action's IsValid, and for a proposal whose slot 21 holds - every kind but a trade or an expedition with `value` clear and stopping lend-lease that is being given - no diplomat of the actor's on his way to the recipient. So a guarantee, an influence, a trade offer or a call to arms, whose own IsSelectable asks no diplomat, is still thrown away while an earlier offer's diplomat travels. `FINDINGS-liveread.md`, section 151.
+
 **What it does.** It walks the country's `+0xF24` list in arrival order. For each action:
 1. If slot 18 is false, or `type != 0`, skip it. It gets no answer and is deleted at the end.
 2. `score = GetAIAcceptance()` (slot 17, the mod's Lua).

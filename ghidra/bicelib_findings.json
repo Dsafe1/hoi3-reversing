@@ -187806,7 +187806,7 @@
    "namespace": "CEU3AI",
    "name": "PostAction",
    "confidence": "CERTAIN",
-   "evidence": "Lua: CAI:PostAction   (script/LUA API.txt, CEU3AI::PostAction)\nRegistered as: luabind::detail::memfun_registration<CEU3AI,void (__thiscall CEU3AI::*)(CDiplomaticAction &),luabind::detail::null_type>\nluabind signature: void PostAction(CEU3AI&,CDiplomaticAction&)\nRecovered by emulating SetupAI (0x8EAE30): the registration object luabind builds for this def holds this address.\n\n**The one route from a script to a diplomatic action, and it has no gate of its own.** Already named by the Lua half (`void PostAction(CEU3AI&, CDiplomaticAction&)`) and already mentioned in `CAIForeignMinister::DoWork`'s comment as \"handing it to 0x89A750 with the OwnerAI\"; this adds the body. 0x49A750 to the `ret 4` at 0x49A788, `this` in ECX and the action on the stack.\n\nFour steps, every one of them a virtual call:\n\n    ecx = this + 0x20; call 0x2610      ; a shared accessor thunk -> the CCountry\n    esi = country->+0xF1C               ; the network/session manager\n    edi = action->slot 6                ; CDiplomaticAction::MakeCommand (0x60E890)\n    eax = manager->slot 18              ; the session\n    (session->+0x38)->slot 6 (edi)      ; the channel's Post\n\nSo it is **exactly** what the hourly AI pass at 0x682BC2 does with the result of `MakeCommand` - the same two slots in the same order - and it does **not** go through `CCountry::AddPendingDiplomaticAction` (0xE61C0). The command is posted straight onto the session channel, drained by the pump, and `CDiplomaticActionCommand::Execute` (0x60E120) runs it; that function's slot 13 `IsValid` test is therefore the only thing between a script and the action's own slot 7. `country+0xF1C` and `session+0x38` are the pair `CDiplomaticAction::MakeCommand`'s entry already names.\n(reversing/findings/FINDINGS-diploaction.md)",
+   "evidence": "Lua: CAI:PostAction   (script/LUA API.txt, CEU3AI::PostAction)\nRegistered as: luabind::detail::memfun_registration<CEU3AI,void (__thiscall CEU3AI::*)(CDiplomaticAction &),luabind::detail::null_type>\nluabind signature: void PostAction(CEU3AI&,CDiplomaticAction&)\nRecovered by emulating SetupAI (0x8EAE30): the registration object luabind builds for this def holds this address.\n\n**The one route from a script to a diplomatic action. It has no gate of its own, but the channel it posts to has one.** Already named by the Lua half (`void PostAction(CEU3AI&, CDiplomaticAction&)`) and already mentioned in `CAIForeignMinister::DoWork`'s comment as \"handing it to 0x89A750 with the OwnerAI\"; this adds the body. 0x49A750 to the `ret 4` at 0x49A788, `this` in ECX and the action on the stack.\n\nFour steps, every one of them a virtual call:\n\n    ecx = this + 0x20; call 0x2610      ; a shared accessor thunk -> the CCountry\n    esi = country->+0xF1C               ; the network/session manager\n    edi = action->slot 6                ; CDiplomaticAction::MakeCommand (0x60E890)\n    eax = manager->slot 18              ; the session\n    (session->+0x38)->slot 6 (edi)      ; the channel's Post\n\nSo it is **exactly** what the hourly AI pass at 0x682BC2 does with the result of `MakeCommand` - the same two slots in the same order - and it does **not** go through `CCountry::AddPendingDiplomaticAction` (0xE61C0). The command is posted straight onto the session channel, drained by the pump, and `CDiplomaticActionCommand::Execute` (0x60E120) runs it. `country+0xF1C` and `session+0x38` are the pair `CDiplomaticAction::MakeCommand`'s entry already names.\n\n**Corrected 2026-11-20: Execute's slot 13 is not the only test.** LoopbackCommandChannel::Post first asks the command's slot 14, CDiplomaticActionCommand::IsValid (0x60E3F0), and deletes a command that fails it: the action's IsValid, and for a proposal whose slot 21 holds, no diplomat of the actor's on his way to the recipient. Lua's `IsSelectable` reaches only the action's slot 14, so a script can post a call to arms that its own test passes and the post then throws away (FINDINGS-liveread.md, section 151).\n(reversing/findings/FINDINGS-liveread.md)",
    "signature": {
     "convention": "__thiscall",
     "return": "void",
@@ -218720,6 +218720,25 @@
      {
       "name": "key",
       "type": "SaveToken"
+     }
+    ]
+   },
+   "labels": []
+  },
+  {
+   "rva": 6349808,
+   "namespace": "CDiplomaticActionCommand",
+   "name": "IsValid",
+   "confidence": "CERTAIN",
+   "evidence": "**Slot 14 of CDiplomaticActionCommand, the command test LoopbackCommandChannel::Post asks before it takes a command - false and the command is deleted unposted.** False where the held action (+0x3C) is null, or its slot 13 (IsValid) is false; then, **for a PROPOSE (action +0x18 == 0) whose slot 21 is true, false while CCountry::HasDiplomatEnroute(actor, recipient)** (0xA0E44A); otherwise true. 0xA0E3F0 to the `ret` at 0xA0E459/0xA0E460. Slot 21 is ReturnTrue in every action class but three: CTradeAction and CSendExpeditionaryForceAction answer `value` (ReturnByteAt24), COfferLendLeaseAction answers COfferLendLeaseAction::GreyedWhileDiplomatEnroute. So **a proposal is thrown away at its post while a diplomat the actor sent to the recipient is on his way** (CDiplomacyStatus +0x50 not yet passed, inclusive) - **a call to arms among them**, which CDiplomaticActionCommand::Execute never stamps itself, and a guarantee, an influence or a trade offer, whose IsSelectable asks no diplomat. An answer (type 1 or 2) is never stopped. The test is made at the post, so two proposals to one country posted in one AI pass both pass it, though the first one's Execute stamps the diplomat. FINDINGS-liveread.md, section 151.\n(reversing/findings/FINDINGS-liveread.md)",
+   "signature": {
+    "convention": "__thiscall",
+    "return": "bool",
+    "hiddenReturn": false,
+    "params": [
+     {
+      "name": "this",
+      "type": "CDiplomaticActionCommand*"
      }
     ]
    },
@@ -269245,11 +269264,22 @@
     {
      "slot": 14,
      "rva": 6890896,
-     "name": "vf_14",
-     "named": false,
+     "name": "IsValid",
+     "named": true,
      "typed": false,
      "own": false,
-     "comment": "slot 14, 00A92590 - a body shared with ReturnTrue, so not named here"
+     "comment": "slot 14, 00A92590 - CCommand's slot, named by BiceLib, typed from the findings",
+     "signature": {
+      "convention": "__thiscall",
+      "return": "bool",
+      "hiddenReturn": false,
+      "params": [
+       {
+        "name": "this",
+        "type": "CCommand*"
+       }
+      ]
+     }
     }
    ]
   },
@@ -273808,11 +273838,22 @@
     {
      "slot": 14,
      "rva": 6341584,
-     "name": "vf_14",
-     "named": false,
+     "name": "IsValid",
+     "named": true,
      "typed": false,
      "own": false,
-     "comment": "slot 14, 00A0C3D0 - a body shared with CommandRefAt3C_IsValid, so not named here"
+     "comment": "slot 14, 00A0C3D0 - CCommand's slot, named by BiceLib, typed from the findings",
+     "signature": {
+      "convention": "__thiscall",
+      "return": "bool",
+      "hiddenReturn": false,
+      "params": [
+       {
+        "name": "this",
+        "type": "CCommand*"
+       }
+      ]
+     }
     }
    ]
   },
@@ -274123,11 +274164,22 @@
     {
      "slot": 14,
      "rva": 6890896,
-     "name": "vf_14",
-     "named": false,
+     "name": "IsValid",
+     "named": true,
      "typed": false,
      "own": false,
-     "comment": "slot 14, 00A92590 - a body shared with ReturnTrue, so not named here"
+     "comment": "slot 14, 00A92590 - CCommand's slot, named by BiceLib, typed from the findings",
+     "signature": {
+      "convention": "__thiscall",
+      "return": "bool",
+      "hiddenReturn": false,
+      "params": [
+       {
+        "name": "this",
+        "type": "CCommand*"
+       }
+      ]
+     }
     }
    ]
   },
@@ -275431,11 +275483,22 @@
     {
      "slot": 14,
      "rva": 173504,
-     "name": "vf_14",
-     "named": false,
+     "name": "IsValid",
+     "named": true,
      "typed": false,
      "own": true,
-     "comment": "slot 14, 0042A5C0"
+     "comment": "slot 14, 0042A5C0 - CCommand's slot, named by BiceLib, typed from the findings",
+     "signature": {
+      "convention": "__thiscall",
+      "return": "bool",
+      "hiddenReturn": false,
+      "params": [
+       {
+        "name": "this",
+        "type": "CCommand*"
+       }
+      ]
+     }
     }
    ]
   },
@@ -275991,11 +276054,22 @@
     {
      "slot": 14,
      "rva": 6890896,
-     "name": "vf_14",
-     "named": false,
+     "name": "IsValid",
+     "named": true,
      "typed": false,
      "own": false,
-     "comment": "slot 14, 00A92590 - a body shared with ReturnTrue, so not named here"
+     "comment": "slot 14, 00A92590 - CCommand's slot, named by BiceLib, typed from the findings",
+     "signature": {
+      "convention": "__thiscall",
+      "return": "bool",
+      "hiddenReturn": false,
+      "params": [
+       {
+        "name": "this",
+        "type": "CCommand*"
+       }
+      ]
+     }
     }
    ]
   },
@@ -276333,11 +276407,22 @@
     {
      "slot": 14,
      "rva": 6890896,
-     "name": "vf_14",
-     "named": false,
+     "name": "IsValid",
+     "named": true,
      "typed": false,
      "own": false,
-     "comment": "slot 14, 00A92590 - a body shared with ReturnTrue, so not named here"
+     "comment": "slot 14, 00A92590 - CCommand's slot, named by BiceLib, typed from the findings",
+     "signature": {
+      "convention": "__thiscall",
+      "return": "bool",
+      "hiddenReturn": false,
+      "params": [
+       {
+        "name": "this",
+        "type": "CCommand*"
+       }
+      ]
+     }
     }
    ]
   },
@@ -276487,11 +276572,22 @@
     {
      "slot": 14,
      "rva": 1399456,
-     "name": "vf_14",
-     "named": false,
+     "name": "IsValid",
+     "named": true,
      "typed": false,
      "own": true,
-     "comment": "slot 14, 00555AA0"
+     "comment": "slot 14, 00555AA0 - CCommand's slot, named by BiceLib, typed from the findings",
+     "signature": {
+      "convention": "__thiscall",
+      "return": "bool",
+      "hiddenReturn": false,
+      "params": [
+       {
+        "name": "this",
+        "type": "CCommand*"
+       }
+      ]
+     }
     }
    ]
   },
@@ -276795,11 +276891,22 @@
     {
      "slot": 14,
      "rva": 6890896,
-     "name": "vf_14",
-     "named": false,
+     "name": "IsValid",
+     "named": true,
      "typed": false,
      "own": false,
-     "comment": "slot 14, 00A92590 - a body shared with ReturnTrue, so not named here"
+     "comment": "slot 14, 00A92590 - CCommand's slot, named by BiceLib, typed from the findings",
+     "signature": {
+      "convention": "__thiscall",
+      "return": "bool",
+      "hiddenReturn": false,
+      "params": [
+       {
+        "name": "this",
+        "type": "CCommand*"
+       }
+      ]
+     }
     }
    ]
   },
@@ -276949,11 +277056,22 @@
     {
      "slot": 14,
      "rva": 6890896,
-     "name": "vf_14",
-     "named": false,
+     "name": "IsValid",
+     "named": true,
      "typed": false,
      "own": false,
-     "comment": "slot 14, 00A92590 - a body shared with ReturnTrue, so not named here"
+     "comment": "slot 14, 00A92590 - CCommand's slot, named by BiceLib, typed from the findings",
+     "signature": {
+      "convention": "__thiscall",
+      "return": "bool",
+      "hiddenReturn": false,
+      "params": [
+       {
+        "name": "this",
+        "type": "CCommand*"
+       }
+      ]
+     }
     }
    ]
   },
@@ -277103,11 +277221,22 @@
     {
      "slot": 14,
      "rva": 6341584,
-     "name": "vf_14",
-     "named": false,
+     "name": "IsValid",
+     "named": true,
      "typed": false,
      "own": false,
-     "comment": "slot 14, 00A0C3D0 - a body shared with CommandRefAt3C_IsValid, so not named here"
+     "comment": "slot 14, 00A0C3D0 - CCommand's slot, named by BiceLib, typed from the findings",
+     "signature": {
+      "convention": "__thiscall",
+      "return": "bool",
+      "hiddenReturn": false,
+      "params": [
+       {
+        "name": "this",
+        "type": "CCommand*"
+       }
+      ]
+     }
     }
    ]
   },
@@ -277257,11 +277386,22 @@
     {
      "slot": 14,
      "rva": 1412384,
-     "name": "vf_14",
-     "named": false,
+     "name": "IsValid",
+     "named": true,
      "typed": false,
      "own": false,
-     "comment": "slot 14, 00558D20 - a body shared with CountryPairCommand_IsValid, so not named here"
+     "comment": "slot 14, 00558D20 - CCommand's slot, named by BiceLib, typed from the findings",
+     "signature": {
+      "convention": "__thiscall",
+      "return": "bool",
+      "hiddenReturn": false,
+      "params": [
+       {
+        "name": "this",
+        "type": "CCommand*"
+       }
+      ]
+     }
     }
    ]
   },
@@ -277411,11 +277551,22 @@
     {
      "slot": 14,
      "rva": 1412384,
-     "name": "vf_14",
-     "named": false,
+     "name": "IsValid",
+     "named": true,
      "typed": false,
      "own": false,
-     "comment": "slot 14, 00558D20 - a body shared with CountryPairCommand_IsValid, so not named here"
+     "comment": "slot 14, 00558D20 - CCommand's slot, named by BiceLib, typed from the findings",
+     "signature": {
+      "convention": "__thiscall",
+      "return": "bool",
+      "hiddenReturn": false,
+      "params": [
+       {
+        "name": "this",
+        "type": "CCommand*"
+       }
+      ]
+     }
     }
    ]
   },
@@ -277753,11 +277904,22 @@
     {
      "slot": 14,
      "rva": 48720,
-     "name": "vf_14",
-     "named": false,
+     "name": "IsValid",
+     "named": true,
      "typed": false,
      "own": false,
-     "comment": "slot 14, 0040BE50 - a body shared with CBattlePlanSendCommand::IsValid, so not named here"
+     "comment": "slot 14, 0040BE50 - CCommand's slot, named by BiceLib, typed from the findings",
+     "signature": {
+      "convention": "__thiscall",
+      "return": "bool",
+      "hiddenReturn": false,
+      "params": [
+       {
+        "name": "this",
+        "type": "CCommand*"
+       }
+      ]
+     }
     }
    ]
   },
@@ -280527,11 +280689,22 @@
     {
      "slot": 14,
      "rva": 7954901,
-     "name": "vf_14",
-     "named": false,
+     "name": "IsValid",
+     "named": true,
      "typed": false,
      "own": false,
-     "comment": "slot 14, 00B961D5 - a body shared with _purecall, so not named here"
+     "comment": "slot 14, 00B961D5 - named by BiceLib, typed from the findings",
+     "signature": {
+      "convention": "__thiscall",
+      "return": "bool",
+      "hiddenReturn": false,
+      "params": [
+       {
+        "name": "this",
+        "type": "CCommand*"
+       }
+      ]
+     }
     }
    ]
   },
@@ -282079,11 +282252,22 @@
     {
      "slot": 14,
      "rva": 6890896,
-     "name": "vf_14",
-     "named": false,
+     "name": "IsValid",
+     "named": true,
      "typed": false,
      "own": false,
-     "comment": "slot 14, 00A92590 - a body shared with ReturnTrue, so not named here"
+     "comment": "slot 14, 00A92590 - CCommand's slot, named by BiceLib, typed from the findings",
+     "signature": {
+      "convention": "__thiscall",
+      "return": "bool",
+      "hiddenReturn": false,
+      "params": [
+       {
+        "name": "this",
+        "type": "CCommand*"
+       }
+      ]
+     }
     }
    ]
   },
@@ -282233,11 +282417,22 @@
     {
      "slot": 14,
      "rva": 6890896,
-     "name": "vf_14",
-     "named": false,
+     "name": "IsValid",
+     "named": true,
      "typed": false,
      "own": false,
-     "comment": "slot 14, 00A92590 - a body shared with ReturnTrue, so not named here"
+     "comment": "slot 14, 00A92590 - CCommand's slot, named by BiceLib, typed from the findings",
+     "signature": {
+      "convention": "__thiscall",
+      "return": "bool",
+      "hiddenReturn": false,
+      "params": [
+       {
+        "name": "this",
+        "type": "CCommand*"
+       }
+      ]
+     }
     }
    ]
   },
@@ -288886,11 +289081,22 @@
     {
      "slot": 14,
      "rva": 6890896,
-     "name": "vf_14",
-     "named": false,
+     "name": "IsValid",
+     "named": true,
      "typed": false,
      "own": false,
-     "comment": "slot 14, 00A92590 - a body shared with ReturnTrue, so not named here"
+     "comment": "slot 14, 00A92590 - CCommand's slot, named by BiceLib, typed from the findings",
+     "signature": {
+      "convention": "__thiscall",
+      "return": "bool",
+      "hiddenReturn": false,
+      "params": [
+       {
+        "name": "this",
+        "type": "CCommand*"
+       }
+      ]
+     }
     }
    ]
   },
@@ -289421,11 +289627,22 @@
     {
      "slot": 14,
      "rva": 6890896,
-     "name": "vf_14",
-     "named": false,
+     "name": "IsValid",
+     "named": true,
      "typed": false,
      "own": false,
-     "comment": "slot 14, 00A92590 - a body shared with ReturnTrue, so not named here"
+     "comment": "slot 14, 00A92590 - CCommand's slot, named by BiceLib, typed from the findings",
+     "signature": {
+      "convention": "__thiscall",
+      "return": "bool",
+      "hiddenReturn": false,
+      "params": [
+       {
+        "name": "this",
+        "type": "CCommand*"
+       }
+      ]
+     }
     }
    ]
   },
@@ -310606,11 +310823,22 @@
     {
      "slot": 14,
      "rva": 6890896,
-     "name": "vf_14",
-     "named": false,
+     "name": "IsValid",
+     "named": true,
      "typed": false,
      "own": false,
-     "comment": "slot 14, 00A92590 - a body shared with ReturnTrue, so not named here"
+     "comment": "slot 14, 00A92590 - CCommand's slot, named by BiceLib, typed from the findings",
+     "signature": {
+      "convention": "__thiscall",
+      "return": "bool",
+      "hiddenReturn": false,
+      "params": [
+       {
+        "name": "this",
+        "type": "CCommand*"
+       }
+      ]
+     }
     }
    ]
   },
@@ -326830,11 +327058,22 @@
     {
      "slot": 14,
      "rva": 1938560,
-     "name": "vf_14",
-     "named": false,
+     "name": "IsValid",
+     "named": true,
      "typed": false,
      "own": true,
-     "comment": "slot 14, 005D9480"
+     "comment": "slot 14, 005D9480 - CCommand's slot, named by BiceLib, typed from the findings",
+     "signature": {
+      "convention": "__thiscall",
+      "return": "bool",
+      "hiddenReturn": false,
+      "params": [
+       {
+        "name": "this",
+        "type": "CCommand*"
+       }
+      ]
+     }
     }
    ]
   },
@@ -351719,11 +351958,22 @@
     {
      "slot": 14,
      "rva": 1977840,
-     "name": "vf_14",
-     "named": false,
+     "name": "IsValid",
+     "named": true,
      "typed": false,
      "own": false,
-     "comment": "slot 14, 005E2DF0"
+     "comment": "slot 14, 005E2DF0 - CCommand's slot, named by BiceLib, typed from the findings",
+     "signature": {
+      "convention": "__thiscall",
+      "return": "bool",
+      "hiddenReturn": false,
+      "params": [
+       {
+        "name": "this",
+        "type": "CCommand*"
+       }
+      ]
+     }
     }
    ]
   },
@@ -355536,11 +355786,22 @@
     {
      "slot": 14,
      "rva": 6341584,
-     "name": "vf_14",
-     "named": false,
+     "name": "IsValid",
+     "named": true,
      "typed": false,
      "own": false,
-     "comment": "slot 14, 00A0C3D0 - a body shared with CommandRefAt3C_IsValid, so not named here"
+     "comment": "slot 14, 00A0C3D0 - CCommand's slot, named by BiceLib, typed from the findings",
+     "signature": {
+      "convention": "__thiscall",
+      "return": "bool",
+      "hiddenReturn": false,
+      "params": [
+       {
+        "name": "this",
+        "type": "CCommand*"
+       }
+      ]
+     }
     }
    ]
   },
@@ -356872,11 +357133,22 @@
     {
      "slot": 14,
      "rva": 1977840,
-     "name": "vf_14",
-     "named": false,
+     "name": "IsValid",
+     "named": true,
      "typed": false,
      "own": false,
-     "comment": "slot 14, 005E2DF0"
+     "comment": "slot 14, 005E2DF0 - CCommand's slot, named by BiceLib, typed from the findings",
+     "signature": {
+      "convention": "__thiscall",
+      "return": "bool",
+      "hiddenReturn": false,
+      "params": [
+       {
+        "name": "this",
+        "type": "CCommand*"
+       }
+      ]
+     }
     }
    ]
   },
@@ -357562,11 +357834,22 @@
     {
      "slot": 14,
      "rva": 1388736,
-     "name": "vf_14",
-     "named": false,
+     "name": "IsValid",
+     "named": true,
      "typed": false,
      "own": false,
-     "comment": "slot 14, 005530C0"
+     "comment": "slot 14, 005530C0 - CCommand's slot, named by BiceLib, typed from the findings",
+     "signature": {
+      "convention": "__thiscall",
+      "return": "bool",
+      "hiddenReturn": false,
+      "params": [
+       {
+        "name": "this",
+        "type": "CCommand*"
+       }
+      ]
+     }
     }
    ]
   },
@@ -357716,11 +357999,22 @@
     {
      "slot": 14,
      "rva": 1388736,
-     "name": "vf_14",
-     "named": false,
+     "name": "IsValid",
+     "named": true,
      "typed": false,
      "own": false,
-     "comment": "slot 14, 005530C0"
+     "comment": "slot 14, 005530C0 - CCommand's slot, named by BiceLib, typed from the findings",
+     "signature": {
+      "convention": "__thiscall",
+      "return": "bool",
+      "hiddenReturn": false,
+      "params": [
+       {
+        "name": "this",
+        "type": "CCommand*"
+       }
+      ]
+     }
     }
    ]
   },
@@ -357870,11 +358164,22 @@
     {
      "slot": 14,
      "rva": 1388736,
-     "name": "vf_14",
-     "named": false,
+     "name": "IsValid",
+     "named": true,
      "typed": false,
      "own": false,
-     "comment": "slot 14, 005530C0"
+     "comment": "slot 14, 005530C0 - CCommand's slot, named by BiceLib, typed from the findings",
+     "signature": {
+      "convention": "__thiscall",
+      "return": "bool",
+      "hiddenReturn": false,
+      "params": [
+       {
+        "name": "this",
+        "type": "CCommand*"
+       }
+      ]
+     }
     }
    ]
   },
@@ -370913,11 +371218,22 @@
     {
      "slot": 14,
      "rva": 1385600,
-     "name": "vf_14",
-     "named": false,
+     "name": "IsValid",
+     "named": true,
      "typed": false,
      "own": true,
-     "comment": "slot 14, 00552480"
+     "comment": "slot 14, 00552480 - CCommand's slot, named by BiceLib, typed from the findings",
+     "signature": {
+      "convention": "__thiscall",
+      "return": "bool",
+      "hiddenReturn": false,
+      "params": [
+       {
+        "name": "this",
+        "type": "CCommand*"
+       }
+      ]
+     }
     }
    ]
   },
@@ -374420,11 +374736,22 @@
     {
      "slot": 14,
      "rva": 6341584,
-     "name": "vf_14",
-     "named": false,
+     "name": "IsValid",
+     "named": true,
      "typed": false,
      "own": false,
-     "comment": "slot 14, 00A0C3D0 - a body shared with CommandRefAt3C_IsValid, so not named here"
+     "comment": "slot 14, 00A0C3D0 - CCommand's slot, named by BiceLib, typed from the findings",
+     "signature": {
+      "convention": "__thiscall",
+      "return": "bool",
+      "hiddenReturn": false,
+      "params": [
+       {
+        "name": "this",
+        "type": "CCommand*"
+       }
+      ]
+     }
     }
    ]
   },

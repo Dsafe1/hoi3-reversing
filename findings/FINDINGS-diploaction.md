@@ -412,6 +412,9 @@ the score is asked on the *proposer's* side, before the command is posted. See b
 `0xE39C0`, `0x282B14`, `0x60E300`, `0x60E3F0`, `0x60E250`, `0x60E480`, `0x60E9A0`, `0x61BC50`,
 `0x60EB90`, `0x60FE10`, `0x62AC70`, `0x6278C0`, `0x6352F0`, `0x62B090`, `0x6435F0`.
 
+`0x60E3F0` is read since 2026-11-20: `CDiplomaticActionCommand::IsValid`, the command's slot 14, which the channel's post
+asks and which throws away a proposal while the actor's diplomat is on his way (`FINDINGS-liveread.md`, section 151).
+
 ---
 
 ## Transcription note

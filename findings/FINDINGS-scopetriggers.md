@@ -32,7 +32,11 @@ Where a VA appears it is written as one and said to be one.
 4. The append is gated on **`CDiplomacyStatus +0x14`**, which
    `CDiplomacyStatus::HasAlliance` (VA `0x494660`) tests with
    `cmp dword [ecx+0x14], 0; setne al; ret` - and which the event language's own
-   `alliance_with` trigger evaluates (§4 below).
+   `alliance_with` trigger evaluates (§4 below). **That is the first pass only** (added
+   2026-11-20): a second pass at VA `0x4E356C`-`0x4E360B` then appends every other member of
+   the country's faction not already on the list, bumping `+0x1064` the same way, so the
+   allies - and every reader below - are the alliances and then the faction
+   (`FINDINGS-liveread.md`, section 151).
 5. The script keyword **`num_of_allies`** (`CNumOfAlliesTrigger::Evaluate`, rva
    `0x5D8FD0`) is `countries[scope->country_id]->+0x1064 >= this->+0x40`. The counter the
    `+0xF88` append bumps is the one the language calls the number of allies.

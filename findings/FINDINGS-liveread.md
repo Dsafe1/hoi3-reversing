@@ -1464,6 +1464,10 @@ Done on 2026-11-19, for the first land order of `wr14` left after section 143: a
 
 ## 145. The Lua's GetAllies is the alliances alone: Germany's foreign minister calls nobody (confirmed, a recording)
 
+**Corrected 2026-11-20 by section 151: the list is the alliances and then the faction's members, and Germany's call to
+Italy is made and thrown away at its post, a diplomat being on his way.** What this section saw - the draws, Italy never
+called in the recording - stands; why does not.
+
 Done on 2026-11-19, on the recording `wr20` (48 hours from `Ireland1941_07_16_07`, every probe), whose land orders OpenHOI3 gave 476 of 523 with 59 of its own: from 16:00 on 17 July its Italy answered a call to arms from Germany into the war on Mongolia and Tannu Tuva, which the original's never answers - no Italian draw at all, and Italy on neither side of that war to the recording's end.
 
 **The draws.** Germany's foreign minister runs at 15:00 and draws seven Lua values in both games: 11538, 1869, 19912, 25667, 26299, 17035, 9894. The original's seven are a decision's score - `independent_croatia` is open to Germany (OpenHOI3 finds its `potential` and `allow` holding, and the count says the original does too), and Their Finest Hour's `ForeignMinister_EvaluateDecision` draws `math.random(100)` before Germany's own answer - then the six rolls of `ForeignMinister_Tick`. Any other order leaves a value over: military access, the roll after the call's, draws nothing. So the call's roll is 1869 (`floor(1869 / 32767 x 6) + 1` = 1) in the original as in OpenHOI3, and `ForeignMinister_CallAlly` runs in both.
@@ -1554,3 +1558,51 @@ port, and the history's dated lines are applied by another path, not read.
 **OpenHOI3**, given both - the history's naval base refused where there is no port, and the base check as a fleet block
 closes - has Britain's stockpile the original's at day 2's head to the thousandth and the save's at the end to 0.065;
 the start's supply stockpiles 54 of 79 (44), fuel 70 (69), brigades' strength 10,918 of 10,918 (10,916).
+
+## 151. A proposal is thrown away at its post while a diplomat is on his way, and the allies are the faction's too (confirmed, the listing and the running game)
+
+Done on 2026-11-20, to settle section 145, whose reason - Germany's list of allies holding no faction member - the listing
+contradicts. **This corrects section 145.**
+
+**The list of allies is the alliances and then the faction.** `CCountry::RebuildNeighbours`' second pass (VA
+`0x4E356C`-`0x4E360B`) walks the country's faction (`+0xD8` -> `+0x28`) and appends every member that is not the country and
+not already on `+0xF88`, bumping `+0x1064` with each - no other test. `GetAllies` (`+0xF88`), `GetNumOfAllies` and
+`num_of_allies` (`+0x1064`) and the `ally` scope read those two, so all four count a faction member
+(`FINDINGS-scopetriggers.md`, section 1, which read the first pass). Live, on `Ireland1941_07_16_07`, Germany's foreign
+minister at 15:00 on 17 July reached `CCallAllyAction::IsSelectable` (rva `0x62A4E0`) for Italy against Mongolia and
+against Tannu Tuva - Italy is no ally of Germany's but by the Axis.
+
+**`IsSelectable` passes it.** Read whole again on the listing (VA `0xA2A4E0`-`0xA2A7DA`): its tests are the record's and
+nothing more, and on the save's state each holds - the war limited (`limited=yes`), Germany its first attacker, its
+influence 46.6, Italy in no NAP with the Soviet Union, Mongolia or Tannu Tuva (its one NAP is Vichy France's). Italy has no
+`DiploScore_CallAlly` of its own, so its answer would be 100: accepted on any roll. Yet in none of the four recordings
+`wr19` to `wr22` is Italy in the war at its 48th hour, though `wr20`'s draws put Germany's call roll at hour 32 (1869, then
+fifty lines on the other threads where `ForeignMinister_CallAlly` runs - the hour-8 roll, 6334, has four).
+
+**The post's test.** `LoopbackCommandChannel::Post` asks the command's slot 14 at `0xB3C0D7` and deletes a command that
+fails it (`FINDINGS-commands.md`). For a diplomatic action that slot is `CDiplomaticActionCommand::IsValid` (rva
+`0x60E3F0`, unread until now): the action's own IsValid, then, **for a PROPOSE whose slot 21 holds, false while
+`CCountry::HasDiplomatEnroute(actor, recipient)`**. Slot 21 is `ReturnTrue` in every action class but three (trade and
+expedition: `value`; offering lend-lease: `COfferLendLeaseAction::GreyedWhileDiplomatEnroute`) - the same slot the
+diplomacy screen greys a row by (`CDiplomaticActionItem::RefreshEnabled`). Germany's status towards Italy holds
+`last_send_diplomat="1941.7.21.0"` in the save and in every recording's saves, an earlier offer's diplomat due in Rome at
+midnight on 21 July. A call to arms never stamps a diplomat itself (`CDiplomaticActionCommand::Execute` passes over the
+`callaction` token), but it waits for one: Germany's call of 17 July is made, passes Lua's `IsSelectable` - which reaches
+only the action's slot 14 - and is thrown away at the post.
+
+**The control, which is partly inference.** In a run of the same save left going, a counting watch on
+`CCallAllyAction::IsSelectable`, `Apply` (rva `0x627BA0`) and `GetAIAcceptance` (rva `0x62AC80`) counted, between 60808002
+and 60808045 - across Germany's 15:00 on 22 July, after the diplomat's day - two IsSelectable, two Apply and one
+acceptance, which is a call against two enemies of one war, its proposal and its answer; the parties were not logged, so
+that this was Germany's to Italy is `inferred`. What is `confirmed` is the outcome: in another run of the save, left going
+past 21 July, Italy was found at war with the Soviet Union, Mongolia and Tannu Tuva in Germany's war, and calling its
+puppet Ethiopia in against them at 60808245 (IsSelectable answered 1, Ethiopia's acceptance, then Apply with type 2).
+
+**The probe.** The handlers of `CCallAllyAction`'s three slots, which run on the AI's worker threads, logged nothing until
+each called `debug_getContext()` first and kept its lines in memory: without it the registers are not the hit thread's,
+and the handler's error was swallowed by its own `pcall`. `probes/hoidraws.lua` does the same for `ProcessAI`.
+
+**OpenHOI3** (`docs/mechanics/agreements.md`, section 1): `GetAllies`, `GetNumOfAllies`, the `ally` scope and
+`num_of_allies` read the alliances and then the faction again, and a command's post asks `CCommand.MayPost`, which a
+proposal of an offer that waits for a diplomat answers false while one is on his way. The seven recordings `wr11`,
+`wr14`, `wr15` and `wr19` to `wr22` play back as before, `wr20` 523 of 523 land orders and `wr22` 468 of 468.
